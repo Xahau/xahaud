@@ -367,90 +367,110 @@ const uint8_t max_emit = 255;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
 
+#define I32 0x7FU
+#define I64 0x7EU
+
+#define HOOK_WRAP_PARAMS(...) __VA_ARGS__
+#define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE) \
+    {                                                                 \
+        #FUNCTION_NAME,                                               \
+        {                                                             \
+            RETURN_TYPE, HOOK_WRAP_PARAMS PARAMS_TUPLE                \
+        }                                                             \
+    }
+
+using APIWhitelist = std::map<std::string, std::vector<uint8_t>>;
+
 // RH NOTE: Find descriptions of api functions in ./impl/applyHook.cpp and
 // hookapi.h (include for hooks) this is a map of the api name to its return
 // code (vec[0] and its parameters vec[>0]) as wasm type codes
-static const std::map<std::string, std::vector<uint8_t>> import_whitelist{
-    {"_g", {0x7FU, 0x7FU, 0x7FU}},
-    {"accept", {0x7EU, 0x7FU, 0x7FU, 0x7EU}},
-    {"rollback", {0x7EU, 0x7FU, 0x7FU, 0x7EU}},
-    {"util_raddr", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"util_accid", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"util_verify", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"util_sha512h", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"util_keylet",
-     {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"sto_validate", {0x7EU, 0x7FU, 0x7FU}},
-    {"sto_subfield", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"sto_subarray", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"sto_emplace", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"sto_erase", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"etxn_burden", {0x7EU}},
-    {"etxn_details", {0x7EU, 0x7FU, 0x7FU}},
-    {"etxn_fee_base", {0x7EU, 0x7FU, 0x7FU}},
-    {"etxn_reserve", {0x7EU, 0x7FU}},
-    {"etxn_generation", {0x7EU}},
-    {"etxn_nonce", {0x7EU, 0x7FU, 0x7FU}},
-    {"emit", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"float_set", {0x7EU, 0x7FU, 0x7EU}},
-    {"float_multiply", {0x7EU, 0x7EU, 0x7EU}},
-    {"float_mulratio", {0x7EU, 0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"float_negate", {0x7EU, 0x7EU}},
-    {"float_compare", {0x7EU, 0x7EU, 0x7EU, 0x7FU}},
-    {"float_sum", {0x7EU, 0x7EU, 0x7EU}},
-    {"float_sto",
-     {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7EU, 0x7FU}},
-    {"float_sto_set", {0x7EU, 0x7FU, 0x7FU}},
-    {"float_invert", {0x7EU, 0x7EU}},
-    {"float_divide", {0x7EU, 0x7EU, 0x7EU}},
-    {"float_one", {0x7EU}},
-    {"float_mantissa", {0x7EU, 0x7EU}},
-    {"float_sign", {0x7EU, 0x7EU}},
-    {"float_int", {0x7EU, 0x7EU, 0x7FU, 0x7FU}},
-    {"float_log", {0x7EU, 0x7EU}},
-    {"float_root", {0x7EU, 0x7EU, 0x7FU}},
-    {"fee_base", {0x7EU}},
-    {"ledger_seq", {0x7EU}},
-    {"ledger_last_time", {0x7EU}},
-    {"ledger_last_hash", {0x7EU, 0x7FU, 0x7FU}},
-    {"ledger_nonce", {0x7EU, 0x7FU, 0x7FU}},
-    {"ledger_keylet", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"hook_account", {0x7EU, 0x7FU, 0x7FU}},
-    {"hook_hash", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"hook_param_set", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"hook_param", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"hook_again", {0x7EU}},
-    {"hook_skip", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"hook_pos", {0x7EU}},
-    {"slot", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"slot_clear", {0x7EU, 0x7FU}},
-    {"slot_count", {0x7EU, 0x7FU}},
-    {"slot_set", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"slot_size", {0x7EU, 0x7FU}},
-    {"slot_subarray", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"slot_subfield", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"slot_type", {0x7EU, 0x7FU, 0x7FU}},
-    {"slot_float", {0x7EU, 0x7FU}},
-    {"state_set", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"state_foreign_set",
-     {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"state", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"state_foreign",
-     {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"trace", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"trace_num", {0x7EU, 0x7FU, 0x7FU, 0x7EU}},
-    {"trace_float", {0x7EU, 0x7FU, 0x7FU, 0x7EU}},
-    {"otxn_burden", {0x7EU}},
-    {"otxn_field", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"otxn_generation", {0x7EU}},
-    {"otxn_id", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"otxn_type", {0x7EU}},
-    {"otxn_slot", {0x7EU, 0x7FU}},
-    {"otxn_param", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"meta_slot", {0x7EU, 0x7FU}}};
+static const APIWhitelist import_whitelist{
+    // clang-format off
+    HOOK_API_DEFINITION(I32, _g, (I32, I32)),
+    HOOK_API_DEFINITION(I64, accept, (I32, I32, I64)),
+    HOOK_API_DEFINITION(I64, rollback, (I32, I32, I64)),
+    HOOK_API_DEFINITION(I64, util_raddr, (I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, util_accid, (I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, util_verify, (I32, I32, I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, util_sha512h, (I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, util_keylet, (I32, I32, I32, I32, I32, I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, sto_validate, (I32, I32)),
+    HOOK_API_DEFINITION(I64, sto_subfield, (I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, sto_subarray, (I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, sto_emplace, (I32, I32, I32, I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, sto_erase, (I32, I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, etxn_burden, ()),
+    HOOK_API_DEFINITION(I64, etxn_details, (I32, I32)),
+    HOOK_API_DEFINITION(I64, etxn_fee_base, (I32, I32)),
+    HOOK_API_DEFINITION(I64, etxn_reserve, (I32)),
+    HOOK_API_DEFINITION(I64, etxn_generation, ()),
+    HOOK_API_DEFINITION(I64, etxn_nonce, (I32, I32)),
+    HOOK_API_DEFINITION(I64, emit, (I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, float_set, (I32, I64)),
+    HOOK_API_DEFINITION(I64, float_multiply, (I64, I64)),
+    HOOK_API_DEFINITION(I64, float_mulratio, (I64, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, float_negate, (I64)),
+    HOOK_API_DEFINITION(I64, float_compare, (I64, I64, I32)),
+    HOOK_API_DEFINITION(I64, float_sum, (I64, I64)),
+    HOOK_API_DEFINITION(I64, float_sto, (I32, I32, I32, I32, I32, I32, I64, I32)),
+    HOOK_API_DEFINITION(I64, float_sto_set, (I32, I32)),
+    HOOK_API_DEFINITION(I64, float_invert, (I64)),
+    HOOK_API_DEFINITION(I64, float_divide, (I64, I64)),
+    HOOK_API_DEFINITION(I64, float_one, ()),
+    HOOK_API_DEFINITION(I64, float_mantissa, (I64)),
+    HOOK_API_DEFINITION(I64, float_sign, (I64)),
+    HOOK_API_DEFINITION(I64, float_int, (I64, I32, I32)),
+    HOOK_API_DEFINITION(I64, float_log, (I64)),
+    HOOK_API_DEFINITION(I64, float_root, (I64, I32)),
+    HOOK_API_DEFINITION(I64, fee_base, ()),
+    HOOK_API_DEFINITION(I64, ledger_seq, ()),
+    HOOK_API_DEFINITION(I64, ledger_last_time, ()),
+    HOOK_API_DEFINITION(I64, ledger_last_hash, (I32, I32)),
+    HOOK_API_DEFINITION(I64, ledger_nonce, (I32, I32)),
+    HOOK_API_DEFINITION(I64, ledger_keylet, (I32, I32, I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, hook_account, (I32, I32)),
+    HOOK_API_DEFINITION(I64, hook_hash, (I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, hook_param_set, (I32, I32, I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, hook_param, (I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, hook_again, ()),
+    HOOK_API_DEFINITION(I64, hook_skip, (I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, hook_pos, ()),
+    HOOK_API_DEFINITION(I64, slot, (I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, slot_clear, (I32)),
+    HOOK_API_DEFINITION(I64, slot_count, (I32)),
+    HOOK_API_DEFINITION(I64, slot_set, (I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, slot_size, (I32)),
+    HOOK_API_DEFINITION(I64, slot_subarray, (I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, slot_subfield, (I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, slot_type, (I32, I32)),
+    HOOK_API_DEFINITION(I64, slot_float, (I32)),
+    HOOK_API_DEFINITION(I64, state_set, (I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, state_foreign_set, (I32, I32, I32, I32, I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, state, (I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, state_foreign, (I32, I32, I32, I32, I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, trace, (I32, I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, trace_num, (I32, I32, I64)),
+    HOOK_API_DEFINITION(I64, trace_float, (I32, I32, I64)),
+    HOOK_API_DEFINITION(I64, otxn_burden, ()),
+    HOOK_API_DEFINITION(I64, otxn_field, (I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, otxn_generation, ()),
+    HOOK_API_DEFINITION(I64, otxn_id, (I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, otxn_type, ()),
+    HOOK_API_DEFINITION(I64, otxn_slot, (I32)),
+    HOOK_API_DEFINITION(I64, otxn_param, (I32, I32, I32, I32)),
+    HOOK_API_DEFINITION(I64, meta_slot, (I32)),
+    // clang-format on
+};
 
 // featureHooks1
-static const std::map<std::string, std::vector<uint8_t>> import_whitelist_1{
-    {"xpop_slot", {0x7EU, 0x7FU, 0x7FU}}};
+static const APIWhitelist import_whitelist_1{
+    // clang-format off
+    HOOK_API_DEFINITION(I64, xpop_slot, (I32, I32)),
+    // clang-format on
+};
+
+#undef HOOK_API_DEFINITION
+#undef I32
+#undef I64
 };  // namespace hook_api
 #endif

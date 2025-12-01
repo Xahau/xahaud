@@ -315,7 +315,8 @@ public:
 
         using namespace std::chrono_literals;
         using namespace jtx;
-        Env env(*this);
+        Env env(
+            *this, supported_amendments() - featureXahauGenesis - featureTouch);
         auto wsc = makeWSClient(env.app().config());
         Json::Value stream{Json::objectValue};
 
@@ -342,15 +343,15 @@ public:
 
             // Check stream update for payment transaction
             BEAST_EXPECT(wsc->findMsg(5s, [&](auto const& jv) {
-                return jv[jss::meta]["AffectedNodes"][2u]["CreatedNode"]
+                return jv[jss::meta]["AffectedNodes"][1u]["CreatedNode"]
                          ["NewFields"][jss::Account]  //
                     == Account("alice").human() &&
                     jv[jss::close_time_iso]  //
                     == "2000-01-01T00:00:10Z" &&
                     jv[jss::validated] == true &&  //
                     jv[jss::ledger_hash] ==
-                    "3BD88B8E93BED46C0B1ACB2C46687DE29F19F9BB82DE6C3D8CC491D6AE"
-                    "DEE517" &&  //
+                    "0F1A9E0C109ADEF6DA2BDE19217C12BBEC57174CBDBD212B0EBDC1CEDB"
+                    "853185" &&  //
                     !jv[jss::inLedger] &&
                     jv[jss::ledger_index] == 3 &&           //
                     jv[jss::tx_json][jss::TransactionType]  //

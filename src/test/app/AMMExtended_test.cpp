@@ -1478,7 +1478,6 @@ private:
         auto const AUD = gw["AUD"];
         env.fund(XRP(10'000), alice, bob, carol, gw);
         env(rate(gw, 1.1));
-        env.close();
         env.trust(AUD(2'000), bob, carol);
         env(pay(gw, carol, AUD(51)));
         env.close();
@@ -1888,7 +1887,7 @@ private:
 
         {
             // simple IOU/IOU offer
-            Env env(*this, features);
+            Env env(*this, features - featureXahauGenesis - featureTouch);
 
             fund(
                 env,
@@ -1899,7 +1898,6 @@ private:
                 Fund::All);
 
             AMM ammBob(env, bob, BTC(100), USD(150));
-            env.close();
 
             env(pay(alice, carol, USD(50)), path(~USD), sendmax(BTC(50)));
 
@@ -1987,11 +1985,10 @@ private:
         }
         {
             // test unfunded offers are removed when payment succeeds
-            Env env(*this, features);
+            Env env(*this, features - featureXahauGenesis - featureTouch);
 
             env.fund(XRP(10'000), alice, carol, gw);
             env.fund(XRP(10'000), bob);
-            env.close();
             env.trust(USD(1'000), alice, bob, carol);
             env.trust(BTC(1'000), alice, bob, carol);
             env.trust(EUR(1'000), alice, bob, carol);
@@ -2374,7 +2371,7 @@ private:
 
         {
             // payment via AMM
-            Env env(*this, features);
+            Env env(*this, features - featureXahauGenesis - featureTouch);
 
             fund(
                 env,
@@ -2400,7 +2397,6 @@ private:
                 GBP(1'120),
                 STAmount{USD, UINT64_C(892'8571428571429), -13},
                 amm.tokens()));
-
             // 25% of 85.7142USD is paid in tr fee
             // 85.7142*1.25 = 107.1428USD
             BEAST_EXPECT(expectLine(
@@ -3208,7 +3204,7 @@ private:
         testcase("RippleState Freeze");
 
         using namespace test::jtx;
-        Env env(*this, features);
+        Env env(*this, features - featureXahauGenesis - featureTouch);
 
         Account const G1{"G1"};
         Account const alice{"alice"};
@@ -3262,8 +3258,7 @@ private:
             env(trust(G1, bob["USD"](0), tfSetFreeze));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(
-                    affected, 2u + 1u)))  // 2u + 1u(Issuer Account as Touch)
+            if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
                 return;
             auto ff =
                 affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
@@ -3281,11 +3276,10 @@ private:
             env(offer(bob, G1["USD"](5), XRP(25)));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(
-                    affected, 4u + 1u)))  // 4u + 1u(Issuer Account as Touch)
+            if (!BEAST_EXPECT(checkArraySize(affected, 4u)))
                 return;
             auto ff =
-                affected[3u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
+                affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
             BEAST_EXPECT(
                 ff[sfHighLimit.fieldName] ==
                 bob["USD"](100).value().getJson(JsonOptions::none));
@@ -3352,8 +3346,7 @@ private:
             env(trust(G1, bob["USD"](0), tfClearFreeze));
             auto affected = env.meta()->getJson(
                 JsonOptions::none)[sfAffectedNodes.fieldName];
-            if (!BEAST_EXPECT(checkArraySize(
-                    affected, 2u + 1u)))  // 2u + 1u(Issuer Account as Touch)
+            if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
                 return;
             auto ff =
                 affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
@@ -3510,7 +3503,7 @@ private:
         testcase("Offers for Frozen Trust Lines");
 
         using namespace test::jtx;
-        Env env(*this, features);
+        Env env(*this, features - featureXahauGenesis - featureTouch);
 
         Account G1{"G1"};
         Account A2{"A2"};
@@ -3555,11 +3548,10 @@ private:
         BEAST_EXPECT(info[jss::amm][jss::asset2_frozen].asBool());
         auto affected =
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
-        if (!BEAST_EXPECT(checkArraySize(
-                affected, 2u + 1u)))  // 2u + 1u(Issuer Account as Touch)
+        if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
             return;
         auto ff =
-            affected[0u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
+            affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
         BEAST_EXPECT(
             ff[sfHighLimit.fieldName] ==
             G1["USD"](0).value().getJson(JsonOptions::none));
@@ -3579,10 +3571,9 @@ private:
         env(trust(G1, A4["USD"](0), tfSetFreeze));
         affected =
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
-        if (!BEAST_EXPECT(checkArraySize(
-                affected, 2u + 1u)))  // 2u + 1u(Issuer Account as Touch)
+        if (!BEAST_EXPECT(checkArraySize(affected, 2u)))
             return;
-        ff = affected[1u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
+        ff = affected[0u][sfModifiedNode.fieldName][sfFinalFields.fieldName];
         BEAST_EXPECT(
             ff[sfLowLimit.fieldName] ==
             G1["USD"](0).value().getJson(JsonOptions::none));
@@ -3596,7 +3587,7 @@ private:
             env.meta()->getJson(JsonOptions::none)[sfAffectedNodes.fieldName];
         if (!BEAST_EXPECT(checkArraySize(affected, 8u)))
             return;
-        auto created = affected[5u][sfCreatedNode.fieldName];
+        auto created = affected[0u][sfCreatedNode.fieldName];
         BEAST_EXPECT(
             created[sfNewFields.fieldName][jss::Account] == A2.human());
         env.close();
@@ -3778,10 +3769,9 @@ private:
         auto const CNY = gw["CNY"];
 
         {
-            Env env(*this, features);
+            Env env(*this, features - featureXahauGenesis - featureTouch);
 
             env.fund(XRP(10'000), alice, bob, carol, gw);
-            env.close();
             env.trust(USD(10'000), alice, bob, carol);
 
             env(pay(gw, bob, USD(100)));

@@ -150,7 +150,11 @@ class TransactionEntry_test : public beast::unit_test::suite
     {
         testcase("Basic request API version " + std::to_string(apiVersion));
         using namespace test::jtx;
-        Env env{*this, supported_amendments() - featureXahauGenesis};
+        Env env{
+            *this,
+            supported_amendments() - featureXahauGenesis - featureTouch -
+                fixHookAPI20251128,
+        };
 
         auto check_tx = [this, &env, apiVersion](
                             int index,
@@ -279,7 +283,7 @@ class TransactionEntry_test : public beast::unit_test::suite
             "TransactionType" : "AccountSet",
             "TxnSignature" : "3044022007B35E3B99460534FF6BC3A66FBBA03591C355CC38E38588968E87CCD01BE229022071A443026DE45041B55ABB1CC76812A87EA701E475BBB7E165513B4B242D3474",
 })",
-            "5E8D88365131CA2EA3E0ADAFFB4A927D16B3820744D60B1303A6D9398358693D",
+            "ADB727BCC74B29421BB01B847740B179B8A0ED3248D76A89ED2E39B02C427784",
             "2000-01-01T00:00:10Z");
         check_tx(
             env.closed()->seq(),
@@ -293,7 +297,7 @@ class TransactionEntry_test : public beast::unit_test::suite
             "TransactionType" : "AccountSet",
             "TxnSignature" : "3045022100C8857FC0759A2AC0D2F320684691A66EAD252EAED9EF88C79791BC58BFCC9D860220421722286487DD0ED6BBA626CE6FCBDD14289F7F4726870C3465A4054C2702D7",
 })",
-            "5E8D88365131CA2EA3E0ADAFFB4A927D16B3820744D60B1303A6D9398358693D",
+            "ADB727BCC74B29421BB01B847740B179B8A0ED3248D76A89ED2E39B02C427784",
             "2000-01-01T00:00:10Z");
 
         env.trust(A2["USD"](1000), A1);
@@ -328,7 +332,7 @@ class TransactionEntry_test : public beast::unit_test::suite
             "TransactionType" : "Payment",
             "TxnSignature" : "3044022033D9EBF7F02950AF2F6B13C07AEE641C8FEBDD540A338FCB9027A965A4AED35B02206E4E227DCC226A3456C0FEF953449D21645A24EB63CA0BB7C5B62470147FD1D1",
 })",
-            "41DB005149858C9BE599AE98FE1DF5BD4E9E0265B53DD4792532E9296A0773B6",
+            "3A6E375BFDFF029A571AFBB3BC46C4F52963FAF043B406D0E59A7194C1A8F98E",
             "2000-01-01T00:00:20Z");
 
         check_tx(
@@ -350,7 +354,7 @@ class TransactionEntry_test : public beast::unit_test::suite
             "TransactionType" : "Payment",
             "TxnSignature" : "30450221008A722B7F16EDB2348886E88ED4EC682AE9973CC1EE0FF37C93BB2CEC821D3EDF022059E464472031BA5E0D88A93E944B6A8B8DB3E1D5E5D1399A805F615789DB0BED",
 })",
-            "41DB005149858C9BE599AE98FE1DF5BD4E9E0265B53DD4792532E9296A0773B6",
+            "3A6E375BFDFF029A571AFBB3BC46C4F52963FAF043B406D0E59A7194C1A8F98E",
             "2000-01-01T00:00:20Z");
 
         env(offer(A2, XRP(100), A2["USD"](1)));
@@ -379,7 +383,7 @@ class TransactionEntry_test : public beast::unit_test::suite
             "TransactionType" : "OfferCreate",
             "TxnSignature" : "304502210093FC93ACB77B4E3DE3315441BD010096734859080C1797AB735EB47EBD541BD102205020BB1A7C3B4141279EE4C287C13671E2450EA78914EFD0C6DB2A18344CD4F2",
 })",
-            "87622B7BC61E8CD01E7C5FC5198CA5A255F8468983CE1E19245FEE3068D97968",
+            "73D6C8E66E0DC22F3E6F7D39BF795A6831BEB412823A986C7CC19470C93557C0",
             "2000-01-01T00:00:30Z");
     }
 
