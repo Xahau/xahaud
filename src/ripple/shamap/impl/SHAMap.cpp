@@ -194,7 +194,11 @@ SHAMap::finishFetch(
             {
                 using namespace std::chrono;
                 constexpr auto pollInterval = 50ms;
-                constexpr auto timeout = 30s;
+                constexpr auto defaultTimeout = 30s;
+                // Use coroutine-local timeout if set, otherwise default
+                auto coroTimeout = getCoroFetchTimeout();
+                auto timeout =
+                    coroTimeout.count() > 0 ? coroTimeout : defaultTimeout;
                 auto const deadline = steady_clock::now() + timeout;
 
                 // Linear backoff for re-requests: 50ms, 100ms, 150ms... up to

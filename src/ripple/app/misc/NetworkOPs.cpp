@@ -216,6 +216,9 @@ public:
         bool bLocal,
         FailHard failType) override;
 
+    std::optional<uint256>
+    broadcastRawTransaction(Blob const& txBlob) override;
+
     /**
      * For transactions submitted directly by a client, apply batch of
      * transactions and wait for this transaction to complete.
@@ -1195,6 +1198,43 @@ NetworkOPsImp::processTransaction(
         doTransactionAsync(transaction, bUnlimited, failType);
 }
 
+std::optional<uint256>
+NetworkOPsImp::broadcastRawTransaction(Blob const& txBlob)
+{
+    // Parse the transaction blob to get the hash
+    std::shared_ptr<STTx const> stx;
+    try
+    {
+        SerialIter sit(makeSlice(txBlob));
+        stx = std::make_shared<STTx const>(std::ref(sit));
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(m_journal.warn())
+            << "broadcastRawTransaction: Failed to parse tx blob: " << e.what();
+        return std::nullopt;
+    }
+
+    uint256 txHash = stx->getTransactionID();
+
+    // Broadcast to all peers without local validation
+    protocol::TMTransaction msg;
+    Serializer s;
+    stx->add(s);
+    msg.set_rawtransaction(s.data(), s.size());
+    msg.set_status(protocol::tsCURRENT);
+    msg.set_receivetimestamp(
+        app_.timeKeeper().now().time_since_epoch().count());
+
+    app_.overlay().foreach(
+        send_always(std::make_shared<Message>(msg, protocol::mtTRANSACTION)));
+
+    JLOG(m_journal.info()) << "broadcastRawTransaction: Broadcast tx "
+                           << txHash;
+
+    return txHash;
+}
+
 void
 NetworkOPsImp::doTransactionAsync(
     std::shared_ptr<Transaction> transaction,
@@ -1461,6 +1501,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 bool const isEmitted =
                     hook::isEmittedTxn(*(e.transaction->getSTransaction()));
 
+                //@@start tx-relay
                 if (toSkip && !isEmitted)
                 {
                     protocol::TMTransaction tx;
@@ -1476,6 +1517,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     app_.overlay().relay(e.transaction->getID(), tx, *toSkip);
                     e.transaction->setBroadcast();
                 }
+                //@@end tx-relay
             }
 
             if (validatedLedgerIndex)

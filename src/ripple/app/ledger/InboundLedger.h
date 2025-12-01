@@ -120,6 +120,12 @@ public:
     void
     addPriorityHash(uint256 const& hash);
 
+    /** Check if a transaction hash has been seen in this ledger's txMap.
+        Used by submit_and_wait to find transactions in partial ledgers.
+    */
+    bool
+    hasTx(uint256 const& txHash) const;
+
     void
     touch()
     {
@@ -203,6 +209,10 @@ private:
 
     // Priority nodes to fetch immediately (for partial sync queries)
     std::set<uint256> priorityHashes_;
+
+    // Transaction hashes seen in incoming txMap leaf nodes (for
+    // submit_and_wait)
+    std::set<uint256> knownTxHashes_;
 
     SHAMapAddNode mStats;
 

@@ -21,6 +21,7 @@
 #define RIPPLE_BASICS_LOCALVALUE_H_INCLUDED
 
 #include <boost/thread/tss.hpp>
+#include <chrono>
 #include <memory>
 #include <unordered_map>
 
@@ -34,6 +35,11 @@ struct LocalValues
 
     bool onCoro = true;
     void* coroPtr = nullptr;  // Pointer to owning JobQueue::Coro (if any)
+
+    // Configurable timeout for SHAMap node fetching during partial sync.
+    // Zero means use the default (30s). RPC handlers can set this to
+    // customize poll-wait behavior.
+    std::chrono::milliseconds fetchTimeout{0};
 
     struct BasicValue
     {
@@ -137,6 +143,27 @@ getCurrentCoroPtr()
     if (lvs && lvs->onCoro)
         return lvs->coroPtr;
     return nullptr;
+}
+
+// Get the configured fetch timeout for current coroutine context.
+// Returns 0ms if not in a coroutine or no custom timeout set.
+inline std::chrono::milliseconds
+getCoroFetchTimeout()
+{
+    auto lvs = detail::getLocalValues().get();
+    if (lvs && lvs->onCoro)
+        return lvs->fetchTimeout;
+    return std::chrono::milliseconds{0};
+}
+
+// Set the fetch timeout for the current coroutine context.
+// Only works if called from within a coroutine.
+inline void
+setCoroFetchTimeout(std::chrono::milliseconds timeout)
+{
+    auto lvs = detail::getLocalValues().get();
+    if (lvs && lvs->onCoro)
+        lvs->fetchTimeout = timeout;
 }
 
 }  // namespace ripple

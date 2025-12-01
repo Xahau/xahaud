@@ -42,6 +42,7 @@ namespace ripple {
 
 using namespace std::chrono_literals;
 
+//@@start tx-fetch-constants
 enum {
     // Number of peers to start with
     peerCountStart = 5
@@ -70,6 +71,7 @@ enum {
     ,
     reqNodes = 12
 };
+//@@end tx-fetch-constants
 
 // millisecond for each ledger timeout
 auto constexpr ledgerAcquireTimeout = 3000ms;
@@ -197,6 +199,13 @@ InboundLedger::addPriorityHash(uint256 const& hash)
     priorityHashes_.insert(hash);
     JLOG(journal_.debug()) << "Added priority hash " << hash << " for ledger "
                            << hash_;
+}
+
+bool
+InboundLedger::hasTx(uint256 const& txHash) const
+{
+    ScopedLockType sl(mtx_);
+    return knownTxHashes_.count(txHash) > 0;
 }
 
 bool
@@ -1014,6 +1023,27 @@ InboundLedger::receiveNode(protocol::TMLedgerData& packet, SHAMapAddNode& san)
 
             if (!nodeID)
                 throw std::runtime_error("data does not properly deserialize");
+
+            // For TX nodes, extract tx hash from leaf nodes for submit_and_wait
+            if (packet.type() == protocol::liTX_NODE)
+            {
+                auto const& data = node.nodedata();
+                // Leaf nodes have wire type as last byte
+                // Format: [tx+meta data...][32-byte tx hash][1-byte type]
+                if (data.size() >= 33)
+                {
+                    uint8_t wireType =
+                        static_cast<uint8_t>(data[data.size() - 1]);
+                    // wireTypeTransactionWithMeta = 4
+                    if (wireType == 4)
+                    {
+                        uint256 txHash;
+                        std::memcpy(
+                            txHash.data(), data.data() + data.size() - 33, 32);
+                        knownTxHashes_.insert(txHash);
+                    }
+                }
+            }
 
             if (nodeID->isRoot())
             {

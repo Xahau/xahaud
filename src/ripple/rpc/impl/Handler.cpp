@@ -147,6 +147,7 @@ Handler const handlerArray[]{
      byRef(&doSubmitMultiSigned),
      Role::USER,
      NEEDS_CURRENT_LEDGER},
+    {"submit_and_wait", byRef(&doSubmitAndWait), Role::USER, NO_CONDITION},
     {"server_definitions",
      byRef(&doServerDefinitions),
      Role::USER,

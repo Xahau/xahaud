@@ -147,6 +147,8 @@ doSubmit(RPC::JsonContext&);
 Json::Value
 doSubmitMultiSigned(RPC::JsonContext&);
 Json::Value
+doSubmitAndWait(RPC::JsonContext&);
+Json::Value
 doSubscribe(RPC::JsonContext&);
 Json::Value
 doTransactionEntry(RPC::JsonContext&);

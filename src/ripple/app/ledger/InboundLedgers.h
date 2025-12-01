@@ -23,6 +23,7 @@
 #include <ripple/app/ledger/InboundLedger.h>
 #include <ripple/protocol/RippleLedgerHash.h>
 #include <memory>
+#include <optional>
 
 namespace ripple {
 
@@ -63,6 +64,15 @@ public:
     */
     virtual std::shared_ptr<Ledger const>
     getPartialLedger(uint256 const& hash) = 0;
+
+    /** Find which partial ledger contains a transaction.
+        Used by submit_and_wait to locate transactions as they appear
+        in incoming ledgers' txMaps.
+        @param txHash The transaction hash to search for
+        @return The ledger hash if found, nullopt otherwise
+    */
+    virtual std::optional<uint256>
+    findTxLedger(uint256 const& txHash) = 0;
 
     /** Add a priority node hash for immediate fetching.
         Used by partial sync mode to prioritize specific nodes

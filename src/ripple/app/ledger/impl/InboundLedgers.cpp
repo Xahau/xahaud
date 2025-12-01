@@ -202,6 +202,21 @@ public:
         return nullptr;
     }
 
+    std::optional<uint256>
+    findTxLedger(uint256 const& txHash) override
+    {
+        ScopedLockType sl(mLock);
+        for (auto const& [hash, inbound] : mLedgers)
+        {
+            if (inbound->hasHeader() && !inbound->isFailed() &&
+                inbound->hasTx(txHash))
+            {
+                return hash;
+            }
+        }
+        return std::nullopt;
+    }
+
     void
     addPriorityNode(std::uint32_t ledgerSeq, uint256 const& nodeHash) override
     {
