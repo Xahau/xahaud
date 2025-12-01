@@ -101,6 +101,8 @@ InboundLedger::InboundLedger(
     , mPeerSet(std::move(peerSet))
 {
     JLOG(journal_.trace()) << "Acquiring ledger " << hash_;
+    JLOG(app_.journal("TxTrack").warn())
+        << "NEW LEDGER seq=" << seq << " hash=" << hash;
     touch();
 }
 
@@ -736,7 +738,12 @@ InboundLedger::trigger(std::shared_ptr<Peer> const& peer, TriggerReason reason)
 
     // Get the state data first because it's the most likely to be useful
     // if we wind up abandoning this fetch.
-    if (mHaveHeader && !mHaveState && !failed_)
+    // When TX is prioritized for this ledger range, skip state until TX
+    // complete.
+    bool const txPrioritized =
+        mSeq != 0 && app_.getInboundLedgers().isTxPrioritized(mSeq);
+    if (mHaveHeader && !mHaveState && !failed_ &&
+        !(txPrioritized && !mHaveTransactions))
     {
         assert(mLedger);
 
@@ -955,6 +962,9 @@ InboundLedger::takeHeader(std::string const& data)
     mLedger->txMap().setLedgerSeq(mSeq);
     mHaveHeader = true;
 
+    JLOG(app_.journal("TxTrack").warn())
+        << "GOT HEADER seq=" << mSeq << " txHash=" << mLedger->info().txHash;
+
     Serializer s(data.size() + 4);
     s.add32(HashPrefix::ledgerMaster);
     s.addRaw(data.data(), data.size());
@@ -1040,7 +1050,13 @@ InboundLedger::receiveNode(protocol::TMLedgerData& packet, SHAMapAddNode& san)
                         uint256 txHash;
                         std::memcpy(
                             txHash.data(), data.data() + data.size() - 33, 32);
-                        knownTxHashes_.insert(txHash);
+                        auto [it, inserted] = knownTxHashes_.insert(txHash);
+                        if (inserted)
+                        {
+                            JLOG(app_.journal("TxTrack").warn())
+                                << "GOT TX ledger=" << mSeq << " tx=" << txHash
+                                << " count=" << knownTxHashes_.size();
+                        }
                     }
                 }
             }

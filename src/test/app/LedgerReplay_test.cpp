@@ -132,9 +132,26 @@ public:
         return {};
     }
 
+    virtual std::optional<uint256>
+    findTxLedger(uint256 const& txHash) override
+    {
+        return std::nullopt;
+    }
+
     virtual void
     addPriorityNode(std::uint32_t ledgerSeq, uint256 const& nodeHash) override
     {
+    }
+
+    virtual void
+    prioritizeTxForLedgers(std::uint32_t start, std::uint32_t end) override
+    {
+    }
+
+    virtual bool
+    isTxPrioritized(std::uint32_t seq) const override
+    {
+        return false;
     }
 
     virtual bool

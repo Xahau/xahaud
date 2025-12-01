@@ -126,6 +126,14 @@ public:
     bool
     hasTx(uint256 const& txHash) const;
 
+    /** Return the count of known transaction hashes (for debugging). */
+    std::size_t
+    knownTxCount() const
+    {
+        ScopedLockType sl(mtx_);
+        return knownTxHashes_.size();
+    }
+
     void
     touch()
     {

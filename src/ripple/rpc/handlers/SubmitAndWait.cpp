@@ -34,6 +34,11 @@
 
 namespace ripple {
 
+// Custom journal partition for submit_and_wait debugging
+// Configure with [rpc_startup] { "command": "log_level", "partition":
+// "SubmitAndWait", "severity": "debug" }
+#define SWLOG(level) JLOG(context.app.journal("SubmitAndWait").level())
+
 // {
 //   tx_blob: <hex-encoded signed transaction>
 //   timeout: <optional, max wait time in seconds, default 60>
@@ -118,15 +123,32 @@ doSubmitAndWait(RPC::JsonContext& context)
     setCoroFetchTimeout(
         std::chrono::duration_cast<std::chrono::milliseconds>(timeout / 2));
 
-    // Broadcast the transaction
+    SWLOG(warn) << "starting for tx=" << txHash
+                << " lastLedgerSeq=" << (lastLedgerSeq ? *lastLedgerSeq : 0)
+                << " timeout=" << timeout.count() << "s";
+
+    // Poll for the transaction result
+    constexpr auto pollInterval = std::chrono::milliseconds(10);
+    auto const startTime = std::chrono::steady_clock::now();
+
+    // Broadcast IMMEDIATELY - don't wait for anything
+    SWLOG(warn) << "broadcasting tx=" << txHash;
     auto broadcastResult = context.netOps.broadcastRawTransaction(*txBlob);
     if (!broadcastResult)
     {
+        SWLOG(warn) << "broadcast FAILED for tx=" << txHash;
         jvResult[jss::error] = "broadcastFailed";
         jvResult[jss::error_exception] =
             "Failed to parse/broadcast transaction";
         return jvResult;
     }
+    SWLOG(warn) << "broadcast SUCCESS for tx=" << txHash;
+
+    // Prioritize TX fetching for ledgers in our window
+    // This makes TX nodes fetch before state nodes for faster detection
+    auto const startSeq = context.ledgerMaster.getValidLedgerIndex();
+    auto const endSeq = lastLedgerSeq.value_or(startSeq + 20);
+    context.app.getInboundLedgers().prioritizeTxForLedgers(startSeq, endSeq);
 
     jvResult[jss::tx_hash] = to_string(txHash);
     jvResult[jss::broadcast] = true;
@@ -134,10 +156,6 @@ doSubmitAndWait(RPC::JsonContext& context)
     // Track when we find the tx and in which ledger
     std::optional<uint256> foundLedgerHash;
     std::optional<std::uint32_t> foundLedgerSeq;
-
-    // Poll for the transaction result
-    constexpr auto pollInterval = std::chrono::milliseconds(500);
-    auto const startTime = std::chrono::steady_clock::now();
 
     // Helper to check if a ledger is validated (has quorum)
     auto isLedgerValidated = [&](uint256 const& ledgerHash) -> bool {
@@ -152,8 +170,8 @@ doSubmitAndWait(RPC::JsonContext& context)
     };
 
     // Helper to read tx result from a ledger
-    auto readTxResult =
-        [&](std::shared_ptr<Ledger const> const& ledger) -> bool {
+    auto readTxResult = [&](std::shared_ptr<Ledger const> const& ledger,
+                            std::string const& source) -> bool {
         if (!ledger)
             return false;
 
@@ -163,6 +181,7 @@ doSubmitAndWait(RPC::JsonContext& context)
 
         jvResult[jss::status] = "success";
         jvResult[jss::validated] = true;
+        jvResult["found_via"] = source;
         jvResult[jss::tx_json] = sttx->getJson(JsonOptions::none);
         jvResult[jss::metadata] = stobj->getJson(JsonOptions::none);
         jvResult[jss::ledger_hash] = to_string(ledger->info().hash);
@@ -177,7 +196,7 @@ doSubmitAndWait(RPC::JsonContext& context)
             std::string human;
             transResultInfo(result, token, human);
             jvResult[jss::engine_result] = token;
-            jvResult[jss::engine_result_code] = static_cast<int>(result);
+            jvResult[jss::engine_result_code] = TERtoInt(result);
             jvResult[jss::engine_result_message] = human;
         }
 
@@ -194,27 +213,15 @@ doSubmitAndWait(RPC::JsonContext& context)
                 "Transaction not validated within timeout period";
             if (foundLedgerSeq)
             {
-                jvResult[jss::found_in_ledger] = *foundLedgerSeq;
+                jvResult["found_in_ledger"] = *foundLedgerSeq;
                 auto const valCount =
                     context.app.getValidations().numTrustedForLedger(
                         *foundLedgerHash);
                 auto const quorum = context.app.validators().quorum();
-                jvResult[jss::validation_count] =
+                jvResult["validation_count"] =
                     static_cast<unsigned int>(valCount);
-                jvResult[jss::quorum] = static_cast<unsigned int>(quorum);
+                jvResult["quorum"] = static_cast<unsigned int>(quorum);
             }
-            return jvResult;
-        }
-
-        // Check LastLedgerSequence expiry using validated ledger
-        auto const validatedSeq = context.ledgerMaster.getValidLedgerIndex();
-        if (lastLedgerSeq && validatedSeq > *lastLedgerSeq)
-        {
-            jvResult[jss::error] = "transactionExpired";
-            jvResult[jss::error_message] =
-                "LastLedgerSequence exceeded before transaction was validated";
-            jvResult[jss::last_ledger_sequence] = *lastLedgerSeq;
-            jvResult[jss::validated_ledger] = validatedSeq;
             return jvResult;
         }
 
@@ -223,29 +230,19 @@ doSubmitAndWait(RPC::JsonContext& context)
         {
             if (isLedgerValidated(*foundLedgerHash))
             {
-                // Ledger is validated! Try to read the tx from it
-                // First try the partial ledger we have
+                // Ledger is validated! Read the tx result
                 auto ledger = context.app.getInboundLedgers().getPartialLedger(
                     *foundLedgerHash);
-                if (ledger && readTxResult(ledger))
+                if (ledger && readTxResult(ledger, "InboundLedgers"))
                 {
                     return jvResult;
                 }
-
-                // Try getting from LedgerMaster (may have been stored)
-                ledger = context.ledgerMaster.getLedgerByHash(*foundLedgerHash);
-                if (ledger && readTxResult(ledger))
-                {
-                    return jvResult;
-                }
-
-                // Ledger validated but we can't read it yet - keep waiting
-                // The nodes might still be arriving
+                // Ledger validated but can't read yet - keep waiting
             }
         }
         else
         {
-            // Look for the transaction in inbound ledgers
+            // Search InboundLedgers for the tx
             auto const ledgerHash =
                 context.app.getInboundLedgers().findTxLedger(txHash);
 
@@ -257,20 +254,32 @@ doSubmitAndWait(RPC::JsonContext& context)
 
                 if (ledger)
                 {
-                    // Found the tx - record which ledger
                     foundLedgerHash = ledgerHash;
                     foundLedgerSeq = ledger->info().seq;
+                    SWLOG(warn)
+                        << "FOUND tx in ledger seq=" << ledger->info().seq;
 
-                    // Check if already validated
                     if (isLedgerValidated(*ledgerHash))
                     {
-                        if (readTxResult(ledger))
+                        if (readTxResult(ledger, "InboundLedgers"))
                         {
                             return jvResult;
                         }
                     }
-                    // Otherwise continue waiting for validation
                 }
+            }
+
+            // Check LastLedgerSequence expiry
+            auto const currentValidatedSeq =
+                context.ledgerMaster.getValidLedgerIndex();
+            if (lastLedgerSeq && currentValidatedSeq > *lastLedgerSeq)
+            {
+                jvResult[jss::error] = "transactionExpired";
+                jvResult[jss::error_message] =
+                    "LastLedgerSequence exceeded and transaction not found";
+                jvResult["last_ledger_sequence"] = *lastLedgerSeq;
+                jvResult["validated_ledger"] = currentValidatedSeq;
+                return jvResult;
             }
         }
 

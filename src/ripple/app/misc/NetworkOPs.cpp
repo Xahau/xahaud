@@ -1222,7 +1222,7 @@ NetworkOPsImp::broadcastRawTransaction(Blob const& txBlob)
     Serializer s;
     stx->add(s);
     msg.set_rawtransaction(s.data(), s.size());
-    msg.set_status(protocol::tsCURRENT);
+    msg.set_status(protocol::tsNEW);  // tsNEW = origin node could not validate
     msg.set_receivetimestamp(
         app_.timeKeeper().now().time_since_epoch().count());
 

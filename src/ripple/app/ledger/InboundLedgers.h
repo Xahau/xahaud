@@ -83,6 +83,19 @@ public:
     virtual void
     addPriorityNode(std::uint32_t ledgerSeq, uint256 const& nodeHash) = 0;
 
+    /** Add a ledger range where TX fetching should be prioritized.
+        Ledgers in this range will fetch TX nodes BEFORE state nodes.
+        Used by submit_and_wait to quickly detect transactions.
+        @param start First ledger sequence (inclusive)
+        @param end Last ledger sequence (inclusive)
+    */
+    virtual void
+    prioritizeTxForLedgers(std::uint32_t start, std::uint32_t end) = 0;
+
+    /** Check if TX fetching should be prioritized for a ledger sequence. */
+    virtual bool
+    isTxPrioritized(std::uint32_t seq) const = 0;
+
     // VFALCO TODO Remove the dependency on the Peer object.
     //
     virtual bool
