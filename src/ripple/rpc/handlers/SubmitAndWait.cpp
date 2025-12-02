@@ -230,19 +230,32 @@ doSubmitAndWait(RPC::JsonContext& context)
         {
             if (isLedgerValidated(*foundLedgerHash))
             {
-                // Ledger is validated! Read the tx result
+                // Ledger is validated! Try to read from InboundLedgers first
                 auto ledger = context.app.getInboundLedgers().getPartialLedger(
                     *foundLedgerHash);
                 if (ledger && readTxResult(ledger, "InboundLedgers"))
                 {
                     return jvResult;
                 }
+                // Try LedgerMaster (for when synced)
+                if (foundLedgerSeq)
+                {
+                    ledger =
+                        context.ledgerMaster.getLedgerBySeq(*foundLedgerSeq);
+                    if (ledger && readTxResult(ledger, "LedgerMaster"))
+                    {
+                        return jvResult;
+                    }
+                }
                 // Ledger validated but can't read yet - keep waiting
             }
         }
         else
         {
-            // Search InboundLedgers for the tx
+            auto const currentValidatedSeq =
+                context.ledgerMaster.getValidLedgerIndex();
+
+            // Search InboundLedgers for the tx (partial sync mode)
             auto const ledgerHash =
                 context.app.getInboundLedgers().findTxLedger(txHash);
 
@@ -256,8 +269,8 @@ doSubmitAndWait(RPC::JsonContext& context)
                 {
                     foundLedgerHash = ledgerHash;
                     foundLedgerSeq = ledger->info().seq;
-                    SWLOG(warn)
-                        << "FOUND tx in ledger seq=" << ledger->info().seq;
+                    SWLOG(warn) << "FOUND tx in InboundLedgers seq="
+                                << ledger->info().seq;
 
                     if (isLedgerValidated(*ledgerHash))
                     {
@@ -269,9 +282,34 @@ doSubmitAndWait(RPC::JsonContext& context)
                 }
             }
 
+            // Search LedgerMaster for the tx (synced mode via gossip)
+            // Check validated ledgers from startSeq to current
+            if (!foundLedgerHash)
+            {
+                for (auto seq = startSeq; seq <= currentValidatedSeq; ++seq)
+                {
+                    auto ledger = context.ledgerMaster.getLedgerBySeq(seq);
+                    if (ledger)
+                    {
+                        auto [sttx, stobj] = ledger->txRead(txHash);
+                        if (sttx && stobj)
+                        {
+                            foundLedgerHash = ledger->info().hash;
+                            foundLedgerSeq = seq;
+                            SWLOG(warn)
+                                << "FOUND tx in LedgerMaster seq=" << seq;
+
+                            // LedgerMaster ledgers are already validated
+                            if (readTxResult(ledger, "LedgerMaster"))
+                            {
+                                return jvResult;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Check LastLedgerSequence expiry
-            auto const currentValidatedSeq =
-                context.ledgerMaster.getValidLedgerIndex();
             if (lastLedgerSeq && currentValidatedSeq > *lastLedgerSeq)
             {
                 jvResult[jss::error] = "transactionExpired";
