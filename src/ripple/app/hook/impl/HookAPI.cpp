@@ -429,10 +429,26 @@ HookAPI::sto_subarray(Bytes const& data, uint32_t index_id) const
 
     // unwrap the array if it is wrapped,
     // by removing a byte from the start and end
+    // why here 0xF0?
+    // STI_ARRAY = 0xF0
+    // eg) Signers field value = 0x03 => 0xF3
+    // eg) Amounts field value = 0x5C => 0xF0, 0x5C
     if ((*upto & 0xF0U) == 0xF0U)
     {
-        upto++;
-        end--;
+        if (hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128) &&
+            *upto == 0xF0U)
+        {
+            // field value > 15
+            upto++;
+            upto++;
+            end--;
+        }
+        else
+        {
+            // field value <= 15
+            upto++;
+            end--;
+        }
     }
 
     if (upto >= end)
@@ -496,6 +512,31 @@ HookAPI::sto_emplace(
 
         if (field_object->size() < 2)
             return Unexpected(TOO_SMALL);
+    }
+
+    if (field_object.has_value() &&
+        hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
+    {
+        // inject field should be valid sto object and it's field id should
+        // match the field_id
+        unsigned char* inject_start = (unsigned char*)(field_object->data());
+        unsigned char* inject_end =
+            (unsigned char*)(field_object->data() + field_object->size());
+        int type = -1, field = -1, payload_start = -1, payload_length = -1;
+        auto const length = get_stobject_length(
+            inject_start,
+            inject_end,
+            type,
+            field,
+            payload_start,
+            payload_length,
+            0);
+        if (!length)
+            return Unexpected(PARSE_ERROR);
+        if ((type << 16) + field != field_id)
+        {
+            return Unexpected(PARSE_ERROR);
+        }
     }
 
     std::vector<uint8_t> out(
@@ -928,7 +969,7 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
         std::unique_ptr<STTx const> stpTrans =
             std::make_unique<STTx const>(std::ref(sitTrans));
 
-        if (!hookCtx.applyCtx.view().rules().enabled(fixEtxnFeeBase))
+        if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
             return Transactor::calculateBaseFee(
                        *(applyCtx.app.openLedger().current()), *stpTrans)
                 .drops();

@@ -192,7 +192,7 @@ struct GenesisMint_test : public beast::unit_test::suite
             }
             auto const postCoins = env.current()->info().drops;
             auto const txnFee =
-                env.current()->rules().enabled(fixEtxnFeeBase) ? 0 : 10;
+                env.current()->rules().enabled(fixHookAPI20251128) ? 0 : 10;
             BEAST_EXPECT(
                 initCoins - 1'000'000 /* txn fee */
                     - txnFee          /* emitted txn fee */
@@ -630,7 +630,7 @@ struct GenesisMint_test : public beast::unit_test::suite
 
             auto const postCoins = env.current()->info().drops;
             auto const txnFee =
-                env.current()->rules().enabled(fixEtxnFeeBase) ? 0 : 10;
+                env.current()->rules().enabled(fixHookAPI20251128) ? 0 : 10;
             BEAST_EXPECT(
                 initCoins - 1'000'000 /* txn fee  */ -
                     txnFee /* emitted txn fee */
@@ -699,7 +699,7 @@ public:
         auto const sa = supported_amendments();
         testWithFeats(sa);
         testWithFeats(sa - fixXahauV1);
-        testWithFeats(sa - fixEtxnFeeBase);
+        testWithFeats(sa - fixHookAPI20251128);
     }
 };
 

@@ -646,7 +646,7 @@ public:
             auto const baseFee = env.closed()->fees().base;
             auto const blobSize = 100;
             auto const memoSize = 100;
-            if (env.closed()->rules().enabled(fixEtxnFeeBase))
+            if (env.closed()->rules().enabled(fixHookAPI20251128))
                 BEAST_EXPECT(result.value() == baseFee + blobSize + memoSize);
             else
                 BEAST_EXPECT(result.value() == baseFee + memoSize);
@@ -3712,8 +3712,8 @@ public:
                 "ABF044EE");
             // {"Amendments":["42426C4D4F1009EE67080A9B7965B44656D7714D104A72F9B4369F97ABF044EE"]}
 
-            auto const result =
-                api.sto_emplace(source_object, field_object, sfPaths.getCode());
+            auto const result = api.sto_emplace(
+                source_object, field_object, sfAmendments.getCode());
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(
                 result.value().size() ==
@@ -3785,9 +3785,7 @@ public:
             BEAST_EXPECT(api.sto_subarray(memos, 2).error() == DOESNT_EXIST);
             // { Amounts: [{AmountEntry: {Amount: "100"}}] }
             auto const amounts = *strUnHex("F05CE05B614000000000000064E1F1");
-            // TODO: fix this
-            // BEAST_EXPECT(api.sto_subarray(amounts, 2).error() ==
-            // DOESNT_EXIST);
+            BEAST_EXPECT(api.sto_subarray(amounts, 2).error() == DOESNT_EXIST);
         }
 
         {
@@ -3798,10 +3796,8 @@ public:
                 api.sto_subarray(memos, 0).value() == std::make_pair(1, 6));
             // { Amounts: [{AmountEntry: {Amount: "100"}}] }
             auto const amounts = *strUnHex("F05CE05B614000000000000064E1F1");
-            // TODO: fix this
-            // BEAST_EXPECT(
-            //     api.sto_subarray(amounts, 0).value() == std::make_pair(2,
-            //     12));
+            BEAST_EXPECT(
+                api.sto_subarray(amounts, 0).value() == std::make_pair(2, 12));
         }
     }
 
@@ -4105,7 +4101,7 @@ public:
         test_otxn_burden(features);
         test_otxn_generation(features);
         test_etxn_details(features);
-        test_etxn_fee_base(features - fixEtxnFeeBase);
+        test_etxn_fee_base(features - fixHookAPI20251128);
         test_etxn_fee_base(features);
         test_etxn_nonce(features);
         test_etxn_reserve(features);
