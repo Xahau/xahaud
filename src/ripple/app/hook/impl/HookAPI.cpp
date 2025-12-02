@@ -547,7 +547,7 @@ HookAPI::sto_emplace(
 
     // we must inject the field at the canonical location....
     // so find that location
-    unsigned char* start = const_cast<unsigned char*>(source_object.data());
+    unsigned char* start = (unsigned char*)(source_object.data());
     unsigned char* upto = start;
     unsigned char* end = start + source_object.size();
     unsigned char* inject_start = end;

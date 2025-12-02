@@ -3428,7 +3428,7 @@ public:
     void
     test_sto_emplace(FeatureBitset features)
     {
-        testcase("Test sto_emplace");
+        testcase("Test sto_emplace/sto_erase");
 
         using namespace jtx;
         using namespace hook;
@@ -3517,6 +3517,12 @@ public:
             field_object.insert(
                 field_object.end(), source_object.begin(), source_object.end());
             BEAST_EXPECT(result.value() == field_object);
+
+            auto const erase_result = api.sto_emplace(
+                result.value(), std::nullopt, sfVersion.getCode());
+            BEAST_EXPECT(erase_result.has_value());
+            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
+            BEAST_EXPECT(erase_result.value() == _source_object);
         }
 
         {
@@ -3534,12 +3540,18 @@ public:
             field_object.insert(
                 field_object.end(), source_object.begin(), source_object.end());
             BEAST_EXPECT(result.value() == field_object);
+
+            auto const erase_result = api.sto_emplace(
+                result.value(), std::nullopt, sfSequence.getCode());
+            BEAST_EXPECT(erase_result.has_value());
+            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
+            BEAST_EXPECT(erase_result.value() == _source_object);
         }
 
         {
             // use UINT64
             auto source_object = _source_object;
-            auto field_object = *strUnHex("360000000001");
+            auto field_object = *strUnHex("360000000000000001");
             // ExchangeRate: 1
 
             auto const result = api.sto_emplace(
@@ -3551,6 +3563,12 @@ public:
             field_object.insert(
                 field_object.end(), source_object.begin(), source_object.end());
             BEAST_EXPECT(result.value() == field_object);
+
+            auto const erase_result = api.sto_emplace(
+                result.value(), std::nullopt, sfExchangeRate.getCode());
+            BEAST_EXPECT(erase_result.has_value());
+            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
+            BEAST_EXPECT(erase_result.value() == _source_object);
         }
 
         {
@@ -3568,6 +3586,12 @@ public:
             field_object.insert(
                 field_object.end(), source_object.begin(), source_object.end());
             BEAST_EXPECT(result.value() == field_object);
+
+            auto const erase_result = api.sto_emplace(
+                result.value(), std::nullopt, sfEmailHash.getCode());
+            BEAST_EXPECT(erase_result.has_value());
+            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
+            BEAST_EXPECT(erase_result.value() == _source_object);
         }
 
         {
@@ -3588,6 +3612,12 @@ public:
             field_object.insert(
                 field_object.end(), source_object.begin(), source_object.end());
             BEAST_EXPECT(result.value() == field_object);
+
+            auto const erase_result = api.sto_emplace(
+                result.value(), std::nullopt, sfObjectID.getCode());
+            BEAST_EXPECT(erase_result.has_value());
+            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
+            BEAST_EXPECT(erase_result.value() == _source_object);
         }
 
         {
@@ -3596,8 +3626,8 @@ public:
 
             auto nativeamount = *strUnHex(
                 "61999999999999999999999999999999999999999999999999999999999999"
-                "99999999999999999999999999999999999999");
-            auto iouamount = *strUnHex("619999999999999999");
+                "999999999999999999999999999999999999");
+            auto iouamount = *strUnHex("614999999999999999");
 
             for (auto field_object : {nativeamount, iouamount})
             {
@@ -3612,6 +3642,13 @@ public:
                     source_object.begin(),
                     source_object.end());
                 BEAST_EXPECT(result.value() == field_object);
+
+                auto const erase_result = api.sto_emplace(
+                    result.value(), std::nullopt, sfAmount.getCode());
+                BEAST_EXPECT(erase_result.has_value());
+                BEAST_EXPECT(
+                    erase_result.value().size() == _source_object.size());
+                BEAST_EXPECT(erase_result.value() == _source_object);
             }
         }
 
@@ -3630,6 +3667,12 @@ public:
             source_object.insert(
                 source_object.end(), field_object.begin(), field_object.end());
             BEAST_EXPECT(result.value() == source_object);
+
+            auto const erase_result = api.sto_emplace(
+                result.value(), std::nullopt, sfAmountEntry.getCode());
+            BEAST_EXPECT(erase_result.has_value());
+            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
+            BEAST_EXPECT(erase_result.value() == _source_object);
         }
 
         {
@@ -3647,6 +3690,12 @@ public:
             source_object.insert(
                 source_object.end(), field_object.begin(), field_object.end());
             BEAST_EXPECT(result.value() == source_object);
+
+            auto const erase_result = api.sto_emplace(
+                result.value(), std::nullopt, sfMemos.getCode());
+            BEAST_EXPECT(erase_result.has_value());
+            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
+            BEAST_EXPECT(erase_result.value() == _source_object);
         }
 
         {
@@ -3664,6 +3713,12 @@ public:
             source_object.insert(
                 source_object.end(), field_object.begin(), field_object.end());
             BEAST_EXPECT(result.value() == source_object);
+
+            auto const erase_result = api.sto_emplace(
+                result.value(), std::nullopt, sfTickSize.getCode());
+            BEAST_EXPECT(erase_result.has_value());
+            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
+            BEAST_EXPECT(erase_result.value() == _source_object);
         }
 
         {
@@ -3682,6 +3737,12 @@ public:
             source_object.insert(
                 source_object.end(), field_object.begin(), field_object.end());
             BEAST_EXPECT(result.value() == source_object);
+
+            auto const erase_result = api.sto_emplace(
+                result.value(), std::nullopt, sfTakerPaysCurrency.getCode());
+            BEAST_EXPECT(erase_result.has_value());
+            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
+            BEAST_EXPECT(erase_result.value() == _source_object);
         }
 
         {
@@ -3702,6 +3763,12 @@ public:
             source_object.insert(
                 source_object.end(), field_object.begin(), field_object.end());
             BEAST_EXPECT(result.value() == source_object);
+
+            auto const erase_result = api.sto_emplace(
+                result.value(), std::nullopt, sfPaths.getCode());
+            BEAST_EXPECT(erase_result.has_value());
+            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
+            BEAST_EXPECT(erase_result.value() == _source_object);
         }
 
         {
@@ -3721,6 +3788,12 @@ public:
             source_object.insert(
                 source_object.end(), field_object.begin(), field_object.end());
             BEAST_EXPECT(result.value() == source_object);
+
+            auto const erase_result = api.sto_emplace(
+                result.value(), std::nullopt, sfAmendments.getCode());
+            BEAST_EXPECT(erase_result.has_value());
+            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
+            BEAST_EXPECT(erase_result.value() == _source_object);
         }
 
         {
@@ -3736,13 +3809,6 @@ public:
         }
     }
 
-    void
-    test_sto_erase(FeatureBitset features)
-    {
-        testcase("Test sto_erase");
-
-        BEAST_EXPECT(true);
-    }
     void
     test_sto_subarray(FeatureBitset features)
     {
@@ -4167,7 +4233,7 @@ public:
         test_state_set(features);
 
         test_sto_emplace(features);
-        test_sto_erase(features);
+        // test_sto_erase(features); // tested in test_sto_emplace
         test_sto_subarray(features);
         test_sto_subfield(features);
         test_sto_validate(features);
