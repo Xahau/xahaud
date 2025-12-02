@@ -3793,11 +3793,12 @@ public:
             // { Memos: [{Memo: {MemoData: "BEEF"}}] }
             auto const memos = *strUnHex("F9EA7D02BEEFE1F1");
             BEAST_EXPECT(
-                api.sto_subarray(memos, 0).value() == std::make_pair(1, 6));
+                api.sto_subarray(memos, 0).value() == std::make_pair(1u, 6u));
             // { Amounts: [{AmountEntry: {Amount: "100"}}] }
             auto const amounts = *strUnHex("F05CE05B614000000000000064E1F1");
             BEAST_EXPECT(
-                api.sto_subarray(amounts, 0).value() == std::make_pair(2, 12));
+                api.sto_subarray(amounts, 0).value() ==
+                std::make_pair(2u, 12u));
         }
     }
 
@@ -3852,12 +3853,12 @@ public:
             auto const memos = *strUnHex("EA7D02BEEFE1");
             BEAST_EXPECT(
                 api.sto_subfield(memos, sfMemo.getCode()).value() ==
-                std::make_pair(1, 4));
+                std::make_pair(1u, 4u));
             // { AmountEntry: {Amount: "100"} }
             auto const amounts = *strUnHex("E05B614000000000000064E1");
             BEAST_EXPECT(
                 api.sto_subfield(amounts, sfAmountEntry.getCode()).value() ==
-                std::make_pair(2, 9));
+                std::make_pair(2u, 9u));
         }
     }
 
