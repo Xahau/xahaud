@@ -2624,38 +2624,37 @@ DEFINE_HOOK_FUNCTION(
     hook::HookAPI api(hookCtx);
     ripple::Slice txBlob{
         reinterpret_cast<const void*>(memory + read_ptr), read_len};
-    if (auto res = api.emit(txBlob))
-    {
-        auto const& tpTrans = *res;  // 32 bytes
-        auto const& txID = tpTrans->getID();
 
-        if (txID.size() > write_len)
-            return TOO_SMALL;
+    auto const res = api.emit(txBlob);
 
-        if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
-            return OUT_OF_BOUNDS;
-
-        auto const write_txid = [&]() -> int64_t {
-            WRITE_WASM_MEMORY_AND_RETURN(
-                write_ptr,
-                txID.size(),
-                txID.data(),
-                txID.size(),
-                memory,
-                memory_length);
-        };
-
-        int64_t result = write_txid();
-
-        if (result == 32)
-            hookCtx.result.emittedTxn.push(tpTrans);
-
-        return result;
-    }
-    else
-    {
+    if (!res)
         return res.error();
-    }
+
+    auto const& tpTrans = *res;  // 32 bytes
+    auto const& txID = tpTrans->getID();
+
+    if (txID.size() > write_len)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const write_txid = [&]() -> int64_t {
+        WRITE_WASM_MEMORY_AND_RETURN(
+            write_ptr,
+            txID.size(),
+            txID.data(),
+            txID.size(),
+            memory,
+            memory_length);
+    };
+
+    int64_t result = write_txid();
+
+    if (result == 32)
+        hookCtx.result.emittedTxn.push(tpTrans);
+
+    return result;
 
     HOOK_TEARDOWN();
 }
