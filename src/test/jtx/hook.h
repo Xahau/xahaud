@@ -100,6 +100,15 @@ struct StubHookContext
     const hook::HookExecutor* module = 0;
 };
 
+// Overload that takes external stateMap to avoid dangling reference
+hook::HookContext
+makeStubHookContext(
+    ripple::ApplyContext& applyCtx,
+    ripple::AccountID const& hookAccount,
+    ripple::AccountID const& otxnAccount,
+    StubHookContext const& stubHookContext,
+    hook::HookStateMap& stateMap);
+
 hook::HookContext
 makeStubHookContext(
     ripple::ApplyContext& applyCtx,

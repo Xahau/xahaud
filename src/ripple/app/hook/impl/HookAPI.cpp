@@ -2042,7 +2042,7 @@ HookAPI::state_foreign_set(
     {
         if (auto ret = set_state_cache(account, ns, key, data, true);
             !ret.has_value())
-            return ret.error();
+            return Unexpected(ret.error());
 
         return data.size();
     }
@@ -2059,7 +2059,7 @@ HookAPI::state_foreign_set(
         // don't check grants again
         if (auto ret = set_state_cache(account, ns, key, data, true);
             !ret.has_value())
-            return ret.error();
+            return Unexpected(ret.error());
 
         return data.size();
     }
@@ -2137,7 +2137,7 @@ HookAPI::state_foreign_set(
 
     if (auto ret = set_state_cache(account, ns, key, data, true);
         !ret.has_value())
-        return ret.error();
+        return Unexpected(ret.error());
 
     return data.size();
 }

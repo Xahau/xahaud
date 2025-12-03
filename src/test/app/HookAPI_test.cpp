@@ -3390,6 +3390,8 @@ public:
     {
         testcase("Test state");
 
+        // state() is same as state_foreign with hook's namespace and account
+        // tested in test_state_foreign
         BEAST_EXPECT(true);
     }
 
@@ -3398,7 +3400,69 @@ public:
     {
         testcase("Test state_foreign");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+        using namespace hook;
+
+        // Note: Full state API testing requires proper hook execution
+        // environment which is tested in SetHook_test.cpp integration tests.
+        // Here we test cache behavior and error conditions that can be
+        // simulated without actual ledger state access.
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        uint256 const testKey{1};
+        uint256 const testNs{2};
+
+        {
+            // Test cache read path: when data is already in stateMap cache
+            // Use external stateMap to avoid dangling reference
+            HookStateMap stateMap;
+            auto hookCtx = makeStubHookContext(
+                applyCtx, alice.id(), alice.id(), {}, stateMap);
+
+            // Pre-populate the stateMap cache directly
+            Bytes expectedData{0x01, 0x02, 0x03};
+            stateMap[alice.id()] = {
+                100,  // availableForReserves
+                1,    // namespaceCount
+                1,    // hookStateScale
+                {{testNs, {{testKey, {false, expectedData}}}}}};
+
+            hook::HookAPI api(hookCtx);
+            auto const result = api.state_foreign(testKey, testNs, alice.id());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == expectedData);
+        }
+
+        {
+            // Test cache miss path: key not in cache
+            // Since view().peek() will be called for cache miss and will not
+            // find state in ledger, it should return DOESNT_EXIST
+            HookStateMap stateMap;
+            auto hookCtx = makeStubHookContext(
+                applyCtx, alice.id(), alice.id(), {}, stateMap);
+
+            // Pre-populate with different key
+            uint256 const otherKey{99};
+            Bytes data{0xFF};
+            stateMap[alice.id()] = {
+                100, 1, 1, {{testNs, {{otherKey, {false, data}}}}}};
+
+            hook::HookAPI api(hookCtx);
+            // testKey is not in cache, so it will try to read from ledger
+            // which should return DOESNT_EXIST since there's no actual state
+            auto const result = api.state_foreign(testKey, testNs, alice.id());
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == DOESNT_EXIST);
+        }
     }
 
     void
@@ -3406,7 +3470,79 @@ public:
     {
         testcase("Test state_foreign_set max");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+        using namespace hook;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        env.fund(XRP(100000), alice);
+        env.close();
+
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        {
+            // TOO_MANY_STATE_MODIFICATIONS
+            // This check only applies when creating a NEW key, not updating
+            // existing
+            uint256 const testKey{1};
+            uint256 const existingKey{2};
+            uint256 const testNs{3};
+
+            // Use external stateMap to avoid dangling reference
+            HookStateMap stateMap;
+            auto hookCtx = makeStubHookContext(
+                applyCtx, alice.id(), alice.id(), {}, stateMap);
+
+            // Pre-populate stateMap with a DIFFERENT key (existingKey, not
+            // testKey) so that testKey will be a new entry
+            stateMap[alice.id()] = {
+                100,  // availableForReserves
+                1,    // namespaceCount
+                1,    // hookStateScale
+                {{testNs, {{existingKey, {false, Bytes{}}}}}}};
+
+            // Set modified_entry_count to max
+            stateMap.modified_entry_count = max_state_modifications;
+
+            hook::HookAPI api(hookCtx);
+            Bytes data{0x01};
+            // This should fail because testKey is new and we're at max
+            // modifications
+            auto const result =
+                api.state_foreign_set(testKey, testNs, alice.id(), data);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == TOO_MANY_STATE_MODIFICATIONS);
+        }
+
+        {
+            // Updating existing key also fails at max modifications
+            // (TOO_MANY_STATE_MODIFICATIONS limits total modifications, not
+            // just new keys)
+            uint256 const testKey{1};
+            uint256 const testNs{2};
+
+            HookStateMap stateMap;
+            auto hookCtx = makeStubHookContext(
+                applyCtx, alice.id(), alice.id(), {}, stateMap);
+
+            // Pre-populate with the SAME key we'll update
+            stateMap[alice.id()] = {
+                100, 1, 1, {{testNs, {{testKey, {false, Bytes{0xFF}}}}}}};
+
+            stateMap.modified_entry_count = max_state_modifications;
+
+            hook::HookAPI api(hookCtx);
+            Bytes data{0x01};
+            // This should also fail because TOO_MANY_STATE_MODIFICATIONS
+            // applies to all modifications, not just new keys
+            auto const result =
+                api.state_foreign_set(testKey, testNs, alice.id(), data);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == TOO_MANY_STATE_MODIFICATIONS);
+        }
     }
 
     void
@@ -3414,7 +3550,157 @@ public:
     {
         testcase("Test state_foreign_set");
 
-        BEAST_EXPECT(true);
+        using namespace jtx;
+        using namespace hook_api;
+        using namespace hook;
+
+        // Note: Full state_foreign_set testing requires proper hook execution
+        // environment which is tested in SetHook_test.cpp integration tests.
+        // Here we test what can be verified through cache manipulation.
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        Env env{*this, features};
+        env.fund(XRP(100000), alice, bob);
+        env.close();
+
+        // Compute hook hash for the accept hook
+        auto const wasm = genesis::AcceptHook;
+        auto const hookHash =
+            ripple::sha512Half_s(ripple::Slice(wasm.data(), wasm.size()));
+
+        // Set up a hook on bob (no grants)
+        env(hook(bob, {{hso(genesis::AcceptHook)}}, 0), fee(XRP(1)));
+        env.close();
+
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        uint256 const testKey{1};
+        uint256 const testNs{2};
+        Bytes testData{0x01, 0x02, 0x03};
+
+        {
+            // Local account modification with pre-populated stateMap
+            // (equivalent to state_set test)
+            HookStateMap stateMap;
+            auto hookCtx = makeStubHookContext(
+                applyCtx, alice.id(), alice.id(), {}, stateMap);
+
+            // Pre-populate stateMap to avoid reserve calculation issues
+            stateMap[alice.id()] = {
+                100,  // availableForReserves
+                1,    // namespaceCount
+                1,    // hookStateScale
+                {}};
+
+            hook::HookAPI api(hookCtx);
+
+            auto const result =
+                api.state_foreign_set(testKey, testNs, alice.id(), testData);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == testData.size());
+            auto const stateMapAcc =
+                std::get<3>(hookCtx.result.stateMap[alice.id()]);
+            auto const stateMapNs = stateMapAcc.find(testNs);
+            BEAST_EXPECT(stateMapNs != stateMapAcc.end());
+            auto const stateMapKey = stateMapNs->second.find(testKey);
+            BEAST_EXPECT(stateMapKey != stateMapNs->second.end());
+            BEAST_EXPECT(std::get<0>(stateMapKey->second) == true);
+        }
+
+        {
+            // Delete operation (empty data)
+            HookStateMap stateMap;
+            auto hookCtx = makeStubHookContext(
+                applyCtx, alice.id(), alice.id(), {}, stateMap);
+
+            // Pre-populate stateMap with existing data
+            stateMap[alice.id()] = {
+                100,  // availableForReserves
+                1,    // namespaceCount
+                1,    // hookStateScale
+                {{testNs, {{testKey, {false, testData}}}}}};
+
+            hook::HookAPI api(hookCtx);
+
+            // Delete (empty data)
+            Bytes emptyData{};
+            auto deleteResult =
+                api.state_foreign_set(testKey, testNs, alice.id(), emptyData);
+            BEAST_EXPECT(deleteResult.has_value());
+            BEAST_EXPECT(deleteResult.value() == 0);
+            auto const stateMapAcc =
+                std::get<3>(hookCtx.result.stateMap[alice.id()]);
+            auto const stateMapNs = stateMapAcc.find(testNs);
+            BEAST_EXPECT(stateMapNs != stateMapAcc.end());
+            auto const stateMapKey = stateMapNs->second.find(testKey);
+            BEAST_EXPECT(stateMapKey != stateMapNs->second.end());
+            BEAST_EXPECT(std::get<0>(stateMapKey->second) == true);
+            BEAST_EXPECT(std::get<1>(stateMapKey->second) == emptyData);
+        }
+
+        {
+            // PREVIOUS_FAILURE_PREVENTS_RETRY
+            StubHookContext stubCtx{};
+            stubCtx.result.foreignStateSetDisabled = true;
+            HookStateMap stateMap;
+            auto hookCtx = makeStubHookContext(
+                applyCtx, alice.id(), alice.id(), stubCtx, stateMap);
+            hook::HookAPI api(hookCtx);
+
+            auto const result =
+                api.state_foreign_set(testKey, testNs, bob.id(), testData);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == PREVIOUS_FAILURE_PREVENTS_RETRY);
+        }
+
+        {
+            // NOT_AUTHORIZED: foreign state set without grant
+            StubHookContext stubCtx{
+                .result = {.hookHash = hookHash},
+            };
+            HookStateMap stateMap;
+            auto hookCtx = makeStubHookContext(
+                applyCtx, alice.id(), alice.id(), stubCtx, stateMap);
+            hook::HookAPI api(hookCtx);
+
+            auto const result =
+                api.state_foreign_set(testKey, testNs, bob.id(), testData);
+            BEAST_EXPECT(!result.has_value());
+            BEAST_EXPECT(result.error() == NOT_AUTHORIZED);
+            // After NOT_AUTHORIZED, foreignStateSetDisabled should be set
+            BEAST_EXPECT(hookCtx.result.foreignStateSetDisabled);
+        }
+
+        {
+            // Cache hit: modify same state twice without re-checking grants
+            HookStateMap stateMap;
+            auto hookCtx = makeStubHookContext(
+                applyCtx, alice.id(), alice.id(), {}, stateMap);
+
+            // Pre-populate stateMap
+            stateMap[alice.id()] = {
+                100,  // availableForReserves
+                1,    // namespaceCount
+                1,    // hookStateScale
+                {}};
+
+            hook::HookAPI api(hookCtx);
+
+            // First modification
+            auto result1 =
+                api.state_foreign_set(testKey, testNs, alice.id(), testData);
+            BEAST_EXPECT(result1.has_value());
+
+            // Second modification (should hit cache)
+            Bytes newData{0x04, 0x05};
+            auto result2 =
+                api.state_foreign_set(testKey, testNs, alice.id(), newData);
+            BEAST_EXPECT(result2.has_value());
+            BEAST_EXPECT(result2.value() == newData.size());
+        }
     }
 
     void
@@ -3422,6 +3708,8 @@ public:
     {
         testcase("Test state_set");
 
+        // state_set() is same as state_foreign_set with hook's namespace and
+        // account tested in test_state_foreign_set
         BEAST_EXPECT(true);
     }
 

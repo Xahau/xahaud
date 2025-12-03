@@ -104,15 +104,16 @@ hso(std::string const& wasmHex, void (*f)(Json::Value& jv))
     return jv;
 }
 
+// Helper function to create HookContext with external stateMap
 hook::HookContext
 makeStubHookContext(
     ripple::ApplyContext& applyCtx,
     ripple::AccountID const& hookAccount,
     ripple::AccountID const& otxnAccount,
-    StubHookContext const& stubHookContext)
+    StubHookContext const& stubHookContext,
+    hook::HookStateMap& stateMap)
 {
     auto& result = stubHookContext.result;
-    auto stateMap = result.stateMap.value_or(hook::HookStateMap{});
     auto hookParams = result.hookParams.value_or(
         std::map<std::vector<uint8_t>, std::vector<uint8_t>>{});
     return hook::HookContext{
@@ -159,6 +160,23 @@ makeStubHookContext(
             },
         .emitFailure = stubHookContext.emitFailure,
         .module = nullptr};
+}
+
+// Original function - WARNING: stateMap reference may become dangling
+// Only use when stateMap access is not needed after HookContext creation
+hook::HookContext
+makeStubHookContext(
+    ripple::ApplyContext& applyCtx,
+    ripple::AccountID const& hookAccount,
+    ripple::AccountID const& otxnAccount,
+    StubHookContext const& stubHookContext)
+{
+    // Use thread_local to keep stateMap alive
+    // Note: This is a workaround; each call resets the stateMap
+    thread_local hook::HookStateMap stateMap;
+    stateMap = stubHookContext.result.stateMap.value_or(hook::HookStateMap{});
+    return makeStubHookContext(
+        applyCtx, hookAccount, otxnAccount, stubHookContext, stateMap);
 }
 
 }  // namespace jtx
