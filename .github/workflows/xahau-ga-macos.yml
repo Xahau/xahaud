@@ -20,7 +20,7 @@ jobs:
           - Ninja
         configuration:
           - Debug
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS]
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
@@ -38,53 +38,24 @@ jobs:
           head-commit-message: ${{ github.event.head_commit.message }}
           pr-head-sha: ${{ github.event.pull_request.head.sha }}
 
-      - name: Install Conan
-        run: |
-          brew install conan
-          # Verify Conan 2 is installed
-          conan --version
-
       - name: Install Coreutils
         run: |
           brew install coreutils
           echo "Num proc: $(nproc)"
 
-      - name: Install Ninja
-        if: matrix.generator == 'Ninja'
-        run: brew install ninja
+      # To isolate environments for each Runner, instead of installing globally with brew, 
+      # use mise to isolate environments for each Runner directory.
+      - name: Setup toolchain (mise)
+        uses: jdx/mise-action@v2
+        with:
+          install: true
 
-      - name: Install Python
+      - name: Install tools via mise
         run: |
-          if which python3 > /dev/null 2>&1; then
-              echo "Python 3 executable exists"
-              python3 --version
-          else
-              brew install python@3.12
-          fi
-          # Create 'python' symlink if it doesn't exist (for tools expecting 'python')
-          if ! which python > /dev/null 2>&1; then
-              sudo ln -sf $(which python3) /usr/local/bin/python
-          fi
-
-      - name: Install CMake
-        run: |
-          # Install CMake 3.x to match local dev environments
-          # With Conan 2 and the policy args passed to CMake, newer versions
-          # can have issues with dependencies that require cmake_minimum_required < 3.5
-          brew uninstall cmake --ignore-dependencies 2>/dev/null || true
-
-          # Download and install CMake 3.31.7 directly
-          curl -L https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-macos-universal.tar.gz -o cmake.tar.gz
-          tar -xzf cmake.tar.gz
-
-          # Move the entire CMake.app to /Applications
-          sudo mv cmake-3.31.7-macos-universal/CMake.app /Applications/
-
-          echo "/Applications/CMake.app/Contents/bin" >> $GITHUB_PATH
-          /Applications/CMake.app/Contents/bin/cmake --version
-
-      - name: Install ccache
-        run: brew install ccache
+          mise install
+          mise install cmake@3 python@3.12 conan@2 ninja@latest ccache@latest
+          mise reshim
+          echo "$HOME/.local/share/mise/shims" >> "$GITHUB_PATH"
 
       - name: Check environment
         run: |
