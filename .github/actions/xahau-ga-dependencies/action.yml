@@ -60,6 +60,7 @@ runs:
   using: 'composite'
   steps:
     - name: Configure Conan cache paths
+      if: inputs.os == 'Linux'
       shell: bash
       run: |
         mkdir -p /.conan-cache/conan2 /.conan-cache/conan2_download /.conan-cache/conan2_sources
