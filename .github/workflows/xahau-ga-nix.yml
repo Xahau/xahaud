@@ -181,8 +181,7 @@ jobs:
       image: ubuntu:24.04
       volumes:
         - /home/runner/.conan-cache:/.conan-cache
-        - /home/runner/.ccache-main:/github/home/.ccache-main
-        - /home/runner/.ccache-current:/github/home/.ccache-current
+        - /home/runner/.ccache-cache:/github/home/.ccache-cache
     defaults:
       run:
         shell: bash
