@@ -30,14 +30,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get commit message
-        id: get-commit-message
-        uses: ./.github/actions/xahau-ga-get-commit-message
-        with:
-          event-name: ${{ github.event_name }}
-          head-commit-message: ${{ github.event.head_commit.message }}
-          pr-head-sha: ${{ github.event.pull_request.head.sha }}
-
       - name: Install Coreutils
         run: |
           brew install coreutils
@@ -68,6 +60,14 @@ jobs:
           ccache --version
           echo "---- Full Environment ----"
           env
+
+      - name: Get commit message
+        id: get-commit-message
+        uses: ./.github/actions/xahau-ga-get-commit-message
+        with:
+          event-name: ${{ github.event_name }}
+          head-commit-message: ${{ github.event.head_commit.message }}
+          pr-head-sha: ${{ github.event.pull_request.head.sha }}
 
       - name: Detect compiler version
         id: detect-compiler
