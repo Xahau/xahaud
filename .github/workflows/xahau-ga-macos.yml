@@ -50,7 +50,7 @@ jobs:
       - name: Install tools via mise
         run: |
           mise install
-          mise use cmake@3 python@3.12 conan@2 ninja@latest ccache@latest
+          mise use cmake@3 python@3.12 pipx@latest conan@2 ninja@latest ccache@latest
           mise reshim
           echo "$HOME/.local/share/mise/shims" >> "$GITHUB_PATH"
 
