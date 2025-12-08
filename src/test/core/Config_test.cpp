@@ -1423,6 +1423,97 @@ r.ripple.com:51235
     }
 
     void
+    testRWDBOnlineDelete()
+    {
+        testcase("RWDB online_delete validation");
+
+        // Test 1: RWDB without online_delete in standalone mode (should
+        // succeed)
+        {
+            Config c;
+            std::string toLoad =
+                "[node_db]\n"
+                "type=rwdb\n"
+                "path=main\n";
+            c.setupControl(true, true, true);  // standalone = true
+            try
+            {
+                c.loadFromString(toLoad);
+                pass();  // Should succeed
+            }
+            catch (std::runtime_error const& e)
+            {
+                fail("Should not throw in standalone mode");
+            }
+        }
+
+        // Test 2: RWDB without online_delete NOT in standalone mode (should
+        // throw)
+        {
+            Config c;
+            std::string toLoad =
+                "[node_db]\n"
+                "type=rwdb\n"
+                "path=main\n";
+            c.setupControl(true, true, false);  // standalone = false
+            try
+            {
+                c.loadFromString(toLoad);
+                fail("Expected exception for RWDB without online_delete");
+            }
+            catch (std::runtime_error const& e)
+            {
+                BEAST_EXPECT(
+                    std::string(e.what()).find(
+                        "RWDB (in-memory backend) requires online_delete") !=
+                    std::string::npos);
+                pass();
+            }
+        }
+
+        // Test 3: RWDB with online_delete NOT in standalone mode (should
+        // succeed)
+        {
+            Config c;
+            std::string toLoad =
+                "[node_db]\n"
+                "type=rwdb\n"
+                "path=main\n"
+                "online_delete=256\n";
+            c.setupControl(true, true, false);  // standalone = false
+            try
+            {
+                c.loadFromString(toLoad);
+                pass();  // Should succeed
+            }
+            catch (std::runtime_error const& e)
+            {
+                fail("Should not throw when online_delete is configured");
+            }
+        }
+
+        // Test 4: Non-RWDB without online_delete NOT in standalone mode (should
+        // succeed)
+        {
+            Config c;
+            std::string toLoad =
+                "[node_db]\n"
+                "type=NuDB\n"
+                "path=main\n";
+            c.setupControl(true, true, false);  // standalone = false
+            try
+            {
+                c.loadFromString(toLoad);
+                pass();  // Should succeed
+            }
+            catch (std::runtime_error const& e)
+            {
+                fail("Should not throw for non-RWDB backends");
+            }
+        }
+    }
+
+    void
     testOverlay()
     {
         testcase("overlay: unknown time");
@@ -1512,6 +1603,7 @@ r.ripple.com:51235
         testComments();
         testGetters();
         testAmendment();
+        testRWDBOnlineDelete();
         testOverlay();
         testNetworkID();
     }

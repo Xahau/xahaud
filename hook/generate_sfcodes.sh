@@ -1,5 +1,9 @@
 #!/bin/bash
-RIPPLED_ROOT="../include/xrpl"
+set -eu
+
+SCRIPT_DIR=$(dirname "$0")
+SCRIPT_DIR=$(cd "$SCRIPT_DIR" && pwd)
+RIPPLED_ROOT="$SCRIPT_DIR/../include/xrpl"
 echo '// For documentation please see: https://xrpl-hooks.readme.io/reference/'
 echo '// Generated using generate_sfcodes.sh'
 cat $RIPPLED_ROOT/protocol/detail/sfields.macro | grep -E '^(TYPED_SFIELD|UNTYPED_SFIELD)' |

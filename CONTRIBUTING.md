@@ -488,9 +488,10 @@ existing maintainer without a vote.
 
 ## Current Maintainers
 
-* [Richard Holland](https://github.com/RichardAH) (XRPL Labs + XRP Ledger Foundation)
-* [Denis Angell](https://github.com/dangell7) (XRPL Labs + XRP Ledger Foundation)
-* [Wietse Wind](https://github.com/WietseWind) (XRPL Labs + XRP Ledger Foundation)
+* [Richard Holland](https://github.com/RichardAH) (XRPL Labs + INFTF)
+* [Denis Angell](https://github.com/dangell7) (XRPL Labs + INFTF)
+* [Wietse Wind](https://github.com/WietseWind) (XRPL Labs + INFTF)
+* [tequ](https://github.com/tequdev) (Independent + INFTF)
 
 
 [1]: https://docs.github.com/en/get-started/quickstart/contributing-to-projects

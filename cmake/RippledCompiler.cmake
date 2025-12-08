@@ -17,7 +17,9 @@ target_compile_features (common INTERFACE cxx_std_20)
 target_compile_definitions (common
   INTERFACE
     $<$<CONFIG:Debug>:DEBUG _DEBUG>
-    $<$<AND:$<BOOL:${profile}>,$<NOT:$<BOOL:${assert}>>>:NDEBUG>)
+    $<$<AND:$<BOOL:${profile}>,$<NOT:$<BOOL:${assert}>>>:NDEBUG>
+    # TODO: Remove once we have migrated functions from OpenSSL 1.x to 3.x.
+    OPENSSL_SUPPRESS_DEPRECATED)
     # ^^^^ NOTE: CMAKE release builds already have NDEBUG
     # defined, so no need to add it explicitly except for
     # this special case of (profile ON) and (assert OFF)
@@ -149,6 +151,16 @@ if (use_mold)
     ERROR_QUIET OUTPUT_VARIABLE LD_VERSION)
   if ("${LD_VERSION}" MATCHES "mold")
     target_link_libraries (common INTERFACE -fuse-ld=mold)
+  else ()
+    # Checking for mold linker (< GCC 12.1.0)
+    execute_process (
+      COMMAND ${CMAKE_CXX_COMPILER} -B/usr/libexec/mold -Wl,--version
+      OUTPUT_VARIABLE LD_VERSION_OUT
+      ERROR_VARIABLE LD_VERSION_ERR)
+    set(LD_VERSION "${LD_VERSION_OUT}${LD_VERSION_ERR}")
+    if ("${LD_VERSION}" MATCHES "mold")
+      target_link_libraries (common INTERFACE -B/usr/libexec/mold)
+    endif ()
   endif ()
   unset (LD_VERSION)
 elseif (use_gold AND is_gcc)

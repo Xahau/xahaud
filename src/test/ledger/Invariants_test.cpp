@@ -19,32 +19,32 @@
 
 #include <test/jtx.h>
 #include <test/jtx/AMM.h>
-#include <test/jtx/Env.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/InnerObjectFormats.h>
 #include <xrpl/protocol/STLedgerEntry.h>
+#include <regex>
 
 #include <boost/algorithm/string/predicate.hpp>
 
 namespace ripple {
-
 class Invariants_test : public beast::unit_test::suite
 {
-    // The optional Preclose function is used to process additional transactions
-    // on the ledger after creating two accounts, but before closing it, and
-    // before the Precheck function. These should only be valid functions, and
-    // not direct manipulations. Preclose is not commonly used.
+    // The optional Preclose function is used to process additional
+    // transactions on the ledger after creating two accounts, but before
+    // closing it, and before the Precheck function. These should only be
+    // valid functions, and not direct manipulations. Preclose is not
+    // commonly used.
     using Preclose = std::function<bool(
         test::jtx::Account const& a,
         test::jtx::Account const& b,
         test::jtx::Env& env)>;
 
-    // this is common setup/method for running a failing invariant check. The
-    // precheck function is used to manipulate the ApplyContext with view
-    // changes that will cause the check to fail.
+    // this is common setup/method for running a failing invariant check.
+    // The precheck function is used to manipulate the ApplyContext with
+    // view changes that will cause the check to fail.
     using Precheck = std::function<bool(
         test::jtx::Account const& a,
         test::jtx::Account const& b,
@@ -54,12 +54,12 @@ class Invariants_test : public beast::unit_test::suite
      * detected by an invariant. Simulates the actions of a transaction that
      * would violate an invariant.
      *
-     * @param expect_logs One or more messages related to the failing invariant
-     *  that should be in the log output
+     * @param expect_logs One or more messages related to the failing
+     * invariant that should be in the log output
      * @precheck See "Precheck" above
      * @fee If provided, the fee amount paid by the simulated transaction.
-     * @tx A mock transaction that took the actions to trigger the invariant. In
-     *  most cases, only the type matters.
+     * @tx A mock transaction that took the actions to trigger the
+     * invariant. In most cases, only the type matters.
      * @ters The TER results expected on the two passes of the invariant
      *  checker.
      * @preclose See "Preclose" above. Note that @preclose runs *before*
@@ -111,10 +111,26 @@ class Invariants_test : public beast::unit_test::suite
         {
             terActual = ac.checkInvariants(terActual, fee);
             BEAST_EXPECT(terExpect == terActual);
-            BEAST_EXPECT(
-                sink.messages().str().starts_with("Invariant failed:") ||
-                sink.messages().str().starts_with(
-                    "Transaction caused an exception"));
+            // Handle both with and without BEAST_ENHANCED_LOGGING
+            auto const msg = sink.messages().str();
+            bool hasExpectedPrefix = false;
+
+#ifdef BEAST_ENHANCED_LOGGING
+            // When BEAST_ENHANCED_LOGGING is enabled, messages may include
+            // ANSI color codes and start with [file:line]. Just search for
+            // the message content.
+            hasExpectedPrefix =
+                msg.find("Invariant failed:") != std::string::npos ||
+                msg.find("Transaction caused an exception") !=
+                    std::string::npos;
+#else
+            // Without BEAST_ENHANCED_LOGGING, messages start directly with
+            // the text
+            hasExpectedPrefix = msg.starts_with("Invariant failed:") ||
+                msg.starts_with("Transaction caused an exception");
+#endif
+
+            BEAST_EXPECT(hasExpectedPrefix);
             for (auto const& m : expect_logs)
             {
                 if (sink.messages().str().find(m) == std::string::npos)
@@ -135,7 +151,8 @@ class Invariants_test : public beast::unit_test::suite
         doInvariantCheck(
             {{"XRP net change was positive: 500"}},
             [](Account const& A1, Account const&, ApplyContext& ac) {
-                // put a single account in the view and "manufacture" some XRP
+                // put a single account in the view and "manufacture" some
+                // XRP
                 auto const sle = ac.view().peek(keylet::account(A1.id()));
                 if (!sle)
                     return false;
@@ -164,11 +181,13 @@ class Invariants_test : public beast::unit_test::suite
                 return true;
             });
 
-        // Successful AccountDelete transaction that didn't delete an account.
+        // Successful AccountDelete transaction that didn't delete an
+        // account.
         //
-        // Note that this is a case where a second invocation of the invariant
-        // checker returns a tecINVARIANT_FAILED, not a tefINVARIANT_FAILED.
-        // After a discussion with the team, we believe that's okay.
+        // Note that this is a case where a second invocation of the
+        // invariant checker returns a tecINVARIANT_FAILED, not a
+        // tefINVARIANT_FAILED. After a discussion with the team, we believe
+        // that's okay.
         doInvariantCheck(
             {{"account deletion succeeded without deleting an account"}},
             [](Account const&, Account const&, ApplyContext& ac) {
@@ -218,8 +237,8 @@ class Invariants_test : public beast::unit_test::suite
                 {{"account deletion left behind a "s + type.c_str() +
                   " object"}},
                 [&](Account const& A1, Account const& A2, ApplyContext& ac) {
-                    // Add an object to the ledger for account A1, then delete
-                    // A1
+                    // Add an object to the ledger for account A1, then
+                    // delete A1
                     auto const a1 = A1.id();
                     auto const sleA1 = ac.view().peek(keylet::account(a1));
                     if (!sleA1)
@@ -251,8 +270,8 @@ class Invariants_test : public beast::unit_test::suite
             STTx{ttACCOUNT_DELETE, [](STObject& tx) {}},
             {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
             [&](Account const& A1, Account const&, Env& env) {
-                // Preclose callback to mint the NFT which will be deleted in
-                // the Precheck callback above.
+                // Preclose callback to mint the NFT which will be deleted
+                // in the Precheck callback above.
                 env(token::mint(A1));
 
                 return true;
@@ -265,8 +284,8 @@ class Invariants_test : public beast::unit_test::suite
         doInvariantCheck(
             {{"account deletion left behind a DirectoryNode object"}},
             [&](Account const& A1, Account const& A2, ApplyContext& ac) {
-                // Delete the AMM account without cleaning up the directory or
-                // deleting the AMM object
+                // Delete the AMM account without cleaning up the directory
+                // or deleting the AMM object
                 auto const sle = ac.view().peek(keylet::account(ammAcctID));
                 if (!sle)
                     return false;
@@ -282,8 +301,8 @@ class Invariants_test : public beast::unit_test::suite
             STTx{ttAMM_WITHDRAW, [](STObject& tx) {}},
             {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
             [&](Account const& A1, Account const& A2, Env& env) {
-                // Preclose callback to create the AMM which will be partially
-                // deleted in the Precheck callback above.
+                // Preclose callback to create the AMM which will be
+                // partially deleted in the Precheck callback above.
                 AMM const amm(env, A1, XRP(100), A1["USD"](50));
                 ammAcctID = amm.ammAccount();
                 ammKey = amm.ammID();
@@ -293,9 +312,9 @@ class Invariants_test : public beast::unit_test::suite
         doInvariantCheck(
             {{"account deletion left behind a AMM object"}},
             [&](Account const& A1, Account const& A2, ApplyContext& ac) {
-                // Delete all the AMM's trust lines, remove the AMM from the AMM
-                // account's directory (this deletes the directory), and delete
-                // the AMM account. Do not delete the AMM object.
+                // Delete all the AMM's trust lines, remove the AMM from the
+                // AMM account's directory (this deletes the directory), and
+                // delete the AMM account. Do not delete the AMM object.
                 auto const sle = ac.view().peek(keylet::account(ammAcctID));
                 if (!sle)
                     return false;
@@ -344,8 +363,8 @@ class Invariants_test : public beast::unit_test::suite
             STTx{ttAMM_WITHDRAW, [](STObject& tx) {}},
             {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
             [&](Account const& A1, Account const& A2, Env& env) {
-                // Preclose callback to create the AMM which will be partially
-                // deleted in the Precheck callback above.
+                // Preclose callback to create the AMM which will be
+                // partially deleted in the Precheck callback above.
                 AMM const amm(env, A1, XRP(100), A1["USD"](50));
                 ammAcctID = amm.ammAccount();
                 ammKey = amm.ammID();
@@ -363,7 +382,8 @@ class Invariants_test : public beast::unit_test::suite
             {{"ledger entry type mismatch"},
              {"XRP net change of -1000000000 doesn't match fee 0"}},
             [](Account const& A1, Account const&, ApplyContext& ac) {
-                // replace an entry in the table with an SLE of a different type
+                // replace an entry in the table with an SLE of a different
+                // type
                 auto const sle = ac.view().peek(keylet::account(A1.id()));
                 if (!sle)
                     return false;
@@ -380,14 +400,14 @@ class Invariants_test : public beast::unit_test::suite
                 if (!sle)
                     return false;
 
-                // make a dummy escrow ledger entry, then change the type to an
-                // unsupported value so that the valid type invariant check
-                // will fail.
+                // make a dummy escrow ledger entry, then change the type to
+                // an unsupported value so that the valid type invariant
+                // check will fail.
                 auto const sleNew = std::make_shared<SLE>(
                     keylet::escrow(A1, (*sle)[sfSequence] + 2));
 
-                // We don't use ltNICKNAME directly since it's marked deprecated
-                // to prevent accidental use elsewhere.
+                // We don't use ltNICKNAME directly since it's marked
+                // deprecated to prevent accidental use elsewhere.
                 sleNew->type_ = static_cast<LedgerEntryType>('n');
                 ac.view().insert(sleNew);
                 return true;
@@ -417,7 +437,8 @@ class Invariants_test : public beast::unit_test::suite
         testcase << "trust lines with deep freeze flag without freeze "
                     "not allowed";
         doInvariantCheck(
-            {{"a trust line with deep freeze flag without normal freeze was "
+            {{"a trust line with deep freeze flag without normal freeze "
+              "was "
               "created"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
                 auto const sleNew = std::make_shared<SLE>(
@@ -433,7 +454,8 @@ class Invariants_test : public beast::unit_test::suite
             });
 
         doInvariantCheck(
-            {{"a trust line with deep freeze flag without normal freeze was "
+            {{"a trust line with deep freeze flag without normal freeze "
+              "was "
               "created"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
                 auto const sleNew = std::make_shared<SLE>(
@@ -448,7 +470,8 @@ class Invariants_test : public beast::unit_test::suite
             });
 
         doInvariantCheck(
-            {{"a trust line with deep freeze flag without normal freeze was "
+            {{"a trust line with deep freeze flag without normal freeze "
+              "was "
               "created"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
                 auto const sleNew = std::make_shared<SLE>(
@@ -463,7 +486,8 @@ class Invariants_test : public beast::unit_test::suite
             });
 
         doInvariantCheck(
-            {{"a trust line with deep freeze flag without normal freeze was "
+            {{"a trust line with deep freeze flag without normal freeze "
+              "was "
               "created"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
                 auto const sleNew = std::make_shared<SLE>(
@@ -478,7 +502,8 @@ class Invariants_test : public beast::unit_test::suite
             });
 
         doInvariantCheck(
-            {{"a trust line with deep freeze flag without normal freeze was "
+            {{"a trust line with deep freeze flag without normal freeze "
+              "was "
               "created"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
                 auto const sleNew = std::make_shared<SLE>(
@@ -803,7 +828,8 @@ class Invariants_test : public beast::unit_test::suite
         doInvariantCheck(
             {{"account created with wrong starting sequence number"}},
             [](Account const&, Account const&, ApplyContext& ac) {
-                // Insert a new account root with the wrong starting sequence.
+                // Insert a new account root with the wrong starting
+                // sequence.
                 Account const A3{"A3"};
                 Keylet const acctKeylet = keylet::account(A3);
                 auto const sleNew = std::make_shared<SLE>(acctKeylet);
@@ -823,7 +849,8 @@ class Invariants_test : public beast::unit_test::suite
 
         // lambda that returns an STArray of NFTokenIDs.
         uint256 const firstNFTID(
-            "0000000000000000000000000000000000000001FFFFFFFFFFFFFFFF00000000");
+            "0000000000000000000000000000000000000001FFFFFFFFFFFFFFFF000000"
+            "00");
         auto makeNFTokenIDs = [&firstNFTID](unsigned int nftCount) {
             SOTemplate const* nfTokenTemplate =
                 InnerObjectFormats::getInstance().findSOTemplateBySField(

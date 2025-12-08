@@ -1,7 +1,7 @@
 #
 # Default validators.txt
 #
-# This file is located in the same folder as your rippled.cfg file
+# This file is located in the same folder as your xahaud.cfg file
 # and defines which validators your server trusts not to collude.
 #
 # This file is UTF-8 with DOS, UNIX, or Mac style line endings.
@@ -17,18 +17,17 @@
 #   See validator_list_sites and validator_list_keys below.
 #
 #   Examples:
-#    n9KorY8QtTdRx7TVDpwnG9NvyxsDwHUKUEeDLY3AkiGncVaSXZi5
-#    n9MqiExBcoG19UXwoLjBJnhsxEhAZMuWwJDRdkyDz1EkEkwzQTNt
+#    n9L3GdotB8a3AqtsvS7NXt4BUTQSAYyJUr9xtFj2qXJjfbZsawKY
+#    n9M7G6eLwQtUjfCthWUmTN8L4oEZn1sNr46yvKrpsq58K1C6LAxz
 #
 # [validator_list_sites]
 #
 #   List of URIs serving lists of recommended validators.
 #
 #   Examples:
-#    https://vl.ripple.com
-#    https://vl.xrplf.org
+#    https://vl.xahau.org
 #    http://127.0.0.1:8000
-#    file:///etc/opt/ripple/vl.txt
+#    file:///etc/opt/xahaud/vl.txt
 #
 # [validator_list_keys]
 #
@@ -39,50 +38,48 @@
 #   Validator list keys should be hex-encoded.
 #
 #   Examples:
-#    ED2677ABFFD1B33AC6FBC3062B71F1E8397C1505E1C42C64D11AD1B28FF73F4734
-#    ED307A760EE34F2D0CAA103377B1969117C38B8AA0AA1E2A24DAC1F32FC97087ED
+#    EDA46E9C39B1389894E690E58914DC1029602870370A0993E5B87C4A24EAF4A8E8
 #
 # [import_vl_keys]
 #
 #   This section is used to import the public keys of trusted validator list publishers.
 #   The keys are used to authenticate and accept new lists of trusted validators.
-#   In this example, the key for the publisher "vl.xrplf.org" is imported.
 #   Each key is represented as a hexadecimal string.
 # 
 #   Examples:
-#    ED2677ABFFD1B33AC6FBC3062B71F1E8397C1505E1C42C64D11AD1B28FF73F4734
+#	 ED45D1840EE724BE327ABE9146503D5848EFD5F38B6D5FEDE71E80ACCE5E6E738B
+#	 ED42AEC58B701EEBB77356FFFEC26F83C1F0407263530F068C7C73D392C7E06FD1
+#	 ED2677ABFFD1B33AC6FBC3062B71F1E8397C1505E1C42C64D11AD1B28FF73F4734
 
-# The default validator list publishers that the rippled instance
+# The default validator list publishers that the xahaud instance
 # trusts.
 #
-# WARNING: Changing these values can cause your rippled instance to see a
-#          validated ledger that contradicts other rippled instances'
+# WARNING: Changing these values can cause your xahaud instance to see a
+#          validated ledger that contradicts other xahaud instances'
 #          validated ledgers (aka a ledger fork) if your validator list(s)
 #          do not sufficiently overlap with the list(s) used by others.
 #          See: https://arxiv.org/pdf/1802.07242.pdf
 
 [validator_list_sites]
-https://vl.ripple.com
-https://vl.xrplf.org
+https://vl.xahau.org
 
 [validator_list_keys]
-#vl.ripple.com
-ED2677ABFFD1B33AC6FBC3062B71F1E8397C1505E1C42C64D11AD1B28FF73F4734
-# vl.xrplf.org
-ED45D1840EE724BE327ABE9146503D5848EFD5F38B6D5FEDE71E80ACCE5E6E738B
+# vl.xahau.org
+EDA46E9C39B1389894E690E58914DC1029602870370A0993E5B87C4A24EAF4A8E8
 
 [import_vl_keys]
-# vl.xrplf.org
+ED45D1840EE724BE327ABE9146503D5848EFD5F38B6D5FEDE71E80ACCE5E6E738B
+ED42AEC58B701EEBB77356FFFEC26F83C1F0407263530F068C7C73D392C7E06FD1
 ED2677ABFFD1B33AC6FBC3062B71F1E8397C1505E1C42C64D11AD1B28FF73F4734
 
-# To use the test network (see https://xrpl.org/connect-your-rippled-to-the-xrp-test-net.html),
+# To use the test network (see https://xahau.network/docs/infrastructure/installing-xahaud),
 # use the following configuration instead:
 #
-# [validator_list_sites]
-# https://vl.altnet.rippletest.net
-#
-# [validator_list_keys]
-# ED264807102805220DA0F312E71FC2C69E1552C9C5790F6C25E3729DEB573D5860
+# [validators]
+# nHBoJCE3wPgkTcrNPMHyTJFQ2t77EyCAqcBRspFCpL6JhwCm94VZ
+# nHUVv4g47bFMySAZFUKVaXUYEmfiUExSoY4FzwXULNwJRzju4XnQ
+# nHBvr8avSFTz4TFxZvvi4rEJZZtyqE3J6KAAcVWVtifsE7edPM7q
+# nHUH3Z8TRU57zetHbEPr1ynyrJhxQCwrJvNjr4j1SMjYADyW1WWe
 #
 # [import_vl_keys]
 # ED264807102805220DA0F312E71FC2C69E1552C9C5790F6C25E3729DEB573D5860

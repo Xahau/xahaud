@@ -19,7 +19,6 @@
 
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/rdb/RelationalDatabase.h>
-#include <xrpld/app/rdb/backend/FlatmapDatabase.h>
 #include <xrpld/app/rdb/backend/RWDBDatabase.h>
 #include <xrpld/core/ConfigSections.h>
 
@@ -36,7 +35,6 @@ RelationalDatabase::init(
 {
     bool use_sqlite = false;
     bool use_rwdb = false;
-    bool use_flatmap = false;
 
     const Section& rdb_section{config.section(SECTION_RELATIONAL_DB)};
     if (!rdb_section.empty())
@@ -50,10 +48,6 @@ RelationalDatabase::init(
             else if (boost::iequals(get(rdb_section, "backend"), "rwdb"))
             {
                 use_rwdb = true;
-            }
-            else if (boost::iequals(get(rdb_section, "backend"), "flatmap"))
-            {
-                use_flatmap = true;
             }
             else
             {
@@ -81,10 +75,6 @@ RelationalDatabase::init(
     else if (use_rwdb)
     {
         return getRWDBDatabase(app, config, jobQueue);
-    }
-    else if (use_flatmap)
-    {
-        return getFlatmapDatabase(app, config, jobQueue);
     }
 
     return std::unique_ptr<RelationalDatabase>();

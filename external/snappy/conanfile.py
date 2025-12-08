@@ -77,9 +77,14 @@ class SnappyConan(ConanFile):
         self.cpp_info.set_property("cmake_target_name", "Snappy::snappy")
         # TODO: back to global scope in conan v2 once cmake_find_package* generators removed
         self.cpp_info.components["snappylib"].libs = ["snappy"]
-        if not self.options.shared:
-            if self.settings.os in ["Linux", "FreeBSD"]:
-                self.cpp_info.components["snappylib"].system_libs.append("m")
+        # The following block is commented out as a workaround for a bug in the
+        # Conan 1.x CMakeDeps generator. Including system_libs ("m") here
+        # incorrectly triggers a heuristic that adds a dynamic link to `stdc++`
+        # (-lstdc++), preventing a fully static build.
+        # This behavior is expected to be corrected in Conan 2.
+        # if not self.options.shared:
+        #     if self.settings.os in ["Linux", "FreeBSD"]:
+        #         self.cpp_info.components["snappylib"].system_libs.append("m")
 
         # TODO: to remove in conan v2 once cmake_find_package* generators removed
         self.cpp_info.names["cmake_find_package"] = "Snappy"

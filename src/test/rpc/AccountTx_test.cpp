@@ -115,7 +115,9 @@ class AccountTx_test : public beast::unit_test::suite
         testcase("Parameters APIv" + std::to_string(apiVersion));
         using namespace test::jtx;
 
-        Env env(*this, supported_amendments() - featureXahauGenesis);
+        Env env(
+            *this,
+            supported_amendments() - featureXahauGenesis - fixHookAPI20251128);
         Account A1{"A1"};
         env.fund(XRP(10000), A1);
         env.close();
@@ -164,8 +166,8 @@ class AccountTx_test : public beast::unit_test::suite
                             (payment[jss::validated] == true) &&
                             (payment[jss::ledger_index] == 3) &&
                             (payment[jss::ledger_hash] ==
-                             "6B1FECE09EE027F4D035A1C0DDE3562E527606AF97B57EF3B"
-                             "E259617D67C8F37") &&
+                             "5476DCD816EA04CBBA57D47BBF1FC58A5217CC93A5ADD79CB"
+                             "580A5AFDD727E33") &&
                             (payment[jss::close_time_iso] ==
                              "2000-01-01T00:00:10Z");
                     }
@@ -681,8 +683,7 @@ class AccountTx_test : public beast::unit_test::suite
                     "0B";
                 Json::Value jhv = hso(updateHookHex);
                 jhv[jss::Flags] = hsfOVERRIDE;
-                Json::Value jv =
-                    ripple::test::jtx::hook(account, {{jhv}}, hsfOVERRIDE);
+                Json::Value jv = ripple::test::jtx::hook(account, {{jhv}}, 0);
                 return jv;
             };
             env(updateHook(alice), HSFEE, sig(alie));
@@ -711,8 +712,7 @@ class AccountTx_test : public beast::unit_test::suite
                     "000000";
                 jhv[jss::HookNamespace] = to_string(uint256{beast::zero});
                 jhv[jss::HookHash] = to_string(hookHash);
-                Json::Value jv =
-                    ripple::test::jtx::hook(account, {{jhv}}, hsfOVERRIDE);
+                Json::Value jv = ripple::test::jtx::hook(account, {{jhv}}, 0);
                 return jv;
             };
             uint256 const hid = hh(env, alice);
@@ -721,8 +721,8 @@ class AccountTx_test : public beast::unit_test::suite
 
             // Delete Hook
             auto deleteHook = [](test::jtx::Account const& account) {
-                Json::Value jv = ripple::test::jtx::hook(
-                    account, {{hso_delete()}}, hsfOVERRIDE);
+                Json::Value jv =
+                    ripple::test::jtx::hook(account, {{hso_delete()}}, 0);
                 return jv;
             };
             env(deleteHook(alice), HSFEE, sig(alie));

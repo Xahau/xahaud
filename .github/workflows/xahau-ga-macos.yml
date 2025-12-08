@@ -5,6 +5,8 @@ on:
     branches: ["dev", "candidate", "release"]
   pull_request:
     branches: ["dev", "candidate", "release"]
+  schedule:
+    - cron: '0 0 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,17 +24,25 @@ jobs:
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
-      CACHE_VERSION: 1
+      CACHE_VERSION: 3
       MAIN_BRANCH_NAME: dev
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Get commit message
+        id: get-commit-message
+        uses: ./.github/actions/xahau-ga-get-commit-message
+        with:
+          event-name: ${{ github.event_name }}
+          head-commit-message: ${{ github.event.head_commit.message }}
+          pr-head-sha: ${{ github.event.pull_request.head.sha }}
+
       - name: Install Conan
         run: |
-          brew install conan@1
-          # Add Conan 1 to the PATH for this job
-          echo "$(brew --prefix conan@1)/bin" >> $GITHUB_PATH
+          brew install conan
+          # Verify Conan 2 is installed
+          conan --version
 
       - name: Install Coreutils
         run: |
@@ -58,22 +68,23 @@ jobs:
 
       - name: Install CMake
         run: |
-          if which cmake > /dev/null 2>&1; then
-              echo "cmake executable exists"
-              cmake --version
-          else
-              brew install cmake
-          fi
+          # Install CMake 3.x to match local dev environments
+          # With Conan 2 and the policy args passed to CMake, newer versions
+          # can have issues with dependencies that require cmake_minimum_required < 3.5
+          brew uninstall cmake --ignore-dependencies 2>/dev/null || true
+
+          # Download and install CMake 3.31.7 directly
+          curl -L https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-macos-universal.tar.gz -o cmake.tar.gz
+          tar -xzf cmake.tar.gz
+
+          # Move the entire CMake.app to /Applications
+          sudo mv cmake-3.31.7-macos-universal/CMake.app /Applications/
+
+          echo "/Applications/CMake.app/Contents/bin" >> $GITHUB_PATH
+          /Applications/CMake.app/Contents/bin/cmake --version
 
       - name: Install ccache
         run: brew install ccache
-
-      - name: Configure ccache
-        uses: ./.github/actions/xahau-configure-ccache
-        with:
-          max_size: 2G
-          hash_dir: true
-          compiler_check: content
 
       - name: Check environment
         run: |
@@ -87,10 +98,12 @@ jobs:
           echo "---- Full Environment ----"
           env
 
-      - name: Configure Conan
+      - name: Detect compiler version
+        id: detect-compiler
         run: |
-          conan profile new default --detect || true # Ignore error if profile exists
-          conan profile update settings.compiler.cppstd=20 default
+          COMPILER_VERSION=$(clang --version | grep -oE 'version [0-9]+' | grep -oE '[0-9]+')
+          echo "compiler_version=${COMPILER_VERSION}" >> $GITHUB_OUTPUT
+          echo "Detected Apple Clang version: ${COMPILER_VERSION}"
 
       - name: Install dependencies
         uses: ./.github/actions/xahau-ga-dependencies
@@ -100,6 +113,11 @@ jobs:
           compiler-id: clang
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          os: Macos
+          arch: armv8
+          compiler: apple-clang
+          compiler_version: ${{ steps.detect-compiler.outputs.compiler_version }}
+          stdlib: libcxx
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build
@@ -110,6 +128,7 @@ jobs:
           compiler-id: clang
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          stdlib: libcxx
 
       - name: Test
         run: |

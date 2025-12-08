@@ -78,6 +78,12 @@ target_link_libraries(xrpl.libxrpl.beast PUBLIC
   xrpl.libpb
 )
 
+# Conditionally add enhanced logging source when BEAST_ENHANCED_LOGGING is enabled
+if(DEFINED BEAST_ENHANCED_LOGGING AND BEAST_ENHANCED_LOGGING)
+  target_sources(xrpl.libxrpl.beast PRIVATE
+    src/libxrpl/beast/utility/src/beast_EnhancedLogging.cpp)
+endif()
+
 # Level 02
 add_module(xrpl basics)
 target_link_libraries(xrpl.libxrpl.basics PUBLIC xrpl.libxrpl.beast)
@@ -175,6 +181,11 @@ if(xrpld)
     Ripple::opts
     Ripple::libs
     xrpl.libxrpl
+    # Workaround for a Conan 1.x bug that prevents static linking of libstdc++
+    # when a dependency (snappy) modifies system_libs. See the comment in
+    # external/snappy/conanfile.py for a full explanation.
+    # This is likely not strictly necessary, but listed explicitly as a good practice.
+    m
   )
   exclude_if_included(rippled)
   # define a macro for tests that might need to

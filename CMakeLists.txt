@@ -41,6 +41,25 @@ if(Git_FOUND)
     endif()
 endif() #git
 
+# make SOURCE_ROOT_PATH define available for logging
+set(SOURCE_ROOT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/")
+add_definitions(-DSOURCE_ROOT_PATH="${SOURCE_ROOT_PATH}")
+
+# BEAST_ENHANCED_LOGGING option - adds file:line numbers and formatting to logs
+# Default to ON for Debug builds, OFF for Release
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages" ON)
+else()
+    option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages" OFF)
+endif()
+
+if(BEAST_ENHANCED_LOGGING)
+    add_definitions(-DBEAST_ENHANCED_LOGGING=1)
+    message(STATUS "Log line numbers enabled")
+else()
+    message(STATUS "Log line numbers disabled")
+endif()
+
 if(thread_safety_analysis)
   add_compile_options(-Wthread-safety -D_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS -DRIPPLE_ENABLE_THREAD_SAFETY_ANNOTATIONS)
   add_compile_options("-stdlib=libc++")
@@ -58,11 +77,6 @@ if(CMAKE_TOOLCHAIN_FILE)
   endif()
 endif()
 
-if (NOT USE_CONAN)
-  list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-  list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/deps")
-endif()
-
 include (CheckCXXCompilerFlag)
 include (FetchContent)
 include (ExternalProject)
@@ -74,9 +88,7 @@ endif ()
 include(RippledSanity)
 include(RippledVersion)
 include(RippledSettings)
-if (NOT USE_CONAN)
-  include(RippledNIH)
-endif()
+
 # this check has to remain in the top-level cmake
 # because of the early return statement
 if (packages_only)
@@ -88,81 +100,56 @@ endif ()
 include(RippledCompiler)
 include(RippledInterface)
 
-###
-if (NOT USE_CONAN)
-  set(SECP256K1_INSTALL TRUE)
-  add_subdirectory(external/secp256k1)
-  add_library(secp256k1::secp256k1 ALIAS secp256k1)
-  add_subdirectory(external/ed25519-donna)
-  add_subdirectory(external/antithesis-sdk)
-  include(deps/Boost)
-  include(deps/OpenSSL)
-  # include(deps/Secp256k1)
-  # include(deps/Ed25519-donna)
-  include(deps/Lz4)
-  include(deps/Libarchive)
-  include(deps/Sqlite)
-  include(deps/Soci)
-  include(deps/Rocksdb)
-  include(deps/Nudb)
-  include(deps/date)
-  # include(deps/Protobuf)
-  # include(deps/gRPC)
-  include(deps/cassandra)
-  include(deps/Postgres)
-  include(deps/WasmEdge)
-else()
-  include(conan/Boost)
-  find_package(OpenSSL 1.1.1 REQUIRED)
-  set_target_properties(OpenSSL::SSL PROPERTIES
-    INTERFACE_COMPILE_DEFINITIONS OPENSSL_NO_SSL2
+include(deps/Boost)
+find_package(OpenSSL 1.1.1 REQUIRED)
+set_target_properties(OpenSSL::SSL PROPERTIES
+  INTERFACE_COMPILE_DEFINITIONS OPENSSL_NO_SSL2
+)
+set(SECP256K1_INSTALL TRUE)
+add_subdirectory(external/secp256k1)
+add_library(secp256k1::secp256k1 ALIAS secp256k1)
+add_subdirectory(external/ed25519-donna)
+add_subdirectory(external/antithesis-sdk)
+find_package(gRPC REQUIRED)
+find_package(lz4 REQUIRED)
+# Target names with :: are not allowed in a generator expression.
+# We need to pull the include directories and imported location properties
+# from separate targets.
+find_package(LibArchive REQUIRED)
+find_package(SOCI REQUIRED)
+find_package(SQLite3 REQUIRED)
+include(deps/WasmEdge)
+option(rocksdb "Enable RocksDB" ON)
+if(rocksdb)
+  find_package(RocksDB REQUIRED)
+  set_target_properties(RocksDB::rocksdb PROPERTIES
+    INTERFACE_COMPILE_DEFINITIONS RIPPLE_ROCKSDB_AVAILABLE=1
   )
-  set(SECP256K1_INSTALL TRUE)
-  add_subdirectory(external/secp256k1)
-  add_library(secp256k1::secp256k1 ALIAS secp256k1)
-  add_subdirectory(external/ed25519-donna)
-  add_subdirectory(external/antithesis-sdk)
-  find_package(gRPC REQUIRED)
-  find_package(lz4 REQUIRED)
-  # Target names with :: are not allowed in a generator expression.
-  # We need to pull the include directories and imported location properties
-  # from separate targets.
-  find_package(LibArchive REQUIRED)
-  find_package(SOCI REQUIRED)
-  find_package(SQLite3 REQUIRED)
-  find_package(wasmedge REQUIRED)
-  option(rocksdb "Enable RocksDB" ON)
-  if(rocksdb)
-    find_package(RocksDB REQUIRED)
-    set_target_properties(RocksDB::rocksdb PROPERTIES
-      INTERFACE_COMPILE_DEFINITIONS RIPPLE_ROCKSDB_AVAILABLE=1
-    )
-    target_link_libraries(ripple_libs INTERFACE RocksDB::rocksdb)
-  endif()
-  find_package(nudb REQUIRED)
-  find_package(date REQUIRED)
-  find_package(xxHash REQUIRED)
-    if(TARGET nudb::core)
-    set(nudb nudb::core)
-  elseif(TARGET NuDB::nudb)
-    set(nudb NuDB::nudb)
-  else()
-    message(FATAL_ERROR "unknown nudb target")
-  endif()
-  target_link_libraries(ripple_libs INTERFACE ${nudb})
-
-  target_link_libraries(ripple_libs INTERFACE
-    ed25519::ed25519
-    lz4::lz4
-    OpenSSL::Crypto
-    OpenSSL::SSL
-    # Ripple::grpc_pbufs
-    # Ripple::pbufs
-    secp256k1::secp256k1
-    soci::soci
-    SQLite::SQLite3
-  )
+  target_link_libraries(ripple_libs INTERFACE RocksDB::rocksdb)
 endif()
+find_package(nudb REQUIRED)
+find_package(date REQUIRED)
+find_package(xxHash REQUIRED)
+  if(TARGET nudb::core)
+  set(nudb nudb::core)
+elseif(TARGET NuDB::nudb)
+  set(nudb NuDB::nudb)
+else()
+  message(FATAL_ERROR "unknown nudb target")
+endif()
+target_link_libraries(ripple_libs INTERFACE ${nudb})
+
+target_link_libraries(ripple_libs INTERFACE
+  ed25519::ed25519
+  lz4::lz4
+  OpenSSL::Crypto
+  OpenSSL::SSL
+  # Ripple::grpc_pbufs
+  # Ripple::pbufs
+  secp256k1::secp256k1
+  soci::soci
+  SQLite::SQLite3
+)
 
 if(coverage)
   include(RippledCov)
@@ -170,10 +157,6 @@ endif()
 
 set(PROJECT_EXPORT_SET RippleExports)
 include(RippledCore)
-if (NOT USE_CONAN)
-  include(deps/Protobuf)
-  include(deps/gRPC)
-endif()
 include(RippledInstall)
 include(RippledDocs)
 include(RippledValidatorKeys)

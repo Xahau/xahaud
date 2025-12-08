@@ -219,6 +219,10 @@ public:
         }
         BEAST_EXPECT(store.getLastRotated() == lastRotated);
 
+        SQLiteDatabase* const db =
+            dynamic_cast<SQLiteDatabase*>(&env.app().getRelationalDatabase());
+        BEAST_EXPECT(*db->getTransactionsMinLedgerSeq() == 3);
+
         for (auto i = 3; i < deleteInterval + lastRotated; ++i)
         {
             ledgers.emplace(

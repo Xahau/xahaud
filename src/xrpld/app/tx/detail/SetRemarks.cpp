@@ -155,7 +155,8 @@ getRemarksIssuer(T const& sleO)
             break;
         }
 
-        case ltNFTOKEN_OFFER: {
+        case ltNFTOKEN_OFFER:
+        case ltORACLE: {
             issuer = sleO->getAccountID(sfOwner);
             break;
         }
