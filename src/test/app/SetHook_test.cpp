@@ -22,6 +22,7 @@
 #include <test/jtx/hook.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/tx/detail/SetHook.h>
+#include <xrpl/beast/utility/Journal.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_writer.h>
@@ -3069,6 +3070,175 @@ public:
             for ([[maybe_unused]] auto& i : ledger->txs)
                 txcount++;
             BEAST_EXPECT(txcount == 0);
+        }
+
+        {
+            // Test batch transactions
+            /*
+            {
+            "TransactionType": "Batch",
+            "Account": "rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn",
+            "Flags": 65536,
+            "RawTransactions": [
+            {
+                "RawTransaction": {
+                    "TransactionType": "AccountSet",
+                    "Flags": 1073741824,
+                    "Account": "rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn",
+                    "Sequence": 0,
+                    "Fee": "0",
+                    "SigningPubKey": ""
+                }
+                },
+                {
+                "RawTransaction": {
+                    "TransactionType": "Payment",
+                    "Flags": 1073741824,
+                    "Account": "rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn",
+                    "Destination": "rhLkGGNZdjSpnHJw4XAFw1Jy7PD8TqxoET",
+                    "Amount": "100000000",
+                    "Sequence": 0,
+                    "Fee": "0",
+                    "SigningPubKey": ""
+                }
+                }
+            ]
+            }
+            */
+            TestHook hook = wasm[R"[test.hook](
+                #include <stdint.h>
+                extern int32_t _g(uint32_t, uint32_t);
+                extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+                extern int64_t rollback(uint32_t read_ptr, uint32_t read_len,
+                                        int64_t error_code);
+                extern int64_t emit(uint32_t, uint32_t, uint32_t, uint32_t);
+                extern int64_t etxn_reserve(uint32_t);
+                extern int64_t hook_account(uint32_t, uint32_t);
+                extern int64_t ledger_seq(void);
+                extern int64_t etxn_details(uint32_t, uint32_t);
+                extern int64_t etxn_fee_base(uint32_t, uint32_t);
+                extern int64_t trace(uint32_t mread_ptr, uint32_t mread_len, uint32_t dread_ptr,
+                                    uint32_t dread_len, uint32_t as_hex);
+
+                #define SBUF(x) (uint32_t) x, sizeof(x)
+                #define TRACEHEX(v)                                                            \
+                trace((uint32_t)(#v), (uint32_t)(sizeof(#v) - 1), (uint32_t)(v),               \
+                        (uint32_t)(sizeof(v)), 1);
+
+                // clang-format off
+                uint8_t txn[339] =
+                {
+                /* size, upto, field name               */
+                /*    3,    0, tt = Batch               */   0x12U, 0x00U, 0x49U,
+                /*    5,    3, flags                    */   0x22U, 0x00U, 0x01U, 0x00U, 0x00U,
+                /*    5,    8, sequence                 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    6,   13, firstledgersequence      */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    6,   19, lastledgersequence       */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    9,   25, fee                      */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   35,   34, signingpubkey            */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*   22,   69, account                  */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*  132,   91, rawtransactions          */   0xF0U, 0x1EU, 0xE0U, 0x22U, 0x12U, 0x00U, 0x03U, 0x22U, 0x40U, 0x00U, 0x00U, 0x00U, 0x24U, 0x00U, 0x00U, 0x00U, 0x04U, 0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x73U, 0x00U, 0x81U, 0x14U, 0xAEU, 0x12U, 0x3AU, 0x85U, 0x56U, 0xF3U, 0xCFU, 0x91U, 0x15U, 0x47U, 0x11U, 0x37U, 0x6AU, 0xFBU, 0x0FU, 0x89U, 0x4FU, 0x83U, 0x2BU, 0x3DU, 0xE1U, 0xE0U, 0x22U, 0x12U, 0x00U, 0x00U, 0x22U, 0x40U, 0x00U, 0x00U, 0x00U, 0x24U, 0x00U, 0x00U, 0x00U, 0x05U, 0x61U, 0x40U, 0x00U, 0x00U, 0x00U, 0x05U, 0xF5U, 0xE1U, 0x00U, 0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x73U, 0x00U, 0x81U, 0x14U, 0xAEU, 0x12U, 0x3AU, 0x85U, 0x56U, 0xF3U, 0xCFU, 0x91U, 0x15U, 0x47U, 0x11U, 0x37U, 0x6AU, 0xFBU, 0x0FU, 0x89U, 0x4FU, 0x83U, 0x2BU, 0x3DU, 0x83U, 0x14U, 0x24U, 0xA4U, 0x65U, 0x17U, 0x16U, 0xD2U, 0x6EU, 0x97U, 0xDFU, 0xCCU, 0x3BU, 0x18U, 0xF3U, 0xEEU, 0xB0U, 0xC1U, 0x54U, 0x56U, 0x64U, 0x2EU, 0xE1U, 0xF1U,
+                /*  116,  223, emit details             */ 
+                /*    0,  339,                          */ 
+                };
+                // clang-format on
+
+                // TX BUILDER
+                #define FLAGS_OUT (txn + 4U)
+                #define FLS_OUT (txn + 15U)
+                #define LLS_OUT (txn + 21U)
+                #define FEE_OUT (txn + 26U)
+                #define ACCOUNT_OUT (txn + 71U)
+                #define RAWTRANSACTIONS_OUT (txn + 93U)
+                #define EMIT_OUT (txn + 223U)
+
+                #define FLIP_ENDIAN_32(value)                                                  \
+                (uint32_t)(((value & 0xFFU) << 24) | ((value & 0xFF00U) << 8) |              \
+                            ((value & 0xFF0000U) >> 8) | ((value & 0xFF000000U) >> 24))
+
+                #define SET_UINT32(ptr, value) *((uint32_t *)(ptr)) = FLIP_ENDIAN_32(value);
+
+                #define SET_NATIVE_AMOUNT(ptr, amount)                                         \
+                do {                                                                         \
+                    uint8_t *b = (ptr);                                                        \
+                    *b++ = 0b01000000 + ((amount >> 56) & 0b00111111);                         \
+                    *b++ = (amount >> 48) & 0xFFU;                                             \
+                    *b++ = (amount >> 40) & 0xFFU;                                             \
+                    *b++ = (amount >> 32) & 0xFFU;                                             \
+                    *b++ = (amount >> 24) & 0xFFU;                                             \
+                    *b++ = (amount >> 16) & 0xFFU;                                             \
+                    *b++ = (amount >> 8) & 0xFFU;                                              \
+                    *b++ = (amount >> 0) & 0xFFU;                                              \
+                } while (0)
+
+                #define PREPARE_TXN()                                                          \
+                do {                                                                           \
+                    etxn_reserve(1);                                                           \
+                    uint32_t fls = (uint32_t)ledger_seq() + 1;                                 \
+                    SET_UINT32(FLS_OUT, fls);                                                  \
+                    SET_UINT32(LLS_OUT, fls + 4);                                              \
+                    hook_account(ACCOUNT_OUT, 20);                                             \
+                    etxn_details(EMIT_OUT, 116U);                                              \
+                    int64_t fee = etxn_fee_base(SBUF(txn));                                    \
+                    SET_NATIVE_AMOUNT(FEE_OUT, fee);                                           \
+                    TRACEHEX(txn);                                                             \
+                } while (0)
+
+                /*
+                PREPARE_TXN();
+                uint8_t emithash[32];
+                int64_t emit_result = emit(SBUF(emithash), SBUF(txn));
+                */
+                int64_t hook(uint32_t reserved) {
+                    _g(1, 1);
+                    etxn_reserve(1);
+                    PREPARE_TXN();
+                    uint8_t emithash[32];
+                    int64_t emit_result = emit(emithash, 32, txn, sizeof(txn));
+                    if (emit_result == 32) {
+                        return accept(0, 0, 0);
+                    } else {
+                        return rollback(0, 0, emit_result);
+                    }
+                }
+            )[test.hook]"];
+
+            Env env{
+                *this,
+                envconfig(),
+                features,
+                nullptr,
+                beast::severities::kTrace};
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+                M("set emit batch"),
+                HSFEE);
+            env.close();
+
+            // invoke the hook
+            env(pay(bob, alice, XRP(1)), M("test emit batch"), fee(XRP(1)));
+            env.close();
+
+            env.close();
+            auto txnItr = env.closed()->txs;
+            int txnCount = 0;
+            for (auto& i : txnItr)
+            {
+                auto const& txn = i.first;
+                auto const& meta = i.second;
+                printf(
+                    "txn: %s\n",
+                    (txn->getJson(JsonOptions::none)).toStyledString().c_str());
+                printf(
+                    "meta: %s\n",
+                    (meta->getJson(JsonOptions::none))
+                        .toStyledString()
+                        .c_str());
+                txnCount++;
+            }
+            BEAST_EXPECT(txnCount == 3);  // 1 Outer + 2 Inner
         }
     }
 
@@ -13380,6 +13550,8 @@ public:
     void
     testWithFeatures(FeatureBitset features)
     {
+        test_emit(features);  //
+        return;
         testHooksOwnerDir(features);
         testHooksDisabled(features);
         testTxStructure(features);

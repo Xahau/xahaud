@@ -1161,6 +1161,214 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
 
     /* ==== WASM: 7 ==== */
     {R"[test.hook](
+                #include <stdint.h>
+                extern int32_t _g(uint32_t, uint32_t);
+                extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+                extern int64_t rollback(uint32_t read_ptr, uint32_t read_len,
+                                        int64_t error_code);
+                extern int64_t emit(uint32_t, uint32_t, uint32_t, uint32_t);
+                extern int64_t etxn_reserve(uint32_t);
+                extern int64_t hook_account(uint32_t, uint32_t);
+                extern int64_t ledger_seq(void);
+                extern int64_t etxn_details(uint32_t, uint32_t);
+                extern int64_t etxn_fee_base(uint32_t, uint32_t);
+                extern int64_t trace(uint32_t mread_ptr, uint32_t mread_len, uint32_t dread_ptr,
+                                    uint32_t dread_len, uint32_t as_hex);
+
+                #define SBUF(x) (uint32_t) x, sizeof(x)
+                #define TRACEHEX(v)                                                            \
+                trace((uint32_t)(#v), (uint32_t)(sizeof(#v) - 1), (uint32_t)(v),               \
+                        (uint32_t)(sizeof(v)), 1);
+
+                // clang-format off
+                uint8_t txn[339] =
+                {
+                /* size, upto, field name               */
+                /*    3,    0, tt = Batch               */   0x12U, 0x00U, 0x49U,
+                /*    5,    3, flags                    */   0x22U, 0x00U, 0x01U, 0x00U, 0x00U,
+                /*    5,    8, sequence                 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    6,   13, firstledgersequence      */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    6,   19, lastledgersequence       */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    9,   25, fee                      */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   35,   34, signingpubkey            */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*   22,   69, account                  */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*  132,   91, rawtransactions          */   0xF0U, 0x1EU, 0xE0U, 0x22U, 0x12U, 0x00U, 0x03U, 0x22U, 0x40U, 0x00U, 0x00U, 0x00U, 0x24U, 0x00U, 0x00U, 0x00U, 0x04U, 0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x73U, 0x00U, 0x81U, 0x14U, 0xAEU, 0x12U, 0x3AU, 0x85U, 0x56U, 0xF3U, 0xCFU, 0x91U, 0x15U, 0x47U, 0x11U, 0x37U, 0x6AU, 0xFBU, 0x0FU, 0x89U, 0x4FU, 0x83U, 0x2BU, 0x3DU, 0xE1U, 0xE0U, 0x22U, 0x12U, 0x00U, 0x00U, 0x22U, 0x40U, 0x00U, 0x00U, 0x00U, 0x24U, 0x00U, 0x00U, 0x00U, 0x05U, 0x61U, 0x40U, 0x00U, 0x00U, 0x00U, 0x05U, 0xF5U, 0xE1U, 0x00U, 0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x73U, 0x00U, 0x81U, 0x14U, 0xAEU, 0x12U, 0x3AU, 0x85U, 0x56U, 0xF3U, 0xCFU, 0x91U, 0x15U, 0x47U, 0x11U, 0x37U, 0x6AU, 0xFBU, 0x0FU, 0x89U, 0x4FU, 0x83U, 0x2BU, 0x3DU, 0x83U, 0x14U, 0x24U, 0xA4U, 0x65U, 0x17U, 0x16U, 0xD2U, 0x6EU, 0x97U, 0xDFU, 0xCCU, 0x3BU, 0x18U, 0xF3U, 0xEEU, 0xB0U, 0xC1U, 0x54U, 0x56U, 0x64U, 0x2EU, 0xE1U, 0xF1U,
+                /*  116,  223, emit details             */ 
+                /*    0,  339,                          */ 
+                };
+                // clang-format on
+
+                // TX BUILDER
+                #define FLAGS_OUT (txn + 4U)
+                #define FLS_OUT (txn + 15U)
+                #define LLS_OUT (txn + 21U)
+                #define FEE_OUT (txn + 26U)
+                #define ACCOUNT_OUT (txn + 71U)
+                #define RAWTRANSACTIONS_OUT (txn + 93U)
+                #define EMIT_OUT (txn + 223U)
+
+                #define FLIP_ENDIAN_32(value)                                                  \
+                (uint32_t)(((value & 0xFFU) << 24) | ((value & 0xFF00U) << 8) |              \
+                            ((value & 0xFF0000U) >> 8) | ((value & 0xFF000000U) >> 24))
+
+                #define SET_UINT32(ptr, value) *((uint32_t *)(ptr)) = FLIP_ENDIAN_32(value);
+
+                #define SET_NATIVE_AMOUNT(ptr, amount)                                         \
+                do {                                                                         \
+                    uint8_t *b = (ptr);                                                        \
+                    *b++ = 0b01000000 + ((amount >> 56) & 0b00111111);                         \
+                    *b++ = (amount >> 48) & 0xFFU;                                             \
+                    *b++ = (amount >> 40) & 0xFFU;                                             \
+                    *b++ = (amount >> 32) & 0xFFU;                                             \
+                    *b++ = (amount >> 24) & 0xFFU;                                             \
+                    *b++ = (amount >> 16) & 0xFFU;                                             \
+                    *b++ = (amount >> 8) & 0xFFU;                                              \
+                    *b++ = (amount >> 0) & 0xFFU;                                              \
+                } while (0)
+
+                #define PREPARE_TXN()                                                          \
+                do {                                                                           \
+                    etxn_reserve(1);                                                           \
+                    uint32_t fls = (uint32_t)ledger_seq() + 1;                                 \
+                    SET_UINT32(FLS_OUT, fls);                                                  \
+                    SET_UINT32(LLS_OUT, fls + 4);                                              \
+                    hook_account(ACCOUNT_OUT, 20);                                             \
+                    etxn_details(EMIT_OUT, 116U);                                              \
+                    int64_t fee = etxn_fee_base(SBUF(txn));                                    \
+                    SET_NATIVE_AMOUNT(FEE_OUT, fee);                                           \
+                    TRACEHEX(txn);                                                             \
+                } while (0)
+
+                /*
+                PREPARE_TXN();
+                uint8_t emithash[32];
+                int64_t emit_result = emit(SBUF(emithash), SBUF(txn));
+                */
+                int64_t hook(uint32_t reserved) {
+                    _g(1, 1);
+                    etxn_reserve(1);
+                    PREPARE_TXN();
+                    uint8_t emithash[32];
+                    int64_t emit_result = emit(emithash, 32, txn, sizeof(txn));
+                    if (emit_result == 32) {
+                        return accept(0, 0, 0);
+                    } else {
+                        return rollback(0, 0, emit_result);
+                    }
+                }
+            )[test.hook]",
+     {
+         0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x2EU,
+         0x07U, 0x60U, 0x02U, 0x7FU, 0x7FU, 0x01U, 0x7FU, 0x60U, 0x01U, 0x7FU,
+         0x01U, 0x7EU, 0x60U, 0x00U, 0x01U, 0x7EU, 0x60U, 0x02U, 0x7FU, 0x7FU,
+         0x01U, 0x7EU, 0x60U, 0x05U, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x01U,
+         0x7EU, 0x60U, 0x04U, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x01U, 0x7EU, 0x60U,
+         0x03U, 0x7FU, 0x7FU, 0x7EU, 0x01U, 0x7EU, 0x02U, 0x9BU, 0x01U, 0x0AU,
+         0x03U, 0x65U, 0x6EU, 0x76U, 0x02U, 0x5FU, 0x67U, 0x00U, 0x00U, 0x03U,
+         0x65U, 0x6EU, 0x76U, 0x0CU, 0x65U, 0x74U, 0x78U, 0x6EU, 0x5FU, 0x72U,
+         0x65U, 0x73U, 0x65U, 0x72U, 0x76U, 0x65U, 0x00U, 0x01U, 0x03U, 0x65U,
+         0x6EU, 0x76U, 0x0AU, 0x6CU, 0x65U, 0x64U, 0x67U, 0x65U, 0x72U, 0x5FU,
+         0x73U, 0x65U, 0x71U, 0x00U, 0x02U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x0CU,
+         0x68U, 0x6FU, 0x6FU, 0x6BU, 0x5FU, 0x61U, 0x63U, 0x63U, 0x6FU, 0x75U,
+         0x6EU, 0x74U, 0x00U, 0x03U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x0CU, 0x65U,
+         0x74U, 0x78U, 0x6EU, 0x5FU, 0x64U, 0x65U, 0x74U, 0x61U, 0x69U, 0x6CU,
+         0x73U, 0x00U, 0x03U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x0DU, 0x65U, 0x74U,
+         0x78U, 0x6EU, 0x5FU, 0x66U, 0x65U, 0x65U, 0x5FU, 0x62U, 0x61U, 0x73U,
+         0x65U, 0x00U, 0x03U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x05U, 0x74U, 0x72U,
+         0x61U, 0x63U, 0x65U, 0x00U, 0x04U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x04U,
+         0x65U, 0x6DU, 0x69U, 0x74U, 0x00U, 0x05U, 0x03U, 0x65U, 0x6EU, 0x76U,
+         0x06U, 0x61U, 0x63U, 0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x06U, 0x03U,
+         0x65U, 0x6EU, 0x76U, 0x08U, 0x72U, 0x6FU, 0x6CU, 0x6CU, 0x62U, 0x61U,
+         0x63U, 0x6BU, 0x00U, 0x06U, 0x03U, 0x02U, 0x01U, 0x01U, 0x05U, 0x03U,
+         0x01U, 0x00U, 0x02U, 0x06U, 0x27U, 0x06U, 0x7FU, 0x01U, 0x41U, 0xE0U,
+         0x8AU, 0x04U, 0x0BU, 0x7FU, 0x00U, 0x41U, 0xD7U, 0x0AU, 0x0BU, 0x7FU,
+         0x00U, 0x41U, 0x80U, 0x08U, 0x0BU, 0x7FU, 0x00U, 0x41U, 0xE0U, 0x8AU,
+         0x04U, 0x0BU, 0x7FU, 0x00U, 0x41U, 0x80U, 0x08U, 0x0BU, 0x7FU, 0x00U,
+         0x41U, 0x80U, 0x08U, 0x0BU, 0x07U, 0x08U, 0x01U, 0x04U, 0x68U, 0x6FU,
+         0x6FU, 0x6BU, 0x00U, 0x0AU, 0x0AU, 0xA7U, 0x83U, 0x00U, 0x01U, 0xA3U,
+         0x83U, 0x00U, 0x02U, 0x03U, 0x7FU, 0x01U, 0x7EU, 0x23U, 0x80U, 0x80U,
+         0x80U, 0x80U, 0x00U, 0x41U, 0x20U, 0x6BU, 0x22U, 0x01U, 0x24U, 0x80U,
+         0x80U, 0x80U, 0x80U, 0x00U, 0x41U, 0x01U, 0x41U, 0x01U, 0x10U, 0x80U,
+         0x80U, 0x80U, 0x80U, 0x00U, 0x1AU, 0x41U, 0x01U, 0x10U, 0x81U, 0x80U,
+         0x80U, 0x80U, 0x00U, 0x1AU, 0x41U, 0x01U, 0x10U, 0x81U, 0x80U, 0x80U,
+         0x80U, 0x00U, 0x1AU, 0x41U, 0x00U, 0x10U, 0x82U, 0x80U, 0x80U, 0x80U,
+         0x00U, 0xA7U, 0x22U, 0x02U, 0x41U, 0x05U, 0x6AU, 0x22U, 0x03U, 0x41U,
+         0x18U, 0x74U, 0x20U, 0x03U, 0x41U, 0x08U, 0x74U, 0x41U, 0x80U, 0x80U,
+         0xFCU, 0x07U, 0x71U, 0x72U, 0x20U, 0x03U, 0x41U, 0x08U, 0x76U, 0x41U,
+         0x80U, 0xFEU, 0x03U, 0x71U, 0x20U, 0x03U, 0x41U, 0x18U, 0x76U, 0x72U,
+         0x72U, 0x36U, 0x02U, 0x95U, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U, 0x00U,
+         0x20U, 0x02U, 0x41U, 0x01U, 0x6AU, 0x22U, 0x03U, 0x41U, 0x18U, 0x74U,
+         0x20U, 0x03U, 0x41U, 0x08U, 0x74U, 0x41U, 0x80U, 0x80U, 0xFCU, 0x07U,
+         0x71U, 0x72U, 0x20U, 0x03U, 0x41U, 0x08U, 0x76U, 0x41U, 0x80U, 0xFEU,
+         0x03U, 0x71U, 0x20U, 0x03U, 0x41U, 0x18U, 0x76U, 0x72U, 0x72U, 0x36U,
+         0x02U, 0x8FU, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U, 0xC7U, 0x88U, 0x80U,
+         0x80U, 0x00U, 0x41U, 0x14U, 0x10U, 0x83U, 0x80U, 0x80U, 0x80U, 0x00U,
+         0x1AU, 0x41U, 0xDFU, 0x89U, 0x80U, 0x80U, 0x00U, 0x41U, 0xF4U, 0x00U,
+         0x10U, 0x84U, 0x80U, 0x80U, 0x80U, 0x00U, 0x1AU, 0x41U, 0x00U, 0x41U,
+         0x80U, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U, 0xD3U, 0x02U, 0x10U, 0x85U,
+         0x80U, 0x80U, 0x80U, 0x00U, 0x22U, 0x04U, 0x3CU, 0x00U, 0xA1U, 0x88U,
+         0x80U, 0x80U, 0x00U, 0x41U, 0x00U, 0x20U, 0x04U, 0x42U, 0x08U, 0x88U,
+         0x3CU, 0x00U, 0xA0U, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U, 0x00U, 0x20U,
+         0x04U, 0x42U, 0x10U, 0x88U, 0x3CU, 0x00U, 0x9FU, 0x88U, 0x80U, 0x80U,
+         0x00U, 0x41U, 0x00U, 0x20U, 0x04U, 0x42U, 0x18U, 0x88U, 0x3CU, 0x00U,
+         0x9EU, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U, 0x00U, 0x20U, 0x04U, 0x42U,
+         0x20U, 0x88U, 0x3CU, 0x00U, 0x9DU, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U,
+         0x00U, 0x20U, 0x04U, 0x42U, 0x28U, 0x88U, 0x3CU, 0x00U, 0x9CU, 0x88U,
+         0x80U, 0x80U, 0x00U, 0x41U, 0x00U, 0x20U, 0x04U, 0x42U, 0x30U, 0x88U,
+         0x3CU, 0x00U, 0x9BU, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U, 0x00U, 0x20U,
+         0x04U, 0x42U, 0x38U, 0x88U, 0xA7U, 0x41U, 0x3FU, 0x71U, 0x41U, 0xC0U,
+         0x00U, 0x72U, 0x3AU, 0x00U, 0x9AU, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U,
+         0xD3U, 0x8AU, 0x80U, 0x80U, 0x00U, 0x41U, 0x03U, 0x41U, 0x80U, 0x88U,
+         0x80U, 0x80U, 0x00U, 0x41U, 0xD3U, 0x02U, 0x41U, 0x01U, 0x10U, 0x86U,
+         0x80U, 0x80U, 0x80U, 0x00U, 0x1AU, 0x02U, 0x40U, 0x02U, 0x40U, 0x20U,
+         0x01U, 0x41U, 0x20U, 0x41U, 0x80U, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U,
+         0xD3U, 0x02U, 0x10U, 0x87U, 0x80U, 0x80U, 0x80U, 0x00U, 0x22U, 0x04U,
+         0x42U, 0x20U, 0x52U, 0x0DU, 0x00U, 0x41U, 0x00U, 0x41U, 0x00U, 0x42U,
+         0x00U, 0x10U, 0x88U, 0x80U, 0x80U, 0x80U, 0x00U, 0x21U, 0x04U, 0x0CU,
+         0x01U, 0x0BU, 0x41U, 0x00U, 0x41U, 0x00U, 0x20U, 0x04U, 0x10U, 0x89U,
+         0x80U, 0x80U, 0x80U, 0x00U, 0x21U, 0x04U, 0x0BU, 0x20U, 0x01U, 0x41U,
+         0x20U, 0x6AU, 0x24U, 0x80U, 0x80U, 0x80U, 0x80U, 0x00U, 0x20U, 0x04U,
+         0x0BU, 0x0BU, 0xE5U, 0x02U, 0x02U, 0x00U, 0x41U, 0x80U, 0x08U, 0x0BU,
+         0xD3U, 0x02U, 0x12U, 0x00U, 0x49U, 0x22U, 0x00U, 0x01U, 0x00U, 0x00U,
+         0x24U, 0x00U, 0x00U, 0x00U, 0x00U, 0x20U, 0x1AU, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U, 0x68U, 0x40U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x73U, 0x21U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x81U, 0x14U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0xF0U, 0x1EU, 0xE0U, 0x22U, 0x12U, 0x00U, 0x03U,
+         0x22U, 0x40U, 0x00U, 0x00U, 0x00U, 0x24U, 0x00U, 0x00U, 0x00U, 0x04U,
+         0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x73U,
+         0x00U, 0x81U, 0x14U, 0xAEU, 0x12U, 0x3AU, 0x85U, 0x56U, 0xF3U, 0xCFU,
+         0x91U, 0x15U, 0x47U, 0x11U, 0x37U, 0x6AU, 0xFBU, 0x0FU, 0x89U, 0x4FU,
+         0x83U, 0x2BU, 0x3DU, 0xE1U, 0xE0U, 0x22U, 0x12U, 0x00U, 0x00U, 0x22U,
+         0x40U, 0x00U, 0x00U, 0x00U, 0x24U, 0x00U, 0x00U, 0x00U, 0x05U, 0x61U,
+         0x40U, 0x00U, 0x00U, 0x00U, 0x05U, 0xF5U, 0xE1U, 0x00U, 0x68U, 0x40U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x73U, 0x00U, 0x81U,
+         0x14U, 0xAEU, 0x12U, 0x3AU, 0x85U, 0x56U, 0xF3U, 0xCFU, 0x91U, 0x15U,
+         0x47U, 0x11U, 0x37U, 0x6AU, 0xFBU, 0x0FU, 0x89U, 0x4FU, 0x83U, 0x2BU,
+         0x3DU, 0x83U, 0x14U, 0x24U, 0xA4U, 0x65U, 0x17U, 0x16U, 0xD2U, 0x6EU,
+         0x97U, 0xDFU, 0xCCU, 0x3BU, 0x18U, 0xF3U, 0xEEU, 0xB0U, 0xC1U, 0x54U,
+         0x56U, 0x64U, 0x2EU, 0xE1U, 0xF1U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x41U, 0xD3U, 0x0AU, 0x0BU, 0x04U, 0x74U, 0x78U, 0x6EU,
+         0x00U,
+     }},
+
+    /* ==== WASM: 8 ==== */
+    {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -1264,7 +1472,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U,
      }},
 
-    /* ==== WASM: 8 ==== */
+    /* ==== WASM: 9 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -1386,7 +1594,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x58U, 0x4EU, 0x00U,
      }},
 
-    /* ==== WASM: 9 ==== */
+    /* ==== WASM: 10 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -1509,7 +1717,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x4EU, 0x59U, 0x5FU, 0x4EU, 0x4FU, 0x4EU, 0x43U, 0x45U, 0x53U, 0x00U,
      }},
 
-    /* ==== WASM: 10 ==== */
+    /* ==== WASM: 11 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -1589,7 +1797,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x54U, 0x00U,
      }},
 
-    /* ==== WASM: 11 ==== */
+    /* ==== WASM: 12 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -1634,7 +1842,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x30U, 0x00U,
      }},
 
-    /* ==== WASM: 12 ==== */
+    /* ==== WASM: 13 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -1953,7 +2161,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x80U, 0x80U, 0x80U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 13 ==== */
+    /* ==== WASM: 14 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -2739,7 +2947,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x37U, 0x36U, 0x33U, 0x4CU, 0x4CU, 0x20U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 14 ==== */
+    /* ==== WASM: 15 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -3129,7 +3337,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x80U, 0x80U, 0x80U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 15 ==== */
+    /* ==== WASM: 16 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -3310,7 +3518,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x38U, 0x4CU, 0x4CU, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 16 ==== */
+    /* ==== WASM: 17 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -3499,7 +3707,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 17 ==== */
+    /* ==== WASM: 18 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -3738,7 +3946,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x42U, 0x00U, 0x10U, 0x85U, 0x80U, 0x80U, 0x80U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 18 ==== */
+    /* ==== WASM: 19 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -4440,7 +4648,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x38U, 0x35U, 0x35U, 0x32U, 0x55U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 19 ==== */
+    /* ==== WASM: 20 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -5785,7 +5993,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x20U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 20 ==== */
+    /* ==== WASM: 21 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -5887,7 +6095,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x84U, 0x80U, 0x80U, 0x80U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 21 ==== */
+    /* ==== WASM: 22 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -5930,7 +6138,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 22 ==== */
+    /* ==== WASM: 23 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -6078,7 +6286,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x34U, 0x34U, 0x4CU, 0x4CU, 0x2CU, 0x20U, 0x33U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 23 ==== */
+    /* ==== WASM: 24 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -6406,7 +6614,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x38U, 0x34U, 0x39U, 0x30U, 0x4CU, 0x4CU, 0x00U,
      }},
 
-    /* ==== WASM: 24 ==== */
+    /* ==== WASM: 25 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -6611,7 +6819,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x10U, 0x85U, 0x80U, 0x80U, 0x80U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 25 ==== */
+    /* ==== WASM: 26 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -7295,7 +7503,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x20U, 0x3DU, 0x3DU, 0x20U, 0x30U, 0x00U,
      }},
 
-    /* ==== WASM: 26 ==== */
+    /* ==== WASM: 27 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -7590,7 +7798,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x32U, 0x34U, 0x31U, 0x36U, 0x55U, 0x4CU, 0x4CU, 0x00U,
      }},
 
-    /* ==== WASM: 27 ==== */
+    /* ==== WASM: 28 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -8303,7 +8511,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x31U, 0x33U, 0x33U, 0x38U, 0x20U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 28 ==== */
+    /* ==== WASM: 29 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -8388,7 +8596,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x30U, 0x29U, 0x20U, 0x3DU, 0x3DU, 0x20U, 0x32U, 0x30U, 0x00U,
      }},
 
-    /* ==== WASM: 29 ==== */
+    /* ==== WASM: 30 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -8450,7 +8658,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x80U, 0x80U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 30 ==== */
+    /* ==== WASM: 31 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -8527,7 +8735,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x31U, 0x29U, 0x20U, 0x3DU, 0x3DU, 0x20U, 0x33U, 0x32U, 0x00U,
      }},
 
-    /* ==== WASM: 31 ==== */
+    /* ==== WASM: 32 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -8604,7 +8812,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x31U, 0x29U, 0x20U, 0x3DU, 0x3DU, 0x20U, 0x33U, 0x32U, 0x00U,
      }},
 
-    /* ==== WASM: 32 ==== */
+    /* ==== WASM: 33 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -8861,7 +9069,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x00U,
      }},
 
-    /* ==== WASM: 33 ==== */
+    /* ==== WASM: 34 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -9019,7 +9227,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x04U, 0x00U, 0x00U,
      }},
 
-    /* ==== WASM: 34 ==== */
+    /* ==== WASM: 35 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -9372,7 +9580,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x2AU, 0x04U, 0x00U, 0x00U, 0x31U, 0x04U, 0x00U, 0x00U,
      }},
 
-    /* ==== WASM: 35 ==== */
+    /* ==== WASM: 36 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -9405,7 +9613,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x82U, 0x80U, 0x80U, 0x80U, 0x00U, 0x1AU, 0x20U, 0x01U, 0x0BU,
      }},
 
-    /* ==== WASM: 36 ==== */
+    /* ==== WASM: 37 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -9632,7 +9840,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U,
      }},
 
-    /* ==== WASM: 37 ==== */
+    /* ==== WASM: 38 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -9663,7 +9871,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x80U, 0x80U, 0x00U, 0x1AU, 0x20U, 0x01U, 0x0BU,
      }},
 
-    /* ==== WASM: 38 ==== */
+    /* ==== WASM: 39 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -9974,7 +10182,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U,
      }},
 
-    /* ==== WASM: 39 ==== */
+    /* ==== WASM: 40 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -10051,7 +10259,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x29U, 0x20U, 0x3DU, 0x3DU, 0x20U, 0x33U, 0x32U, 0x00U,
      }},
 
-    /* ==== WASM: 40 ==== */
+    /* ==== WASM: 41 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -10085,7 +10293,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x80U, 0x80U, 0x00U, 0x1AU, 0x20U, 0x01U, 0x0BU,
      }},
 
-    /* ==== WASM: 41 ==== */
+    /* ==== WASM: 42 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -10172,7 +10380,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x32U, 0x00U,
      }},
 
-    /* ==== WASM: 42 ==== */
+    /* ==== WASM: 43 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -10206,7 +10414,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x0BU,
      }},
 
-    /* ==== WASM: 43 ==== */
+    /* ==== WASM: 44 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -10346,7 +10554,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x54U, 0x5FU, 0x4DU, 0x45U, 0x54U, 0x00U,
      }},
 
-    /* ==== WASM: 44 ==== */
+    /* ==== WASM: 45 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -10536,7 +10744,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x31U, 0x34U, 0x00U,
      }},
 
-    /* ==== WASM: 45 ==== */
+    /* ==== WASM: 46 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -10690,7 +10898,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U,
      }},
 
-    /* ==== WASM: 46 ==== */
+    /* ==== WASM: 47 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -10851,7 +11059,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U,
      }},
 
-    /* ==== WASM: 47 ==== */
+    /* ==== WASM: 48 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -11008,7 +11216,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x53U, 0x4CU, 0x4FU, 0x54U, 0x53U, 0x00U,
      }},
 
-    /* ==== WASM: 48 ==== */
+    /* ==== WASM: 49 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -11093,7 +11301,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x74U, 0x79U, 0x70U, 0x65U, 0x28U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 49 ==== */
+    /* ==== WASM: 50 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -11350,7 +11558,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x00U,
      }},
 
-    /* ==== WASM: 50 ==== */
+    /* ==== WASM: 51 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -11588,7 +11796,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x3EU, 0x20U, 0x30U, 0x00U,
      }},
 
-    /* ==== WASM: 51 ==== */
+    /* ==== WASM: 52 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -11684,7 +11892,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x53U, 0x54U, 0x00U,
      }},
 
-    /* ==== WASM: 52 ==== */
+    /* ==== WASM: 53 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -11794,7 +12002,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x20U, 0x31U, 0x00U,
      }},
 
-    /* ==== WASM: 53 ==== */
+    /* ==== WASM: 54 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -11924,7 +12132,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x30U, 0x30U, 0x30U, 0x4CU, 0x4CU, 0x00U,
      }},
 
-    /* ==== WASM: 54 ==== */
+    /* ==== WASM: 55 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -12198,7 +12406,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x30U, 0x00U,
      }},
 
-    /* ==== WASM: 55 ==== */
+    /* ==== WASM: 56 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -12335,7 +12543,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x2CU, 0x20U, 0x73U, 0x29U, 0x20U, 0x3DU, 0x3DU, 0x20U, 0x31U, 0x00U,
      }},
 
-    /* ==== WASM: 56 ==== */
+    /* ==== WASM: 57 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -12629,7 +12837,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x5FU, 0x53U, 0x4CU, 0x4FU, 0x54U, 0x53U, 0x00U,
      }},
 
-    /* ==== WASM: 57 ==== */
+    /* ==== WASM: 58 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -12863,7 +13071,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x5FU, 0x53U, 0x4CU, 0x4FU, 0x54U, 0x53U, 0x00U,
      }},
 
-    /* ==== WASM: 58 ==== */
+    /* ==== WASM: 59 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -13159,7 +13367,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x2CU, 0x20U, 0x31U, 0x29U, 0x20U, 0x3DU, 0x3DU, 0x20U, 0x30U, 0x00U,
      }},
 
-    /* ==== WASM: 59 ==== */
+    /* ==== WASM: 60 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -13363,7 +13571,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x6EU, 0x74U, 0x32U, 0x22U, 0x20U, 0x2BU, 0x20U, 0x69U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 60 ==== */
+    /* ==== WASM: 61 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -13480,7 +13688,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x69U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 61 ==== */
+    /* ==== WASM: 62 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -13589,7 +13797,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x6EU, 0x74U, 0x65U, 0x6EU, 0x74U, 0x32U, 0x22U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 62 ==== */
+    /* ==== WASM: 63 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -13862,7 +14070,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U,
      }},
 
-    /* ==== WASM: 63 ==== */
+    /* ==== WASM: 64 ==== */
     {R"[test.hook](
             #include <stdint.h>
             #define sfInvoiceID ((5U << 16U) + 17U)
@@ -14081,7 +14289,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x30U, 0x29U, 0x20U, 0x3DU, 0x3DU, 0x20U, 0x33U, 0x32U, 0x00U,
      }},
 
-    /* ==== WASM: 64 ==== */
+    /* ==== WASM: 65 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -14193,7 +14401,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x58U, 0x49U, 0x53U, 0x54U, 0x00U,
      }},
 
-    /* ==== WASM: 65 ==== */
+    /* ==== WASM: 66 ==== */
     {R"[test.hook](
             #include <stdint.h>
             #define sfInvoiceID ((5U << 16U) + 17U)
@@ -14329,7 +14537,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x3DU, 0x20U, 0x33U, 0x32U, 0x00U,
      }},
 
-    /* ==== WASM: 66 ==== */
+    /* ==== WASM: 67 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -14465,7 +14673,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x49U, 0x47U, 0x00U,
      }},
 
-    /* ==== WASM: 67 ==== */
+    /* ==== WASM: 68 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -14604,7 +14812,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x66U, 0x28U, 0x64U, 0x61U, 0x74U, 0x61U, 0x32U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 68 ==== */
+    /* ==== WASM: 69 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -14716,7 +14924,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x29U, 0x20U, 0x3DU, 0x3DU, 0x20U, 0x30U, 0x00U,
      }},
 
-    /* ==== WASM: 69 ==== */
+    /* ==== WASM: 70 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -14810,7 +15018,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x61U, 0x64U, 0x5BU, 0x69U, 0x5DU, 0x00U,
      }},
 
-    /* ==== WASM: 70 ==== */
+    /* ==== WASM: 71 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -14943,7 +15151,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x64U, 0x5BU, 0x69U, 0x5DU, 0x00U,
      }},
 
-    /* ==== WASM: 71 ==== */
+    /* ==== WASM: 72 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -15031,7 +15239,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x61U, 0x74U, 0x61U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 72 ==== */
+    /* ==== WASM: 73 ==== */
     {R"[test.hook](
             #include <stdint.h>
             #define sfInvoiceID ((5U << 16U) + 17U)
@@ -15142,7 +15350,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x20U, 0x33U, 0x32U, 0x00U,
      }},
 
-    /* ==== WASM: 73 ==== */
+    /* ==== WASM: 74 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g           (uint32_t id, uint32_t maxiter);
@@ -15353,7 +15561,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U,
      }},
 
-    /* ==== WASM: 74 ==== */
+    /* ==== WASM: 75 ==== */
     {R"[test.hook](
                     #include <stdint.h>
                     extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -15461,7 +15669,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x20U, 0x22U, 0x32U, 0x22U, 0x2CU, 0x20U, 0x31U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 75 ==== */
+    /* ==== WASM: 76 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -16073,7 +16281,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U,
      }},
 
-    /* ==== WASM: 76 ==== */
+    /* ==== WASM: 77 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -16260,7 +16468,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x63U, 0x65U, 0x29U, 0x20U, 0x3EU, 0x20U, 0x30U, 0x00U,
      }},
 
-    /* ==== WASM: 77 ==== */
+    /* ==== WASM: 78 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -16610,7 +16818,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x20U, 0x30U, 0x00U,
      }},
 
-    /* ==== WASM: 78 ==== */
+    /* ==== WASM: 79 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -16746,7 +16954,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U,
      }},
 
-    /* ==== WASM: 79 ==== */
+    /* ==== WASM: 80 ==== */
     {R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -16805,7 +17013,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x64U, 0xE1U, 0xF1U,
      }},
 
-    /* ==== WASM: 79 ==== */
+    /* ==== WASM: 81 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -16978,7 +17186,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x54U, 0x5FU, 0x45U, 0x58U, 0x49U, 0x53U, 0x54U, 0x00U,
      }},
 
-    /* ==== WASM: 80 ==== */
+    /* ==== WASM: 82 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -17126,7 +17334,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x30U, 0x00U, 0x22U, 0x00U, 0x00U, 0x00U, 0x00U,
      }},
 
-    /* ==== WASM: 81 ==== */
+    /* ==== WASM: 83 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -17223,7 +17431,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x3DU, 0x20U, 0x30U, 0x00U,
      }},
 
-    /* ==== WASM: 82 ==== */
+    /* ==== WASM: 84 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -17282,7 +17490,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x4FU, 0x46U, 0x5FU, 0x42U, 0x4FU, 0x55U, 0x4EU, 0x44U, 0x53U, 0x00U,
      }},
 
-    /* ==== WASM: 83 ==== */
+    /* ==== WASM: 85 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -17341,7 +17549,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x4EU, 0x44U, 0x53U, 0x00U,
      }},
 
-    /* ==== WASM: 84 ==== */
+    /* ==== WASM: 86 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -19170,7 +19378,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x53U, 0x4DU, 0x41U, 0x4CU, 0x4CU, 0x00U,
      }},
 
-    /* ==== WASM: 85 ==== */
+    /* ==== WASM: 87 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -20512,7 +20720,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x20U, 0x30U, 0x2CU, 0x20U, 0x30U, 0x29U, 0x29U, 0x00U,
      }},
 
-    /* ==== WASM: 86 ==== */
+    /* ==== WASM: 88 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -23445,7 +23653,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x4FU, 0x4FU, 0x5FU, 0x53U, 0x4DU, 0x41U, 0x4CU, 0x4CU, 0x00U,
      }},
 
-    /* ==== WASM: 87 ==== */
+    /* ==== WASM: 89 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -25410,7 +25618,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x54U, 0x4FU, 0x4FU, 0x5FU, 0x53U, 0x4DU, 0x41U, 0x4CU, 0x4CU, 0x00U,
      }},
 
-    /* ==== WASM: 88 ==== */
+    /* ==== WASM: 90 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -25695,7 +25903,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x29U, 0x20U, 0x3DU, 0x3DU, 0x20U, 0x30U, 0x00U,
      }},
 
-    /* ==== WASM: 89 ==== */
+    /* ==== WASM: 91 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -26282,7 +26490,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x4EU, 0x5FU, 0x46U, 0x41U, 0x49U, 0x4CU, 0x55U, 0x52U, 0x45U, 0x00U,
      }},
 
-    /* ==== WASM: 90 ==== */
+    /* ==== WASM: 92 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -26311,7 +26519,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x0BU,
      }},
 
-    /* ==== WASM: 91 ==== */
+    /* ==== WASM: 93 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -26343,7 +26551,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x20U, 0x52U, 0x65U, 0x6AU, 0x65U, 0x63U, 0x74U, 0x65U, 0x64U, 0x00U,
      }},
 
-    /* ==== WASM: 92 ==== */
+    /* ==== WASM: 94 ==== */
     {R"[test.hook](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -26370,7 +26578,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 93 ==== */
+    /* ==== WASM: 95 ==== */
     {R"[test.hook](
             (module
               (type (;0;) (func (param i32 i32) (result i32)))
@@ -26423,7 +26631,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x1AU, 0x0BU,
      }},
 
-    /* ==== WASM: 94 ==== */
+    /* ==== WASM: 96 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -33066,7 +33274,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x39U, 0x30U, 0x31U, 0x32U, 0x33U, 0x00U,
      }},
 
-    /* ==== WASM: 95 ==== */
+    /* ==== WASM: 97 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g           (uint32_t id, uint32_t maxiter);
@@ -33112,7 +33320,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x0BU, 0x06U, 0x76U, 0x61U, 0x6CU, 0x75U, 0x65U, 0x00U,
      }},
 
-    /* ==== WASM: 96 ==== */
+    /* ==== WASM: 98 ==== */
     {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
