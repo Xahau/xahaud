@@ -19,13 +19,24 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - name: escape double quotes
+        id: escape
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          ESCAPED_PR_TITLE="${PR_TITLE//\"/\\\"}"
+          echo "title=${ESCAPED_PR_TITLE}" >> "$GITHUB_OUTPUT"
       - name: Generate build matrix
         id: set-matrix
         shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           import json
           import os
-          
+          import urllib.request
+
           # Full matrix with all 6 compiler configurations
           # Each configuration includes all parameters needed by the build job
           full_matrix = [
@@ -99,13 +110,31 @@ jobs:
           ref = "${{ github.ref }}"
           base_ref = "${{ github.base_ref }}"  # For PRs, this is the target branch
           event_name = "${{ github.event_name }}"
-          commit_message = """${{ github.event.head_commit.message }}"""
-          pr_title = """${{ github.event.pull_request.title }}"""
-          
+          pr_title = """${{ steps.escape.outputs.title }}"""
+          pr_head_sha = "${{ github.event.pull_request.head.sha }}"
+
+          # Get commit message - for PRs, fetch via API since head_commit.message is empty
+          if event_name == "pull_request" and pr_head_sha:
+              try:
+                  url = f"https://api.github.com/repos/${{ github.repository }}/commits/{pr_head_sha}"
+                  req = urllib.request.Request(url, headers={
+                      "Accept": "application/vnd.github.v3+json",
+                      "Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}"
+                  })
+                  with urllib.request.urlopen(req) as response:
+                      data = json.load(response)
+                      commit_message = data["commit"]["message"]
+              except Exception as e:
+                  print(f"Failed to fetch commit message: {e}")
+                  commit_message = ""
+          else:
+              commit_message = """${{ github.event.head_commit.message }}"""
+
           # Debug logging
           print(f"Event: {event_name}")
           print(f"Ref: {ref}")
           print(f"Base ref: {base_ref}")
+          print(f"PR head SHA: {pr_head_sha}")
           print(f"PR title: {pr_title}")
           print(f"Commit message: {commit_message}")
           
@@ -156,11 +185,19 @@ jobs:
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
-      CACHE_VERSION: 2
+      CACHE_VERSION: 3
       MAIN_BRANCH_NAME: dev
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Get commit message
+        id: get-commit-message
+        uses: ./.github/actions/xahau-ga-get-commit-message
+        with:
+          event-name: ${{ github.event_name }}
+          head-commit-message: ${{ github.event.head_commit.message }}
+          pr-head-sha: ${{ github.event.pull_request.head.sha }}
 
       - name: Install build dependencies
         run: |
@@ -231,48 +268,6 @@ jobs:
           # Install Conan 2
           pip install --upgrade "conan>=2.0,<3"
 
-      - name: Configure ccache
-        uses: ./.github/actions/xahau-configure-ccache
-        with:
-          max_size: 2G
-          hash_dir: true
-          compiler_check: content
-          is_main_branch: ${{ github.ref_name == env.MAIN_BRANCH_NAME }}
-
-      - name: Configure Conan
-        run: |
-          # Create the default profile directory if it doesn't exist
-          mkdir -p ~/.conan2/profiles
-
-          # Determine the correct libcxx based on stdlib parameter
-          if [ "${{ matrix.stdlib }}" = "libcxx" ]; then
-            LIBCXX="libc++"
-          else
-            LIBCXX="libstdc++11"
-          fi
-
-          # Create profile with our specific settings
-          cat > ~/.conan2/profiles/default <<EOF
-          [settings]
-          arch=x86_64
-          build_type=${{ matrix.configuration }}
-          compiler=${{ matrix.compiler }}
-          compiler.cppstd=20
-          compiler.libcxx=${LIBCXX}
-          compiler.version=${{ matrix.compiler_version }}
-          os=Linux
-
-          [buildenv]
-          CC=/usr/bin/${{ matrix.cc }}
-          CXX=/usr/bin/${{ matrix.cxx }}
-
-          [conf]
-          tools.build:compiler_executables={"c": "/usr/bin/${{ matrix.cc }}", "cpp": "/usr/bin/${{ matrix.cxx }}"}
-          EOF
-
-          # Display profile for verification
-          conan profile show
-
       - name: Check environment
         run: |
           echo "PATH:"
@@ -293,6 +288,10 @@ jobs:
           compiler-id: ${{ matrix.compiler_id }}
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          compiler: ${{ matrix.compiler }}
+          compiler_version: ${{ matrix.compiler_version }}
+          cc: ${{ matrix.cc }}
+          cxx: ${{ matrix.cxx }}
           stdlib: ${{ matrix.stdlib }}
 
       - name: Build

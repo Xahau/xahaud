@@ -298,7 +298,7 @@ Keylet
 uritoken(AccountID const& issuer, Blob const& uri);
 
 Keylet
-cron(uint32_t timestamp, AccountID const& id);
+cron(uint32_t timestamp, std::optional<AccountID> const& id = std::nullopt);
 
 }  // namespace keylet
 

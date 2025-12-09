@@ -25,6 +25,28 @@ inputs:
     description: 'Main branch name for restore keys'
     required: false
     default: 'dev'
+  os:
+    description: 'Operating system (Linux, Macos)'
+    required: false
+    default: 'Linux'
+  arch:
+    description: 'Architecture (x86_64, armv8)'
+    required: false
+    default: 'x86_64'
+  compiler:
+    description: 'Compiler type (gcc, clang, apple-clang)'
+    required: true
+  compiler_version:
+    description: 'Compiler version (11, 13, 14, etc.)'
+    required: true
+  cc:
+    description: 'C compiler executable (gcc-13, clang-14, etc.), empty for macOS'
+    required: false
+    default: ''
+  cxx:
+    description: 'C++ compiler executable (g++-14, clang++-14, etc.), empty for macOS'
+    required: false
+    default: ''
   stdlib:
     description: 'C++ standard library for Conan configuration (note: also in compiler-id)'
     required: true
@@ -41,47 +63,70 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Generate safe branch name
-      if: inputs.cache_enabled == 'true'
-      id: safe-branch
-      shell: bash
-      run: |
-        SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr -c 'a-zA-Z0-9_.-' '-')
-        echo "name=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
-
-    - name: Check conanfile changes
-      if: inputs.cache_enabled == 'true'
-      id: check-conanfile-changes
-      shell: bash
-      run: |
-        # Check if we're on the main branch
-        if [ "${{ github.ref_name }}" == "${{ inputs.main_branch }}" ]; then
-          echo "should-save-conan-cache=true" >> $GITHUB_OUTPUT
-        else
-          # Fetch main branch for comparison
-          git fetch origin ${{ inputs.main_branch }}
-          
-          # Check if conanfile.txt or conanfile.py has changed compared to main branch
-          if git diff --quiet origin/${{ inputs.main_branch }}..HEAD -- '**/conanfile.txt' '**/conanfile.py'; then
-            echo "should-save-conan-cache=false" >> $GITHUB_OUTPUT
-          else
-            echo "should-save-conan-cache=true" >> $GITHUB_OUTPUT
-          fi
-        fi
-
     - name: Restore Conan cache
       if: inputs.cache_enabled == 'true'
       id: cache-restore-conan
-      uses: actions/cache/restore@v4
+      uses: ./.github/actions/xahau-ga-cache-restore
       with:
-        path: |
-          ~/.conan
-          ~/.conan2
+        path: ~/.conan2
         # Note: compiler-id format is compiler-version-stdlib[-gccversion]
-        key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-${{ inputs.configuration }}
+        key: ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.py') }}-${{ inputs.configuration }}
         restore-keys: |
-          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.txt', '**/conanfile.py') }}-
+          ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ hashFiles('**/conanfile.py') }}-
           ${{ runner.os }}-conan-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+        cache-type: Conan
+
+    - name: Configure Conan
+      shell: bash
+      run: |
+        # Create the default profile directory if it doesn't exist
+        mkdir -p ~/.conan2/profiles
+
+        # Determine the correct libcxx based on stdlib parameter
+        if [ "${{ inputs.stdlib }}" = "libcxx" ]; then
+          LIBCXX="libc++"
+        else
+          LIBCXX="libstdc++11"
+        fi
+
+        # Create profile with our specific settings
+        # This overwrites any cached profile to ensure fresh configuration
+        cat > ~/.conan2/profiles/default <<EOF
+        [settings]
+        arch=${{ inputs.arch }}
+        build_type=${{ inputs.configuration }}
+        compiler=${{ inputs.compiler }}
+        compiler.cppstd=20
+        compiler.libcxx=${LIBCXX}
+        compiler.version=${{ inputs.compiler_version }}
+        os=${{ inputs.os }}
+        EOF
+
+        # Add buildenv and conf sections for Linux (not needed for macOS)
+        if [ "${{ inputs.os }}" = "Linux" ] && [ -n "${{ inputs.cc }}" ]; then
+          cat >> ~/.conan2/profiles/default <<EOF
+
+        [buildenv]
+        CC=/usr/bin/${{ inputs.cc }}
+        CXX=/usr/bin/${{ inputs.cxx }}
+
+        [conf]
+        tools.build:compiler_executables={"c": "/usr/bin/${{ inputs.cc }}", "cpp": "/usr/bin/${{ inputs.cxx }}"}
+        EOF
+        fi
+
+        # Add macOS-specific conf if needed
+        if [ "${{ inputs.os }}" = "Macos" ]; then
+          cat >> ~/.conan2/profiles/default <<EOF
+
+        [conf]
+        # Workaround for gRPC with newer Apple Clang
+        tools.build:cxxflags=["-Wno-missing-template-arg-list-after-template-kw"]
+        EOF
+        fi
+
+        # Display profile for verification
+        conan profile show
 
     - name: Export custom recipes
       shell: bash
@@ -107,10 +152,8 @@ runs:
           ..
 
     - name: Save Conan cache
-      if: always() && inputs.cache_enabled == 'true' && steps.cache-restore-conan.outputs.cache-hit != 'true' && steps.check-conanfile-changes.outputs.should-save-conan-cache == 'true'
+      if: success() && inputs.cache_enabled == 'true' && steps.cache-restore-conan.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
-        path: |
-          ~/.conan
-          ~/.conan2
+        path: ~/.conan2
         key: ${{ steps.cache-restore-conan.outputs.cache-primary-key }}
