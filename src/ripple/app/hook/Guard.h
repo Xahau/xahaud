@@ -1034,6 +1034,12 @@ validateGuards(
                     {
                         // PASS, this is a version 1 api
                     }
+                    else if (rulesVersion & 0x04U &&
+                        hook_api::import_whitelist_2.find(import_name) !=
+                            hook_api::import_whitelist_2.end())
+                    {
+                        // PASS, this is an export api
+                    }
                     else
                     {
                         GUARDLOG(hook::log::IMPORT_ILLEGAL)

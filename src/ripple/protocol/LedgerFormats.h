@@ -260,6 +260,8 @@ enum LedgerEntryType : std::uint16_t
       \sa keylet::emitted
      */
     ltEMITTED_TXN = 'E',
+
+    ltEXPORTED_TXN = 0x4578, // Ex (exported transaction)
 };
 // clang-format off
 
@@ -318,7 +320,8 @@ enum LedgerSpecificFlags {
     // ltDIR_NODE
     lsfNFTokenBuyOffers = 0x00000001,
     lsfNFTokenSellOffers = 0x00000002,
-    lsfEmittedDir = 0x00000004,
+    lsfEmittedDir =  0x00000004,
+    lsfExportedDir = 0x00000008,
 
     // ltNFTOKEN_OFFER
     lsfSellNFToken = 0x00000001,

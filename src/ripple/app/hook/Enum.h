@@ -350,7 +350,10 @@ enum hook_return_code : int64_t {
     MEM_OVERLAP = -43,   // one or more specified buffers are the same memory
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 5000 modified state
                                          // entires in the combined hook chains
-    TOO_MANY_NAMESPACES = -45
+    TOO_MANY_NAMESPACES = -45,
+    EXPORT_FAILURE = -46,
+    TOO_MANY_EXPORTED_TXN = -47,
+
 };
 
 enum ExitType : uint8_t {
@@ -364,6 +367,7 @@ const uint16_t max_state_modifications = 256;
 const uint8_t max_slots = 255;
 const uint8_t max_nonce = 255;
 const uint8_t max_emit = 255;
+const uint6_t max_export = 4;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
 
@@ -468,6 +472,13 @@ static const APIWhitelist import_whitelist_1{
     HOOK_API_DEFINITION(I64, xpop_slot, (I32, I32)),
     // clang-format on
 };
+
+static const APIWhitelist import_whitelist_2{
+    // clang-format off
+    HOOK_API_DEFINITION(I64, export, (I32, I32)),
+    HOOK_API_DEFINITION(I64, export_reserve, (I32)),
+    // clang-format on
+}
 
 #undef HOOK_API_DEFINITION
 #undef I32

@@ -1971,6 +1971,8 @@ hook::finalizeHookResult(
     // directory) if we are allowed to
     std::vector<std::pair<uint256 /* txnid */, uint256 /* emit nonce */>>
         emission_txnid;
+    std::vector<uint256 /* txnid */>
+        exported_txnid;
 
     if (doEmit)
     {
@@ -2026,6 +2028,58 @@ hook::finalizeHookResult(
                 }
             }
         }
+        
+        
+        DBG_PRINTF("exported txn count: %d\n", hookResult.exportedTxn.size());
+        for (; hookResult.exportedTxn.size() > 0; hookResult.exportedTxn.pop())
+        {
+            auto& tpTrans = hookResult.exportedTxn.front();
+            auto& id = tpTrans->getID();
+            JLOG(j.trace()) << "HookExport[" << HR_ACC() << "]: " << id;
+
+            // exported txns must be marked bad by the hash router to ensure under
+            // no circumstances they will enter consensus on *this* chain.
+            applyCtx.app.getHashRouter().setFlags(id, SF_BAD);
+
+            std::shared_ptr<const ripple::STTx> ptr =
+                tpTrans->getSTransaction();
+
+            auto exportedId = keylet::exportedTxn(id);
+            auto sleExported = applyCtx.view().peek(exportedId);
+
+            if (!sleExported)
+            {
+                exported_txnid.emplace_back(id);
+
+                sleExported = std::make_shared<SLE>(exportedId);
+
+                // RH TODO: add a new constructor to STObject to avoid this
+                // serder thing
+                ripple::Serializer s;
+                ptr->add(s);
+                SerialIter sit(s.slice());
+
+                sleExported->emplace_back(ripple::STObject(sit, sfExportedTxn));
+                auto page = applyCtx.view().dirInsert(
+                    keylet::exportedDir(), exportedId, [&](SLE::ref sle) {
+                        (*sle)[sfFlags] = lsfEmittedDir;
+                    });
+
+                if (page)
+                {
+                    (*sleExported)[sfOwnerNode] = *page;
+                    applyCtx.view().insert(sleExported);
+                }
+                else
+                {
+                    JLOG(j.warn())
+                        << "HookError[" << HR_ACC() << "]: "
+                        << "Export Directory full when trying to insert "
+                        << id;
+                    return tecDIR_FULL;
+                }
+            }
+        }
     }
 
     bool const fixV2 = applyCtx.view().rules().enabled(fixXahauV2);
@@ -2052,6 +2106,12 @@ hook::finalizeHookResult(
         meta.setFieldU16(
             sfHookEmitCount,
             emission_txnid.size());  // this will never wrap, hard limit
+        if (applyCtx.view().rules().enabled(featureExport))
+        {
+            meta.setFieldU16(
+                sfHookExportCount,
+                exported_txnid.size());
+        }
         meta.setFieldU16(sfHookExecutionIndex, exec_index);
         meta.setFieldU16(sfHookStateChangeCount, hookResult.changedStateCount);
         meta.setFieldH256(sfHookHash, hookResult.hookHash);
@@ -3882,6 +3942,27 @@ DEFINE_HOOK_FUNCTION(int64_t, etxn_reserve, uint32_t count)
         return TOO_BIG;
 
     hookCtx.expected_etxn_count = count;
+
+    return count;
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, export_reserve, uint32_t count)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (hookCtx.expected_export_count > -1)
+        return ALREADY_SET;
+
+    if (count < 1)
+        return TOO_SMALL;
+
+    if (count > hook_api::max_export)
+        return TOO_BIG;
+
+    hookCtx.expected_export_count = count;
 
     return count;
 
@@ -6154,6 +6235,92 @@ DEFINE_HOOK_FUNCTION(
 
     return (slot_into_tx << 16U) + slot_into_meta;
 
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    export,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t write_ptr,
+    uint32_t write_len);
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    auto& app = hookCtx.applyCtx.app;
+
+    if (hookCtx.expected_export_count < 0)
+        return PREREQUISITE_NOT_MET;
+
+    if (hookCtx.result.exportedTxn.size() >= hookCtx.expected_export_count)
+        return TOO_MANY_EXPORTED_TXN;
+
+    ripple::Blob blob{memory + read_ptr, memory + read_ptr + read_len};
+
+    std::shared_ptr<STTx const> stpTrans;
+    try
+    {
+        stpTrans = std::make_shared<STTx const>(
+            SerialIter{memory + read_ptr, read_len});
+    }
+    catch (std::exception& e)
+    {
+        JLOG(j.trace()) << "HookExport[" << HC_ACC() << "]: Failed " << e.what()
+                        << "\n";
+        return EXPORT_FAILURE;
+    }
+
+    if (!stpTrans->isFieldPresent(sfAccount) ||
+        stpTrans->getAccountID(sfAccount) != hookCtx.result.account)
+    {
+        JLOG(j.trace()) << "HookExport[" << HC_ACC()
+                        << "]: Attempted to export a txn that's not for this Hook's Account ID.";
+        return EXPORT_FAILURE;
+    }
+    
+    std::string reason;
+    auto tpTrans = std::make_shared<Transaction>(stpTrans, reason, app);
+    // RHTODO: is this needed or wise? VVV
+    if (tpTrans->getStatus() != NEW)
+    {
+        JLOG(j.trace()) << "HookExport[" << HC_ACC()
+                        << "]: tpTrans->getStatus() != NEW";
+        return EXPORT_FAILURE;
+    }
+    auto const& txID = tpTrans->getID();
+
+    if (txID.size() > write_len)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const write_txid = [&]() -> int64_t {
+        WRITE_WASM_MEMORY_AND_RETURN(
+            write_ptr,
+            txID.size(),
+            txID.data(),
+            txID.size(),
+            memory,
+            memory_length);
+    };
+
+    int64_t result = write_txid();
+
+    if (result == 32)
+        hookCtx.result.exportedTxn.push(tpTrans);
+
+    return result;
     HOOK_TEARDOWN();
 }
 /*
