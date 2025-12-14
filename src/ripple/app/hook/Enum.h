@@ -367,7 +367,7 @@ const uint16_t max_state_modifications = 256;
 const uint8_t max_slots = 255;
 const uint8_t max_nonce = 255;
 const uint8_t max_emit = 255;
-const uint6_t max_export = 4;
+const uint8_t max_export = 4;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
 
@@ -475,10 +475,10 @@ static const APIWhitelist import_whitelist_1{
 
 static const APIWhitelist import_whitelist_2{
     // clang-format off
-    HOOK_API_DEFINITION(I64, export, (I32, I32)),
-    HOOK_API_DEFINITION(I64, export_reserve, (I32)),
+    HOOK_API_DEFINITION(I64, xport, (I32, I32)),
+    HOOK_API_DEFINITION(I64, xport_reserve, (I32)),
     // clang-format on
-}
+};
 
 #undef HOOK_API_DEFINITION
 #undef I32

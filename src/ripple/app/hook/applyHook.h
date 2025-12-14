@@ -408,9 +408,15 @@ DECLARE_HOOK_FUNCTION(
 
 DECLARE_HOOK_FUNCTION(
     int64_t,
-    export,
+    xport,
     uint32_t read_ptr,
-    uint32_t read_len);
+    uint32_t read_len,
+    uint32_t write_ptr,
+    uint32_t write_len);
+DECLARE_HOOK_FUNCTION(
+    int64_t,
+    xport_reserve,
+    uint32_t count);
 /*
     DECLARE_HOOK_FUNCTION(int64_t,  str_find,           uint32_t hread_ptr,
    uint32_t hread_len, uint32_t nread_ptr, uint32_t nread_len, uint32_t mode,
@@ -885,8 +891,8 @@ public:
         ADD_HOOK_FUNCTION(meta_slot, ctx);
         ADD_HOOK_FUNCTION(xpop_slot, ctx);
 
-        ADD_HOOK_FUNCTION(export, ctx);
-        ADD_HOOK_FUNCTION(export_reserve, ctx);
+        ADD_HOOK_FUNCTION(xport, ctx);
+        ADD_HOOK_FUNCTION(xport_reserve, ctx);
 
         /*
         ADD_HOOK_FUNCTION(str_find, ctx);

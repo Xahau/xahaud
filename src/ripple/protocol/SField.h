@@ -596,6 +596,7 @@ extern SField const sfSigner;
 extern SField const sfMajority;
 extern SField const sfDisabledValidator;
 extern SField const sfEmittedTxn;
+extern SField const sfExportedTxn;
 extern SField const sfHookExecution;
 extern SField const sfHookDefinition;
 extern SField const sfHookParameter;
