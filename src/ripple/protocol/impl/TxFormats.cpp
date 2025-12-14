@@ -490,6 +490,26 @@ TxFormats::TxFormats()
             {sfStartTime, soeOPTIONAL},
         },
         commonFields);
+
+    add(jss::ExportSign,
+        ttEXPORT_SIGN,
+        {
+            {sfSigner, soeREQUIRED},
+            {sfLedgerSequence, soeREQUIRED},
+            {sfTransactionHash, soeREQUIRED},
+        },
+        commonFields);
+
+    add(jss::Export,
+        ttEXPORT,
+        {
+            {sfTransactionHash, soeREQUIRED},
+            {sfExportedTxn, soeREQUIRED},
+            {sfSigners, soeREQUIRED},
+            {sfLedgerSequence, soeREQUIRED},
+        },
+        commonFields);
+
 }
 
 TxFormats const&

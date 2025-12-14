@@ -380,6 +380,15 @@ LedgerFormats::LedgerFormats()
             {sfPreviousTxnLgrSeq,    soeREQUIRED}
         },
         commonFields);
+    
+    add(jss::ExportedTxn,
+        ltEXPORTED_TXN,
+        {
+            {sfExportedTxn, soeOPTIONAL},
+            {sfOwnerNode, soeREQUIRED},
+            {sfLedgerSequence, soeREQUIRED},
+        },
+        commonFields);
 
     // clang-format on
 }

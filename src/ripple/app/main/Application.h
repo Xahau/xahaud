@@ -240,7 +240,8 @@ public:
 
     virtual PublicKey const&
     getValidationPublicKey() const = 0;
-
+    virtual ValidatorKeys const&
+    getValidatorKeys() const = 0;
     virtual Resource::Manager&
     getResourceManager() = 0;
     virtual PathRequests&

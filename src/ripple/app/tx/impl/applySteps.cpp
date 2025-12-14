@@ -374,6 +374,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
+        case ttEXPORT_SIGN:
+        case ttEXPORT:
             return Change::calculateBaseFee(view, tx);
         case ttNFTOKEN_MINT:
             return NFTokenMint::calculateBaseFee(view, tx);
@@ -544,6 +546,8 @@ invoke_apply(ApplyContext& ctx)
         case ttFEE:
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
+        case ttEXPORT:
+        case ttEXPORT_SIGN:
         case ttEMIT_FAILURE: {
             Change p(ctx);
             return p();

@@ -96,6 +96,13 @@ Change::preflight(PreflightContext const& ctx)
         }
     }
 
+    if ((ctx.tx.getTxnType() == ttEXPORT_SIGN || ctx.tx.getTxnType() == ttEXPORT) && 
+            !ctx.rules.enabled(featureExport))
+    {
+        JLOG(ctx.j.warn()) << "Change: Export not enabled";
+        return temDISABLED;
+    }
+
     return tesSUCCESS;
 }
 
@@ -154,6 +161,8 @@ Change::preclaim(PreclaimContext const& ctx)
         case ttAMENDMENT:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
+        case ttEXPORT:
+        case ttEXPORT_SIGN:
             return tesSUCCESS;
         case ttUNL_REPORT: {
             if (!ctx.tx.isFieldPresent(sfImportVLKey) ||
@@ -209,6 +218,11 @@ Change::doApply()
             return applyEmitFailure();
         case ttUNL_REPORT:
             return applyUNLReport();
+        case ttEXPORT:
+            return applyExport();
+        case ttEXPORT_SIGN:
+            return applyExportSign();
+
         default:
             assert(0);
             return tefFAILURE;
@@ -1069,6 +1083,80 @@ Change::applyEmitFailure()
         }
 
         view().erase(sle);
+    } while (0);
+    return tesSUCCESS;
+}
+
+TER
+Change::applyExport()
+{
+    uint256 txnID(ctx_.tx.getFieldH256(sfTransactionHash));
+    do
+    {
+        JLOG(j_.info()) << "HookExport[" << txnID
+                        << "]: ttExport exporting transaction";
+
+        auto key = keylet::exportedTxn(txnID);
+
+        auto const& sle = view().peek(key);
+
+        if (!sle)
+        {
+            // most likely explanation is that this was somehow a  double-up, so just ignore
+            JLOG(j_.warn())
+                << "HookError[" << txnID << "]: ttExport could not find exported txn in ledger";
+            break;
+        }
+
+        if (!view().dirRemove(
+                keylet::exportedDir(),
+                sle->getFieldU64(sfOwnerNode),
+                key,
+                false))
+        {
+            JLOG(j_.fatal()) << "HookError[" << txnID
+                             << "]: ttExport (Change) tefBAD_LEDGER";
+            return tefBAD_LEDGER;
+        }
+
+        view().erase(sle);
+    } while (0);
+    return tesSUCCESS;
+}
+
+TER
+Change::applyExportSign()
+{
+    uint256 txnID(ctx_.tx.getFieldH256(sfTransactionHash));
+    do
+    {
+        JLOG(j_.info()) << "HookExport[" << txnID
+                        << "]: ttExportSign adding signature to transaction";
+
+        auto key = keylet::exportedTxn(txnID);
+
+        auto const& sle = view().peek(key);
+
+        if (!sle)
+        {
+            // most likely explanation is that this was somehow a  double-up, so just ignore
+            JLOG(j_.warn())
+                << "HookError[" << txnID << "]: ttExportSign could not find exported txn in ledger";
+            break;
+        }
+
+        // grab the signer object off the txn
+        auto signerObj = const_cast<ripple::STTx&>(ctx_.tx)                                                               
+              .getField(sfSigner)                                                                           
+              .downcast<STObject>();                                                                        
+
+        // append it to the signers field in the ledger object
+        STArray signers = sle.getFieldArray(sfSigners);
+        signers.push_back(std::copy(signerObj));
+        sle.setFieldArray(sfSigners, signers);
+
+        // done
+        view().update(sle);
     } while (0);
     return tesSUCCESS;
 }

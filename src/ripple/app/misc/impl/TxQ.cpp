@@ -1539,6 +1539,245 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
+    // Inject exported transactions/signatures, if any
+    if (view.rules().enabled(featureExport))
+    {
+        do
+        {
+            // if we're not a validator we do nothing here
+            if (app.getValidationPublicKey().empty())
+                break;
+
+            auto const& keys = app.getValidationKeys();
+
+            if (keys.configInvalid())
+                break;
+
+            // and if we're not on the UNLReport we also do nothing
+
+            auto const unlRep = view.read(keylet::UNLReport());
+            if (!unlRep || !unlRep->isFieldPresent(sfActiveValidators))
+            {
+                // nothing to do without a unlreport object
+                break;
+            }
+
+            bool found = false;
+            auto const& avs = unlRep->getFieldArray(sfActiveValidators);
+            for (auto const& av : avs)
+            {
+                if (PublicKey(k[av.sfPublicKey]) == keys.masterPublicKey)
+                {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+                break;
+
+            // execution to here means we're a validator and on the UNLReport
+
+            AccountID signingAcc = calcAccountID(keys.publicKey);
+
+            Keylet const exportedDirKeylet{keylet::exportedDir()};
+            if (dirIsEmpty(view, exportedDirKeylet))
+                break;
+
+            std::shared_ptr<SLE const> sleDirNode{};
+            unsigned int uDirEntry{0};
+            uint256 dirEntry{beast::zero};
+
+            if (!cdirFirst(
+                    view,
+                    exportedDirKeylet.key,
+                    sleDirNode,
+                    uDirEntry,
+                    dirEntry))
+                break;
+
+            do
+            {
+                Keylet const itemKeylet{ltCHILD, dirEntry};
+                auto sleItem = view.read(itemKeylet);
+                if (!sleItem)
+                {
+                    // Directory node has an invalid index.  Bail out.
+                    JLOG(j_.warn())
+                        << "ExportedTxn processing: directory node in ledger "
+                        << view.seq()
+                        << " has index to object that is missing: "
+                        << to_string(dirEntry);
+
+                    // RH TODO: if this ever happens the entry should be
+                    // gracefully removed (somehow)
+                    continue;
+                }
+
+                LedgerEntryType const nodeType{
+                    safe_cast<LedgerEntryType>((*sleItem)[sfLedgerEntryType])};
+
+                if (nodeType != ltEXPORTED_TXN)
+                {
+                    JLOG(j_.warn())
+                        << "ExportedTxn processing: emitted directory contained "
+                           "non ltEMITTED_TXN type";
+                    // RH TODO: if this ever happens the entry should be
+                    // gracefully removed (somehow)
+                    continue;
+                }
+
+                JLOG(j_.info()) << "Processing exported txn: " << *sleItem;
+
+                auto const& exported =
+                    const_cast<ripple::STLedgerEntry&>(*sleItem)
+                        .getField(sfExportedTxn)
+                        .downcast<STObject>();
+
+                auto const& txnHash = sleItem->getFieldH256(sfTransactionHash);
+
+                auto exportedLgrSeq = exported.getFieldU32(sfLedgerSequence);
+
+                if (exportedLgrSeq == seq)
+                {
+                    // this shouldn't happen, but do nothing
+                    continue;
+                }
+                
+                if (exportedLgrSeq < seq - 1)
+                {
+                    // all old entries need to be turned into Export transactions so they can be removed
+                    // from the directory
+
+                    // in the previous ledger all the ExportSign transactions were executed, and one-by-one
+                    // added the validators' signatures to the ltEXPORTED_TXN's sfSigners array.
+                    // now we need to collect these together and place them inside the ExportedTxn blob
+                    // and publish the blob in the Export transaction type.
+
+                    STArray signers = sleItem->getFieldArray(sfSigners);
+                
+                    auto s = std::make_shared<ripple::Serializer>();
+                    exported.add(*s);
+                    SerialIter sitTrans(s->slice());
+                    try
+                    {
+                        auto stpTrans =
+                            std::make_shared<STTx>(std::ref(sitTrans));
+
+                        if (!stpTrans->isFieldPresent(sfAccount) ||
+                            stpTrans->getAccountID(sfAccount) == beast::zero)
+                        {
+                            JLOG(j_.warn()) << "Hook: Export failure: "
+                                            << "sfAccount missing or zero."
+                            // RH TODO: if this ever happens the entry should be
+                            // gracefully removed (somehow)
+                            continue;
+                        }
+
+                        // RH TODO: should we force remove signingpubkey here?
+
+                        stpTrans->setFieldArray(sfSigners, signers);
+
+                        Blob const& blob = stpTrans->getSerializer().peekData();  
+
+                        STTx exportTx(ttEXPORT, [&](auto& obj) {                                                                   
+                            obj.setFieldVL(sfExportedTxn, blob);
+                            obj.setFieldU32(sfLedgerSequence, seq);
+                            obj.setFieldH256(sfTransactionHash, txnHash);
+                            obj.setFieldArray(sfSigners, signers);            
+                        });                                                                                                            
+                    
+                        // submit to the ledger    
+                        {
+                            uint256 txID = exportTx.getTransactionID();
+                            auto s = std::make_shared<ripple::Serializer>();
+                            exportTx.add(*s);
+                            app.getHashRouter().setFlags(txID, SF_PRIVATE2);
+                            app.getHashRouter().setFlags(txID, SF_EMITTED);
+                            view.rawTxInsert(txID, std::move(s), nullptr);
+                            ledgerChanged = true;
+                        }
+               
+                    }
+
+                    catch (std::exception& e)
+                    {
+                        JLOG(j_.warn())
+                            << "ExportedTxn Processing: Failure: " << e.what()
+                            << "\n";
+                    }
+                    
+
+                    continue;
+                }
+                
+                // this ledger is the one after the exported txn was added to the directory
+                // so generate the export sign txns
+
+                auto s = std::make_shared<ripple::Serializer>();
+                exported.add(*s);
+                SerialIter sitTrans(s->slice());
+                try
+                {
+                    auto const& stpTrans =
+                        std::make_shared<STTx const>(std::ref(sitTrans));
+
+                    if (!stpTrans->isFieldPresent(sfAccount) ||
+                        stpTrans->getAccountID(sfAccount) == beast::zero)
+                    {
+                        JLOG(j_.warn()) << "Hook: Export failure: "
+                                        << "sfAccount missing or zero."
+                        // RH TODO: if this ever happens the entry should be
+                        // gracefully removed (somehow)
+                        continue;
+                    }
+
+                    auto seq = view.info().seq;
+                    auto txnHash = stpTrans->getTransactionID();
+                
+                    Serializer s =
+                        buildMultiSigningData(*stpTrans, signingAcc);
+
+                    auto multisig = ripple::sign(keys.publicKey, keys.secretKey, s.slice());
+
+                    STTx exportSignTx(ttEXPORT_SIGN, [&](auto& obj) {                                                                   
+                        obj.set(([&]() {                                                                                           
+                            auto inner = std::make_unique<STObject>(sfSigner);                                            
+                            inner->setFieldVL(sfSigningPubKey, keys.publicKey);
+                            inner->setAccountID(sfAccount, signingAcc);
+                            inner->setFieldVL(sfTxnSignature, multisig);                        
+                            return inner;                                                                                          
+                        })());                                                                                                     
+                        obj.setFieldU32(sfLedgerSequence, seq);
+                        obj.setFieldH256(sfTransactionHash, txnHash);                   
+                    });                                                                                                            
+                    
+                    // submit to the ledger    
+                    {
+                        uint256 txID = exportSignTx.getTransactionID();
+                        auto s = std::make_shared<ripple::Serializer>();
+                        exportSignTx.add(*s);
+                        app.getHashRouter().setFlags(txID, SF_PRIVATE2);
+                        app.getHashRouter().setFlags(txID, SF_EMITTED);
+                        view.rawTxInsert(txID, std::move(s), nullptr);
+                        ledgerChanged = true;
+                    }
+                }
+
+                catch (std::exception& e)
+                {
+                    JLOG(j_.warn())
+                        << "ExportedTxn Processing: Failure: " << e.what()
+                        << "\n";
+                }
+
+            } while (cdirNext(
+                view, emittedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
+
+        } while (0);
+
+    }
+
     // Inject emitted transactions if any
     if (view.rules().enabled(featureHooks))
         do
