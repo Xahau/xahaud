@@ -309,6 +309,7 @@ jobs:
           cc: ${{ matrix.cc }}
           cxx: ${{ matrix.cxx }}
           stdlib: ${{ matrix.stdlib }}
+          gha_cache_enabled: 'false' # Disable caching for self hosted runner
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build

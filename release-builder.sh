@@ -192,7 +192,7 @@ ENV PATH=/usr/local/bin:$PATH
 
 # Configure ccache and Conan 2
 # NOTE: Using echo commands instead of heredocs because heredocs in Docker RUN commands are finnicky
-RUN /hbb_exe/activate-exec bash -c "ccache -M 10G && \
+RUN /hbb_exe/activate-exec bash -c "ccache -M 100G && \
     ccache -o cache_dir=/cache/ccache && \
     ccache -o compiler_check=content && \
     mkdir -p ~/.conan2 /cache/conan2 /cache/conan2_download /cache/conan2_sources && \

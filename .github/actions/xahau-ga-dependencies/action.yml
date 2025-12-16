@@ -68,6 +68,17 @@ runs:
         echo 'core.download:download_cache=/.conan-cache/conan2_download' >> ~/.conan2/global.conf
         echo 'core.sources:download_cache=/.conan-cache/conan2_sources' >> ~/.conan2/global.conf
 
+    - name: Configure Conan cache paths
+      if: inputs.gha_cache_enabled == 'false'
+      shell: bash
+      # For self-hosted runners, register cache paths to be used as volumes
+      # This allows the cache to be shared between containers
+      run: |
+        mkdir -p /.conan-cache/conan2 /.conan-cache/conan2_download /.conan-cache/conan2_sources
+        echo 'core.cache:storage_path=/.conan-cache/conan2' > ~/.conan2/global.conf
+        echo 'core.download:download_cache=/.conan-cache/conan2_download' >> ~/.conan2/global.conf
+        echo 'core.sources:download_cache=/.conan-cache/conan2_sources' >> ~/.conan2/global.conf
+
     - name: Configure Conan
       shell: bash
       run: |
