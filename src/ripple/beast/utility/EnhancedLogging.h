@@ -43,7 +43,7 @@ strip_source_root(const char* file)
 {
     // Handle relative paths from build/ directory (common with ccache)
     // e.g., "../src/ripple/..." -> "ripple/..."
-    if (file[0] == '.' && file[1] == '.' && file[2] == '/' && file[3] == 's' &&
+    if (file && file[0] == '.' && file[1] == '.' && file[2] == '/' && file[3] == 's' &&
         file[4] == 'r' && file[5] == 'c' && file[6] == '/')
     {
         return file + 7;  // skip "../src/"
