@@ -181,8 +181,7 @@ jobs:
       image: ubuntu:24.04
       volumes:
         - /home/runner/.conan-cache:/.conan-cache
-        - /home/runner/.ccache-main:/github/home/.ccache-main
-        - /home/runner/.ccache-current:/github/home/.ccache-current
+        - /home/runner/.ccache-cache:/github/home/.ccache-cache
     defaults:
       run:
         shell: bash
@@ -325,7 +324,6 @@ jobs:
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
           stdlib: ${{ matrix.stdlib }}
           clang_gcc_toolchain: ${{ matrix.clang_gcc_toolchain || '' }}
-          gha_cache_enabled: 'false' # Disable caching for self hosted runner
           ccache_max_size: '100G'
 
       - name: Set artifact name
