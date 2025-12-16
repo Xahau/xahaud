@@ -28,6 +28,10 @@ inputs:
     description: 'Cache version for invalidation'
     required: false
     default: '1'
+  gha_cache_enabled:
+    description: 'Whether to use actions/cache (disable for self-hosted with volume mounts)'
+    required: false
+    default: 'true'
   ccache_enabled:
     description: 'Whether to use ccache'
     required: false
@@ -72,7 +76,7 @@ runs:
         echo "name=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
 
     - name: Restore ccache directory for main branch
-      if: inputs.ccache_enabled == 'true'
+      if: inputs.gha_cache_enabled == 'true' && inputs.ccache_enabled == 'true'
       id: ccache-restore
       uses: ./.github/actions/xahau-ga-cache-restore
       with:
@@ -84,7 +88,7 @@ runs:
         cache-type: ccache-main
 
     - name: Restore ccache directory for current branch
-      if: inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
+      if: inputs.gha_cache_enabled == 'true' && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
       id: ccache-restore-current-branch
       uses: ./.github/actions/xahau-ga-cache-restore
       with:
@@ -102,6 +106,11 @@ runs:
       run: |
         # Create cache directories
         mkdir -p ~/.ccache-main ~/.ccache-current
+
+        # Keep config separate from cache_dir so configs aren't swapped when CCACHE_DIR changes between steps
+        mkdir -p ~/.config/ccache
+        export CCACHE_CONFIGPATH="$HOME/.config/ccache/ccache.conf"
+        echo "CCACHE_CONFIGPATH=$CCACHE_CONFIGPATH" >> $GITHUB_ENV
 
         # Configure ccache settings AFTER cache restore (prevents stale cached config)
         ccache --set-config=max_size=${{ inputs.ccache_max_size }}
@@ -237,14 +246,14 @@ runs:
       run: ccache -s
 
     - name: Save ccache directory for main branch
-      if: success() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name == inputs.main_branch
+      if: success() && inputs.gha_cache_enabled == 'true' && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name == inputs.main_branch
       uses: actions/cache/save@v4
       with:
         path: ~/.ccache-main
         key: ${{ steps.ccache-restore.outputs.cache-primary-key }}
 
     - name: Save ccache directory for current branch
-      if: success() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
+      if: success() && inputs.gha_cache_enabled == 'true' && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
       uses: actions/cache/save@v4
       with:
         path: ~/.ccache-current
