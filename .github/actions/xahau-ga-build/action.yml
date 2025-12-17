@@ -28,6 +28,10 @@ inputs:
     description: 'Cache version for invalidation'
     required: false
     default: '1'
+  gha_cache_enabled:
+    description: 'Whether to use actions/cache (disable for self-hosted with volume mounts)'
+    required: false
+    default: 'true'
   ccache_enabled:
     description: 'Whether to use ccache'
     required: false
@@ -71,56 +75,30 @@ runs:
         SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr -c 'a-zA-Z0-9_.-' '-')
         echo "name=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
 
-    - name: Restore ccache directory for main branch
-      if: inputs.ccache_enabled == 'true'
-      id: ccache-restore
-      uses: ./.github/actions/xahau-ga-cache-restore
-      with:
-        path: ~/.ccache-main
-        key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
-        restore-keys: |
-          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
-          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
-        cache-type: ccache-main
-
-    - name: Restore ccache directory for current branch
-      if: inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
-      id: ccache-restore-current-branch
-      uses: ./.github/actions/xahau-ga-cache-restore
-      with:
-        path: ~/.ccache-current
-        key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
-        restore-keys: |
-          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
-          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
-          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
-        cache-type: ccache-current
-
     - name: Configure ccache
       if: inputs.ccache_enabled == 'true'
       shell: bash
       run: |
         # Create cache directories
-        mkdir -p ~/.ccache-main ~/.ccache-current
+        mkdir -p ~/.ccache-cache
+
+        # Keep config separate from cache_dir so configs aren't swapped when CCACHE_DIR changes between steps
+        mkdir -p ~/.config/ccache
+        export CCACHE_CONFIGPATH="$HOME/.config/ccache/ccache.conf"
+        echo "CCACHE_CONFIGPATH=$CCACHE_CONFIGPATH" >> $GITHUB_ENV
+
+        # Keep config separate from cache_dir so configs aren't swapped when CCACHE_DIR changes between steps
+        mkdir -p ~/.config/ccache
+        export CCACHE_CONFIGPATH="$HOME/.config/ccache/ccache.conf"
+        echo "CCACHE_CONFIGPATH=$CCACHE_CONFIGPATH" >> $GITHUB_ENV
 
         # Configure ccache settings AFTER cache restore (prevents stale cached config)
         ccache --set-config=max_size=${{ inputs.ccache_max_size }}
         ccache --set-config=hash_dir=${{ inputs.ccache_hash_dir }}
         ccache --set-config=compiler_check=${{ inputs.ccache_compiler_check }}
-
-        # Determine if we're on the main branch
-        if [ "${{ steps.safe-branch.outputs.name }}" = "${{ inputs.main_branch }}" ]; then
-          # Main branch: use main branch cache only
-          ccache --set-config=cache_dir="$HOME/.ccache-main"
-          echo "CCACHE_DIR=$HOME/.ccache-main" >> $GITHUB_ENV
-          echo "📦 Main branch: using ~/.ccache-main"
-        else
-          # Feature branch: use current branch cache with main as secondary (read-only fallback)
-          ccache --set-config=cache_dir="$HOME/.ccache-current"
-          ccache --set-config=secondary_storage="file:$HOME/.ccache-main"
-          echo "CCACHE_DIR=$HOME/.ccache-current" >> $GITHUB_ENV
-          echo "📦 Feature branch: using ~/.ccache-current with ~/.ccache-main as secondary"
-        fi
+        ccache --set-config=cache_dir="$HOME/.ccache-cache"
+        echo "CCACHE_DIR=$HOME/.ccache-cache" >> $GITHUB_ENV
+        echo "📦 using ~/.ccache-cache as ccache cache directory"
 
         # Print config for verification
         echo "=== ccache configuration ==="
@@ -235,17 +213,3 @@ runs:
       if: inputs.ccache_enabled == 'true'
       shell: bash
       run: ccache -s
-
-    - name: Save ccache directory for main branch
-      if: success() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name == inputs.main_branch
-      uses: actions/cache/save@v4
-      with:
-        path: ~/.ccache-main
-        key: ${{ steps.ccache-restore.outputs.cache-primary-key }}
-
-    - name: Save ccache directory for current branch
-      if: success() && inputs.ccache_enabled == 'true' && steps.safe-branch.outputs.name != inputs.main_branch
-      uses: actions/cache/save@v4
-      with:
-        path: ~/.ccache-current
-        key: ${{ steps.ccache-restore-current-branch.outputs.cache-primary-key }}

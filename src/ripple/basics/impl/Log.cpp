@@ -360,7 +360,8 @@ Logs::format(
     if (!partition.empty())
     {
 #ifdef BEAST_ENHANCED_LOGGING
-        output += beast::detail::get_log_highlight_color();
+        if (beast::detail::should_log_use_colors())
+            output += beast::detail::get_log_highlight_color();
 #endif
         output += partition + ":";
     }
@@ -392,7 +393,8 @@ Logs::format(
     }
 
 #ifdef BEAST_ENHANCED_LOGGING
-    output += "\033[0m";
+    if (beast::detail::should_log_use_colors())
+        output += "\033[0m";
 #endif
 
     output += message;

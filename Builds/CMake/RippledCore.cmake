@@ -48,13 +48,9 @@ target_sources (xrpl_core PRIVATE
   src/ripple/beast/net/impl/IPAddressV6.cpp
   src/ripple/beast/net/impl/IPEndpoint.cpp
   src/ripple/beast/utility/src/beast_Journal.cpp
-  src/ripple/beast/utility/src/beast_PropertyStream.cpp)
-
-# Conditionally add enhanced logging source when BEAST_ENHANCED_LOGGING is enabled
-if(DEFINED BEAST_ENHANCED_LOGGING AND BEAST_ENHANCED_LOGGING)
-  target_sources(xrpl_core PRIVATE
-    src/ripple/beast/utility/src/beast_EnhancedLogging.cpp)
-endif()
+  src/ripple/beast/utility/src/beast_PropertyStream.cpp
+  # Enhanced logging - compiles to empty when BEAST_ENHANCED_LOGGING is not defined
+  src/ripple/beast/utility/src/beast_EnhancedLogging.cpp)
 
 #[===============================[
     core sources
@@ -162,12 +158,16 @@ target_link_libraries (xrpl_core
     date::date
     Ripple::opts)
 
-# Link date-tz library when enhanced logging is enabled
-if(DEFINED BEAST_ENHANCED_LOGGING AND BEAST_ENHANCED_LOGGING)
-  if(TARGET date::date-tz)
-    target_link_libraries(xrpl_core PUBLIC date::date-tz)
-  endif()
+# date-tz for enhanced logging (always linked, code is #ifdef guarded)
+if(TARGET date::date-tz)
+  target_link_libraries(xrpl_core PUBLIC date::date-tz)
 endif()
+
+# BEAST_ENHANCED_LOGGING: enable for Debug builds OR when explicitly requested
+# Uses generator expression so it works with multi-config generators (Xcode, VS, Ninja Multi-Config)
+target_compile_definitions(xrpl_core PUBLIC
+  $<$<OR:$<CONFIG:Debug>,$<BOOL:${BEAST_ENHANCED_LOGGING}>>:BEAST_ENHANCED_LOGGING=1>
+)
 #[=================================[
    main/core headers installation
 #]=================================]
