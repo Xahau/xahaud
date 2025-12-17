@@ -4037,10 +4037,14 @@ get_stobject_length(
     int& payload_start,  // out - the start of actual payload data for this type
     int& payload_length,  // out - the length of actual payload data for this
                           // type
+    uint16_t max_sti_type,
     int recursion_depth = 0)  // used internally
 {
     if (recursion_depth > 10)
         return pe_excessive_nesting;
+
+    if (type > max_sti_type)
+        return pe_unknown_type_early;
 
     unsigned char* end = maxptr;
     unsigned char* upto = start;
@@ -4093,10 +4097,18 @@ get_stobject_length(
     auto const& fieldObj = ripple::SField::getField;
     */
 
-    if (type < 1 || type > 19 || (type >= 9 && type <= 13))
+    // type 10~13 are reserved
+    if (type < 1 || max_sti_type < type || (10 <= type && type <= 13))
         return pe_unknown_type_early;
 
-    bool is_vl = (type == 8 /*ACCID*/ || type == 7 || type == 18 || type == 19);
+    // not supported types
+    if (type == STI_NUMBER || type == STI_UINT96 || type == STI_UINT192 ||
+        type == STI_UINT384 || type == STI_UINT512)
+        return pe_unknown_type_early;
+
+    bool is_vl =
+        (type == STI_ACCOUNT || type == STI_VL || type == STI_PATHSET ||
+         type == STI_VECTOR256);
 
     int length = -1;
     if (is_vl)
@@ -4129,29 +4141,76 @@ get_stobject_length(
                 return pe_unexpected_end;
         }
     }
-    else if ((type >= 1 && type <= 5) || type == 16 || type == 17)
+    else if (
+        (type >= STI_UINT16 && type <= STI_UINT256) || type == STI_UINT8 ||
+        type == STI_UINT160 || type == STI_CURRENCY)
     {
-        length =
-            (type == 1
-                 ? 2
-                 : (type == 2
-                        ? 4
-                        : (type == 3
-                               ? 8
-                               : (type == 4
-                                      ? 16
-                                      : (type == 5
-                                             ? 32
-                                             : (type == 16
-                                                    ? 1
-                                                    : (type == 17 ? 20
-                                                                  : -1)))))));
+        switch (type)
+        {
+            case STI_UINT16:
+                length = 2;
+                break;
+            case STI_UINT32:
+                length = 4;
+                break;
+            case STI_UINT64:
+                length = 8;
+                break;
+            case STI_UINT128:
+                length = 16;
+                break;
+            case STI_UINT256:
+                length = 32;
+                break;
+            case STI_UINT8:
+                length = 1;
+                break;
+            case STI_UINT160:
+                length = 20;
+                break;
+            case STI_CURRENCY:
+                length = 20;
+                break;
+            default:
+                return -1;
+        }
     }
-    else if (type == 6) /* AMOUNT */
+    else if (type == STI_AMOUNT) /* AMOUNT */
     {
         length = (*upto >> 6 == 1) ? 8 : 48;
         if (upto >= end)
             return pe_unexpected_end;
+    }
+    else if (type == STI_ISSUE)
+    {
+        auto zero20 = std::array<char, 20>{0};
+        // if first 20 byte is all zeros return 20
+        // else return 40
+        if (memcmp(upto, zero20.data(), 20) == 0)
+            length = 20;
+        else
+            length = 40;
+    }
+    else if (type == STI_XCHAIN_BRIDGE)
+    {
+        auto zero20 = std::array<char, 20>{0};
+        // Lock Chain
+        length = 1;    // Door Account1 prefix length
+        length += 20;  // Door Account1 length
+        // Door Issue1
+        if (memcmp(upto + length, zero20.data(), 20) == 0)
+            length += 20;  // only Currency
+        else
+            length += 40;  // Currency and Issue
+
+        // Issuing Chain
+        length += 1;   // Door Account2 prefix length
+        length += 20;  // Door Account2 length
+        // Door Issue2
+        if (memcmp(upto + length, zero20.data(), 20) == 0)
+            length += 20;  // only Currency
+        else
+            length += 40;  // Currency and Issue
     }
 
     if (length > -1)
@@ -4171,7 +4230,7 @@ get_stobject_length(
         return length + (upto - start);
     }
 
-    if (type == 15 || type == 14) /* Object / Array */
+    if (type == STI_OBJECT || type == STI_ARRAY)
     {
         payload_start = upto - start;
 
@@ -4186,6 +4245,7 @@ get_stobject_length(
                 subfield,
                 payload_start_,
                 payload_length_,
+                max_sti_type,
                 recursion_depth + 1);
             DBG_PRINTF(
                 "%d get_stobject_length i %d %d-%d, upto %d sublength %d\n",
@@ -4201,8 +4261,8 @@ get_stobject_length(
             if (upto >= end)
                 return pe_unexpected_end;
 
-            if ((*upto == 0xE1U && type == 0xEU) ||
-                (*upto == 0xF1U && type == 0xFU))
+            if ((*upto == 0xE1U && type == 0xEU) ||  // STI_OBJECT Maker
+                (*upto == 0xF1U && type == 0xFU))    // STI_ARRAY Maker
             {
                 payload_length = upto - start - payload_start;
                 upto++;
@@ -4254,7 +4314,16 @@ DEFINE_HOOK_FUNCTION(
     {
         int type = -1, field = -1, payload_start = -1, payload_length = -1;
         int32_t length = get_stobject_length(
-            upto, end, type, field, payload_start, payload_length, 0);
+            upto,
+            end,
+            type,
+            field,
+            payload_start,
+            payload_length,
+            view.rules().enabled(featureHookAPISerializedType240)
+                ? STI_CURRENCY
+                : STI_VECTOR256,
+            0);
         if (length < 0)
             return PARSE_ERROR;
         if ((type << 16) + field == field_id)
@@ -4345,7 +4414,16 @@ DEFINE_HOOK_FUNCTION(
     {
         int type = -1, field = -1, payload_start = -1, payload_length = -1;
         int32_t length = get_stobject_length(
-            upto, end, type, field, payload_start, payload_length, 0);
+            upto,
+            end,
+            type,
+            field,
+            payload_start,
+            payload_length,
+            view.rules().enabled(featureHookAPISerializedType240)
+                ? STI_CURRENCY
+                : STI_VECTOR256,
+            0);
         if (length < 0)
             return PARSE_ERROR;
 
@@ -4577,6 +4655,10 @@ DEFINE_HOOK_FUNCTION(
             field,
             payload_start,
             payload_length,
+
+            view.rules().enabled(featureHookAPISerializedType240)
+                ? STI_CURRENCY
+                : STI_VECTOR256,
             0);
         if (length < 0)
             return PARSE_ERROR;
@@ -4606,7 +4688,16 @@ DEFINE_HOOK_FUNCTION(
     {
         int type = -1, field = -1, payload_start = -1, payload_length = -1;
         int32_t length = get_stobject_length(
-            upto, end, type, field, payload_start, payload_length, 0);
+            upto,
+            end,
+            type,
+            field,
+            payload_start,
+            payload_length,
+            view.rules().enabled(featureHookAPISerializedType240)
+                ? STI_CURRENCY
+                : STI_VECTOR256,
+            0);
         if (length < 0)
             return PARSE_ERROR;
         if ((type << 16) + field == field_id)
@@ -4731,7 +4822,16 @@ DEFINE_HOOK_FUNCTION(
     {
         int type = -1, field = -1, payload_start = -1, payload_length = -1;
         int32_t length = get_stobject_length(
-            upto, end, type, field, payload_start, payload_length, 0);
+            upto,
+            end,
+            type,
+            field,
+            payload_start,
+            payload_length,
+            view.rules().enabled(featureHookAPISerializedType240)
+                ? STI_CURRENCY
+                : STI_VECTOR256,
+            0);
         if (length < 0)
             return 0;
         upto += length;
