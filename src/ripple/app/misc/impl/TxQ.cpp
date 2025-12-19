@@ -27,6 +27,8 @@
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/jss.h>
 #include <ripple/protocol/st.h>
+#include <ripple/app/misc/ValidatorKeys.h>
+#include <ripple/protocol/Sign.h>
 #include <algorithm>
 #include <limits>
 #include <numeric>
@@ -1548,7 +1550,7 @@ TxQ::accept(Application& app, OpenView& view)
             if (app.getValidationPublicKey().empty())
                 break;
 
-            auto const& keys = app.getValidationKeys();
+            auto const& keys = app.getValidatorKeys();
 
             if (keys.configInvalid())
                 break;
@@ -1566,7 +1568,7 @@ TxQ::accept(Application& app, OpenView& view)
             auto const& avs = unlRep->getFieldArray(sfActiveValidators);
             for (auto const& av : avs)
             {
-                if (PublicKey(k[av.sfPublicKey]) == keys.masterPublicKey)
+                if (PublicKey(av[sfPublicKey]) == keys.masterPublicKey)
                 {
                     found = true;
                     break;
@@ -1638,6 +1640,8 @@ TxQ::accept(Application& app, OpenView& view)
 
                 auto exportedLgrSeq = exported.getFieldU32(sfLedgerSequence);
 
+                auto const seq = view.seq();
+
                 if (exportedLgrSeq == seq)
                 {
                     // this shouldn't happen, but do nothing
@@ -1668,7 +1672,7 @@ TxQ::accept(Application& app, OpenView& view)
                             stpTrans->getAccountID(sfAccount) == beast::zero)
                         {
                             JLOG(j_.warn()) << "Hook: Export failure: "
-                                            << "sfAccount missing or zero."
+                                            << "sfAccount missing or zero.";
                             // RH TODO: if this ever happens the entry should be
                             // gracefully removed (somehow)
                             continue;
@@ -1726,7 +1730,7 @@ TxQ::accept(Application& app, OpenView& view)
                         stpTrans->getAccountID(sfAccount) == beast::zero)
                     {
                         JLOG(j_.warn()) << "Hook: Export failure: "
-                                        << "sfAccount missing or zero."
+                                        << "sfAccount missing or zero.";
                         // RH TODO: if this ever happens the entry should be
                         // gracefully removed (somehow)
                         continue;
@@ -1772,7 +1776,7 @@ TxQ::accept(Application& app, OpenView& view)
                 }
 
             } while (cdirNext(
-                view, emittedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
+                view, exportedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
 
         } while (0);
 

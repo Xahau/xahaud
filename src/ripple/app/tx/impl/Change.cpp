@@ -1146,14 +1146,14 @@ Change::applyExportSign()
         }
 
         // grab the signer object off the txn
-        auto signerObj = const_cast<ripple::STTx&>(ctx_.tx)                                                               
+        STObject signerObj = const_cast<ripple::STTx&>(ctx_.tx)                                                               
               .getField(sfSigner)                                                                           
               .downcast<STObject>();                                                                        
 
         // append it to the signers field in the ledger object
-        STArray signers = sle.getFieldArray(sfSigners);
-        signers.push_back(std::copy(signerObj));
-        sle.setFieldArray(sfSigners, signers);
+        STArray signers = sle->getFieldArray(sfSigners);
+        signers.push_back(signerObj);
+        sle->setFieldArray(sfSigners, signers);
 
         // done
         view().update(sle);

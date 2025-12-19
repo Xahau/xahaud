@@ -75,6 +75,12 @@ private:
     applyEmitFailure();
 
     TER
+    applyExport();
+
+    TER
+    applyExportSign();
+
+    TER
     applyUNLReport();
 };
 
