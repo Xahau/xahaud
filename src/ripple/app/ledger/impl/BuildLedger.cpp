@@ -103,6 +103,46 @@ applyTransactions(
     bool certainRetry = true;
     std::size_t count = 0;
 
+    if (view.rules.enabled(featureRNG))
+    {
+        // apply the ttRNG txns first in the ledger to ensure no one can predict the outcome
+        for (it = txns.begin(); it != txns.end();)
+        {
+            if (it->second->getFieldU16(sfTransactionType) != ttRNG)
+            {
+                ++it;
+                continue;
+            }
+
+            try
+            {
+                switch (applyTransaction(
+                    app, view, *it->second, certainRetry, tapNONE, j))
+                {
+                    case ApplyResult::Success:
+                        it = txns.erase(it);
+                        ++count;
+                        break;
+
+                    case ApplyResult::Fail:
+                        failed.insert(txid);
+                        it = txns.erase(it);
+                        break;
+
+                    case ApplyResult::Retry:
+                        ++it;
+                }
+            }
+            catch (std::exception const& ex)
+            {
+                JLOG(j.warn())
+                    << "Transaction " << txid << " throws: " << ex.what();
+                failed.insert(txid);
+                it = txns.erase(it);
+            }
+        }
+    }
+
     // Attempt to apply all of the retriable transactions
     for (int pass = 0; pass < LEDGER_TOTAL_PASSES; ++pass)
     {

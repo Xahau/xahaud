@@ -1477,6 +1477,104 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
+    // Inject an RNG psuedo if we're on the UNL
+    if (view.rules().enabled(featureRNG))
+    {
+        do
+        {
+            // if we're not a validator we do nothing here
+            if (app.getValidationPublicKey().empty())
+                break;
+
+            auto const& keys = app.getValidatorKeys();
+
+            if (keys.configInvalid())
+                break;
+
+            // and if we're not on the UNLReport we also do nothing
+
+            auto const unlRep = view.read(keylet::UNLReport());
+            if (!unlRep || !unlRep->isFieldPresent(sfActiveValidators))
+            {
+                // nothing to do without a unlreport object
+                break;
+            }
+
+            bool found = false;
+            auto const& avs = unlRep->getFieldArray(sfActiveValidators);
+            for (auto const& av : avs)
+            {
+                if (PublicKey(av[sfPublicKey]) == keys.masterPublicKey)
+                {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+                break;
+
+            auto const seq = view.info().seq;
+
+            AccountID acc = calcAccountID(keys.masterPublicKey);
+
+            static auto getRnd = []() -> uint256 {
+                static std::ifstream rng("/dev/urandom", std::ios::binary);
+                uint256 out;
+                if (rng && rng.read(reinterpret_cast<char*>(out.data()), 32))
+                    return out;
+                std::random_device rd;
+                for (auto& word : out)
+                    word = rd();
+                return out;
+            };
+
+            static std::map<uint32_t /* ledger seq */ , uint256 /* chosen rnd no */> rngMap;
+
+            uint256 nextRnd = getRnd();
+
+            if (rngMap.find(seq) != rngMap.end())
+                break; // should never happen
+
+            rngMap[seq] = nextRnd;
+
+            std::optional<uint256> prevRnd;
+
+            if (rngMap.find(seq - 1))
+                prevRnd = rngMap[seq - 1];
+
+            // amortized cleanup, for every ledger attempt to delete two old entries
+            // even in the most desynced ridiculous state this is guaranteed prevent map growth
+            for (int i = 0; i < 2; ++i)
+            {
+                auto it = rngMap.begin();
+                if (it != rngMap.end() && it->first < seq)
+                    rngMap.erase(it->first);
+            }
+
+            // create txn
+            STTx rngTx(ttRNG, [&](auto& obj) {                                                                   
+                obj.setFieldU32(sfLedgerSequence, seq);
+                obj.setAccountID(sfValidator, acc);
+                if (prevRnd.has_value())    
+                    obj.setFieldH256(sfLastSolution, *prevRnd);
+                obj.setFieldH256(sfDigest, sha512Half(nextRnd);
+            });                                                                                                            
+                    
+            // submit to the ledger    
+            {
+                uint256 txID = rngTx.getTransactionID();
+                auto s = std::make_shared<ripple::Serializer>();
+                exportTx.add(*s);
+                app.getHashRouter().setFlags(txID, SF_PRIVATE2);
+                app.getHashRouter().setFlags(txID, SF_EMITTED);
+                view.rawTxInsert(txID, std::move(s), nullptr);
+                ledgerChanged = true;
+            }
+
+        } while (0);        
+    }
+
     // Inject cron transactions, if any
     if (view.rules().enabled(featureCron))
     {
