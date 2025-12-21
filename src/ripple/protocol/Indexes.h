@@ -51,6 +51,9 @@ class SeqProxy;
 */
 namespace keylet {
 
+Keylet const&
+random() noexcept;
+
 /** The (fixed) index of the object containing the emitted txns for the ledger.
  */
 Keylet const&

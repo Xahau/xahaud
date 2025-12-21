@@ -490,6 +490,16 @@ TxFormats::TxFormats()
             {sfStartTime, soeOPTIONAL},
         },
         commonFields);
+
+    add(jss::Rng,
+        ttRNG,
+        {
+            {sfValidator, soeREQUIRED},
+            {sfRandomData, soeREQUIRED},
+            {sfNextRandomDigest, soeREQUIRED},
+            {sfLedgerSequence, soeREQUIRED},
+        },
+        commonFields);
 }
 
 TxFormats const&

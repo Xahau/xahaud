@@ -355,6 +355,7 @@ extern SF_UINT16 const sfHookEmitCount;
 extern SF_UINT16 const sfHookExecutionIndex;
 extern SF_UINT16 const sfHookApiVersion;
 extern SF_UINT16 const sfHookStateScale;
+extern SF_UINT16 const sfEntropyCount;
 
 // 32-bit integers (common)
 extern SF_UINT32 const sfNetworkID;
@@ -491,6 +492,9 @@ extern SF_UINT256 const sfGovernanceFlags;
 extern SF_UINT256 const sfGovernanceMarks;
 extern SF_UINT256 const sfEmittedTxnID;
 extern SF_UINT256 const sfCron;
+extern SF_UINT256 const sfRandomData;
+extern SF_UINT256 const sfLastRandomData;
+extern SF_UINT256 const sfNextRandomDigest;
 
 // currency amount (common)
 extern SF_AMOUNT const sfAmount;
@@ -606,6 +610,7 @@ extern SField const sfHookEmission;
 extern SField const sfMintURIToken;
 extern SField const sfAmountEntry;
 extern SField const sfRemark;
+extern SField const sfRandomDigestEntry;
 
 // array of objects (common)
 // ARRAY/1 is reserved for end of array
@@ -635,6 +640,7 @@ extern SField const sfImportVLKeys;
 extern SField const sfHookEmissions;
 extern SField const sfAmounts;
 extern SField const sfRemarks;
+extern SField const sfRandomDigests;
 
 //------------------------------------------------------------------------------
 

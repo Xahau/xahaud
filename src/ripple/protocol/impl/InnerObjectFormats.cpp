@@ -167,6 +167,14 @@ InnerObjectFormats::InnerObjectFormats()
             {sfRemarkValue, soeOPTIONAL},
             {sfFlags, soeOPTIONAL},
         });
+
+    add(sfRandomDigestEntry.jsonName.c_str(),
+        sfRandomDigestEntry.getCode(),
+        {
+            {sfValidator, soeREQUIRED},
+            {sfNextRandomDigest, soeREQUIRED},
+            {sfLedgerSequence, soeREQUIRED},
+        });
 }
 
 InnerObjectFormats const&

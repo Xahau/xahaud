@@ -96,6 +96,12 @@ Change::preflight(PreflightContext const& ctx)
         }
     }
 
+    if (ctx.tx.getTxnType() == ttRNG && !ctx.rules.enabled(featureRNG))
+    {
+        JLOG(ctx.j.warn()) << "Change: FeatureRNG is not enabled.";
+        return temDISABLED;
+    }
+
     return tesSUCCESS;
 }
 
@@ -216,6 +222,125 @@ Change::doApply()
             assert(0);
             return tefFAILURE;
     }
+}
+
+TER
+Change::applyRNG()
+{
+
+    auto const seq = view().info().seq;
+
+    if (seq != ctx_.tx.getFieldU32(sfLedgerSequence))
+    {
+        JLOG(j_.warn()) << "Change: ttRNG, wrong ledger seq=" << seq;
+        return tefFAILURE;
+    }
+
+    auto sle = view().peek(keylet::random());
+    
+    bool const created = !sle;
+
+    if (created)
+    {
+        sle = std::make_shared<SLE>(keylet::random());
+    }
+
+    auto lastSeq = created ? 0 : sle->getFieldU32(sfLedgerSequence);
+
+    if (lastSeq < seq)
+    {
+        // update the ledger sequence of the object
+        sle->setFieldU32(sfLedgerSequence, seq);
+        
+        // reset entropy count to zero... this will probably be
+        // one after the below executes but its possible the digest
+        // doesn't match and the entropy count isn't incremented
+        sle->setFieldU16(sfEntropyCount, 0);
+
+        // swap the random data out ready for this round of entropy collection
+        sle->setFieldH256(sfLastRandomData, sle->getFieldH256(sfRandomData));
+        sle->setFieldH256(sfRandomData, beast::zero);
+    }
+
+    uint256 nextDigest = ctx_.tx.getFieldH256(sfNextRandomDigest);
+    uint256 currentEntropy = ctx_.tx.getFieldH256(sfRandomData);
+    uint256 currentDigest = sha512Half(currentEntropy);
+
+    AccountID const validator = ctx_.tx.getAccountID(sfValidator); 
+
+    // RH TODO: check if they're on the UNLReport and ignore if not
+
+    // iterate the digest array to find the entry if it exists
+    STArray digestEntries = sle->getFieldArray(sfRandomDigests);
+    std::map<AccountID, STObject> entries;
+
+    for (auto& entry : digestEntries)
+    {
+        // we'll automatically clean up really old entries by just omitting them from
+        // the map here
+        if (entry.getFieldU32(sfLedgerSequence) < seq - 5)
+            continue;
+
+        entries.emplace(entry.getAccountID(sfValidator), std::move(entry));
+    }
+
+    if (auto it = entries.find(validator); it != entries.end())
+    {
+        auto& entry = it->second;
+            
+        // ensure the precommitted digest matches the provided entropy
+        if (entry.getFieldH256(sfNextRandomDigest) != currentDigest)
+        {
+            if (entry.getFieldU32(sfLedgerSequence) != seq - 1)
+            {
+                // this is a skip-ahead or missed last txn somehow, so ignore, but no warning.
+            }
+            else
+            {
+                // this is a clear violation so warn (and ignore the entropy)
+                JLOG(j_.warn()) << "!!! Validator " << validator << " supplied entropy that "
+                    << "does not match precommitment value !!!";
+            }
+        }
+        else
+        {
+
+            // contribute the new entropy to the random data field
+            sle->setFieldH256(sfRandomData, sha512Half(validator, sle->getFieldH256(sfRandomData), currentEntropy));
+
+            // increment entropy count
+            sle->setFieldU16(sfEntropyCount, sle->getFieldU16(sfEntropyCount) + 1);
+        }
+
+        // update the digest entry
+        entry.setFieldH256(sfNextRandomDigest, nextDigest);
+        entry.setFieldU32(sfLedgerSequence, seq);
+    }
+    else
+    {
+        // this validator doesn't have an entry so create one
+        STObject entry{sfRandomDigestEntry};
+        entry.setAccountID(sfValidator, validator);
+        entry.setFieldH256(sfNextRandomDigest, nextDigest);
+        entry.setFieldU32(sfLedgerSequence, seq);
+        entries.emplace(validator, std::move(entry));
+    }
+
+    // update the array
+    STArray newEntries(sfRandomDigests);
+    newEntries.reserve(entries.size());
+    for (auto& [_, entry] : entries)
+        newEntries.push_back(std::move(entry));
+
+    sle->setFieldArray(sfRandomDigests, std::move(newEntries));
+
+    // send it off to the ledger
+    if (!created)
+        view().update(sle);
+    else
+        view().insert(sle);
+
+    return tesSUCCESS;
 }
 
 TER

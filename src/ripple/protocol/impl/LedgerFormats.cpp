@@ -381,6 +381,20 @@ LedgerFormats::LedgerFormats()
         },
         commonFields);
 
+    add(jss::Random,
+        ltRANDOM,
+        {
+            {sfRandomData,           soeREQUIRED},
+            {sfLastRandomData,       soeREQUIRED},
+            {sfEntropyCount,         soeREQUIRED},
+            {sfRandomDigests,        soeREQUIRED},
+            {sfLedgerSequence,       soeREQUIRED},
+            {sfPreviousTxnID,        soeREQUIRED},
+            {sfPreviousTxnLgrSeq,    soeREQUIRED},
+        },
+        commonFields);
+
+
     // clang-format on
 }
 

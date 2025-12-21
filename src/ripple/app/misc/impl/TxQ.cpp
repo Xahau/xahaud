@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <limits>
 #include <numeric>
+#include <ripple/protocol/digest.h>
 
 namespace ripple {
 
@@ -1486,13 +1487,7 @@ TxQ::accept(Application& app, OpenView& view)
             if (app.getValidationPublicKey().empty())
                 break;
 
-            auto const& keys = app.getValidatorKeys();
-
-            if (keys.configInvalid())
-                break;
-
             // and if we're not on the UNLReport we also do nothing
-
             auto const unlRep = view.read(keylet::UNLReport());
             if (!unlRep || !unlRep->isFieldPresent(sfActiveValidators))
             {
@@ -1504,7 +1499,7 @@ TxQ::accept(Application& app, OpenView& view)
             auto const& avs = unlRep->getFieldArray(sfActiveValidators);
             for (auto const& av : avs)
             {
-                if (PublicKey(av[sfPublicKey]) == keys.masterPublicKey)
+                if (PublicKey(av[sfPublicKey]) == app.getValidationPublicKey())
                 {
                     found = true;
                     break;
@@ -1516,7 +1511,7 @@ TxQ::accept(Application& app, OpenView& view)
 
             auto const seq = view.info().seq;
 
-            AccountID acc = calcAccountID(keys.masterPublicKey);
+            AccountID acc = calcAccountID(app.getValidationPublicKey());
 
             static auto getRnd = []() -> uint256 {
                 static std::ifstream rng("/dev/urandom", std::ios::binary);
@@ -1540,7 +1535,7 @@ TxQ::accept(Application& app, OpenView& view)
 
             std::optional<uint256> prevRnd;
 
-            if (rngMap.find(seq - 1))
+            if (rngMap.find(seq - 1) != rngMap.end())
                 prevRnd = rngMap[seq - 1];
 
             // amortized cleanup, for every ledger attempt to delete two old entries
@@ -1557,15 +1552,16 @@ TxQ::accept(Application& app, OpenView& view)
                 obj.setFieldU32(sfLedgerSequence, seq);
                 obj.setAccountID(sfValidator, acc);
                 if (prevRnd.has_value())    
-                    obj.setFieldH256(sfLastSolution, *prevRnd);
-                obj.setFieldH256(sfDigest, sha512Half(nextRnd);
+                    obj.setFieldH256(sfRandomData, *prevRnd);
+                obj.setFieldH256(sfNextRandomDigest, sha512Half(nextRnd));
+                // RH TODO: should we sign this??
             });                                                                                                            
                     
             // submit to the ledger    
             {
                 uint256 txID = rngTx.getTransactionID();
                 auto s = std::make_shared<ripple::Serializer>();
-                exportTx.add(*s);
+                rngTx.add(*s);
                 app.getHashRouter().setFlags(txID, SF_PRIVATE2);
                 app.getHashRouter().setFlags(txID, SF_EMITTED);
                 view.rawTxInsert(txID, std::move(s), nullptr);

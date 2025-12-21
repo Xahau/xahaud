@@ -76,6 +76,9 @@ private:
 
     TER
     applyUNLReport();
+
+    TER
+    applyRNG();
 };
 
 }  // namespace ripple

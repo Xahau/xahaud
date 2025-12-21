@@ -25,6 +25,7 @@
 #include <ripple/app/misc/CanonicalTXSet.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/protocol/Feature.h>
+#include <ripple/protocol/digest.h>
 
 namespace ripple {
 
@@ -103,10 +104,10 @@ applyTransactions(
     bool certainRetry = true;
     std::size_t count = 0;
 
-    if (view.rules.enabled(featureRNG))
+    if (view.rules().enabled(featureRNG))
     {
         // apply the ttRNG txns first in the ledger to ensure no one can predict the outcome
-        for (it = txns.begin(); it != txns.end();)
+        for (auto it = txns.begin(); it != txns.end();)
         {
             if (it->second->getFieldU16(sfTransactionType) != ttRNG)
             {
@@ -114,6 +115,7 @@ applyTransactions(
                 continue;
             }
 
+            auto const txid = it->first.getTXID();
             try
             {
                 switch (applyTransaction(

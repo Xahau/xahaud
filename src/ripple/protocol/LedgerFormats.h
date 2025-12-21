@@ -260,6 +260,13 @@ enum LedgerEntryType : std::uint16_t
       \sa keylet::emitted
      */
     ltEMITTED_TXN = 'E',
+
+
+    /** A ledger object containing a consensus-generated random number, operated on by ttRNG
+     
+      \sa keylet::rng
+    */
+    ltRANDOM = 0x526EU, // Rn 
 };
 // clang-format off
 

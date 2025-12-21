@@ -123,6 +123,8 @@ JSS(PaymentChannelCreate);     // transaction type.
 JSS(PaymentChannelFund);       // transaction type.
 JSS(Remit);                    // transaction type.
 JSS(RippleState);              // ledger type.
+JSS(Rng);
+JSS(Random);
 JSS(SLE_hit_rate);             // out: GetCounts.
 JSS(SetFee);                   // transaction type.
 JSS(SetRemarks);               // transaction type

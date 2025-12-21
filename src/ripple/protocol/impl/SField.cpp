@@ -103,6 +103,7 @@ CONSTRUCT_TYPED_SFIELD(sfHookEmitCount,         "HookEmitCount",        UINT16, 
 CONSTRUCT_TYPED_SFIELD(sfHookExecutionIndex,    "HookExecutionIndex",   UINT16,    19);
 CONSTRUCT_TYPED_SFIELD(sfHookApiVersion,        "HookApiVersion",       UINT16,    20);
 CONSTRUCT_TYPED_SFIELD(sfHookStateScale,        "HookStateScale",       UINT16,    21);
+CONSTRUCT_TYPED_SFIELD(sfEntropyCount,          "EntropyCount",         UINT16,    99);
 
 // 32-bit integers (common)
 CONSTRUCT_TYPED_SFIELD(sfNetworkID,             "NetworkID",            UINT32,     1);
@@ -244,6 +245,9 @@ CONSTRUCT_TYPED_SFIELD(sfGovernanceMarks,       "GovernanceMarks",      UINT256,
 CONSTRUCT_TYPED_SFIELD(sfEmittedTxnID,          "EmittedTxnID",         UINT256,   97);
 CONSTRUCT_TYPED_SFIELD(sfHookCanEmit,           "HookCanEmit",          UINT256,   96);
 CONSTRUCT_TYPED_SFIELD(sfCron,                  "Cron",                 UINT256,   95);
+CONSTRUCT_TYPED_SFIELD(sfRandomData,            "RandomData",           UINT256,   94);
+CONSTRUCT_TYPED_SFIELD(sfLastRandomData,        "LastRandomData",       UINT256,   93);
+CONSTRUCT_TYPED_SFIELD(sfNextRandomDigest,      "NextRandomDigest",     UINT256,   92);
 
 // currency amount (common)
 CONSTRUCT_TYPED_SFIELD(sfAmount,                "Amount",               AMOUNT,     1);
@@ -362,6 +366,7 @@ CONSTRUCT_UNTYPED_SFIELD(sfImportVLKey,         "ImportVLKey",          OBJECT, 
 CONSTRUCT_UNTYPED_SFIELD(sfHookEmission,        "HookEmission",         OBJECT,    93);
 CONSTRUCT_UNTYPED_SFIELD(sfMintURIToken,        "MintURIToken",         OBJECT,    92); 
 CONSTRUCT_UNTYPED_SFIELD(sfAmountEntry,         "AmountEntry",          OBJECT,    91);
+CONSTRUCT_UNTYPED_SFIELD(sfRandomDigestEntry,   "RandomDigestEntry",    OBJECT,    89);
 
 // array of objects
 //                                                                            ARRAY/1 is reserved for end of array
@@ -388,6 +393,7 @@ CONSTRUCT_UNTYPED_SFIELD(sfActiveValidators,    "ActiveValidators",     ARRAY,  
 CONSTRUCT_UNTYPED_SFIELD(sfImportVLKeys,        "ImportVLKeys",         ARRAY,     94);
 CONSTRUCT_UNTYPED_SFIELD(sfHookEmissions,       "HookEmissions",        ARRAY,     93);
 CONSTRUCT_UNTYPED_SFIELD(sfAmounts,             "Amounts",              ARRAY,     92);
+CONSTRUCT_UNTYPED_SFIELD(sfRandomDigests,       "RandomDigests",        ARRAY,     91);
 
 // clang-format on
 

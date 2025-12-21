@@ -73,6 +73,7 @@ enum class LedgerNameSpace : std::uint16_t {
     IMPORT_VLSEQ = 'I',
     UNL_REPORT = 'R',
     CRON = 'L',
+    RANDOM = 0x526E, // Rn
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -494,6 +495,14 @@ cron(uint32_t timestamp, std::optional<AccountID> const& id)
     std::memcpy(h + 12, accHash.cdata(), 20);
 
     return {ltCRON, uint256::fromVoid(h)};
+}
+
+Keylet const&
+random() noexcept
+{
+    static Keylet const ret{
+        ltRANDOM, indexHash(LedgerNameSpace::RANDOM)};
+    return ret;
 }
 
 }  // namespace keylet
