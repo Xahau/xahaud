@@ -1102,7 +1102,7 @@ Change::applyExport()
 
         if (!sle)
         {
-            // most likely explanation is that this was somehow a  double-up, so just ignore
+            // most likely explanation is that this was somehow a double-up, so just ignore
             JLOG(j_.warn())
                 << "HookError[" << txnID << "]: ttExport could not find exported txn in ledger";
             break;
