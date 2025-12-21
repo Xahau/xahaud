@@ -1394,8 +1394,6 @@ Import::doApply()
     else
         view().update(sle);
 
-
-
     //
     // Handle any key imports, but only if a tes code
     // these functions update the sle on their own
