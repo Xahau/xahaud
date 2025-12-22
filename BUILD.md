@@ -225,6 +225,7 @@ can't build earlier Boost versions.
    For a single-configuration generator, it will build whatever configuration
    you passed for `CMAKE_BUILD_TYPE`. For a multi-configuration generator,
    you must pass the option `--config` to select the build configuration. 
+   The output file is currently named 'rippled'.
 
    Single-config generators:
 
@@ -244,14 +245,14 @@ can't build earlier Boost versions.
    Single-config generators:
 
    ```
-   ./xahaud --unittest
+   ./rippled --unittest
    ```
 
    Multi-config generators:
 
    ```
-   ./Release/xahaud --unittest
-   ./Debug/xahaud --unittest
+   ./Release/rippled --unittest
+   ./Debug/rippled --unittest
    ```
 
    The location of `xahaud` in your build directory depends on your CMake
