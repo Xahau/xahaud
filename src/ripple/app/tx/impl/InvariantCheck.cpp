@@ -494,6 +494,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltCRON:
             case ltIMPORT_VLSEQ:
             case ltUNL_REPORT:
+            case ltRANDOM:
                 break;
             default:
                 invalidTypeAdded_ = true;

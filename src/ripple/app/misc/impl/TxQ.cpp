@@ -1481,35 +1481,48 @@ TxQ::accept(Application& app, OpenView& view)
     // Inject an RNG psuedo if we're on the UNL
     if (view.rules().enabled(featureRNG))
     {
+        JLOG(j_.debug())
+            << "RNG processing: started";
+            
+        auto const seq = view.info().seq;
+        
         do
         {
             // if we're not a validator we do nothing here
             if (app.getValidationPublicKey().empty())
                 break;
 
-            // and if we're not on the UNLReport we also do nothing
-            auto const unlRep = view.read(keylet::UNLReport());
-            if (!unlRep || !unlRep->isFieldPresent(sfActiveValidators))
+            if (seq > 256) // only do the UNL check if its not a newly created test network
             {
-                // nothing to do without a unlreport object
-                break;
-            }
-
-            bool found = false;
-            auto const& avs = unlRep->getFieldArray(sfActiveValidators);
-            for (auto const& av : avs)
-            {
-                if (PublicKey(av[sfPublicKey]) == app.getValidationPublicKey())
+                // and if we're not on the UNLReport we also do nothing
+                auto const unlRep = view.read(keylet::UNLReport());
+                if (!unlRep || !unlRep->isFieldPresent(sfActiveValidators))
                 {
-                    found = true;
+                    JLOG(j_.debug())
+                        << "RNG processing: UNLReport misssing";
+                    // nothing to do without a unlreport object
+                    break;
+                }
+
+                bool found = false;
+                auto const& avs = unlRep->getFieldArray(sfActiveValidators);
+                for (auto const& av : avs)
+                {
+                    if (PublicKey(av[sfPublicKey]) == app.getValidationPublicKey())
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    JLOG(j_.debug())
+                        << "RNG processing: UNLReport present but we're not on it";
                     break;
                 }
             }
 
-            if (!found)
-                break;
-
-            auto const seq = view.info().seq;
 
             AccountID acc = calcAccountID(app.getValidationPublicKey());
 
@@ -1560,6 +1573,11 @@ TxQ::accept(Application& app, OpenView& view)
             // submit to the ledger    
             {
                 uint256 txID = rngTx.getTransactionID();
+            
+                JLOG(j_.debug())
+                    << "RNG processing: Submitting pseudo: "
+                    << rngTx.getFullText() 
+                    << " txid: " << txID;
                 auto s = std::make_shared<ripple::Serializer>();
                 rngTx.add(*s);
                 app.getHashRouter().setFlags(txID, SF_PRIVATE2);
