@@ -599,6 +599,12 @@ public:
         return validatorKeys_.publicKey;
     }
 
+    SecretKey const&
+    getValidationSecretKey() const override
+    {
+        return validatorKeys_.secretKey;
+    }
+
     NetworkOPs&
     getOPs() override
     {

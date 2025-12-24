@@ -262,7 +262,7 @@ enum LedgerEntryType : std::uint16_t
     ltEMITTED_TXN = 'E',
 
 
-    /** A ledger object containing a consensus-generated random number, operated on by ttRNG
+    /** A ledger object containing a consensus-generated random number, operated on by ttENTROPY
      
       \sa keylet::rng
     */

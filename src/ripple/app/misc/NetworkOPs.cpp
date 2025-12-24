@@ -228,7 +228,7 @@ public:
     doTransactionSync(
         std::shared_ptr<Transaction> transaction,
         bool bUnlimited,
-        FailHard failType);
+        FailHard failType) override;
 
     /**
      * For transactions not submitted by a locally connected client, fire and

@@ -149,9 +149,13 @@ enum TxType : std::uint16_t
     ttURITOKEN_CREATE_SELL_OFFER = 48,
     ttURITOKEN_CANCEL_SELL_OFFER = 49,
 
-    /* A pseudo-txn used by featureRNG which allows validators to submit blinded entropy
+    /* A pseudo-txn type used by featureRNG to shuffle and randomise the transaction set based on proposal
+     * signatures */
+    ttSHUFFLE = 88,
+
+    /* A UNLReport-validator only txn by featureRNG which allows validators to submit blinded entropy
      * to a consensus based random number system */
-    ttRNG = 89,
+    ttENTROPY = 89,
 
     /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
     ttCRON = 92,

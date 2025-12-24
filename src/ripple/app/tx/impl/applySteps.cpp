@@ -52,6 +52,7 @@
 #include <ripple/app/tx/impl/SetTrust.h>
 #include <ripple/app/tx/impl/URIToken.h>
 #include <ripple/app/tx/impl/XahauGenesis.h>
+#include <ripple/app/tx/impl/Entropy.h>
 
 namespace ripple {
 
@@ -152,7 +153,7 @@ invoke_preflight(PreflightContext const& ctx)
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
-        case ttRNG:
+        case ttSHUFFLE:
             return invoke_preflight_helper<Change>(ctx);
         case ttHOOK_SET:
             return invoke_preflight_helper<SetHook>(ctx);
@@ -188,6 +189,8 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<CronSet>(ctx);
         case ttCRON:
             return invoke_preflight_helper<Cron>(ctx);
+        case ttENTROPY:
+            return invoke_preflight_helper<Entropy>(ctx);
         default:
             assert(false);
             return {temUNKNOWN, TxConsequences{temUNKNOWN}};
@@ -284,7 +287,7 @@ invoke_preclaim(PreclaimContext const& ctx)
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
-        case ttRNG:
+        case ttSHUFFLE:
             return invoke_preclaim<Change>(ctx);
         case ttNFTOKEN_MINT:
             return invoke_preclaim<NFTokenMint>(ctx);
@@ -318,6 +321,8 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<CronSet>(ctx);
         case ttCRON:
             return invoke_preclaim<Cron>(ctx);
+        case ttENTROPY:
+            return invoke_preclaim<Entropy>(ctx);
         default:
             assert(false);
             return temUNKNOWN;
@@ -376,7 +381,7 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
-        case ttRNG:
+        case ttSHUFFLE:
             return Change::calculateBaseFee(view, tx);
         case ttNFTOKEN_MINT:
             return NFTokenMint::calculateBaseFee(view, tx);
@@ -410,6 +415,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return CronSet::calculateBaseFee(view, tx);
         case ttCRON:
             return Cron::calculateBaseFee(view, tx);
+        case ttENTROPY:
+            return Entropy::calculateBaseFee(view, tx);
         default:
             return XRPAmount{0};
     }
@@ -547,7 +554,7 @@ invoke_apply(ApplyContext& ctx)
         case ttFEE:
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
-        case ttRNG:
+        case ttSHUFFLE:
         case ttEMIT_FAILURE: {
             Change p(ctx);
             return p();
@@ -610,6 +617,10 @@ invoke_apply(ApplyContext& ctx)
         }
         case ttCRON: {
             Cron p(ctx);
+            return p();
+        }
+        case ttENTROPY: {
+            Entropy p(ctx);
             return p();
         }
         default:

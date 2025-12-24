@@ -112,6 +112,14 @@ public:
         bool bLocal,
         FailHard failType) = 0;
 
+
+    // directly inject transaction, skipping checks
+    virtual void
+    doTransactionSync(
+        std::shared_ptr<Transaction> transaction,
+        bool bUnlimited,
+        FailHard failType) = 0;
+
     //--------------------------------------------------------------------------
     //
     // Owner functions

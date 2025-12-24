@@ -104,12 +104,15 @@ applyTransactions(
     bool certainRetry = true;
     std::size_t count = 0;
 
+    // apply the ttSHUFFLE txns first in the ledger to 
+    // ensure no one can predict the outcome
+    // then apply ttENTROPY transactions
     if (view.rules().enabled(featureRNG))
+    for (auto tt : {ttSHUFFLE, ttENTROPY})
     {
-        // apply the ttRNG txns first in the ledger to ensure no one can predict the outcome
         for (auto it = txns.begin(); it != txns.end();)
         {
-            if (it->second->getFieldU16(sfTransactionType) != ttRNG)
+            if (tt != it->second->getFieldU16(sfTransactionType))
             {
                 ++it;
                 continue;

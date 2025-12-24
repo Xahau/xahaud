@@ -142,6 +142,8 @@ JSS(HookState);                // ledger type.
 JSS(HookStateData);            // field.
 JSS(HookStateKey);             // field.
 JSS(EmittedTxn);               // ledger type.
+JSS(Entropy);
+JSS(Shuffle);
 JSS(SignerList);               // ledger type.
 JSS(SignerListSet);            // transaction type.
 JSS(SigningPubKey);            // field.

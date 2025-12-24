@@ -240,6 +240,9 @@ public:
 
     virtual PublicKey const&
     getValidationPublicKey() const = 0;
+    
+    virtual SecretKey const&
+    getValidationSecretKey() const = 0;
 
     virtual Resource::Manager&
     getResourceManager() = 0;

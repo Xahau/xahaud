@@ -461,6 +461,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/CronSet.cpp
   src/ripple/app/tx/impl/DeleteAccount.cpp
   src/ripple/app/tx/impl/DepositPreauth.cpp
+  src/ripple/app/tx/impl/Entropy.cpp
   src/ripple/app/tx/impl/Escrow.cpp
   src/ripple/app/tx/impl/GenesisMint.cpp
   src/ripple/app/tx/impl/Import.cpp

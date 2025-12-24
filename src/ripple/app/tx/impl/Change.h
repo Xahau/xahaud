@@ -78,8 +78,11 @@ private:
     applyUNLReport();
 
     TER
-    applyRNG();
+    applyShuffle();
 };
+
+void
+injectShuffleTxn(Application& app, Slice const& sig);
 
 }  // namespace ripple
 

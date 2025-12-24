@@ -442,8 +442,23 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     // Only check fee is sufficient when the ledger is open.
     if (ctx.view.open())
     {
-        auto const feeDue =
+
+        auto feeDue =
             minimumFee(ctx.app, baseFee, ctx.view.fees(), ctx.flags);
+
+        if (ctx.view.rules().enabled(featureRNG))
+        { 
+            auto const pkSignerField = ctx.tx.getSigningPubKey();
+            if (publicKeyType(makeSlice(pkSignerField)))
+            {       
+                PublicKey pkSigner {makeSlice(pkSignerField)};
+                if (inUNLReport(ctx.view, ctx.app, pkSigner, ctx.j))
+                {
+                    // UVTxns don't have to pay a fee
+                    feeDue = beast::zero;
+                }
+            }
+        }
 
         if (feePaid < feeDue)
         {
@@ -537,6 +552,16 @@ Transactor::checkSeqProxy(
         {
             JLOG(j.trace())
                 << "applyTransaction: allowing first Import txn with seq=0 "
+                << toBase58(id);
+            return tesSUCCESS;
+        }
+
+        if (view.rules().enabled(featureRNG) &&
+            tx.getTxnType() == ttENTROPY && t_seqProx.isSeq() &&
+            tx[sfSequence] == 0)
+        {
+            JLOG(j.trace())
+                << "applyTransaction: allowing ttENTROPY with seq=0 "
                 << toBase58(id);
             return tesSUCCESS;
         }
@@ -848,18 +873,31 @@ NotTEC
 Transactor::checkSingleSign(PreclaimContext const& ctx)
 {
     // Check that the value in the signing key slot is a public key.
-    auto const pkSigner = ctx.tx.getSigningPubKey();
-    if (!publicKeyType(makeSlice(pkSigner)))
+    auto const pkSignerField = ctx.tx.getSigningPubKey();
+    if (!publicKeyType(makeSlice(pkSignerField)))
     {
         JLOG(ctx.j.trace())
             << "checkSingleSign: signing public key type is unknown";
         return tefBAD_AUTH;  // FIXME: should be better error!
     }
 
+    PublicKey pkSigner {makeSlice(pkSignerField)};
+
     // Look up the account.
-    auto const idSigner = calcAccountID(PublicKey(makeSlice(pkSigner)));
+    auto const idSigner = calcAccountID(pkSigner);
     auto const idAccount = ctx.tx.getAccountID(sfAccount);
     auto const sleAccount = ctx.view.read(keylet::account(idAccount));
+
+    // check if this is a UVTxn (UNL Validator transaction)
+    // these are signed by the UNL validators
+    if (ctx.view.rules().enabled(featureRNG))
+    {
+        // UVTxns of the approved type don't need an underlying account
+        // and can be signed with the manifest ephemeral key
+        if (inUNLReport(ctx.view, ctx.app, pkSigner, ctx.j) && 
+            ctx.tx.getTxnType() == ttENTROPY)
+            return tesSUCCESS;
+    }
 
     if (!sleAccount)
         return terNO_ACCOUNT;

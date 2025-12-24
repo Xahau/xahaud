@@ -33,6 +33,10 @@
 #include <deque>
 #include <optional>
 #include <sstream>
+#include <ripple/app/main/Application.h>
+#include <ripple/app/ledger/OpenLedger.h>
+#include <ripple/protocol/digest.h>
+#include <ripple/app/misc/HashRouter.h>
 
 namespace ripple {
 

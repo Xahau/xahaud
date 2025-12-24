@@ -36,6 +36,8 @@
 #include <ripple/protocol/STTx.h>
 #include <ripple/protocol/Serializer.h>
 #include <ripple/protocol/TER.h>
+#include <ripple/app/main/Application.h>
+#include <ripple/app/misc/Manifest.h>
 #include <functional>
 #include <map>
 #include <memory>
@@ -1094,6 +1096,70 @@ trustTransferLockedBalance(
     }
     return tesSUCCESS;
 }
+
+template <class V>
+bool inUNLReport(
+    V const& view,
+    AccountID const& id,
+    beast::Journal const& j)
+{
+
+    auto const seq = view.info().seq;
+    static uint32_t lastLgrSeq = 0;
+    static std::map<AccountID, bool> cache;
+
+    // for the first 256 ledgers we're just saying everyone is in the UNLReport
+    // because otherwise testing is very difficult.
+    if (seq < 256)
+        return true;
+
+    if (lastLgrSeq != seq)
+    {
+        cache.clear();
+        lastLgrSeq = seq;
+    }
+    else
+    {
+        if (cache.find(id) != cache.end())
+            return cache[id];
+    }
+
+    // Check if UVAcc is on UNLReport we also do nothing
+    auto const unlRep = view.read(keylet::UNLReport());
+    if (!unlRep || !unlRep->isFieldPresent(sfActiveValidators))
+    {
+        JLOG(j.debug())
+            << "UNLReport misssing";
+
+        // ensure we keep the cache invalid when in this state
+        lastLgrSeq = 0;
+        return false;
+    }
+
+    auto const& avs = unlRep->getFieldArray(sfActiveValidators);
+    for (auto const& av : avs)
+    {
+        if (av.getAccountID(sfAccount) == id)
+            return cache[id] = true;
+    }
+
+    return cache[id] = false;
+}
+
+
+template <class V>
+bool inUNLReport(
+    V const& view,
+    Application& app,
+    PublicKey const& pk,
+    beast::Journal const& j)
+{
+    PublicKey uvPk = app.validatorManifests().getMasterKey(pk);
+
+    return inUNLReport(view, calcAccountID(pk), j) || 
+        (uvPk != pk && inUNLReport(view, calcAccountID(uvPk), j));
+}
+
 }  // namespace ripple
 
 #endif

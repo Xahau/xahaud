@@ -491,15 +491,24 @@ TxFormats::TxFormats()
         },
         commonFields);
 
-    add(jss::Rng,
-        ttRNG,
+    add(jss::Entropy,
+        ttENTROPY,
         {
-            {sfValidator, soeREQUIRED},
             {sfRandomData, soeREQUIRED},
             {sfNextRandomDigest, soeREQUIRED},
             {sfLedgerSequence, soeREQUIRED},
+            {sfParentHash, soeREQUIRED},
         },
         commonFields);
+
+    add(jss::Shuffle,
+        ttSHUFFLE,
+        {
+            {sfLedgerSequence, soeREQUIRED},
+            {sfRandomData, soeREQUIRED},
+        },
+        commonFields);
+
 }
 
 TxFormats const&

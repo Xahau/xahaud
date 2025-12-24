@@ -44,6 +44,8 @@
 #include <ripple/protocol/BuildInfo.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/digest.h>
+#include <ripple/app/tx/impl/Entropy.h>
+#include <ripple/app/tx/impl/Change.h>
 
 #include <algorithm>
 #include <mutex>
@@ -224,6 +226,8 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
         proposal.signingHash());
 
     prop.set_signature(sig.data(), sig.size());
+
+    injectShuffleTxn(app_, sig);
 
     auto const suppression = proposalUniqueId(
         proposal.position(),
@@ -652,6 +656,12 @@ RCLConsensus::Adaptor::doAccept(
             tapNONE,
             "consensus",
             [&](OpenView& view, beast::Journal j) {
+                if (rules->enabled(featureRNG))
+                {
+                    auto tx = makeEntropyTxn(view, app_, j_);
+                    if (tx)
+                        app_.getOPs().submitTransaction(tx);
+                }
                 return app_.getTxQ().accept(app_, view);
             });
 
