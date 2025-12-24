@@ -37,20 +37,11 @@ endif() #git
 set(SOURCE_ROOT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/")
 add_definitions(-DSOURCE_ROOT_PATH="${SOURCE_ROOT_PATH}")
 
-# BEAST_ENHANCED_LOGGING option - adds file:line numbers and formatting to logs
-# Default to ON for Debug builds, OFF for Release
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages" ON)
-else()
-    option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages" OFF)
-endif()
-
-if(BEAST_ENHANCED_LOGGING)
-    add_definitions(-DBEAST_ENHANCED_LOGGING=1)
-    message(STATUS "Log line numbers enabled")
-else()
-    message(STATUS "Log line numbers disabled")
-endif()
+# BEAST_ENHANCED_LOGGING - adds file:line numbers and formatting to logs
+# Automatically enabled for Debug builds via generator expression
+# Can be explicitly controlled with -DBEAST_ENHANCED_LOGGING=ON/OFF
+option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages (auto: Debug=ON, Release=OFF)" OFF)
+message(STATUS "BEAST_ENHANCED_LOGGING option: ${BEAST_ENHANCED_LOGGING}")
 
 if(thread_safety_analysis)
   add_compile_options(-Wthread-safety -D_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS -DRIPPLE_ENABLE_THREAD_SAFETY_ANNOTATIONS)

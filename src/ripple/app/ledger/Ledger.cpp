@@ -220,7 +220,10 @@ Ledger::Ledger(
 
     {
         auto sle = std::make_shared<SLE>(keylet::fees());
-        sle->setFieldU32(sfNetworkID, config.NETWORK_ID);
+
+        uint32_t networkID = config.NETWORK_ID;
+        if (networkID > 1024)
+            sle->setFieldU32(sfNetworkID, networkID);
 
         // Whether featureXRPFees is supported will depend on startup options.
         if (std::find(amendments.begin(), amendments.end(), featureXRPFees) !=
