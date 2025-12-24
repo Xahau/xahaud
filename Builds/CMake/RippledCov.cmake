@@ -3,6 +3,15 @@
 #]===================================================================]
 
 if (coverage)
+  # Get the number of parallel jobs for test execution
+  if(DEFINED ENV{CMAKE_BUILD_PARALLEL_LEVEL})
+    set(NPROC $ENV{CMAKE_BUILD_PARALLEL_LEVEL})
+    message(STATUS "Using CMAKE_BUILD_PARALLEL_LEVEL=${NPROC} for coverage tests")
+  else()
+    set(NPROC 1)
+    message(STATUS "Using default NPROC=1 for coverage tests")
+  endif()
+
   if (is_clang)
     if (APPLE)
       execute_process (COMMAND xcrun -f llvm-profdata
@@ -36,7 +45,7 @@ if (coverage)
         USES_TERMINAL
         COMMAND ${CMAKE_COMMAND} -E echo "Generating coverage - results will be in ${CMAKE_BINARY_DIR}/coverage/index.html."
         COMMAND ${CMAKE_COMMAND} -E echo "Running rippled tests."
-        COMMAND rippled --unittest$<$<BOOL:${coverage_test}>:=${coverage_test}> --quiet --unittest-log
+        COMMAND rippled --unittest-jobs=${NPROC} --unittest$<$<BOOL:${coverage_test}>:=${coverage_test}> --quiet --unittest-log
         COMMAND ${LLVM_PROFDATA}
           merge -sparse default.profraw -o rip.profdata
         COMMAND ${CMAKE_COMMAND} -E echo "Summary of coverage:"
@@ -76,7 +85,7 @@ if (coverage)
           | grep -v "ignoring data for external file"
         # run tests
         COMMAND ${CMAKE_COMMAND} -E echo "Running rippled tests for coverage report."
-        COMMAND rippled --unittest$<$<BOOL:${coverage_test}>:=${coverage_test}> --quiet --unittest-log
+        COMMAND rippled --unittest-jobs=${NPROC} --unittest$<$<BOOL:${coverage_test}>:=${coverage_test}> --quiet --unittest-log
         # Create test coverage data file
         COMMAND ${LCOV}
           --no-external -d "${CMAKE_CURRENT_SOURCE_DIR}" -c -d . -o tests.info

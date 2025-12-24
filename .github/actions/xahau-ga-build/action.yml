@@ -2,6 +2,14 @@ name: build
 description: 'Builds the project with ccache integration'
 
 inputs:
+  cmake-target:
+    description: 'CMake target to build'
+    required: false
+    default: all
+  cmake-args:
+    description: 'Additional CMake arguments'
+    required: false
+    default: null
   generator:
     description: 'CMake generator to use'
     required: true
@@ -18,6 +26,10 @@ inputs:
     default: ''
   cxx:
     description: 'C++ compiler to use'
+    required: false
+    default: ''
+  gcov:
+    description: 'Gcov to use'
     required: false
     default: ''
   compiler-id:
@@ -122,6 +134,11 @@ runs:
           export CXX="${{ inputs.cxx }}"
         fi
 
+        if [ -n "${{ inputs.gcov }}" ]; then
+          ln -sf /usr/bin/${{ inputs.gcov }} /usr/local/bin/gcov
+          export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
+        fi
+
         # Create wrapper toolchain that overlays ccache on top of Conan's toolchain
         # This enables ccache for the main app build without affecting Conan dependency builds
         if [ "${{ inputs.ccache_enabled }}" = "true" ]; then
@@ -183,7 +200,8 @@ runs:
           -G "${{ inputs.generator }}" \
           ${CMAKE_CXX_FLAGS:+-DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"} \
           -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${TOOLCHAIN_FILE} \
-          -DCMAKE_BUILD_TYPE=${{ inputs.configuration }}
+          -DCMAKE_BUILD_TYPE=${{ inputs.configuration }} \
+          ${{ inputs.cmake-args }}
 
     - name: Show ccache config before build
       if: inputs.ccache_enabled == 'true'
@@ -207,7 +225,7 @@ runs:
           VERBOSE_FLAG="-- -v"
         fi
 
-        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc) ${VERBOSE_FLAG}
+        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc) ${VERBOSE_FLAG} --target ${{ inputs.cmake-target }}
 
     - name: Show ccache statistics
       if: inputs.ccache_enabled == 'true'
