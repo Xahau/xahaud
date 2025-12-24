@@ -378,7 +378,7 @@ jobs:
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
           cmake-args: '-Dcoverage=ON -Dcoverage_format=xml -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS="-O0" -DCMAKE_C_FLAGS="-O0"'
-          cmake-target: 'coverage_report'
+          cmake-target: 'coverage'
           ccache_max_size: '100G'
 
       - name: Set artifact name
