@@ -1078,6 +1078,12 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
         return;
     }
 
+    if (view->rules().enabled(featureRNG) && iTrans->getTxnType() == ttSHUFFLE)
+    {
+        // as above
+        return;
+    }
+
     // this is an asynchronous interface
     auto const trans = sterilize(*iTrans);
 
