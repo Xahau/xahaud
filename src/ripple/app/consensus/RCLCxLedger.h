@@ -23,7 +23,7 @@
 #include <ripple/app/ledger/Ledger.h>
 #include <ripple/app/ledger/LedgerToJson.h>
 #include <ripple/ledger/ReadView.h>
-#include <ripple/protocol/RippleLedgerHash.h>
+#include <ripple/protocol/UintTypes.h>
 #include <memory>
 
 namespace ripple {

@@ -24,7 +24,7 @@
 #include <ripple/app/main/Application.h>
 #include <ripple/beast/insight/Collector.h>
 #include <ripple/beast/insight/Event.h>
-#include <ripple/protocol/RippleLedgerHash.h>
+#include <ripple/protocol/UintTypes.h>
 
 #include <optional>
 

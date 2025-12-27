@@ -23,7 +23,7 @@
 #include <ripple/app/ledger/Ledger.h>
 #include <ripple/app/rdb/RelationalDatabase.h>
 #include <ripple/core/Config.h>
-#include <ripple/protocol/RippleLedgerHash.h>
+#include <ripple/protocol/UintTypes.h>
 #include <boost/filesystem.hpp>
 
 namespace ripple {

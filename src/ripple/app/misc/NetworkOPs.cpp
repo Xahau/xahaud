@@ -1368,12 +1368,10 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
 #ifdef DEBUG
             if (!isTesSuccess(e.result))
             {
-                std::string token, human;
-
-                if (transResultInfo(e.result, token, human))
+                if (std::string token = transToken(e.result); token != "-")
                 {
-                    JLOG(m_journal.info())
-                        << "TransactionResult: " << token << ": " << human;
+                    JLOG(m_journal.debug())
+                        << "Tx " << e.transaction->getID() << ", result: " << token;
                 }
             }
 #endif

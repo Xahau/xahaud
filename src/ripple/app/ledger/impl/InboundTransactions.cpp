@@ -24,7 +24,7 @@
 #include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/basics/Log.h>
 #include <ripple/core/JobQueue.h>
-#include <ripple/protocol/RippleLedgerHash.h>
+#include <ripple/protocol/UintTypes.h>
 #include <ripple/resource/Fees.h>
 #include <memory>
 #include <mutex>

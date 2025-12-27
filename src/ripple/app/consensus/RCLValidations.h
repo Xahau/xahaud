@@ -23,7 +23,7 @@
 #include <ripple/app/ledger/Ledger.h>
 #include <ripple/consensus/Validations.h>
 #include <ripple/protocol/Protocol.h>
-#include <ripple/protocol/RippleLedgerHash.h>
+#include <ripple/protocol/UintTypes.h>
 #include <ripple/protocol/STValidation.h>
 #include <optional>
 #include <set>

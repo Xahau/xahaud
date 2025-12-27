@@ -784,9 +784,9 @@ Transactor::apply()
     // that allow zero account. (and ttIMPORT)
     assert(
         sle != nullptr || account_ == beast::zero ||
-        view().rules().enabled(featureImport) &&
+        (view().rules().enabled(featureImport) &&
             ctx_.tx.getTxnType() == ttIMPORT &&
-            !ctx_.tx.isFieldPresent(sfIssuer));
+            !ctx_.tx.isFieldPresent(sfIssuer)));
 
     if (sle)
     {
