@@ -33,8 +33,8 @@
 #include <xrpl/basics/CountedObject.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/utility/Journal.h>
-#include <xrpl/protocol/RippleLedgerHash.h>
 #include <xrpl/protocol/STValidation.h>
+#include <xrpl/protocol/UintTypes.h>
 #include <atomic>
 #include <memory>
 #include <mutex>

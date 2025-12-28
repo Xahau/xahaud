@@ -202,8 +202,11 @@ public:
     {
         if (m_stop_called.exchange(true) == false)
         {
-            m_io_service.dispatch(m_strand.wrap(std::bind(
-                &ResolverAsioImpl::do_stop, this, CompletionCounter(this))));
+            m_io_service.dispatch(m_strand.wrap(
+                std::bind(
+                    &ResolverAsioImpl::do_stop,
+                    this,
+                    CompletionCounter(this))));
 
             JLOG(m_journal.debug()) << "Queued a stop request";
         }
@@ -234,12 +237,13 @@ public:
 
         // TODO NIKB use rvalue references to construct and move
         //           reducing cost.
-        m_io_service.dispatch(m_strand.wrap(std::bind(
-            &ResolverAsioImpl::do_resolve,
-            this,
-            names,
-            handler,
-            CompletionCounter(this))));
+        m_io_service.dispatch(m_strand.wrap(
+            std::bind(
+                &ResolverAsioImpl::do_resolve,
+                this,
+                names,
+                handler,
+                CompletionCounter(this))));
     }
 
     //-------------------------------------------------------------------------
@@ -279,16 +283,16 @@ public:
         {
             while (iter != boost::asio::ip::tcp::resolver::iterator())
             {
-                addresses.push_back(
-                    beast::IPAddressConversion::from_asio(*iter));
+                addresses.push_back(beast::IP::from_asio(*iter));
                 ++iter;
             }
         }
 
         handler(name, addresses);
 
-        m_io_service.post(m_strand.wrap(std::bind(
-            &ResolverAsioImpl::do_work, this, CompletionCounter(this))));
+        m_io_service.post(m_strand.wrap(
+            std::bind(
+                &ResolverAsioImpl::do_work, this, CompletionCounter(this))));
     }
 
     HostAndPort
@@ -369,8 +373,11 @@ public:
         {
             JLOG(m_journal.error()) << "Unable to parse '" << name << "'";
 
-            m_io_service.post(m_strand.wrap(std::bind(
-                &ResolverAsioImpl::do_work, this, CompletionCounter(this))));
+            m_io_service.post(m_strand.wrap(
+                std::bind(
+                    &ResolverAsioImpl::do_work,
+                    this,
+                    CompletionCounter(this))));
 
             return;
         }
@@ -409,10 +416,11 @@ public:
 
             if (m_work.size() > 0)
             {
-                m_io_service.post(m_strand.wrap(std::bind(
-                    &ResolverAsioImpl::do_work,
-                    this,
-                    CompletionCounter(this))));
+                m_io_service.post(m_strand.wrap(
+                    std::bind(
+                        &ResolverAsioImpl::do_work,
+                        this,
+                        CompletionCounter(this))));
             }
         }
     }

@@ -840,9 +840,7 @@ NetworkOPsImp::getHostId(bool forAdmin)
     // For non-admin uses hash the node public key into a
     // single RFC1751 word:
     static std::string const shroudedHostId = [this]() {
-        auto const& id = app_.nodeIdentity();
-
-        return RFC1751::getWordFromBlob(id.first.data(), id.first.size());
+        return std::string{rfc1751::wordFromBlob(app_.nodeIdentity().first)};
     }();
 
     return shroudedHostId;
@@ -1403,12 +1401,10 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
 #ifdef DEBUG
             if (!isTesSuccess(e.result))
             {
-                std::string token, human;
-
-                if (transResultInfo(e.result, token, human))
+                if (std::string token = transToken(e.result); token != "-")
                 {
-                    JLOG(m_journal.info())
-                        << "TransactionResult: " << token << ": " << human;
+                    JLOG(m_journal.debug()) << "Tx " << e.transaction->getID()
+                                            << ", result: " << token;
                 }
             }
 #endif
@@ -2482,8 +2478,9 @@ NetworkOPsImp::getServerInfo(bool human, bool admin, bool counters)
 
     info[jss::server_state] = strOperatingMode(admin);
 
-    info[jss::time] = to_string(std::chrono::floor<std::chrono::microseconds>(
-        std::chrono::system_clock::now()));
+    info[jss::time] = to_string(
+        std::chrono::floor<std::chrono::microseconds>(
+            std::chrono::system_clock::now()));
 
     if (needNetworkLedger_)
         info[jss::network_ledger] = "waiting";

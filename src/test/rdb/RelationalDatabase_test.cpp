@@ -576,9 +576,9 @@ public:
         {
             // SQLite reports cache/engine memory which has overhead even when
             // empty Just verify the functions return reasonable values
-            BEAST_EXPECT(allKB >= 0);
-            BEAST_EXPECT(ledgerKB >= 0);
-            BEAST_EXPECT(txKB >= 0);
+            BEAST_EXPECT(allKB != 0);
+            BEAST_EXPECT(ledgerKB != 0);
+            BEAST_EXPECT(txKB != 0);
         }
 
         // Create some data and verify size increases
@@ -595,10 +595,6 @@ public:
             // RWDB reports actual data memory
             // After adding data, should see some increase
             BEAST_EXPECT(newAllKB >= 1);  // Should have at least 1KB total
-            BEAST_EXPECT(
-                newTxKB >= 0);  // Transactions added (might still be < 1KB)
-            BEAST_EXPECT(
-                newLedgerKB >= 0);  // Ledger data (might still be < 1KB)
 
             // Key relationships
             BEAST_EXPECT(newAllKB >= newLedgerKB + newTxKB);  // Total >= parts

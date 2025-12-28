@@ -20,23 +20,25 @@
 #ifndef RIPPLE_CRYPTO_RANDOM_H_INCLUDED
 #define RIPPLE_CRYPTO_RANDOM_H_INCLUDED
 
+#include <cstddef>
+#include <limits>
 #include <mutex>
-#include <string>
-#include <type_traits>
 
 namespace ripple {
 
 /** A cryptographically secure random number engine
 
-    The engine is thread-safe (it uses a lock to serialize
-    access) and will, automatically, mix in some randomness
-    from std::random_device.
+    The engine is thread-safe (it will uses a lock to serialize
+    access, if needed) and will not produce random data when it
+    does not have sufficient entropy.
 
-    Meets the requirements of UniformRandomNumberEngine
+    It allows callers to supply additional data that gets mixed
+    into the pool. Doing so is not required.
+
+    Meets the requirements of UniformRandomBitGenerator
 */
 class csprng_engine
 {
-private:
     std::mutex mutex_;
 
 public:
@@ -58,7 +60,7 @@ public:
     mix_entropy(void* buffer = nullptr, std::size_t count = 0);
 
     /** Generate a random integer */
-    result_type
+    [[nodiscard]] result_type
     operator()();
 
     /** Fill a buffer with the requested amount of random data */
@@ -66,14 +68,14 @@ public:
     operator()(void* ptr, std::size_t count);
 
     /* The smallest possible value that can be returned */
-    static constexpr result_type
+    [[nodiscard]] static constexpr result_type
     min()
     {
         return std::numeric_limits<result_type>::min();
     }
 
     /* The largest possible value that can be returned */
-    static constexpr result_type
+    [[nodiscard]] static constexpr result_type
     max()
     {
         return std::numeric_limits<result_type>::max();
@@ -86,7 +88,7 @@ public:
     data that will be used for encryption or passed into
     cryptographic routines.
 
-    This meets the requirements of UniformRandomNumberEngine
+    This meets the requirements of UniformRandomBitGenerator
 */
 csprng_engine&
 crypto_prng();

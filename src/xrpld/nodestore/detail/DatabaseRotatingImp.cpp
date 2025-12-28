@@ -209,7 +209,7 @@ DatabaseRotatingImp::fetchNodeObject(
         catch (std::exception const& e)
         {
             JLOG(j_.fatal()) << "Exception, " << e.what();
-            Rethrow();
+            throw;
         }
 
         switch (status)

@@ -1720,8 +1720,7 @@ class Import_test : public beast::unit_test::suite
         {
             Json::Value tx = import::import(
                 alice, import::loadXpop(ImportTCAccountSet::w_seed));
-            STAmount const& fee = XRP(0);
-            tx[jss::Fee] = fee.getJson(JsonOptions::none);
+            tx[jss::Fee] = STAmount{XRP(0)}.getJson(JsonOptions::none);
             env(tx, ter(telINSUF_FEE_P));
         }
 
@@ -1739,8 +1738,7 @@ class Import_test : public beast::unit_test::suite
         {
             Json::Value tx = import::import(
                 alice, import::loadXpop(ImportTCAccountSet::w_seed));
-            STAmount const& amount = XRP(-1);
-            tx[jss::Amount] = amount.getJson(JsonOptions::none);
+            tx[jss::Amount] = STAmount{XRP(-1)}.getJson(JsonOptions::none);
             env(tx, ter(temMALFORMED));
         }
 

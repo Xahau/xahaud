@@ -24,7 +24,7 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpl/beast/insight/Collector.h>
 #include <xrpl/beast/insight/Event.h>
-#include <xrpl/protocol/RippleLedgerHash.h>
+#include <xrpl/protocol/UintTypes.h>
 
 #include <optional>
 

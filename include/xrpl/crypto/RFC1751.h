@@ -20,47 +20,40 @@
 #ifndef RIPPLE_CRYPTO_RFC1751_H_INCLUDED
 #define RIPPLE_CRYPTO_RFC1751_H_INCLUDED
 
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
-#include <vector>
 
 namespace ripple {
+namespace rfc1751 {
 
-class RFC1751
-{
-public:
-    static int
-    getKeyFromEnglish(std::string& strKey, std::string const& strHuman);
+/** Convert a 128-bit value (big-endian) to a human-readable word string.
 
-    static void
-    getEnglishFromKey(std::string& strHuman, std::string const& strKey);
+    @param key The 128-bit value. The span must be precisely 16 bytes long.
+    @return The human readable word string if successful; nullopt on failure
+ */
+[[nodiscard]] std::optional<std::string>
+englishFromKey(std::span<std::uint8_t const> key);
 
-    /** Chooses a single dictionary word from the data.
+/** Convert words separated by spaces into a 128-bit value (big-endian).
 
-        This is not particularly secure but it can be useful to provide
-        a unique name for something given a GUID or fixed data. We use
-        it to turn the pubkey_node into an easily remembered and identified
-        4 character string.
-    */
-    static std::string
-    getWordFromBlob(void const* blob, size_t bytes);
+    @param key The human readable word string.
+    @return The 128-bit value if successful; nullopt on failure
+ */
+[[nodiscard]] std::optional<std::array<std::uint8_t, 16>>
+keyFromEnglish(std::string_view human);
 
-private:
-    static unsigned long
-    extract(char const* s, int start, int length);
-    static void
-    btoe(std::string& strHuman, std::string const& strData);
-    static void
-    insert(char* s, int x, int start, int length);
-    static void
-    standard(std::string& strWord);
-    static int
-    wsrch(std::string const& strWord, int iMin, int iMax);
-    static int
-    etob(std::string& strData, std::vector<std::string> vsHuman);
+/** Pick a single dictionary word from arbitrary data.
 
-    static char const* s_dictionary[];
-};
+    Not cryptographically secure. Useful for generating a short
+    human-readable label from a GUID or public key.
+*/
+[[nodiscard]] std::string_view
+wordFromBlob(std::span<std::uint8_t const> blob);
 
+}  // namespace rfc1751
 }  // namespace ripple
 
 #endif

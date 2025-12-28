@@ -349,8 +349,6 @@ runUnitTests(
 int
 run(int argc, char** argv)
 {
-    using namespace std;
-
     beast::setCurrentThreadName(
         "xahaud: main " + BuildInfo::getVersionString());
 
@@ -456,7 +454,7 @@ run(int argc, char** argv)
     po::options_description hidden("Hidden Options");
     hidden.add_options()(
         "parameters",
-        po::value<vector<string>>(),
+        po::value<std::vector<std::string>>(),
         "Specify rpc command and parameters. This option must be repeated "
         "for each command/param. Positional parameters also serve this "
         "purpose, "
@@ -872,7 +870,41 @@ main(int argc, char** argv)
     }
 #endif
 
-    atexit(&google::protobuf::ShutdownProtobufLibrary);
+    // Install a termination handler for the whole program:
+    std::set_terminate([]() noexcept {
+        try
+        {
+            if (auto eptr = std::current_exception())
+                std::rethrow_exception(eptr);
+        }
+        catch (std::exception const& e)
+        {
+            try
+            {
+                std::cerr << "Terminating: " << e.what() << std::endl;
+            }
+            catch (...)
+            {
+            }
+        }
+        catch (...)
+        {
+            try
+            {
+                std::cerr << "Terminating: unknown exception" << std::endl;
+            }
+            catch (...)
+            {
+            }
+        }
+
+        std::abort();
+    });
+
+    // The protocol buffers library allocates a lot of its global state
+    // lazily. Without this shutdown handler, those allocations show up
+    // as leaks in memory leak detectors like valgrind or ASAN.
+    std::atexit(&google::protobuf::ShutdownProtobufLibrary);
 
     return ripple::run(argc, argv);
 }
