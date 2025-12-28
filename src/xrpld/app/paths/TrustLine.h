@@ -201,8 +201,9 @@ protected:
 
     STAmount mBalance;
     std::optional<STAmount> mLockedBalance;
-    std::optional<uint32_t> mLockCount;  // RH NOTE: this is from sfLockCount
-                                         // has nothing to do with a mutex.
+    std::optional<std::uint32_t>
+        mLockCount;  // RH NOTE: this is from sfLockCount
+                     // has nothing to do with a mutex.
 
     std::uint32_t mFlags;
 

@@ -22,54 +22,47 @@
 
 #include <xrpl/beast/type_name.h>
 #include <exception>
-#include <string>
-#include <typeinfo>
+#include <string_view>
 #include <utility>
 
 namespace ripple {
 
-/*  Programming By Contract
+namespace detail {
 
-    This routines are used when checking
-    preconditions, postconditions, and invariants.
-*/
-
-/** Generates and logs a call stack */
+/** Throws an exception, logging its type and message before doing so. */
 void
-LogThrow(std::string const& title);
+LogThrow(std::string_view type, std::string_view what);
 
-/** Rethrow the exception currently being handled.
+}  // namespace detail
+/** Throws an exception, logging its type and message before doing so.
 
-    When called from within a catch block, it will pass
-    control to the next matching exception handler, if any.
-    Otherwise, std::terminate will be called.
-*/
-[[noreturn]] inline void
-Rethrow()
-{
-    LogThrow("Re-throwing exception");
-    throw;
-}
+    @tparam E    The exception type. Must derive from std::exception.
+    @tparam Args Constructor argument types for E.
 
+    @param args  Arguments forwarded to the constructor of E.
+ */
 template <class E, class... Args>
-[[noreturn]] inline void
+[[noreturn]] void
 Throw(Args&&... args)
 {
     static_assert(
-        std::is_convertible<E*, std::exception*>::value,
+        std::derived_from<E, std::exception>,
         "Exception must derive from std::exception.");
 
-    E e(std::forward<Args>(args)...);
-    LogThrow(
-        std::string(
-            "Throwing exception of type " + beast::type_name<E>() + ": ") +
-        e.what());
+    E e{std::forward<Args>(args)...};
+    detail::LogThrow(beast::type_name<E>().c_str(), e.what());
     throw e;
 }
 
-/** Called when faulty logic causes a broken invariant. */
+/** Logs a fatal message and terminates the process unconditionally.
+
+    This should be called when code detects a broken invariant
+    or a condition from which recovery is not possible.
+
+    @param msg A description of the error.
+ */
 [[noreturn]] void
-LogicError(std::string const& how) noexcept;
+LogicError(std::string_view msg) noexcept;
 
 }  // namespace ripple
 
