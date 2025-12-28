@@ -33,7 +33,7 @@
 namespace beast::detail {
 
 inline void
-setCurrentThreadNameImpl(std::string_view name)
+setCurrentThreadNameImpl(char const* name)
 {
 #if DEBUG && BOOST_COMP_MSVC
     // This technique is documented by Microsoft and works for all versions
@@ -54,7 +54,7 @@ setCurrentThreadNameImpl(std::string_view name)
     THREADNAME_INFO ni;
 
     ni.dwType = 0x1000;
-    ni.szName = name.data();
+    ni.szName = name;
     ni.dwThreadID = GetCurrentThreadId();
     ni.dwFlags = 0;
 
@@ -81,9 +81,9 @@ setCurrentThreadNameImpl(std::string_view name)
 namespace beast::detail {
 
 inline void
-setCurrentThreadNameImpl(std::string_view name)
+setCurrentThreadNameImpl(char const* name)
 {
-    pthread_setname_np(name.data());
+    pthread_setname_np(name);
 }
 
 }  // namespace beast::detail
@@ -95,9 +95,9 @@ setCurrentThreadNameImpl(std::string_view name)
 namespace beast::detail {
 
 inline void
-setCurrentThreadNameImpl(std::string_view name)
+setCurrentThreadNameImpl(char const* name)
 {
-    pthread_setname_np(pthread_self(), name.data());
+    pthread_setname_np(pthread_self(), name);
 }
 
 }  // namespace beast::detail
@@ -119,7 +119,7 @@ void
 setCurrentThreadName(std::string_view name)
 {
     detail::threadName = name;
-    detail::setCurrentThreadNameImpl(name);
+    detail::setCurrentThreadNameImpl(detail::threadName.c_str());
 }
 
 }  // namespace beast

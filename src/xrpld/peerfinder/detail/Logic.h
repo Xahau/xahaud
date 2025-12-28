@@ -93,7 +93,7 @@ public:
     // The addresses (but not port) we are connected to. This includes
     // outgoing connection attempts. Note that this set can contain
     // duplicates (since the port is not set)
-    std::multiset<beast::IP::Address> connectedAddresses_;
+    std::multiset<boost::asio::ip::address> connectedAddresses_;
 
     // Set of public keys belonging to active peers
     std::set<PublicKey> keys_;
@@ -296,11 +296,12 @@ public:
         }
 
         // Create the slot
-        SlotImp::ptr const slot(std::make_shared<SlotImp>(
-            local_endpoint,
-            remote_endpoint,
-            fixed(remote_endpoint.address()),
-            m_clock));
+        SlotImp::ptr const slot(
+            std::make_shared<SlotImp>(
+                local_endpoint,
+                remote_endpoint,
+                fixed(remote_endpoint.address()),
+                m_clock));
         // Add slot to table
         auto const result(slots_.emplace(slot->remote_endpoint(), slot));
         // Remote address must not already exist
@@ -336,8 +337,9 @@ public:
         }
 
         // Create the slot
-        SlotImp::ptr const slot(std::make_shared<SlotImp>(
-            remote_endpoint, fixed(remote_endpoint), m_clock));
+        SlotImp::ptr const slot(
+            std::make_shared<SlotImp>(
+                remote_endpoint, fixed(remote_endpoint), m_clock));
 
         // Add slot to table
         auto const result = slots_.emplace(slot->remote_endpoint(), slot);
@@ -662,7 +664,7 @@ public:
                 // is ignored, the type/version (ipv4 vs ipv6) doesn't matter
                 // either. ipv6 has a slightly more compact string
                 // representation of 0, so use that for self entries.
-                ep.address = beast::IP::Endpoint(beast::IP::AddressV6())
+                ep.address = beast::IP::Endpoint(boost::asio::ip::address_v6())
                                  .at_port(config_.listeningPort);
                 for (auto& t : targets)
                     t.insert(ep);
@@ -1017,7 +1019,7 @@ public:
     // Note that this does not use the port information in the IP::Endpoint
     // Must have the lock held
     bool
-    fixed(beast::IP::Address const& address) const
+    fixed(boost::asio::ip::address const& address) const
     {
         for (auto const& entry : fixed_)
             if (entry.first.address() == address)
@@ -1268,7 +1270,7 @@ Logic<Checker>::onRedirects(
     std::lock_guard _(lock_);
     std::size_t n = 0;
     for (; first != last && n < Tuning::maxRedirects; ++first, ++n)
-        bootcache_.insert(beast::IPAddressConversion::from_asio(*first));
+        bootcache_.insert(beast::IP::from_asio(*first));
     if (n > 0)
     {
         JLOG(m_journal.trace()) << beast::leftw(18) << "Logic add " << n

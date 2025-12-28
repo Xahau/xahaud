@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -200,34 +201,26 @@ hash_append(Hasher& h, Slice const& v)
     h(v.data(), v.size());
 }
 
+inline std::strong_ordering
+operator<=>(Slice const& lhs, Slice const& rhs) noexcept
+{
+    return std::lexicographical_compare_three_way(
+        lhs.data(),
+        lhs.data() + lhs.size(),
+        rhs.data(),
+        rhs.data() + rhs.size());
+    ;
+}
+
 inline bool
 operator==(Slice const& lhs, Slice const& rhs) noexcept
 {
-    if (lhs.size() != rhs.size())
-        return false;
-
-    if (lhs.size() == 0)
-        return true;
-
-    return std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
-}
-
-inline bool
-operator!=(Slice const& lhs, Slice const& rhs) noexcept
-{
-    return !(lhs == rhs);
-}
-
-inline bool
-operator<(Slice const& lhs, Slice const& rhs) noexcept
-{
-    return std::lexicographical_compare(
+    return std::equal(
         lhs.data(),
         lhs.data() + lhs.size(),
         rhs.data(),
         rhs.data() + rhs.size());
 }
-
 template <class Stream>
 Stream&
 operator<<(Stream& s, Slice const& v)
@@ -241,6 +234,15 @@ std::enable_if_t<
     std::is_same<T, char>::value || std::is_same<T, unsigned char>::value,
     Slice>
 makeSlice(std::array<T, N> const& a)
+{
+    return Slice(a.data(), a.size());
+}
+
+template <class T, std::size_t N>
+std::enable_if_t<
+    std::is_same<T, char>::value || std::is_same<T, unsigned char>::value,
+    Slice>
+makeSlice(std::span<T, N> const& a)
 {
     return Slice(a.data(), a.size());
 }

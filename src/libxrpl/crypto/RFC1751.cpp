@@ -20,17 +20,28 @@
 #include <xrpl/beast/utility/instrumentation.h>
 #include <xrpl/crypto/RFC1751.h>
 #include <boost/algorithm/string.hpp>
-#include <boost/range/adaptor/copied.hpp>
+
+#include <algorithm>
+#include <array>
 #include <cstdint>
+#include <ranges>
+#include <span>
 #include <string>
+#include <vector>
 
 namespace ripple {
+namespace rfc1751 {
 
-//
-// RFC 1751 code converted to C++/Boost.
-//
+namespace {
 
-char const* RFC1751::s_dictionary[2048] = {
+/** The list of words we use.
+
+    The list may appear sorted, but it is not: it is composed of two
+    separately sorted parts: the short words, which are shorter than
+    four characters long, come first; the remaining words, which are
+    all exactly four characters long, follow.
+ */
+constexpr std::string_view wordlist[] = {
     "A",    "ABE",  "ACE",  "ACT",  "AD",   "ADA",  "ADD",  "AGO",  "AID",
     "AIM",  "AIR",  "ALL",  "ALP",  "AM",   "AMY",  "AN",   "ANA",  "AND",
     "ANN",  "ANT",  "ANY",  "APE",  "APS",  "APT",  "ARC",  "ARE",  "ARK",
@@ -260,252 +271,263 @@ char const* RFC1751::s_dictionary[2048] = {
     "WRIT", "WYNN", "YALE", "YANG", "YANK", "YARD", "YARN", "YAWL", "YAWN",
     "YEAH", "YEAR", "YELL", "YOGA", "YOKE"};
 
-/* Extract 'length' bits from the char array 's'
-   starting with bit 'start' */
-unsigned long
-RFC1751::extract(char const* s, int start, int length)
-{
-    unsigned char cl;
-    unsigned char cc;
-    unsigned char cr;
-    unsigned long x;
+static_assert(
+    []() consteval {
+        if (!std::has_single_bit(std::size(wordlist)))
+            return false;
 
-    XRPL_ASSERT(length <= 11, "ripple::RFC1751::extract : maximum length");
-    XRPL_ASSERT(start >= 0, "ripple::RFC1751::extract : minimum start");
-    XRPL_ASSERT(length >= 0, "ripple::RFC1751::extract : minimum length");
-    XRPL_ASSERT(
-        start + length <= 66,
-        "ripple::RFC1751::extract : maximum start + length");
+        auto check = [](std::string_view curr,
+                        std::string_view prev) consteval {
+            if (prev.size() == 4 && curr.size() < 4)
+                return false;
 
-    int const shiftR = 24 - (length + (start % 8));
-    cl = s[start / 8];  // get components
-    cc = (shiftR < 16) ? s[start / 8 + 1] : 0;
-    cr = (shiftR < 8) ? s[start / 8 + 2] : 0;
+            // At the partition point (the boundary between short and long
+            // words) the lexicographical ordering breaks.
+            if (prev.size() < 4 && curr.size() == 4)
+                return true;
 
-    x = ((long)(cl << 8 | cc) << 8 | cr);  // Put bits together
-    x = x >> shiftR;                       // Right justify number
-    x = (x & (0xffff >> (16 - length)));   // Trim extra bits.
+            return curr > prev;
+        };
 
-    return x;
-}
+        std::string_view last;
 
-// Encode 8 bytes in 'c' as a string of English words.
-// Returns a pointer to a static buffer
-void
-RFC1751::btoe(std::string& strHuman, std::string const& strData)
-{
-    char caBuffer[9]; /* add in room for the parity 2 bits*/
-    int p, i;
-
-    memcpy(caBuffer, strData.c_str(), 8);
-
-    // compute parity: merely add groups of two bits.
-    for (p = 0, i = 0; i < 64; i += 2)
-        p += extract(caBuffer, i, 2);
-
-    caBuffer[8] = char(p) << 6;
-
-    strHuman = std::string() + s_dictionary[extract(caBuffer, 0, 11)] + " " +
-        s_dictionary[extract(caBuffer, 11, 11)] + " " +
-        s_dictionary[extract(caBuffer, 22, 11)] + " " +
-        s_dictionary[extract(caBuffer, 33, 11)] + " " +
-        s_dictionary[extract(caBuffer, 44, 11)] + " " +
-        s_dictionary[extract(caBuffer, 55, 11)];
-}
-
-void
-RFC1751::insert(char* s, int x, int start, int length)
-{
-    unsigned char cl;
-    unsigned char cc;
-    unsigned char cr;
-    unsigned long y;
-    int shift;
-
-    XRPL_ASSERT(length <= 11, "ripple::RFC1751::insert : maximum length");
-    XRPL_ASSERT(start >= 0, "ripple::RFC1751::insert : minimum start");
-    XRPL_ASSERT(length >= 0, "ripple::RFC1751::insert : minimum length");
-    XRPL_ASSERT(
-        start + length <= 66,
-        "ripple::RFC1751::insert : maximum start + length");
-
-    shift = ((8 - ((start + length) % 8)) % 8);
-    y = (long)x << shift;
-    cl = (y >> 16) & 0xff;
-    cc = (y >> 8) & 0xff;
-    cr = y & 0xff;
-
-    if (shift + length > 16)
-    {
-        s[start / 8] |= cl;
-        s[start / 8 + 1] |= cc;
-        s[start / 8 + 2] |= cr;
-    }
-    else if (shift + length > 8)
-    {
-        s[start / 8] |= cc;
-        s[start / 8 + 1] |= cr;
-    }
-    else
-    {
-        s[start / 8] |= cr;
-    }
-}
-
-void
-RFC1751::standard(std::string& strWord)
-{
-    for (auto& letter : strWord)
-    {
-        if (islower(static_cast<unsigned char>(letter)))
-            letter = toupper(static_cast<unsigned char>(letter));
-        else if (letter == '1')
-            letter = 'L';
-        else if (letter == '0')
-            letter = 'O';
-        else if (letter == '5')
-            letter = 'S';
-    }
-}
-
-// Binary search of dictionary.
-int
-RFC1751::wsrch(std::string const& strWord, int iMin, int iMax)
-{
-    int iResult = -1;
-
-    while (iResult < 0 && iMin != iMax)
-    {
-        // Have a range to search.
-        int iMid = iMin + (iMax - iMin) / 2;
-        int iDir = strWord.compare(s_dictionary[iMid]);
-
-        if (!iDir)
+        for (auto word : wordlist)
         {
-            iResult = iMid;  // Found it.
+            if (word.empty() || word.size() > 4)
+                return false;
+
+            if (!last.empty() && !check(word, last))
+                return false;
+
+            last = word;
         }
-        else if (iDir < 0)
-        {
-            iMax = iMid;  // key < middle, middle is new max.
-        }
-        else
-        {
-            iMin = iMid + 1;  // key > middle, new min is past the middle.
-        }
-    }
 
-    return iResult;
-}
+        return true;
+    }(),
+    "rfc1751 wordlist incorrectly sized or improperly sorted");
 
-// Convert 6 words to binary.
-//
-// Returns 1 OK - all good words and parity is OK
-//         0 word not in data base
-//        -1 badly formed in put ie > 4 char word
-//        -2 words OK but parity is wrong
-int
-RFC1751::etob(std::string& strData, std::vector<std::string> vsHuman)
-{
-    if (6 != vsHuman.size())
-        return -1;
-
-    int i, p = 0;
-    char b[9] = {0};
-
-    for (auto& strWord : vsHuman)
+/** The cutoff point between "short" and "long" words in the wordlist */
+constexpr std::size_t dictionaryPartition = []() consteval {
+    for (std::size_t i = 0; i < std::size(wordlist); ++i)
     {
-        int l = strWord.length();
-
-        if (l > 4 || l < 1)
-            return -1;
-
-        standard(strWord);
-
-        auto v = wsrch(strWord, l < 4 ? 0 : 571, l < 4 ? 570 : 2048);
-
-        if (v < 0)
-            return 0;
-
-        insert(b, v, p, 11);
-        p += 11;
+        if (wordlist[i].size() == 4)
+            return i;
     }
+    throw "no partition boundary found";
+}();
 
-    /* now check the parity of what we got */
-    for (p = 0, i = 0; i < 64; i += 2)
-        p += extract(b, i, 2);
+/** How many bits each word encodes. Depends on the size of the table. */
+constexpr auto bitsPerWord = std::countr_zero(std::size(wordlist));
 
-    if ((p & 3) != extract(b, 64, 2))
-        return -2;
+// Extract `length` bits from byte array `s` starting at bit `start`.
+[[nodiscard]] constexpr std::size_t
+extractBits(
+    std::span<std::uint8_t const, 9> s,
+    std::size_t start,
+    std::size_t length) noexcept
+{
+    auto const byte = start / 8;
+    auto const shift = 24 - (length + (start % 8));
+    auto const mask = (std::size_t{1} << length) - 1;
 
-    strData.assign(b, 8);
+    // Load up to 3 bytes straddling the target bits into a 24-bit window.
+    std::size_t window = s[byte] << 16;
 
-    return 1;
+    if (shift < 16)
+        window |= s[byte + 1] << 8;
+
+    if (shift < 8)
+        window |= s[byte + 2];
+
+    return (window >> shift) & mask;
 }
 
-/** Convert words separated by spaces into a 128 bit key in big-endian format.
-
-    @return
-         1 if succeeded
-         0 if word not in dictionary
-        -1 if badly formed string
-        -2 if words are okay but parity is wrong.
-*/
-int
-RFC1751::getKeyFromEnglish(std::string& strKey, std::string const& strHuman)
+// Insert `length` bits of `x` into byte array `s` at bit position `start`.
+constexpr std::size_t
+insertBits(
+    std::span<std::uint8_t, 9> s,
+    std::size_t x,
+    std::size_t start) noexcept
 {
-    std::vector<std::string> vWords;
-    std::string strFirst, strSecond;
-    int rc = 0;
+    auto const byte = start / 8;
+    auto const y = x << (24 - (start % 8) - bitsPerWord);
 
-    std::string strTrimmed(strHuman);
+    s[byte] |= static_cast<std::uint8_t>((y >> 16) & 0xff);
+    s[byte + 1] |= static_cast<std::uint8_t>((y >> 8) & 0xff);
+    s[byte + 2] |= static_cast<std::uint8_t>(y & 0xff);
 
-    boost::algorithm::trim(strTrimmed);
+    return bitsPerWord;
+}
 
+[[nodiscard]] constexpr std::size_t
+parityBits(std::span<std::uint8_t const, 9> buf) noexcept
+{
+    std::size_t parity = 0;
+
+    for (std::size_t i = 0; i < 64; i += 2)
+        parity += extractBits(buf, i, 2);
+
+    return parity & 3;
+}
+
+// Normalize a word to uppercase with common substitutions (1->L, 0->O, 5->S).
+[[nodiscard]] constexpr std::string
+normalize(std::string word)
+{
+    for (auto& ch : word)
+    {
+        if (ch >= 'a' && ch <= 'z')
+            ch -= ('a' - 'A');
+        else if (ch == '1')
+            ch = 'L';
+        else if (ch == '0')
+            ch = 'O';
+        else if (ch == '5')
+            ch = 'S';
+    }
+
+    return word;
+}
+
+// Binary search the wordlist for `word`.
+[[nodiscard]] constexpr std::optional<std::size_t>
+dictionaryLookup(std::string_view const& word) noexcept
+{
+    auto const begin = (word.size() < 4)
+        ? std::begin(wordlist)
+        : std::begin(wordlist) + dictionaryPartition;
+
+    auto const end = (word.size() < 4)
+        ? std::begin(wordlist) + dictionaryPartition
+        : std::end(wordlist);
+
+    auto it = std::lower_bound(begin, end, word);
+
+    if (it != end && *it == word)
+        return static_cast<std::size_t>(
+            std::distance(std::begin(wordlist), it));
+
+    return std::nullopt;
+}
+
+// Encode 8 bytes as 6 words.
+[[nodiscard]] constexpr std::array<std::string_view, 6>
+bytesToEnglish(std::span<std::uint8_t const, 8> data)
+{
+    std::array<std::uint8_t, 9> buf{};
+    std::copy_n(data.data(), data.size(), buf.data());
+
+    buf[8] = static_cast<std::uint8_t>(parityBits(buf) << 6);
+
+    std::array<std::string_view, 6> words;
+
+    for (std::size_t i = 0; i < 6; ++i)
+        words[i] = wordlist[extractBits(buf, i * bitsPerWord, bitsPerWord)];
+
+    return words;
+}
+
+// Decode 6 words into 8 bytes. Returns true on success.
+[[nodiscard]] constexpr bool
+englishToBytes(
+    std::span<std::uint8_t, 8> out,
+    std::span<std::string const, 6> words)
+{
+    // The additional byte is needed for parity
+    std::array<std::uint8_t, 9> buf{};
+    std::size_t pos = 0;
+
+    for (auto word : words)
+    {
+        if (word.empty() || word.size() > 4)
+            return false;
+
+        word = normalize(std::move(word));
+
+        auto const idx = dictionaryLookup(word);
+
+        if (!idx)
+            return false;
+
+        pos += insertBits(buf, *idx, pos);
+    }
+
+    if (parityBits(buf) != (buf[8] >> 6))
+        return false;
+
+    std::copy_n(buf.data(), out.size(), out.begin());
+    return true;
+}
+
+}  // namespace
+
+std::optional<std::array<std::uint8_t, 16>>
+keyFromEnglish(std::string_view human)
+{
+    if (human.size() < 23 || human.size() > 128)
+        return std::nullopt;
+
+    std::vector<std::string> words;
+    std::string trimmed{human};
+    boost::algorithm::trim(trimmed);
     boost::algorithm::split(
-        vWords,
-        strTrimmed,
+        words,
+        trimmed,
         boost::algorithm::is_space(),
         boost::algorithm::token_compress_on);
 
-    rc = 12 == vWords.size() ? 1 : -1;
+    if (words.size() != 12)
+        return std::nullopt;
 
-    if (1 == rc)
-        rc = etob(strFirst, vWords | boost::adaptors::copied(0, 6));
+    std::array<std::uint8_t, 16> key{};
 
-    if (1 == rc)
-        rc = etob(strSecond, vWords | boost::adaptors::copied(6, 12));
+    if (!englishToBytes(
+            std::span{key}.subspan<0, 8>(), std::span(words).subspan<0, 6>()))
+        return std::nullopt;
 
-    if (1 == rc)
-        strKey = strFirst + strSecond;
+    if (!englishToBytes(
+            std::span{key}.subspan<8, 8>(), std::span(words).subspan<6, 6>()))
+        return std::nullopt;
 
-    return rc;
+    return key;
 }
 
-/** Convert to human from a 128 bit key in big-endian format
- */
-void
-RFC1751::getEnglishFromKey(std::string& strHuman, std::string const& strKey)
+std::optional<std::string>
+englishFromKey(std::span<std::uint8_t const> key)
 {
-    std::string strFirst, strSecond;
+    if (key.size() != 16)
+        return std::nullopt;
 
-    btoe(strFirst, strKey.substr(0, 8));
-    btoe(strSecond, strKey.substr(8, 8));
+    std::string result;
 
-    strHuman = strFirst + " " + strSecond;
+    for (auto const w : bytesToEnglish(key.subspan<0, 8>()))
+    {
+        if (!result.empty())
+            result += ' ';
+
+        result += w;
+    }
+
+    for (auto const w : bytesToEnglish(key.subspan<8, 8>()))
+    {
+        result += ' ';
+        result += w;
+    }
+
+    return result;
 }
 
-std::string
-RFC1751::getWordFromBlob(void const* blob, size_t bytes)
+std::string_view
+wordFromBlob(std::span<std::uint8_t const> blob)
 {
     // This is a simple implementation of the Jenkins one-at-a-time hash
     // algorithm:
     // http://en.wikipedia.org/wiki/Jenkins_hash_function#one-at-a-time
-    unsigned char const* data = static_cast<unsigned char const*>(blob);
     std::uint32_t hash = 0;
 
-    for (size_t i = 0; i < bytes; ++i)
+    for (auto byte : blob)
     {
-        hash += data[i];
+        hash += byte;
         hash += (hash << 10);
         hash ^= (hash >> 6);
     }
@@ -514,8 +536,8 @@ RFC1751::getWordFromBlob(void const* blob, size_t bytes)
     hash ^= (hash >> 11);
     hash += (hash << 15);
 
-    return s_dictionary
-        [hash % (sizeof(s_dictionary) / sizeof(s_dictionary[0]))];
+    return wordlist[hash % std::size(wordlist)];
 }
 
+}  // namespace rfc1751
 }  // namespace ripple

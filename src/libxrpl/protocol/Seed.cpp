@@ -39,28 +39,12 @@ Seed::~Seed()
     secure_erase(buf_.data(), buf_.size());
 }
 
-Seed::Seed(Slice const& slice)
-{
-    if (slice.size() != buf_.size())
-        LogicError("Seed::Seed: invalid size");
-    std::memcpy(buf_.data(), slice.data(), buf_.size());
-}
-
-Seed::Seed(uint128 const& seed)
-{
-    if (seed.size() != buf_.size())
-        LogicError("Seed::Seed: invalid size");
-    std::memcpy(buf_.data(), seed.data(), buf_.size());
-}
-
-//------------------------------------------------------------------------------
-
 Seed
 randomSeed()
 {
     std::array<std::uint8_t, 16> buffer;
-    beast::rngfill(buffer.data(), buffer.size(), crypto_prng());
-    Seed seed(makeSlice(buffer));
+    beast::rngfill(buffer, crypto_prng());
+    Seed seed(buffer);
     secure_erase(buffer.data(), buffer.size());
     return seed;
 }
@@ -113,11 +97,10 @@ parseGenericSeed(std::string const& str, bool rfc1751)
 
     if (rfc1751)
     {
-        std::string key;
-        if (RFC1751::getKeyFromEnglish(key, str) == 1)
+        if (auto key = rfc1751::keyFromEnglish(str))
         {
-            Blob const blob(key.rbegin(), key.rend());
-            return Seed{uint128{blob}};
+            std::reverse(key->begin(), key->end());
+            return Seed{*key};
         }
     }
 
@@ -127,13 +110,9 @@ parseGenericSeed(std::string const& str, bool rfc1751)
 std::string
 seedAs1751(Seed const& seed)
 {
-    std::string key;
-
-    std::reverse_copy(seed.data(), seed.data() + 16, std::back_inserter(key));
-
-    std::string encodedKey;
-    RFC1751::getEnglishFromKey(encodedKey, key);
-    return encodedKey;
+    std::array<std::uint8_t, 16> key;
+    std::reverse_copy(seed.begin(), seed.end(), key.begin());
+    return rfc1751::englishFromKey(key).value_or("");
 }
 
 }  // namespace ripple

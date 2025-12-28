@@ -310,7 +310,7 @@ public:
         auto s = make_Server(handler, thread.get_io_service(), journal);
         std::vector<Port> serverPort(1);
         serverPort.back().ip =
-            beast::IP::Address::from_string(getEnvLocalhostAddr()),
+            boost::asio::ip::address::from_string(getEnvLocalhostAddr()),
         serverPort.back().port = 0;
         serverPort.back().protocol.insert("http");
         auto eps = s->ports(serverPort);
@@ -393,7 +393,7 @@ public:
             auto s = make_Server(h, thread.get_io_service(), journal);
             std::vector<Port> serverPort(1);
             serverPort.back().ip =
-                beast::IP::Address::from_string(getEnvLocalhostAddr()),
+                boost::asio::ip::address::from_string(getEnvLocalhostAddr()),
             serverPort.back().port = 0;
             serverPort.back().protocol.insert("http");
             s->ports(serverPort);

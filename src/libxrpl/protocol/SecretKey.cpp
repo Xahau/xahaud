@@ -25,6 +25,9 @@
 #include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/detail/secp256k1.h>
 #include <xrpl/protocol/digest.h>
+
+#include <boost/endian/buffers.hpp>
+
 #include <cstring>
 #include <ed25519.h>
 
@@ -32,37 +35,10 @@ namespace ripple {
 
 SecretKey::~SecretKey()
 {
-    secure_erase(buf_, sizeof(buf_));
-}
-
-SecretKey::SecretKey(std::array<std::uint8_t, 32> const& key)
-{
-    std::memcpy(buf_, key.data(), key.size());
-}
-
-SecretKey::SecretKey(Slice const& slice)
-{
-    if (slice.size() != sizeof(buf_))
-        LogicError("SecretKey::SecretKey: invalid size");
-    std::memcpy(buf_, slice.data(), sizeof(buf_));
-}
-
-std::string
-SecretKey::to_string() const
-{
-    return strHex(*this);
+    secure_erase(buf_.data(), buf_.size());
 }
 
 namespace detail {
-
-void
-copy_uint32(std::uint8_t* out, std::uint32_t v)
-{
-    *out++ = v >> 24;
-    *out++ = (v >> 16) & 0xff;
-    *out++ = (v >> 8) & 0xff;
-    *out = v & 0xff;
-}
 
 uint256
 deriveDeterministicRootKey(Seed const& seed)
@@ -84,7 +60,7 @@ deriveDeterministicRootKey(Seed const& seed)
     // more iterations loop a few times.
     for (std::uint32_t seq = 0; seq != 128; ++seq)
     {
-        copy_uint32(buf.data() + 16, seq);
+        boost::endian::store_big_u32(buf.data() + 16, seq);
 
         auto const ret = sha512Half(buf);
 
@@ -137,13 +113,13 @@ private:
 
         std::array<std::uint8_t, 41> buf;
         std::copy(generator_.begin(), generator_.end(), buf.begin());
-        copy_uint32(buf.data() + 33, seq);
+        boost::endian::store_big_u32(buf.data() + 33, seq);
 
         // The odds that this loop executes more than once are neglible
         // but we impose a maximum limit just in case.
         for (std::uint32_t subseq = 0; subseq != 128; ++subseq)
         {
-            copy_uint32(buf.data() + 37, subseq);
+            boost::endian::store_big_u32(buf.data() + 37, subseq);
 
             auto const ret = sha512Half_s(buf);
 
@@ -214,7 +190,6 @@ signDigest(PublicKey const& pk, SecretKey const& sk, uint256 const& digest)
     if (publicKeyType(pk.slice()) != KeyType::secp256k1)
         LogicError("sign: secp256k1 required for digest signing");
 
-    BOOST_ASSERT(sk.size() == 32);
     secp256k1_ecdsa_signature sig_imp;
     if (secp256k1_ecdsa_sign(
             secp256k1Context(),
@@ -226,7 +201,7 @@ signDigest(PublicKey const& pk, SecretKey const& sk, uint256 const& digest)
         LogicError("sign: secp256k1_ecdsa_sign failed");
 
     unsigned char sig[72];
-    size_t len = sizeof(sig);
+    auto len = sizeof(sig);
     if (secp256k1_ecdsa_signature_serialize_der(
             secp256k1Context(), sig, &len, &sig_imp) != 1)
         LogicError("sign: secp256k1_ecdsa_signature_serialize_der failed");
@@ -238,52 +213,31 @@ Buffer
 sign(PublicKey const& pk, SecretKey const& sk, Slice const& m)
 {
     auto const type = publicKeyType(pk.slice());
-    if (!type)
-        LogicError("sign: invalid type");
-    switch (*type)
+
+    if (type == KeyType::ed25519)
     {
-        case KeyType::ed25519: {
-            Buffer b(64);
-            ed25519_sign(
-                m.data(), m.size(), sk.data(), pk.data() + 1, b.data());
-            return b;
-        }
-        case KeyType::secp256k1: {
-            sha512_half_hasher h;
-            h(m.data(), m.size());
-            auto const digest = sha512_half_hasher::result_type(h);
-
-            secp256k1_ecdsa_signature sig_imp;
-            if (secp256k1_ecdsa_sign(
-                    secp256k1Context(),
-                    &sig_imp,
-                    reinterpret_cast<unsigned char const*>(digest.data()),
-                    reinterpret_cast<unsigned char const*>(sk.data()),
-                    secp256k1_nonce_function_rfc6979,
-                    nullptr) != 1)
-                LogicError("sign: secp256k1_ecdsa_sign failed");
-
-            unsigned char sig[72];
-            size_t len = sizeof(sig);
-            if (secp256k1_ecdsa_signature_serialize_der(
-                    secp256k1Context(), sig, &len, &sig_imp) != 1)
-                LogicError(
-                    "sign: secp256k1_ecdsa_signature_serialize_der failed");
-
-            return Buffer{sig, len};
-        }
-        default:
-            LogicError("sign: invalid type");
+        Buffer b(64);
+        ed25519_sign(m.data(), m.size(), sk.data(), pk.data() + 1, b.data());
+        return b;
     }
+
+    if (type == KeyType::secp256k1)
+    {
+        sha512_half_hasher h;
+        h(m.data(), m.size());
+        return signDigest(pk, sk, sha512_half_hasher::result_type(h));
+    }
+
+    LogicError("sign: invalid type");
 }
 
 SecretKey
 randomSecretKey()
 {
-    std::uint8_t buf[32];
-    beast::rngfill(buf, sizeof(buf), crypto_prng());
-    SecretKey sk(Slice{buf, sizeof(buf)});
-    secure_erase(buf, sizeof(buf));
+    std::array<std::uint8_t, 32> buf;
+    beast::rngfill(buf, crypto_prng());
+    SecretKey sk(buf);
+    secure_erase(buf.data(), buf.size());
     return sk;
 }
 

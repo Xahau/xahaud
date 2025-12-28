@@ -20,26 +20,29 @@
 #ifndef BEAST_NET_IPADDRESSV6_H_INCLUDED
 #define BEAST_NET_IPADDRESSV6_H_INCLUDED
 
-#include <xrpl/beast/utility/instrumentation.h>
 #include <boost/asio/ip/address_v6.hpp>
-#include <cstdint>
-#include <functional>
-#include <ios>
-#include <string>
-#include <utility>
 
 namespace beast {
 namespace IP {
 
-using AddressV6 = boost::asio::ip::address_v6;
-
 /** Returns `true` if the address is a private unroutable address. */
-bool
-is_private(AddressV6 const& addr);
+[[nodiscard]] inline bool
+is_private(boost::asio::ip::address_v6 const& addr)
+{
+    auto b0 = addr.to_bytes()[0];
+    return (
+        addr.is_link_local() ||   // fe80::/10
+        addr.is_loopback() ||     // ::1
+        ((b0 & 0xfe) == 0xfc) ||  // fc00::/7 (all ULA)
+        (addr.is_v4_mapped() && is_private(addr.to_v4())));
+}
 
 /** Returns `true` if the address is a public routable address. */
-bool
-is_public(AddressV6 const& addr);
+[[nodiscard]] inline bool
+is_public(boost::asio::ip::address_v6 const& addr)
+{
+    return !is_private(addr) && !addr.is_multicast() && !addr.is_unspecified();
+}
 
 }  // namespace IP
 }  // namespace beast

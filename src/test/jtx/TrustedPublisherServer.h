@@ -180,7 +180,7 @@ public:
         bool immediateStart = true,
         int sequence = 1)
         : sock_{ioc}
-        , ep_{beast::IP::Address::from_string(
+        , ep_{boost::asio::ip::address::from_string(
                   ripple::test::getEnvLocalhostAddr()),
               // 0 means let OS pick the port based on what's available
               0}
