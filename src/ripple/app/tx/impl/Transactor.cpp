@@ -280,12 +280,17 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     //  * The additional cost of each multisignature on the transaction.
     XRPAmount baseFee = view.fees().base;
 
-    if (tx.getFieldU16(sfTransactionType) == ttIMPORT)
+    auto const tt = tx.getFieldU16(sfTransactionType);
+
+    if (tt == ttIMPORT)
     {
         XRPAmount const importFee = baseFee * 10;
         if (importFee > baseFee)
             baseFee = importFee;
     }
+
+    if (tt == ttENTROPY)
+        return XRPAmount{0};
 
     // Each signer adds one more baseFee to the minimum required fee
     // for the transaction.
@@ -476,6 +481,9 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     auto const sle = ctx.view.read(keylet::account(id));
     if (!sle)
     {
+        if (ctx.tx.getTxnType() == ttENTROPY)
+            return tesSUCCESS;
+
         if (ctx.tx.getTxnType() == ttIMPORT)
         {
             if (!ctx.tx.isFieldPresent(sfIssuer))
@@ -650,7 +658,13 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
         ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT && !ctx.tx.isFieldPresent(sfIssuer);
 
-    if (!sle && !isFirstImport)
+    bool const isUV = 
+        ctx.view.rules().enabled(featureRNG) &&
+        ctx.tx.getTxnType() == ttENTROPY;
+
+    bool const accRequired = !(isFirstImport || isUV);
+
+    if (!sle && accRequired)
     {
         JLOG(ctx.j.trace())
             << "applyTransaction: delay: source account does not exist "
@@ -806,12 +820,13 @@ Transactor::apply()
     auto const sle = view().peek(keylet::account(account_));
 
     // sle must exist except for transactions
-    // that allow zero account. (and ttIMPORT)
+    // that allow zero account. (and ttIMPORT and UV)
     assert(
         sle != nullptr || account_ == beast::zero ||
         view().rules().enabled(featureImport) &&
             ctx_.tx.getTxnType() == ttIMPORT &&
-            !ctx_.tx.isFieldPresent(sfIssuer));
+            !ctx_.tx.isFieldPresent(sfIssuer) ||
+            ctx_.tx.getTxnType() == ttENTROPY);
 
     if (sle)
     {

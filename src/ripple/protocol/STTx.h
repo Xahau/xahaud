@@ -171,6 +171,9 @@ sterilize(STTx const& stx);
 bool
 isPseudoTx(STObject const& tx);
 
+bool
+isUVTx(STObject const& tx);
+
 inline STTx::STTx(SerialIter&& sit) : STTx(sit)
 {
 }

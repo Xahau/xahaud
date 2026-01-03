@@ -496,7 +496,6 @@ TxFormats::TxFormats()
         {
             {sfRandomData, soeREQUIRED},
             {sfNextRandomDigest, soeREQUIRED},
-            {sfLedgerSequence, soeREQUIRED},
             {sfParentHash, soeREQUIRED},
         },
         commonFields);

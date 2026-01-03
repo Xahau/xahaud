@@ -23,6 +23,7 @@
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/st.h>
+#include <ripple/protocol/TxFlags.h>
 
 namespace ripple {
 
@@ -47,17 +48,16 @@ Entropy::preclaim(PreclaimContext const& ctx)
     if (!ctx.view.rules().enabled(featureRNG))
         return temDISABLED;
 
-    auto const seq = ctx.view.info().seq;
+//    auto const seq = ctx.view.info().seq;
 
-    auto const txLgrSeq = ctx.tx[sfLedgerSequence];
+//    auto const txLgrSeq = ctx.tx[sfLedgerSequence];
 
-    // we will not process and can never accept any txns that aren't introduced this ledger
-    // for this ledger.
-    if (seq != txLgrSeq)
-    {
-        JLOG(ctx.j.warn()) << "Entropy: wrong ledger seq=" << seq;
-        return tefFAILURE;
-    }
+    // due to circulation we'll accept up to one ledger old entropy txns
+//    if (seq != txLgrSeq)
+//    {
+//        JLOG(ctx.j.warn()) << "Entropy: wrong ledger txseq=" << txLgrSeq << " lgrseq=" << seq << " acc:" << ctx.tx.getAccountID(sfAccount);
+//        return tefFAILURE;
+//    }
 
     // account must be a valid UV 
     if (!inUNLReport(ctx.view, ctx.tx.getAccountID(sfAccount), ctx.j))
@@ -76,10 +76,10 @@ Entropy::doApply()
 
     auto const seq = view().info().seq;
 
-    if (seq != ctx_.tx.getFieldU32(sfLedgerSequence))
-    {
-        return tefFAILURE;
-    }
+//    if (seq != ctx_.tx.getFieldU32(sfLedgerSequence))
+//    {
+//        return tefFAILURE;
+//    }
 
     auto sle = view().peek(keylet::random());
 
@@ -268,43 +268,33 @@ makeEntropyTxn(OpenView& view, Application& app, beast::Journal const& j_)
         return out;
     };
 
-    static std::map<uint32_t /* ledger seq */ , uint256 /* chosen rnd no */> rngMap;
+
+    static std::optional<uint256> prevRnd;
 
     uint256 nextRnd = getRnd();
 
-    if (rngMap.find(seq) != rngMap.end())
-        return {};
-
-    rngMap[seq] = nextRnd;
-
-    std::optional<uint256> prevRnd;
-
-    if (rngMap.find(seq - 1) != rngMap.end())
-        prevRnd = rngMap[seq - 1];
-
-    // amortized cleanup, for every ledger attempt to delete two old entries
-    // even in the most desynced ridiculous state this is guaranteed prevent map growth
-    for (int i = 0; i < 2; ++i)
-    {
-        auto it = rngMap.begin();
-        if (it != rngMap.end() && it->first < seq)
-            rngMap.erase(it->first);
-    }
-
     // create txn
     auto rngTx = std::make_shared<STTx>(ttENTROPY, [&](auto& obj) {
-        obj.setFieldU32(sfLedgerSequence, seq);
+        obj.setFieldU32(sfLastLedgerSequence, seq);
         obj.setAccountID(sfAccount, acc);
         obj.setFieldU32(sfSequence, 0);
         if (prevRnd.has_value())
             obj.setFieldH256(sfRandomData, *prevRnd);
         obj.setFieldH256(sfNextRandomDigest, sha512Half(nextRnd));
-        obj.setFieldVL(sfSigningPubKey, pk.slice());
+        obj.setFieldVL(sfSigningPubKey, pkSigning.slice());
         obj.setFieldH256(sfParentHash, view.info().parentHash);
+        obj.setFieldU32(sfFlags, tfFullyCanonicalSig);
+
+        if (app.config().NETWORK_ID > 1024)
+            obj.setFieldU32(sfNetworkID, app.config().NETWORK_ID);
     });
 
+    prevRnd = nextRnd;
+
     // sign the txn using our ephemeral key
-    rngTx->sign(pk, app.getValidationSecretKey());
+    rngTx->sign(pkSigning, app.getValidationSecretKey());
+
+    JLOG(j_.debug()) << "ENTROPY txn: " << rngTx->getFullText();
 
     return rngTx;
 }

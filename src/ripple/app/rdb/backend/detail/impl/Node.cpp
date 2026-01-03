@@ -319,7 +319,7 @@ saveValidatedLedger(
                     *db << sql;
                 }
                 else if (auto const& sleTxn = acceptedLedgerTx->getTxn();
-                         !isPseudoTx(*sleTxn))
+                         !isPseudoTx(*sleTxn) && !isUVTx(*sleTxn))
                 {
                     // It's okay for pseudo transactions to not affect any
                     // accounts.  But otherwise...

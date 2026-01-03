@@ -324,13 +324,18 @@ STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
                        fullyCanonical);
         }
     }
-    catch (std::exception const&)
+    catch (std::exception const & e)
     {
         // Assume it was a signature failure.
         validSig = false;
+
+        std::cout << "Invalid cause: " << e.what() << "\n";
     }
     if (validSig == false)
+    {
+        std::cout << "Invalid signature on tx: " << this->getFullText() << "\n";
         return Unexpected("Invalid signature.");
+    }
     // Signature was verified.
     return {};
 }
@@ -616,6 +621,17 @@ isPseudoTx(STObject const& tx)
     auto tt = safe_cast<TxType>(*t);
     return tt == ttAMENDMENT || tt == ttFEE || tt == ttUNL_MODIFY ||
         tt == ttEMIT_FAILURE || tt == ttUNL_REPORT || tt == ttCRON || tt == ttSHUFFLE; 
+}
+
+bool
+isUVTx(STObject const& tx)
+{
+    auto t = tx[~sfTransactionType];
+    if (!t)
+        return false;
+
+    auto tt = safe_cast<TxType>(*t);
+    return tt == ttENTROPY;
 }
 
 }  // namespace ripple
