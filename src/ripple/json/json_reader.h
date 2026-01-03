@@ -87,7 +87,7 @@ public:
     std::string
     getFormatedErrorMessages() const;
 
-    static constexpr unsigned nest_limit{25};
+    static constexpr unsigned nest_limit = 25;
 
 private:
     enum TokenType {

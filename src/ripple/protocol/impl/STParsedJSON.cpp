@@ -548,10 +548,10 @@ parseLeaf(
             try
             {
                 STVector256 tail(field);
-                for (Json::UInt i = 0; value.isValidIndex(i); ++i)
+                for (auto const& v : value)
                 {
                     uint256 s;
-                    if (!s.parseHex(value[i].asString()))
+                    if (!s.parseHex(v.asString()))
                         Throw<std::invalid_argument>("invalid data");
                     tail.push_back(s);
                 }
@@ -576,39 +576,36 @@ parseLeaf(
             {
                 STPathSet tail(field);
 
-                for (Json::UInt i = 0; value.isValidIndex(i); ++i)
+                for (auto const& path : value)
                 {
                     STPath p;
 
-                    if (!value[i].isArrayOrNull())
+                    if (!path.isArrayOrNull())
                     {
-                        std::stringstream ss;
-                        ss << fieldName << "[" << i << "]";
-                        error = array_expected(json_name, ss.str());
+                        error = array_expected(
+                            json_name,
+                            fieldName + "[" + std::to_string(tail.size()) +
+                                "]");
                         return ret;
                     }
 
-                    for (Json::UInt j = 0; value[i].isValidIndex(j); ++j)
+                    for (auto const& step : path)
                     {
-                        std::stringstream ss;
-                        ss << fieldName << "[" << i << "][" << j << "]";
-                        std::string const element_name(
-                            json_name + "." + ss.str());
+                        std::string const element_name = json_name + "." +
+                            fieldName + "[" + std::to_string(tail.size()) +
+                            "][" + std::to_string(p.size()) + "]";
 
-                        // each element in this path has some combination of
+                        // each step in this path has some combination of
                         // account, currency, or issuer
-
-                        Json::Value pathEl = value[i][j];
-
-                        if (!pathEl.isObject())
+                        if (!step.isObject())
                         {
                             error = not_an_object(element_name);
                             return ret;
                         }
 
-                        Json::Value const& account = pathEl["account"];
-                        Json::Value const& currency = pathEl["currency"];
-                        Json::Value const& issuer = pathEl["issuer"];
+                        Json::Value const& account = step["account"];
+                        Json::Value const& currency = step["currency"];
+                        Json::Value const& issuer = step["issuer"];
                         bool hasCurrency = false;
                         AccountID uAccount, uIssuer;
                         Currency uCurrency;
@@ -896,50 +893,38 @@ parseArray(
     {
         STArray tail(inName);
 
-        for (Json::UInt i = 0; json.isValidIndex(i); ++i)
+        for (auto const& elem : json)
         {
-            bool const isObjectOrNull(json[i].isObjectOrNull());
-            bool const singleKey(isObjectOrNull ? json[i].size() == 1 : true);
-
-            if (!isObjectOrNull || !singleKey)
+            if (!elem.isObject() || elem.size() != 1)
             {
-                // null values are !singleKey
-                error = singleton_expected(json_name, i);
+                error = singleton_expected(json_name, tail.size());
                 return std::nullopt;
             }
 
-            // TODO: There doesn't seem to be a nice way to get just the
-            // first/only key in an object without copying all keys into
-            // a vector
-            std::string const objectName(json[i].getMemberNames()[0]);
-            ;
-            auto const& nameField(SField::getField(objectName));
+            auto it = elem.cbegin();
+            assert(it != elem.cend());
+
+            auto const& nameField = SField::getField(it.memberName());
 
             if (nameField == sfInvalid)
             {
-                error = unknown_field(json_name, objectName);
+                error = unknown_field(json_name, it.memberName());
                 return std::nullopt;
             }
 
-            Json::Value const objectFields(json[i][objectName]);
+            std::string const name = json_name + ".[" +
+                std::to_string(tail.size()) + "]." + it.memberName();
 
-            std::stringstream ss;
-            ss << json_name << "."
-               << "[" << i << "]." << objectName;
-
-            auto ret = parseObject(
-                ss.str(), objectFields, nameField, depth + 1, error);
+            auto ret = parseObject(name, *it, nameField, depth + 1, error);
             if (!ret)
             {
-                std::string errMsg = error["error_message"].asString();
-                error["error_message"] =
-                    "Error at '" + ss.str() + "'. " + errMsg;
+                error["error_message"] = "Error at '" + name + "'. " + error["error_message"].asString();
                 return std::nullopt;
             }
 
             if (ret->getFName().fieldType != STI_OBJECT)
             {
-                error = non_object_in_array(ss.str(), i);
+                error = non_object_in_array(name, tail.size());
                 return std::nullopt;
             }
 

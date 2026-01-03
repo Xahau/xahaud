@@ -24,6 +24,7 @@
 #include <ripple/json/json_value.h>
 #include <cstdint>
 #include <map>
+#include <string_view>
 #include <utility>
 
 namespace ripple {
@@ -159,7 +160,7 @@ public:
     static const SField&
     getField(int fieldCode);
     static const SField&
-    getField(std::string const& fieldName);
+    getField(std::string_view fieldName);
     static const SField&
     getField(int type, int value)
     {

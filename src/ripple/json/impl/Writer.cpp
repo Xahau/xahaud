@@ -21,35 +21,36 @@
 #include <ripple/json/Writer.h>
 #include <set>
 #include <stack>
+#include <string_view>
 
 namespace Json {
 
 namespace {
 
-std::map<char, const char*> jsonSpecialCharacterEscape = {
-    {'"', "\\\""},
-    {'\\', "\\\\"},
-    {'/', "\\/"},
-    {'\b', "\\b"},
-    {'\f', "\\f"},
-    {'\n', "\\n"},
-    {'\r', "\\r"},
-    {'\t', "\\t"}};
-
-static size_t const jsonEscapeLength = 2;
+constexpr std::string_view escapeSpecialChar(char c) noexcept
+{
+    switch (c)
+    {
+        case '"':  return "\\\"";
+        case '\\': return "\\\\";
+        case '/':  return "\\/";
+        case '\b': return "\\b";
+        case '\f': return "\\f";
+        case '\n': return "\\n";
+        case '\r': return "\\r";
+        case '\t': return "\\t";
+        default:   return {};
+    }
+}
 
 // All other JSON punctuation.
-const char closeBrace = '}';
-const char closeBracket = ']';
-const char colon = ':';
-const char comma = ',';
-const char openBrace = '{';
-const char openBracket = '[';
-const char quote = '"';
-
-const std::string none;
-
-static auto const integralFloatsBecomeInts = false;
+constexpr char closeBrace = '}';
+constexpr char closeBracket = ']';
+constexpr char colon = ':';
+constexpr char comma = ',';
+constexpr char openBrace = '{';
+constexpr char openBracket = '[';
+constexpr char quote = '"';
 
 size_t
 lengthWithoutTrailingZeros(std::string const& s)
@@ -64,7 +65,7 @@ lengthWithoutTrailingZeros(std::string const& s)
     if (hasDecimals)
         return lastNonZero + 1;
 
-    if (integralFloatsBecomeInts || lastNonZero + 2 > s.size())
+    if (lastNonZero + 2 > s.size())
         return lastNonZero;
 
     return lastNonZero + 2;
@@ -110,25 +111,27 @@ public:
     stringOutput(boost::beast::string_view const& bytes)
     {
         markStarted();
-        std::size_t position = 0, writtenUntil = 0;
 
         output_({&quote, 1});
-        auto data = bytes.data();
-        for (; position < bytes.size(); ++position)
+
+        const char* data = bytes.data();
+        const char* end = data + bytes.size();
+        const char* writtenUntil = data;
+
+        for (const char* p = data; p != end; ++p)
         {
-            auto i = jsonSpecialCharacterEscape.find(data[position]);
-            if (i != jsonSpecialCharacterEscape.end())
+            if (auto esc = escapeSpecialChar(*p); !esc.empty())
             {
-                if (writtenUntil < position)
-                {
-                    output_({data + writtenUntil, position - writtenUntil});
-                }
-                output_({i->second, jsonEscapeLength});
-                writtenUntil = position + 1;
-            };
+                if (writtenUntil < p)
+                    output_({writtenUntil, static_cast<std::size_t>(p - writtenUntil)});
+                output_({esc.data(), esc.size()});
+                writtenUntil = p + 1;
+            }
         }
-        if (writtenUntil < position)
-            output_({data + writtenUntil, position - writtenUntil});
+
+        if (writtenUntil < end)
+            output_({writtenUntil, static_cast<std::size_t>(end - writtenUntil)});
+
         output_({&quote, 1});
     }
 
@@ -206,7 +209,7 @@ public:
     }
 
 private:
-    // JSON collections are either arrrays, or objects.
+    // JSON collections are either arrays or objects.
     struct Collection
     {
         explicit Collection() = default;

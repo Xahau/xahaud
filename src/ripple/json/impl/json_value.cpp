@@ -21,73 +21,42 @@
 #include <ripple/beast/core/LexicalCast.h>
 #include <ripple/json/impl/json_assert.h>
 #include <ripple/json/json_writer.h>
-#include <ripple/json/to_string.h>
+
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
+#include <iomanip>
+#include <string_view>
+#include <utility>
 
 namespace Json {
 
-const Value Value::null;
-const Int Value::minInt = Int(~(UInt(-1) / 2));
-const Int Value::maxInt = Int(UInt(-1) / 2);
-const UInt Value::maxUInt = UInt(-1);
+namespace {
 
-class DefaultValueAllocator : public ValueAllocator
+/** The default allocator to use, if no custom allocator is specified.
+ */
+ValueAllocator defaultValueAllocator;
+
+/** A pointer to the allocator to use.
+ */
+constinit ValueAllocator* valueAllocator = &defaultValueAllocator;
+
+}  // namespace
+
+void
+setAllocator(ValueAllocator* allocator)
 {
-public:
-    virtual ~DefaultValueAllocator() = default;
+    assert(allocator != nullptr && valueAllocator == &defaultValueAllocator);
 
-    char*
-    makeMemberName(const char* memberName) override
-    {
-        return duplicateStringValue(memberName);
-    }
-
-    void
-    releaseMemberName(char* memberName) override
-    {
-        releaseStringValue(memberName);
-    }
-
-    char*
-    duplicateStringValue(const char* value, unsigned int length = unknown)
-        override
-    {
-        //@todo investigate this old optimization
-        // if ( !value  ||  value[0] == 0 )
-        //   return 0;
-
-        if (length == unknown)
-            length = value ? (unsigned int)strlen(value) : 0;
-
-        char* newString = static_cast<char*>(malloc(length + 1));
-        if (value)
-            memcpy(newString, value, length);
-        newString[length] = 0;
-        return newString;
-    }
-
-    void
-    releaseStringValue(char* value) override
-    {
-        if (value)
-            free(value);
-    }
-};
-
-static ValueAllocator*&
-valueAllocator()
-{
-    static ValueAllocator* valueAllocator = new DefaultValueAllocator;
-    return valueAllocator;
+    if (valueAllocator == &defaultValueAllocator)
+        valueAllocator = allocator;
 }
 
-static struct DummyValueAllocatorInitializer
+ValueAllocator*
+getAllocator()
 {
-    DummyValueAllocatorInitializer()
-    {
-        valueAllocator();  // ensure valueAllocator() statics are initialized
-                           // before main().
-    }
-} dummyValueAllocatorInitializer;
+    return valueAllocator;
+}
 
 // //////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////
@@ -97,113 +66,143 @@ static struct DummyValueAllocatorInitializer
 // //////////////////////////////////////////////////////////////////
 // //////////////////////////////////////////////////////////////////
 
-// Notes: index_ indicates if the string was allocated when
-// a string is stored.
-
-Value::CZString::CZString(int index) : cstr_(0), index_(index)
+Value::CZString::CZString(std::string_view s)
+    : data_(reinterpret_cast<std::uintptr_t>(
+          valueAllocator->duplicateStringValue(s.data(), s.size())))
 {
 }
 
-Value::CZString::CZString(const char* cstr, DuplicationPolicy allocate)
-    : cstr_(
-          allocate == duplicate ? valueAllocator()->makeMemberName(cstr) : cstr)
-    , index_(allocate)
+Value::CZString::CZString(CZString const & other)
+    : data_(
+          other.isStatic()
+              ? other.data_
+              : reinterpret_cast<std::uintptr_t>(
+                    valueAllocator->duplicateStringValue(other.c_str())))
 {
 }
 
-Value::CZString::CZString(const CZString& other)
-    : cstr_(
-          other.index_ != noDuplication && other.cstr_ != 0
-              ? valueAllocator()->makeMemberName(other.cstr_)
-              : other.cstr_)
-    , index_(
-          other.cstr_
-              ? (other.index_ == noDuplication ? noDuplication : duplicate)
-              : other.index_)
+Value::CZString& Value::CZString::operator=(CZString const & other)
 {
+    if (this != &other)
+    {
+        if (!isStatic() && c_str())
+            valueAllocator->releaseStringValue(c_str());
+
+        if (other.isStatic())
+            data_ = other.data_;
+        else
+            data_ = reinterpret_cast<std::uintptr_t>(
+                valueAllocator->duplicateStringValue(other.c_str()));
+    }
+    return *this;
+}
+
+Value::CZString& Value::CZString::operator=(CZString&& other) noexcept
+{
+    if (this != &other)
+    {
+        if (!isStatic() && c_str())
+            valueAllocator->releaseStringValue(c_str());
+        data_ = other.data_;
+        other.data_ = static_flag;
+    }
+    return *this;
 }
 
 Value::CZString::~CZString()
 {
-    if (cstr_ && index_ == duplicate)
-        valueAllocator()->releaseMemberName(const_cast<char*>(cstr_));
+    if (!isStatic() && c_str())
+        valueAllocator->releaseStringValue(c_str());
 }
 
-bool
-Value::CZString::operator<(const CZString& other) const
+// //////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////
+// class Value
+// //////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////
+
+// We need a single instance of a null type, so that we can return
+// a reference from things like `Value::operator[](...) const`.
+Value const null{};
+
+void
+Value::initSSO(const char* str, std::size_t len) noexcept
 {
-    if (cstr_ && other.cstr_)
-        return strcmp(cstr_, other.cstr_) < 0;
-
-    return index_ < other.index_;
+    assert(len <= data_.buffer.size());
+    std::copy_n(str, len, data_.buffer.data());
+    if (len < data_.buffer.size())
+        data_.buffer[len] = 0;
+    data_.type = type_ssoString;
 }
 
-bool
-Value::CZString::operator==(const CZString& other) const
+void
+Value::initAllocatedString(const char* str, std::size_t len)
 {
-    if (cstr_ && other.cstr_)
-        return strcmp(cstr_, other.cstr_) == 0;
-
-    return index_ == other.index_;
+    const char* dup = valueAllocator->duplicateStringValue(str, len);
+    assert(dup != nullptr);
+    std::construct_at(reinterpret_cast<const char**>(data_.buffer.data()), dup);
+    data_.type = type_allocatedString;
 }
 
-int
-Value::CZString::index() const
+void
+Value::initStaticString(const char* str) noexcept
 {
-    return index_;
+    std::construct_at(reinterpret_cast<const char**>(data_.buffer.data()), str);
+    data_.type = type_staticString;
 }
 
-const char*
-Value::CZString::c_str() const
-{
-    return cstr_;
-}
-
-bool
-Value::CZString::isStaticString() const
-{
-    return index_ == noDuplication;
-}
-
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// class Value::Value
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-
-/*! \internal Default constructor initialization must be equivalent to:
- * memset( this, 0, sizeof(Value) )
- * This optimization is used in ValueInternalMap fast allocator.
- */
-Value::Value(ValueType type) : type_(type), allocated_(0)
+Value::Value(ValueType type)
 {
     switch (type)
     {
         case nullValue:
+            data_.type = type_null;
             break;
 
         case intValue:
+            std::construct_at(
+                reinterpret_cast<std::int64_t*>(data_.buffer.data()),
+                std::int64_t{0});
+            data_.type = type_int;
+            break;
+
         case uintValue:
-            value_.int_ = 0;
+            std::construct_at(
+                reinterpret_cast<std::int64_t*>(data_.buffer.data()),
+                std::int64_t{0});
+            data_.type = type_uint;
             break;
 
         case realValue:
-            value_.real_ = 0.0;
+            std::construct_at(
+                reinterpret_cast<double*>(data_.buffer.data()), 0.0);
+            data_.type = type_real;
             break;
 
         case stringValue:
-            value_.string_ = 0;
-            break;
-
-        case arrayValue:
-        case objectValue:
-            value_.map_ = new ObjectValues();
+            data_.buffer[0] = '\0';
+            data_.type = type_ssoString;
             break;
 
         case booleanValue:
-            value_.bool_ = false;
+            data_.buffer[0] = 0;
+            data_.type = type_boolean;
+            break;
+
+        case arrayValue:
+            std::construct_at(
+                reinterpret_cast<ArrayStorage**>(data_.buffer.data()),
+                new ArrayStorage());
+            data_.type = type_array;
+            break;
+
+        case objectValue:
+            std::construct_at(
+                reinterpret_cast<ObjectStorage**>(data_.buffer.data()),
+                new ObjectStorage());
+            data_.type = type_object;
             break;
 
         default:
@@ -211,694 +210,708 @@ Value::Value(ValueType type) : type_(type), allocated_(0)
     }
 }
 
-Value::Value(Int value) : type_(intValue)
+Value::Value(Int value) noexcept
 {
-    value_.int_ = value;
+    std::construct_at(
+        reinterpret_cast<std::int64_t*>(data_.buffer.data()),
+        static_cast<std::int64_t>(value));
+    data_.type = type_int;
 }
 
-Value::Value(UInt value) : type_(uintValue)
+Value::Value(UInt value) noexcept
 {
-    value_.uint_ = value;
+    std::construct_at(
+        reinterpret_cast<std::int64_t*>(data_.buffer.data()),
+        static_cast<std::int64_t>(value));
+    data_.type = type_uint;
 }
 
-Value::Value(double value) : type_(realValue)
+Value::Value(double value) noexcept
 {
-    value_.real_ = value;
+    std::construct_at(reinterpret_cast<double*>(data_.buffer.data()), value);
+    data_.type = type_real;
 }
 
-Value::Value(const char* value) : type_(stringValue), allocated_(true)
+Value::Value(std::string_view value)
 {
-    value_.string_ = valueAllocator()->duplicateStringValue(value);
+    if (value.size() <= data_.buffer.size())
+        initSSO(value.data(), value.size());
+    else
+        initAllocatedString(value.data(), value.size());
 }
 
-Value::Value(std::string const& value) : type_(stringValue), allocated_(true)
+Value::Value(StaticString value) noexcept
 {
-    value_.string_ = valueAllocator()->duplicateStringValue(
-        value.c_str(), (unsigned int)value.length());
-}
+    const char* str = value.c_str();
 
-Value::Value(const StaticString& value) : type_(stringValue), allocated_(false)
-{
-    value_.string_ = const_cast<char*>(value.c_str());
-}
-
-Value::Value(bool value) : type_(booleanValue)
-{
-    value_.bool_ = value;
-}
-
-Value::Value(const Value& other) : type_(other.type_)
-{
-    switch (type_)
+    if (str == nullptr || *str == '\0') [[unlikely]]
     {
-        case nullValue:
-        case intValue:
-        case uintValue:
-        case realValue:
-        case booleanValue:
-            value_ = other.value_;
+        data_.type = type_ssoString;
+        return;
+    }
+
+    std::size_t len = std::strlen(str);
+    if (len <= data_.buffer.size())
+        initSSO(str, len);
+    else
+        initStaticString(str);
+}
+
+Value::Value(bool value) noexcept
+{
+    data_.buffer[0] = value ? 1 : 0;
+    data_.type = type_boolean;
+}
+
+Value::Value(Value const& other)
+{
+    switch (other.data_.type)
+    {
+        case type_ssoString:
+            data_ = other.data_;
             break;
 
-        case stringValue:
-            if (other.value_.string_)
-            {
-                value_.string_ = valueAllocator()->duplicateStringValue(
-                    other.value_.string_);
-                allocated_ = true;
-            }
-            else
-                value_.string_ = 0;
-
+        case type_allocatedString:
+            initAllocatedString(
+                other.as<const char*>(), std::strlen(other.as<const char*>()));
             break;
 
-        case arrayValue:
-        case objectValue:
-            value_.map_ = new ObjectValues(*other.value_.map_);
+        case type_staticString:
+            initStaticString(other.as<const char*>());
             break;
 
+        case type_int:
+        case type_uint:
+            std::construct_at(
+                reinterpret_cast<std::int64_t*>(data_.buffer.data()),
+                other.as<std::int64_t>());
+            data_.type = other.data_.type;
+            break;
+
+        case type_real:
+            std::construct_at(
+                reinterpret_cast<double*>(data_.buffer.data()),
+                other.as<double>());
+            data_.type = type_real;
+            break;
+
+        case type_boolean:
+            data_.buffer[0] = other.data_.buffer[0];
+            data_.type = type_boolean;
+            break;
+
+        case type_array:
+            std::construct_at(
+                reinterpret_cast<ArrayStorage**>(data_.buffer.data()),
+                new ArrayStorage(*other.as<ArrayStorage*>()));
+            data_.type = type_array;
+            break;
+
+        case type_object:
+            std::construct_at(
+                reinterpret_cast<ObjectStorage**>(data_.buffer.data()),
+                new ObjectStorage(*other.as<ObjectStorage*>()));
+            data_.type = type_object;
+            break;
+
+        case type_null:
         default:
-            JSON_ASSERT_UNREACHABLE;
+            data_.type = type_null;
+            break;
     }
 }
 
-Value::~Value()
+Value::Value(Value&& other) noexcept
+    : data_(other.data_)
 {
-    switch (type_)
+    other.data_.type = type_null;
+}
+
+Value::~Value() noexcept
+{
+    if (data_.type == type_allocatedString)
+        valueAllocator->releaseStringValue(as<const char*>());
+
+    if (data_.type == type_array)
+        delete as<ArrayStorage*>();
+
+    if (data_.type == type_object)
+        delete as<ObjectStorage*>();
+
+    data_.type = type_destroyed;
+}
+
+Value&
+Value::operator=(Value&& other) noexcept
+{
+    if (this != &other) [[likely]]
     {
-        case nullValue:
-        case intValue:
-        case uintValue:
-        case realValue:
-        case booleanValue:
-            break;
-
-        case stringValue:
-            if (allocated_)
-                valueAllocator()->releaseStringValue(value_.string_);
-
-            break;
-
-        case arrayValue:
-        case objectValue:
-            if (value_.map_)
-                delete value_.map_;
-            break;
-
-        default:
-            JSON_ASSERT_UNREACHABLE;
+        // This temporary is needed to handle the case were an object
+        // is assigned to one of its sub-objects, like the following:
+        //     obj = obj["test"][3];
+        Value tmp(std::move(other));
+        std::swap(data_, tmp.data_);
     }
+
+    return *this;
 }
 
 Value&
 Value::operator=(Value const& other)
 {
-    Value tmp(other);
-    swap(tmp);
+    if (this != &other)
+        *this = Value(other);
+
     return *this;
-}
-
-Value::Value(Value&& other) noexcept
-    : value_(other.value_), type_(other.type_), allocated_(other.allocated_)
-{
-    other.type_ = nullValue;
-    other.allocated_ = 0;
-}
-
-Value&
-Value::operator=(Value&& other)
-{
-    Value tmp(std::move(other));
-    swap(tmp);
-    return *this;
-}
-
-void
-Value::swap(Value& other) noexcept
-{
-    std::swap(value_, other.value_);
-
-    ValueType temp = type_;
-    type_ = other.type_;
-    other.type_ = temp;
-
-    int temp2 = allocated_;
-    allocated_ = other.allocated_;
-    other.allocated_ = temp2;
 }
 
 ValueType
-Value::type() const
+Value::type() const noexcept
 {
-    return type_;
-}
-
-static int
-integerCmp(Int i, UInt ui)
-{
-    // All negative numbers are less than all unsigned numbers.
-    if (i < 0)
-        return -1;
-
-    // Now we can safely compare.
-    return (i < ui) ? -1 : (i == ui) ? 0 : 1;
-}
-
-bool
-operator<(const Value& x, const Value& y)
-{
-    if (auto signum = x.type_ - y.type_)
+    switch (data_.type)
     {
-        if (x.type_ == intValue && y.type_ == uintValue)
-            signum = integerCmp(x.value_.int_, y.value_.uint_);
-        else if (x.type_ == uintValue && y.type_ == intValue)
-            signum = -integerCmp(y.value_.int_, x.value_.uint_);
-        return signum < 0;
-    }
+        case type_ssoString:
+        case type_allocatedString:
+        case type_staticString:
+            return stringValue;
 
-    switch (x.type_)
-    {
-        case nullValue:
-            return false;
+        case type_int:
+            return intValue;
 
-        case intValue:
-            return x.value_.int_ < y.value_.int_;
+        case type_uint:
+            return uintValue;
 
-        case uintValue:
-            return x.value_.uint_ < y.value_.uint_;
+        case type_boolean:
+            return booleanValue;
 
-        case realValue:
-            return x.value_.real_ < y.value_.real_;
+        case type_real:
+            return realValue;
 
-        case booleanValue:
-            return x.value_.bool_ < y.value_.bool_;
+        case type_array:
+            return arrayValue;
 
-        case stringValue:
-            return (x.value_.string_ == 0 && y.value_.string_) ||
-                (y.value_.string_ && x.value_.string_ &&
-                 strcmp(x.value_.string_, y.value_.string_) < 0);
+        case type_object:
+            return objectValue;
 
-        case arrayValue:
-        case objectValue: {
-            if (int signum = int(x.value_.map_->size()) - y.value_.map_->size())
-                return signum < 0;
-
-            return *x.value_.map_ < *y.value_.map_;
-        }
+        case type_null:
+            return nullValue;
 
         default:
-            JSON_ASSERT_UNREACHABLE;
+            return nullValue;
     }
-
-    return 0;  // unreachable
 }
 
-bool
-operator==(const Value& x, const Value& y)
+char const*
+Value::asCString() const noexcept
 {
-    if (x.type_ != y.type_)
-    {
-        if (x.type_ == intValue && y.type_ == uintValue)
-            return !integerCmp(x.value_.int_, y.value_.uint_);
-        if (x.type_ == uintValue && y.type_ == intValue)
-            return !integerCmp(y.value_.int_, x.value_.uint_);
-        return false;
-    }
+    if (isSSO())
+        return reinterpret_cast<char const*>(data_.buffer.data());
 
-    switch (x.type_)
-    {
-        case nullValue:
-            return true;
+    if (isAllocatedString() || isStaticStringType())
+        return as<const char*>();
 
-        case intValue:
-            return x.value_.int_ == y.value_.int_;
-
-        case uintValue:
-            return x.value_.uint_ == y.value_.uint_;
-
-        case realValue:
-            return x.value_.real_ == y.value_.real_;
-
-        case booleanValue:
-            return x.value_.bool_ == y.value_.bool_;
-
-        case stringValue:
-            return x.value_.string_ == y.value_.string_ ||
-                (y.value_.string_ && x.value_.string_ &&
-                 !strcmp(x.value_.string_, y.value_.string_));
-
-        case arrayValue:
-        case objectValue:
-            return x.value_.map_->size() == y.value_.map_->size() &&
-                *x.value_.map_ == *y.value_.map_;
-
-        default:
-            JSON_ASSERT_UNREACHABLE;
-    }
-
-    return 0;  // unreachable
-}
-
-const char*
-Value::asCString() const
-{
-    JSON_ASSERT(type_ == stringValue);
-    return value_.string_;
+    return "";
 }
 
 std::string
 Value::asString() const
 {
-    switch (type_)
+    switch (data_.type)
     {
-        case nullValue:
+        case type_ssoString:
+            return std::string(
+                reinterpret_cast<const char*>(data_.buffer.data()));
+
+        case type_allocatedString:
+        case type_staticString:
+            return std::string(as<const char*>());
+
+        case type_null:
             return "";
 
-        case stringValue:
-            return value_.string_ ? value_.string_ : "";
+        case type_boolean:
+            return data_.buffer[0] ? "true" : "false";
 
-        case booleanValue:
-            return value_.bool_ ? "true" : "false";
+        case type_int:
+        case type_uint:
+            return std::to_string(as<std::int64_t>());
 
-        case intValue:
-            return std::to_string(value_.int_);
+        case type_real:
+            return std::to_string(as<double>());
 
-        case uintValue:
-            return std::to_string(value_.uint_);
-
-        case realValue:
-            return std::to_string(value_.real_);
-
-        case arrayValue:
-        case objectValue:
+        case type_array:
+        case type_object:
             JSON_ASSERT_MESSAGE(false, "Type is not convertible to string");
 
         default:
             JSON_ASSERT_UNREACHABLE;
     }
 
-    return "";  // unreachable
+    return "";
 }
 
 Value::Int
 Value::asInt() const
 {
-    switch (type_)
+    switch (data_.type)
     {
-        case nullValue:
-            return 0;
-
-        case intValue:
-            return value_.int_;
-
-        case uintValue:
+        case type_int:
+        case type_uint:
+        {
+            auto v = as<std::int64_t>();
             JSON_ASSERT_MESSAGE(
-                value_.uint_ < (unsigned)maxInt,
+                v >= minInt && v <= maxInt,
                 "integer out of signed integer range");
-            return value_.uint_;
-
-        case realValue:
-            JSON_ASSERT_MESSAGE(
-                value_.real_ >= minInt && value_.real_ <= maxInt,
-                "Real out of signed integer range");
-            return Int(value_.real_);
-
-        case booleanValue:
-            return value_.bool_ ? 1 : 0;
-
-        case stringValue: {
-            char const* const str{value_.string_ ? value_.string_ : ""};
-            return beast::lexicalCastThrow<int>(str);
+            return static_cast<Int>(v);
         }
 
-        case arrayValue:
-        case objectValue:
+        case type_real:
+        {
+            auto v = as<double>();
+            JSON_ASSERT_MESSAGE(
+                v >= minInt && v <= maxInt,
+                "Real out of signed integer range");
+            return static_cast<Int>(v);
+        }
+
+        case type_null:
+            return 0;
+
+        case type_boolean:
+            return data_.buffer[0] ? 1 : 0;
+
+        case type_ssoString:
+            return beast::lexicalCastThrow<int>(
+                reinterpret_cast<const char*>(data_.buffer.data()));
+
+        case type_allocatedString:
+        case type_staticString:
+            return beast::lexicalCastThrow<int>(as<const char*>());
+
+        case type_array:
+        case type_object:
             JSON_ASSERT_MESSAGE(false, "Type is not convertible to int");
 
         default:
             JSON_ASSERT_UNREACHABLE;
     }
 
-    return 0;  // unreachable;
+    return 0;
 }
 
 Value::UInt
 Value::asUInt() const
 {
-    switch (type_)
+    switch (data_.type)
     {
-        case nullValue:
-            return 0;
-
-        case intValue:
+        case type_int:
+        case type_uint:
+        {
+            auto v = as<std::int64_t>();
             JSON_ASSERT_MESSAGE(
-                value_.int_ >= 0,
-                "Negative integer can not be converted to unsigned integer");
-            return value_.int_;
-
-        case uintValue:
-            return value_.uint_;
-
-        case realValue:
-            JSON_ASSERT_MESSAGE(
-                value_.real_ >= 0 && value_.real_ <= maxUInt,
-                "Real out of unsigned integer range");
-            return UInt(value_.real_);
-
-        case booleanValue:
-            return value_.bool_ ? 1 : 0;
-
-        case stringValue: {
-            char const* const str{value_.string_ ? value_.string_ : ""};
-            return beast::lexicalCastThrow<unsigned int>(str);
+                v >= 0 && static_cast<std::uint64_t>(v) <= maxUInt,
+                "integer out of unsigned integer range");
+            return static_cast<UInt>(v);
         }
 
-        case arrayValue:
-        case objectValue:
+        case type_real:
+        {
+            auto v = as<double>();
+            JSON_ASSERT_MESSAGE(
+                v >= 0 && v <= maxUInt, "Real out of unsigned integer range");
+            return static_cast<UInt>(v);
+        }
+
+        case type_null:
+            return 0;
+
+        case type_boolean:
+            return data_.buffer[0] ? 1 : 0;
+
+        case type_ssoString:
+            return beast::lexicalCastThrow<unsigned int>(
+                reinterpret_cast<const char*>(data_.buffer.data()));
+
+        case type_allocatedString:
+        case type_staticString:
+            return beast::lexicalCastThrow<unsigned int>(as<const char*>());
+
+        case type_array:
+        case type_object:
             JSON_ASSERT_MESSAGE(false, "Type is not convertible to uint");
 
         default:
             JSON_ASSERT_UNREACHABLE;
     }
 
-    return 0;  // unreachable;
+    return 0;
 }
 
 double
 Value::asDouble() const
 {
-    switch (type_)
+    switch (data_.type)
     {
-        case nullValue:
+        case type_real:
+            return as<double>();
+
+        case type_int:
+        case type_uint:
+            return static_cast<double>(as<std::int64_t>());
+
+        case type_null:
             return 0.0;
 
-        case intValue:
-            return value_.int_;
+        case type_boolean:
+            return data_.buffer[0] ? 1.0 : 0.0;
 
-        case uintValue:
-            return value_.uint_;
-
-        case realValue:
-            return value_.real_;
-
-        case booleanValue:
-            return value_.bool_ ? 1.0 : 0.0;
-
-        case stringValue:
-        case arrayValue:
-        case objectValue:
+        case type_ssoString:
+        case type_allocatedString:
+        case type_staticString:
+        case type_array:
+        case type_object:
             JSON_ASSERT_MESSAGE(false, "Type is not convertible to double");
 
         default:
             JSON_ASSERT_UNREACHABLE;
     }
 
-    return 0;  // unreachable;
+    return 0.0;
 }
 
 bool
-Value::asBool() const
+Value::asBool() const noexcept
 {
-    switch (type_)
+    switch (data_.type)
     {
-        case nullValue:
+        case type_boolean:
+            return data_.buffer[0] != 0;
+
+        case type_null:
             return false;
 
-        case intValue:
-        case uintValue:
-            return value_.int_ != 0;
+        case type_int:
+        case type_uint:
+            return as<std::int64_t>() != 0;
 
-        case realValue:
-            return value_.real_ != 0.0;
+        case type_real:
+            return as<double>() != 0.0;
 
-        case booleanValue:
-            return value_.bool_;
+        case type_ssoString:
+            return data_.buffer[0] != '\0';
 
-        case stringValue:
-            return value_.string_ && value_.string_[0] != 0;
+        case type_allocatedString:
+        case type_staticString:
+            return as<const char*>()[0] != '\0';
 
-        case arrayValue:
-        case objectValue:
-            return value_.map_->size() != 0;
+        case type_array:
+            return !as<ArrayStorage*>()->empty();
+
+        case type_object:
+            return !as<ObjectStorage*>()->empty();
 
         default:
-            JSON_ASSERT_UNREACHABLE;
+            return false;
     }
-
-    return false;  // unreachable;
 }
 
 bool
-Value::isConvertibleTo(ValueType other) const
+Value::isNull() const noexcept
 {
-    switch (type_)
+    return data_.type == type_null;
+}
+
+bool
+Value::isBool() const noexcept
+{
+    return data_.type == type_boolean;
+}
+
+bool
+Value::isInt() const noexcept
+{
+    return data_.type == type_int;
+}
+
+bool
+Value::isUInt() const noexcept
+{
+    return data_.type == type_uint;
+}
+
+bool
+Value::isIntegral() const noexcept
+{
+    return data_.type == type_int || data_.type == type_uint ||
+        data_.type == type_boolean;
+}
+
+bool
+Value::isDouble() const noexcept
+{
+    return data_.type == type_real;
+}
+
+bool
+Value::isNumeric() const noexcept
+{
+    return isIntegral() || isDouble();
+}
+
+bool
+Value::isString() const noexcept
+{
+    return isAnyString();
+}
+
+bool
+Value::isArray() const noexcept
+{
+    return data_.type == type_array;
+}
+
+bool
+Value::isArrayOrNull() const noexcept
+{
+    return data_.type == type_null || data_.type == type_array;
+}
+
+bool
+Value::isObject() const noexcept
+{
+    return data_.type == type_object;
+}
+
+bool
+Value::isObjectOrNull() const noexcept
+{
+    return data_.type == type_null || data_.type == type_object;
+}
+
+bool
+Value::isConvertibleTo(ValueType other) const noexcept
+{
+    auto t = type();
+
+    if (other == t || t == nullValue)
+        return true;
+
+    switch (data_.type)
     {
-        case nullValue:
-            return true;
-
-        case intValue:
-            return (other == nullValue && value_.int_ == 0) ||
-                other == intValue || (other == uintValue && value_.int_ >= 0) ||
-                other == realValue || other == stringValue ||
-                other == booleanValue;
-
-        case uintValue:
-            return (other == nullValue && value_.uint_ == 0) ||
-                (other == intValue && value_.uint_ <= (unsigned)maxInt) ||
-                other == uintValue || other == realValue ||
+        case type_int:
+        {
+            auto v = as<std::int64_t>();
+            return (other == nullValue && v == 0) ||
+                (other == uintValue && v >= 0) || other == realValue ||
                 other == stringValue || other == booleanValue;
+        }
 
-        case realValue:
-            return (other == nullValue && value_.real_ == 0.0) ||
-                (other == intValue && value_.real_ >= minInt &&
-                 value_.real_ <= maxInt) ||
-                (other == uintValue && value_.real_ >= 0 &&
-                 value_.real_ <= maxUInt) ||
-                other == realValue || other == stringValue ||
-                other == booleanValue;
+        case type_uint:
+        {
+            auto v = as<std::int64_t>();
+            return (other == nullValue && v == 0) ||
+                (other == intValue && v <= maxInt) || other == realValue ||
+                other == stringValue || other == booleanValue;
+        }
 
-        case booleanValue:
-            return (other == nullValue && value_.bool_ == false) ||
+        case type_real:
+        {
+            auto v = as<double>();
+            return (other == nullValue && v == 0.0) ||
+                (other == intValue && v >= minInt && v <= maxInt) ||
+                (other == uintValue && v >= 0 && v <= maxUInt) ||
+                other == stringValue || other == booleanValue;
+        }
+
+        case type_boolean:
+            return (other == nullValue && data_.buffer[0] == 0) ||
                 other == intValue || other == uintValue || other == realValue ||
-                other == stringValue || other == booleanValue;
+                other == stringValue;
 
-        case stringValue:
-            return other == stringValue ||
-                (other == nullValue &&
-                 (!value_.string_ || value_.string_[0] == 0));
+        case type_ssoString:
+            return other == nullValue && data_.buffer[0] == '\0';
 
-        case arrayValue:
-            return other == arrayValue ||
-                (other == nullValue && value_.map_->size() == 0);
+        case type_allocatedString:
+        case type_staticString:
+            return other == nullValue && as<const char*>()[0] == '\0';
 
-        case objectValue:
-            return other == objectValue ||
-                (other == nullValue && value_.map_->size() == 0);
+        case type_array:
+            return other == nullValue && as<ArrayStorage*>()->empty();
+
+        case type_object:
+            return other == nullValue && as<ObjectStorage*>()->empty();
 
         default:
-            JSON_ASSERT_UNREACHABLE;
+            break;
     }
 
-    return false;  // unreachable;
+    return false;
 }
 
-/// Number of values in array or object
 Value::UInt
-Value::size() const
+Value::size() const noexcept
 {
-    switch (type_)
+    switch (data_.type)
     {
-        case nullValue:
-        case intValue:
-        case uintValue:
-        case realValue:
-        case booleanValue:
-        case stringValue:
-            return 0;
+        case type_array:
+            return static_cast<UInt>(as<ArrayStorage*>()->size());
 
-        case arrayValue:  // size of the array is highest index + 1
-            if (!value_.map_->empty())
-            {
-                ObjectValues::const_iterator itLast = value_.map_->end();
-                --itLast;
-                return (*itLast).first.index() + 1;
-            }
-
-            return 0;
-
-        case objectValue:
-            return Int(value_.map_->size());
+        case type_object:
+            return static_cast<UInt>(as<ObjectStorage*>()->size());
 
         default:
-            JSON_ASSERT_UNREACHABLE;
+            return 0;
     }
-
-    return 0;  // unreachable;
 }
 
-Value::operator bool() const
+Value::operator bool() const noexcept
 {
     if (isNull())
         return false;
 
-    if (isString())
-    {
-        auto s = asCString();
-        return s && s[0];
-    }
+    if (isAnyString())
+        return asCString()[0] != '\0';
 
-    return !(isArray() || isObject()) || size();
+    if (isArray())
+        return !as<ArrayStorage*>()->empty();
+
+    if (isObject())
+        return !as<ObjectStorage*>()->empty();
+
+    return true;
 }
 
 void
 Value::clear()
 {
     JSON_ASSERT(
-        type_ == nullValue || type_ == arrayValue || type_ == objectValue);
+        data_.type == type_null || data_.type == type_array ||
+        data_.type == type_object);
 
-    switch (type_)
-    {
-        case arrayValue:
-        case objectValue:
-            value_.map_->clear();
-            break;
+    if (data_.type == type_array)
+        as<ArrayStorage*>()->clear();
 
-        default:
-            break;
-    }
+    if (data_.type == type_object)
+        as<ObjectStorage*>()->clear();
 }
 
 Value&
 Value::operator[](UInt index)
 {
-    JSON_ASSERT(type_ == nullValue || type_ == arrayValue);
+    JSON_ASSERT(data_.type == type_null || data_.type == type_array);
 
-    if (type_ == nullValue)
+    if (data_.type == type_null)
         *this = Value(arrayValue);
 
-    CZString key(index);
-    ObjectValues::iterator it = value_.map_->lower_bound(key);
-
-    if (it != value_.map_->end() && (*it).first == key)
-        return (*it).second;
-
-    ObjectValues::value_type defaultValue(key, null);
-    it = value_.map_->insert(it, defaultValue);
-    return (*it).second;
+    return as<ArrayStorage*>()->try_emplace(index).first->second;
 }
 
-const Value&
+Value const&
 Value::operator[](UInt index) const
 {
-    JSON_ASSERT(type_ == nullValue || type_ == arrayValue);
+    JSON_ASSERT(data_.type == type_null || data_.type == type_array);
 
-    if (type_ == nullValue)
-        return null;
+    if (data_.type == type_array)
+    {
+        auto* arr = as<ArrayStorage const*>();
 
-    CZString key(index);
-    ObjectValues::const_iterator it = value_.map_->find(key);
+        if (auto it = arr->find(index); it != arr->end())
+            return it->second;
+    }
 
-    if (it == value_.map_->end())
-        return null;
-
-    return (*it).second;
-}
-
-Value&
-Value::operator[](const char* key)
-{
-    return resolveReference(key, false);
-}
-
-Value&
-Value::resolveReference(const char* key, bool isStatic)
-{
-    JSON_ASSERT(type_ == nullValue || type_ == objectValue);
-
-    if (type_ == nullValue)
-        *this = Value(objectValue);
-
-    CZString actualKey(
-        key, isStatic ? CZString::noDuplication : CZString::duplicateOnCopy);
-    ObjectValues::iterator it = value_.map_->lower_bound(actualKey);
-
-    if (it != value_.map_->end() && (*it).first == actualKey)
-        return (*it).second;
-
-    ObjectValues::value_type defaultValue(actualKey, null);
-    it = value_.map_->insert(it, defaultValue);
-    Value& value = (*it).second;
-    return value;
+    return null;
 }
 
 Value
-Value::get(UInt index, const Value& defaultValue) const
+Value::get(UInt index, Value const& defaultValue) const
 {
     const Value* value = &((*this)[index]);
     return value == &null ? defaultValue : *value;
 }
 
-bool
-Value::isValidIndex(UInt index) const
-{
-    return index < size();
-}
-
-const Value&
-Value::operator[](const char* key) const
-{
-    JSON_ASSERT(type_ == nullValue || type_ == objectValue);
-
-    if (type_ == nullValue)
-        return null;
-
-    CZString actualKey(key, CZString::noDuplication);
-    ObjectValues::const_iterator it = value_.map_->find(actualKey);
-
-    if (it == value_.map_->end())
-        return null;
-
-    return (*it).second;
-}
-
-Value&
-Value::operator[](std::string const& key)
-{
-    return (*this)[key.c_str()];
-}
-
-const Value&
-Value::operator[](std::string const& key) const
-{
-    return (*this)[key.c_str()];
-}
-
-Value&
-Value::operator[](const StaticString& key)
-{
-    return resolveReference(key, true);
-}
-
-Value&
-Value::append(const Value& value)
-{
-    return (*this)[size()] = value;
-}
-
 Value&
 Value::append(Value&& value)
 {
+    JSON_ASSERT(data_.type == type_null || data_.type == type_array);
+
+    if (data_.type == type_null)
+        *this = Value(arrayValue);
+
     return (*this)[size()] = std::move(value);
 }
 
-Value
-Value::get(const char* key, const Value& defaultValue) const
+Value&
+Value::resolveReference(std::string_view key, bool isStatic)
 {
-    const Value* value = &((*this)[key]);
-    return value == &null ? defaultValue : *value;
+    JSON_ASSERT(data_.type == type_null || data_.type == type_object);
+
+    if (data_.type == type_null)
+        *this = Value(objectValue);
+
+    auto* obj = as<ObjectStorage*>();
+    assert(obj);
+
+    if (auto it = obj->find(key); it != obj->end())
+        return it->second;
+
+    if (!isStatic)
+        return obj->emplace(key, null).first->second;
+
+    return obj->emplace(StaticString(key.data()), null).first->second;
+}
+
+Value&
+Value::operator[](std::string_view key)
+{
+    return resolveReference(key, false);
+}
+
+Value const&
+Value::operator[](std::string_view key) const
+{
+    JSON_ASSERT(data_.type == type_null || data_.type == type_object);
+
+    if (data_.type == type_object)
+    {
+        auto* obj = as<ObjectStorage const*>();
+        auto it = obj->find(key);
+
+        if (it != obj->end())
+            return it->second;
+    }
+
+    return null;
+}
+
+Value&
+Value::operator[](StaticString const& key)
+{
+    return resolveReference(key.c_str(), true);
+}
+
+Value const&
+Value::operator[](StaticString const& key) const
+{
+    return (*this)[key.c_str()];
 }
 
 Value
-Value::get(std::string const& key, const Value& defaultValue) const
+Value::get(const char* key, Value const& defaultValue) const
+{
+    if (data_.type == type_object)
+    {
+        auto* obj = as<ObjectStorage const*>();
+        auto it = obj->find(std::string_view(key));
+
+        if (it != obj->end())
+            return it->second;
+    }
+
+    return defaultValue;
+}
+
+Value
+Value::get(std::string const& key, Value const& defaultValue) const
 {
     return get(key.c_str(), defaultValue);
 }
@@ -906,20 +919,21 @@ Value::get(std::string const& key, const Value& defaultValue) const
 Value
 Value::removeMember(const char* key)
 {
-    JSON_ASSERT(type_ == nullValue || type_ == objectValue);
+    JSON_ASSERT(data_.type == type_null || data_.type == type_object);
 
-    if (type_ == nullValue)
-        return null;
+    if (data_.type == type_object)
+    {
+        auto* obj = as<ObjectStorage*>();
 
-    CZString actualKey(key, CZString::noDuplication);
-    ObjectValues::iterator it = value_.map_->find(actualKey);
+        if (auto it = obj->find(std::string_view(key)); it != obj->end())
+        {
+            Value old(std::move(it->second));
+            obj->erase(it);
+            return old;
+        }
+    }
 
-    if (it == value_.map_->end())
-        return null;
-
-    Value old(it->second);
-    value_.map_->erase(it);
-    return old;
+    return null;
 }
 
 Value
@@ -931,11 +945,11 @@ Value::removeMember(std::string const& key)
 bool
 Value::isMember(const char* key) const
 {
-    if (type_ != objectValue)
+    if (data_.type != type_object)
         return false;
 
-    const Value* value = &((*this)[key]);
-    return value != &null;
+    auto* obj = as<ObjectStorage const*>();
+    return obj->find(std::string_view(key)) != obj->end();
 }
 
 bool
@@ -947,92 +961,24 @@ Value::isMember(std::string const& key) const
 Value::Members
 Value::getMemberNames() const
 {
-    JSON_ASSERT(type_ == nullValue || type_ == objectValue);
-
-    if (type_ == nullValue)
-        return Value::Members();
+    JSON_ASSERT(data_.type == type_null || data_.type == type_object);
 
     Members members;
-    members.reserve(value_.map_->size());
-    ObjectValues::const_iterator it = value_.map_->begin();
-    ObjectValues::const_iterator itEnd = value_.map_->end();
 
-    for (; it != itEnd; ++it)
-        members.push_back(std::string((*it).first.c_str()));
+    if (data_.type == type_object)
+    {
+        auto* obj = as<ObjectStorage const*>();
+
+        if (!obj->empty())
+        {
+            members.reserve(obj->size());
+
+            for (const auto& [k, v] : *obj)
+                members.push_back(std::string(k.c_str()));
+        }
+    }
 
     return members;
-}
-
-bool
-Value::isNull() const
-{
-    return type_ == nullValue;
-}
-
-bool
-Value::isBool() const
-{
-    return type_ == booleanValue;
-}
-
-bool
-Value::isInt() const
-{
-    return type_ == intValue;
-}
-
-bool
-Value::isUInt() const
-{
-    return type_ == uintValue;
-}
-
-bool
-Value::isIntegral() const
-{
-    return type_ == intValue || type_ == uintValue || type_ == booleanValue;
-}
-
-bool
-Value::isDouble() const
-{
-    return type_ == realValue;
-}
-
-bool
-Value::isNumeric() const
-{
-    return isIntegral() || isDouble();
-}
-
-bool
-Value::isString() const
-{
-    return type_ == stringValue;
-}
-
-bool
-Value::isArray() const
-{
-    return type_ == arrayValue;
-}
-
-bool
-Value::isArrayOrNull() const
-{
-    return type_ == nullValue || type_ == arrayValue;
-}
-
-bool
-Value::isObject() const
-{
-    return type_ == objectValue;
-}
-
-bool
-Value::isObjectOrNull() const
-{
-    return type_ == nullValue || type_ == objectValue;
 }
 
 std::string
@@ -1043,73 +989,157 @@ Value::toStyledString() const
 }
 
 Value::const_iterator
+Value::cbegin() const
+{
+    if (data_.type == type_array)
+        return const_iterator(as<ArrayStorage*>()->cbegin());
+
+    if (data_.type == type_object)
+        return const_iterator(as<ObjectStorage*>()->cbegin());
+
+    return {};
+}
+
+Value::const_iterator
 Value::begin() const
 {
-    switch (type_)
-    {
-        case arrayValue:
-        case objectValue:
-            if (value_.map_)
-                return const_iterator(value_.map_->begin());
+    if (data_.type == type_array)
+        return const_iterator(as<ArrayStorage*>()->cbegin());
 
-            break;
-        default:
-            break;
-    }
+    if (data_.type == type_object)
+        return const_iterator(as<ObjectStorage*>()->cbegin());
 
-    return const_iterator();
+    return {};
+}
+
+Value::const_iterator
+Value::cend() const
+{
+    if (data_.type == type_array)
+        return const_iterator(as<ArrayStorage*>()->cend());
+
+    if (data_.type == type_object)
+        return const_iterator(as<ObjectStorage*>()->cend());
+
+    return {};
 }
 
 Value::const_iterator
 Value::end() const
 {
-    switch (type_)
-    {
-        case arrayValue:
-        case objectValue:
-            if (value_.map_)
-                return const_iterator(value_.map_->end());
+    if (data_.type == type_array)
+        return const_iterator(as<ArrayStorage*>()->cend());
 
-            break;
-        default:
-            break;
-    }
+    if (data_.type == type_object)
+        return const_iterator(as<ObjectStorage*>()->cend());
 
-    return const_iterator();
+    return {};
 }
 
 Value::iterator
 Value::begin()
 {
-    switch (type_)
-    {
-        case arrayValue:
-        case objectValue:
-            if (value_.map_)
-                return iterator(value_.map_->begin());
-            break;
-        default:
-            break;
-    }
+    if (data_.type == type_array)
+        return iterator(as<ArrayStorage*>()->begin());
 
-    return iterator();
+    if (data_.type == type_object)
+        return iterator(as<ObjectStorage*>()->begin());
+
+    return {};
 }
 
 Value::iterator
 Value::end()
 {
-    switch (type_)
-    {
-        case arrayValue:
-        case objectValue:
-            if (value_.map_)
-                return iterator(value_.map_->end());
-            break;
-        default:
-            break;
-    }
+    if (data_.type == type_array)
+        return iterator(as<ArrayStorage*>()->end());
 
-    return iterator();
+    if (data_.type == type_object)
+        return iterator(as<ObjectStorage*>()->end());
+
+    return {};
+}
+
+// //////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////
+// Comparison operators
+// //////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////
+
+std::partial_ordering
+operator<=>(Value const& x, Value const& y) noexcept
+{
+    auto const xType = x.type();
+    auto const yType = y.type();
+
+    if ((xType == intValue || xType == uintValue) &&
+        (yType == intValue || yType == uintValue))
+        return x.as<std::int64_t>() <=> y.as<std::int64_t>();
+
+    if (xType != yType)
+        return xType <=> yType;
+
+    if (xType == nullValue)
+        return std::partial_ordering::equivalent;
+
+    if (xType == realValue)
+        return x.as<double>() <=> y.as<double>();
+
+    if (xType == booleanValue)
+        return x.data_.buffer[0] <=> y.data_.buffer[0];
+
+    if (xType == stringValue)
+        return std::string_view(x.asCString()) <=>
+            std::string_view(y.asCString());
+
+    if (xType == arrayValue)
+        return *x.as<Value::ArrayStorage const*>() <=>
+            *y.as<Value::ArrayStorage const*>();
+
+    if (xType == objectValue)
+        return *x.as<Value::ObjectStorage const*>() <=>
+            *y.as<Value::ObjectStorage const*>();
+
+    JSON_ASSERT_UNREACHABLE;
+}
+
+bool
+operator==(Value const& x, Value const& y) noexcept
+{
+    auto const xType = x.type();
+    auto const yType = y.type();
+
+    if ((xType == intValue || xType == uintValue) &&
+        (yType == intValue || yType == uintValue))
+        return x.as<std::int64_t>() == y.as<std::int64_t>();
+
+    if (xType != yType)
+        return false;
+
+    if (xType == nullValue)
+        return true;
+
+    if (xType == realValue)
+        return x.as<double>() == y.as<double>();
+
+    if (xType == booleanValue)
+        return x.data_.buffer[0] == y.data_.buffer[0];
+
+    if (xType == stringValue)
+        return std::string_view(x.asCString()) ==
+            std::string_view(y.asCString());
+
+    if (xType == arrayValue)
+        return *x.as<Value::ArrayStorage const*>() ==
+            *y.as<Value::ArrayStorage const*>();
+
+    if (xType == objectValue)
+        return *x.as<Value::ObjectStorage const*>() ==
+            *y.as<Value::ObjectStorage const*>();
+
+    JSON_ASSERT_UNREACHABLE;
 }
 
 }  // namespace Json

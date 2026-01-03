@@ -19,7 +19,9 @@
 #include <ripple/app/main/Application.h>
 #include <ripple/app/main/DBInit.h>
 #include <ripple/app/rdb/Vacuum.h>
+#include <ripple/basics/ByteUtilities.h>
 #include <ripple/basics/Log.h>
+#include <ripple/basics/SlabAllocator.h>
 #include <ripple/basics/StringUtilities.h>
 #include <ripple/basics/contract.h>
 #include <ripple/beast/clock/basic_seconds_clock.h>
@@ -27,6 +29,7 @@
 #include <ripple/core/Config.h>
 #include <ripple/core/ConfigSections.h>
 #include <ripple/core/TimeKeeper.h>
+#include <ripple/json/json_value.h>
 #include <ripple/json/to_string.h>
 #include <ripple/net/RPCCall.h>
 #include <ripple/protocol/BuildInfo.h>
@@ -342,6 +345,59 @@ runUnitTests(
 #endif  // ENABLE_TESTS
 //------------------------------------------------------------------------------
 
+class SlabbedValueAllocator : public Json::ValueAllocator
+{
+    struct Buffer
+    {
+        alignas(8) char buffer_[32];
+    };
+
+    // In the original commit that implemented slabbed allocation of
+    // JSON objects, Nik Bougalis stated that:
+    //
+    // Real-world data indicates that only 2% of allocation requests
+    // are over 72 bytes long. The remaining 98% of allocations fall
+    // into the following 3 buckets, calculated across 9,500,000,000
+    // allocation calls:
+    //
+    // [ 1, 32]: 17% of all allocations
+    // [33, 48]: 27% of all allocations
+    // [49, 72]: 57% of all allocations
+    slab::allocator_t<
+        Buffer,
+        slab::config<262144>,
+        slab::config<262144, 16>,
+        slab::config<131072, 40>>
+        slabber_;
+
+public:
+    constexpr SlabbedValueAllocator() = default;
+
+    virtual ~SlabbedValueAllocator() = default;
+
+    char*
+    allocate(std::size_t length) override
+    {
+        assert(length > 1);
+
+        if (auto ret = reinterpret_cast<char*>(slabber_.allocate(length)))
+            return ret;
+
+        // Fall back to the default if we can't grab memory from the slab
+        // allocators.
+        return ValueAllocator::allocate(length);
+    }
+
+    void
+    release(const char* value) override
+    {
+        if (!slabber_.deallocate(
+                reinterpret_cast<std::uint8_t*>(const_cast<char*>(value))))
+            ValueAllocator::release(value);
+    }
+};
+
+//------------------------------------------------------------------------------
 int
 run(int argc, char** argv)
 {
@@ -516,6 +572,9 @@ run(int argc, char** argv)
                   << std::endl;
         return 0;
     }
+
+    // Do this early enough so that it's useful for unit tests too:
+    Json::setAllocator(new SlabbedValueAllocator());
 
 #ifndef ENABLE_TESTS
     if (vm.count("unittest") || vm.count("unittest-child"))

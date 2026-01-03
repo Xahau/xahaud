@@ -456,7 +456,7 @@ SField::compare(SField const& f1, SField const& f2)
 }
 
 SField const&
-SField::getField(std::string const& fieldName)
+SField::getField(std::string_view fieldName)
 {
     for (auto const& [_, f] : knownCodeToField)
     {

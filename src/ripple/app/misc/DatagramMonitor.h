@@ -823,8 +823,7 @@ private:
             header->warning_flags |= WARNING_NOT_SYNCED;
         }
 
-        auto const fp = ledgerMaster.getFetchPackCacheSize();
-        if (fp != 0)
+        if (auto const fp = ledgerMaster.getFetchPackCacheSize())
             header->fetch_pack_size = fp;
 
         // Pack load factor info if not reporting

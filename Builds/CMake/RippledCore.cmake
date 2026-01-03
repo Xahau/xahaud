@@ -78,7 +78,6 @@ target_sources (xrpl_core PRIVATE
   src/ripple/json/impl/Writer.cpp
   src/ripple/json/impl/json_reader.cpp
   src/ripple/json/impl/json_value.cpp
-  src/ripple/json/impl/json_valueiterator.cpp
   src/ripple/json/impl/json_writer.cpp
   src/ripple/json/impl/to_string.cpp
   #[===============================[

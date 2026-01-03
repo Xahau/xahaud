@@ -962,8 +962,8 @@ struct json_value_test : beast::unit_test::suite
             // non-numeric string
             Json::Value val(Json::stringValue);
             BEAST_EXPECT(val.isString());
-            BEAST_EXPECT(val.asCString() == nullptr);
-            BEAST_EXPECT(val.asString() == "");
+            BEAST_EXPECT(val.asString().empty());
+            BEAST_EXPECT(val.asCString() != nullptr && *val.asCString() == 0);
             try
             {
                 BEAST_EXPECT(val.asInt() == 0);
@@ -1087,7 +1087,6 @@ struct json_value_test : beast::unit_test::suite
         Json::Value val;
         BEAST_EXPECT(val.type() == Json::nullValue);
         BEAST_EXPECT(val.size() == 0);
-        BEAST_EXPECT(!val.isValidIndex(0));
         BEAST_EXPECT(!val.isMember("key"));
         {
             Json::Value const constVal = val;
@@ -1103,31 +1102,26 @@ struct json_value_test : beast::unit_test::suite
         val = -7;
         BEAST_EXPECT(val.type() == Json::intValue);
         BEAST_EXPECT(val.size() == 0);
-        BEAST_EXPECT(!val.isValidIndex(0));
         BEAST_EXPECT(!val.isMember("key"));
 
         val = 42u;
         BEAST_EXPECT(val.type() == Json::uintValue);
         BEAST_EXPECT(val.size() == 0);
-        BEAST_EXPECT(!val.isValidIndex(0));
         BEAST_EXPECT(!val.isMember("key"));
 
         val = 3.14159;
         BEAST_EXPECT(val.type() == Json::realValue);
         BEAST_EXPECT(val.size() == 0);
-        BEAST_EXPECT(!val.isValidIndex(0));
         BEAST_EXPECT(!val.isMember("key"));
 
         val = true;
         BEAST_EXPECT(val.type() == Json::booleanValue);
         BEAST_EXPECT(val.size() == 0);
-        BEAST_EXPECT(!val.isValidIndex(0));
         BEAST_EXPECT(!val.isMember("key"));
 
         val = "string";
         BEAST_EXPECT(val.type() == Json::stringValue);
         BEAST_EXPECT(val.size() == 0);
-        BEAST_EXPECT(!val.isValidIndex(0));
         BEAST_EXPECT(!val.isMember("key"));
 
         val = Json::Value(Json::objectValue);
@@ -1137,8 +1131,6 @@ struct json_value_test : beast::unit_test::suite
         val[staticThree] = 3;
         val["two"] = 2;
         BEAST_EXPECT(val.size() == 2);
-        BEAST_EXPECT(val.isValidIndex(1));
-        BEAST_EXPECT(!val.isValidIndex(2));
         BEAST_EXPECT(val[staticThree] == 3);
         BEAST_EXPECT(val.isMember("two"));
         BEAST_EXPECT(val.isMember(staticThree));
@@ -1161,8 +1153,6 @@ struct json_value_test : beast::unit_test::suite
         val[0u] = "zero";
         val[1u] = "one";
         BEAST_EXPECT(val.size() == 2);
-        BEAST_EXPECT(val.isValidIndex(1));
-        BEAST_EXPECT(!val.isValidIndex(2));
         BEAST_EXPECT(val[20u].type() == Json::nullValue);
         BEAST_EXPECT(!val.isMember("key"));
         {
@@ -1217,11 +1207,11 @@ struct json_value_test : beast::unit_test::suite
             arr[2u] = "two";
             arr[3u] = "three";
 
-            Json::ValueIterator const b{arr.begin()};
-            Json::ValueIterator const e{arr.end()};
+            auto const b = arr.begin();
+            auto const e = arr.end();
 
-            Json::ValueIterator i1 = b;
-            Json::ValueIterator i2 = e;
+            auto i1 = b;
+            auto i2 = e;
             --i2;
 
             // key(), index(), and memberName() on an object iterator.
@@ -1229,8 +1219,8 @@ struct json_value_test : beast::unit_test::suite
             BEAST_EXPECT(!(b == e));
             BEAST_EXPECT(i1.key() == 0);
             BEAST_EXPECT(i2.key() == 3);
-            BEAST_EXPECT(i1.index() == 0);
-            BEAST_EXPECT(i2.index() == 3);
+            BEAST_EXPECT(std::distance(b, i1) == 0);
+            BEAST_EXPECT(std::distance(b, i2) == 3);
             BEAST_EXPECT(std::strcmp(i1.memberName(), "") == 0);
             BEAST_EXPECT(std::strcmp(i2.memberName(), "") == 0);
 
@@ -1257,8 +1247,8 @@ struct json_value_test : beast::unit_test::suite
                 return obj;
             }()};
 
-            Json::ValueConstIterator i1{obj.begin()};
-            Json::ValueConstIterator i2{obj.end()};
+            auto i1 = obj.cbegin();
+            auto i2 = obj.cend();
             --i2;
 
             // key(), index(), and memberName() on an object iterator.
@@ -1266,8 +1256,6 @@ struct json_value_test : beast::unit_test::suite
             BEAST_EXPECT(!(i1 == i2));
             BEAST_EXPECT(i1.key() == "0");
             BEAST_EXPECT(i2.key() == "3");
-            BEAST_EXPECT(i1.index() == -1);
-            BEAST_EXPECT(i2.index() == -1);
             BEAST_EXPECT(std::strcmp(i1.memberName(), "0") == 0);
             BEAST_EXPECT(std::strcmp(i2.memberName(), "3") == 0);
 

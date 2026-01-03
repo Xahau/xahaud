@@ -127,7 +127,7 @@ fillJsonTx(
     }
     else
     {
-        copyFrom(txJson, txn->getJson(JsonOptions::none));
+        txJson = txn->getJson(JsonOptions::none);
         if (stMeta)
         {
             txJson[jss::metaData] = stMeta->getJson(JsonOptions::none);
