@@ -262,11 +262,9 @@ Change::applyShuffle()
         // update the ledger sequence of the object
         sle->setFieldU32(sfLedgerSequence, seq);
     }
-    else
-    {
-        // increment entropy count
-        sle->setFieldU16(sfEntropyCount, sle->getFieldU16(sfEntropyCount) + 1);
-    }
+    
+    // increment entropy count
+    sle->setFieldU16(sfEntropyCount, sle->getFieldU16(sfEntropyCount) + 1);
         
     // contribute the new entropy to the random data field
     sle->setFieldH256(sfRandomData,
