@@ -406,6 +406,9 @@ DECLARE_HOOK_FUNCTION(
     uint32_t slot_no_tx,
     uint32_t slot_no_meta);
 
+DECLARE_HOOK_FUNCTION(int64_t, dice, uint32_t sides);
+DECLARE_HOOK_FUNCTION(int64_t, random, uint32_t write_ptr, uint32_t write_len);
+
 /*
     DECLARE_HOOK_FUNCTION(int64_t,  str_find,           uint32_t hread_ptr,
    uint32_t hread_len, uint32_t nread_ptr, uint32_t nread_len, uint32_t mode,
@@ -513,6 +516,8 @@ struct HookResult
         false;  // hook_again allows strong pre-apply to nominate
                 // additional weak post-apply execution
     std::shared_ptr<STObject const> provisionalMeta;
+    uint64_t rngCallCounter{
+        0};  // used to ensure conseq. rng calls don't return same data
 };
 
 class HookExecutor;
@@ -876,6 +881,9 @@ public:
 
         ADD_HOOK_FUNCTION(meta_slot, ctx);
         ADD_HOOK_FUNCTION(xpop_slot, ctx);
+
+        ADD_HOOK_FUNCTION(dice, ctx);
+        ADD_HOOK_FUNCTION(random, ctx);
 
         /*
         ADD_HOOK_FUNCTION(str_find, ctx);
