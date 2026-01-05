@@ -14,18 +14,29 @@ concurrency:
 
 jobs:
   matrix-setup:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, generic, 20.04]
     container: python:3-slim
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - name: escape double quotes
+        id: escape
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          ESCAPED_PR_TITLE="${PR_TITLE//\"/\\\"}"
+          echo "title=${ESCAPED_PR_TITLE}" >> "$GITHUB_OUTPUT"
       - name: Generate build matrix
         id: set-matrix
         shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           import json
           import os
-          
+          import urllib.request
+
           # Full matrix with all 6 compiler configurations
           # Each configuration includes all parameters needed by the build job
           full_matrix = [
@@ -99,13 +110,31 @@ jobs:
           ref = "${{ github.ref }}"
           base_ref = "${{ github.base_ref }}"  # For PRs, this is the target branch
           event_name = "${{ github.event_name }}"
-          commit_message = """${{ github.event.head_commit.message }}"""
-          pr_title = """${{ github.event.pull_request.title }}"""
-          
+          pr_title = """${{ steps.escape.outputs.title }}"""
+          pr_head_sha = "${{ github.event.pull_request.head.sha }}"
+
+          # Get commit message - for PRs, fetch via API since head_commit.message is empty
+          if event_name == "pull_request" and pr_head_sha:
+              try:
+                  url = f"https://api.github.com/repos/${{ github.repository }}/commits/{pr_head_sha}"
+                  req = urllib.request.Request(url, headers={
+                      "Accept": "application/vnd.github.v3+json",
+                      "Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}"
+                  })
+                  with urllib.request.urlopen(req) as response:
+                      data = json.load(response)
+                      commit_message = data["commit"]["message"]
+              except Exception as e:
+                  print(f"Failed to fetch commit message: {e}")
+                  commit_message = ""
+          else:
+              commit_message = """${{ github.event.head_commit.message }}"""
+
           # Debug logging
           print(f"Event: {event_name}")
           print(f"Ref: {ref}")
           print(f"Base ref: {base_ref}")
+          print(f"PR head SHA: {pr_head_sha}")
           print(f"PR title: {pr_title}")
           print(f"Commit message: {commit_message}")
           
@@ -147,7 +176,15 @@ jobs:
 
   build:
     needs: matrix-setup
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, generic, 20.04]
+    container:
+      image: ubuntu:24.04
+      volumes:
+        - /home/runner/.conan-cache:/.conan-cache
+        - /home/runner/.ccache-cache:/github/home/.ccache-cache
+    defaults:
+      run:
+        shell: bash
     outputs:
       artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
     strategy:
@@ -156,7 +193,7 @@ jobs:
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
-      CACHE_VERSION: 2
+      CACHE_VERSION: 3
       MAIN_BRANCH_NAME: dev
     steps:
       - name: Checkout
@@ -164,13 +201,20 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
+          apt-get update
+          apt-get install -y software-properties-common
+          add-apt-repository ppa:ubuntu-toolchain-r/test -y
+          apt-get update
+          apt-get install -y python3 python-is-python3 pipx
+          pipx ensurepath
+          apt-get install -y cmake ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
+          apt-get install -y perl # for openssl build
+          apt-get install -y libsqlite3-dev # for xahaud build
 
           # Install the specific GCC version needed for Clang
           if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
             echo "=== Installing GCC ${{ matrix.clang_gcc_toolchain }} for Clang ==="
-            sudo apt-get install -y gcc-${{ matrix.clang_gcc_toolchain }} g++-${{ matrix.clang_gcc_toolchain }} libstdc++-${{ matrix.clang_gcc_toolchain }}-dev
+            apt-get install -y gcc-${{ matrix.clang_gcc_toolchain }} g++-${{ matrix.clang_gcc_toolchain }} libstdc++-${{ matrix.clang_gcc_toolchain }}-dev
 
             echo "=== GCC versions available after installation ==="
             ls -la /usr/lib/gcc/x86_64-linux-gnu/ | grep -E "^d"
@@ -201,7 +245,7 @@ jobs:
                   echo "Hiding GCC $version -> renaming to $counter (will be seen as GCC version $counter)"
                   # Safety check: ensure target doesn't already exist
                   if [ ! -e "/usr/lib/gcc/x86_64-linux-gnu/$counter" ]; then
-                    sudo mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
+                    mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
                   else
                     echo "ERROR: Cannot rename GCC $version - /usr/lib/gcc/x86_64-linux-gnu/$counter already exists"
                     exit 1
@@ -225,53 +269,12 @@ jobs:
 
           # Install libc++ dev packages if using libc++ (not needed for libstdc++)
           if [ "${{ matrix.stdlib }}" = "libcxx" ]; then
-            sudo apt-get install -y libc++-${{ matrix.compiler_version }}-dev libc++abi-${{ matrix.compiler_version }}-dev
+            apt-get install -y libc++-${{ matrix.compiler_version }}-dev libc++abi-${{ matrix.compiler_version }}-dev
           fi
 
           # Install Conan 2
-          pip install --upgrade "conan>=2.0,<3"
-
-      - name: Configure ccache
-        uses: ./.github/actions/xahau-configure-ccache
-        with:
-          max_size: 2G
-          hash_dir: true
-          compiler_check: content
-          is_main_branch: ${{ github.ref_name == env.MAIN_BRANCH_NAME }}
-
-      - name: Configure Conan
-        run: |
-          # Create the default profile directory if it doesn't exist
-          mkdir -p ~/.conan2/profiles
-
-          # Determine the correct libcxx based on stdlib parameter
-          if [ "${{ matrix.stdlib }}" = "libcxx" ]; then
-            LIBCXX="libc++"
-          else
-            LIBCXX="libstdc++11"
-          fi
-
-          # Create profile with our specific settings
-          cat > ~/.conan2/profiles/default <<EOF
-          [settings]
-          arch=x86_64
-          build_type=${{ matrix.configuration }}
-          compiler=${{ matrix.compiler }}
-          compiler.cppstd=20
-          compiler.libcxx=${LIBCXX}
-          compiler.version=${{ matrix.compiler_version }}
-          os=Linux
-
-          [buildenv]
-          CC=/usr/bin/${{ matrix.cc }}
-          CXX=/usr/bin/${{ matrix.cxx }}
-
-          [conf]
-          tools.build:compiler_executables={"c": "/usr/bin/${{ matrix.cc }}", "cpp": "/usr/bin/${{ matrix.cxx }}"}
-          EOF
-
-          # Display profile for verification
-          conan profile show
+          pipx install "conan>=2.0,<3"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Check environment
         run: |
@@ -285,6 +288,14 @@ jobs:
           echo "---- Full Environment ----"
           env
 
+      - name: Get commit message
+        id: get-commit-message
+        uses: ./.github/actions/xahau-ga-get-commit-message
+        with:
+          event-name: ${{ github.event_name }}
+          head-commit-message: ${{ github.event.head_commit.message }}
+          pr-head-sha: ${{ github.event.pull_request.head.sha }}
+
       - name: Install dependencies
         uses: ./.github/actions/xahau-ga-dependencies
         with:
@@ -293,7 +304,12 @@ jobs:
           compiler-id: ${{ matrix.compiler_id }}
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          compiler: ${{ matrix.compiler }}
+          compiler_version: ${{ matrix.compiler_version }}
+          cc: ${{ matrix.cc }}
+          cxx: ${{ matrix.cxx }}
           stdlib: ${{ matrix.stdlib }}
+          gha_cache_enabled: 'false' # Disable caching for self hosted runner
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build
@@ -308,6 +324,7 @@ jobs:
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
           stdlib: ${{ matrix.stdlib }}
           clang_gcc_toolchain: ${{ matrix.clang_gcc_toolchain || '' }}
+          ccache_max_size: '100G'
 
       - name: Set artifact name
         id: set-artifact-name

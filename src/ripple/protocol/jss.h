@@ -256,6 +256,7 @@ JSS(coins);
 JSS(children);
 JSS(ctid);  // in/out: Tx RPC
 JSS(cres);
+JSS(cron);
 JSS(currency_a);         // out: BookChanges
 JSS(currency_b);         // out: BookChanges
 JSS(currentShard);       // out: NodeToShardStatus

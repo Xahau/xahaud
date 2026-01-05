@@ -20,71 +20,39 @@ jobs:
           - Ninja
         configuration:
           - Debug
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS]
     env:
       build_dir: .build
       # Bump this number to invalidate all caches globally.
-      CACHE_VERSION: 1
+      CACHE_VERSION: 3
       MAIN_BRANCH_NAME: dev
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Conan
+      - name: Add Homebrew to PATH
         run: |
-          brew install conan
-          # Verify Conan 2 is installed
-          conan --version
+          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+          echo "/opt/homebrew/sbin" >> "$GITHUB_PATH"
 
       - name: Install Coreutils
         run: |
           brew install coreutils
           echo "Num proc: $(nproc)"
 
-      - name: Install Ninja
-        if: matrix.generator == 'Ninja'
-        run: brew install ninja
-
-      - name: Install Python
-        run: |
-          if which python3 > /dev/null 2>&1; then
-              echo "Python 3 executable exists"
-              python3 --version
-          else
-              brew install python@3.12
-          fi
-          # Create 'python' symlink if it doesn't exist (for tools expecting 'python')
-          if ! which python > /dev/null 2>&1; then
-              sudo ln -sf $(which python3) /usr/local/bin/python
-          fi
-
-      - name: Install CMake
-        run: |
-          # Install CMake 3.x to match local dev environments
-          # With Conan 2 and the policy args passed to CMake, newer versions
-          # can have issues with dependencies that require cmake_minimum_required < 3.5
-          brew uninstall cmake --ignore-dependencies 2>/dev/null || true
-
-          # Download and install CMake 3.31.7 directly
-          curl -L https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-macos-universal.tar.gz -o cmake.tar.gz
-          tar -xzf cmake.tar.gz
-
-          # Move the entire CMake.app to /Applications
-          sudo mv cmake-3.31.7-macos-universal/CMake.app /Applications/
-
-          echo "/Applications/CMake.app/Contents/bin" >> $GITHUB_PATH
-          /Applications/CMake.app/Contents/bin/cmake --version
-
-      - name: Install ccache
-        run: brew install ccache
-
-      - name: Configure ccache
-        uses: ./.github/actions/xahau-configure-ccache
+      # To isolate environments for each Runner, instead of installing globally with brew, 
+      # use mise to isolate environments for each Runner directory.
+      - name: Setup toolchain (mise)
+        uses: jdx/mise-action@v2
         with:
-          max_size: 2G
-          hash_dir: true
-          compiler_check: content
-          is_main_branch: ${{ github.ref_name == env.MAIN_BRANCH_NAME }}
+          install: true
+
+      - name: Install tools via mise
+        run: |
+          mise install
+          mise use cmake@3.23.1 python@3.12 pipx@latest conan@2 ninja@latest ccache@latest
+          mise reshim
+          echo "$HOME/.local/share/mise/shims" >> "$GITHUB_PATH"
 
       - name: Check environment
         run: |
@@ -98,32 +66,20 @@ jobs:
           echo "---- Full Environment ----"
           env
 
-      - name: Configure Conan
+      - name: Get commit message
+        id: get-commit-message
+        uses: ./.github/actions/xahau-ga-get-commit-message
+        with:
+          event-name: ${{ github.event_name }}
+          head-commit-message: ${{ github.event.head_commit.message }}
+          pr-head-sha: ${{ github.event.pull_request.head.sha }}
+
+      - name: Detect compiler version
+        id: detect-compiler
         run: |
-          # Create the default profile directory if it doesn't exist
-          mkdir -p ~/.conan2/profiles
-
-          # Detect compiler version
           COMPILER_VERSION=$(clang --version | grep -oE 'version [0-9]+' | grep -oE '[0-9]+')
-
-          # Create profile with our specific settings
-          cat > ~/.conan2/profiles/default <<EOF
-          [settings]
-          arch=armv8
-          build_type=Release
-          compiler=apple-clang
-          compiler.cppstd=20
-          compiler.libcxx=libc++
-          compiler.version=${COMPILER_VERSION}
-          os=Macos
-
-          [conf]
-          # Workaround for gRPC with newer Apple Clang
-          tools.build:cxxflags=["-Wno-missing-template-arg-list-after-template-kw"]
-          EOF
-
-          # Display profile for verification
-          conan profile show
+          echo "compiler_version=${COMPILER_VERSION}" >> $GITHUB_OUTPUT
+          echo "Detected Apple Clang version: ${COMPILER_VERSION}"
 
       - name: Install dependencies
         uses: ./.github/actions/xahau-ga-dependencies
@@ -133,6 +89,11 @@ jobs:
           compiler-id: clang
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          os: Macos
+          arch: armv8
+          compiler: apple-clang
+          compiler_version: ${{ steps.detect-compiler.outputs.compiler_version }}
+          stdlib: libcxx
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build
@@ -143,6 +104,8 @@ jobs:
           compiler-id: clang
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          stdlib: libcxx
+          ccache_max_size: '100G'
 
       - name: Test
         run: |

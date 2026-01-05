@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TX_SETCRON_H_INCLUDED
-#define RIPPLE_TX_SETCRON_H_INCLUDED
+#ifndef RIPPLE_TX_CRONSET_H_INCLUDED
+#define RIPPLE_TX_CRONSET_H_INCLUDED
 
 #include <ripple/app/tx/impl/Transactor.h>
 #include <ripple/basics/Log.h>
@@ -26,12 +26,12 @@
 
 namespace ripple {
 
-class SetCron : public Transactor
+class CronSet : public Transactor
 {
 public:
     static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
 
-    explicit SetCron(ApplyContext& ctx) : Transactor(ctx)
+    explicit CronSet(ApplyContext& ctx) : Transactor(ctx)
     {
     }
 

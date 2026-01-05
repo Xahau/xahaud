@@ -482,6 +482,8 @@ REGISTER_FEATURE(IOUIssuerWeakTSH,              Supported::yes, VoteBehavior::De
 REGISTER_FEATURE(Cron,                          Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FIX    (fixInvalidTxFlags,             Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FEATURE(ExtendedHookState,             Supported::yes, VoteBehavior::DefaultNo);
+REGISTER_FIX    (fixCronStacking,               Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FIX    (fixHookAPI20251128,            Supported::yes, VoteBehavior::DefaultYes);
 
 // The following amendments are obsolete, but must remain supported
 // because they could potentially get enabled.
