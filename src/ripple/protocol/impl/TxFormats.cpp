@@ -324,6 +324,7 @@ TxFormats::TxFormats()
         {
             {sfHooks, soeREQUIRED},
             {sfTicketSequence, soeOPTIONAL},
+            {sfDestination, soeOPTIONAL},
         },
         commonFields);
 

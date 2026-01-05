@@ -897,7 +897,9 @@ ValidNewAccountRoot::finalize(
     }
 
     if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT ||
-         tt == ttREMIT) &&
+         tt == ttREMIT ||
+         (tt == ttHOOK_SET &&
+          view.rules().enabled(featureHookAdministrator))) &&
         isTesSuccess(result))
     {
         std::uint32_t const startingSeq{

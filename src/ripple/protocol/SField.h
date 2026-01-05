@@ -563,6 +563,7 @@ extern SF_ACCOUNT const sfEmitCallback;
 extern SF_ACCOUNT const sfHookAccount;
 extern SF_ACCOUNT const sfNFTokenMinter;
 extern SF_ACCOUNT const sfInform;
+extern SF_ACCOUNT const sfHookAdministrator;
 
 // path set
 extern SField const sfPaths;

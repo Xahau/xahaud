@@ -315,6 +315,7 @@ CONSTRUCT_TYPED_SFIELD(sfEmitCallback,          "EmitCallback",         ACCOUNT,
 
 // account (uncommon)
 CONSTRUCT_TYPED_SFIELD(sfHookAccount,           "HookAccount",          ACCOUNT,   16);
+CONSTRUCT_TYPED_SFIELD(sfHookAdministrator,     "HookAdministrator",    ACCOUNT,   98);
 CONSTRUCT_TYPED_SFIELD(sfInform,                "Inform",               ACCOUNT,   99);
 
 // vector of 256-bit

@@ -70,6 +70,7 @@ LedgerFormats::LedgerFormats()
             {sfTouchCount,           soeOPTIONAL},
             {sfHookStateScale,       soeOPTIONAL},
             {sfCron,                 soeOPTIONAL},
+            {sfHookAdministrator,    soeOPTIONAL},
         },
         commonFields);
 

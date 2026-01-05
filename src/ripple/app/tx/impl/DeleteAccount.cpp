@@ -267,6 +267,9 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
         if (sleAccount->isFieldPresent(sfHookNamespaces) ||
             sleAccount->isFieldPresent(sfHooks))
             return tecHAS_OBLIGATIONS;
+
+        if (sleAccount->isFieldPresent(sfHookAdministrator))
+            return tecHAS_OBLIGATIONS;
     }
 
     // When fixNFTokenRemint is enabled, we don't allow an account to be

@@ -184,6 +184,11 @@ constexpr std::uint32_t const tfNFTokenCancelOfferMask     = ~(tfUniversal);
 // NFTokenAcceptOffer flags:
 constexpr std::uint32_t const tfNFTokenAcceptOfferMask     = ~tfUniversal;
 
+enum SetHookFlags : uint32_t {
+    tfNewAccount = 0x00000001,
+};
+constexpr std::uint32_t const tfSetHookMask = ~(tfUniversal | tfNewAccount);
+
 // URIToken mask
 constexpr std::uint32_t const tfURITokenMintMask = ~(tfUniversal | tfBurnable);
 constexpr std::uint32_t const tfURITokenNonMintMask = ~tfUniversal;
