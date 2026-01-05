@@ -192,6 +192,7 @@
 #define sfNFTokenMinter ((8U << 16U) + 9U)
 #define sfEmitCallback ((8U << 16U) + 10U)
 #define sfHookAccount ((8U << 16U) + 16U)
+#define sfHookAdministrator ((8U << 16U) + 98U)
 #define sfInform ((8U << 16U) + 99U)
 #define sfIndexes ((19U << 16U) + 1U)
 #define sfHashes ((19U << 16U) + 2U)
