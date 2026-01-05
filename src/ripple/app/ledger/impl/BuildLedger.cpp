@@ -104,49 +104,49 @@ applyTransactions(
     bool certainRetry = true;
     std::size_t count = 0;
 
-    // apply the ttSHUFFLE txns first in the ledger to 
+    // apply the ttSHUFFLE txns first in the ledger to
     // ensure no one can predict the outcome
     // then apply ttENTROPY transactions
     if (view.rules().enabled(featureRNG))
-    for (auto tt : {ttSHUFFLE, ttENTROPY})
-    {
-        for (auto it = txns.begin(); it != txns.end();)
+        for (auto tt : {ttSHUFFLE, ttENTROPY})
         {
-            if (tt != it->second->getFieldU16(sfTransactionType))
+            for (auto it = txns.begin(); it != txns.end();)
             {
-                ++it;
-                continue;
-            }
-
-            auto const txid = it->first.getTXID();
-            try
-            {
-                switch (applyTransaction(
-                    app, view, *it->second, certainRetry, tapNONE, j))
+                if (tt != it->second->getFieldU16(sfTransactionType))
                 {
-                    case ApplyResult::Success:
-                        it = txns.erase(it);
-                        ++count;
-                        break;
+                    ++it;
+                    continue;
+                }
 
-                    case ApplyResult::Fail:
-                        failed.insert(txid);
-                        it = txns.erase(it);
-                        break;
+                auto const txid = it->first.getTXID();
+                try
+                {
+                    switch (applyTransaction(
+                        app, view, *it->second, certainRetry, tapNONE, j))
+                    {
+                        case ApplyResult::Success:
+                            it = txns.erase(it);
+                            ++count;
+                            break;
 
-                    case ApplyResult::Retry:
-                        ++it;
+                        case ApplyResult::Fail:
+                            failed.insert(txid);
+                            it = txns.erase(it);
+                            break;
+
+                        case ApplyResult::Retry:
+                            ++it;
+                    }
+                }
+                catch (std::exception const& ex)
+                {
+                    JLOG(j.warn())
+                        << "Transaction " << txid << " throws: " << ex.what();
+                    failed.insert(txid);
+                    it = txns.erase(it);
                 }
             }
-            catch (std::exception const& ex)
-            {
-                JLOG(j.warn())
-                    << "Transaction " << txid << " throws: " << ex.what();
-                failed.insert(txid);
-                it = txns.erase(it);
-            }
         }
-    }
 
     // Attempt to apply all of the retriable transactions
     for (int pass = 0; pass < LEDGER_TOTAL_PASSES; ++pass)

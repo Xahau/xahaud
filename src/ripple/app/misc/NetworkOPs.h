@@ -112,7 +112,6 @@ public:
         bool bLocal,
         FailHard failType) = 0;
 
-
     // directly inject transaction, skipping checks
     virtual void
     doTransactionSync(

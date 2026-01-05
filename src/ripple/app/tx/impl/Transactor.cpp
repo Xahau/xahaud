@@ -447,16 +447,14 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     // Only check fee is sufficient when the ledger is open.
     if (ctx.view.open())
     {
-
-        auto feeDue =
-            minimumFee(ctx.app, baseFee, ctx.view.fees(), ctx.flags);
+        auto feeDue = minimumFee(ctx.app, baseFee, ctx.view.fees(), ctx.flags);
 
         if (ctx.view.rules().enabled(featureRNG))
-        { 
+        {
             auto const pkSignerField = ctx.tx.getSigningPubKey();
             if (publicKeyType(makeSlice(pkSignerField)))
-            {       
-                PublicKey pkSigner {makeSlice(pkSignerField)};
+            {
+                PublicKey pkSigner{makeSlice(pkSignerField)};
                 if (inUNLReport(ctx.view, ctx.app, pkSigner, ctx.j))
                 {
                     // UVTxns don't have to pay a fee
@@ -564,13 +562,10 @@ Transactor::checkSeqProxy(
             return tesSUCCESS;
         }
 
-        if (isUVTx(tx) &&
-            t_seqProx.isSeq() &&
-            tx[sfSequence] == 0)
+        if (isUVTx(tx) && t_seqProx.isSeq() && tx[sfSequence] == 0)
         {
-            JLOG(j.trace())
-                << "applyTransaction: allowing UVTx with seq=0 "
-                << toBase58(id);
+            JLOG(j.trace()) << "applyTransaction: allowing UVTx with seq=0 "
+                            << toBase58(id);
             return tesSUCCESS;
         }
 
@@ -822,7 +817,7 @@ Transactor::apply()
         view().rules().enabled(featureImport) &&
             ctx_.tx.getTxnType() == ttIMPORT &&
             !ctx_.tx.isFieldPresent(sfIssuer) ||
-            isUVTx(ctx_.tx));
+        isUVTx(ctx_.tx));
 
     if (sle)
     {
@@ -892,7 +887,7 @@ Transactor::checkSingleSign(PreclaimContext const& ctx)
         return tefBAD_AUTH;  // FIXME: should be better error!
     }
 
-    PublicKey pkSigner {makeSlice(pkSignerField)};
+    PublicKey pkSigner{makeSlice(pkSignerField)};
 
     // Look up the account.
     auto const idSigner = calcAccountID(pkSigner);
@@ -901,8 +896,7 @@ Transactor::checkSingleSign(PreclaimContext const& ctx)
 
     // UVTxns of the approved type don't need an underlying account
     // and can be signed with the manifest ephemeral key
-    if (isUVTx(ctx.tx) &&
-        inUNLReport(ctx.view, ctx.app, pkSigner, ctx.j))
+    if (isUVTx(ctx.tx) && inUNLReport(ctx.view, ctx.app, pkSigner, ctx.j))
         return tesSUCCESS;
 
     if (!sleAccount)

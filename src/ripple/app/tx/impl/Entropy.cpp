@@ -22,8 +22,8 @@
 #include <ripple/ledger/View.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
-#include <ripple/protocol/st.h>
 #include <ripple/protocol/TxFlags.h>
+#include <ripple/protocol/st.h>
 
 namespace ripple {
 
@@ -51,11 +51,10 @@ Entropy::preclaim(PreclaimContext const& ctx)
     if (!ctx.view.rules().enabled(featureRNG))
         return temDISABLED;
 
-    // account must be a valid UV 
+    // account must be a valid UV
     if (!inUNLReport(ctx.view, ctx.tx.getAccountID(sfAccount), ctx.j))
     {
-        JLOG(ctx.j.warn())
-            << "Entropy: Txn Account isn't in the UNLReport.";
+        JLOG(ctx.j.warn()) << "Entropy: Txn Account isn't in the UNLReport.";
         return tefFAILURE;
     }
 
@@ -65,7 +64,6 @@ Entropy::preclaim(PreclaimContext const& ctx)
 TER
 Entropy::doApply()
 {
-
     auto const seq = view().info().seq;
 
     auto sle = view().peek(keylet::random());
@@ -104,8 +102,8 @@ Entropy::doApply()
 
     for (auto& entry : digestEntries)
     {
-        // we'll automatically clean up really old entries by just omitting them from
-        // the map here
+        // we'll automatically clean up really old entries by just omitting them
+        // from the map here
         if (entry.getFieldU32(sfLedgerSequence) < seq - 5)
             continue;
 
@@ -121,22 +119,30 @@ Entropy::doApply()
         {
             if (entry.getFieldU32(sfLedgerSequence) != seq - 1)
             {
-                // this is a skip-ahead or missed last txn somehow, so ignore, but no warning.
+                // this is a skip-ahead or missed last txn somehow, so ignore,
+                // but no warning.
             }
             else
             {
                 // this is a clear violation so warn (and ignore the entropy)
-                JLOG(j_.warn()) << "!!! Validator " << validator << " supplied entropy that "
-                    << "does not match precommitment value !!!";
+                JLOG(j_.warn()) << "!!! Validator " << validator
+                                << " supplied entropy that "
+                                << "does not match precommitment value !!!";
             }
         }
         else
         {
             // contribute the new entropy to the random data field
-            sle->setFieldH256(sfRandomData, sha512Half(validator, sle->getFieldH256(sfRandomData), currentEntropy));
+            sle->setFieldH256(
+                sfRandomData,
+                sha512Half(
+                    validator,
+                    sle->getFieldH256(sfRandomData),
+                    currentEntropy));
 
             // increment entropy count
-            sle->setFieldU16(sfEntropyCount, sle->getFieldU16(sfEntropyCount) + 1);
+            sle->setFieldU16(
+                sfEntropyCount, sle->getFieldU16(sfEntropyCount) + 1);
         }
 
         // update the digest entry
@@ -170,16 +176,15 @@ Entropy::doApply()
     return tesSUCCESS;
 }
 
-// if this validator is on the UNLReport then return a signed ttENTROPY transaction
-// to be added to the txq.
+// if this validator is on the UNLReport then return a signed ttENTROPY
+// transaction to be added to the txq.
 std::shared_ptr<STTx const>
 makeEntropyTxn(OpenView& view, Application& app, beast::Journal const& j_)
 {
     if (!view.rules().enabled(featureRNG))
         return {};
 
-    JLOG(j_.debug())
-        << "ENTROPY processing: started";
+    JLOG(j_.debug()) << "ENTROPY processing: started";
 
     auto const seq = view.info().seq;
 
@@ -217,7 +222,6 @@ makeEntropyTxn(OpenView& view, Application& app, beast::Journal const& j_)
             word = rd();
         return out;
     };
-
 
     static std::optional<uint256> prevRnd;
 

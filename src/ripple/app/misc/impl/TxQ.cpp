@@ -25,12 +25,12 @@
 #include <ripple/app/tx/apply.h>
 #include <ripple/basics/mulDiv.h>
 #include <ripple/protocol/Feature.h>
+#include <ripple/protocol/digest.h>
 #include <ripple/protocol/jss.h>
 #include <ripple/protocol/st.h>
 #include <algorithm>
 #include <limits>
 #include <numeric>
-#include <ripple/protocol/digest.h>
 
 namespace ripple {
 

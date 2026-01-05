@@ -20,6 +20,7 @@
 #include <ripple/app/hook/Guard.h>
 #include <ripple/app/hook/applyHook.h>
 #include <ripple/app/ledger/Ledger.h>
+#include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/AmendmentTable.h>
 #include <ripple/app/misc/NetworkOPs.h>
@@ -32,7 +33,6 @@
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/TxFlags.h>
-#include <ripple/app/ledger/LedgerMaster.h>
 #include <string_view>
 
 namespace ripple {
@@ -228,18 +228,18 @@ Change::doApply()
 TER
 Change::applyShuffle()
 {
-
     auto const seq = view().info().seq;
     auto const txSeq = ctx_.tx.getFieldU32(sfLedgerSequence);
 
     if (seq != txSeq)
     {
-        JLOG(j_.warn()) << "Change: ttSHUFFLE, wrong ledger seq. lgr=" << seq << " tx=" << txSeq;
+        JLOG(j_.warn()) << "Change: ttSHUFFLE, wrong ledger seq. lgr=" << seq
+                        << " tx=" << txSeq;
         return tefFAILURE;
     }
 
     auto sle = view().peek(keylet::random());
-    
+
     bool const created = !sle;
 
     if (created)
@@ -258,23 +258,23 @@ Change::applyShuffle()
 
         // swap the random data out ready for this round of entropy collection
         sle->setFieldH256(sfLastRandomData, sle->getFieldH256(sfRandomData));
-    
+
         // update the ledger sequence of the object
         sle->setFieldU32(sfLedgerSequence, seq);
     }
-    
+
     // increment entropy count
     sle->setFieldU16(sfEntropyCount, sle->getFieldU16(sfEntropyCount) + 1);
-        
-    // contribute the new entropy to the random data field
-    sle->setFieldH256(sfRandomData,
-            sha512Half(
-                seq,
-                sle->getFieldU16(sfEntropyCount),
-                sle->getFieldH256(sfRandomData),
-                ctx_.tx.getFieldH256(sfRandomData)));
 
-    
+    // contribute the new entropy to the random data field
+    sle->setFieldH256(
+        sfRandomData,
+        sha512Half(
+            seq,
+            sle->getFieldU16(sfEntropyCount),
+            sle->getFieldH256(sfRandomData),
+            ctx_.tx.getFieldH256(sfRandomData)));
+
     if (!created)
         view().update(sle);
     else
@@ -1277,7 +1277,7 @@ injectShuffleTxn(Application& app, Slice const& sig)
     {
         uint256 rnd = sha512Half(std::string("shuffler"), sig);
         // create txn
-        STTx shuffleTx (ttSHUFFLE, [&](auto& obj) {
+        STTx shuffleTx(ttSHUFFLE, [&](auto& obj) {
             obj.setFieldU32(sfLedgerSequence, ol->info().seq + 1);
             obj.setFieldH256(sfRandomData, rnd);
             obj.setAccountID(sfAccount, AccountID());
@@ -1288,8 +1288,7 @@ injectShuffleTxn(Application& app, Slice const& sig)
 
         JLOG(app.journal("Transaction").debug())
             << "SHUFFLE processing: Submitting pseudo: "
-            << shuffleTx.getFullText()
-            << " txid: " << txID;
+            << shuffleTx.getFullText() << " txid: " << txID;
         app.getHashRouter().setFlags(txID, SF_PRIVATE2);
         app.getHashRouter().setFlags(txID, SF_EMITTED);
 
@@ -1307,7 +1306,6 @@ injectShuffleTxn(Application& app, Slice const& sig)
                 view.rawTxInsert(txID, std::move(s), nullptr);
                 return true;
             });
-
         }
     }
 }

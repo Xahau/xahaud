@@ -394,7 +394,6 @@ LedgerFormats::LedgerFormats()
         },
         commonFields);
 
-
     // clang-format on
 }
 

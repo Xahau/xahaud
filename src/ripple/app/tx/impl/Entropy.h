@@ -20,12 +20,12 @@
 #ifndef RIPPLE_TX_ENTROPY_H_INCLUDED
 #define RIPPLE_TX_ENTROPY_H_INCLUDED
 
+#include <ripple/app/misc/Manifest.h>
 #include <ripple/app/tx/impl/Transactor.h>
 #include <ripple/basics/Log.h>
 #include <ripple/core/Config.h>
-#include <ripple/protocol/Indexes.h>
-#include <ripple/app/misc/Manifest.h>
 #include <ripple/ledger/View.h>
+#include <ripple/protocol/Indexes.h>
 
 namespace ripple {
 
@@ -37,7 +37,7 @@ public:
     explicit Entropy(ApplyContext& ctx) : Transactor(ctx)
     {
     }
-    
+
     static XRPAmount
     calculateBaseFee(ReadView const& view, STTx const& tx)
     {
@@ -57,8 +57,8 @@ public:
     doApply() override;
 };
 
-// if this validator is on the UNLReport then return a signed ttENTROPY transaction
-// to be added to the txq.
+// if this validator is on the UNLReport then return a signed ttENTROPY
+// transaction to be added to the txq.
 std::shared_ptr<STTx const>
 makeEntropyTxn(OpenView& view, Application& app, beast::Journal const& j_);
 

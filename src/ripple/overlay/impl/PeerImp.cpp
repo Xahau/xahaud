@@ -28,6 +28,7 @@
 #include <ripple/app/misc/Transaction.h>
 #include <ripple/app/misc/ValidatorList.h>
 #include <ripple/app/tx/apply.h>
+#include <ripple/app/tx/impl/Change.h>
 #include <ripple/basics/UptimeClock.h>
 #include <ripple/basics/base64.h>
 #include <ripple/basics/random.h>
@@ -40,8 +41,6 @@
 #include <ripple/overlay/impl/Tuning.h>
 #include <ripple/overlay/predicates.h>
 #include <ripple/protocol/digest.h>
-#include <ripple/app/misc/NetworkOPs.h>
-#include <ripple/app/tx/impl/Change.h>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -1957,7 +1956,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     if (!isTrusted && app_.config().RELAY_UNTRUSTED_PROPOSALS == -1)
         return;
 
-    // ttSHUFFLE is injected as part of featureRNG, based on the proposal signature
+    // ttSHUFFLE is injected as part of featureRNG, based on the proposal
+    // signature
     injectShuffleTxn(app_, makeSlice(set.signature()));
 
     uint256 const proposeHash{set.currenttxhash()};

@@ -35,6 +35,8 @@
 #include <ripple/app/misc/TxQ.h>
 #include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/misc/ValidatorList.h>
+#include <ripple/app/tx/impl/Change.h>
+#include <ripple/app/tx/impl/Entropy.h>
 #include <ripple/basics/random.h>
 #include <ripple/beast/core/LexicalCast.h>
 #include <ripple/consensus/LedgerTiming.h>
@@ -44,8 +46,6 @@
 #include <ripple/protocol/BuildInfo.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/digest.h>
-#include <ripple/app/tx/impl/Entropy.h>
-#include <ripple/app/tx/impl/Change.h>
 
 #include <algorithm>
 #include <mutex>

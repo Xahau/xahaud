@@ -324,7 +324,7 @@ STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
                        fullyCanonical);
         }
     }
-    catch (std::exception const & e)
+    catch (std::exception const& e)
     {
         // Assume it was a signature failure.
         validSig = false;
@@ -620,7 +620,8 @@ isPseudoTx(STObject const& tx)
 
     auto tt = safe_cast<TxType>(*t);
     return tt == ttAMENDMENT || tt == ttFEE || tt == ttUNL_MODIFY ||
-        tt == ttEMIT_FAILURE || tt == ttUNL_REPORT || tt == ttCRON || tt == ttSHUFFLE; 
+        tt == ttEMIT_FAILURE || tt == ttUNL_REPORT || tt == ttCRON ||
+        tt == ttSHUFFLE;
 }
 
 bool

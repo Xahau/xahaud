@@ -507,7 +507,6 @@ TxFormats::TxFormats()
             {sfRandomData, soeREQUIRED},
         },
         commonFields);
-
 }
 
 TxFormats const&

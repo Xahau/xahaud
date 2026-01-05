@@ -20,6 +20,8 @@
 #ifndef RIPPLE_LEDGER_VIEW_H_INCLUDED
 #define RIPPLE_LEDGER_VIEW_H_INCLUDED
 
+#include <ripple/app/main/Application.h>
+#include <ripple/app/misc/Manifest.h>
 #include <ripple/basics/Log.h>
 #include <ripple/beast/utility/Journal.h>
 #include <ripple/core/Config.h>
@@ -36,8 +38,6 @@
 #include <ripple/protocol/STTx.h>
 #include <ripple/protocol/Serializer.h>
 #include <ripple/protocol/TER.h>
-#include <ripple/app/main/Application.h>
-#include <ripple/app/misc/Manifest.h>
 #include <functional>
 #include <map>
 #include <memory>
@@ -1098,12 +1098,9 @@ trustTransferLockedBalance(
 }
 
 template <class V>
-bool inUNLReport(
-    V const& view,
-    AccountID const& id,
-    beast::Journal const& j)
+bool
+inUNLReport(V const& view, AccountID const& id, beast::Journal const& j)
 {
-
     auto const seq = view.info().seq;
     static uint32_t lastLgrSeq = 0;
     static std::map<AccountID, bool> cache;
@@ -1128,8 +1125,7 @@ bool inUNLReport(
     auto const unlRep = view.read(keylet::UNLReport());
     if (!unlRep || !unlRep->isFieldPresent(sfActiveValidators))
     {
-        JLOG(j.debug())
-            << "UNLReport misssing";
+        JLOG(j.debug()) << "UNLReport misssing";
 
         // ensure we keep the cache invalid when in this state
         lastLgrSeq = 0;
@@ -1146,9 +1142,9 @@ bool inUNLReport(
     return cache[id] = false;
 }
 
-
 template <class V>
-bool inUNLReport(
+bool
+inUNLReport(
     V const& view,
     Application& app,
     PublicKey const& pk,
@@ -1156,7 +1152,7 @@ bool inUNLReport(
 {
     PublicKey uvPk = app.validatorManifests().getMasterKey(pk);
 
-    return inUNLReport(view, calcAccountID(pk), j) || 
+    return inUNLReport(view, calcAccountID(pk), j) ||
         (uvPk != pk && inUNLReport(view, calcAccountID(uvPk), j));
 }
 

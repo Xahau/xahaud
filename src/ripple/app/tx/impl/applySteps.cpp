@@ -32,6 +32,7 @@
 #include <ripple/app/tx/impl/CronSet.h>
 #include <ripple/app/tx/impl/DeleteAccount.h>
 #include <ripple/app/tx/impl/DepositPreauth.h>
+#include <ripple/app/tx/impl/Entropy.h>
 #include <ripple/app/tx/impl/Escrow.h>
 #include <ripple/app/tx/impl/GenesisMint.h>
 #include <ripple/app/tx/impl/Import.h>
@@ -52,7 +53,6 @@
 #include <ripple/app/tx/impl/SetTrust.h>
 #include <ripple/app/tx/impl/URIToken.h>
 #include <ripple/app/tx/impl/XahauGenesis.h>
-#include <ripple/app/tx/impl/Entropy.h>
 
 namespace ripple {
 

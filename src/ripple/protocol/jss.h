@@ -97,51 +97,51 @@ JSS(isSigningField);      // out: RPC server_definitions
 JSS(isVLEncoded);         // out: RPC server_definitions
 JSS(Import);
 JSS(ImportVLSequence);
-JSS(Invalid);                  //
-JSS(Invoke);                   // transaction type
-JSS(InvoiceID);                // field
-JSS(LastLedgerSequence);       // in: TransactionSign; field
-JSS(LedgerHashes);             // ledger type.
-JSS(LimitAmount);              // field.
-JSS(NetworkID);                // field.
-JSS(NFTokenBurn);              // transaction type.
-JSS(NFTokenMint);              // transaction type.
-JSS(NFTokenOffer);             // ledger type.
-JSS(NFTokenAcceptOffer);       // transaction type.
-JSS(NFTokenCancelOffer);       // transaction type.
-JSS(NFTokenCreateOffer);       // transaction type.
-JSS(NFTokenPage);              // ledger type.
-JSS(Offer);                    // ledger type.
-JSS(OfferCancel);              // transaction type.
-JSS(OfferCreate);              // transaction type.
-JSS(OfferSequence);            // field.
-JSS(Paths);                    // in/out: TransactionSign
-JSS(PayChannel);               // ledger type.
-JSS(Payment);                  // transaction type.
-JSS(PaymentChannelClaim);      // transaction type.
-JSS(PaymentChannelCreate);     // transaction type.
-JSS(PaymentChannelFund);       // transaction type.
-JSS(Remit);                    // transaction type.
-JSS(RippleState);              // ledger type.
+JSS(Invalid);               //
+JSS(Invoke);                // transaction type
+JSS(InvoiceID);             // field
+JSS(LastLedgerSequence);    // in: TransactionSign; field
+JSS(LedgerHashes);          // ledger type.
+JSS(LimitAmount);           // field.
+JSS(NetworkID);             // field.
+JSS(NFTokenBurn);           // transaction type.
+JSS(NFTokenMint);           // transaction type.
+JSS(NFTokenOffer);          // ledger type.
+JSS(NFTokenAcceptOffer);    // transaction type.
+JSS(NFTokenCancelOffer);    // transaction type.
+JSS(NFTokenCreateOffer);    // transaction type.
+JSS(NFTokenPage);           // ledger type.
+JSS(Offer);                 // ledger type.
+JSS(OfferCancel);           // transaction type.
+JSS(OfferCreate);           // transaction type.
+JSS(OfferSequence);         // field.
+JSS(Paths);                 // in/out: TransactionSign
+JSS(PayChannel);            // ledger type.
+JSS(Payment);               // transaction type.
+JSS(PaymentChannelClaim);   // transaction type.
+JSS(PaymentChannelCreate);  // transaction type.
+JSS(PaymentChannelFund);    // transaction type.
+JSS(Remit);                 // transaction type.
+JSS(RippleState);           // ledger type.
 JSS(Rng);
 JSS(Random);
-JSS(SLE_hit_rate);             // out: GetCounts.
-JSS(SetFee);                   // transaction type.
-JSS(SetRemarks);               // transaction type
-JSS(UNLModify);                // transaction type.
-JSS(UNLReport);                // transaction type.
-JSS(SettleDelay);              // in: TransactionSign
-JSS(SendMax);                  // in: TransactionSign
-JSS(Sequence);                 // in/out: TransactionSign; field.
-JSS(SetFlag);                  // field.
-JSS(SetRegularKey);            // transaction type.
-JSS(SetHook);                  // transaction type.
-JSS(Hook);                     // ledger type.
-JSS(HookDefinition);           // ledger type.
-JSS(HookState);                // ledger type.
-JSS(HookStateData);            // field.
-JSS(HookStateKey);             // field.
-JSS(EmittedTxn);               // ledger type.
+JSS(SLE_hit_rate);    // out: GetCounts.
+JSS(SetFee);          // transaction type.
+JSS(SetRemarks);      // transaction type
+JSS(UNLModify);       // transaction type.
+JSS(UNLReport);       // transaction type.
+JSS(SettleDelay);     // in: TransactionSign
+JSS(SendMax);         // in: TransactionSign
+JSS(Sequence);        // in/out: TransactionSign; field.
+JSS(SetFlag);         // field.
+JSS(SetRegularKey);   // transaction type.
+JSS(SetHook);         // transaction type.
+JSS(Hook);            // ledger type.
+JSS(HookDefinition);  // ledger type.
+JSS(HookState);       // ledger type.
+JSS(HookStateData);   // field.
+JSS(HookStateKey);    // field.
+JSS(EmittedTxn);      // ledger type.
 JSS(Entropy);
 JSS(Shuffle);
 JSS(SignerList);               // ledger type.

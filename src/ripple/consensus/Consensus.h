@@ -20,6 +20,9 @@
 #ifndef RIPPLE_CONSENSUS_CONSENSUS_H_INCLUDED
 #define RIPPLE_CONSENSUS_CONSENSUS_H_INCLUDED
 
+#include <ripple/app/ledger/OpenLedger.h>
+#include <ripple/app/main/Application.h>
+#include <ripple/app/misc/HashRouter.h>
 #include <ripple/basics/Log.h>
 #include <ripple/basics/chrono.h>
 #include <ripple/beast/utility/Journal.h>
@@ -29,14 +32,11 @@
 #include <ripple/consensus/DisputedTx.h>
 #include <ripple/consensus/LedgerTiming.h>
 #include <ripple/json/json_writer.h>
+#include <ripple/protocol/digest.h>
 #include <boost/logic/tribool.hpp>
 #include <deque>
 #include <optional>
 #include <sstream>
-#include <ripple/app/main/Application.h>
-#include <ripple/app/ledger/OpenLedger.h>
-#include <ripple/protocol/digest.h>
-#include <ripple/app/misc/HashRouter.h>
 
 namespace ripple {
 
