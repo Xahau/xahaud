@@ -37,9 +37,12 @@ public:
     explicit Entropy(ApplyContext& ctx) : Transactor(ctx)
     {
     }
-
+    
     static XRPAmount
-    calculateBaseFee(ReadView const& view, STTx const& tx);
+    calculateBaseFee(ReadView const& view, STTx const& tx)
+    {
+        return XRPAmount{0};
+    }
 
     static TxConsequences
     makeTxConsequences(PreflightContext const& ctx);

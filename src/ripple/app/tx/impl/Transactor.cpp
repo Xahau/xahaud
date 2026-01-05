@@ -273,6 +273,9 @@ Transactor::calculateHookChainFee(
 XRPAmount
 Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
+    if (isUVTx(tx))
+        return XRPAmount{0};
+
     // Returns the fee in fee units.
 
     // The computation has two parts:
@@ -288,9 +291,6 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
         if (importFee > baseFee)
             baseFee = importFee;
     }
-
-    if (tt == ttENTROPY)
-        return XRPAmount{0};
 
     // Each signer adds one more baseFee to the minimum required fee
     // for the transaction.
@@ -481,7 +481,7 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     auto const sle = ctx.view.read(keylet::account(id));
     if (!sle)
     {
-        if (ctx.tx.getTxnType() == ttENTROPY)
+        if (isUVTx(ctx.tx))
             return tesSUCCESS;
 
         if (ctx.tx.getTxnType() == ttIMPORT)
@@ -564,12 +564,12 @@ Transactor::checkSeqProxy(
             return tesSUCCESS;
         }
 
-        if (view.rules().enabled(featureRNG) &&
-            tx.getTxnType() == ttENTROPY && t_seqProx.isSeq() &&
+        if (isUVTx(tx) &&
+            t_seqProx.isSeq() &&
             tx[sfSequence] == 0)
         {
             JLOG(j.trace())
-                << "applyTransaction: allowing ttENTROPY with seq=0 "
+                << "applyTransaction: allowing UVTx with seq=0 "
                 << toBase58(id);
             return tesSUCCESS;
         }
@@ -658,11 +658,7 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
         ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT && !ctx.tx.isFieldPresent(sfIssuer);
 
-    bool const isUV = 
-        ctx.view.rules().enabled(featureRNG) &&
-        ctx.tx.getTxnType() == ttENTROPY;
-
-    bool const accRequired = !(isFirstImport || isUV);
+    bool const accRequired = !(isFirstImport || isUVTx(ctx.tx));
 
     if (!sle && accRequired)
     {
@@ -826,7 +822,7 @@ Transactor::apply()
         view().rules().enabled(featureImport) &&
             ctx_.tx.getTxnType() == ttIMPORT &&
             !ctx_.tx.isFieldPresent(sfIssuer) ||
-            ctx_.tx.getTxnType() == ttENTROPY);
+            isUVTx(ctx_.tx));
 
     if (sle)
     {
@@ -903,16 +899,11 @@ Transactor::checkSingleSign(PreclaimContext const& ctx)
     auto const idAccount = ctx.tx.getAccountID(sfAccount);
     auto const sleAccount = ctx.view.read(keylet::account(idAccount));
 
-    // check if this is a UVTxn (UNL Validator transaction)
-    // these are signed by the UNL validators
-    if (ctx.view.rules().enabled(featureRNG))
-    {
-        // UVTxns of the approved type don't need an underlying account
-        // and can be signed with the manifest ephemeral key
-        if (inUNLReport(ctx.view, ctx.app, pkSigner, ctx.j) && 
-            ctx.tx.getTxnType() == ttENTROPY)
-            return tesSUCCESS;
-    }
+    // UVTxns of the approved type don't need an underlying account
+    // and can be signed with the manifest ephemeral key
+    if (isUVTx(ctx.tx) &&
+        inUNLReport(ctx.view, ctx.app, pkSigner, ctx.j))
+        return tesSUCCESS;
 
     if (!sleAccount)
         return terNO_ACCOUNT;

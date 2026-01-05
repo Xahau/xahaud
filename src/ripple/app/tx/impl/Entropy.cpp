@@ -39,6 +39,9 @@ Entropy::preflight(PreflightContext const& ctx)
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
+    if (!ctx.rules.enabled(featureRNG))
+        return temDISABLED;
+
     return preflight2(ctx);
 }
 
@@ -47,17 +50,6 @@ Entropy::preclaim(PreclaimContext const& ctx)
 {
     if (!ctx.view.rules().enabled(featureRNG))
         return temDISABLED;
-
-//    auto const seq = ctx.view.info().seq;
-
-//    auto const txLgrSeq = ctx.tx[sfLedgerSequence];
-
-    // due to circulation we'll accept up to one ledger old entropy txns
-//    if (seq != txLgrSeq)
-//    {
-//        JLOG(ctx.j.warn()) << "Entropy: wrong ledger txseq=" << txLgrSeq << " lgrseq=" << seq << " acc:" << ctx.tx.getAccountID(sfAccount);
-//        return tefFAILURE;
-//    }
 
     // account must be a valid UV 
     if (!inUNLReport(ctx.view, ctx.tx.getAccountID(sfAccount), ctx.j))
@@ -76,19 +68,12 @@ Entropy::doApply()
 
     auto const seq = view().info().seq;
 
-//    if (seq != ctx_.tx.getFieldU32(sfLedgerSequence))
-//    {
-//        return tefFAILURE;
-//    }
-
     auto sle = view().peek(keylet::random());
 
     bool const created = !sle;
 
     if (created)
-    {
         sle = std::make_shared<SLE>(keylet::random());
-    }
 
     auto lastSeq = created ? 0 : sle->getFieldU32(sfLedgerSequence);
 
@@ -147,7 +132,6 @@ Entropy::doApply()
         }
         else
         {
-
             // contribute the new entropy to the random data field
             sle->setFieldH256(sfRandomData, sha512Half(validator, sle->getFieldH256(sfRandomData), currentEntropy));
 
@@ -186,46 +170,11 @@ Entropy::doApply()
     return tesSUCCESS;
 }
 
-
-XRPAmount
-Entropy::calculateBaseFee(ReadView const& view, STTx const& tx)
-{
-    XRPAmount extraFee{0};
-
-    if (tx.isFieldPresent(sfBlob))
-        extraFee +=
-            XRPAmount{static_cast<XRPAmount>(tx.getFieldVL(sfBlob).size())};
-
-    // old code (prior to fixXahauV1)
-    if (!view.rules().enabled(fixXahauV1))
-    {
-        if (tx.isFieldPresent(sfHookParameters))
-        {
-            uint64_t paramBytes = 0;
-            auto const& params = tx.getFieldArray(sfHookParameters);
-            for (auto const& param : params)
-            {
-                paramBytes +=
-                    (param.isFieldPresent(sfHookParameterName)
-                         ? param.getFieldVL(sfHookParameterName).size()
-                         : 0) +
-                    (param.isFieldPresent(sfHookParameterValue)
-                         ? param.getFieldVL(sfHookParameterValue).size()
-                         : 0);
-            }
-            extraFee += XRPAmount{static_cast<XRPAmount>(paramBytes)};
-        }
-    }
-
-    return Transactor::calculateBaseFee(view, tx) + extraFee;
-}
-
 // if this validator is on the UNLReport then return a signed ttENTROPY transaction
 // to be added to the txq.
 std::shared_ptr<STTx const>
 makeEntropyTxn(OpenView& view, Application& app, beast::Journal const& j_)
 {
-    // Inject an RNG psuedo if we're on the UNL
     if (!view.rules().enabled(featureRNG))
         return {};
 
@@ -250,6 +199,7 @@ makeEntropyTxn(OpenView& view, Application& app, beast::Journal const& j_)
 
     auto const pk = app.validatorManifests().getMasterKey(pkSigning);
 
+    // Only continue if we're on the UNL
     if (!inUNLReport(view, app, pk, j_))
         return {};
 

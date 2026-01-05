@@ -1931,10 +1931,7 @@ TxQ::tryDirectApply(
     const bool isFirstImport = !sleAccount &&
         view.rules().enabled(featureImport) && tx->getTxnType() == ttIMPORT;
 
-    const bool isUV = 
-        view.rules().enabled(featureRNG) && tx->getTxnType() == ttENTROPY;
-
-    const bool accRequired = !(isFirstImport || isUV);
+    const bool accRequired = !(isFirstImport || isUVTx(*tx));
 
     // Don't attempt to direct apply if the account is not in the ledger.
     if (!sleAccount && accRequired)
