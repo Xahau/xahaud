@@ -4037,11 +4037,15 @@ get_stobject_length(
     int& payload_start,  // out - the start of actual payload data for this type
     int& payload_length,  // out - the length of actual payload data for this
                           // type
-    uint16_t max_sti_type,
+    Rules const& rules,
     int recursion_depth = 0)  // used internally
 {
     if (recursion_depth > 10)
         return pe_excessive_nesting;
+
+    uint16_t max_sti_type = rules.enabled(featureHookAPISerializedType240)
+        ? STI_CURRENCY
+        : STI_VECTOR256;
 
     if (type > max_sti_type)
         return pe_unknown_type_early;
@@ -4245,7 +4249,7 @@ get_stobject_length(
                 subfield,
                 payload_start_,
                 payload_length_,
-                max_sti_type,
+                rules,
                 recursion_depth + 1);
             DBG_PRINTF(
                 "%d get_stobject_length i %d %d-%d, upto %d sublength %d\n",
@@ -4320,9 +4324,7 @@ DEFINE_HOOK_FUNCTION(
             field,
             payload_start,
             payload_length,
-            view.rules().enabled(featureHookAPISerializedType240)
-                ? STI_CURRENCY
-                : STI_VECTOR256,
+            view.rules(),
             0);
         if (length < 0)
             return PARSE_ERROR;
@@ -4420,9 +4422,7 @@ DEFINE_HOOK_FUNCTION(
             field,
             payload_start,
             payload_length,
-            view.rules().enabled(featureHookAPISerializedType240)
-                ? STI_CURRENCY
-                : STI_VECTOR256,
+            view.rules(),
             0);
         if (length < 0)
             return PARSE_ERROR;
@@ -4655,10 +4655,7 @@ DEFINE_HOOK_FUNCTION(
             field,
             payload_start,
             payload_length,
-
-            view.rules().enabled(featureHookAPISerializedType240)
-                ? STI_CURRENCY
-                : STI_VECTOR256,
+            view.rules(),
             0);
         if (length < 0)
             return PARSE_ERROR;
@@ -4694,9 +4691,7 @@ DEFINE_HOOK_FUNCTION(
             field,
             payload_start,
             payload_length,
-            view.rules().enabled(featureHookAPISerializedType240)
-                ? STI_CURRENCY
-                : STI_VECTOR256,
+            view.rules(),
             0);
         if (length < 0)
             return PARSE_ERROR;
@@ -4828,9 +4823,7 @@ DEFINE_HOOK_FUNCTION(
             field,
             payload_start,
             payload_length,
-            view.rules().enabled(featureHookAPISerializedType240)
-                ? STI_CURRENCY
-                : STI_VECTOR256,
+            view.rules(),
             0);
         if (length < 0)
             return 0;
