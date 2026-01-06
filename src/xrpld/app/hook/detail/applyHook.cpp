@@ -4111,7 +4111,9 @@ get_stobject_length(
         return pe_unknown_type_early;
 
     bool is_vl =
-        (type == STI_ACCOUNT || type == STI_VL || type == STI_PATHSET ||
+        (type == STI_ACCOUNT || type == STI_VL ||
+         (type == STI_PATHSET &&
+          !rules.enabled(featureHookAPISerializedType240)) ||
          type == STI_VECTOR256);
 
     int length = -1;
@@ -4182,6 +4184,45 @@ get_stobject_length(
     else if (type == STI_AMOUNT) /* AMOUNT */
     {
         length = (*upto >> 6 == 1) ? 8 : 48;
+        if (upto >= end)
+            return pe_unexpected_end;
+    }
+    else if (
+        type == STI_PATHSET && rules.enabled(featureHookAPISerializedType240))
+    {
+        length = 0;
+        while (upto + length < end)
+        {
+            // iterate Path step
+            while (*(upto + length) & 0x01 || *(upto + length) & 0x10 ||
+                   *(upto + length) & 0x20)
+            {
+                int flag = *(upto + length++);
+                // flag shoud be 0x01 or 0x10 or 0x20 or those union
+                if (flag == 0 || flag & ~(0x01 | 0x10 | 0x20))
+                    return pe_unexpected_end;
+                if (flag & 0x01)  // account
+                    length += 20;
+                if (flag & 0x10)  // currency
+                    length += 20;
+                if (flag & 0x20)  // issuer
+                    length += 20;
+
+                int next_flag = *(upto + length);
+                if (next_flag == 0x00 || next_flag == 0xff)
+                    // end of Path step
+                    break;
+            }
+
+            // continue or end of Paths
+            int lastflag = *(upto + length++);
+            if (lastflag == 0xff)
+                continue;  // continue byte
+            else if (lastflag == 0x00)
+                break;  // end byte
+            else
+                return pe_unexpected_end;
+        }
         if (upto >= end)
             return pe_unexpected_end;
     }
