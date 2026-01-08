@@ -460,8 +460,6 @@ static const APIWhitelist import_whitelist{
     HOOK_API_DEFINITION(I64, otxn_slot, (I32)),
     HOOK_API_DEFINITION(I64, otxn_param, (I32, I32, I32, I32)),
     HOOK_API_DEFINITION(I64, meta_slot, (I32)),
-    HOOK_API_DEFINITION(I64, dice, (I32)),
-    HOOK_API_DEFINITION(I64, random, (I32, I32)),
     // clang-format on
 };
 
@@ -469,6 +467,14 @@ static const APIWhitelist import_whitelist{
 static const APIWhitelist import_whitelist_1{
     // clang-format off
     HOOK_API_DEFINITION(I64, xpop_slot, (I32, I32)),
+    // clang-format on
+};
+
+// featureRNG
+static const APIWhitelist import_whitelist_rng{
+    // clang-format off
+    HOOK_API_DEFINITION(I64, dice, (I32)),
+    HOOK_API_DEFINITION(I64, random, (I32, I32)),
     // clang-format on
 };
 

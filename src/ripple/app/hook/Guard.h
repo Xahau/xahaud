@@ -1034,6 +1034,13 @@ validateGuards(
                     {
                         // PASS, this is a version 1 api
                     }
+                    else if (
+                        (rulesVersion & 0x04U) &&
+                        hook_api::import_whitelist_rng.find(import_name) !=
+                            hook_api::import_whitelist_rng.end())
+                    {
+                        // PASS, this is an RNG api (featureRNG)
+                    }
                     else
                     {
                         GUARDLOG(hook::log::IMPORT_ILLEGAL)
@@ -1262,8 +1269,12 @@ validateGuards(
                             hook_api::import_whitelist.find(api_name) !=
                                 hook_api::import_whitelist.end()
                             ? hook_api::import_whitelist.find(api_name)->second
-                            : hook_api::import_whitelist_1.find(api_name)
-                                  ->second;
+                            : hook_api::import_whitelist_1.find(api_name) !=
+                                    hook_api::import_whitelist_1.end()
+                                ? hook_api::import_whitelist_1.find(api_name)
+                                      ->second
+                                : hook_api::import_whitelist_rng.find(api_name)
+                                      ->second;
 
                         if (!first_signature)
                         {
