@@ -191,7 +191,8 @@ invoke_preclaim(PreclaimContext const& ctx)
 
             if (id != beast::zero)
             {
-                TER result = T::checkSeqProxy(ctx.view, ctx.tx, ctx.j);
+                TER result =
+                    T::checkSeqProxy(ctx.view, ctx.tx, ctx.flags, ctx.j);
 
                 if (!isTesSuccess(result))
                     return result;

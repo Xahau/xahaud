@@ -181,7 +181,11 @@ public:
     */
 
     static NotTEC
-    checkSeqProxy(ReadView const& view, STTx const& tx, beast::Journal j);
+    checkSeqProxy(
+        ReadView const& view,
+        STTx const& tx,
+        ApplyFlags flags,
+        beast::Journal j);
 
     static NotTEC
     checkPriorTxAndLastLedger(PreclaimContext const& ctx);

@@ -210,12 +210,16 @@ applyBatchTransactions(
     auto const parentBatchId = batchTxn.getTransactionID();
     auto const mode = batchTxn.getFlags();
 
+    auto const isEmitted = batchTxn.isFieldPresent(sfEmitDetails);
+
     auto applyOneTransaction =
-        [&app, &j, &parentBatchId, &batchView](STTx&& tx) {
+        [&app, &j, &parentBatchId, &batchView, &isEmitted](STTx&& tx) {
             OpenView perTxBatchView(batch_view, batchView);
 
+            auto const flags = tapBATCH | (isEmitted ? tapEMIT : tapNONE);
+
             auto const ret =
-                apply(app, perTxBatchView, parentBatchId, tx, tapBATCH, j);
+                apply(app, perTxBatchView, parentBatchId, tx, flags, j);
             XRPL_ASSERT(
                 ret.applied == (isTesSuccess(ret.ter) || isTecClaim(ret.ter)),
                 "Inner transaction should not be applied");

@@ -568,6 +568,7 @@ NotTEC
 Transactor::checkSeqProxy(
     ReadView const& view,
     STTx const& tx,
+    ApplyFlags flags,
     beast::Journal j)
 {
     auto const id = tx.getAccountID(sfAccount);
@@ -594,6 +595,10 @@ Transactor::checkSeqProxy(
     }
 
     SeqProxy const a_seq = SeqProxy::sequence((*sle)[sfSequence]);
+
+    // pass all emitted Batch inner transactions
+    if (flags & tapEMIT)
+        return tesSUCCESS;
 
     // pass all emitted tx provided their seq is 0
     if (view.rules().enabled(featureHooks) && hook::isEmittedTxn(tx))

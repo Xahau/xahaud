@@ -226,6 +226,10 @@ Batch::preflight(PreflightContext const& ctx)
     std::unordered_set<uint256> uniqueHashes;
     std::unordered_map<AccountID, std::unordered_set<std::uint32_t>>
         accountSeqTicket;
+
+    auto const isOuterTxnEmitted = ctx.tx.isFieldPresent(sfEmitDetails) ||
+        ctx.flags & tapPREFLIGHT_EMIT || ctx.flags & tapEMIT;
+
     for (STObject rb : rawTxns)
     {
         STTx const stx = STTx{std::move(rb)};
@@ -303,7 +307,7 @@ Batch::preflight(PreflightContext const& ctx)
 
         // Check that Sequence and TicketSequence are not both present
         if (stx.isFieldPresent(sfTicketSequence) &&
-            stx.getFieldU32(sfSequence) != 0)
+            stx.getFieldU32(sfSequence) != 0 && !isOuterTxnEmitted)
         {
             JLOG(ctx.j.debug())
                 << "BatchTrace[" << parentBatchId << "]: "
@@ -315,7 +319,7 @@ Batch::preflight(PreflightContext const& ctx)
 
         // Verify that either Sequence or TicketSequence is present
         if (!stx.isFieldPresent(sfTicketSequence) &&
-            stx.getFieldU32(sfSequence) == 0)
+            stx.getFieldU32(sfSequence) == 0 && !isOuterTxnEmitted)
         {
             JLOG(ctx.j.debug()) << "BatchTrace[" << parentBatchId << "]: "
                                 << "inner txn must have either Sequence or "
@@ -327,7 +331,8 @@ Batch::preflight(PreflightContext const& ctx)
         // Duplicate sequence and ticket checks
         if (flags & (tfAllOrNothing | tfUntilFailure))
         {
-            if (auto const seq = stx.getFieldU32(sfSequence); seq != 0)
+            if (auto const seq = stx.getFieldU32(sfSequence);
+                seq != 0 && !isOuterTxnEmitted)
             {
                 if (!accountSeqTicket[innerAccount].insert(seq).second)
                 {
@@ -339,7 +344,7 @@ Batch::preflight(PreflightContext const& ctx)
                 }
             }
 
-            if (stx.isFieldPresent(sfTicketSequence))
+            if (stx.isFieldPresent(sfTicketSequence) && !isOuterTxnEmitted)
             {
                 if (auto const ticket = stx.getFieldU32(sfTicketSequence);
                     !accountSeqTicket[innerAccount].insert(ticket).second)
@@ -351,6 +356,26 @@ Batch::preflight(PreflightContext const& ctx)
                     return temREDUNDANT;
                 }
             }
+        }
+
+        if (isOuterTxnEmitted)
+        {
+            // Ticket and TicketSequence are not allowed in emitted inner
+            // transactions
+            if (stx.getFieldU32(sfSequence) != 0 ||
+                stx.isFieldPresent(sfTicketSequence))
+            {
+                JLOG(ctx.j.debug())
+                    << "BatchTrace[" << parentBatchId << "]: "
+                    << "inner emitted txn cannot include Ticket or "
+                       "TicketSequence. "
+                    << "txID: " << hash
+                    << " sequence: " << stx.getFieldU32(sfSequence)
+                    << " ticket: " << stx.isFieldPresent(sfTicketSequence);
+                return temSEQ_AND_TICKET;
+            }
+
+            // TODO: should validate LastLedgerSequence/FirstLedgerSequence?
         }
 
         // If the inner account is the same as the outer account, do not add the

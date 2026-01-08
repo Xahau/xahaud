@@ -3170,11 +3170,13 @@ public:
                 #define ACCOUNT_OUT (txn + 71U)
                 #define RAWTXS_0_RAWTX_FLAGS_OUT (txn + 99U)
                 #define RAWTXS_0_RAWTX_ACCOUNT_OUT (txn + 105U)
+                #define RAWTXS_0_RAWTX_SEQ_OUT (txn + 126U)
                 #define RAWTXS_0_RAWTX_FEE_OUT (txn + 131U)
                 #define RAWTXS_1_RAWTX_FLAGS_OUT (txn + 148U)
                 #define RAWTXS_1_RAWTX_ACCOUNT_OUT (txn + 154U)
                 #define RAWTXS_1_RAWTX_DEST_OUT (txn + 176U)
                 #define RAWTXS_1_RAWTX_AMOUNT_OUT (txn + 197U)
+                #define RAWTXS_1_RAWTX_SEQ_OUT (txn + 206U)
                 #define RAWTXS_1_RAWTX_FEE_OUT (txn + 211U)
                 #define EMIT_OUT (txn + 223U)
 
@@ -3238,6 +3240,7 @@ public:
                     etxn_reserve(1);
                     hook_account(RAWTXS_0_RAWTX_ACCOUNT_OUT, 20);
                     hook_account(RAWTXS_1_RAWTX_ACCOUNT_OUT, 20);
+                    SET_NATIVE_AMOUNT(RAWTXS_1_RAWTX_AMOUNT_OUT, 1000000000);
                     PREPARE_TXN();
                     uint8_t emithash[32];
                     int64_t emit_result = emit(emithash, 32, txn, sizeof(txn));
@@ -3251,10 +3254,9 @@ public:
 
             Env env{
                 *this,
-                envconfig(),
-                features,
-                nullptr,
-                beast::severities::kTrace};
+                // envconfig(), features, nullptr,
+                // beast::severities::kTrace
+            };
             env.fund(XRP(10000), alice, bob);
             env.close();
 
@@ -13596,8 +13598,6 @@ public:
     void
     testWithFeatures(FeatureBitset features)
     {
-        test_emit(features);  //
-        return;
         testHooksOwnerDir(features);
         testHooksDisabled(features);
         testTxStructure(features);
