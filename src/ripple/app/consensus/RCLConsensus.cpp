@@ -227,7 +227,11 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
 
     prop.set_signature(sig.data(), sig.size());
 
-    injectShuffleTxn(app_, sig);
+    // Only inject shuffle for initial proposals - one sig per validator is
+    // sufficient entropy, and initial proposals have ~1950ms (ledgerMIN_CONSENSUS)
+    // to propagate before the next round
+    if (proposal.isInitial())
+        injectShuffleTxn(app_, sig);
 
     auto const suppression = proposalUniqueId(
         proposal.position(),

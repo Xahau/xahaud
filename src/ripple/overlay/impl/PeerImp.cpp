@@ -1956,9 +1956,10 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     if (!isTrusted && app_.config().RELAY_UNTRUSTED_PROPOSALS == -1)
         return;
 
-    // ttSHUFFLE is injected as part of featureRNG, based on the proposal
-    // signature
-    injectShuffleTxn(app_, makeSlice(set.signature()));
+    // ttSHUFFLE: only from UNL validators, initial proposals only - one sig per
+    // validator suffices, ~1950ms to propagate (ledgerMIN_CONSENSUS)
+    if (isTrusted && set.proposeseq() == 0)
+        injectShuffleTxn(app_, makeSlice(set.signature()));
 
     uint256 const proposeHash{set.currenttxhash()};
     uint256 const prevLedger{set.previousledger()};
