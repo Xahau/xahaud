@@ -1279,6 +1279,7 @@ SetHook::setHook()
         auto sleNewAccount = std::make_shared<SLE>(keylet::account(newAccount));
         sleNewAccount->setAccountID(sfAccount, newAccount);
         sleNewAccount->setFieldAmount(sfBalance, STAmount{});
+        sleNewAccount->setFieldU32(sfOwnerCount, 1);  // ltHook
         std::uint32_t const seqno{
             ctx_.view().rules().enabled(featureXahauGenesis)
                 ? ctx_.view().info().parentCloseTime.time_since_epoch().count()
@@ -1289,6 +1290,17 @@ SetHook::setHook()
         sleNewAccount->setFieldU32(sfFlags, lsfDisableMaster);
 
         sleNewAccount->setAccountID(sfHookAdministrator, account_);
+
+        auto sleFees = view().peek(keylet::fees());
+        if (sleFees && view().rules().enabled(featureXahauGenesis))
+        {
+            auto actIdx = sleFees->isFieldPresent(sfAccountCount)
+                ? sleFees->getFieldU64(sfAccountCount)
+                : 0;
+            sleNewAccount->setFieldU64(sfAccountIndex, actIdx);
+            sleFees->setFieldU64(sfAccountCount, actIdx + 1);
+            view().update(sleFees);
+        }
 
         // fund AccountReserve + ObjectReserve (ltHook)
         auto const requiredDrops = ctx_.view().fees().accountReserve(1);
