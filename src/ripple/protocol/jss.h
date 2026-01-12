@@ -672,18 +672,19 @@ JSS(strict);                // in: AccountCurrencies, AccountInfo
 JSS(sub_index);             // in: LedgerEntry
 JSS(subcommand);            // in: PathFind
 JSS(success);               // rpc
-JSS(supported);             // out: AmendmentTableImpl
-JSS(system_time_offset);    // out: NetworkOPs
-JSS(tag);                   // out: Peers
-JSS(taker);                 // in: Subscribe, BookOffers
-JSS(taker_gets);            // in: Subscribe, Unsubscribe, BookOffers
-JSS(taker_gets_funded);     // out: NetworkOPs
-JSS(taker_pays);            // in: Subscribe, Unsubscribe, BookOffers
-JSS(taker_pays_funded);     // out: NetworkOPs
-JSS(threshold);             // in: Blacklist
-JSS(ticket);                // in: AccountObjects
-JSS(ticket_count);          // out: AccountInfo
-JSS(ticket_seq);            // in: LedgerEntry
+JSS(success_count);
+JSS(supported);           // out: AmendmentTableImpl
+JSS(system_time_offset);  // out: NetworkOPs
+JSS(tag);                 // out: Peers
+JSS(taker);               // in: Subscribe, BookOffers
+JSS(taker_gets);          // in: Subscribe, Unsubscribe, BookOffers
+JSS(taker_gets_funded);   // out: NetworkOPs
+JSS(taker_pays);          // in: Subscribe, Unsubscribe, BookOffers
+JSS(taker_pays_funded);   // out: NetworkOPs
+JSS(threshold);           // in: Blacklist
+JSS(ticket);              // in: AccountObjects
+JSS(ticket_count);        // out: AccountInfo
+JSS(ticket_seq);          // in: LedgerEntry
 JSS(time);
 JSS(timeouts);                // out: InboundLedger
 JSS(track);                   // out: PeerImp
@@ -707,11 +708,13 @@ JSS(trusted);                 // out: UnlList
 JSS(trusted_validator_keys);  // out: ValidatorList
 JSS(tx);                      // out: STTx, AccountTx*
 JSS(txroot);
-JSS(tx_blob);               // in/out: Submit,
-                            // in: TransactionSign, AccountTx*
-JSS(tx_hash);               // in: TransactionEntry
-JSS(tx_json);               // in/out: TransactionSign
-                            // out: TransactionEntry
+JSS(tx_blob);  // in/out: Submit,
+JSS(tx_blobs);
+// in: TransactionSign, AccountTx*
+JSS(tx_hash);  // in: TransactionEntry
+JSS(tx_json);  // in/out: TransactionSign
+               // out: TransactionEntry
+JSS(tx_results);
 JSS(tx_signing_hash);       // out: TransactionSign
 JSS(tx_unsigned);           // out: TransactionSign
 JSS(txn_count);             // out: NetworkOPs

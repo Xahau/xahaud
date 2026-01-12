@@ -203,7 +203,7 @@ public:
     beast::Journal const j;
 
     /// Intermediate transaction result
-    TER const ter;
+    TER ter;
     /// Success flag - whether the transaction is likely to
     /// claim a fee
     bool const likelyToClaimFee;

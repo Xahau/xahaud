@@ -173,6 +173,8 @@ RawStateTable::apply(RawView& to) const
                 to.rawReplace(item.sle);
                 break;
         }
+
+        keysTouched_.emplace(elem.first);
     }
 }
 
@@ -180,6 +182,9 @@ bool
 RawStateTable::exists(ReadView const& base, Keylet const& k) const
 {
     assert(k.key.isNonZero());
+
+    keysTouched_.insert(k.key);
+
     auto const iter = items_.find(k.key);
     if (iter == items_.end())
         return base.exists(k);
@@ -227,12 +232,18 @@ RawStateTable::succ(
     // what we got from the parent.
     if (last && next >= last)
         return std::nullopt;
+
+    if (next.has_value())
+        keysTouched_.insert(*next);
+
     return next;
 }
 
 void
 RawStateTable::erase(std::shared_ptr<SLE> const& sle)
 {
+    keysTouched_.insert(sle->key());
+
     // The base invariant is checked during apply
     auto const result = items_.emplace(
         std::piecewise_construct,
@@ -259,6 +270,7 @@ RawStateTable::erase(std::shared_ptr<SLE> const& sle)
 void
 RawStateTable::insert(std::shared_ptr<SLE> const& sle)
 {
+    keysTouched_.insert(sle->key());
     auto const result = items_.emplace(
         std::piecewise_construct,
         std::forward_as_tuple(sle->key()),
@@ -284,6 +296,7 @@ RawStateTable::insert(std::shared_ptr<SLE> const& sle)
 void
 RawStateTable::replace(std::shared_ptr<SLE> const& sle)
 {
+    keysTouched_.insert(sle->key());
     auto const result = items_.emplace(
         std::piecewise_construct,
         std::forward_as_tuple(sle->key()),
@@ -306,6 +319,7 @@ RawStateTable::replace(std::shared_ptr<SLE> const& sle)
 std::shared_ptr<SLE const>
 RawStateTable::read(ReadView const& base, Keylet const& k) const
 {
+    keysTouched_.insert(k.key);
     auto const iter = items_.find(k.key);
     if (iter == items_.end())
         return base.read(k);

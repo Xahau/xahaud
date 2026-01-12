@@ -1035,6 +1035,7 @@ public:
     int
     addBootcacheAddresses(IPAddresses const& list)
     {
+        // RHUPTO: add_highway_peers(
         int count(0);
         std::lock_guard _(lock_);
         for (auto addr : list)

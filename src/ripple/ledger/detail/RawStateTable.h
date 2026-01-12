@@ -35,6 +35,9 @@ namespace detail {
 // Helper class that buffers raw modifications
 class RawStateTable
 {
+private:
+    mutable std::set<uint256> keysTouched_;
+
 public:
     using key_type = ReadView::key_type;
     // Initial size for the monotonic_buffer_resource used for allocations
@@ -97,6 +100,20 @@ public:
 
     std::unique_ptr<ReadView::sles_type::iter_base>
     slesUpperBound(ReadView const& base, uint256 const& key) const;
+
+    // each time a key is read or written it will be placed in the keysTouched_
+    // set.
+    std::set<uint256>
+    getAndResetKeysTouched()
+    {
+        std::set<uint256> out;
+        out.swap(keysTouched_);
+        //        std::cout << "--------------\n";
+        //        for (auto const& k : out)
+        //            std::cout << "getAndResetKeysTouched: " << to_string(k) <<
+        //            "\n";
+        return out;
+    }
 
 private:
     enum class Action {

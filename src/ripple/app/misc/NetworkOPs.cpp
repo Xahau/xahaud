@@ -944,7 +944,13 @@ NetworkOPsImp::processHeartbeatTimer()
         // do we have sufficient peers? If not, we are disconnected.
         if (numPeers < minPeerCount_)
         {
-            if (mMode != OperatingMode::DISCONNECTED)
+            if (app_.config().NETWORK_ID == 65534)
+            {
+                // replay network is always considered to be connected
+                // ensuring that it actually is is up to the tester
+                setMode(OperatingMode::FULL);
+            }
+            else if (mMode != OperatingMode::DISCONNECTED)
             {
                 setMode(OperatingMode::DISCONNECTED);
                 JLOG(m_journal.warn())
@@ -1796,6 +1802,13 @@ bool
 NetworkOPsImp::beginConsensus(uint256 const& networkClosed)
 {
     assert(networkClosed.isNonZero());
+
+    if (app_.config().NETWORK_ID == 65534)
+    {
+        // replay network automatically goes to proposing
+        setMode(OperatingMode::FULL);
+        mConsensus.setProposing();
+    }
 
     auto closingInfo = m_ledgerMaster.getCurrentLedger()->info();
 

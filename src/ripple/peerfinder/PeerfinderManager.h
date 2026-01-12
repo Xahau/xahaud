@@ -20,11 +20,13 @@
 #ifndef RIPPLE_PEERFINDER_MANAGER_H_INCLUDED
 #define RIPPLE_PEERFINDER_MANAGER_H_INCLUDED
 
+#include <ripple/app/main/Application.h>
 #include <ripple/beast/clock/abstract_clock.h>
 #include <ripple/beast/utility/PropertyStream.h>
 #include <ripple/core/Config.h>
 #include <ripple/peerfinder/Slot.h>
 #include <boost/asio/ip/tcp.hpp>
+#include <ranges>
 
 namespace ripple {
 namespace PeerFinder {
@@ -141,6 +143,12 @@ protected:
     Manager() noexcept;
 
 public:
+    virtual void
+    add_highway_peers(std::vector<beast::IP::Endpoint> addresses) = 0;
+
+    virtual void
+    machine_gun_highway_peers(Slice const& tx, uint256 const& txid) = 0;
+
     /** Destroy the object.
         Any pending source fetch operations are aborted.
         There may be some listener calls made before the

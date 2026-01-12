@@ -29,6 +29,7 @@
 #include <ripple/protocol/TxMeta.h>
 #include <boost/optional.hpp>
 #include <optional>
+#include <set>
 #include <variant>
 
 namespace ripple {
@@ -406,6 +407,8 @@ private:
     std::shared_ptr<STTx const> mTransaction;
     Application& mApp;
     beast::Journal j_;
+
+    std::set<uint256> keysTouched;
 };
 
 }  // namespace ripple

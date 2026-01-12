@@ -212,6 +212,7 @@ LedgerMaster::getCurrentLedgerIndex()
 LedgerIndex
 LedgerMaster::getValidLedgerIndex()
 {
+    std::cout << "getValidLedgerIndex: " << mValidLedgerSeq << "\n";
     return mValidLedgerSeq;
 }
 

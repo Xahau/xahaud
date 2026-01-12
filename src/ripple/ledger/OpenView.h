@@ -99,6 +99,12 @@ private:
     bool open_ = true;
 
 public:
+    std::set<uint256>
+    getAndResetKeysTouched()
+    {
+        return items_.getAndResetKeysTouched();
+    }
+
     OpenView() = delete;
     OpenView&
     operator=(OpenView&&) = delete;

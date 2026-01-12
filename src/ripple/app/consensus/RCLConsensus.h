@@ -129,6 +129,12 @@ class RCLConsensus
             return mode_;
         }
 
+        void
+        setProposing()
+        {
+            mode_ = ConsensusMode::proposing;
+        }
+
         /** Called before kicking off a new consensus round.
 
             @param prevLedger Ledger that will be prior ledger for next round
@@ -463,6 +469,12 @@ public:
     mode() const
     {
         return adaptor_.mode();
+    }
+
+    void
+    setProposing()
+    {
+        adaptor_.setProposing();
     }
 
     ConsensusPhase

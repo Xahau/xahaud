@@ -205,14 +205,19 @@ invoke_preclaim(PreclaimContext const& ctx)
     // list one, preflight will have already a flagged a failure.
     auto const id = ctx.tx.getAccountID(sfAccount);
 
+    bool const isReplayNetwork = (ctx.app.config().NETWORK_ID == 65534);
+
     if (id != beast::zero)
     {
-        TER result = T::checkSeqProxy(ctx.view, ctx.tx, ctx.j);
+        TER result = isReplayNetwork
+            ? tesSUCCESS
+            : T::checkSeqProxy(ctx.view, ctx.tx, ctx.j);
 
         if (!isTesSuccess(result))
             return result;
 
-        result = T::checkPriorTxAndLastLedger(ctx);
+        if (!isReplayNetwork)
+            result = T::checkPriorTxAndLastLedger(ctx);
 
         if (!isTesSuccess(result))
             return result;

@@ -24,6 +24,7 @@
 #include <ripple/app/misc/ValidatorSite.h>
 #include <ripple/app/rdb/RelationalDatabase.h>
 #include <ripple/app/rdb/Wallet.h>
+#include <ripple/app/tx/apply.h>
 #include <ripple/basics/base64.h>
 #include <ripple/basics/make_SSLContext.h>
 #include <ripple/basics/random.h>
@@ -101,6 +102,7 @@ OverlayImpl::Timer::on_timer(error_code ec)
         return;
     }
 
+    std::cout << "on_timer\n";
     overlay_.m_peerFinder->once_per_second();
     overlay_.sendEndpoints();
     overlay_.autoConnect();
@@ -141,7 +143,8 @@ OverlayImpl::OverlayImpl(
           app.config().section(SECTION_RELATIONAL_DB).empty() ||
               !boost::iequals(
                   get(app.config().section(SECTION_RELATIONAL_DB), "backend"),
-                  "rwdb")))
+                  "rwdb"),
+          app))
     , m_resolver(resolver)
     , next_id_(1)
     , timer_count_(0)
@@ -1530,6 +1533,257 @@ OverlayImpl::deleteIdlePeers()
         return post(strand_, std::bind(&OverlayImpl::deleteIdlePeers, this));
 
     slots_.deleteIdlePeers();
+}
+
+void
+OverlayImpl::processXUSH(
+    std::string const& message,
+    boost::asio::ip::tcp::endpoint const& remoteEndpoint)
+{
+    std::cout << "processXUSH\n";
+    // Fragment tracking: txid -> {endpoint, timestamp, total_size,
+    // fragments_received, data_map}
+    struct FragmentInfo
+    {
+        boost::asio::ip::tcp::endpoint sender;
+        uint32_t timestamp;
+        uint32_t total_size;
+        uint32_t num_fragments;
+        std::map<uint32_t, std::string> fragments;
+    };
+    static std::map<uint256, FragmentInfo> fragment_map;
+    static std::map<boost::asio::ip::tcp::endpoint, uint32_t> bad_sender_score;
+    static std::mt19937 rng{std::random_device{}()};
+
+    const uint8_t* data = reinterpret_cast<const uint8_t*>(message.data());
+    uint32_t now = std::time(nullptr);
+
+    // Opportunistic cleanup - check up to 10 random entries
+    if (!fragment_map.empty())
+    {
+        int checks_to_perform =
+            std::min(10, static_cast<int>(fragment_map.size()));
+
+        for (int i = 0; i < checks_to_perform; i++)
+        {
+            auto it = fragment_map.begin();
+            std::advance(
+                it,
+                std::uniform_int_distribution<>(
+                    0, fragment_map.size() - 1)(rng));
+
+            if (now - it->second.timestamp > 30)
+            {  // 30 second timeout
+                bad_sender_score[it->second.sender]++;
+                fragment_map.erase(it);
+            }
+        }
+    }
+
+    // XUSHPEER packet
+    if (message.size() >= 10 && std::memcmp(data, "XUSHPEER", 8) == 0)
+    {
+        std::cout << "\tXUSHPEER packet\n";
+        uint8_t ipv4_count = data[8];
+        uint8_t ipv6_count = data[9];
+        size_t expected_size = 10 + ipv4_count * 8 + ipv6_count * 20;
+
+        if (message.size() != expected_size)
+        {
+            bad_sender_score[remoteEndpoint]++;
+            return;
+        }
+
+        size_t offset = 10;
+        // Parse IPv4 addresses
+        std::vector<beast::IP::Endpoint> endpoints;
+        endpoints.reserve((uint32_t)ipv4_count + (uint32_t)ipv6_count);
+
+        for (int i = 0; i < ipv4_count; i++)
+        {
+            boost::asio::ip::address_v4::bytes_type addr_bytes;
+            std::memcpy(addr_bytes.data(), data + offset, 4);
+
+            beast::IP::Address addr{boost::asio::ip::address_v4(addr_bytes)};
+
+            // Read port
+            uint32_t port_32 =
+                ntohl(*reinterpret_cast<const uint32_t*>(data + offset + 4));
+            beast::IP::Port port = static_cast<beast::IP::Port>(port_32);
+            offset += 8;
+
+            // Create endpoint
+            beast::IP::Endpoint endpoint(addr, port);
+
+            endpoints.push_back(endpoint);
+        }
+
+        // Parse IPv6 addresses
+        for (int i = 0; i < ipv6_count; i++)
+        {
+            boost::asio::ip::address_v6::bytes_type addr_bytes;
+            std::memcpy(addr_bytes.data(), data + offset, 16);
+
+            // Use extra parentheses or brace initialization
+            beast::IP::Address addr((boost::asio::ip::address_v6(addr_bytes)));
+            // Or: beast::IP::Address
+            // addr{boost::asio::ip::address_v6(addr_bytes)};
+
+            // Read port
+            uint32_t port_32 =
+                ntohl(*reinterpret_cast<const uint32_t*>(data + offset + 16));
+            beast::IP::Port port = static_cast<beast::IP::Port>(port_32);
+            offset += 20;
+
+            // Create endpoint
+            beast::IP::Endpoint endpoint(addr, port);
+
+            endpoints.push_back(endpoint);
+        }
+
+        m_peerFinder->add_highway_peers(endpoints);
+    }
+    // XUSHTXNF packet (fragmented transaction)
+    else if (message.size() >= 52 && std::memcmp(data, "XUSHTXNF", 8) == 0)
+    {
+        std::cout << "\tXUSHTXNF packet\n";
+        uint256 txid{
+            uint256::fromVoid(reinterpret_cast<const char*>(data + 8))};
+        uint32_t total_size =
+            ntohl(*reinterpret_cast<const uint32_t*>(data + 40));
+        uint32_t num_fragments =
+            ntohl(*reinterpret_cast<const uint32_t*>(data + 44));
+        uint32_t fragment_num =
+            ntohl(*reinterpret_cast<const uint32_t*>(data + 48));
+
+        if (fragment_num >= num_fragments || total_size > 1048576 * 2)
+            return;  // 2MB limit
+
+        // Mute bad senders progressively
+        if (bad_sender_score[remoteEndpoint] > 10)
+        {
+            if (std::uniform_int_distribution<>(
+                    0, bad_sender_score[remoteEndpoint])(rng) > 10)
+                return;
+        }
+
+        auto& info = fragment_map[txid];
+        if (info.fragments.empty())
+        {
+            info.sender = remoteEndpoint;
+            info.timestamp = now;
+            info.total_size = total_size;
+            info.num_fragments = num_fragments;
+        }
+
+        int flags = app_.getHashRouter().getFlags(txid);
+
+        if (flags & SF_BAD)
+        {
+            bad_sender_score[remoteEndpoint]++;
+            fragment_map.erase(txid);
+            return;
+        }
+
+        // Store fragment
+        info.fragments[fragment_num] = std::string(
+            reinterpret_cast<const char*>(data + 52), message.size() - 52);
+
+        // Check if complete
+        if (info.fragments.size() == info.num_fragments)
+        {
+            std::string complete_tx;
+            complete_tx.reserve(info.total_size);
+            for (uint32_t i = 0; i < info.num_fragments; i++)
+            {
+                complete_tx += info.fragments[i];
+            }
+
+            if (complete_tx.size() == info.total_size)
+            {
+                // Process complete transaction
+
+                Slice txSlice(complete_tx.data(), complete_tx.size());
+                SerialIter sit(txSlice);
+
+                try
+                {
+                    auto stx = std::make_shared<STTx const>(sit);
+                    uint256 computedTxid = stx->getTransactionID();
+
+                    std::cout << "XUSH txn complete " << strHex(computedTxid)
+                              << "\n";
+
+                    // if txn is corrupt (wrong txid) or an emitted txn, or
+                    // can't make it into a ledger bill the sender and drop
+                    if (txid != computedTxid ||
+                        stx->isFieldPresent(sfEmitDetails) ||
+                        (stx->isFieldPresent(sfLastLedgerSequence) &&
+                         (stx->getFieldU32(sfLastLedgerSequence) <
+                          app_.getLedgerMaster().getValidLedgerIndex())))
+                    {
+                        bad_sender_score[remoteEndpoint]++;
+                        fragment_map.erase(txid);
+                        return;
+                    }
+
+                    // Check the signature
+                    if (auto [valid, validReason] = checkValidity(
+                            app_.getHashRouter(),
+                            *stx,
+                            app_.getLedgerMaster().getValidatedRules(),
+                            app_.config());
+                        valid != Validity::Valid)
+                    {
+                        if (!validReason.empty())
+                        {
+                            JLOG(journal_.trace())
+                                << "Exception checking transaction: "
+                                << validReason;
+                        }
+
+                        app_.getHashRouter().setFlags(
+                            stx->getTransactionID(), SF_BAD);
+                        bad_sender_score[remoteEndpoint]++;
+                        fragment_map.erase(txid);
+                        return;
+                    }
+
+                    // execution to here means the txn passed basic checks
+                    // machine gun it to peers over the highway
+
+                    m_peerFinder->machine_gun_highway_peers(txSlice, txid);
+
+                    // add it to our own node for processing
+                    std::string reason;
+                    auto tpTrans =
+                        std::make_shared<Transaction>(stx, reason, app_);
+                    if (tpTrans->getStatus() != NEW)
+                        return;
+
+                    app_.getOPs().processTransaction(tpTrans, false, false);
+
+                    return;
+                }
+                catch (std::exception const& ex)
+                {
+                    JLOG(journal_.warn())
+                        << "Transaction invalid: " << strHex(txSlice)
+                        << ". Exception: " << ex.what();
+                }
+            }
+
+            // successful reconstruction would have returned before here
+            bad_sender_score[remoteEndpoint]++;
+            fragment_map.erase(txid);
+        }
+    }
+}
+
+void
+OverlayImpl::publishTxXUSH(Slice const& tx, uint256 const& txid)
+{
+    m_peerFinder->machine_gun_highway_peers(tx, txid);
 }
 
 //------------------------------------------------------------------------------

@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <ripple/app/main/Application.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/app/tx/applySteps.h>
@@ -149,6 +150,12 @@ apply(
 
     auto pfresult = preflight(app, view.rules(), tx, flags, j);
     auto pcresult = preclaim(pfresult, app, view);
+    if (app.config().NETWORK_ID == 65534)
+    {
+        // replay network
+        if (pcresult.ter == terNO_ACCOUNT)
+            pcresult.ter = tesSUCCESS;
+    }
     return doApply(pcresult, app, view);
 }
 

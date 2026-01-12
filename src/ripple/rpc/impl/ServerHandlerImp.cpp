@@ -112,7 +112,7 @@ ServerHandlerImp::ServerHandlerImp(
     , m_resourceManager(resourceManager)
     , m_journal(app_.journal("Server"))
     , m_networkOPs(networkOPs)
-    , m_server(make_Server(*this, io_service, app_.journal("Server")))
+    , m_server(make_Server(*this, io_service, app_.journal("Server"), app))
     , m_jobQueue(jobQueue)
 {
     auto const& group(cm.group("rpc"));
@@ -365,8 +365,23 @@ void
 ServerHandlerImp::onUDPMessage(
     std::string const& message,
     boost::asio::ip::tcp::endpoint const& remoteEndpoint,
+    Port const& p,
     std::function<void(std::string const&)> sendResponse)
 {
+    uint8_t static is_peer[65536] = {};
+    auto const port = p.port;
+
+    if (is_peer[port] == 0 /* not yet known */)
+    {
+        is_peer[port] = p.has_peer() ? 1 : 2;
+        std::cout << "set port " << port << " to " << ('0' + is_peer[port])
+                  << "\n";
+    }
+
+    // udp messages arriving on peer protocol ports are sent back to overlay
+    if (is_peer[port] == 1)
+        return app_.overlay().processXUSH(message, remoteEndpoint);
+
     Json::Value jv;
     if (message.size() > RPC::Tuning::maxRequestSize ||
         !Json::Reader{}.parse(message, jv) || !jv.isObject())
@@ -447,9 +462,9 @@ logDuration(
     beast::Journal& journal)
 {
     using namespace std::chrono_literals;
-    auto const level = (duration >= 10s)
-        ? journal.error()
-        : (duration >= 1s) ? journal.warn() : journal.debug();
+    auto const level = (duration >= 10s) ? journal.error()
+        : (duration >= 1s)               ? journal.warn()
+                                         : journal.debug();
 
     JLOG(level) << "RPC request processing duration = "
                 << std::chrono::duration_cast<std::chrono::microseconds>(
