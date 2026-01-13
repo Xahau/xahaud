@@ -408,8 +408,6 @@ private:
     getDebugCounters()
     {
         DebugCounters counters;
-        ObjectCountMap objectCounts =
-            CountedObjects::getInstance().getCounts(1);
 
         // Database metrics if applicable
         if (app_.config().useTxTables())
@@ -456,7 +454,15 @@ private:
         counters.nodeFetchHitCount = app_.getNodeStore().getFetchHitCount();
         counters.nodeFetchSize = app_.getNodeStore().getFetchSize();
 
-        return {counters, objectCounts};
+        return {counters, []() {
+                    std::vector<std::pair<std::string, int>> result;
+
+                    for (auto const& c : countedObjects)
+                        if (c.count())
+                            result.emplace_back(c.name(), c.count());
+
+                    return result;
+                }()};
     }
 
     uint32_t
