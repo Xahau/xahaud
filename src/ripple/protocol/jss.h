@@ -264,7 +264,7 @@ JSS(currentShardIndex);  // out: NodeToShardStatus
 JSS(currency);           // in: paths/PathRequest, STAmount
                          // out: STPathSet, STAmount,
                          //      AccountLines
-JSS(current);            // out: OwnerInfo
+JSS(current);            // out: OwnerInfo, GetCounts
 JSS(current_activities);
 JSS(current_ledger_size);  // out: TxQ
 JSS(current_ledger);
@@ -476,6 +476,7 @@ JSS(master_key);                  // out: WalletPropose, NetworkOPs,
 JSS(master_seed);                 // out: WalletPropose
 JSS(master_seed_hex);             // out: WalletPropose
 JSS(master_signature);            // out: pubManifest
+JSS(maximum);                     // out: GetCounts
 JSS(max_ledger);                  // in/out: LedgerCleaner
 JSS(max_queue_size);              // out: TxQ
 JSS(max_spend_drops);             // out: AccountInfo

@@ -62,7 +62,6 @@ target_sources (xrpl_core PRIVATE
   #]===============================]
   src/ripple/basics/impl/base64.cpp
   src/ripple/basics/impl/contract.cpp
-  src/ripple/basics/impl/CountedObject.cpp
   src/ripple/basics/impl/FileUtilities.cpp
   src/ripple/basics/impl/IOUAmount.cpp
   src/ripple/basics/impl/Log.cpp

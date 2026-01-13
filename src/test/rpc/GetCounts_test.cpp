@@ -61,17 +61,25 @@ class GetCounts_test : public beast::unit_test::suite
             env.close();
         }
 
+        auto getCountedObjects = [](int minimumCount)
+        {
+            std::vector<std::pair<std::string, int>> result;
+
+            for (auto const& c : countedObjects)
+                if (c.count() >= minimumCount)
+                    result.emplace_back(c.name(), c.count());
+
+            return result;
+        };
+
         {
             // check counts, default params
             result = env.rpc("get_counts")[jss::result];
             BEAST_EXPECT(result[jss::status] == "success");
-            // compare with values reported by CountedObjects
-            auto const& objectCounts =
-                CountedObjects::getInstance().getCounts(10);
-            for (auto const& it : objectCounts)
+            for (auto const& it : getCountedObjects(10))
             {
                 BEAST_EXPECTS(result.isMember(it.first), it.first);
-                BEAST_EXPECTS(result[it.first].asInt() == it.second, it.first);
+                BEAST_EXPECTS(result[it.first][jss::current].asInt() == it.second, it.first);
             }
             BEAST_EXPECT(!result.isMember(jss::local_txs));
         }
@@ -81,14 +89,10 @@ class GetCounts_test : public beast::unit_test::suite
             // that only STObject and NodeObject are reported
             result = env.rpc("get_counts", "100")[jss::result];
             BEAST_EXPECT(result[jss::status] == "success");
-
-            // compare with values reported by CountedObjects
-            auto const& objectCounts =
-                CountedObjects::getInstance().getCounts(100);
-            for (auto const& it : objectCounts)
+            for (auto const& it : getCountedObjects(100))
             {
                 BEAST_EXPECTS(result.isMember(it.first), it.first);
-                BEAST_EXPECTS(result[it.first].asInt() == it.second, it.first);
+                BEAST_EXPECTS(result[it.first][jss::current].asInt() == it.second, it.first);
             }
             BEAST_EXPECT(!result.isMember("Transaction"));
             BEAST_EXPECT(!result.isMember("STTx"));
