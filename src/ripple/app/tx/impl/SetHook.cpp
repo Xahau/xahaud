@@ -1173,6 +1173,23 @@ updateHookParameters(
     return tesSUCCESS;
 }
 
+uint32_t
+SetHook::computeHookReserve(STObject const& hookObj)
+{
+    if (!hookObj.isFieldPresent(sfHookHash))
+        return 0;
+
+    int reserve{1};
+
+    if (hookObj.isFieldPresent(sfHookParameters))
+        reserve += hookObj.getFieldArray(sfHookParameters).size();
+
+    if (hookObj.isFieldPresent(sfHookGrants))
+        reserve += hookObj.getFieldArray(sfHookGrants).size();
+
+    return reserve;
+};
+
 struct KeyletComparator
 {
     bool
@@ -1837,28 +1854,14 @@ SetHook::setHook()
         int oldHookReserve = 0;
         int newHookReserve = 0;
 
-        auto const computeHookReserve = [](STObject const& hookObj) -> int {
-            if (!hookObj.isFieldPresent(sfHookHash))
-                return 0;
-
-            int reserve{1};
-
-            if (hookObj.isFieldPresent(sfHookParameters))
-                reserve += hookObj.getFieldArray(sfHookParameters).size();
-
-            if (hookObj.isFieldPresent(sfHookGrants))
-                reserve += hookObj.getFieldArray(sfHookGrants).size();
-
-            return reserve;
-        };
-
         for (int i = 0; i < hook::maxHookChainLength(); ++i)
         {
             if (oldHooks && i < oldHookCount)
-                oldHookReserve += computeHookReserve(((*oldHooks).get())[i]);
+                oldHookReserve +=
+                    SetHook::computeHookReserve(((*oldHooks).get())[i]);
 
             if (i < newHooks.size())
-                newHookReserve += computeHookReserve(newHooks[i]);
+                newHookReserve += SetHook::computeHookReserve(newHooks[i]);
         }
 
         reserveDelta = newHookReserve - oldHookReserve;
