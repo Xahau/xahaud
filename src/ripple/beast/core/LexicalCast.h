@@ -20,231 +20,36 @@
 #ifndef BEAST_MODULE_CORE_TEXT_LEXICALCAST_H_INCLUDED
 #define BEAST_MODULE_CORE_TEXT_LEXICALCAST_H_INCLUDED
 
+#include <ripple/beast/type_name.h>
+
+#include <boost/beast/core/string_type.hpp>
+#include <boost/utility/string_view.hpp>
+
 #include <algorithm>
-#include <cassert>
-#include <cerrno>
-#include <cstdlib>
-#include <iostream>
-#include <iterator>
+#include <array>
+#include <cctype>
+#include <charconv>
 #include <limits>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <type_traits>
-#include <typeinfo>
-#include <utility>
-
-#include <boost/predef.h>
 
 namespace beast {
 
+//------------------------------------------------------------------------------
+
 namespace detail {
 
-#if BOOST_COMP_MSVC
-#pragma warning(push)
-#pragma warning(disable : 4800)
-#pragma warning(disable : 4804)
-#endif
-
-template <class Int, class FwdIt, class Accumulator>
-bool
-parse_integral(Int& num, FwdIt first, FwdIt last, Accumulator accumulator)
-{
-    num = 0;
-
-    if (first == last)
+template <class T>
+inline constexpr bool is_boost_string_view_v = []() {
+    if constexpr (std::is_same_v<T, std::string_view>)
         return false;
-
-    while (first != last)
-    {
-        auto const c = *first++;
-        if (c < '0' || c > '9')
-            return false;
-        if (!accumulator(num, Int(c - '0')))
-            return false;
-    }
-
-    return true;
-}
-
-template <class Int, class FwdIt>
-bool
-parse_negative_integral(Int& num, FwdIt first, FwdIt last)
-{
-    Int limit_value = std::numeric_limits<Int>::min() / 10;
-    Int limit_digit = std::numeric_limits<Int>::min() % 10;
-
-    if (limit_digit < 0)
-        limit_digit = -limit_digit;
-
-    return parse_integral<Int>(
-        num, first, last, [limit_value, limit_digit](Int& value, Int digit) {
-            assert((digit >= 0) && (digit <= 9));
-            if (value < limit_value ||
-                (value == limit_value && digit > limit_digit))
-                return false;
-            value = (value * 10) - digit;
-            return true;
-        });
-}
-
-template <class Int, class FwdIt>
-bool
-parse_positive_integral(Int& num, FwdIt first, FwdIt last)
-{
-    Int limit_value = std::numeric_limits<Int>::max() / 10;
-    Int limit_digit = std::numeric_limits<Int>::max() % 10;
-
-    return parse_integral<Int>(
-        num, first, last, [limit_value, limit_digit](Int& value, Int digit) {
-            assert((digit >= 0) && (digit <= 9));
-            if (value > limit_value ||
-                (value == limit_value && digit > limit_digit))
-                return false;
-            value = (value * 10) + digit;
-            return true;
-        });
-}
-
-template <class IntType, class FwdIt>
-bool
-parseSigned(IntType& result, FwdIt first, FwdIt last)
-{
-    static_assert(
-        std::is_signed<IntType>::value,
-        "You may only call parseSigned with a signed integral type.");
-
-    if (first != last && *first == '-')
-        return parse_negative_integral(result, first + 1, last);
-
-    if (first != last && *first == '+')
-        return parse_positive_integral(result, first + 1, last);
-
-    return parse_positive_integral(result, first, last);
-}
-
-template <class UIntType, class FwdIt>
-bool
-parseUnsigned(UIntType& result, FwdIt first, FwdIt last)
-{
-    static_assert(
-        std::is_unsigned<UIntType>::value,
-        "You may only call parseUnsigned with an unsigned integral type.");
-
-    if (first != last && *first == '+')
-        return parse_positive_integral(result, first + 1, last);
-
-    return parse_positive_integral(result, first, last);
-}
-
-//------------------------------------------------------------------------------
-
-// These specializatons get called by the non-member functions to do the work
-template <class Out, class In>
-struct LexicalCast;
-
-// conversion to std::string
-template <class In>
-struct LexicalCast<std::string, In>
-{
-    explicit LexicalCast() = default;
-
-    template <class Arithmetic = In>
-    std::enable_if_t<std::is_arithmetic<Arithmetic>::value, bool>
-    operator()(std::string& out, Arithmetic in)
-    {
-        out = std::to_string(in);
+    else if constexpr (std::is_same_v<T, boost::core::string_view>)
         return true;
-    }
-
-    template <class Enumeration = In>
-    std::enable_if_t<std::is_enum<Enumeration>::value, bool>
-    operator()(std::string& out, Enumeration in)
-    {
-        out = std::to_string(
-            static_cast<std::underlying_type_t<Enumeration>>(in));
-        return true;
-    }
-};
-
-// Parse std::string to number
-template <class Out>
-struct LexicalCast<Out, std::string>
-{
-    explicit LexicalCast() = default;
-
-    static_assert(
-        std::is_integral<Out>::value,
-        "beast::LexicalCast can only be used with integral types");
-
-    template <class Integral = Out>
-    std::enable_if_t<std::is_unsigned<Integral>::value, bool>
-    operator()(Integral& out, std::string const& in) const
-    {
-        return parseUnsigned(out, in.begin(), in.end());
-    }
-
-    template <class Integral = Out>
-    std::enable_if_t<std::is_signed<Integral>::value, bool>
-    operator()(Integral& out, std::string const& in) const
-    {
-        return parseSigned(out, in.begin(), in.end());
-    }
-
-    bool
-    operator()(bool& out, std::string in) const
-    {
-        // Convert the input to lowercase
-        std::transform(in.begin(), in.end(), in.begin(), [](auto c) {
-            return std::tolower(static_cast<unsigned char>(c));
-        });
-
-        if (in == "1" || in == "true")
-        {
-            out = true;
-            return true;
-        }
-
-        if (in == "0" || in == "false")
-        {
-            out = false;
-            return true;
-        }
-
-        return false;
-    }
-};
-
-//------------------------------------------------------------------------------
-
-// Conversion from null terminated char const*
-template <class Out>
-struct LexicalCast<Out, char const*>
-{
-    explicit LexicalCast() = default;
-
-    bool
-    operator()(Out& out, char const* in) const
-    {
-        return LexicalCast<Out, std::string>()(out, in);
-    }
-};
-
-// Conversion from null terminated char*
-// The string is not modified.
-template <class Out>
-struct LexicalCast<Out, char*>
-{
-    explicit LexicalCast() = default;
-
-    bool
-    operator()(Out& out, char* in) const
-    {
-        return LexicalCast<Out, std::string>()(out, in);
-    }
-};
-
-#if BOOST_COMP_MSVC
-#pragma warning(pop)
-#endif
+    else
+        return std::is_same_v<T, boost::beast::string_view>;
+}();
 
 }  // namespace detail
 
@@ -255,20 +60,123 @@ struct LexicalCast<Out, char*>
 */
 struct BadLexicalCast : public std::bad_cast
 {
-    explicit BadLexicalCast() = default;
+private:
+    std::string msg;
+
+public:
+    explicit BadLexicalCast(std::string m = {})
+        : msg(std::bad_cast::what())
+    {
+        if (!m.empty())
+            msg += ": " + m;
+    }
+
+    [[nodiscard]] char const*
+    what() const noexcept override
+    {
+        return msg.c_str();
+    }
 };
 
-/** Intelligently convert from one type to another.
+//------------------------------------------------------------------------------
+
+/** Convert from std::string_view to integral type.
+    @return `false` if there was a parsing or range error
+*/
+template <class Out>
+    requires std::is_integral_v<Out> && (!std::is_same_v<Out, bool>)
+[[nodiscard]] bool
+lexicalCastChecked(Out& out, std::string_view in) noexcept
+{
+    if (in.empty())
+        return false;
+
+    if (in.front() == '+')
+    {
+        in.remove_prefix(1);
+
+        if (in.empty() || in.front() == '-')
+            return false;
+    }
+
+    auto [ptr, ec] = std::from_chars(in.data(), in.data() + in.size(), out);
+
+    return ec == std::errc{} && ptr == in.data() + in.size();
+}
+
+/** Convert from std::string_view to bool.
+    @return `false` if there was a parsing error
+*/
+[[nodiscard]] inline bool
+lexicalCastChecked(bool& out, std::string_view in) noexcept
+{
+    auto iequals = [](std::string_view a, std::string_view b) {
+        return std::equal(
+            a.begin(), a.end(), b.begin(), b.end(), [](char ca, char cb) {
+                return std::tolower(static_cast<unsigned char>(ca)) ==
+                    std::tolower(static_cast<unsigned char>(cb));
+            });
+    };
+
+    if (in == "1" || iequals(in, "true"))
+    {
+        out = true;
+        return true;
+    }
+
+    if (in == "0" || iequals(in, "false"))
+    {
+        out = false;
+        return true;
+    }
+
+    return false;
+}
+
+/** Convert from integral type to std::string.
+    @return `false` if there was a conversion error
+*/
+template <class In>
+    requires std::is_integral_v<In>
+[[nodiscard]] bool
+lexicalCastChecked(std::string& out, In in) noexcept
+{
+    std::array<char, std::numeric_limits<In>::digits10 + 3> buf;
+
+    auto [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), in);
+
+    if (ec != std::errc{})
+        return false;
+
+    out.assign(buf.data(), ptr);
+    return true;
+}
+
+/** Convert from enum type to std::string.
+    @return `false` if there was a conversion error
+*/
+template <class In>
+    requires std::is_enum_v<In>
+[[nodiscard]] bool
+lexicalCastChecked(std::string& out, In in) noexcept
+{
+    return lexicalCastChecked(out, static_cast<std::underlying_type_t<In>>(in));
+}
+
+/** Convert from Boost string_view types to integral types.
     @return `false` if there was a parsing or range error
 */
 template <class Out, class In>
-bool
-lexicalCastChecked(Out& out, In in)
+    requires detail::is_boost_string_view_v<In>
+[[nodiscard]] bool
+lexicalCastChecked(Out& out, In in) noexcept
 {
-    return detail::LexicalCast<Out, In>()(out, in);
+    return lexicalCastChecked(out, std::string_view(in.data(), in.size()));
 }
 
-/** Convert from one type to another, throw on error
+//------------------------------------------------------------------------------
+
+/** Convert from one type to another, throw on error.
 
     An exception of type BadLexicalCast is thrown if the conversion fails.
 
@@ -278,26 +186,27 @@ template <class Out, class In>
 Out
 lexicalCastThrow(In in)
 {
-    Out out;
-
-    if (lexicalCastChecked(out, in))
+    if (Out out; lexicalCastChecked(out, in))
         return out;
 
-    throw BadLexicalCast();
+    throw BadLexicalCast(
+#ifdef DEBUG
+        beast::type_name<In>() + " -> " + beast::type_name<Out>()
+#endif
+    );
 }
 
 /** Convert from one type to another.
 
-    @param defaultValue The value returned if parsing fails
+    @param in The value to convert.
+    @param defaultValue The value returned if parsing fails.
     @return The new type.
 */
 template <class Out, class In>
-Out
+[[nodiscard]] Out
 lexicalCast(In in, Out defaultValue = Out())
 {
-    Out out;
-
-    if (lexicalCastChecked(out, in))
+    if (Out out; lexicalCastChecked(out, in))
         return out;
 
     return defaultValue;
