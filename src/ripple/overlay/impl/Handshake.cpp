@@ -198,8 +198,8 @@ buildHandshake(
     uint256 const& sharedValue,
     uint256 const& ekm,
     std::optional<std::uint32_t> networkID,
-    beast::IP::Address public_ip,
-    beast::IP::Address remote_ip,
+    boost::asio::ip::address public_ip,
+    boost::asio::ip::address remote_ip,
     Application& app)
 {
     if (networkID)
@@ -251,8 +251,8 @@ verifyHandshake(
     uint256 const& sharedValue,
     uint256 const& ekm,
     std::optional<std::uint32_t> networkID,
-    beast::IP::Address public_ip,
-    beast::IP::Address remote,
+    boost::asio::ip::address public_ip,
+    boost::asio::ip::address remote,
     Application& app)
 {
     if (auto const iter = headers.find("Server-Domain"); iter != headers.end())
@@ -421,8 +421,7 @@ verifyHandshake(
         if (ec)
             throw std::runtime_error("Invalid Remote-IP");
 
-        if (beast::IP::is_public(remote) &&
-            !beast::IP::is_unspecified(public_ip))
+        if (beast::IP::is_public(remote) && !public_ip.is_unspecified())
         {
             // We know our public IP and peer reports our connection came
             // from some other IP.
@@ -467,8 +466,8 @@ http_response_type
 makeResponse(
     bool crawlPublic,
     http_request_type const& req,
-    beast::IP::Address public_ip,
-    beast::IP::Address remote_ip,
+    boost::asio::ip::address public_ip,
+    boost::asio::ip::address remote_ip,
     uint256 const& sharedValue,
     uint256 const& ekm,
     std::optional<std::uint32_t> networkID,

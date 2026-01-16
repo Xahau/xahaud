@@ -103,8 +103,8 @@ buildHandshake(
     uint256 const& sharedValue,
     uint256 const& ekm,
     std::optional<std::uint32_t> networkID,
-    beast::IP::Address public_ip,
-    beast::IP::Address remote_ip,
+    boost::asio::ip::address public_ip,
+    boost::asio::ip::address remote_ip,
     Application& app);
 
 /** Validate header fields needed when upgrading the link to the peer protocol.
@@ -133,8 +133,8 @@ verifyHandshake(
     uint256 const& sharedValue,
     uint256 const& ekm,
     std::optional<std::uint32_t> networkID,
-    beast::IP::Address public_ip,
-    beast::IP::Address remote,
+    boost::asio::ip::address public_ip,
+    boost::asio::ip::address remote,
     Application& app);
 
 /** Make outbound http request
@@ -173,8 +173,8 @@ http_response_type
 makeResponse(
     bool crawlPublic,
     http_request_type const& req,
-    beast::IP::Address public_ip,
-    beast::IP::Address remote_ip,
+    boost::asio::ip::address public_ip,
+    boost::asio::ip::address remote_ip,
     uint256 const& sharedValue,
     uint256 const& ekm,
     std::optional<std::uint32_t> networkID,

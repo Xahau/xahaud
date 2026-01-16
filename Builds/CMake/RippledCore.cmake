@@ -43,9 +43,6 @@ target_sources (xrpl_core PRIVATE
   src/ripple/beast/insight/impl/Metric.cpp
   src/ripple/beast/insight/impl/NullCollector.cpp
   src/ripple/beast/insight/impl/StatsDCollector.cpp
-  src/ripple/beast/net/impl/IPAddressConversion.cpp
-  src/ripple/beast/net/impl/IPAddressV4.cpp
-  src/ripple/beast/net/impl/IPAddressV6.cpp
   src/ripple/beast/net/impl/IPEndpoint.cpp
   src/ripple/beast/utility/src/beast_Journal.cpp
   src/ripple/beast/utility/src/beast_PropertyStream.cpp

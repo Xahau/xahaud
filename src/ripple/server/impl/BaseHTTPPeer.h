@@ -176,7 +176,7 @@ protected:
     beast::IP::Endpoint
     remoteAddress() override
     {
-        return beast::IPAddressConversion::from_asio(remote_address_);
+        return beast::IP::from_asio(remote_address_);
     }
 
     http_request_type&

@@ -174,9 +174,9 @@ private:
                 env.app().getIOService())),
             *context_);
         beast::IP::Endpoint local(
-            beast::IP::Address::from_string("172.1.1." + std::to_string(lid_)));
+            boost::asio::ip::address::from_string("172.1.1." + std::to_string(lid_)));
         beast::IP::Endpoint remote(
-            beast::IP::Address::from_string("172.1.1." + std::to_string(rid_)));
+            boost::asio::ip::address::from_string("172.1.1." + std::to_string(rid_)));
         PublicKey key(std::get<0>(randomKeyPair(KeyType::ed25519)));
         auto consumer = overlay.resourceManager().newInboundEndpoint(remote);
         auto slot = overlay.peerFinder().new_inbound_slot(local, remote);
