@@ -87,7 +87,6 @@ class Sequence
 private:
     enum { minLedger = 1, maxLedger = 1000000, minSize = 250, maxSize = 1250 };
 
-    beast::xor_shift_engine gen_;
     std::uint8_t prefix_;
     std::discrete_distribution<std::uint32_t> d_type_;
     std::uniform_int_distribution<std::uint32_t> d_size_;
@@ -106,9 +105,9 @@ public:
     uint256
     key(std::size_t n)
     {
-        gen_.seed(n + 1);
+        beast::xor_shift_engine gen{n + 1};
         uint256 result;
-        rngcpy(&*result.begin(), result.size(), gen_);
+        rngcpy(&*result.begin(), result.size(), gen);
         return result;
     }
 
@@ -116,15 +115,15 @@ public:
     std::shared_ptr<NodeObject>
     obj(std::size_t n)
     {
-        gen_.seed(n + 1);
+        beast::xor_shift_engine gen{n + 1};
         uint256 key;
         auto const data = static_cast<std::uint8_t*>(&*key.begin());
         *data = prefix_;
-        rngcpy(data + 1, key.size() - 1, gen_);
-        Blob value(d_size_(gen_));
-        rngcpy(&value[0], value.size(), gen_);
+        rngcpy(data + 1, key.size() - 1, gen);
+        Blob value(d_size_(gen));
+        rngcpy(&value[0], value.size(), gen);
         return NodeObject::createObject(
-            safe_cast<NodeObjectType>(d_type_(gen_)), std::move(value), key);
+            safe_cast<NodeObjectType>(d_type_(gen)), std::move(value), key);
     }
 
     // returns a batch of NodeObjects starting at n

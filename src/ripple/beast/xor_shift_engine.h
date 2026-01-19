@@ -20,15 +20,40 @@
 #ifndef BEAST_RANDOM_XOR_SHIFT_ENGINE_H_INCLUDED
 #define BEAST_RANDOM_XOR_SHIFT_ENGINE_H_INCLUDED
 
+#include <array>
 #include <cstdint>
 #include <limits>
-#include <stdexcept>
 
 namespace beast {
 
-namespace detail {
+/** MurmurHash3 64-bit finalizer (fmix64).
 
-template <class = void>
+    A bijective mixing function with strong avalanche behavior: every input
+    bit affects every output bit with probability ~0.5.
+
+    Commonly used for:
+    - Integer hashing
+    - Seed expansion for PRNGs
+    - Converting sequential values to uncorrelated values
+
+    @param x The input value to mix.
+    @return The mixed output value.
+*/
+[[nodiscard]] constexpr std::uint64_t
+fmix64(std::uint64_t x) noexcept
+{
+    x = 0xff51afd7ed558ccd * (x ^ (x >> 33));
+    x = 0xc4ceb9fe1a85ec53 * (x ^ (x >> 33));
+    return x ^ (x >> 33);
+}
+
+/** XOR-shift Generator.
+
+    Meets the requirements of UniformRandomNumberGenerator.
+
+    Simple and fast RNG based on:
+    http://xorshift.di.unimi.it/xorshift128plus.c
+*/
 class xor_shift_engine
 {
 public:
@@ -38,80 +63,36 @@ public:
     xor_shift_engine&
     operator=(xor_shift_engine const&) = default;
 
-    explicit xor_shift_engine(result_type val = 1977u);
+    explicit constexpr xor_shift_engine(result_type val = 1977u) noexcept
+        : s_{(val * val) + 1, fmix64(val)}
+    {
+    }
 
-    void
-    seed(result_type seed);
+    [[nodiscard]] constexpr result_type
+    operator()() noexcept
+    {
+        result_type s1 = s_[0];
+        result_type const s0 = s_[1];
+        s_[0] = s0;
+        s1 ^= s1 << 23;
+        return (s_[1] = (s1 ^ s0 ^ (s1 >> 17) ^ (s0 >> 26))) + s0;
+    }
 
-    result_type
-    operator()();
-
-    static result_type constexpr min()
+    static constexpr result_type
+    min() noexcept
     {
         return std::numeric_limits<result_type>::min();
     }
 
-    static result_type constexpr max()
+    static constexpr result_type
+    max() noexcept
     {
         return std::numeric_limits<result_type>::max();
     }
 
 private:
-    result_type s_[2];
-
-    static result_type
-    murmurhash3(result_type x);
+    std::array<result_type, 2> s_;
 };
-
-template <class _>
-xor_shift_engine<_>::xor_shift_engine(result_type val)
-{
-    seed(val);
-}
-
-template <class _>
-void
-xor_shift_engine<_>::seed(result_type seed)
-{
-    if (seed == 0)
-        throw std::domain_error("invalid seed");
-    s_[0] = murmurhash3(seed);
-    s_[1] = murmurhash3(s_[0]);
-}
-
-template <class _>
-auto
-xor_shift_engine<_>::operator()() -> result_type
-{
-    result_type s1 = s_[0];
-    result_type const s0 = s_[1];
-    s_[0] = s0;
-    s1 ^= s1 << 23;
-    return (s_[1] = (s1 ^ s0 ^ (s1 >> 17) ^ (s0 >> 26))) + s0;
-}
-
-template <class _>
-auto
-xor_shift_engine<_>::murmurhash3(result_type x) -> result_type
-{
-    x ^= x >> 33;
-    x *= 0xff51afd7ed558ccdULL;
-    x ^= x >> 33;
-    x *= 0xc4ceb9fe1a85ec53ULL;
-    return x ^= x >> 33;
-}
-
-}  // namespace detail
-
-/** XOR-shift Generator.
-
-    Meets the requirements of UniformRandomNumberGenerator.
-
-    Simple and fast RNG based on:
-    http://xorshift.di.unimi.it/xorshift128plus.c
-    does not accept seed==0
-*/
-using xor_shift_engine = detail::xor_shift_engine<>;
 
 }  // namespace beast
 

@@ -22,41 +22,29 @@
 
 #include <ripple/beast/hash/impl/xxhash.h>
 #include <boost/endian/conversion.hpp>
+#include <concepts>
 #include <cstddef>
-#include <type_traits>
 
 namespace beast {
 
 class xxhasher
 {
-private:
     // requires 64-bit std::size_t
-    static_assert(sizeof(std::size_t) == 8, "");
+    static_assert(sizeof(std::size_t) == 8);
 
     detail::XXH64_state_t state_;
 
 public:
     using result_type = std::size_t;
 
-    static constexpr auto const endian = boost::endian::order::native;
+    static constexpr auto endian = boost::endian::order::native;
 
     xxhasher() noexcept
     {
         detail::XXH64_reset(&state_, 1);
     }
 
-    template <
-        class Seed,
-        std::enable_if_t<std::is_unsigned<Seed>::value>* = nullptr>
-    explicit xxhasher(Seed seed)
-    {
-        detail::XXH64_reset(&state_, seed);
-    }
-
-    template <
-        class Seed,
-        std::enable_if_t<std::is_unsigned<Seed>::value>* = nullptr>
-    xxhasher(Seed seed, Seed)
+    explicit xxhasher(std::unsigned_integral auto seed) noexcept
     {
         detail::XXH64_reset(&state_, seed);
     }
@@ -67,7 +55,8 @@ public:
         detail::XXH64_update(&state_, key, len);
     }
 
-    explicit operator std::size_t() noexcept
+    [[nodiscard]] explicit
+    operator std::size_t() noexcept
     {
         return detail::XXH64_digest(&state_);
     }

@@ -22,43 +22,25 @@
 
 #include <ripple/beast/hash/hash_append.h>
 #include <ripple/beast/hash/xxhasher.h>
+#include <ripple/beast/xor_shift_engine.h>
 
-#include <cstdint>
-#include <functional>
-#include <mutex>
+#include <atomic>
 #include <random>
-#include <type_traits>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
 
 namespace ripple {
 
 namespace detail {
 
-using seed_pair = std::pair<std::uint64_t, std::uint64_t>;
+inline std::atomic hardened_hash_seed = []() {
+    std::uint64_t seed = 0x726661627563794;
 
-template <bool = true>
-seed_pair
-make_seed_pair() noexcept
-{
-    struct state_t
-    {
-        std::mutex mutex;
-        std::random_device rng;
-        std::mt19937_64 gen;
-        std::uniform_int_distribution<std::uint64_t> dist;
+    std::random_device rd;
 
-        state_t() : gen(rng())
-        {
-        }
-        // state_t(state_t const&) = delete;
-        // state_t& operator=(state_t const&) = delete;
-    };
-    static state_t state;
-    std::lock_guard lock(state.mutex);
-    return {state.dist(state.gen), state.dist(state.gen)};
-}
+    for (int i = 0; i < 16; ++i)
+        seed ^= (seed << 6) + rd();
+
+    return seed;
+}();
 
 }  // namespace detail
 
@@ -95,21 +77,25 @@ make_seed_pair() noexcept
 template <class HashAlgorithm = beast::xxhasher>
 class hardened_hash
 {
-private:
-    detail::seed_pair m_seeds;
+    std::uint64_t seed_;
 
 public:
-    using result_type = typename HashAlgorithm::result_type;
+    using result_type = HashAlgorithm::result_type;
 
-    hardened_hash() : m_seeds(detail::make_seed_pair<>())
+    hardened_hash() noexcept
+        : seed_(
+              beast::fmix64(
+                  detail::hardened_hash_seed.fetch_add(
+                      1,
+                      std::memory_order_relaxed)))
     {
     }
 
     template <class T>
-    result_type
+    [[nodiscard]] result_type
     operator()(T const& t) const noexcept
     {
-        HashAlgorithm h(m_seeds.first, m_seeds.second);
+        HashAlgorithm h(seed_);
         hash_append(h, t);
         return static_cast<result_type>(h);
     }

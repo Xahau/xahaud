@@ -20,17 +20,6 @@ private:
     beast::Journal journal_;
     bool isOpen_{false};
 
-    struct base_uint_hasher
-    {
-        using result_type = std::size_t;
-
-        result_type
-        operator()(base_uint<256> const& value) const
-        {
-            return hardened_hash<>{}(value);
-        }
-    };
-
     using DataStore =
         std::map<uint256, std::vector<std::uint8_t>>;  // Store compressed blob
                                                        // data
