@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <ostream>
+#include <set>
 #include <stack>
 #include <string>
 #include <string_view>
@@ -282,7 +283,8 @@ check_guard(
      * might have unforeseen consequences, without also rolling back further
      * changes that are fine.
      */
-    uint64_t rulesVersion = 0
+    uint64_t rulesVersion = 0,
+    std::set<int>* out_callees = nullptr
 
 )
 {
@@ -492,17 +494,27 @@ check_guard(
         {
             REQUIRE(1);
             uint64_t callee_idx = LEB();
-            // disallow calling of user defined functions inside a hook
+
+            // record user-defined function calls if tracking is enabled
             if (callee_idx > last_import_idx)
             {
-                GUARDLOG(hook::log::CALL_ILLEGAL)
-                    << "GuardCheck "
-                    << "Hook calls a function outside of the whitelisted "
-                       "imports "
-                    << "codesec: " << codesec << " hook byte offset: " << i
-                    << "\n";
+                if (out_callees != nullptr)
+                {
+                    // record the callee for call graph analysis
+                    out_callees->insert(callee_idx);
+                }
+                else
+                {
+                    // if not tracking, maintain original behavior: reject
+                    GUARDLOG(hook::log::CALL_ILLEGAL)
+                        << "GuardCheck "
+                        << "Hook calls a function outside of the whitelisted "
+                           "imports "
+                        << "codesec: " << codesec << " hook byte offset: " << i
+                        << "\n";
 
-                return {};
+                    return {};
+                }
             }
 
             // enforce guard call limit
@@ -837,6 +849,42 @@ validateGuards(
      */
     uint64_t rulesVersion = 0)
 {
+    // Structure to track function call graph information
+    struct FunctionInfo
+    {
+        int func_idx;
+        std::set<int> callees;  // functions this function calls
+        std::set<int> callers;  // functions that call this function
+        bool has_loops;         // whether this function contains loops
+        uint64_t local_wce;     // local worst-case execution count
+        uint64_t total_wce;     // total WCE including callees
+        bool wce_calculated;    // whether total_wce has been computed
+        bool in_calculation;    // for cycle detection in WCE calculation
+
+        FunctionInfo()
+            : func_idx(-1)
+            , has_loops(false)
+            , local_wce(0)
+            , total_wce(0)
+            , wce_calculated(false)
+            , in_calculation(false)
+        {
+        }
+
+        FunctionInfo(int idx, uint64_t local_wce_val, bool has_loops_val)
+            : func_idx(idx)
+            , has_loops(has_loops_val)
+            , local_wce(local_wce_val)
+            , total_wce(0)
+            , wce_calculated(false)
+            , in_calculation(false)
+        {
+        }
+    };
+
+    // Call graph: maps function index to its information
+    std::map<int, FunctionInfo> call_graph;
+
     uint64_t byteCount = wasm.size();
 
     // 63 bytes is the smallest possible valid hook wasm
@@ -1176,6 +1224,12 @@ validateGuards(
                 if (DEBUG_GUARD)
                     printf("Function map: func %d -> type %d\n", j, type_idx);
                 func_type_map[j] = type_idx;
+
+                // Step 4: Initialize FunctionInfo for each user-defined
+                // function func_idx starts from last_import_number + 1
+                int actual_func_idx = last_import_number + 1 + j;
+                call_graph[actual_func_idx] = FunctionInfo();
+                call_graph[actual_func_idx].func_idx = actual_func_idx;
             }
         }
 
@@ -1217,9 +1271,6 @@ validateGuards(
         return {};
     }
 
-    int64_t maxInstrCountHook = 0;
-    int64_t maxInstrCountCbak = 0;
-
     // second pass... where we check all the guard function calls follow the
     // guard rules minimal other validation in this pass because first pass
     // caught most of it
@@ -1253,6 +1304,7 @@ validateGuards(
                 std::optional<
                     std::reference_wrapper<std::vector<uint8_t> const>>
                     first_signature;
+                bool helper_function = false;
                 if (auto const& usage = import_type_map.find(j);
                     usage != import_type_map.end())
                 {
@@ -1288,7 +1340,7 @@ validateGuards(
                         }
                     }
                 }
-                else if (j == hook_type_idx)
+                else if (j == hook_type_idx)  // hook() or cbak() function type
                 {
                     // pass
                 }
@@ -1301,7 +1353,8 @@ validateGuards(
                         << "Codesec: " << section_type << " "
                         << "Local: " << j << " "
                         << "Offset: " << i << "\n";
-                    return {};
+                    // return {};
+                    helper_function = true;
                 }
 
                 int param_count = parseLeb128(wasm, i, &i);
@@ -1318,12 +1371,19 @@ validateGuards(
                         return {};
                     }
                 }
+                else if (helper_function)
+                {
+                    // pass
+                }
                 else if (param_count != (*first_signature).get().size() - 1)
                 {
                     GUARDLOG(hook::log::FUNC_TYPE_INVALID)
                         << "Malformed transaction. "
                         << "Hook API: " << *first_name
-                        << " has the wrong number of parameters.\n";
+                        << " has the wrong number of parameters.\n"
+                        << "param_count: " << param_count << " "
+                        << "first_signature: "
+                        << (*first_signature).get().size() - 1 << "\n";
                     return {};
                 }
 
@@ -1369,6 +1429,10 @@ validateGuards(
                                 << "\n";
                             return {};
                         }
+                    }
+                    else if (helper_function)
+                    {
+                        // pass
                     }
                     else if ((*first_signature).get()[k + 1] != param_type)
                     {
@@ -1446,6 +1510,10 @@ validateGuards(
                             return {};
                         }
                     }
+                    else if (helper_function)
+                    {
+                        // pass
+                    }
                     else if ((*first_signature).get()[0] != result_type)
                     {
                         GUARDLOG(hook::log::FUNC_RETURN_INVALID)
@@ -1497,6 +1565,17 @@ validateGuards(
                 // execution to here means we are up to the actual expr for the
                 // codesec/function
 
+                // Step 5: Calculate actual function index and prepare callees
+                // tracking
+                int actual_func_idx = last_import_number + 1 + j;
+                std::set<int>* out_callees_ptr = nullptr;
+
+                // Only track callees if this function is in the call_graph
+                if (call_graph.find(actual_func_idx) != call_graph.end())
+                {
+                    out_callees_ptr = &call_graph[actual_func_idx].callees;
+                }
+
                 auto valid = check_guard(
                     wasm,
                     j,
@@ -1506,33 +1585,188 @@ validateGuards(
                     last_import_number,
                     guardLog,
                     guardLogAccStr,
-                    rulesVersion);
+                    rulesVersion,
+                    out_callees_ptr);
 
                 if (!valid)
                     return {};
 
-                if (hook_func_idx && *hook_func_idx == j)
-                    maxInstrCountHook = *valid;
-                else if (cbak_func_idx && *cbak_func_idx == j)
-                    maxInstrCountCbak = *valid;
-                else
+                // Step 5: Store local WCE and build bidirectional call
+                // relationships
+                if (call_graph.find(actual_func_idx) != call_graph.end())
                 {
-                    if (DEBUG_GUARD)
-                        printf(
-                            "code section: %d not hook_func_idx: %d or "
-                            "cbak_func_idx: %d\n",
-                            j,
-                            *hook_func_idx,
-                            (cbak_func_idx ? *cbak_func_idx : -1));
-                    //   assert(false);
+                    call_graph[actual_func_idx].local_wce = *valid;
+
+                    // Build bidirectional relationships: for each callee, add
+                    // this function as a caller
+                    for (int callee_idx : call_graph[actual_func_idx].callees)
+                    {
+                        if (call_graph.find(callee_idx) != call_graph.end())
+                        {
+                            call_graph[callee_idx].callers.insert(
+                                actual_func_idx);
+                        }
+                    }
                 }
+
+                // Note: We will calculate total WCE later after processing all
+                // functions
                 i = code_end;
             }
         }
         i = next_section;
     }
 
-    // execution to here means guards are installed correctly
+    // Step 6: Cycle detection using DFS
+    // Lambda function for DFS-based cycle detection
+    std::set<int> visited;
+    std::set<int> rec_stack;
+    std::function<bool(int)> detect_cycles_dfs = [&](int func_idx) -> bool {
+        if (rec_stack.find(func_idx) != rec_stack.end())
+        {
+            // Found a cycle: func_idx is already in the recursion stack
+            return true;
+        }
 
-    return std::pair<uint64_t, uint64_t>{maxInstrCountHook, maxInstrCountCbak};
+        if (visited.find(func_idx) != visited.end())
+        {
+            // Already visited and no cycle found from this node
+            return false;
+        }
+
+        visited.insert(func_idx);
+        rec_stack.insert(func_idx);
+
+        // Check all callees
+        if (call_graph.find(func_idx) != call_graph.end())
+        {
+            for (int callee_idx : call_graph[func_idx].callees)
+            {
+                if (detect_cycles_dfs(callee_idx))
+                {
+                    return true;
+                }
+            }
+        }
+
+        rec_stack.erase(func_idx);
+        return false;
+    };
+
+    // Run cycle detection on all user-defined functions
+    for (const auto& [func_idx, func_info] : call_graph)
+    {
+        if (detect_cycles_dfs(func_idx))
+        {
+            GUARDLOG(hook::log::CALL_ILLEGAL)
+                << "GuardCheck: Recursive function calls detected. "
+                << "Hooks cannot contain recursive or mutually recursive "
+                   "functions.\n";
+            return {};
+        }
+    }
+
+    // Step 7: Calculate total WCE for each function using bottom-up approach
+    // Lambda function for recursive WCE calculation with memoization
+    std::function<uint64_t(int)> calculate_function_wce =
+        [&](int func_idx) -> uint64_t {
+        // Check if function exists in call graph
+        if (call_graph.find(func_idx) == call_graph.end())
+        {
+            // This is an imported function, WCE = 0 (already accounted for)
+            return 0;
+        }
+
+        FunctionInfo& func_info = call_graph[func_idx];
+
+        // If already calculated, return cached result
+        if (func_info.wce_calculated)
+        {
+            return func_info.total_wce;
+        }
+
+        // Detect circular dependency in WCE calculation (should not happen
+        // after cycle detection)
+        if (func_info.in_calculation)
+        {
+            GUARDLOG(hook::log::CALL_ILLEGAL)
+                << "GuardCheck: Internal error - circular dependency detected "
+                   "during WCE calculation.\n";
+            return 0xFFFFFFFFU;  // Return large value to trigger overflow error
+        }
+
+        func_info.in_calculation = true;
+
+        // Start with local WCE
+        uint64_t total = func_info.local_wce;
+
+        // Add WCE of all callees
+        for (int callee_idx : func_info.callees)
+        {
+            uint64_t callee_wce = calculate_function_wce(callee_idx);
+
+            // Check for overflow
+            if (total > 0xFFFFU || callee_wce > 0xFFFFU ||
+                (total + callee_wce) > 0xFFFFU)
+            {
+                func_info.in_calculation = false;
+                return 0xFFFFFFFFU;  // Signal overflow
+            }
+
+            total += callee_wce;
+        }
+
+        func_info.total_wce = total;
+        func_info.wce_calculated = true;
+        func_info.in_calculation = false;
+
+        return total;
+    };
+
+    // Calculate WCE for hook and cbak functions
+    int64_t hook_wce_actual = 0;
+    int64_t cbak_wce_actual = 0;
+
+    if (hook_func_idx)
+    {
+        int actual_hook_idx = last_import_number + 1 + *hook_func_idx;
+        hook_wce_actual = calculate_function_wce(actual_hook_idx);
+
+        if (hook_wce_actual >= 0xFFFFU)
+        {
+            GUARDLOG(hook::log::INSTRUCTION_EXCESS)
+                << "GuardCheck: hook() function exceeds maximum instruction "
+                   "count (65535). "
+                << "Total WCE including called functions: " << hook_wce_actual
+                << "\n";
+            return {};
+        }
+
+        if (DEBUG_GUARD)
+            printf("hook() total WCE: %ld\n", hook_wce_actual);
+    }
+
+    if (cbak_func_idx)
+    {
+        int actual_cbak_idx = last_import_number + 1 + *cbak_func_idx;
+        cbak_wce_actual = calculate_function_wce(actual_cbak_idx);
+
+        if (cbak_wce_actual >= 0xFFFFU)
+        {
+            GUARDLOG(hook::log::INSTRUCTION_EXCESS)
+                << "GuardCheck: cbak() function exceeds maximum instruction "
+                   "count (65535). "
+                << "Total WCE including called functions: " << cbak_wce_actual
+                << "\n";
+            return {};
+        }
+
+        if (DEBUG_GUARD)
+            printf("cbak() total WCE: %ld\n", cbak_wce_actual);
+    }
+
+    // execution to here means guards are installed correctly and WCE is within
+    // limits
+
+    return std::pair<uint64_t, uint64_t>{hook_wce_actual, cbak_wce_actual};
 }

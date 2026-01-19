@@ -2571,6 +2571,255 @@ public:
     }
 
     void
+    testHelperFunctions(FeatureBitset features)
+    {
+        testcase("Test helper functions and recursion detection");
+        using namespace jtx;
+        Env env{*this, features};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        // Test 1: Valid helper function without loops - should pass
+        {
+            TestHook hook = wasm[R"[test.hook](
+                #include <stdint.h>
+                extern int32_t _g(uint32_t id, uint32_t maxiter);
+                extern int64_t accept(uint32_t read_ptr, uint32_t read_len,
+                int64_t error_code);
+
+                __attribute__((noinline))
+                static int64_t simple_helper(int64_t x) {
+                    return x + 1;
+                }
+
+                int64_t hook(uint32_t reserved) {
+                    _g(1,1);
+                    int64_t result = simple_helper(5);
+                    return accept(0, 0, result);
+                }
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+                M("Valid helper function without loops"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        // Test 2: Helper function with guarded loop - should pass
+        {
+            TestHook hook = wasm[R"[test.hook](
+                #include <stdint.h>
+                extern int32_t _g(uint32_t id, uint32_t maxiter);
+                extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+
+                __attribute__((noinline))
+                static int64_t helper_with_loop(int64_t n) {
+                    int64_t sum = 0;
+                    for (int i = 0; i < 10; ++i) {
+                        _g(2, 11);
+                        sum += i;
+                    }
+                    return sum;
+                }
+
+                int64_t hook(uint32_t reserved) {
+                    _g(1,1);
+                    int64_t result = helper_with_loop(5);
+                    return accept(0, 0, result);
+                }
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+                M("Helper function with guarded loop"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        // Test 3: Direct recursion - should fail
+        {
+            TestHook hook = wasm[R"[test.hook](
+                #include <stdint.h>
+                extern int32_t _g(uint32_t id, uint32_t maxiter);
+                extern int64_t accept(uint32_t read_ptr, uint32_t read_len,
+                int64_t error_code);
+
+                __attribute__((noinline))
+                static int64_t recursive_func(int64_t n) {
+                    if (n <= 0) return 0;
+                    return n + recursive_func(n - 1);
+                }
+
+                int64_t hook(uint32_t reserved) {
+                    _g(1,1);
+                    int64_t result = recursive_func(5);
+                    return accept(0, 0, result);
+                }
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(alice, {{hso(hook)}}, 0),
+                M("Direct recursion should fail"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // Test 4: Indirect recursion (A -> B -> A) - should fail
+        {
+            TestHook hook = wasm[R"[test.hook](
+                #include <stdint.h>
+                extern int32_t _g(uint32_t id, uint32_t maxiter);
+                extern int64_t accept(uint32_t read_ptr, uint32_t read_len,
+                int64_t error_code);
+
+                __attribute__((noinline))
+                static int64_t func_b(int64_t n);
+
+                __attribute__((noinline))
+                static int64_t func_a(int64_t n) {
+                    if (n <= 0) return 0;
+                    return n + func_b(n - 1);
+                }
+
+                __attribute__((noinline))
+                int64_t func_b(int64_t n) {
+                    if (n <= 0) return 0;
+                    return n + func_a(n - 1);
+                }
+
+                int64_t hook(uint32_t reserved) {
+                    _g(1,1);
+                    int64_t result = func_a(5);
+                    return accept(0, 0, result);
+                }
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(alice, {{hso(hook)}}, 0),
+                M("Indirect recursion should fail"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // Test 5: Deep call chain (A -> B -> C -> D) - should pass if WCE is OK
+        {
+            TestHook hook = wasm[R"[test.hook](
+                #include <stdint.h>
+                extern int32_t _g(uint32_t id, uint32_t maxiter);
+                extern int64_t accept(uint32_t read_ptr, uint32_t read_len,
+                int64_t error_code);
+
+                __attribute__((noinline))
+                static int64_t func_d(int64_t n) {
+                    return n * 2;
+                }
+
+                __attribute__((noinline))
+                static int64_t func_c(int64_t n) {
+                    return func_d(n) + 1;
+                }
+
+                __attribute__((noinline))
+                static int64_t func_b(int64_t n) {
+                    return func_c(n) + 1;
+                }
+
+                __attribute__((noinline))
+                static int64_t func_a(int64_t n) {
+                    return func_b(n) + 1;
+                }
+
+                int64_t hook(uint32_t reserved) {
+                    _g(1,1);
+                    int64_t result = func_a(5);
+                    return accept(0, 0, result);
+                }
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+                M("Deep call chain without recursion"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        // Test 6: Helper called multiple times - WCE should accumulate
+        {
+            TestHook hook = wasm[R"[test.hook](
+                #include <stdint.h>
+                extern int32_t _g(uint32_t id, uint32_t maxiter);
+                extern int64_t accept(uint32_t read_ptr, uint32_t read_len,
+                int64_t error_code);
+
+                __attribute__((noinline))
+                static int64_t expensive_helper() {
+                    int64_t sum = 0;
+                    for (int i = 0; i < 100; ++i) {
+                        _g(2, 101);
+                        sum += i;
+                    }
+                    return sum;
+                }
+
+                int64_t hook(uint32_t reserved) {
+                    _g(1,1);
+                    int64_t result = 0;
+                    result += expensive_helper();
+                    result += expensive_helper();
+                    result += expensive_helper();
+                    return accept(0, 0, result);
+                }
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+                M("Helper called multiple times"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        // Test 7: WCE overflow through many helpers - should fail
+        {
+            TestHook hook = wasm[R"[test.hook](
+                #include <stdint.h>
+                extern int32_t _g(uint32_t id, uint32_t maxiter);
+                extern int64_t accept(uint32_t read_ptr, uint32_t read_len,
+                int64_t error_code);
+
+                __attribute__((noinline))
+                static int64_t large_helper() {
+                    int64_t sum = 0;
+                    for (int i = 0; i < 10000; ++i) {
+                        _g(2, 10001);
+                        sum += i;
+                    }
+                    return sum;
+                }
+
+                int64_t hook(uint32_t reserved) {
+                    _g(1,1);
+                    int64_t result = 0;
+                    for (int i = 0; i < 10; ++i) {
+                        _g(3, 11);
+                        result += large_helper();
+                    }
+                    return accept(0, 0, result);
+                }
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(alice, {{hso(hook)}}, 0),
+                M("WCE overflow through helpers"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+    }
+
+    void
     test_emit(FeatureBitset features)
     {
         testcase("Test emit");
@@ -13407,6 +13656,7 @@ public:
         test_rollback(features);
 
         testGuards(features);
+        testHelperFunctions(features);
 
         test_emit(features);  //
         // test_etxn_burden(features);       // tested above

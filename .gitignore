@@ -121,3 +121,5 @@ CMakeUserPresets.json
 bld.rippled/
 
 generated
+guard_checker
+guard_checker.dSYM
