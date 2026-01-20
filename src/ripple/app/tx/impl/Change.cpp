@@ -96,8 +96,9 @@ Change::preflight(PreflightContext const& ctx)
         }
     }
 
-    if ((ctx.tx.getTxnType() == ttEXPORT_SIGN || ctx.tx.getTxnType() == ttEXPORT) && 
-            !ctx.rules.enabled(featureExport))
+    if ((ctx.tx.getTxnType() == ttEXPORT_SIGN ||
+         ctx.tx.getTxnType() == ttEXPORT) &&
+        !ctx.rules.enabled(featureExport))
     {
         JLOG(ctx.j.warn()) << "Change: Export not enabled";
         return temDISABLED;
@@ -1102,9 +1103,11 @@ Change::applyExport()
 
         if (!sle)
         {
-            // most likely explanation is that this was somehow a double-up, so just ignore
+            // most likely explanation is that this was somehow a double-up, so
+            // just ignore
             JLOG(j_.warn())
-                << "HookError[" << txnID << "]: ttExport could not find exported txn in ledger";
+                << "HookError[" << txnID
+                << "]: ttExport could not find exported txn in ledger";
             break;
         }
 
@@ -1139,16 +1142,18 @@ Change::applyExportSign()
 
         if (!sle)
         {
-            // most likely explanation is that this was somehow a  double-up, so just ignore
+            // most likely explanation is that this was somehow a  double-up, so
+            // just ignore
             JLOG(j_.warn())
-                << "HookError[" << txnID << "]: ttExportSign could not find exported txn in ledger";
+                << "HookError[" << txnID
+                << "]: ttExportSign could not find exported txn in ledger";
             break;
         }
 
         // grab the signer object off the txn
-        STObject signerObj = const_cast<ripple::STTx&>(ctx_.tx)                                                               
-              .getField(sfSigner)                                                                           
-              .downcast<STObject>();                                                                        
+        STObject signerObj = const_cast<ripple::STTx&>(ctx_.tx)
+                                 .getField(sfSigner)
+                                 .downcast<STObject>();
 
         // append it to the signers field in the ledger object
         STArray signers = sle->getFieldArray(sfSigners);

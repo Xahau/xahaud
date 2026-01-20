@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <ripple/app/hook/applyHook.h>
 #include <ripple/app/misc/Manifest.h>
 #include <ripple/app/tx/impl/Import.h>
 #include <ripple/app/tx/impl/SetSignerList.h>
@@ -37,11 +38,11 @@
 #include <charconv>
 #include <iostream>
 #include <vector>
-#include <ripple/app/hook/applyHook.h>
 
 namespace ripple {
 
-static const uint256 shadowTicketNamespace = uint256::fromVoid("RESERVED NAMESPACE SHADOW TICKET");
+static const uint256 shadowTicketNamespace =
+    uint256::fromVoid("RESERVED NAMESPACE SHADOW TICKET");
 
 TxConsequences
 Import::makeTxConsequences(PreflightContext const& ctx)
@@ -200,7 +201,8 @@ Import::preflight(PreflightContext const& ctx)
     if (!stpTrans || !meta)
         return temMALFORMED;
 
-    if (stpTrans->isFieldPresent(sfTicketSequence) && !ctx.rules.enabled(featureExport))
+    if (stpTrans->isFieldPresent(sfTicketSequence) &&
+        !ctx.rules.enabled(featureExport))
     {
         JLOG(ctx.j.warn()) << "Import: cannot use TicketSequence XPOP.";
         return temMALFORMED;
@@ -904,10 +906,14 @@ Import::preclaim(PreclaimContext const& ctx)
         // check if there is a shadow ticket, and if not we won't allow
         // the txn to pass into consensus
 
-        if (!ctx.view.exists(keylet::hookState(acc, seq, shadowTicketNamespace)))
+        if (!ctx.view.exists(
+                keylet::hookState(acc, seq, shadowTicketNamespace)))
         {
-            JLOG(ctx.j.warn()) << "Import: attempted to import a txn without shadow ticket.";
-            return telSHADOW_TICKET_REQUIRED; // tel code to avoid consensus/forward without SF_BAD
+            JLOG(ctx.j.warn())
+                << "Import: attempted to import a txn without shadow ticket.";
+            return telSHADOW_TICKET_REQUIRED;  // tel code to avoid
+                                               // consensus/forward without
+                                               // SF_BAD
         }
     }
 
@@ -953,7 +959,6 @@ Import::preclaim(PreclaimContext const& ctx)
 
     if (!hasTicket)
     {
-
         if (sle && sle->isFieldPresent(sfImportSequence))
         {
             uint32_t sleImportSequence = sle->getFieldU32(sfImportSequence);
@@ -1271,9 +1276,10 @@ Import::doApply()
 
     std::optional<uint256> ticket;
     if (stpTrans->isFieldPresent(sfTicketSequence))
-       ticket = uint256(stpTrans->getFieldU32(sfTicketSequence));
+        ticket = uint256(stpTrans->getFieldU32(sfTicketSequence));
 
-    if (sle && !ticket.has_value() && sle->getFieldU32(sfImportSequence) >= importSequence)
+    if (sle && !ticket.has_value() &&
+        sle->getFieldU32(sfImportSequence) >= importSequence)
     {
         // make double sure import seq hasn't passed
         JLOG(ctx_.journal.warn()) << "Import: ImportSequence passed";
@@ -1370,20 +1376,21 @@ Import::doApply()
         sle->setFieldU32(sfImportSequence, importSequence);
 
     sle->setFieldAmount(sfBalance, finalBal);
-    
+
     if (ticket.has_value())
     {
-        auto sleTicket = view().peek(keylet::hookState(id, *ticket, shadowTicketNamespace));
+        auto sleTicket =
+            view().peek(keylet::hookState(id, *ticket, shadowTicketNamespace));
         if (!sleTicket)
             return tefINTERNAL;
 
-        TER result = hook::setHookState(ctx_, id, shadowTicketNamespace, *ticket, {});
+        TER result =
+            hook::setHookState(ctx_, id, shadowTicketNamespace, *ticket, {});
         if (result != tesSUCCESS)
             return result;
 
         // RHUPTO: ticketseq billing?
     }
-
 
     if (create)
     {

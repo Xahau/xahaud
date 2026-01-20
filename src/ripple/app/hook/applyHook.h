@@ -413,10 +413,7 @@ DECLARE_HOOK_FUNCTION(
     uint32_t write_len,
     uint32_t read_ptr,
     uint32_t read_len);
-DECLARE_HOOK_FUNCTION(
-    int64_t,
-    xport_reserve,
-    uint32_t count);
+DECLARE_HOOK_FUNCTION(int64_t, xport_reserve, uint32_t count);
 /*
     DECLARE_HOOK_FUNCTION(int64_t,  str_find,           uint32_t hread_ptr,
    uint32_t hread_len, uint32_t nread_ptr, uint32_t nread_len, uint32_t mode,
@@ -496,8 +493,7 @@ struct HookResult
 
     std::queue<std::shared_ptr<ripple::Transaction>>
         emittedTxn{};  // etx stored here until accept/rollback
-    std::queue<std::shared_ptr<ripple::Transaction>>
-        exportedTxn{};
+    std::queue<std::shared_ptr<ripple::Transaction>> exportedTxn{};
     HookStateMap& stateMap;
     uint16_t changedStateCount = 0;
     std::map<

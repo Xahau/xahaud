@@ -1971,8 +1971,7 @@ hook::finalizeHookResult(
     // directory) if we are allowed to
     std::vector<std::pair<uint256 /* txnid */, uint256 /* emit nonce */>>
         emission_txnid;
-    std::vector<uint256 /* txnid */>
-        exported_txnid;
+    std::vector<uint256 /* txnid */> exported_txnid;
 
     if (doEmit)
     {
@@ -2028,8 +2027,7 @@ hook::finalizeHookResult(
                 }
             }
         }
-        
-        
+
         DBG_PRINTF("exported txn count: %d\n", hookResult.exportedTxn.size());
         for (; hookResult.exportedTxn.size() > 0; hookResult.exportedTxn.pop())
         {
@@ -2037,8 +2035,8 @@ hook::finalizeHookResult(
             auto& id = tpTrans->getID();
             JLOG(j.trace()) << "HookExport[" << HR_ACC() << "]: " << id;
 
-            // exported txns must be marked bad by the hash router to ensure under
-            // no circumstances they will enter consensus on *this* chain.
+            // exported txns must be marked bad by the hash router to ensure
+            // under no circumstances they will enter consensus on *this* chain.
             applyCtx.app.getHashRouter().setFlags(id, SF_BAD);
 
             std::shared_ptr<const ripple::STTx> ptr =
@@ -2074,8 +2072,7 @@ hook::finalizeHookResult(
                 {
                     JLOG(j.warn())
                         << "HookError[" << HR_ACC() << "]: "
-                        << "Export Directory full when trying to insert "
-                        << id;
+                        << "Export Directory full when trying to insert " << id;
                     return tecDIR_FULL;
                 }
             }
@@ -2108,9 +2105,7 @@ hook::finalizeHookResult(
             emission_txnid.size());  // this will never wrap, hard limit
         if (applyCtx.view().rules().enabled(featureExport))
         {
-            meta.setFieldU16(
-                sfHookExportCount,
-                exported_txnid.size());
+            meta.setFieldU16(sfHookExportCount, exported_txnid.size());
         }
         meta.setFieldU16(sfHookExecutionIndex, exec_index);
         meta.setFieldU16(sfHookStateChangeCount, hookResult.changedStateCount);
@@ -6284,10 +6279,11 @@ DEFINE_HOOK_FUNCTION(
         stpTrans->getAccountID(sfAccount) != hookCtx.result.account)
     {
         JLOG(j.trace()) << "HookExport[" << HC_ACC()
-                        << "]: Attempted to export a txn that's not for this Hook's Account ID.";
+                        << "]: Attempted to export a txn that's not for this "
+                           "Hook's Account ID.";
         return EXPORT_FAILURE;
     }
-    
+
     std::string reason;
     auto tpTrans = std::make_shared<Transaction>(stpTrans, reason, app);
     // RHTODO: is this needed or wise? VVV

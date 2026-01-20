@@ -22,13 +22,13 @@
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/LoadFeeTrack.h>
 #include <ripple/app/misc/TxQ.h>
+#include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/basics/mulDiv.h>
 #include <ripple/protocol/Feature.h>
+#include <ripple/protocol/Sign.h>
 #include <ripple/protocol/jss.h>
 #include <ripple/protocol/st.h>
-#include <ripple/app/misc/ValidatorKeys.h>
-#include <ripple/protocol/Sign.h>
 #include <algorithm>
 #include <limits>
 #include <numeric>
@@ -1621,9 +1621,9 @@ TxQ::accept(Application& app, OpenView& view)
 
                 if (nodeType != ltEXPORTED_TXN)
                 {
-                    JLOG(j_.warn())
-                        << "ExportedTxn processing: emitted directory contained "
-                           "non ltEMITTED_TXN type";
+                    JLOG(j_.warn()) << "ExportedTxn processing: emitted "
+                                       "directory contained "
+                                       "non ltEMITTED_TXN type";
                     // RH TODO: if this ever happens the entry should be
                     // gracefully removed (somehow)
                     continue;
@@ -1647,19 +1647,21 @@ TxQ::accept(Application& app, OpenView& view)
                     // this shouldn't happen, but do nothing
                     continue;
                 }
-                
+
                 if (exportedLgrSeq < seq - 1)
                 {
-                    // all old entries need to be turned into Export transactions so they can be removed
-                    // from the directory
+                    // all old entries need to be turned into Export
+                    // transactions so they can be removed from the directory
 
-                    // in the previous ledger all the ExportSign transactions were executed, and one-by-one
-                    // added the validators' signatures to the ltEXPORTED_TXN's sfSigners array.
-                    // now we need to collect these together and place them inside the ExportedTxn blob
-                    // and publish the blob in the Export transaction type.
+                    // in the previous ledger all the ExportSign transactions
+                    // were executed, and one-by-one added the validators'
+                    // signatures to the ltEXPORTED_TXN's sfSigners array. now
+                    // we need to collect these together and place them inside
+                    // the ExportedTxn blob and publish the blob in the Export
+                    // transaction type.
 
                     STArray signers = sleItem->getFieldArray(sfSigners);
-                
+
                     auto s = std::make_shared<ripple::Serializer>();
                     exported.add(*s);
                     SerialIter sitTrans(s->slice());
@@ -1682,16 +1684,16 @@ TxQ::accept(Application& app, OpenView& view)
 
                         stpTrans->setFieldArray(sfSigners, signers);
 
-                        Blob const& blob = stpTrans->getSerializer().peekData();  
+                        Blob const& blob = stpTrans->getSerializer().peekData();
 
-                        STTx exportTx(ttEXPORT, [&](auto& obj) {                                                                   
+                        STTx exportTx(ttEXPORT, [&](auto& obj) {
                             obj.setFieldVL(sfExportedTxn, blob);
                             obj.setFieldU32(sfLedgerSequence, seq);
                             obj.setFieldH256(sfTransactionHash, txnHash);
-                            obj.setFieldArray(sfSigners, signers);            
-                        });                                                                                                            
-                    
-                        // submit to the ledger    
+                            obj.setFieldArray(sfSigners, signers);
+                        });
+
+                        // submit to the ledger
                         {
                             uint256 txID = exportTx.getTransactionID();
                             auto s = std::make_shared<ripple::Serializer>();
@@ -1701,7 +1703,6 @@ TxQ::accept(Application& app, OpenView& view)
                             view.rawTxInsert(txID, std::move(s), nullptr);
                             ledgerChanged = true;
                         }
-               
                     }
 
                     catch (std::exception& e)
@@ -1710,13 +1711,12 @@ TxQ::accept(Application& app, OpenView& view)
                             << "ExportedTxn Processing: Failure: " << e.what()
                             << "\n";
                     }
-                    
 
                     continue;
                 }
-                
-                // this ledger is the one after the exported txn was added to the directory
-                // so generate the export sign txns
+
+                // this ledger is the one after the exported txn was added to
+                // the directory so generate the export sign txns
 
                 auto s = std::make_shared<ripple::Serializer>();
                 exported.add(*s);
@@ -1738,25 +1738,25 @@ TxQ::accept(Application& app, OpenView& view)
 
                     auto seq = view.info().seq;
                     auto txnHash = stpTrans->getTransactionID();
-                
-                    Serializer s =
-                        buildMultiSigningData(*stpTrans, signingAcc);
 
-                    auto multisig = ripple::sign(keys.publicKey, keys.secretKey, s.slice());
+                    Serializer s = buildMultiSigningData(*stpTrans, signingAcc);
 
-                    STTx exportSignTx(ttEXPORT_SIGN, [&](auto& obj) {                                                                   
-                        obj.set(([&]() {                                                                                           
-                            auto inner = std::make_unique<STObject>(sfSigner);                                            
+                    auto multisig =
+                        ripple::sign(keys.publicKey, keys.secretKey, s.slice());
+
+                    STTx exportSignTx(ttEXPORT_SIGN, [&](auto& obj) {
+                        obj.set(([&]() {
+                            auto inner = std::make_unique<STObject>(sfSigner);
                             inner->setFieldVL(sfSigningPubKey, keys.publicKey);
                             inner->setAccountID(sfAccount, signingAcc);
-                            inner->setFieldVL(sfTxnSignature, multisig);                        
-                            return inner;                                                                                          
-                        })());                                                                                                     
+                            inner->setFieldVL(sfTxnSignature, multisig);
+                            return inner;
+                        })());
                         obj.setFieldU32(sfLedgerSequence, seq);
-                        obj.setFieldH256(sfTransactionHash, txnHash);                   
-                    });                                                                                                            
-                    
-                    // submit to the ledger    
+                        obj.setFieldH256(sfTransactionHash, txnHash);
+                    });
+
+                    // submit to the ledger
                     {
                         uint256 txID = exportSignTx.getTransactionID();
                         auto s = std::make_shared<ripple::Serializer>();
@@ -1779,7 +1779,6 @@ TxQ::accept(Application& app, OpenView& view)
                 view, exportedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
 
         } while (0);
-
     }
 
     // Inject emitted transactions if any

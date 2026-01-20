@@ -605,7 +605,6 @@ public:
         return validatorKeys_;
     }
 
-
     NetworkOPs&
     getOPs() override
     {
