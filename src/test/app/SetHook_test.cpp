@@ -294,7 +294,9 @@ public:
         iv[jss::CreateCode] = "";
         jv[jss::Hooks][0U][jss::Hook] = iv;
 
-        env(jv, HSFEE, ter(tesSUCCESS));
+        bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+        auto const txResult = fixV1 ? ter(tesSUCCESS) : ter(tefBAD_LEDGER);
+        env(jv, HSFEE, txResult);
         env.close();
     }
 
@@ -688,8 +690,6 @@ public:
 
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
-        bool const hasNamedHooks =
-            env.current()->rules().enabled(featureNamedHooks);
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -726,8 +726,7 @@ public:
         }
 
         // grants, parameters, hookon, hookonincoming, hookonoutgoing,
-        // hookcanemit, hookapiversion, hooknamespace, hookname keys must be
-        // absent
+        // hookcanemit, hookapiversion, hooknamespace keys must be absent
         for (auto const& [key, value] : JSSMap{
                  {jss::HookGrants, Json::arrayValue},
                  {jss::HookParameters, Json::arrayValue},
@@ -744,14 +743,9 @@ public:
                   "000000000000000000000000000000000000000000000000000000000000"
                   "0000"},
                  {jss::HookApiVersion, "0"},
-                 {jss::HookNamespace, to_string(uint256{beast::zero})},
-                 {jss::HookName, strHex(std::string{"DEADBEEF"})},
-             })
+                 {jss::HookNamespace, to_string(uint256{beast::zero})}})
         {
             if (!hasHookCanEmit && key == jss::HookCanEmit)
-                continue;
-
-            if (!hasNamedHooks && key == jss::HookName)
                 continue;
 
             Json::Value iv;
@@ -761,7 +755,7 @@ public:
             env(jv,
                 M("Hook DELETE operation cannot include: grants, params, "
                   "hookon, HookOnIncoming, HookOnOutgoing, hookcanemit, "
-                  "apiversion, namespace, hookname"),
+                  "apiversion, namespace"),
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
@@ -900,8 +894,6 @@ public:
         bool const fixNS = env.current()->rules().enabled(fixNSDelete);
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
-        bool const hasNamedHooks =
-            env.current()->rules().enabled(featureNamedHooks);
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -934,13 +926,9 @@ public:
                   "000000000000000000000000000000000000000000000000000000000000"
                   "0000"},
                  {jss::HookApiVersion, "0"},
-                 {jss::HookName, strHex(std::string{"DEADBEEF"})},
              })
         {
             if (!hasHookCanEmit && key == jss::HookCanEmit)
-                continue;
-
-            if (!hasNamedHooks && key == jss::HookName)
                 continue;
 
             Json::Value iv;
@@ -951,16 +939,27 @@ public:
             env(jv,
                 M("Hook NSDELETE operation cannot include: grants, params, "
                   "hookon, hookonincoming, hookonoutgoing, hookcanemit, "
-                  "apiversion, hookname"),
+                  "apiversion"),
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
         }
 
-        uint256 constexpr key{
-            "000000000000000000000000000000000000000000000000000000006b657900"};
-        uint256 constexpr ns{
-            "cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe"};
+        auto const key = uint256::fromVoid(
+            (std::array<uint8_t, 32>{
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 'k',   'e',   'y',   0x00U})
+                .data());
+
+        auto const ns = uint256::fromVoid(
+            (std::array<uint8_t, 32>{
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU})
+                .data());
 
         auto const stateKeylet =
             keylet::hookState(Account("alice").id(), key, ns);
@@ -1095,7 +1094,7 @@ public:
                 ripple::test::jtx::hook(carol, {{hso(scaled_state_wasm)}}, 0);
             jv[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = ns_str;
             jv[jss::Hooks][0U][jss::Hook][jss::HookOn] =
-                to_string(hook::UINT256_BIT[ttACCOUNT_SET]);
+                to_string(UINT256_BIT[ttACCOUNT_SET]);
             env(jv, M("Create scaled state hook"), HSFEE, ter(tesSUCCESS));
             env.close();
 
@@ -1686,340 +1685,6 @@ public:
     }
 
     void
-    testHookName(FeatureBitset features)
-    {
-        testcase("Test hook name");
-        using namespace jtx;
-
-        auto const alice = Account{"alice"};
-        auto const bob = Account{"bob"};
-        auto const charlie = Account{"charlie"};
-        auto const USD = alice["USD"];
-
-        Env env{*this, features};
-
-        env.fund(XRP(10000), alice, bob);
-        env.close();
-
-        // Invalid hook name (length=3,17, not utf-8)
-        for (auto const name : {
-                 "414243",                              // ABC (length=3)
-                 "4142434445464748494A4B4C4D4E4F5051",  // ABCDEFGHIJKLMNOPQ
-                                                        // (length=17)
-                 "DEADBEEF",                            // not utf-8
-             })
-        {
-            auto jvh = hso(accept_wasm);
-            jvh[jss::HookName] = name;
-            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
-                M("Hook name must be between 8 and 32 hex characters and be a "
-                  "valid UTF-8 string"),
-                HSFEE,
-                features[featureNamedHooks] ? ter(temMALFORMED)
-                                            : ter(temDISABLED));
-
-            auto jvi = invoke::invoke(alice);
-            jvi[jss::HookName] = name;
-            env(jvi,
-                M("Call named hook with the invalid hook name"),
-                HSFEE,
-                ter(temMALFORMED));
-        }
-
-        if (!features[featureNamedHooks])
-            return;
-
-        {
-            /// Create, Install, Update named Hook
-            Env env{*this, features};
-
-            env.fund(XRP(10000), alice, bob, charlie);
-            env.close();
-
-            // Create with hook name
-            auto jvh = hso(accept_wasm);
-            jvh[jss::HookName] = "41424344";
-            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
-                M("Create named hook"),
-                HSFEE);
-            env.close();
-
-            // Check hook definition
-            {
-                auto const hookDef =
-                    env.le(keylet::hookDefinition(accept_hash));
-                BEAST_EXPECT(hookDef);
-                BEAST_EXPECT(!hookDef->isFieldPresent(sfHookName));
-            }
-            // Check Hook
-            {
-                auto const hooks = env.le(keylet::hook(alice));
-                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
-                auto const& hooksArray = hooks->getFieldArray(sfHooks);
-                BEAST_EXPECT(hooksArray.size() == 1);
-                BEAST_EXPECT(hooksArray[0].isFieldPresent(sfHookName));
-                BEAST_EXPECT(
-                    strHex(hooksArray[0].getFieldVL(sfHookName)) == "41424344");
-            }
-
-            // install with hook name
-            jvh[jss::HookName] = "41424344";
-            env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
-                M("Install named hook"),
-                HSFEE);
-            env.close();
-            // Check Hook
-            {
-                auto const hooks = env.le(keylet::hook(bob));
-                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
-                auto const& hooksArray = hooks->getFieldArray(sfHooks);
-                BEAST_EXPECT(hooksArray.size() == 1);
-                BEAST_EXPECT(hooksArray[0].isFieldPresent(sfHookName));
-                BEAST_EXPECT(
-                    strHex(hooksArray[0].getFieldVL(sfHookName)) == "41424344");
-            }
-
-            // install without hook name
-            jvh.removeMember(jss::HookName);
-            env(ripple::test::jtx::hook(charlie, {{jvh}}, 0),
-                M("Install non-named hook"),
-                HSFEE);
-            env.close();
-            // Check Hook
-            {
-                auto const hooks = env.le(keylet::hook(charlie));
-                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
-                auto const& hooksArray = hooks->getFieldArray(sfHooks);
-                BEAST_EXPECT(hooksArray.size() == 1);
-                BEAST_EXPECT(!hooksArray[0].isFieldPresent(sfHookName));
-            }
-
-            // Update named hook to non-named hook
-            jvh[jss::HookName] = "";
-            jvh[jss::Flags] = hsfOVERRIDE;
-            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
-                M("Update named hook to non-named hook"),
-                HSFEE);
-            env.close();
-            // Check Hook
-            {
-                auto const hooks = env.le(keylet::hook(alice));
-                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
-                auto const& hooksArray = hooks->getFieldArray(sfHooks);
-                BEAST_EXPECT(hooksArray.size() == 1);
-                BEAST_EXPECT(!hooksArray[0].isFieldPresent(sfHookName));
-            }
-
-            // Update named hook to named hook
-            jvh[jss::HookName] = "4142434445";
-            jvh[jss::Flags] = hsfOVERRIDE;
-            env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
-                M("Update non-named hook to named hook"),
-                HSFEE);
-            env.close();
-            // Check Hook
-            {
-                auto const hooks = env.le(keylet::hook(bob));
-                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
-                auto const& hooksArray = hooks->getFieldArray(sfHooks);
-                BEAST_EXPECT(hooksArray.size() == 1);
-                BEAST_EXPECT(hooksArray[0].isFieldPresent(sfHookName));
-                BEAST_EXPECT(
-                    strHex(hooksArray[0].getFieldVL(sfHookName)) ==
-                    "4142434445");
-            }
-
-            // Update non-named hook to named hook
-            jvh[jss::HookName] = "41424344";
-            jvh[jss::Flags] = hsfOVERRIDE;
-            env(ripple::test::jtx::hook(charlie, {{jvh}}, 0),
-                M("Update non-named hook to named hook"),
-                HSFEE);
-            env.close();
-            // Check Hook
-            {
-                auto const hooks = env.le(keylet::hook(charlie));
-                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
-                auto const& hooksArray = hooks->getFieldArray(sfHooks);
-                BEAST_EXPECT(hooksArray.size() == 1);
-                BEAST_EXPECT(hooksArray[0].isFieldPresent(sfHookName));
-                BEAST_EXPECT(
-                    strHex(hooksArray[0].getFieldVL(sfHookName)) == "41424344");
-            }
-        }
-
-        // Install named hook
-        auto jvh = hso(accept_wasm);
-        jvh[jss::HookName] = "41424344";
-        jvh[jss::Flags] = hsfCOLLECT;
-        auto jvh2 = hso(accept2_wasm);
-        jvh2[jss::Flags] = hsfCOLLECT;
-        env(ripple::test::jtx::hook(alice, {{jvh, jvh2}}, 0),
-            M("Install named hook"),
-            HSFEE);
-        env.close();
-
-        //
-        // Test Strong
-        //
-        // Call named hook without specifying the hook name
-        {
-            auto jv = invoke::invoke(alice);
-            auto expectedFee =
-                calculateBaseFee(*env.current(), *env.jt(jv).stx);
-            BEAST_EXPECT(expectedFee == drops(19));
-            env(jv,
-                M("Call named hook without specifying the hook name"),
-                HSFEE);
-            env.close();
-            // execute only non-named hook
-            auto const hookExecutions =
-                env.meta()->getFieldArray(sfHookExecutions);
-            BEAST_EXPECT(hookExecutions.size() == 1);
-            BEAST_EXPECT(
-                hookExecutions[0].getFieldH256(sfHookHash) == accept2_hash);
-        }
-
-        // Call named hook with the wrong hook name
-        {
-            auto jv = invoke::invoke(alice);
-            jv[jss::HookName] = "41424345";
-            auto expectedFee =
-                calculateBaseFee(*env.current(), *env.jt(jv).stx);
-            BEAST_EXPECT(expectedFee == drops(19));
-            env(jv, M("Call named hook with the wrong hook name"), HSFEE);
-            env.close();
-            // execute only non-named hook
-            auto const hookExecutions =
-                env.meta()->getFieldArray(sfHookExecutions);
-            BEAST_EXPECT(hookExecutions.size() == 1);
-            BEAST_EXPECT(
-                hookExecutions[0].getFieldH256(sfHookHash) == accept2_hash);
-        }
-
-        // Call named hook with the correct hook name
-        {
-            auto jv = invoke::invoke(alice);
-            jv[jss::HookName] = "41424344";
-            auto expectedFee =
-                calculateBaseFee(*env.current(), *env.jt(jv).stx);
-            BEAST_EXPECT(expectedFee == drops(28));
-            env(jv, M("Call named hook with the correct hook name"), HSFEE);
-            env.close();
-            // execute both named and non-named hooks
-            auto const hookExecutions =
-                env.meta()->getFieldArray(sfHookExecutions);
-            BEAST_EXPECT(hookExecutions.size() == 2);
-            BEAST_EXPECT(
-                hookExecutions[0].getFieldH256(sfHookHash) == accept_hash);
-            BEAST_EXPECT(
-                hookExecutions[1].getFieldH256(sfHookHash) == accept2_hash);
-        }
-
-        //
-        // Test Weak
-        //
-        env(fset(alice, asfTshCollect), fee(XRP(1)));
-        env.close();
-        // Call named hook without specifying the hook name
-        {
-            auto jv = trust(bob, USD(1000));
-            env(jv,
-                M("Call named hook without specifying the hook name"),
-                HSFEE);
-            env.close();
-            // execute only non-named hook
-            auto const hookExecutions =
-                env.meta()->getFieldArray(sfHookExecutions);
-            BEAST_EXPECT(hookExecutions.size() == 1);
-            BEAST_EXPECT(
-                hookExecutions[0].getFieldH256(sfHookHash) == accept2_hash);
-        }
-
-        // Call named hook with the wrong hook name
-        {
-            auto jv = trust(bob, USD(1000));
-            jv[jss::HookName] = "41424345";
-            env(jv, M("Call named hook with the wrong hook name"), HSFEE);
-            env.close();
-            // execute only non-named hook
-            auto const hookExecutions =
-                env.meta()->getFieldArray(sfHookExecutions);
-            BEAST_EXPECT(hookExecutions.size() == 1);
-            BEAST_EXPECT(
-                hookExecutions[0].getFieldH256(sfHookHash) == accept2_hash);
-        }
-
-        // Call named hook with the correct hook name
-        {
-            auto jv = invoke::invoke(alice);
-            jv[jss::HookName] = "41424344";
-            env(jv, M("Call named hook with the correct hook name"), HSFEE);
-            env.close();
-            // execute both named and non-named hooks
-            auto const hookExecutions =
-                env.meta()->getFieldArray(sfHookExecutions);
-            BEAST_EXPECT(hookExecutions.size() == 2);
-            BEAST_EXPECT(
-                hookExecutions[0].getFieldH256(sfHookHash) == accept_hash);
-            BEAST_EXPECT(
-                hookExecutions[1].getFieldH256(sfHookHash) == accept2_hash);
-        }
-        env(fclear(alice, asfTshCollect), fee(XRP(1)));
-        env.close();
-
-        //
-        // Callback Execution
-        //
-        jvh = hso(emit_invoke_wasm);
-        jvh[jss::HookName] = "41424344";
-        jvh[jss::Flags] = hsfOVERRIDE;
-        env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
-            M("Install named callback hook"),
-            HSFEE);
-        env.close();
-        // Call named hook without specifying the hook name
-        {
-            auto jv = invoke::invoke(alice);
-            env(jv,
-                M("Call named hook without specifying the hook name"),
-                HSFEE);
-            env.close();
-            // execute only non-named hook
-            BEAST_EXPECT(!env.meta()->isFieldPresent(sfHookEmissions));
-        }
-
-        // Call named hook with the wrong hook name
-        {
-            auto jv = invoke::invoke(alice);
-            jv[jss::HookName] = "41424345";
-            env(jv, M("Call named hook with the wrong hook name"), HSFEE);
-            env.close();
-            // execute only non-named hook
-            BEAST_EXPECT(!env.meta()->isFieldPresent(sfHookEmissions));
-        }
-
-        // Call named hook with the correct hook name
-        {
-            auto jv = invoke::invoke(alice);
-            jv[jss::HookName] = "41424344";
-            env(jv, M("Call named hook with the correct hook name"), HSFEE);
-            env.close();
-            // execute both named and non-named hooks
-            BEAST_EXPECT(env.meta()->isFieldPresent(sfHookEmissions));
-            auto const hookEmissions =
-                env.meta()->getFieldArray(sfHookEmissions)[0];
-            auto const etxn = hookEmissions.getFieldH256(sfEmittedTxnID);
-            env.close();
-            auto const tx = env.closed()->txRead(etxn);
-            BEAST_EXPECT(tx.first && tx.second);
-            BEAST_EXPECT(!tx.first->isFieldPresent(sfHookName));
-            // Callback transaction doesn't need to have hook name
-            BEAST_EXPECT(tx.second->isFieldPresent(sfHookExecutions));
-        }
-    }
-
-    void
     testFillCopy(FeatureBitset features)
     {
         testcase("Test fill/copy");
@@ -2076,8 +1741,6 @@ public:
 
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
-        bool const hasNamedHooks =
-            env.current()->rules().enabled(featureNamedHooks);
 
         auto const bob = Account{"bob"};
         env.fund(XRP(10000), bob);
@@ -2126,8 +1789,6 @@ public:
                 iv[jss::HookCanEmit] =
                     "0000000000000000000000000000000000000000000000000000000000"
                     "000000";
-            if (hasNamedHooks)
-                iv[jss::HookName] = strHex(std::string{"DEADBEEF"});
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -2150,8 +1811,6 @@ public:
                 iv[jss::HookCanEmit] =
                     "0000000000000000000000000000000000000000000000000000000000"
                     "000000";
-            if (hasNamedHooks)
-                iv[jss::HookName] = strHex(std::string{"DEADBEEF"});
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -2175,8 +1834,6 @@ public:
                 iv[jss::HookCanEmit] =
                     "0000000000000000000000000000000000000000000000000000000000"
                     "000000";
-            if (hasNamedHooks)
-                iv[jss::HookName] = strHex(std::string{"DEADBEEF"});
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -2197,8 +1854,6 @@ public:
                 iv[jss::HookCanEmit] =
                     "0000000000000000000000000000000000000000000000000000000000"
                     "000000";
-            if (hasNamedHooks)
-                iv[jss::HookName] = strHex(std::string{"DEADBEEF"});
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -2347,8 +2002,6 @@ public:
 
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
-        bool const hasNamedHooks =
-            env.current()->rules().enabled(featureNamedHooks);
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -2375,8 +2028,6 @@ public:
                 iv[jss::HookCanEmit] =
                     "0000000000000000000000000000000000000000000000000000000000"
                     "000000";
-            if (hasNamedHooks)
-                iv[jss::HookName] = strHex(std::string{"DEADBEEF"});
             iv[jss::HookParameters] = Json::Value{Json::arrayValue};
             iv[jss::HookParameters][0U] = Json::Value{};
             iv[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
@@ -2465,14 +2116,9 @@ public:
                       "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFE"
                       "CAFECAFE"},
                      {jss::HookParameters, params},
-                     {jss::HookGrants, grants},
-                     {jss::HookName, strHex(std::string{"DEADBEEF"})},
-                 })
+                     {jss::HookGrants, grants}})
             {
                 if (!hasHookCanEmit && key == jss::HookCanEmit)
-                    continue;
-
-                if (!hasNamedHooks && key == jss::HookName)
                     continue;
 
                 Json::Value iv;
@@ -2495,23 +2141,24 @@ public:
 
             // check all fields were updated to correct values
             BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookOn));
-            BEAST_EXPECT(
-                hooks[0].getFieldH256(sfHookOn) == hook::UINT256_BIT[0]);
+            BEAST_EXPECT(hooks[0].getFieldH256(sfHookOn) == UINT256_BIT[0]);
 
             if (hasHookCanEmit)
             {
                 BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookCanEmit));
                 BEAST_EXPECT(
                     hooks[0].getFieldH256(sfHookCanEmit) ==
-                    ripple::uint256(
-                        "000000000000000000000000000000000000000000"
-                        "0000000000000000000001"));
+                    ripple::uint256("000000000000000000000000000000000000000000"
+                                    "0000000000000000000001"));
             }
 
-            uint256 constexpr ns(
-                "cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafeca"
-                "fe");
-
+            auto const ns = uint256::fromVoid(
+                (std::array<uint8_t, 32>{
+                     0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                     0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                     0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
+                     0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU})
+                    .data());
             BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookNamespace));
             BEAST_EXPECT(hooks[0].getFieldH256(sfHookNamespace) == ns);
 
@@ -2545,14 +2192,9 @@ public:
                      {jss::HookCanEmit,
                       "00000000000000000000000000000000000000000000000000000000"
                       "00000000"},
-                     {jss::HookNamespace, to_string(uint256{beast::zero})},
-                     {jss::HookName, strHex(std::string{"DEADBEEF"})},
-                 })
+                     {jss::HookNamespace, to_string(uint256{beast::zero})}})
             {
                 if (key == jss::HookCanEmit && !hasHookCanEmit)
-                    continue;
-
-                if (!hasNamedHooks && key == jss::HookName)
                     continue;
 
                 Json::Value iv;
@@ -2803,14 +2445,9 @@ public:
                       "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFE"
                       "CAFECAFE"},
                      {jss::HookParameters, params},
-                     {jss::HookGrants, grants},
-                     {jss::HookName, strHex(std::string{"DEADBEEF"})},
-                 })
+                     {jss::HookGrants, grants}})
             {
                 if (key == jss::HookCanEmit && !hasHookCanEmit)
-                    continue;
-
-                if (!hasNamedHooks && key == jss::HookName)
                     continue;
 
                 Json::Value iv;
@@ -3032,7 +2669,7 @@ public:
         // hsoUPDATE
         {
             STObject hso{sfHook};
-            hso.setFieldH256(sfHookOn, hook::UINT256_BIT[0]);
+            hso.setFieldH256(sfHookOn, UINT256_BIT[0]);
             BEAST_EXPECT(SetHook::inferOperation(hso) == hsoUPDATE);
         }
 
@@ -3689,6 +3326,8 @@ public:
 
         env(invoke, M("test emit"), fee(XRP(1)));
 
+        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
+
         std::optional<uint256> emithash;
         {
             auto meta = env.meta();  // meta can close
@@ -3698,7 +3337,9 @@ public:
             BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
             auto const hookEmissions = meta->getFieldArray(sfHookEmissions);
-            BEAST_EXPECT(hookEmissions[0u].isFieldPresent(sfEmitNonce));
+            BEAST_EXPECT(
+                hookEmissions[0u].isFieldPresent(sfEmitNonce) == fixV2 ? true
+                                                                       : false);
             BEAST_EXPECT(
                 hookEmissions[0u].getAccountID(sfHookAccount) == alice.id());
 
@@ -3793,7 +3434,8 @@ public:
                 BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU16(sfHookEmitCount) == 2);
-                BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+                if (fixV2)
+                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             env.close();
             burden_expected *= 2U;
@@ -3817,7 +3459,8 @@ public:
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU64(sfHookReturnCode) ==
                     283);  // emission failure on first emit
-                BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+                if (fixV2)
+                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             BEAST_EXPECT(txcount == 256);
         }
@@ -4074,6 +3717,8 @@ public:
 
         env(invoke, M("test emit"), fee(XRP(1)));
 
+        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
+
         std::optional<uint256> emithash;
         {
             auto meta = env.meta();  // meta can close
@@ -4083,7 +3728,9 @@ public:
             BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
             auto const hookEmissions = meta->getFieldArray(sfHookEmissions);
-            BEAST_EXPECT(hookEmissions[0u].isFieldPresent(sfEmitNonce));
+            BEAST_EXPECT(
+                hookEmissions[0u].isFieldPresent(sfEmitNonce) == fixV2 ? true
+                                                                       : false);
             BEAST_EXPECT(
                 hookEmissions[0u].getAccountID(sfHookAccount) == alice.id());
 
@@ -4178,7 +3825,8 @@ public:
                 BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU16(sfHookEmitCount) == 2);
-                BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+                if (fixV2)
+                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             env.close();
             burden_expected *= 2U;
@@ -4202,7 +3850,8 @@ public:
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU64(sfHookReturnCode) ==
                     172);  // emission failure on first emit
-                BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+                if (fixV2)
+                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             BEAST_EXPECT(txcount == 256);
         }
@@ -4312,7 +3961,7 @@ public:
             M("set etxn_details"),
             HSFEE);
         env.close();
-        EXPECT_HOOK_FEE(hook, 2436);
+        EXPECT_HOOK_FEE(hook, 88);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_details"), fee(XRP(1)));
@@ -4482,7 +4131,7 @@ public:
             M("set etxn_nonce"),
             HSFEE);
         env.close();
-        EXPECT_HOOK_FEE(hook, 11657);
+        EXPECT_HOOK_FEE(hook, 11644);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_nonce"), fee(XRP(1)));
@@ -6939,8 +6588,12 @@ public:
         BEAST_REQUIRE(hookExecutions.size() == 2);
 
         // get the data in the return code of the execution
-        BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 5);
-        BEAST_EXPECT(hookExecutions[1].getFieldU32(sfFlags) == 0);
+        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
+        if (fixV2)
+        {
+            BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 5);
+            BEAST_EXPECT(hookExecutions[1].getFieldU32(sfFlags) == 0);
+        }
 
         BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
         BEAST_EXPECT(hookExecutions[1].getFieldU64(sfHookReturnCode) == 1);
@@ -8231,7 +7884,7 @@ public:
         HASH_WASM(hook);
 
         // before featureHooksUpdate1
-        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
             M("set xpop_slot (disabled)"),
             HSFEE,
             ter(temMALFORMED));
@@ -10013,13 +9666,19 @@ public:
                 fee(XRP(1)));
         }
 
+        // fixXahauV1
+        bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
+        auto const txResult = fixV1 ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS);
         env(pay(bob, alice, XRP(1)),
             M("test state_foreign_set_max"),
             fee(XRP(1)),
-            ter(tecHOOK_REJECTED));
+            ter(txResult));
         env.close();
 
         // verify hook result
+        // TOO_MANY_NAMESPACES / -45
+        std::string const hookResult = fixV1 ? "800000000000002d" : "9";
+
         Json::Value params;
         params[jss::transaction] =
             env.tx()->getJson(JsonOptions::none)[jss::hash];
@@ -10027,9 +9686,7 @@ public:
         auto const meta = jrr[jss::result][jss::meta];
         auto const executions = meta[sfHookExecutions.jsonName];
         auto const execution = executions[0u][sfHookExecution.jsonName];
-        // TOO_MANY_NAMESPACES / -45
-        BEAST_EXPECT(
-            execution[sfHookReturnCode.jsonName] == "800000000000002d");
+        BEAST_EXPECT(execution[sfHookReturnCode.jsonName] == hookResult);
     }
 
     void
@@ -10775,19 +10432,17 @@ public:
                 data1[0] == 0xCAU && data1[1] == 0xFEU && data1[2] == 0xBAU &&
                 data1[3] == 0xBEU);
 
-            std::array<uint8_t, 32> const key2{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                               0, 0, 0, 0, 0, 0, 0, 1, 2, 3};
+            uint8_t key2[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3};
 
-            auto const state2 = env.le(
-                ripple::keylet::hookState(
-                    aliceid, uint256(key2), beast::zero));
+            auto const state2 = env.le(ripple::keylet::hookState(
+                aliceid, uint256::fromVoid(key2), beast::zero));
 
             BEAST_REQUIRE(!!state2);
 
             auto const lekey2 = state2->getFieldH256(sfHookStateKey);
 
-            BEAST_EXPECT(lekey2 == uint256(key2));
+            BEAST_EXPECT(lekey2 == uint256::fromVoid(key2));
 
             uint8_t data2[128] = {
                 0x23U, 0x13U, 0x96U, 0x68U, 0x78U, 0xDCU, 0xABU, 0xC4U, 0x40U,
@@ -11049,13 +10704,11 @@ public:
             for (uint32_t i = 0; i < sizeof(data1); ++i)
                 BEAST_EXPECT(data1[i] == ledata1[i]);
 
-            auto const state2 = env.le(
-                ripple::keylet::hookState(
-                    aliceid,
-                    uint256(
-                        "000000000000000000000000000000000000000000000000000000"
-                        "0000010203"),
-                    beast::zero));
+            uint8_t key2[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3};
+
+            auto const state2 = env.le(ripple::keylet::hookState(
+                aliceid, uint256::fromVoid(key2), beast::zero));
 
             BEAST_REQUIRE(!state2);
         }
@@ -11128,12 +10781,12 @@ public:
                 fee(XRP(1)),
                 ter(tecHOOK_REJECTED));
 
-            uint256 constexpr keyx(
-                "00000000000000000000000000000000000000000000000000000000000000"
-                "ff");
+            uint8_t key[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,    0,
+                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0,    0,
+                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFFU};
 
-            auto const state =
-                env.le(ripple::keylet::hookState(aliceid, keyx, beast::zero));
+            auto const state = env.le(ripple::keylet::hookState(
+                aliceid, uint256::fromVoid(key), beast::zero));
 
             BEAST_EXPECT(state);
 
@@ -11149,8 +10802,8 @@ public:
 
             // check the state is still present
             {
-                auto const state = env.le(
-                    ripple::keylet::hookState(aliceid, keyx, beast::zero));
+                auto const state = env.le(ripple::keylet::hookState(
+                    aliceid, uint256::fromVoid(key), beast::zero));
                 BEAST_EXPECT(state);
             }
 
@@ -11167,8 +10820,8 @@ public:
 
             // check the state is still present
             {
-                auto const state = env.le(
-                    ripple::keylet::hookState(aliceid, keyx, beast::zero));
+                auto const state = env.le(ripple::keylet::hookState(
+                    aliceid, uint256::fromVoid(key), beast::zero));
                 BEAST_EXPECT(state);
             }
 
@@ -11380,7 +11033,7 @@ public:
                 ripple::test::jtx::hook(gary, {{hso(scaled_state_wasm)}}, 0);
             // jv[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = ns_str;
             jv[jss::Hooks][0U][jss::Hook][jss::HookOn] =
-                to_string(hook::UINT256_BIT[ttACCOUNT_SET]);
+                to_string(UINT256_BIT[ttACCOUNT_SET]);
             env(jv, M("Create scaled state hook"), HSFEE, ter(tesSUCCESS));
             env.close();
             EXPECT_HOOK_FEE(scaled_state, 227);
@@ -13469,7 +13122,7 @@ public:
                     0,0
                 )));
                 
-                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_AMM,
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_AMM,
                     SBUF(asset1), SBUF(asset2),
                     0,0
                 )));
@@ -13545,7 +13198,7 @@ public:
             M("set util_keylet"),
             HSFEE);
         env.close();
-        EXPECT_HOOK_FEE(hook, 1786);
+        EXPECT_HOOK_FEE(hook, 1546);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test util_keylet"), fee(XRP(1)));
@@ -15068,7 +14721,6 @@ public:
         testPageCap(features);
 
         testHookOnV2(features);
-        testHookName(features);
 
         testFillCopy(features);
 
@@ -15172,13 +14824,16 @@ public:
         using namespace test::jtx;
         static FeatureBitset const all{supported_amendments()};
 
-        static std::array<FeatureBitset, 6> const feats{
+        static std::array<FeatureBitset, 7> const feats{
             all,
-            all - fixNSDelete,
-            all - fixNSDelete - fixPageCap,
-            all - fixNSDelete - fixPageCap - featureHookCanEmit,
-            all - fixNSDelete - fixPageCap - featureExtendedHookState,
-            all - featureNamedHooks,
+            all - fixXahauV2,
+            all - fixXahauV1 - fixXahauV2,
+            all - fixXahauV1 - fixXahauV2 - fixNSDelete,
+            all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap,
+            all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap -
+                featureHookCanEmit,
+            all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap -
+                featureExtendedHookState,
         };
 
         if (BEAST_EXPECT(instance < feats.size()))
@@ -15191,7 +14846,6 @@ public:
     void
     run() override
     {
-        log << "Apparently equal!";
         run(0);
     }
 
@@ -15331,98 +14985,6 @@ private:
         )[test.hook]"];
 
     HASH_WASM(accept2);
-
-    // This hook is used to test Callback
-    TestHook emit_invoke_wasm =  // WASM: 7
-        wasm[
-            R"[test.hook](
-                #include <stdint.h>
-                extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-                extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-                extern int64_t emit     (uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
-                extern int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
-                extern int64_t etxn_reserve(uint32_t);
-                extern int64_t etxn_fee_base (uint32_t read_ptr, uint32_t read_len);
-                extern int64_t etxn_details (uint32_t write_ptr, uint32_t write_len);
-                extern int64_t ledger_seq (void);
-
-                #define SBUF(x) (uint32_t)x,sizeof(x)
-                // clang-format off
-                    uint8_t txn[229] =
-                    {
-                        /* size, upto, field name               */
-                        /*    3,    0, tt = Invoke              */   0x12U, 0x00U, 0x63U,
-                        /*    5,    3, flags                    */   0x22U, 0x00U, 0x00U, 0x00U, 0x00U,
-                        /*    5,    8, sequence                 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
-                        /*    6,   13, firstledgersequence      */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
-                        /*    6,   19, lastledgersequence       */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
-                        /*    9,   25, fee                      */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
-                        /*   35,   34, signingpubkey            */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                        /*   22,   69, account                  */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                        /*  116,   91, emit details             */ 
-                        /*    0,  229,                          */ 
-                    };
-                    // clang-format on
-
-                    // TX BUILDER
-                    #define FLAGS_OUT (txn + 4U)
-                    #define FLS_OUT (txn + 15U)
-                    #define LLS_OUT (txn + 21U)
-                    #define FEE_OUT (txn + 26U)
-                    #define ACCOUNT_OUT (txn + 71U)
-                    #define EMIT_OUT (txn + 91U)
-
-                    #define FLIP_ENDIAN_32(value)                                                  \
-                      (uint32_t)(((value & 0xFFU) << 24) | ((value & 0xFF00U) << 8) |              \
-                                  ((value & 0xFF0000U) >> 8) | ((value & 0xFF000000U) >> 24))
-
-                    #define SET_UINT32(ptr, value) *((uint32_t *)(ptr)) = FLIP_ENDIAN_32(value);
-
-                    #define SET_NATIVE_AMOUNT(ptr, amount)                                         \
-                      do {                                                                         \
-                        uint8_t *b = (ptr);                                                        \
-                        *b++ = 0b01000000 + ((amount >> 56) & 0b00111111);                         \
-                        *b++ = (amount >> 48) & 0xFFU;                                             \
-                        *b++ = (amount >> 40) & 0xFFU;                                             \
-                        *b++ = (amount >> 32) & 0xFFU;                                             \
-                        *b++ = (amount >> 24) & 0xFFU;                                             \
-                        *b++ = (amount >> 16) & 0xFFU;                                             \
-                        *b++ = (amount >> 8) & 0xFFU;                                              \
-                        *b++ = (amount >> 0) & 0xFFU;                                              \
-                      } while (0)
-
-                    #define PREPARE_TXN()                                                          \
-                      do {                                                                         \
-                        etxn_reserve(1);                                                           \
-                        uint32_t fls = (uint32_t)ledger_seq() + 1;                                 \
-                        SET_UINT32(FLS_OUT, fls);                                                  \
-                        SET_UINT32(LLS_OUT, fls + 4);                                              \
-                        hook_account(ACCOUNT_OUT, 20);                                             \
-                        etxn_details(EMIT_OUT, 138U);                                              \
-                        int64_t fee = etxn_fee_base(SBUF(txn));                                    \
-                        SET_NATIVE_AMOUNT(FEE_OUT, fee);                                           \
-                      } while (0)
-
-
-                    int64_t cbak(uint32_t r)
-                    {
-                        _g(1,1);
-                        return accept(0,0,0);
-                    }
-
-                    int64_t hook(uint32_t reserved)
-                    {
-                        _g(1,1);
-                        PREPARE_TXN(); 
-                        uint8_t emithash[32]; 
-                        int64_t emit_result = emit(SBUF(emithash), SBUF(txn)); 
-                        if (emit_result < 0)
-                            return rollback(SBUF("Emit failed."), __LINE__);
-                        return accept(SBUF("Emit succeeded."), __LINE__);
-                    }
-        )[test.hook]"];
-
-    HASH_WASM(emit_invoke);
 };
 
 #define SETHOOK_TEST(i, last)                      \
@@ -15439,7 +15001,8 @@ SETHOOK_TEST(1, false)
 SETHOOK_TEST(2, false)
 SETHOOK_TEST(3, false)
 SETHOOK_TEST(4, false)
-SETHOOK_TEST(5, true)
+SETHOOK_TEST(5, false)
+SETHOOK_TEST(6, true)
 
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook0, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook1, app, ripple, 2);
@@ -15447,6 +15010,7 @@ BEAST_DEFINE_TESTSUITE_PRIO(SetHook2, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook3, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook4, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook5, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHook6, app, ripple, 2);
 }  // namespace test
 }  // namespace ripple
 #undef M
