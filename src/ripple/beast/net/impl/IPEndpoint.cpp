@@ -58,12 +58,10 @@ Endpoint::from_string_checked(std::string_view s)
             return std::isspace(std::string_view::traits_type::to_int_type(c));
         };
 
-        s.remove_prefix(
-            std::distance(
-                s.begin(), std::find_if_not(s.begin(), s.end(), is_space)));
-        s.remove_suffix(
-            std::distance(
-                s.rbegin(), std::find_if_not(s.rbegin(), s.rend(), is_space)));
+        s.remove_prefix(std::distance(
+            s.begin(), std::find_if_not(s.begin(), s.end(), is_space)));
+        s.remove_suffix(std::distance(
+            s.rbegin(), std::find_if_not(s.rbegin(), s.rend(), is_space)));
 
         if (s.empty())
             return std::nullopt;
@@ -111,10 +109,9 @@ Endpoint::from_string_checked(std::string_view s)
 
         return Endpoint{
             make_address(s.substr(0, std::distance(s.begin(), sp))),
-            make_port(rest.substr(
-                std::distance(
-                    rest.begin(),
-                    std::find_if_not(rest.begin(), rest.end(), is_space))))};
+            make_port(rest.substr(std::distance(
+                rest.begin(),
+                std::find_if_not(rest.begin(), rest.end(), is_space))))};
     }
     catch (...)
     {

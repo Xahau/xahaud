@@ -64,8 +64,7 @@ private:
     std::string msg;
 
 public:
-    explicit BadLexicalCast(std::string m = {})
-        : msg(std::bad_cast::what())
+    explicit BadLexicalCast(std::string m = {}) : msg(std::bad_cast::what())
     {
         if (!m.empty())
             msg += ": " + m;
@@ -85,8 +84,7 @@ public:
 */
 template <class Out>
     requires std::is_integral_v<Out> && (!std::is_same_v<Out, bool>)
-[[nodiscard]] bool
-lexicalCastChecked(Out& out, std::string_view in) noexcept
+[[nodiscard]] bool lexicalCastChecked(Out& out, std::string_view in) noexcept
 {
     if (in.empty())
         return false;

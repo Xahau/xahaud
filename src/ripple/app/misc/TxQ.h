@@ -23,10 +23,10 @@
 #include <ripple/app/tx/applySteps.h>
 #include <ripple/ledger/ApplyView.h>
 #include <ripple/ledger/OpenView.h>
-#include <ripple/protocol/UintTypes.h>
 #include <ripple/protocol/STTx.h>
 #include <ripple/protocol/SeqProxy.h>
 #include <ripple/protocol/TER.h>
+#include <ripple/protocol/UintTypes.h>
 #include <boost/circular_buffer.hpp>
 #include <boost/intrusive/set.hpp>
 #include <optional>

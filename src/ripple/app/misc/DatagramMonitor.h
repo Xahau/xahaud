@@ -487,14 +487,14 @@ private:
         }
 
         return {counters, []() {
-            std::vector<std::pair<std::string, int>> result;
+                    std::vector<std::pair<std::string, int>> result;
 
-            for (auto const& c : countedObjects)
-                if (c.count())
-                    result.emplace_back(c.name(), c.count());
+                    for (auto const& c : countedObjects)
+                        if (c.count())
+                            result.emplace_back(c.name(), c.count());
 
-            return result;
-        }()};
+                    return result;
+                }()};
     }
 
     uint32_t
@@ -750,7 +750,8 @@ private:
         // trivial. we do not need to directly invoke it.
         std::vector<uint8_t> buffer(totalSize, 0);
 
-        static_assert(std::is_trivially_destructible_v<ServerInfoHeader>,
+        static_assert(
+            std::is_trivially_destructible_v<ServerInfoHeader>,
             "ServerInfoHeader must be trivially destructible");
 
         auto* header = new (buffer.data()) ServerInfoHeader{};

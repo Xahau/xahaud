@@ -687,8 +687,8 @@ RCLConsensus::Adaptor::doAccept(
 
         for (auto const& [t, v] : rawCloseTimes.peers)
         {
-            JLOG(j_.debug()) << v << " time votes for "
-                            << t.time_since_epoch().count();
+            JLOG(j_.debug())
+                << v << " time votes for " << t.time_since_epoch().count();
             closeCount += v;
             closeTotal +=
                 std::chrono::duration_cast<usec64_t>(t.time_since_epoch()) * v;

@@ -325,9 +325,8 @@ ServerHandlerImp::onWSMessage(
         jvResult[jss::value] = buffers_to_string(buffers);
         boost::beast::multi_buffer sb;
         Json::stream(jvResult, [&sb](auto const p, auto const n) {
-            sb.commit(
-                boost::asio::buffer_copy(
-                    sb.prepare(n), boost::asio::buffer(p, n)));
+            sb.commit(boost::asio::buffer_copy(
+                sb.prepare(n), boost::asio::buffer(p, n)));
         });
         JLOG(m_journal.trace()) << "Websocket sending '" << jvResult << "'";
         session->send(
@@ -347,9 +346,8 @@ ServerHandlerImp::onWSMessage(
             auto const s = to_string(jr);
             auto const n = s.length();
             boost::beast::multi_buffer sb(n);
-            sb.commit(
-                boost::asio::buffer_copy(
-                    sb.prepare(n), boost::asio::buffer(s.c_str(), n)));
+            sb.commit(boost::asio::buffer_copy(
+                sb.prepare(n), boost::asio::buffer(s.c_str(), n)));
             session->send(
                 std::make_shared<StreambufWSMsg<decltype(sb)>>(std::move(sb)));
             session->complete();
@@ -893,7 +891,11 @@ ServerHandlerImp::processRequest(
         else
         {
             role = requestRole(
-                required, port, Json::objectValue, remoteIPAddress.address(), user);
+                required,
+                port,
+                Json::objectValue,
+                remoteIPAddress.address(),
+                user);
         }
 
         Resource::Consumer usage;
@@ -1191,9 +1193,8 @@ ServerHandlerImp::processRequest(
 
     auto response = to_string(reply);
 
-    rpc_time_.notify(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::high_resolution_clock::now() - start));
+    rpc_time_.notify(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::high_resolution_clock::now() - start));
     ++rpc_requests_;
     rpc_size_.notify(beast::insight::Event::value_type{response.size()});
 

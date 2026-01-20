@@ -105,9 +105,7 @@ requestRole(
         return Role::FORBID;
 
     if (ipAllowed(
-            remoteIp,
-            port.secure_gateway_nets_v4,
-            port.secure_gateway_nets_v6))
+            remoteIp, port.secure_gateway_nets_v4, port.secure_gateway_nets_v6))
     {
         if (user.size())
             return Role::IDENTIFIED;
@@ -135,7 +133,8 @@ isUnlimited(
     beast::IP::Endpoint const& remoteIp,
     std::string const& user)
 {
-    return isUnlimited(requestRole(required, port, params, remoteIp.address(), user));
+    return isUnlimited(
+        requestRole(required, port, params, remoteIp.address(), user));
 }
 
 Resource::Consumer

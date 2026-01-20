@@ -125,8 +125,7 @@ struct slab_t
 
         @param next Pointer to the next block, or nullptr for the tail.
      */
-    constexpr explicit slab_t(slab_t* next) noexcept
-        : next_(next)
+    constexpr explicit slab_t(slab_t* next) noexcept : next_(next)
     {
     }
 
@@ -335,9 +334,9 @@ inline constinit slab_pool_t globalSlabPool;
     @tparam Align Alignment for allocated blocks (must be >= alignof(Type)).
  */
 template <typename Type, std::size_t Align = alignof(Type)>
-    requires (sizeof(Type) >= sizeof(void*) &&
-              Align >= alignof(Type) &&
-              std::has_single_bit(Align))
+    requires(
+        sizeof(Type) >= sizeof(void*) && Align >= alignof(Type) &&
+        std::has_single_bit(Align))
 class sized_allocator_t
 {
     /// Linked list of slabs for this allocator.
@@ -432,12 +431,13 @@ public:
         @param extra Extra bytes per item beyond sizeof(Type).
         @param minItems Minimum number of items per slab (rounded up to 2MB).
      */
-    constexpr explicit sized_allocator_t(std::size_t extra, std::size_t minItems)
+    constexpr explicit sized_allocator_t(
+        std::size_t extra,
+        std::size_t minItems)
         : itemSize_(boost::alignment::align_up(sizeof(Type) + extra, Align))
-        , slabSize_(
-              boost::alignment::align_up(
-                  itemSize_ * minItems,
-                  detail::pageSize))
+        , slabSize_(boost::alignment::align_up(
+              itemSize_ * minItems,
+              detail::pageSize))
     {
     }
 
@@ -527,7 +527,7 @@ public:
     @tparam Extra Extra bytes per item beyond sizeof(Type).
  */
 template <std::size_t MinItems, std::size_t Extra = 0>
-    requires (MinItems > 0)
+    requires(MinItems > 0)
 struct config
 {
     static constexpr std::size_t minItems = MinItems;
@@ -584,11 +584,10 @@ validate_slab_config()
     @tparam Configs Configuration types specifying each size class.
  */
 template <typename Type, std::size_t Align, SlabConfig... Configs>
-    requires (sizeof(Type) >= sizeof(void*) &&
-              Align >= alignof(Type) &&
-              std::has_single_bit(Align) &&
-              sizeof...(Configs) > 0 &&
-              validate_slab_config<Type, Align, Configs...>())
+    requires(
+        sizeof(Type) >= sizeof(void*) && Align >= alignof(Type) &&
+        std::has_single_bit(Align) && sizeof...(Configs) > 0 &&
+        validate_slab_config<Type, Align, Configs...>())
 class aligned_allocator_t
 {
     std::array<sized_allocator_t<Type, Align>, sizeof...(Configs)> allocators_;
@@ -596,8 +595,9 @@ class aligned_allocator_t
 public:
     /** Construct an allocator set. */
     constexpr aligned_allocator_t()
-        : allocators_{
-              sized_allocator_t<Type, Align>(Configs::extra, Configs::minItems)...}
+        : allocators_{sized_allocator_t<Type, Align>(
+              Configs::extra,
+              Configs::minItems)...}
     {
     }
 

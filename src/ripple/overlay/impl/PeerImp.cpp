@@ -1833,9 +1833,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProofPathRequest> const& m)
                 }
                 else
                 {
-                    peer->send(
-                        std::make_shared<Message>(
-                            reply, protocol::mtPROOF_PATH_RESPONSE));
+                    peer->send(std::make_shared<Message>(
+                        reply, protocol::mtPROOF_PATH_RESPONSE));
                 }
             }
         });
@@ -1883,9 +1882,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMReplayDeltaRequest> const& m)
                 }
                 else
                 {
-                    peer->send(
-                        std::make_shared<Message>(
-                            reply, protocol::mtREPLAY_DELTA_RESPONSE));
+                    peer->send(std::make_shared<Message>(
+                        reply, protocol::mtREPLAY_DELTA_RESPONSE));
                 }
             }
         });
@@ -3058,9 +3056,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMHaveTransactions> const& m)
                     << "transaction request object is " << tmBH.objects_size();
 
                 if (tmBH.objects_size() > 0)
-                    peer->send(
-                        std::make_shared<Message>(
-                            tmBH, protocol::mtGET_OBJECTS));
+                    peer->send(std::make_shared<Message>(
+                        tmBH, protocol::mtGET_OBJECTS));
             }
         });
 }
@@ -3379,9 +3376,8 @@ PeerImp::getLedger(std::shared_ptr<protocol::TMGetLedger> const& m)
                             this))
                     {
                         m->set_requestcookie(id());
-                        peer->send(
-                            std::make_shared<Message>(
-                                *m, protocol::mtGET_LEDGER));
+                        peer->send(std::make_shared<Message>(
+                            *m, protocol::mtGET_LEDGER));
                         JLOG(p_journal_.debug())
                             << "getLedger: Request relayed to peer";
                         return ledger;
@@ -3469,7 +3465,8 @@ PeerImp::getTxSet(std::shared_ptr<protocol::TMGetLedger> const& m) const
                 m->set_requestcookie(id());
                 peer->send(
                     std::make_shared<Message>(*m, protocol::mtGET_LEDGER));
-                JLOG(p_journal_.debug()) << "getTxSet: Request relayed (" << peer->id() << ")";
+                JLOG(p_journal_.debug())
+                    << "getTxSet: Request relayed (" << peer->id() << ")";
             }
         }
     }

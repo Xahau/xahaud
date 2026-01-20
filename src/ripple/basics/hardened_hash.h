@@ -83,11 +83,9 @@ public:
     using result_type = HashAlgorithm::result_type;
 
     hardened_hash() noexcept
-        : seed_(
-              beast::fmix64(
-                  detail::hardened_hash_seed.fetch_add(
-                      1,
-                      std::memory_order_relaxed)))
+        : seed_(beast::fmix64(detail::hardened_hash_seed.fetch_add(
+              1,
+              std::memory_order_relaxed)))
     {
     }
 

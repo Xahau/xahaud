@@ -27,19 +27,29 @@ namespace Json {
 
 namespace {
 
-constexpr std::string_view escapeSpecialChar(char c) noexcept
+constexpr std::string_view
+escapeSpecialChar(char c) noexcept
 {
     switch (c)
     {
-        case '"':  return "\\\"";
-        case '\\': return "\\\\";
-        case '/':  return "\\/";
-        case '\b': return "\\b";
-        case '\f': return "\\f";
-        case '\n': return "\\n";
-        case '\r': return "\\r";
-        case '\t': return "\\t";
-        default:   return {};
+        case '"':
+            return "\\\"";
+        case '\\':
+            return "\\\\";
+        case '/':
+            return "\\/";
+        case '\b':
+            return "\\b";
+        case '\f':
+            return "\\f";
+        case '\n':
+            return "\\n";
+        case '\r':
+            return "\\r";
+        case '\t':
+            return "\\t";
+        default:
+            return {};
     }
 }
 
@@ -123,14 +133,17 @@ public:
             if (auto esc = escapeSpecialChar(*p); !esc.empty())
             {
                 if (writtenUntil < p)
-                    output_({writtenUntil, static_cast<std::size_t>(p - writtenUntil)});
+                    output_(
+                        {writtenUntil,
+                         static_cast<std::size_t>(p - writtenUntil)});
                 output_({esc.data(), esc.size()});
                 writtenUntil = p + 1;
             }
         }
 
         if (writtenUntil < end)
-            output_({writtenUntil, static_cast<std::size_t>(end - writtenUntil)});
+            output_(
+                {writtenUntil, static_cast<std::size_t>(end - writtenUntil)});
 
         output_({&quote, 1});
     }
@@ -290,7 +303,8 @@ Writer::output(double f)
     impl_->output({s.data(), lengthWithoutTrailingZeros(s)});
 }
 
-void Writer::output(std::nullptr_t)
+void
+Writer::output(std::nullptr_t)
 {
     impl_->output("null");
 }

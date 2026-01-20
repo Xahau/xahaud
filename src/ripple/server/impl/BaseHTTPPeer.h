@@ -220,9 +220,8 @@ BaseHTTPPeer<Handler, Impl>::BaseHTTPPeer(
     , remote_address_(remote_address)
     , journal_(journal)
 {
-    read_buf_.commit(
-        boost::asio::buffer_copy(
-            read_buf_.prepare(boost::asio::buffer_size(buffers)), buffers));
+    read_buf_.commit(boost::asio::buffer_copy(
+        read_buf_.prepare(boost::asio::buffer_size(buffers)), buffers));
     JLOG(journal_.trace()) << id_
                            << ": accept:    " << remote_address_.address();
 }
@@ -266,10 +265,9 @@ void
 BaseHTTPPeer<Handler, Impl>::start_timer()
 {
     boost::beast::get_lowest_layer(impl().stream_)
-        .expires_after(
-            std::chrono::seconds(
-                remote_address_.address().is_loopback() ? timeoutSecondsLocal
-                                                        : timeoutSeconds));
+        .expires_after(std::chrono::seconds(
+            remote_address_.address().is_loopback() ? timeoutSecondsLocal
+                                                    : timeoutSeconds));
 }
 
 // Convenience for discarding the error code

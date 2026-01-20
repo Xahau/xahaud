@@ -61,8 +61,7 @@ class GetCounts_test : public beast::unit_test::suite
             env.close();
         }
 
-        auto getCountedObjects = [](int minimumCount)
-        {
+        auto getCountedObjects = [](int minimumCount) {
             std::vector<std::pair<std::string, int>> result;
 
             for (auto const& c : countedObjects)
@@ -79,7 +78,9 @@ class GetCounts_test : public beast::unit_test::suite
             for (auto const& it : getCountedObjects(10))
             {
                 BEAST_EXPECTS(result.isMember(it.first), it.first);
-                BEAST_EXPECTS(result[it.first][jss::current].asInt() == it.second, it.first);
+                BEAST_EXPECTS(
+                    result[it.first][jss::current].asInt() == it.second,
+                    it.first);
             }
             BEAST_EXPECT(!result.isMember(jss::local_txs));
         }
@@ -92,7 +93,9 @@ class GetCounts_test : public beast::unit_test::suite
             for (auto const& it : getCountedObjects(100))
             {
                 BEAST_EXPECTS(result.isMember(it.first), it.first);
-                BEAST_EXPECTS(result[it.first][jss::current].asInt() == it.second, it.first);
+                BEAST_EXPECTS(
+                    result[it.first][jss::current].asInt() == it.second,
+                    it.first);
             }
             BEAST_EXPECT(!result.isMember("Transaction"));
             BEAST_EXPECT(!result.isMember("STTx"));

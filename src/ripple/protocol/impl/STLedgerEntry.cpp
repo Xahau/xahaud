@@ -138,7 +138,8 @@ STLedgerEntry::thread(
 {
     uint256 oldPrevTxID = getFieldH256(sfPreviousTxnID);
 
-    //JLOG(debugLog().info()) << "Thread Tx:" << txID << " prev:" << oldPrevTxID;
+    // JLOG(debugLog().info()) << "Thread Tx:" << txID << " prev:" <<
+    // oldPrevTxID;
 
     if (oldPrevTxID == txID)
     {

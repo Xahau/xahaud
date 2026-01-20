@@ -72,7 +72,7 @@ Value::CZString::CZString(std::string_view s)
 {
 }
 
-Value::CZString::CZString(CZString const & other)
+Value::CZString::CZString(CZString const& other)
     : data_(
           other.isStatic()
               ? other.data_
@@ -81,7 +81,8 @@ Value::CZString::CZString(CZString const & other)
 {
 }
 
-Value::CZString& Value::CZString::operator=(CZString const & other)
+Value::CZString&
+Value::CZString::operator=(CZString const& other)
 {
     if (this != &other)
     {
@@ -97,7 +98,8 @@ Value::CZString& Value::CZString::operator=(CZString const & other)
     return *this;
 }
 
-Value::CZString& Value::CZString::operator=(CZString&& other) noexcept
+Value::CZString&
+Value::CZString::operator=(CZString&& other) noexcept
 {
     if (this != &other)
     {
@@ -321,8 +323,7 @@ Value::Value(Value const& other)
     }
 }
 
-Value::Value(Value&& other) noexcept
-    : data_(other.data_)
+Value::Value(Value&& other) noexcept : data_(other.data_)
 {
     other.data_.type = type_null;
 }
@@ -456,8 +457,7 @@ Value::asInt() const
     switch (data_.type)
     {
         case type_int:
-        case type_uint:
-        {
+        case type_uint: {
             auto v = as<std::int64_t>();
             JSON_ASSERT_MESSAGE(
                 v >= minInt && v <= maxInt,
@@ -465,12 +465,10 @@ Value::asInt() const
             return static_cast<Int>(v);
         }
 
-        case type_real:
-        {
+        case type_real: {
             auto v = as<double>();
             JSON_ASSERT_MESSAGE(
-                v >= minInt && v <= maxInt,
-                "Real out of signed integer range");
+                v >= minInt && v <= maxInt, "Real out of signed integer range");
             return static_cast<Int>(v);
         }
 
@@ -505,8 +503,7 @@ Value::asUInt() const
     switch (data_.type)
     {
         case type_int:
-        case type_uint:
-        {
+        case type_uint: {
             auto v = as<std::int64_t>();
             JSON_ASSERT_MESSAGE(
                 v >= 0 && static_cast<std::uint64_t>(v) <= maxUInt,
@@ -514,8 +511,7 @@ Value::asUInt() const
             return static_cast<UInt>(v);
         }
 
-        case type_real:
-        {
+        case type_real: {
             auto v = as<double>();
             JSON_ASSERT_MESSAGE(
                 v >= 0 && v <= maxUInt, "Real out of unsigned integer range");
@@ -698,24 +694,21 @@ Value::isConvertibleTo(ValueType other) const noexcept
 
     switch (data_.type)
     {
-        case type_int:
-        {
+        case type_int: {
             auto v = as<std::int64_t>();
             return (other == nullValue && v == 0) ||
                 (other == uintValue && v >= 0) || other == realValue ||
                 other == stringValue || other == booleanValue;
         }
 
-        case type_uint:
-        {
+        case type_uint: {
             auto v = as<std::int64_t>();
             return (other == nullValue && v == 0) ||
                 (other == intValue && v <= maxInt) || other == realValue ||
                 other == stringValue || other == booleanValue;
         }
 
-        case type_real:
-        {
+        case type_real: {
             auto v = as<double>();
             return (other == nullValue && v == 0.0) ||
                 (other == intValue && v >= minInt && v <= maxInt) ||

@@ -85,7 +85,9 @@ public:
             return;
         if (!BEAST_EXPECT(result->address().is_v4()))
             return;
-        if (!BEAST_EXPECT(result->address().to_v4() == boost::asio::ip::address_v4{value}))
+        if (!BEAST_EXPECT(
+                result->address().to_v4() ==
+                boost::asio::ip::address_v4{value}))
             return;
 
         BEAST_EXPECT(result->port() == p);
@@ -104,7 +106,9 @@ public:
             return;
         if (!BEAST_EXPECT(result->address().is_v6()))
             return;
-        if (!BEAST_EXPECT(result->address().to_v6() == boost::asio::ip::address_v6{value}))
+        if (!BEAST_EXPECT(
+                result->address().to_v6() ==
+                boost::asio::ip::address_v6{value}))
             return;
 
         BEAST_EXPECT(result->port() == p);

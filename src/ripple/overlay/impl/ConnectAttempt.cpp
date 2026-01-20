@@ -44,10 +44,9 @@ ConnectAttempt::ConnectAttempt(
     , usage_(usage)
     , strand_(io_service)
     , timer_(io_service)
-    , stream_ptr_(
-          std::make_unique<stream_type>(
-              socket_type(std::forward<boost::asio::io_service&>(io_service)),
-              *context))
+    , stream_ptr_(std::make_unique<stream_type>(
+          socket_type(std::forward<boost::asio::io_service&>(io_service)),
+          *context))
     , socket_(stream_ptr_->next_layer().socket())
     , stream_(*stream_ptr_)
     , slot_(slot)

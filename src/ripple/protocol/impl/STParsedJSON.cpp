@@ -918,7 +918,8 @@ parseArray(
             auto ret = parseObject(name, *it, nameField, depth + 1, error);
             if (!ret)
             {
-                error["error_message"] = "Error at '" + name + "'. " + error["error_message"].asString();
+                error["error_message"] = "Error at '" + name + "'. " +
+                    error["error_message"].asString();
                 return std::nullopt;
             }
 

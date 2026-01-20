@@ -326,7 +326,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 BEAST_EXPECT(
                     (first == 'r' && !!parseBase58<AccountID>(rn)) ||
                     (first == 'n' &&
-                        !!parseBase58<PublicKey>(TokenType::NodePublic, rn)));
+                     !!parseBase58<PublicKey>(TokenType::NodePublic, rn)));
 
                 if (first == 'r')
                 {
@@ -362,7 +362,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 BEAST_EXPECT(
                     (first == 'r' && !!parseBase58<AccountID>(rn)) ||
                     (first == 'n' &&
-                        !!parseBase58<PublicKey>(TokenType::NodePublic, rn)));
+                     !!parseBase58<PublicKey>(TokenType::NodePublic, rn)));
 
                 if (first == 'r')
                 {

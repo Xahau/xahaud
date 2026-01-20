@@ -23,8 +23,8 @@
 #include <ripple/app/ledger/Ledger.h>
 #include <ripple/consensus/Validations.h>
 #include <ripple/protocol/Protocol.h>
-#include <ripple/protocol/UintTypes.h>
 #include <ripple/protocol/STValidation.h>
+#include <ripple/protocol/UintTypes.h>
 #include <optional>
 #include <set>
 #include <vector>

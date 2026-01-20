@@ -269,12 +269,14 @@ private:
 
         LoadMonitor load;
 
-        Data(JobTypeInfo const& info,
-             beast::insight::Collector::ptr const& collector,
-             Logs& logs)
-            : load(info.averageLatency,
-                   info.peakLatency,
-                   logs.journal("LoadMonitor"))
+        Data(
+            JobTypeInfo const& info,
+            beast::insight::Collector::ptr const& collector,
+            Logs& logs)
+            : load(
+                  info.averageLatency,
+                  info.peakLatency,
+                  logs.journal("LoadMonitor"))
         {
             if (!info.special())
             {
@@ -284,9 +286,11 @@ private:
         }
 
         Data(Data const&) = delete;
-        Data& operator=(Data const&) = delete;
+        Data&
+        operator=(Data const&) = delete;
         Data(Data&&) = delete;
-        Data& operator=(Data&&) = delete;
+        Data&
+        operator=(Data&&) = delete;
     };
 
     beast::Journal journal_;
@@ -295,12 +299,7 @@ private:
     std::set<Job> jobSet_;
     JobCounter jobCounter_;
 
-    enum class state : std::uint8_t
-    {
-        running = 0,
-        stopping = 1,
-        stopped = 2
-    };
+    enum class state : std::uint8_t { running = 0, stopping = 1, stopped = 2 };
 
     std::atomic<state> state_ = state::running;
 
@@ -335,10 +334,7 @@ private:
     //
     //    return true if func added to queue.
     bool
-    addRefCountedJob(
-        JobType type,
-        std::string const& name,
-        JobFunction func);
+    addRefCountedJob(JobType type, std::string const& name, JobFunction func);
 
     // Runs the next appropriate waiting Job.
     //

@@ -238,7 +238,8 @@ getAllocator();
 class Value
 {
 public:
-    /** Key type for object members: a wrapper around a pointer to a C string. */
+    /** Key type for object members: a wrapper around a pointer to a C string.
+     */
     class CZString
     {
         static constexpr std::uintptr_t static_flag = std::uintptr_t{1} << 63;
@@ -258,7 +259,9 @@ public:
         std::uintptr_t data_;
 
     public:
-        CZString() noexcept : data_(static_flag) {}
+        CZString() noexcept : data_(static_flag)
+        {
+        }
 
         CZString(StaticString s) noexcept
             : data_(reinterpret_cast<std::uintptr_t>(s.c_str()) | static_flag)
@@ -267,7 +270,9 @@ public:
 
         CZString(std::string_view s);
 
-        CZString(char const* s) : CZString(std::string_view(s ? s : "")) {}
+        CZString(char const* s) : CZString(std::string_view(s ? s : ""))
+        {
+        }
 
         CZString(const CZString& other);
         CZString&
@@ -279,7 +284,8 @@ public:
         }
 
         ~CZString();
-        CZString& operator=(CZString&& other) noexcept;
+        CZString&
+        operator=(CZString&& other) noexcept;
 
         [[nodiscard]] char const*
         c_str() const noexcept
@@ -296,7 +302,8 @@ public:
         [[nodiscard]] std::strong_ordering
         operator<=>(const CZString& other) const
         {
-            return std::string_view(c_str()) <=> std::string_view(other.c_str());
+            return std::string_view(c_str()) <=>
+                std::string_view(other.c_str());
         }
 
         [[nodiscard]] bool
@@ -353,7 +360,8 @@ private:
     static constexpr std::uint8_t type_null = 9;
     static constexpr std::uint8_t type_destroyed = 10;
 
-    static_assert(type_ssoString == 0,
+    static_assert(
+        type_ssoString == 0,
         "JSON SSO support requires type_ssoString to be 0");
 
 public:
@@ -451,12 +459,12 @@ public:
     Value&
     operator=(Value&& other) noexcept;
 
-//     /** Swap values.
-//
-//         @param other The value to swap with.
-//      */
-//     void
-//     swap(Value& other) noexcept;
+    //     /** Swap values.
+    //
+    //         @param other The value to swap with.
+    //      */
+    //     void
+    //     swap(Value& other) noexcept;
 
     /** Returns the type of the held value.
 
@@ -617,7 +625,6 @@ public:
     {
         return append(Value(value));
     }
-
 
     /** Access an object member by key.
 
@@ -804,59 +811,71 @@ static_assert(sizeof(Value) == 16, "Value must be exactly 16 bytes");
 static_assert(alignof(Value) == 8, "Value alignment mismatch");
 
 // Define storage types now that Value is complete
-struct Value::ArrayStorage
-    : std::map<ArrayIndex, Value>
+struct Value::ArrayStorage : std::map<ArrayIndex, Value>
 {
     using map::map;
 
-    std::partial_ordering operator<=>(const ArrayStorage& other) const noexcept
+    std::partial_ordering
+    operator<=>(const ArrayStorage& other) const noexcept
     {
         return std::lexicographical_compare_three_way(
             begin(),
             end(),
             other.begin(),
             other.end(),
-            [](const value_type& a, const value_type& b) -> std::partial_ordering {
+            [](const value_type& a,
+               const value_type& b) -> std::partial_ordering {
                 if (auto cmp = a.first <=> b.first; cmp != 0)
                     return cmp;
                 return a.second <=> b.second;
             });
     }
 
-    bool operator==(const ArrayStorage& other) const noexcept
+    bool
+    operator==(const ArrayStorage& other) const noexcept
     {
         return size() == other.size() &&
-            std::equal(begin(), end(), other.begin(), [](const value_type& a, const value_type& b) {
-                return a.first == b.first && a.second == b.second;
-            });
+            std::equal(
+                   begin(),
+                   end(),
+                   other.begin(),
+                   [](const value_type& a, const value_type& b) {
+                       return a.first == b.first && a.second == b.second;
+                   });
     }
 };
 
-struct Value::ObjectStorage
-    : std::map<CZString, Value, std::less<>>
+struct Value::ObjectStorage : std::map<CZString, Value, std::less<>>
 {
     using map::map;
 
-    std::partial_ordering operator<=>(const ObjectStorage& other) const noexcept
+    std::partial_ordering
+    operator<=>(const ObjectStorage& other) const noexcept
     {
         return std::lexicographical_compare_three_way(
             begin(),
             end(),
             other.begin(),
             other.end(),
-            [](const value_type& a, const value_type& b) -> std::partial_ordering {
+            [](const value_type& a,
+               const value_type& b) -> std::partial_ordering {
                 if (auto cmp = a.first <=> b.first; cmp != 0)
                     return cmp;
                 return a.second <=> b.second;
             });
     }
 
-    bool operator==(const ObjectStorage& other) const noexcept
+    bool
+    operator==(const ObjectStorage& other) const noexcept
     {
         return size() == other.size() &&
-            std::equal(begin(), end(), other.begin(), [](const value_type& a, const value_type& b) {
-                return a.first == b.first && a.second == b.second;
-            });
+            std::equal(
+                   begin(),
+                   end(),
+                   other.begin(),
+                   [](const value_type& a, const value_type& b) {
+                       return a.first == b.first && a.second == b.second;
+                   });
     }
 };
 
@@ -892,9 +911,10 @@ public:
         requires(IsConst && !OtherConst)
     ValueIteratorImpl(ValueIteratorImpl<OtherConst> const& other)
         : current_(std::visit(
-              [](const auto& it) -> decltype(current_)
-              {
-                  if constexpr (std::is_same_v<std::decay_t<decltype(it)>, std::monostate>)
+              [](const auto& it) -> decltype(current_) {
+                  if constexpr (std::is_same_v<
+                                    std::decay_t<decltype(it)>,
+                                    std::monostate>)
                       return std::monostate{};
                   else
                       return it;
@@ -913,9 +933,10 @@ public:
     operator++()
     {
         std::visit(
-            [](auto& it)
-            {
-                if constexpr (!std::is_same_v<std::decay_t<decltype(it)>, std::monostate>)
+            [](auto& it) {
+                if constexpr (!std::is_same_v<
+                                  std::decay_t<decltype(it)>,
+                                  std::monostate>)
                     ++it;
             },
             current_);
@@ -926,9 +947,10 @@ public:
     operator--()
     {
         std::visit(
-            [](auto& it)
-            {
-                if constexpr (!std::is_same_v<std::decay_t<decltype(it)>, std::monostate>)
+            [](auto& it) {
+                if constexpr (!std::is_same_v<
+                                  std::decay_t<decltype(it)>,
+                                  std::monostate>)
                     --it;
             },
             current_);
@@ -955,9 +977,10 @@ public:
     operator*() const
     {
         return std::visit(
-            [](const auto& it) -> reference
-            {
-                if constexpr (std::is_same_v<std::decay_t<decltype(it)>, std::monostate>)
+            [](const auto& it) -> reference {
+                if constexpr (std::is_same_v<
+                                  std::decay_t<decltype(it)>,
+                                  std::monostate>)
                     std::terminate();
                 else
                     return it->second;
@@ -975,9 +998,10 @@ public:
     memberName() const
     {
         return std::visit(
-            [](const auto& it) -> char const*
-            {
-                if constexpr (std::is_same_v<std::decay_t<decltype(it)>, ObjectIterator>)
+            [](const auto& it) -> char const* {
+                if constexpr (std::is_same_v<
+                                  std::decay_t<decltype(it)>,
+                                  ObjectIterator>)
                     return it->first.c_str();
                 else
                     return "";
@@ -989,11 +1013,14 @@ public:
     key() const
     {
         return std::visit(
-            [](const auto& it) -> Value
-            {
-                if constexpr (std::is_same_v<std::decay_t<decltype(it)>, ArrayIterator>)
+            [](const auto& it) -> Value {
+                if constexpr (std::is_same_v<
+                                  std::decay_t<decltype(it)>,
+                                  ArrayIterator>)
                     return Value(it->first);
-                else if constexpr (std::is_same_v<std::decay_t<decltype(it)>, ObjectIterator>)
+                else if constexpr (std::is_same_v<
+                                       std::decay_t<decltype(it)>,
+                                       ObjectIterator>)
                 {
                     if (it->first.isStatic())
                         return Value(StaticString(it->first.c_str()));

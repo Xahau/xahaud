@@ -32,8 +32,8 @@
 #include <ripple/consensus/Consensus.h>
 #include <ripple/core/JobQueue.h>
 #include <ripple/overlay/Message.h>
-#include <ripple/protocol/UintTypes.h>
 #include <ripple/protocol/STValidation.h>
+#include <ripple/protocol/UintTypes.h>
 #include <ripple/shamap/SHAMap.h>
 #include <atomic>
 #include <mutex>

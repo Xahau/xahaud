@@ -21,9 +21,9 @@
 #define RIPPLE_APP_MISC_CANONICALTXSET_H_INCLUDED
 
 #include <ripple/basics/CountedObject.h>
-#include <ripple/protocol/UintTypes.h>
 #include <ripple/protocol/STTx.h>
 #include <ripple/protocol/SeqProxy.h>
+#include <ripple/protocol/UintTypes.h>
 
 namespace ripple {
 

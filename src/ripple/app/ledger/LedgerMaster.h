@@ -34,8 +34,8 @@
 #include <ripple/basics/chrono.h>
 #include <ripple/beast/insight/Collector.h>
 #include <ripple/protocol/Protocol.h>
-#include <ripple/protocol/UintTypes.h>
 #include <ripple/protocol/STValidation.h>
+#include <ripple/protocol/UintTypes.h>
 #include <ripple/protocol/messages.h>
 #include <optional>
 

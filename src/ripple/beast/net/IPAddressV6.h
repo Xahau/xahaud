@@ -41,9 +41,7 @@ is_private(boost::asio::ip::address_v6 const& addr)
 [[nodiscard]] inline bool
 is_public(boost::asio::ip::address_v6 const& addr)
 {
-    return !is_private(addr) &&
-           !addr.is_multicast() &&
-           !addr.is_unspecified();
+    return !is_private(addr) && !addr.is_multicast() && !addr.is_unspecified();
 }
 
 }  // namespace IP

@@ -63,7 +63,7 @@ spin_pause() noexcept
     @return true if the lock was acquired, false if it was already held.
  */
 template <typename T>
-    requires (std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free)
+    requires(std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free)
 [[nodiscard]] bool
 spin_try_lock(std::atomic<T>& lock) noexcept
 {
@@ -85,7 +85,7 @@ spin_try_lock(std::atomic<T>& lock) noexcept
     @param lock The atomic variable used as the lock.
  */
 template <typename T>
-    requires (std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free)
+    requires(std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free)
 void
 spin_lock(std::atomic<T>& lock) noexcept
 {
@@ -110,7 +110,7 @@ spin_lock(std::atomic<T>& lock) noexcept
     @param lock The atomic variable used as the lock.
  */
 template <typename T>
-    requires (std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free)
+    requires(std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free)
 void
 spin_unlock(std::atomic<T>& lock) noexcept
 {
@@ -134,7 +134,7 @@ spin_unlock(std::atomic<T>& lock) noexcept
         https://en.cppreference.com/w/cpp/named_req/Lockable
  */
 template <typename T>
-    requires (std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free)
+    requires(std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free)
 class spinlock
 {
     std::atomic<T>& lock_;
@@ -206,12 +206,12 @@ public:
         https://en.cppreference.com/w/cpp/named_req/Lockable
  */
 template <typename T>
-    requires (std::is_unsigned_v<T> &&
-              std::atomic<T>::is_always_lock_free &&
-              requires(std::atomic<T>& a, T v) {
-                  { a.fetch_or(v) } -> std::same_as<T>;
-                  { a.fetch_and(v) } -> std::same_as<T>;
-              })
+    requires(
+        std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free &&
+        requires(std::atomic<T>& a, T v) {
+            { a.fetch_or(v) } -> std::same_as<T>;
+            { a.fetch_and(v) } -> std::same_as<T>;
+        })
 class packed_spinlock
 {
     std::atomic<T>& bits_;

@@ -40,7 +40,8 @@ public:
             return count_.load();
         }
 
-        int max() const noexcept
+        int
+        max() const noexcept
         {
             return std::max(count_.load(), maxCount_.load());
         }
@@ -69,25 +70,38 @@ public:
         using difference_type = std::ptrdiff_t;
         using iterator_category = std::forward_iterator_tag;
 
-        explicit Iterator(Counter* c = nullptr) noexcept : current_(c) {}
+        explicit Iterator(Counter* c = nullptr) noexcept : current_(c)
+        {
+        }
 
-        reference operator*() const noexcept { return *current_; }
-        pointer operator->() const noexcept { return current_; }
+        reference
+        operator*() const noexcept
+        {
+            return *current_;
+        }
+        pointer
+        operator->() const noexcept
+        {
+            return current_;
+        }
 
-        Iterator& operator++() noexcept
+        Iterator&
+        operator++() noexcept
         {
             current_ = current_->next_;
             return *this;
         }
 
-        Iterator operator++(int) noexcept
+        Iterator
+        operator++(int) noexcept
         {
             auto tmp = *this;
             ++*this;
             return tmp;
         }
 
-        bool operator==(Iterator const&) const noexcept = default;
+        bool
+        operator==(Iterator const&) const noexcept = default;
 
     private:
         Counter* current_;
@@ -95,8 +109,16 @@ public:
 
     constexpr CountedObjects() noexcept = default;
 
-    auto begin() const noexcept { return Iterator{head_.load()}; }
-    auto end() const noexcept { return Iterator{}; }
+    auto
+    begin() const noexcept
+    {
+        return Iterator{head_.load()};
+    }
+    auto
+    end() const noexcept
+    {
+        return Iterator{};
+    }
 
 private:
     friend class Counter;
@@ -122,17 +144,26 @@ class CountedObject
     static CountedObjects::Counter counter_;
 
 public:
-    CountedObject() noexcept { counter_.increment(); }
-    CountedObject(CountedObject const&) noexcept { counter_.increment(); }
-    CountedObject& operator=(CountedObject const&) noexcept = default;
-    ~CountedObject() noexcept { counter_.decrement(); }
+    CountedObject() noexcept
+    {
+        counter_.increment();
+    }
+    CountedObject(CountedObject const&) noexcept
+    {
+        counter_.increment();
+    }
+    CountedObject&
+    operator=(CountedObject const&) noexcept = default;
+    ~CountedObject() noexcept
+    {
+        counter_.decrement();
+    }
 };
 
 // Instantiation of the static CountedObject<T>::counter_
 template <class Object>
 CountedObjects::Counter CountedObject<Object>::counter_{
-    beast::type_name<Object>()
-};
+    beast::type_name<Object>()};
 
 }  // namespace ripple
 

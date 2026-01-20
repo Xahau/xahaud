@@ -34,9 +34,9 @@ JobQueue::JobQueue(
     perf::PerfLog& perfLog)
     : journal_(journal)
     , data_([&]<std::size_t... I>(std::index_sequence<I...>) {
-          return std::array<Data, sizeof...(I)>{
-              Data{jobTypes[I], collector, logs}...};
-      }(std::make_index_sequence<jobTypes.size()>()))
+        return std::array<Data, sizeof...(I)>{
+            Data{jobTypes[I], collector, logs}...};
+    }(std::make_index_sequence<jobTypes.size()>()))
     , workers_(*this, "JobQueue", threadCount)
     , perfLog_(perfLog)
     , collector_(collector)
@@ -148,9 +148,8 @@ JobQueue::addLoadEvents(JobType t, int count, std::chrono::milliseconds elapsed)
 bool
 JobQueue::isOverloaded()
 {
-    return std::any_of(data_.begin(), data_.end(), [](auto& d) {
-        return d.load.isOver();
-    });
+    return std::any_of(
+        data_.begin(), data_.end(), [](auto& d) { return d.load.isOver(); });
 }
 
 Json::Value
@@ -218,9 +217,8 @@ JobQueue::rendezvous()
 void
 JobQueue::stop()
 {
-    if (state expected = state::running;
-        !state_.compare_exchange_strong(expected, state::stopping,
-            std::memory_order_acq_rel))
+    if (state expected = state::running; !state_.compare_exchange_strong(
+            expected, state::stopping, std::memory_order_acq_rel))
     {
         while (state_.load(std::memory_order_acquire) != state::stopped)
             std::this_thread::yield();
@@ -232,10 +230,10 @@ JobQueue::stop()
     // All jobs have finished executing (i.e. returned from `Job::doJob`) and
     // no more are being accepted, but there may still be some threads between
     // the return of `Job::doJob` and the return of `JobQueue::processTask`.
-    // That is why we must wait on the condition variable to make these assertions.
+    // That is why we must wait on the condition variable to make these
+    // assertions.
     std::unique_lock lock(mutex_);
-    cv_.wait(
-        lock, [this] { return activeThreads_ == 0 && jobSet_.empty(); });
+    cv_.wait(lock, [this] { return activeThreads_ == 0 && jobSet_.empty(); });
 
     assert(activeThreads_ == 0);
     assert(jobSet_.empty());
