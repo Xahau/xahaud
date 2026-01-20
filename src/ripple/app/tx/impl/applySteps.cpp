@@ -33,6 +33,7 @@
 #include <ripple/app/tx/impl/DeleteAccount.h>
 #include <ripple/app/tx/impl/DepositPreauth.h>
 #include <ripple/app/tx/impl/Escrow.h>
+#include <ripple/app/tx/impl/ExportSign.h>
 #include <ripple/app/tx/impl/GenesisMint.h>
 #include <ripple/app/tx/impl/Import.h>
 #include <ripple/app/tx/impl/Invoke.h>
@@ -147,16 +148,17 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<CreateTicket>(ctx);
         case ttTRUST_SET:
             return invoke_preflight_helper<SetTrust>(ctx);
-        //@@start export-sign-preflight
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
+        //@@start export-preflight
         case ttEXPORT:
-        case ttEXPORT_SIGN:
             return invoke_preflight_helper<Change>(ctx);
-        //@@end export-sign-preflight
+        case ttEXPORT_SIGN:
+            return invoke_preflight_helper<ExportSign>(ctx);
+        //@@end export-preflight
         case ttHOOK_SET:
             return invoke_preflight_helper<SetHook>(ctx);
         case ttNFTOKEN_MINT:
@@ -282,16 +284,17 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<SetTrust>(ctx);
         case ttHOOK_SET:
             return invoke_preclaim<SetHook>(ctx);
-        //@@start export-sign-preclaim
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
+        //@@start export-preclaim
         case ttEXPORT:
-        case ttEXPORT_SIGN:
             return invoke_preclaim<Change>(ctx);
-        //@@end export-sign-preclaim
+        case ttEXPORT_SIGN:
+            return invoke_preclaim<ExportSign>(ctx);
+        //@@end export-preclaim
         case ttNFTOKEN_MINT:
             return invoke_preclaim<NFTokenMint>(ctx);
         case ttNFTOKEN_BURN:
@@ -377,16 +380,17 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return SetTrust::calculateBaseFee(view, tx);
         case ttHOOK_SET:
             return SetHook::calculateBaseFee(view, tx);
-        //@@start export-sign-fee
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
-        case ttEXPORT_SIGN:
+        //@@start export-basefee
         case ttEXPORT:
             return Change::calculateBaseFee(view, tx);
-        //@@end export-sign-fee
+        case ttEXPORT_SIGN:
+            return ExportSign::calculateBaseFee(view, tx);
+        //@@end export-basefee
         case ttNFTOKEN_MINT:
             return NFTokenMint::calculateBaseFee(view, tx);
         case ttNFTOKEN_BURN:
@@ -552,18 +556,21 @@ invoke_apply(ApplyContext& ctx)
             SetHook p(ctx);
             return p();
         }
-        //@@start export-sign-apply
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
+        //@@start export-apply
         case ttEXPORT:
-        case ttEXPORT_SIGN:
         case ttEMIT_FAILURE: {
             Change p(ctx);
             return p();
         }
-        //@@end export-sign-apply
+        case ttEXPORT_SIGN: {
+            ExportSign p(ctx);
+            return p();
+        }
+        //@@end export-apply
         case ttNFTOKEN_MINT: {
             NFTokenMint p(ctx);
             return p();

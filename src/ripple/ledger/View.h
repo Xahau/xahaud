@@ -1097,6 +1097,7 @@ trustTransferLockedBalance(
     return tesSUCCESS;
 }
 
+//@@start inUNLReport-account
 /**
  * Check if an account (derived from a validator's master public key) is
  * in the UNLReport's ActiveValidators list.
@@ -1145,7 +1146,9 @@ inUNLReport(V const& view, AccountID const& id, beast::Journal const& j)
 
     return cache[id] = false;
 }
+//@@end inUNLReport-account
 
+//@@start inUNLReport-pubkey
 /**
  * Check if a public key (or its master key via manifest lookup) is
  * in the UNLReport's ActiveValidators list.
@@ -1163,6 +1166,7 @@ inUNLReport(
     return inUNLReport(view, calcAccountID(pk), j) ||
         (uvPk != pk && inUNLReport(view, calcAccountID(uvPk), j));
 }
+//@@end inUNLReport-pubkey
 
 }  // namespace ripple
 

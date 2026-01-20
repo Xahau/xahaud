@@ -491,6 +491,7 @@ TxFormats::TxFormats()
         },
         commonFields);
 
+    //@@start export-formats
     add(jss::ExportSign,
         ttEXPORT_SIGN,
         {
@@ -505,10 +506,13 @@ TxFormats::TxFormats()
         {
             {sfTransactionHash, soeREQUIRED},
             {sfExportedTxn, soeREQUIRED},
-            {sfSigners, soeREQUIRED},
+            // We can't actually do this because it's already optional so it
+            // causes parse failures Enforce this in the transactor. {sfSigners,
+            // soeREQUIRED},
             {sfLedgerSequence, soeREQUIRED},
         },
         commonFields);
+    //@@end export-formats
 }
 
 TxFormats const&

@@ -73,6 +73,7 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookExecutionIndex, soeREQUIRED},
          {sfHookStateChangeCount, soeREQUIRED},
          {sfHookEmitCount, soeREQUIRED},
+         {sfHookExportCount, soeREQUIRED},
          {sfFlags, soeOPTIONAL}});
 
     add(sfHookEmission.jsonName.c_str(),

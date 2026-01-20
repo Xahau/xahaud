@@ -450,6 +450,7 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     {
         auto feeDue = minimumFee(ctx.app, baseFee, ctx.view.fees(), ctx.flags);
 
+        //@@start uvtx-fee-waiver
         // UVTxns from validators in UNLReport don't have to pay a fee
         if (ctx.view.rules().enabled(featureExport) && isUVTx(ctx.tx))
         {
@@ -461,6 +462,7 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
                     feeDue = beast::zero;
             }
         }
+        //@@end uvtx-fee-waiver
 
         if (feePaid < feeDue)
         {
@@ -478,9 +480,11 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     auto const sle = ctx.view.read(keylet::account(id));
     if (!sle)
     {
+        //@@start uvtx-account-check
         // UVTxns don't need an underlying account
         if (isUVTx(ctx.tx))
             return tesSUCCESS;
+        //@@end uvtx-account-check
 
         if (ctx.tx.getTxnType() == ttIMPORT)
         {
@@ -656,8 +660,10 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
         ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT && !ctx.tx.isFieldPresent(sfIssuer);
 
+    //@@start uvtx-preclaim-account
     // UVTxns don't require an underlying account
     bool const accRequired = !(isFirstImport || isUVTx(ctx.tx));
+    //@@end uvtx-preclaim-account
 
     if (!sle && accRequired)
     {
@@ -814,6 +820,7 @@ Transactor::apply()
     // list one, preflight will have already a flagged a failure.
     auto const sle = view().peek(keylet::account(account_));
 
+    //@@start uvtx-apply-assert
     // sle must exist except for transactions
     // that allow zero account. (ttIMPORT and UVTxns)
     assert(
@@ -822,6 +829,7 @@ Transactor::apply()
             ctx_.tx.getTxnType() == ttIMPORT &&
             !ctx_.tx.isFieldPresent(sfIssuer) ||
         isUVTx(ctx_.tx));
+    //@@end uvtx-apply-assert
 
     if (sle)
     {

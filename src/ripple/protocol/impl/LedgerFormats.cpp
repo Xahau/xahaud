@@ -381,6 +381,7 @@ LedgerFormats::LedgerFormats()
         },
         commonFields);
     
+    //@@start exported-txn-format
     add(jss::ExportedTxn,
         ltEXPORTED_TXN,
         {
@@ -389,6 +390,7 @@ LedgerFormats::LedgerFormats()
             {sfLedgerSequence, soeREQUIRED},
         },
         commonFields);
+    //@@end exported-txn-format
 
     // clang-format on
 }

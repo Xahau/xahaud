@@ -406,6 +406,7 @@ DECLARE_HOOK_FUNCTION(
     uint32_t slot_no_tx,
     uint32_t slot_no_meta);
 
+//@@start declare-xport
 DECLARE_HOOK_FUNCTION(
     int64_t,
     xport,
@@ -414,6 +415,7 @@ DECLARE_HOOK_FUNCTION(
     uint32_t read_ptr,
     uint32_t read_len);
 DECLARE_HOOK_FUNCTION(int64_t, xport_reserve, uint32_t count);
+//@@end declare-xport
 /*
     DECLARE_HOOK_FUNCTION(int64_t,  str_find,           uint32_t hread_ptr,
    uint32_t hread_len, uint32_t nread_ptr, uint32_t nread_len, uint32_t mode,
@@ -493,7 +495,9 @@ struct HookResult
 
     std::queue<std::shared_ptr<ripple::Transaction>>
         emittedTxn{};  // etx stored here until accept/rollback
+    //@@start hook-result-exported-txn
     std::queue<std::shared_ptr<ripple::Transaction>> exportedTxn{};
+    //@@end hook-result-exported-txn
     HookStateMap& stateMap;
     uint16_t changedStateCount = 0;
     std::map<
@@ -550,7 +554,9 @@ struct HookContext
     uint16_t ledger_nonce_counter{0};
     int64_t expected_etxn_count{-1};  // make this a 64bit int so the uint32
                                       // from the hookapi cant overflow it
+    //@@start hook-context-export-count
     int64_t expected_export_count{-1};
+    //@@end hook-context-export-count
     std::map<ripple::uint256, bool> nonce_used{};
     uint32_t generation =
         0;  // used for caching, only generated when txn_generation is called
@@ -887,8 +893,10 @@ public:
         ADD_HOOK_FUNCTION(meta_slot, ctx);
         ADD_HOOK_FUNCTION(xpop_slot, ctx);
 
+        //@@start add-hook-xport
         ADD_HOOK_FUNCTION(xport, ctx);
         ADD_HOOK_FUNCTION(xport_reserve, ctx);
+        //@@end add-hook-xport
 
         /*
         ADD_HOOK_FUNCTION(str_find, ctx);

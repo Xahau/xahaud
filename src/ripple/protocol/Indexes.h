@@ -56,14 +56,18 @@ namespace keylet {
 Keylet const&
 emittedDir() noexcept;
 
+//@@start keylet-exported-dir-decl
 Keylet const&
 exportedDir() noexcept;
+//@@end keylet-exported-dir-decl
 
 Keylet
 emittedTxn(uint256 const& id) noexcept;
 
+//@@start keylet-exported-txn-decl
 Keylet
 exportedTxn(uint256 const& id) noexcept;
+//@@end keylet-exported-txn-decl
 
 Keylet
 hookDefinition(uint256 const& hash) noexcept;

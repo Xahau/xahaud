@@ -599,6 +599,7 @@ public:
         return validatorKeys_.publicKey;
     }
 
+    //@@start app-impl-validator-keys
     SecretKey const&
     getValidationSecretKey() const override
     {
@@ -610,6 +611,7 @@ public:
     {
         return validatorKeys_;
     }
+    //@@end app-impl-validator-keys
 
     NetworkOPs&
     getOPs() override

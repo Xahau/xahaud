@@ -351,8 +351,10 @@ enum hook_return_code : int64_t {
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 5000 modified state
                                          // entires in the combined hook chains
     TOO_MANY_NAMESPACES = -45,
+    //@@start export-error-codes
     EXPORT_FAILURE = -46,
     TOO_MANY_EXPORTED_TXN = -47,
+    //@@end export-error-codes
 
 };
 
@@ -367,7 +369,9 @@ const uint16_t max_state_modifications = 256;
 const uint8_t max_slots = 255;
 const uint8_t max_nonce = 255;
 const uint8_t max_emit = 255;
+//@@start max-export
 const uint8_t max_export = 4;
+//@@end max-export
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
 
@@ -473,12 +477,14 @@ static const APIWhitelist import_whitelist_1{
     // clang-format on
 };
 
+//@@start import-whitelist-2
 static const APIWhitelist import_whitelist_2{
     // clang-format off
     HOOK_API_DEFINITION(I64, xport, (I32, I32)),
     HOOK_API_DEFINITION(I64, xport_reserve, (I32)),
     // clang-format on
 };
+//@@end import-whitelist-2
 
 #undef HOOK_API_DEFINITION
 #undef I32

@@ -35,7 +35,7 @@
 #include <ripple/app/misc/TxQ.h>
 #include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/misc/ValidatorList.h>
-#include <ripple/app/tx/impl/Change.h>
+#include <ripple/app/tx/impl/ExportSign.h>
 #include <ripple/basics/random.h>
 #include <ripple/beast/core/LexicalCast.h>
 #include <ripple/consensus/LedgerTiming.h>

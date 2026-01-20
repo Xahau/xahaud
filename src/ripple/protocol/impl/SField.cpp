@@ -103,7 +103,9 @@ CONSTRUCT_TYPED_SFIELD(sfHookEmitCount,         "HookEmitCount",        UINT16, 
 CONSTRUCT_TYPED_SFIELD(sfHookExecutionIndex,    "HookExecutionIndex",   UINT16,    19);
 CONSTRUCT_TYPED_SFIELD(sfHookApiVersion,        "HookApiVersion",       UINT16,    20);
 CONSTRUCT_TYPED_SFIELD(sfHookStateScale,        "HookStateScale",       UINT16,    21);
+//@@start construct-sf-hook-export-count
 CONSTRUCT_TYPED_SFIELD(sfHookExportCount,       "HookExportCount",      UINT16,    22);
+//@@end construct-sf-hook-export-count
 
 // 32-bit integers (common)
 CONSTRUCT_TYPED_SFIELD(sfNetworkID,             "NetworkID",            UINT32,     1);
@@ -362,7 +364,9 @@ CONSTRUCT_UNTYPED_SFIELD(sfImportVLKey,         "ImportVLKey",          OBJECT, 
 CONSTRUCT_UNTYPED_SFIELD(sfHookEmission,        "HookEmission",         OBJECT,    93);
 CONSTRUCT_UNTYPED_SFIELD(sfMintURIToken,        "MintURIToken",         OBJECT,    92); 
 CONSTRUCT_UNTYPED_SFIELD(sfAmountEntry,         "AmountEntry",          OBJECT,    91);
+//@@start construct-sf-exported-txn
 CONSTRUCT_UNTYPED_SFIELD(sfExportedTxn,         "ExportedTxn",          OBJECT,    90);
+//@@end construct-sf-exported-txn
 
 // array of objects
 //                                                                            ARRAY/1 is reserved for end of array

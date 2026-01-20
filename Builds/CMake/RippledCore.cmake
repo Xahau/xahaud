@@ -462,6 +462,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/DeleteAccount.cpp
   src/ripple/app/tx/impl/DepositPreauth.cpp
   src/ripple/app/tx/impl/Escrow.cpp
+  src/ripple/app/tx/impl/ExportSign.cpp
   src/ripple/app/tx/impl/GenesisMint.cpp
   src/ripple/app/tx/impl/Import.cpp
   src/ripple/app/tx/impl/InvariantCheck.cpp
@@ -744,6 +745,7 @@ if (tests)
     src/test/app/Discrepancy_test.cpp
     src/test/app/DNS_test.cpp
     src/test/app/Escrow_test.cpp
+    src/test/app/Export_test.cpp
     src/test/app/FeeVote_test.cpp
     src/test/app/Flow_test.cpp
     src/test/app/Freeze_test.cpp

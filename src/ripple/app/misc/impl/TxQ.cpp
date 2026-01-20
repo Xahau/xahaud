@@ -1541,6 +1541,7 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
+    //@@start txq-inject-export
     // Inject exported transactions/signatures, if any
     if (view.rules().enabled(featureExport))
     {
@@ -1723,6 +1724,7 @@ TxQ::accept(Application& app, OpenView& view)
 
         } while (0);
     }
+    //@@end txq-inject-export
 
     // Inject emitted transactions if any
     if (view.rules().enabled(featureHooks))
@@ -2115,8 +2117,10 @@ TxQ::tryDirectApply(
     const bool isFirstImport = !sleAccount &&
         view.rules().enabled(featureImport) && tx->getTxnType() == ttIMPORT;
 
+    //@@start txq-uvtx-handling
     // UVTxns don't require an account
     const bool accRequired = !(isFirstImport || isUVTx(*tx));
+    //@@end txq-uvtx-handling
 
     // Don't attempt to direct apply if the account is not in the ledger.
     if (!sleAccount && accRequired)

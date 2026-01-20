@@ -241,11 +241,13 @@ public:
     virtual PublicKey const&
     getValidationPublicKey() const = 0;
 
+    //@@start app-validator-keys
     virtual SecretKey const&
     getValidationSecretKey() const = 0;
 
     virtual ValidatorKeys const&
     getValidatorKeys() const = 0;
+    //@@end app-validator-keys
     virtual Resource::Manager&
     getResourceManager() = 0;
     virtual PathRequests&

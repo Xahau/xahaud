@@ -172,8 +172,11 @@ bool
 isPseudoTx(STObject const& tx);
 
 /** Check whether a transaction is a UNL Validator Transaction (UVTx) */
+//@@start is-uvtx-decl
+/** Check whether a transaction is a UNL Validator Transaction (UVTx) */
 bool
 isUVTx(STObject const& tx);
+//@@end is-uvtx-decl
 
 inline STTx::STTx(SerialIter&& sit) : STTx(sit)
 {

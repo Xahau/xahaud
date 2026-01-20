@@ -17,34 +17,34 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TX_CHANGE_H_INCLUDED
-#define RIPPLE_TX_CHANGE_H_INCLUDED
+#ifndef RIPPLE_TX_EXPORTSIGN_H_INCLUDED
+#define RIPPLE_TX_EXPORTSIGN_H_INCLUDED
 
-#include <ripple/app/main/Application.h>
-#include <ripple/app/misc/AmendmentTable.h>
-#include <ripple/app/misc/NetworkOPs.h>
+#include <ripple/app/misc/Manifest.h>
 #include <ripple/app/tx/impl/Transactor.h>
 #include <ripple/basics/Log.h>
+#include <ripple/core/Config.h>
+#include <ripple/ledger/View.h>
 #include <ripple/protocol/Indexes.h>
 
 namespace ripple {
 
-class Change : public Transactor
+class OpenView;
+
+//@@start exportsign-class
+/**
+ * ExportSign is a UVTxn (UNL Validator Transaction) that allows validators
+ * on the UNLReport to submit their signatures for exported cross-chain
+ * transactions without requiring a funded account.
+ */
+class ExportSign : public Transactor
 {
 public:
-    static constexpr ConsequencesFactoryType ConsequencesFactory{Normal};
+    static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
 
-    explicit Change(ApplyContext& ctx) : Transactor(ctx)
+    explicit ExportSign(ApplyContext& ctx) : Transactor(ctx)
     {
     }
-
-    static NotTEC
-    preflight(PreflightContext const& ctx);
-
-    TER
-    doApply() override;
-    void
-    preCompute() override;
 
     static XRPAmount
     calculateBaseFee(ReadView const& view, STTx const& tx)
@@ -52,36 +52,26 @@ public:
         return XRPAmount{0};
     }
 
+    static TxConsequences
+    makeTxConsequences(PreflightContext const& ctx);
+
+    static NotTEC
+    preflight(PreflightContext const& ctx);
+
     static TER
     preclaim(PreclaimContext const& ctx);
 
-private:
-    void
-    activateTrustLinesToSelfFix();
-
-    void
-    activateXahauGenesis();
-
     TER
-    applyAmendment();
-
-    TER
-    applyFee();
-
-    TER
-    applyUNLModify();
-
-    TER
-    applyEmitFailure();
-
-    //@@start apply-export-decl
-    TER
-    applyExport();
-    //@@end apply-export-decl
-
-    TER
-    applyUNLReport();
+    doApply() override;
 };
+
+/**
+ * If this validator is on the UNLReport, generate signed ttEXPORT_SIGN
+ * transactions for any exported transactions that need signing.
+ */
+std::vector<std::shared_ptr<STTx const>>
+makeExportSignTxns(OpenView& view, Application& app, beast::Journal const& j);
+//@@end exportsign-class
 
 }  // namespace ripple
 
