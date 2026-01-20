@@ -273,6 +273,12 @@ Transactor::calculateHookChainFee(
 XRPAmount
 Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
+    //@@start uvtx-fee
+    // UVTxns (UNL Validator Transactions) have zero fee
+    if (isUVTx(tx))
+        return XRPAmount{0};
+    //@@end uvtx-fee
+
     // Returns the fee in fee units.
 
     // The computation has two parts:
@@ -442,8 +448,19 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     // Only check fee is sufficient when the ledger is open.
     if (ctx.view.open())
     {
-        auto const feeDue =
-            minimumFee(ctx.app, baseFee, ctx.view.fees(), ctx.flags);
+        auto feeDue = minimumFee(ctx.app, baseFee, ctx.view.fees(), ctx.flags);
+
+        // UVTxns from validators in UNLReport don't have to pay a fee
+        if (ctx.view.rules().enabled(featureExport) && isUVTx(ctx.tx))
+        {
+            auto const& pkSignerField = ctx.tx.getSigningPubKey();
+            if (publicKeyType(makeSlice(pkSignerField)))
+            {
+                PublicKey pkSigner{makeSlice(pkSignerField)};
+                if (inUNLReport(ctx.view, ctx.app, pkSigner, ctx.j))
+                    feeDue = beast::zero;
+            }
+        }
 
         if (feePaid < feeDue)
         {
@@ -461,6 +478,10 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     auto const sle = ctx.view.read(keylet::account(id));
     if (!sle)
     {
+        // UVTxns don't need an underlying account
+        if (isUVTx(ctx.tx))
+            return tesSUCCESS;
+
         if (ctx.tx.getTxnType() == ttIMPORT)
         {
             if (!ctx.tx.isFieldPresent(sfIssuer))
@@ -540,6 +561,16 @@ Transactor::checkSeqProxy(
                 << toBase58(id);
             return tesSUCCESS;
         }
+
+        //@@start uvtx-seq
+        // UVTxns with seq=0 are allowed without an account
+        if (isUVTx(tx) && t_seqProx.isSeq() && tx[sfSequence] == 0)
+        {
+            JLOG(j.trace()) << "applyTransaction: allowing UVTx with seq=0 "
+                            << toBase58(id);
+            return tesSUCCESS;
+        }
+        //@@end uvtx-seq
 
         JLOG(j.trace())
             << "applyTransaction: delay: source account does not exist "
@@ -625,7 +656,10 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
         ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT && !ctx.tx.isFieldPresent(sfIssuer);
 
-    if (!sle && !isFirstImport)
+    // UVTxns don't require an underlying account
+    bool const accRequired = !(isFirstImport || isUVTx(ctx.tx));
+
+    if (!sle && accRequired)
     {
         JLOG(ctx.j.trace())
             << "applyTransaction: delay: source account does not exist "
@@ -781,12 +815,13 @@ Transactor::apply()
     auto const sle = view().peek(keylet::account(account_));
 
     // sle must exist except for transactions
-    // that allow zero account. (and ttIMPORT)
+    // that allow zero account. (ttIMPORT and UVTxns)
     assert(
         sle != nullptr || account_ == beast::zero ||
         view().rules().enabled(featureImport) &&
             ctx_.tx.getTxnType() == ttIMPORT &&
-            !ctx_.tx.isFieldPresent(sfIssuer));
+            !ctx_.tx.isFieldPresent(sfIssuer) ||
+        isUVTx(ctx_.tx));
 
     if (sle)
     {
@@ -848,18 +883,27 @@ NotTEC
 Transactor::checkSingleSign(PreclaimContext const& ctx)
 {
     // Check that the value in the signing key slot is a public key.
-    auto const pkSigner = ctx.tx.getSigningPubKey();
-    if (!publicKeyType(makeSlice(pkSigner)))
+    auto const& pkSignerField = ctx.tx.getSigningPubKey();
+    if (!publicKeyType(makeSlice(pkSignerField)))
     {
         JLOG(ctx.j.trace())
             << "checkSingleSign: signing public key type is unknown";
         return tefBAD_AUTH;  // FIXME: should be better error!
     }
 
+    PublicKey pkSigner{makeSlice(pkSignerField)};
+
     // Look up the account.
-    auto const idSigner = calcAccountID(PublicKey(makeSlice(pkSigner)));
+    auto const idSigner = calcAccountID(pkSigner);
     auto const idAccount = ctx.tx.getAccountID(sfAccount);
     auto const sleAccount = ctx.view.read(keylet::account(idAccount));
+
+    //@@start uvtx-sign
+    // UVTxns of the approved type don't need an underlying account
+    // and can be signed with the manifest ephemeral key
+    if (isUVTx(ctx.tx) && inUNLReport(ctx.view, ctx.app, pkSigner, ctx.j))
+        return tesSUCCESS;
+    //@@end uvtx-sign
 
     if (!sleAccount)
         return terNO_ACCOUNT;

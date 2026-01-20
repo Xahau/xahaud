@@ -20,6 +20,8 @@
 #ifndef RIPPLE_LEDGER_VIEW_H_INCLUDED
 #define RIPPLE_LEDGER_VIEW_H_INCLUDED
 
+#include <ripple/app/main/Application.h>
+#include <ripple/app/misc/Manifest.h>
 #include <ripple/basics/Log.h>
 #include <ripple/beast/utility/Journal.h>
 #include <ripple/core/Config.h>
@@ -1094,6 +1096,74 @@ trustTransferLockedBalance(
     }
     return tesSUCCESS;
 }
+
+/**
+ * Check if an account (derived from a validator's master public key) is
+ * in the UNLReport's ActiveValidators list.
+ */
+template <class V>
+bool
+inUNLReport(V const& view, AccountID const& id, beast::Journal const& j)
+{
+    auto const seq = view.info().seq;
+    static uint32_t lastLgrSeq = 0;
+    static std::map<AccountID, bool> cache;
+
+    // for the first 256 ledgers we're just saying everyone is in the UNLReport
+    // because otherwise testing is very difficult.
+    if (seq < 256)
+        return true;
+
+    if (lastLgrSeq != seq)
+    {
+        cache.clear();
+        lastLgrSeq = seq;
+    }
+    else
+    {
+        if (cache.find(id) != cache.end())
+            return cache[id];
+    }
+
+    // Check if account is on UNLReport
+    auto const unlRep = view.read(keylet::UNLReport());
+    if (!unlRep || !unlRep->isFieldPresent(sfActiveValidators))
+    {
+        JLOG(j.debug()) << "UNLReport missing";
+
+        // ensure we keep the cache invalid when in this state
+        lastLgrSeq = 0;
+        return false;
+    }
+
+    auto const& avs = unlRep->getFieldArray(sfActiveValidators);
+    for (auto const& av : avs)
+    {
+        if (av.getAccountID(sfAccount) == id)
+            return cache[id] = true;
+    }
+
+    return cache[id] = false;
+}
+
+/**
+ * Check if a public key (or its master key via manifest lookup) is
+ * in the UNLReport's ActiveValidators list.
+ */
+template <class V>
+bool
+inUNLReport(
+    V const& view,
+    Application& app,
+    PublicKey const& pk,
+    beast::Journal const& j)
+{
+    PublicKey uvPk = app.validatorManifests().getMasterKey(pk);
+
+    return inUNLReport(view, calcAccountID(pk), j) ||
+        (uvPk != pk && inUNLReport(view, calcAccountID(uvPk), j));
+}
+
 }  // namespace ripple
 
 #endif

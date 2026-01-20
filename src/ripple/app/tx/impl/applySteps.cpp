@@ -147,12 +147,16 @@ invoke_preflight(PreflightContext const& ctx)
             return invoke_preflight_helper<CreateTicket>(ctx);
         case ttTRUST_SET:
             return invoke_preflight_helper<SetTrust>(ctx);
+        //@@start export-sign-preflight
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
+        case ttEXPORT:
+        case ttEXPORT_SIGN:
             return invoke_preflight_helper<Change>(ctx);
+        //@@end export-sign-preflight
         case ttHOOK_SET:
             return invoke_preflight_helper<SetHook>(ctx);
         case ttNFTOKEN_MINT:
@@ -278,12 +282,16 @@ invoke_preclaim(PreclaimContext const& ctx)
             return invoke_preclaim<SetTrust>(ctx);
         case ttHOOK_SET:
             return invoke_preclaim<SetHook>(ctx);
+        //@@start export-sign-preclaim
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
+        case ttEXPORT:
+        case ttEXPORT_SIGN:
             return invoke_preclaim<Change>(ctx);
+        //@@end export-sign-preclaim
         case ttNFTOKEN_MINT:
             return invoke_preclaim<NFTokenMint>(ctx);
         case ttNFTOKEN_BURN:
@@ -369,6 +377,7 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
             return SetTrust::calculateBaseFee(view, tx);
         case ttHOOK_SET:
             return SetHook::calculateBaseFee(view, tx);
+        //@@start export-sign-fee
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
@@ -377,6 +386,7 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttEXPORT_SIGN:
         case ttEXPORT:
             return Change::calculateBaseFee(view, tx);
+        //@@end export-sign-fee
         case ttNFTOKEN_MINT:
             return NFTokenMint::calculateBaseFee(view, tx);
         case ttNFTOKEN_BURN:
@@ -542,6 +552,7 @@ invoke_apply(ApplyContext& ctx)
             SetHook p(ctx);
             return p();
         }
+        //@@start export-sign-apply
         case ttAMENDMENT:
         case ttFEE:
         case ttUNL_MODIFY:
@@ -552,6 +563,7 @@ invoke_apply(ApplyContext& ctx)
             Change p(ctx);
             return p();
         }
+        //@@end export-sign-apply
         case ttNFTOKEN_MINT: {
             NFTokenMint p(ctx);
             return p();

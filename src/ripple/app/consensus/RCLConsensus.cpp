@@ -35,6 +35,7 @@
 #include <ripple/app/misc/TxQ.h>
 #include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/misc/ValidatorList.h>
+#include <ripple/app/tx/impl/Change.h>
 #include <ripple/basics/random.h>
 #include <ripple/beast/core/LexicalCast.h>
 #include <ripple/consensus/LedgerTiming.h>
@@ -652,6 +653,16 @@ RCLConsensus::Adaptor::doAccept(
             tapNONE,
             "consensus",
             [&](OpenView& view, beast::Journal j) {
+                //@@start export-sign-submit
+                // Generate and submit ttEXPORT_SIGN UVTxns if we're a
+                // validator on the UNLReport
+                if (view.rules().enabled(featureExport))
+                {
+                    auto exportSignTxns = makeExportSignTxns(view, app_, j_);
+                    for (auto const& tx : exportSignTxns)
+                        app_.getOPs().submitTransaction(tx);
+                }
+                //@@end export-sign-submit
                 return app_.getTxQ().accept(app_, view);
             });
 

@@ -25,6 +25,7 @@
 #include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/app/tx/impl/Transactor.h>
 #include <ripple/basics/Log.h>
+#include <ripple/ledger/OpenView.h>
 #include <ripple/protocol/Indexes.h>
 
 namespace ripple {
@@ -83,6 +84,13 @@ private:
     TER
     applyUNLReport();
 };
+
+/**
+ * If this validator is on the UNLReport, generate signed ttEXPORT_SIGN
+ * transactions for any exported transactions that need signing.
+ */
+std::vector<std::shared_ptr<STTx const>>
+makeExportSignTxns(OpenView& view, Application& app, beast::Journal const& j);
 
 }  // namespace ripple
 

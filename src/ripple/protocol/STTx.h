@@ -171,6 +171,10 @@ sterilize(STTx const& stx);
 bool
 isPseudoTx(STObject const& tx);
 
+/** Check whether a transaction is a UNL Validator Transaction (UVTx) */
+bool
+isUVTx(STObject const& tx);
+
 inline STTx::STTx(SerialIter&& sit) : STTx(sit)
 {
 }

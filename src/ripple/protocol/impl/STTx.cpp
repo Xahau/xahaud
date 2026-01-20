@@ -615,7 +615,19 @@ isPseudoTx(STObject const& tx)
 
     auto tt = safe_cast<TxType>(*t);
     return tt == ttAMENDMENT || tt == ttFEE || tt == ttUNL_MODIFY ||
-        tt == ttEMIT_FAILURE || tt == ttUNL_REPORT || tt == ttCRON;
+        tt == ttEMIT_FAILURE || tt == ttUNL_REPORT || tt == ttCRON ||
+        tt == ttEXPORT;
+}
+
+bool
+isUVTx(STObject const& tx)
+{
+    auto t = tx[~sfTransactionType];
+    if (!t)
+        return false;
+
+    auto tt = safe_cast<TxType>(*t);
+    return tt == ttEXPORT_SIGN;
 }
 
 }  // namespace ripple

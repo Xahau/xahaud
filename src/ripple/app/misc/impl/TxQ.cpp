@@ -1580,8 +1580,6 @@ TxQ::accept(Application& app, OpenView& view)
 
             // execution to here means we're a validator and on the UNLReport
 
-            AccountID signingAcc = calcAccountID(keys.publicKey);
-
             Keylet const exportedDirKeylet{keylet::exportedDir()};
             if (dirIsEmpty(view, exportedDirKeylet))
                 break;
@@ -1715,65 +1713,10 @@ TxQ::accept(Application& app, OpenView& view)
                     continue;
                 }
 
-                // this ledger is the one after the exported txn was added to
-                // the directory so generate the export sign txns
-
-                auto s = std::make_shared<ripple::Serializer>();
-                exported.add(*s);
-                SerialIter sitTrans(s->slice());
-                try
-                {
-                    auto const& stpTrans =
-                        std::make_shared<STTx const>(std::ref(sitTrans));
-
-                    if (!stpTrans->isFieldPresent(sfAccount) ||
-                        stpTrans->getAccountID(sfAccount) == beast::zero)
-                    {
-                        JLOG(j_.warn()) << "Hook: Export failure: "
-                                        << "sfAccount missing or zero.";
-                        // RH TODO: if this ever happens the entry should be
-                        // gracefully removed (somehow)
-                        continue;
-                    }
-
-                    auto seq = view.info().seq;
-                    auto txnHash = stpTrans->getTransactionID();
-
-                    Serializer s = buildMultiSigningData(*stpTrans, signingAcc);
-
-                    auto multisig =
-                        ripple::sign(keys.publicKey, keys.secretKey, s.slice());
-
-                    STTx exportSignTx(ttEXPORT_SIGN, [&](auto& obj) {
-                        obj.set(([&]() {
-                            auto inner = std::make_unique<STObject>(sfSigner);
-                            inner->setFieldVL(sfSigningPubKey, keys.publicKey);
-                            inner->setAccountID(sfAccount, signingAcc);
-                            inner->setFieldVL(sfTxnSignature, multisig);
-                            return inner;
-                        })());
-                        obj.setFieldU32(sfLedgerSequence, seq);
-                        obj.setFieldH256(sfTransactionHash, txnHash);
-                    });
-
-                    // submit to the ledger
-                    {
-                        uint256 txID = exportSignTx.getTransactionID();
-                        auto s = std::make_shared<ripple::Serializer>();
-                        exportSignTx.add(*s);
-                        app.getHashRouter().setFlags(txID, SF_PRIVATE2);
-                        app.getHashRouter().setFlags(txID, SF_EMITTED);
-                        view.rawTxInsert(txID, std::move(s), nullptr);
-                        ledgerChanged = true;
-                    }
-                }
-
-                catch (std::exception& e)
-                {
-                    JLOG(j_.warn())
-                        << "ExportedTxn Processing: Failure: " << e.what()
-                        << "\n";
-                }
+                // ttEXPORT_SIGN transactions are now submitted by validators
+                // as UVTxns (UNL Validator Transactions) via
+                // makeExportSignTxns, rather than being injected here as
+                // pseudo-transactions.
 
             } while (cdirNext(
                 view, exportedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
@@ -2172,13 +2115,16 @@ TxQ::tryDirectApply(
     const bool isFirstImport = !sleAccount &&
         view.rules().enabled(featureImport) && tx->getTxnType() == ttIMPORT;
 
+    // UVTxns don't require an account
+    const bool accRequired = !(isFirstImport || isUVTx(*tx));
+
     // Don't attempt to direct apply if the account is not in the ledger.
-    if (!sleAccount && !isFirstImport)
+    if (!sleAccount && accRequired)
         return {};
 
     std::optional<SeqProxy> txSeqProx;
 
-    if (!isFirstImport)
+    if (accRequired)
     {
         SeqProxy const acctSeqProx =
             SeqProxy::sequence((*sleAccount)[sfSequence]);
@@ -2191,7 +2137,7 @@ TxQ::tryDirectApply(
     }
 
     FeeLevel64 const requiredFeeLevel =
-        isFirstImport ? FeeLevel64{0} : [this, &view, flags]() {
+        !accRequired ? FeeLevel64{0} : [this, &view, flags]() {
             std::lock_guard lock(mutex_);
             return getRequiredFeeLevel(
                 view, flags, feeMetrics_.getSnapshot(), lock);
