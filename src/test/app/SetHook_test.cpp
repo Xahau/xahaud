@@ -2600,8 +2600,8 @@ public:
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
-        env.fund(XRP(10000), alice);
-        env.fund(XRP(10000), bob);
+        env.fund(XRP(10000), alice, bob);
+        env.close();
 
         // Test 1: Valid helper function without loops - should pass
         {
@@ -2674,6 +2674,9 @@ public:
                 ter(tesSUCCESS));
             env.close();
             EXPECT_HOOK_FEE(hook, 14);
+
+            env(pay(bob, alice, XRP(1)), M("Test helper 1"), fee(XRP(1)));
+            env.close();
         }
 
         // Test 2: Helper function with guarded loop - should pass
@@ -2763,6 +2766,9 @@ public:
                 ter(tesSUCCESS));
             env.close();
             EXPECT_HOOK_FEE(hook, 26);
+
+            env(pay(bob, alice, XRP(1)), M("Test helper 2"), fee(XRP(1)));
+            env.close();
         }
 
         // Test 3: Direct recursion - should fail
@@ -3019,6 +3025,9 @@ public:
                 ter(tesSUCCESS));
             env.close();
             EXPECT_HOOK_FEE(hook, 14);
+
+            env(pay(bob, alice, XRP(1)), M("Test helper 5"), fee(XRP(1)));
+            env.close();
         }
 
         // Test 6: Helper called multiple times - WCE should accumulate
@@ -3032,7 +3041,7 @@ public:
             int64_t expensive_helper() {
               int64_t sum = 0;
               for (int i = 0; i < 100; ++i) {
-                _g(2, 101);
+                _g(2, 301);
                 sum += i;
               }
               return sum;
@@ -3046,36 +3055,23 @@ public:
               result += expensive_helper();
               return accept(0, 0, result);
             }
-
             */
-            TestHook hook = wasm[R"[test.hook](
+
+            TestHook hook_wasm = wasm[R"[test.hook](
                 (module
                     (type (;0;) (func (param i32 i32) (result i32)))
                     (type (;1;) (func (param i32 i32 i64) (result i64)))
-                    (type (;2;) (func (param i32) (result i64)))
-                    (type (;3;) (func (result i64)))
+                    (type (;2;) (func (result i64)))
+                    (type (;3;) (func (param i32) (result i64)))
                     (import "env" "_g" (func (;0;) (type 0)))
                     (import "env" "accept" (func (;1;) (type 1)))
-                    (func (;2;) (type 2) (param i32) (result i64)
-                        i32.const 1
-                        i32.const 1
-                        call 0
-                        drop
-                        i32.const 0
-                        i32.const 0
-                        call 3
-                        call 3
-                        i64.add
-                        call 3
-                        i64.add
-                        call 1)
-                    (func (;3;) (type 3) (result i64)
+                    (func (;2;) (type 2) (result i64)
                         (local i64)
                         i64.const 100
                         local.set 0
                         loop  ;; label = @1
                         i32.const 2
-                        i32.const 101
+                        i32.const 301
                         call 0
                         drop
                         local.get 0
@@ -3087,15 +3083,34 @@ public:
                         br_if 0 (;@1;)
                         end
                         i64.const 4950)
+                    (func (;3;) (type 3) (param i32) (result i64)
+                        i32.const 1
+                        i32.const 1
+                        call 0
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        call 2
+                        call 2
+                        i64.add
+                        call 2
+                        i64.add
+                        call 1)
                     (memory (;0;) 2)
                     (export "memory" (memory 0))
-                    (export "hook" (func 2)))
+                    (export "hook" (func 3)))
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("Helper called multiple times"),
                 HSFEE,
                 ter(tesSUCCESS));
+            env.close();
+            EXPECT_HOOK_FEE(hook, 2727);
+
+            env(pay(bob, alice, XRP(1)), M("Test helper 6"), fee(XRP(1)));
             env.close();
         }
 
