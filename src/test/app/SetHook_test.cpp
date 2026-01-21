@@ -3250,6 +3250,148 @@ public:
                 ter(temMALFORMED));
             env.close();
         }
+
+        // Test 8: guard inside guard
+        {
+            /*
+            #include <stdint.h>
+            extern int32_t _g(uint32_t id, uint32_t maxiter);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t
+            error_code);
+
+            int64_t helper(int64_t n) {
+                int64_t sum = n;
+                for (int i = 0; i < 100; ++i) {
+                    _g(2, 1000);
+                    sum += i;
+                }
+                return sum;
+            }
+
+            int64_t cbak(uint32_t reserved) {
+                _g(1, 1);
+                int64_t result = 10;
+                for (int i = 0; i < 10; ++i) {
+                    _g(3, 11);
+                    result += helper(10);
+                }
+                return accept(0, 0, result);
+            }
+
+            int64_t hook(uint32_t reserved) {
+                _g(1, 1);
+                int64_t result = 0;
+                for (int i = 0; i < 10; ++i) {
+                    _g(3, 11);
+                    result += helper(0);
+                }
+                return accept(0, 0, result);
+            }
+            */
+
+            TestHook hook_wasm = wasm[R"[test.hook](
+                (module
+                    (type (;0;) (func (param i32) (result i64)))
+                    (type (;1;) (func (param i32 i32) (result i32)))
+                    (type (;2;) (func (param i32 i32 i64) (result i64)))
+                    (type (;3;) (func (param i64) (result i64)))
+                    (import "env" "_g" (func (;0;) (type 1)))
+                    (import "env" "accept" (func (;1;) (type 2)))
+                    (func (;2;) (type 3) (param i64) (result i64)
+                        (local i64)
+                        i64.const 100
+                        local.set 1
+                        loop  ;; label = @1
+                        i32.const 2
+                        i32.const 1000
+                        call 0
+                        drop
+                        local.get 1
+                        i64.const 1
+                        i64.sub
+                        local.tee 1
+                        i64.eqz
+                        i32.eqz
+                        br_if 0 (;@1;)
+                        end
+                        local.get 0
+                        i64.const 4950
+                        i64.add)
+                    (func (;3;) (type 0) (param i32) (result i64)
+                        (local i64)
+                        i32.const 1
+                        i32.const 1
+                        call 0
+                        drop
+                        i32.const 10
+                        local.set 0
+                        i64.const 10
+                        local.set 1
+                        loop  ;; label = @1
+                        i32.const 3
+                        i32.const 11
+                        call 0
+                        drop
+                        i64.const 10
+                        call 2
+                        local.get 1
+                        i64.add
+                        local.set 1
+                        local.get 0
+                        i32.const 1
+                        i32.sub
+                        local.tee 0
+                        br_if 0 (;@1;)
+                        end
+                        i32.const 0
+                        i32.const 0
+                        local.get 1
+                        call 1)
+                    (func (;4;) (type 0) (param i32) (result i64)
+                        (local i64)
+                        i32.const 1
+                        i32.const 1
+                        call 0
+                        drop
+                        i32.const 10
+                        local.set 0
+                        loop  ;; label = @1
+                        i32.const 3
+                        i32.const 11
+                        call 0
+                        drop
+                        i64.const 0
+                        call 2
+                        local.get 1
+                        i64.add
+                        local.set 1
+                        local.get 0
+                        i32.const 1
+                        i32.sub
+                        local.tee 0
+                        br_if 0 (;@1;)
+                        end
+                        i32.const 0
+                        i32.const 0
+                        local.get 1
+                        call 1)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "cbak" (func 3))
+                    (export "hook" (func 4)))
+            )[test.hook]"];
+            HASH_WASM(hook);
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
+                M("guard inside guard"),
+                HSFEE,
+                ter(tesSUCCESS));
+            EXPECT_HOOK_FEE(hook, 9151);
+
+            env(pay(bob, alice, XRP(1)), M("Test helper 8"), fee(XRP(1)));
+            env.close();
+        }
     }
 
     void
