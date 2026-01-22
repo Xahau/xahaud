@@ -1683,10 +1683,17 @@ TxQ::accept(Application& app, OpenView& view)
 
                         stpTrans->setFieldArray(sfSigners, signers);
 
-                        Blob const& blob = stpTrans->getSerializer().peekData();
+                        // Serialize the inner transaction and create an
+                        // STObject from it. sfExportedTxn is OBJECT type, not
+                        // VL, so we must use emplace_back with STObject, not
+                        // setFieldVL.
+                        ripple::Serializer exportedSer;
+                        stpTrans->add(exportedSer);
+                        SerialIter exportedSit(exportedSer.slice());
 
                         STTx exportTx(ttEXPORT, [&](auto& obj) {
-                            obj.setFieldVL(sfExportedTxn, blob);
+                            obj.emplace_back(
+                                ripple::STObject(exportedSit, sfExportedTxn));
                             obj.setFieldU32(sfLedgerSequence, seq);
                             obj.setFieldH256(sfTransactionHash, txnHash);
                             obj.setFieldArray(sfSigners, signers);

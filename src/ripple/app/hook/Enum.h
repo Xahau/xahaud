@@ -480,7 +480,7 @@ static const APIWhitelist import_whitelist_1{
 //@@start import-whitelist-2
 static const APIWhitelist import_whitelist_2{
     // clang-format off
-    HOOK_API_DEFINITION(I64, xport, (I32, I32)),
+    HOOK_API_DEFINITION(I64, xport, (I32, I32, I32, I32)),
     HOOK_API_DEFINITION(I64, xport_reserve, (I32)),
     // clang-format on
 };
