@@ -23,6 +23,7 @@
 #include <ripple/protocol/STArray.h>
 #include <ripple/protocol/STBlob.h>
 #include <ripple/protocol/STObject.h>
+#include <iostream>
 
 namespace ripple {
 
@@ -250,7 +251,17 @@ STObject::set(SerialIter& sit, int depth)
         });
 
     if (dup != sf.cend())
+    {
+        // Debug: dump all field names to identify the duplicate
+        std::cerr << "[STObject::set] DUPLICATE FIELD DETECTED!" << std::endl;
+        std::cerr << "[STObject::set] Duplicate field name: "
+                  << (*dup)->getFName().getName() << std::endl;
+        std::cerr << "[STObject::set] All fields in object:" << std::endl;
+        for (auto const& f : sf)
+            std::cerr << "  - " << f->getFName().getName() << std::endl;
+        std::cerr.flush();
         Throw<std::runtime_error>("Duplicate field detected");
+    }
 
     return reachedEndOfObject;
 }

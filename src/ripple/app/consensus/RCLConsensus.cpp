@@ -35,6 +35,7 @@
 #include <ripple/app/misc/TxQ.h>
 #include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/misc/ValidatorList.h>
+#include <ripple/app/tx/apply.h>
 #include <ripple/app/tx/impl/ExportSign.h>
 #include <ripple/basics/random.h>
 #include <ripple/beast/core/LexicalCast.h>
@@ -48,6 +49,17 @@
 
 #include <algorithm>
 #include <mutex>
+
+// Debug macro for export investigation - remove after debugging
+#include <thread>
+#define DBG_EXPORT(msg)                                                 \
+    do                                                                  \
+    {                                                                   \
+        std::cerr << "[" << __FILE__ << ":" << __LINE__                 \
+                  << " t=" << std::this_thread::get_id() << "] " << msg \
+                  << std::endl;                                         \
+        std::cerr.flush();                                              \
+    } while (0)
 
 namespace ripple {
 
@@ -323,8 +335,10 @@ RCLConsensus::Adaptor::onClose(
     initialSet->setUnbacked();
 
     // Build SHAMap containing all transactions in our open ledger
+    DBG_EXPORT("onClose: iterating initialLedger->txs");
     for (auto const& tx : initialLedger->txs)
     {
+        DBG_EXPORT("onClose: processing tx " << tx.first->getTransactionID());
         JLOG(j_.trace()) << "Adding open ledger TX "
                          << tx.first->getTransactionID();
         Serializer s(2048);
@@ -333,6 +347,7 @@ RCLConsensus::Adaptor::onClose(
             SHAMapNodeType::tnTRANSACTION_NM,
             make_shamapitem(tx.first->getTransactionID(), s.slice()));
     }
+    DBG_EXPORT("onClose: done iterating initialLedger->txs");
 
     // Add pseudo-transactions to the set
     if (app_.config().standalone() || (proposing && !wrongLCL))
@@ -406,6 +421,7 @@ RCLConsensus::Adaptor::onForceAccept(
     ConsensusMode const& mode,
     Json::Value&& consensusJson)
 {
+    DBG_EXPORT("onForceAccept prevLedger.seq=" << prevLedger.seq());
     doAccept(
         result,
         prevLedger,
@@ -424,6 +440,7 @@ RCLConsensus::Adaptor::onAccept(
     ConsensusMode const& mode,
     Json::Value&& consensusJson)
 {
+    DBG_EXPORT("onAccept (async job) prevLedger.seq=" << prevLedger.seq());
     app_.getJobQueue().addJob(
         jtACCEPT,
         "acceptLedger",
@@ -453,6 +470,7 @@ RCLConsensus::Adaptor::doAccept(
     ConsensusMode const& mode,
     Json::Value&& consensusJson)
 {
+    DBG_EXPORT("doAccept prevLedger.seq=" << prevLedger.seq());
     prevProposers_ = result.proposers;
     prevRoundTime_ = result.roundTime.read();
 
@@ -653,14 +671,40 @@ RCLConsensus::Adaptor::doAccept(
             tapNONE,
             "consensus",
             [&](OpenView& view, beast::Journal j) {
+                DBG_EXPORT("consensus callback seq=" << view.info().seq);
                 //@@start export-sign-submit
-                // Generate and submit ttEXPORT_SIGN UVTxns if we're a
-                // validator on the UNLReport
+                // Generate ttEXPORT_SIGN UVTxns if we're a validator on the
+                // UNLReport. In standalone mode we queue via rawTxInsert so
+                // it's applied when this open ledger closes. In network mode
+                // we submit for relay to other validators.
                 if (view.rules().enabled(featureExport))
                 {
                     auto exportSignTxns = makeExportSignTxns(view, app_, j_);
                     for (auto const& tx : exportSignTxns)
-                        app_.getOPs().submitTransaction(tx);
+                    {
+                        uint256 txID = tx->getTransactionID();
+                        app_.getHashRouter().setFlags(txID, SF_PRIVATE2);
+
+                        if (app_.config().standalone())
+                        {
+                            // Standalone: queue in open ledger, applied when it
+                            // closes
+                            auto s = std::make_shared<ripple::Serializer>();
+                            tx->add(*s);
+                            view.rawTxInsert(txID, std::move(s), nullptr);
+                            DBG_EXPORT(
+                                "standalone: queued ttEXPORT_SIGN txID="
+                                << txID);
+                        }
+                        else
+                        {
+                            // Network: submit for relay to other validators
+                            app_.getOPs().submitTransaction(tx);
+                            DBG_EXPORT(
+                                "network: submitted ttEXPORT_SIGN txID="
+                                << txID);
+                        }
+                    }
                 }
                 //@@end export-sign-submit
                 return app_.getTxQ().accept(app_, view);

@@ -19,6 +19,17 @@
 
 #include <ripple/basics/contract.h>
 #include <ripple/ledger/OpenView.h>
+#include <iostream>
+#include <thread>
+
+// Debug macro for export investigation
+#define DBG_DEREF(msg)                                                         \
+    do                                                                         \
+    {                                                                          \
+        std::cerr << "[OpenView::dereference t=" << std::this_thread::get_id() \
+                  << "] " << msg << std::endl;                                 \
+        std::cerr.flush();                                                     \
+    } while (0)
 
 namespace ripple {
 
@@ -59,16 +70,32 @@ public:
     value_type
     dereference() const override
     {
+        DBG_DEREF("ENTER key=" << iter_->first);
         value_type result;
         {
+            DBG_DEREF(
+                "creating SerialIter, txn size=" << iter_->second.txn->size());
             SerialIter sit(iter_->second.txn->slice());
-            result.first = std::make_shared<STTx const>(sit);
+            DBG_DEREF("creating STTx...");
+            try
+            {
+                result.first = std::make_shared<STTx const>(sit);
+                DBG_DEREF("STTx created, type=" << result.first->getTxnType());
+            }
+            catch (std::exception& e)
+            {
+                DBG_DEREF("STTx EXCEPTION: " << e.what());
+                throw;
+            }
         }
         if (metadata_)
         {
+            DBG_DEREF("creating metadata");
             SerialIter sit(iter_->second.meta->slice());
             result.second = std::make_shared<STObject const>(sit, sfMetadata);
+            DBG_DEREF("metadata created");
         }
+        DBG_DEREF("EXIT");
         return result;
     }
 };

@@ -33,6 +33,17 @@
 #include <limits>
 #include <numeric>
 
+// Debug macro for export investigation - remove after debugging
+#include <thread>
+#define DBG_EXPORT(msg)                                                 \
+    do                                                                  \
+    {                                                                   \
+        std::cerr << "[" << __FILE__ << ":" << __LINE__                 \
+                  << " t=" << std::this_thread::get_id() << "] " << msg \
+                  << std::endl;                                         \
+        std::cerr.flush();                                              \
+    } while (0)
+
 namespace ripple {
 
 //////////////////////////////////////////////////////////////////////////
@@ -1446,13 +1457,17 @@ TxQ::accept(Application& app, OpenView& view)
        Stop when the transaction fee level gets lower than the required fee
        level.
     */
+    DBG_EXPORT("TxQ::accept ENTER seq=" << view.info().seq);
 
     auto ledgerChanged = false;
 
+    DBG_EXPORT("TxQ::accept BEFORE LOCK seq=" << view.info().seq);
     std::lock_guard lock(mutex_);
+    DBG_EXPORT("TxQ::accept AFTER LOCK seq=" << view.info().seq);
 
     auto const metricsSnapshot = feeMetrics_.getSnapshot();
 
+    DBG_EXPORT("TxQ::accept SECTION 1: debug inject seq=" << view.info().seq);
     // try to inject any debug txns waiting in the debug queue
     {
         std::unique_lock<std::mutex> trylock(
@@ -1479,6 +1494,7 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
+    DBG_EXPORT("TxQ::accept SECTION 2: cron inject seq=" << view.info().seq);
     // Inject cron transactions, if any
     if (view.rules().enabled(featureCron))
     {
@@ -1541,49 +1557,49 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
+    DBG_EXPORT("TxQ::accept SECTION 3: export inject seq=" << view.info().seq);
     //@@start txq-inject-export
     // Inject exported transactions/signatures, if any
     if (view.rules().enabled(featureExport))
     {
         do
         {
+            DBG_EXPORT("export inject: checking validator key");
             // if we're not a validator we do nothing here
             if (app.getValidationPublicKey().empty())
+            {
+                DBG_EXPORT("export inject: no validator key, skipping");
                 break;
+            }
 
             auto const& keys = app.getValidatorKeys();
 
             if (keys.configInvalid())
+            {
+                DBG_EXPORT("export inject: config invalid, skipping");
                 break;
+            }
 
             // and if we're not on the UNLReport we also do nothing
-
-            auto const unlRep = view.read(keylet::UNLReport());
-            if (!unlRep || !unlRep->isFieldPresent(sfActiveValidators))
+            // Use inUNLReport() which has a grace period for seq < 256
+            // (testing)
+            if (!inUNLReport(view, app, keys.masterPublicKey, j_))
             {
-                // nothing to do without a unlreport object
+                DBG_EXPORT("export inject: not in UNLReport, skipping");
                 break;
             }
 
-            bool found = false;
-            auto const& avs = unlRep->getFieldArray(sfActiveValidators);
-            for (auto const& av : avs)
-            {
-                if (PublicKey(av[sfPublicKey]) == keys.masterPublicKey)
-                {
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found)
-                break;
+            DBG_EXPORT("export inject: we are a validator on UNLReport");
 
             // execution to here means we're a validator and on the UNLReport
 
             Keylet const exportedDirKeylet{keylet::exportedDir()};
             if (dirIsEmpty(view, exportedDirKeylet))
+            {
+                DBG_EXPORT("export inject: exportedDir is empty, skipping");
                 break;
+            }
+            DBG_EXPORT("export inject: exportedDir has entries");
 
             std::shared_ptr<SLE const> sleDirNode{};
             unsigned int uDirEntry{0};
@@ -1637,18 +1653,28 @@ TxQ::accept(Application& app, OpenView& view)
 
                 auto const& txnHash = sleItem->getFieldH256(sfTransactionHash);
 
-                auto exportedLgrSeq = exported.getFieldU32(sfLedgerSequence);
+                auto exportedLgrSeq = sleItem->getFieldU32(sfLedgerSequence);
 
                 auto const seq = view.seq();
 
+                DBG_EXPORT(
+                    "export inject: entry exportedLgrSeq="
+                    << exportedLgrSeq << " viewSeq=" << seq);
+
                 if (exportedLgrSeq == seq)
                 {
+                    DBG_EXPORT(
+                        "export inject: exportedLgrSeq == seq, skipping");
                     // this shouldn't happen, but do nothing
                     continue;
                 }
 
                 if (exportedLgrSeq < seq - 1)
                 {
+                    DBG_EXPORT(
+                        "export inject: condition met! "
+                        << exportedLgrSeq << " < " << (seq - 1)
+                        << ", creating ttEXPORT");
                     // all old entries need to be turned into Export
                     // transactions so they can be removed from the directory
 
@@ -1659,21 +1685,28 @@ TxQ::accept(Application& app, OpenView& view)
                     // the ExportedTxn blob and publish the blob in the Export
                     // transaction type.
 
+                    DBG_EXPORT("export inject: getting signers array");
                     STArray signers = sleItem->getFieldArray(sfSigners);
+                    DBG_EXPORT(
+                        "export inject: signers count=" << signers.size());
 
                     auto s = std::make_shared<ripple::Serializer>();
                     exported.add(*s);
                     SerialIter sitTrans(s->slice());
                     try
                     {
+                        DBG_EXPORT(
+                            "export inject: creating STTx from exported txn");
                         auto stpTrans =
                             std::make_shared<STTx>(std::ref(sitTrans));
+                        DBG_EXPORT("export inject: STTx created");
 
                         if (!stpTrans->isFieldPresent(sfAccount) ||
                             stpTrans->getAccountID(sfAccount) == beast::zero)
                         {
-                            JLOG(j_.warn()) << "Hook: Export failure: "
-                                            << "sfAccount missing or zero.";
+                            DBG_EXPORT(
+                                "export inject: sfAccount missing or zero, "
+                                "skipping");
                             // RH TODO: if this ever happens the entry should be
                             // gracefully removed (somehow)
                             continue;
@@ -1685,30 +1718,42 @@ TxQ::accept(Application& app, OpenView& view)
 
                         // Serialize the inner transaction and create an
                         // STObject from it. sfExportedTxn is OBJECT type, not
-                        // VL, so we must use emplace_back with STObject, not
-                        // setFieldVL.
+                        // VL. Use set() to replace the existing template field,
+                        // not emplace_back which would add a duplicate.
                         ripple::Serializer exportedSer;
                         stpTrans->add(exportedSer);
                         SerialIter exportedSit(exportedSer.slice());
 
+                        // Create ttEXPORT pseudo-transaction
+                        // Note: sfSigners is already on the inner stpTrans
+                        // (sfExportedTxn) ttEXPORT itself must NOT have
+                        // sfSigners at top level (Change::preflight rejects it)
                         STTx exportTx(ttEXPORT, [&](auto& obj) {
-                            obj.emplace_back(
-                                ripple::STObject(exportedSit, sfExportedTxn));
+                            // Pseudo-transaction required fields
+                            // (Change::preflight checks)
+                            obj[sfAccount] = AccountID();
+                            // Export-specific fields
+                            obj.set(std::make_unique<STObject>(
+                                exportedSit, sfExportedTxn));
                             obj.setFieldU32(sfLedgerSequence, seq);
                             obj.setFieldH256(sfTransactionHash, txnHash);
-                            obj.setFieldArray(sfSigners, signers);
                         });
 
-                        // submit to the ledger
-                        {
-                            uint256 txID = exportTx.getTransactionID();
-                            auto s = std::make_shared<ripple::Serializer>();
-                            exportTx.add(*s);
-                            app.getHashRouter().setFlags(txID, SF_PRIVATE2);
-                            app.getHashRouter().setFlags(txID, SF_EMITTED);
-                            view.rawTxInsert(txID, std::move(s), nullptr);
-                            ledgerChanged = true;
-                        }
+                        // Record the ttEXPORT transaction (like ttCRON)
+                        // Cleanup happens via Change::applyExport() when
+                        // processed
+                        uint256 txID = exportTx.getTransactionID();
+                        DBG_EXPORT(
+                            "export inject: rawTxInsert ttEXPORT txID="
+                            << txID);
+
+                        auto s = std::make_shared<ripple::Serializer>();
+                        exportTx.add(*s);
+
+                        app.getHashRouter().setFlags(txID, SF_PRIVATE2);
+                        app.getHashRouter().setFlags(txID, SF_EMITTED);
+                        view.rawTxInsert(txID, std::move(s), nullptr);
+                        ledgerChanged = true;
                     }
 
                     catch (std::exception& e)
@@ -1733,6 +1778,7 @@ TxQ::accept(Application& app, OpenView& view)
     }
     //@@end txq-inject-export
 
+    DBG_EXPORT("TxQ::accept SECTION 4: emit inject seq=" << view.info().seq);
     // Inject emitted transactions if any
     if (view.rules().enabled(featureHooks))
         do
@@ -1884,6 +1930,9 @@ TxQ::accept(Application& app, OpenView& view)
 
         } while (0);
 
+    DBG_EXPORT(
+        "TxQ::accept SECTION 5: process queue seq="
+        << view.info().seq << " byFee_.size()=" << byFee_.size());
     for (auto candidateIter = byFee_.begin(); candidateIter != byFee_.end();)
     {
         auto& account = byAccount_.at(candidateIter->account);
@@ -2003,6 +2052,7 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
+    DBG_EXPORT("TxQ::accept SECTION 6: rebuild queue seq=" << view.info().seq);
     // All transactions that can be moved out of the queue into the open
     // ledger have been. Rebuild the queue using the open ledger's
     // parent hash, so that transactions paying the same fee are
@@ -2010,6 +2060,18 @@ TxQ::accept(Application& app, OpenView& view)
     LedgerHash const& parentHash = view.info().parentHash;
 #if !NDEBUG
     auto const startingSize = byFee_.size();
+    DBG_EXPORT(
+        "TxQ::accept CHECK seq=" << view.info().seq
+                                 << " parentHash=" << parentHash
+                                 << " parentHash_=" << parentHash_);
+    if (parentHash == parentHash_)
+    {
+        JLOG(j_.fatal()) << "TxQ::accept DOUBLE-ACCEPT DETECTED!"
+                         << " seq=" << view.info().seq
+                         << " parentHash=" << parentHash
+                         << " parentHash_=" << parentHash_
+                         << " byFee_.size()=" << byFee_.size();
+    }
     assert(parentHash != parentHash_);
     parentHash_ = parentHash;
 #endif

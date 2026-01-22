@@ -181,7 +181,7 @@ makeExportSignTxns(OpenView& view, Application& app, beast::Journal const& j)
                                    .getField(sfExportedTxn)
                                    .downcast<STObject>();
 
-        auto exportedLgrSeq = exported.getFieldU32(sfLedgerSequence);
+        auto exportedLgrSeq = sleItem->getFieldU32(sfLedgerSequence);
 
         // Only sign transactions that were added in the previous ledger
         if (exportedLgrSeq != seq - 1)

@@ -388,6 +388,8 @@ LedgerFormats::LedgerFormats()
             {sfExportedTxn, soeOPTIONAL},
             {sfOwnerNode, soeREQUIRED},
             {sfLedgerSequence, soeREQUIRED},
+            {sfTransactionHash, soeREQUIRED},
+            {sfSigners, soeOPTIONAL},
         },
         commonFields);
     //@@end exported-txn-format

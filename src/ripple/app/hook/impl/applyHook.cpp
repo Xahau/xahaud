@@ -2067,6 +2067,9 @@ hook::finalizeHookResult(
                 if (page)
                 {
                     (*sleExported)[sfOwnerNode] = *page;
+                    (*sleExported)[sfLedgerSequence] =
+                        applyCtx.view().info().seq;
+                    (*sleExported)[sfTransactionHash] = id;
                     applyCtx.view().insert(sleExported);
                 }
                 else

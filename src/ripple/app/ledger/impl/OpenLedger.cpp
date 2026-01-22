@@ -74,6 +74,17 @@ OpenLedger::modify(modify_type const& f)
 }
 
 void
+// Debug macro for export investigation - remove after debugging
+#include <thread>
+#define DBG_EXPORT(msg)                                                 \
+    do                                                                  \
+    {                                                                   \
+        std::cerr << "[" << __FILE__ << ":" << __LINE__                 \
+                  << " t=" << std::this_thread::get_id() << "] " << msg \
+                  << std::endl;                                         \
+        std::cerr.flush();                                              \
+    } while (0)
+
 OpenLedger::accept(
     Application& app,
     Rules const& rules,
@@ -85,6 +96,8 @@ OpenLedger::accept(
     std::string const& suffix,
     modify_type const& f)
 {
+    DBG_EXPORT(
+        "OpenLedger::accept seq=" << ledger->seq() << " suffix=" << suffix);
     JLOG(j_.trace()) << "accept ledger " << ledger->seq() << " " << suffix;
     auto next = create(rules, ledger);
     if (retriesFirst)
@@ -118,10 +131,23 @@ OpenLedger::accept(
     // Call the modifier
     if (f)
         f(*next, j_);
+    DBG_EXPORT(
+        "OpenLedger::accept AFTER CALLBACK seq="
+        << next->info().seq << " locals.size()=" << locals.size());
     // Apply local tx
     for (auto const& item : locals)
+    {
+        DBG_EXPORT(
+            "OpenLedger::accept applying local tx seq=" << next->info().seq);
         app.getTxQ().apply(app, *next, item.second, flags, j_);
+    }
+    DBG_EXPORT("OpenLedger::accept AFTER LOCAL TXS seq=" << next->info().seq);
 
+    DBG_EXPORT(
+        "OpenLedger::accept RELAY LOOP DISABLED FOR DEBUGGING seq="
+        << next->info().seq);
+// COMPLETELY DISABLED FOR DEBUGGING
+#if 0
     // If we didn't relay this transaction recently, relay it to all peers
     for (auto const& txpair : next->txs)
     {
@@ -146,10 +172,13 @@ OpenLedger::accept(
             app.overlay().relay(txId, msg, *toSkip);
         }
     }
+#endif
 
     // Switch to the new open view
+    DBG_EXPORT("OpenLedger::accept SWITCHING VIEW seq=" << next->info().seq);
     std::lock_guard lock2(current_mutex_);
     current_ = std::move(next);
+    DBG_EXPORT("OpenLedger::accept EXIT");
 }
 
 //------------------------------------------------------------------------------
