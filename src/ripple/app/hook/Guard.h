@@ -1267,12 +1267,20 @@ validateGuards(
                 {
                     for (auto const& [import_idx, api_name] : usage->second)
                     {
+                        //@@start guard-signature-lookup
                         auto const& api_signature =
                             hook_api::import_whitelist.find(api_name) !=
                                 hook_api::import_whitelist.end()
                             ? hook_api::import_whitelist.find(api_name)->second
-                            : hook_api::import_whitelist_1.find(api_name)
-                                  ->second;
+                            : (hook_api::import_whitelist_1.find(api_name) !=
+                                       hook_api::import_whitelist_1.end()
+                                   ? hook_api::import_whitelist_1
+                                         .find(api_name)
+                                         ->second
+                                   : hook_api::import_whitelist_2
+                                         .find(api_name)
+                                         ->second);
+                        //@@end guard-signature-lookup
 
                         if (!first_signature)
                         {
