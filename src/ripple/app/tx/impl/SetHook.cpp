@@ -20,6 +20,7 @@
 #include <ripple/app/tx/impl/SetHook.h>
 
 #include <ripple/app/hook/Enum.h>
+#include <ripple/app/hook/GasValidator.h>
 #include <ripple/app/hook/Guard.h>
 #include <ripple/app/hook/applyHook.h>
 #include <ripple/app/ledger/Ledger.h>
@@ -435,13 +436,25 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             }
 
             auto version = hookSetObj.getFieldU16(sfHookApiVersion);
-            if (version != 0)
+
+            if (!ctx.rules.enabled(featureHookGas) && version != 0)
             {
                 // we currently only accept api version 0
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
                     << "]: Malformed transaction: SetHook "
                        "sfHook->sfHookApiVersion invalid. (Try 0).";
+                return false;
+            }
+
+            // allow only version=0 and version=1
+            if (version != 0 && version != 1)
+            {
+                JLOG(ctx.j.trace())
+                    << "HookSet(" << ::hook::log::API_INVALID << ")["
+                    << HS_ACC()
+                    << "]: Malformed transaction: SetHook "
+                       "sfHook->sfHookApiVersion invalid. (Must be 0 or 1).";
                 return false;
             }
 
@@ -469,6 +482,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     return {};
 
                 Blob hook = hookSetObj.getFieldVL(sfCreateCode);
+                auto version = hookSetObj.getFieldU16(sfHookApiVersion);
 
                 // RH NOTE: validateGuards has a generic non-rippled specific
                 // interface so it can be used in other projects (i.e. tooling).
@@ -486,46 +500,83 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     hsacc = ss.str();
                 }
 
-                auto result = validateGuards(
-                    hook,  // wasm to verify
-                    logger,
-                    hsacc,
-                    (ctx.rules.enabled(featureHooksUpdate1) ? 1 : 0) +
-                        (ctx.rules.enabled(fix20250131) ? 2 : 0));
+                uint64_t maxInstrCountHook = 0;
+                uint64_t maxInstrCountCbak = 0;
 
-                if (ctx.j.trace())
+                if (version == 0)  // Guard type
                 {
-                    // clunky but to get the stream to accept the output
-                    // correctly we will split on new line and feed each line
-                    // one by one into the trace stream beast::Journal should be
-                    // updated to inherit from basic_ostream<char> then this
-                    // wouldn't be necessary.
+                    auto result = validateGuards(
+                        hook,  // wasm to verify
+                        logger,
+                        hsacc,
+                        (ctx.rules.enabled(featureHooksUpdate1) ? 1 : 0) +
+                            (ctx.rules.enabled(fix20250131) ? 2 : 0));
 
-                    // is this a needless copy or does the compiler do copy
-                    // elision here?
-                    std::string s = loggerStream.str();
-
-                    char* data = s.data();
-                    size_t len = s.size();
-
-                    char* last = data;
-                    size_t i = 0;
-                    for (; i < len; ++i)
+                    if (ctx.j.trace())
                     {
-                        if (data[i] == '\n')
+                        // clunky but to get the stream to accept the output
+                        // correctly we will split on new line and feed each
+                        // line one by one into the trace stream beast::Journal
+                        // should be updated to inherit from basic_ostream<char>
+                        // then this wouldn't be necessary.
+
+                        // is this a needless copy or does the compiler do copy
+                        // elision here?
+                        std::string s = loggerStream.str();
+
+                        char* data = s.data();
+                        size_t len = s.size();
+
+                        char* last = data;
+                        size_t i = 0;
+                        for (; i < len; ++i)
                         {
-                            data[i] = '\0';
-                            ctx.j.trace() << last;
-                            last = data + i;
+                            if (data[i] == '\n')
+                            {
+                                data[i] = '\0';
+                                ctx.j.trace() << last;
+                                last = data + i;
+                            }
                         }
+
+                        if (last < data + i)
+                            ctx.j.trace() << last;
                     }
 
-                    if (last < data + i)
-                        ctx.j.trace() << last;
-                }
+                    if (!result)
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::WASM_BAD_MAGIC << ")["
+                            << HS_ACC()
+                            << "]: Malformed transaction: SetHook "
+                               "sfCreateCode failed validation.";
+                        return false;
+                    }
 
-                if (!result)
-                    return false;
+                    std::tie(maxInstrCountHook, maxInstrCountCbak) = *result;
+                }
+                else if (version == 1)  // Gas type
+                {
+                    // validate with GasValidator
+                    auto error = hook::validateWasmHostFunctionsForGas(
+                        hook, ctx.rules, ctx.j);
+
+                    if (error)
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::IMPORT_ILLEGAL << ")["
+                            << HS_ACC()
+                            << "]: Malformed transaction: Gas-type Hook "
+                               "validation failed: "
+                            << *error;
+                        return false;
+                    }
+
+                    // Gas type: maxInstrCount is not pre-calculated (use Gas
+                    // limit at runtime)
+                    maxInstrCountHook = 0;
+                    maxInstrCountCbak = 0;
+                }
 
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::WASM_SMOKE_TEST << ")["
@@ -547,7 +598,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     return false;
                 }
 
-                return *result;
+                return std::make_pair(maxInstrCountHook, maxInstrCountCbak);
             }
         }
 
@@ -1680,10 +1731,11 @@ SetHook::setHook()
                     newHookDef->setFieldH256(
                         sfHookSetTxnID, ctx.tx.getTransactionID());
                     newHookDef->setFieldU64(sfReferenceCount, 1);
-                    newHookDef->setFieldAmount(
-                        sfFee,
-                        XRPAmount{
-                            hook::computeExecutionFee(maxInstrCountHook)});
+                    if (hookSetObj->get().getFieldU16(sfHookApiVersion) != 1)
+                        newHookDef->setFieldAmount(
+                            sfFee,
+                            XRPAmount{
+                                hook::computeExecutionFee(maxInstrCountHook)});
                     if (maxInstrCountCbak > 0)
                         newHookDef->setFieldAmount(
                             sfHookCallbackFee,

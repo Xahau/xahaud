@@ -73,7 +73,8 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookExecutionIndex, soeREQUIRED},
          {sfHookStateChangeCount, soeREQUIRED},
          {sfHookEmitCount, soeREQUIRED},
-         {sfFlags, soeOPTIONAL}});
+         {sfFlags, soeOPTIONAL},
+         {sfHookInstructionCost, soeOPTIONAL}});
 
     add(sfHookEmission.jsonName.c_str(),
         sfHookEmission.getCode(),
@@ -91,7 +92,7 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookCanEmit, soeOPTIONAL},
          {sfHookApiVersion, soeREQUIRED},
          {sfFlags, soeREQUIRED},
-         {sfFee, soeREQUIRED}});
+         {sfFee, soeOPTIONAL}});
 
     add(sfHook.jsonName.c_str(),
         sfHook.getCode(),

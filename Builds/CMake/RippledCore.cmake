@@ -488,6 +488,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/apply.cpp
   src/ripple/app/tx/impl/applySteps.cpp
   src/ripple/app/hook/impl/applyHook.cpp
+  src/ripple/app/hook/impl/GasValidator.cpp
   src/ripple/app/tx/impl/details/NFTokenUtils.cpp
   #[===============================[
      main sources:
@@ -909,6 +910,7 @@ if (tests)
     src/test/jtx/impl/fee.cpp
     src/test/jtx/impl/flags.cpp
     src/test/jtx/impl/genesis.cpp
+    src/test/jtx/impl/hookgas.cpp
     src/test/jtx/impl/import.cpp
     src/test/jtx/impl/invoice_id.cpp
     src/test/jtx/impl/invoke.cpp

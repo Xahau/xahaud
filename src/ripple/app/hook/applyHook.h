@@ -10,7 +10,6 @@
 #include <ripple/protocol/SField.h>
 #include <ripple/protocol/TER.h>
 #include <ripple/protocol/digest.h>
-#include <any>
 #include <memory>
 #include <optional>
 #include <queue>
@@ -462,7 +461,9 @@ apply(
     uint32_t wasmParam,
     uint8_t hookChainPosition,
     // result of apply() if this is weak exec
-    std::shared_ptr<STObject const> const& provisionalMeta);
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    uint16_t hookApiVersion,
+    uint32_t hookGas);
 
 struct HookContext;
 
@@ -501,6 +502,7 @@ struct HookResult
     std::string exitReason{""};
     int64_t exitCode{-1};
     uint64_t instructionCount{0};
+    uint64_t instructionCost{0};
     bool hasCallback = false;  // true iff this hook wasm has a cbak function
     bool isCallback =
         false;  // true iff this hook execution is a callback in action
@@ -513,6 +515,8 @@ struct HookResult
         false;  // hook_again allows strong pre-apply to nominate
                 // additional weak post-apply execution
     std::shared_ptr<STObject const> provisionalMeta;
+    uint16_t hookApiVersion = 0;      // 0 = Guard-type, 1 = Gas-type
+    std::optional<uint64_t> hookGas;  // Gas limit for Gas-type hooks
 };
 
 class HookExecutor;
@@ -658,6 +662,7 @@ public:
             if (!conf)
                 return;
             WasmEdge_ConfigureStatisticsSetInstructionCounting(conf, true);
+            WasmEdge_ConfigureStatisticsSetCostMeasuring(conf, true);
             ctx = WasmEdge_VMCreate(conf, NULL);
         }
 
@@ -758,6 +763,23 @@ public:
             return;
         }
 
+        // Set Gas limit for Gas-type hooks (HookApiVersion == 1)
+        if (hookCtx.result.hookApiVersion == 1 &&
+            hookCtx.result.hookGas.has_value())
+        {
+            auto* statsCtx = WasmEdge_VMGetStatisticsContext(vm.ctx);
+            if (statsCtx)
+            {
+                // Convert HookGas to cost limit count (1 Gas = 1 cost)
+                uint32_t gasLimit = *hookCtx.result.hookGas;
+                WasmEdge_StatisticsSetCostLimit(statsCtx, gasLimit);
+
+                JLOG(j.trace())
+                    << "HookInfo[" << HC_ACC() << "]: Set Gas limit to "
+                    << gasLimit << " cost limit for Gas-type Hook";
+            }
+        }
+
         WasmEdge_Value params[1] = {WasmEdge_ValueGenI32((int64_t)wasmParam)};
         WasmEdge_Value returns[1];
 
@@ -771,16 +793,28 @@ public:
             returns,
             1);
 
-        if (auto err = getWasmError("WASM VM error", res); err)
-        {
-            JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: " << *err;
-            hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
-            return;
-        }
-
         auto* statsCtx = WasmEdge_VMGetStatisticsContext(vm.ctx);
         hookCtx.result.instructionCount =
             WasmEdge_StatisticsGetInstrCount(statsCtx);
+        hookCtx.result.instructionCost =
+            WasmEdge_StatisticsGetTotalCost(statsCtx);
+
+        if (auto err = getWasmError("WASM VM error", res); err)
+        {
+            JLOG(j.trace()) << "HookError[" << HC_ACC() << "]: " << *err;
+
+            // Check if error is due to Gas limit exceeded for Gas-type hooks
+            if (hookCtx.result.hookApiVersion == 1 &&
+                err->find("cost limit exceeded") != std::string::npos)
+            {
+                JLOG(j.trace()) << "HookError[" << HC_ACC()
+                                << "]: Gas limit exceeded. Limit was "
+                                << *hookCtx.result.hookGas << " instructions";
+            }
+
+            hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+            return;
+        }
 
         // RH NOTE: stack unwind will clean up WasmEdgeVM
     }

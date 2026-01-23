@@ -44,6 +44,7 @@ TxFormats::TxFormats()
         {sfNetworkID, soeOPTIONAL},
         {sfHookParameters, soeOPTIONAL},
         {sfOperationLimit, soeOPTIONAL},
+        {sfHookGas, soeOPTIONAL},
     };
 
     add(jss::AccountSet,

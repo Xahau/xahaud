@@ -1232,7 +1232,9 @@ hook::apply(
     bool isStrong,
     uint32_t wasmParam,
     uint8_t hookChainPosition,
-    std::shared_ptr<STObject const> const& provisionalMeta)
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    uint16_t hookApiVersion,
+    uint32_t hookGas)
 {
     HookContext hookCtx = {
         .applyCtx = applyCtx,
@@ -1264,7 +1266,9 @@ hook::apply(
              .wasmParam = wasmParam,
              .hookChainPosition = hookChainPosition,
              .foreignStateSetDisabled = false,
-             .provisionalMeta = provisionalMeta},
+             .provisionalMeta = provisionalMeta,
+             .hookApiVersion = hookApiVersion,
+             .hookGas = hookGas},
         .emitFailure = isCallback && wasmParam & 1
             ? std::optional<ripple::STObject>(
                   (*(applyCtx.view().peek(keylet::emittedTxn(
@@ -2049,6 +2053,9 @@ hook::finalizeHookResult(
             ripple::Slice{
                 hookResult.exitReason.data(), hookResult.exitReason.size()});
         meta.setFieldU64(sfHookInstructionCount, hookResult.instructionCount);
+        if (hookResult.hookApiVersion == 1)
+            meta.setFieldU32(sfHookInstructionCost, hookResult.instructionCost);
+
         meta.setFieldU16(
             sfHookEmitCount,
             emission_txnid.size());  // this will never wrap, hard limit

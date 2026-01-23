@@ -41,17 +41,28 @@ echo '
 namespace ripple {
 namespace test {
 std::map<std::string, std::vector<uint8_t>> wasm = {' > $OUTPUT_FILE
-COUNTER="0"
-cat $INPUT_FILE | tr '\n' '\f' | 
-        grep -Po 'R"\[test\.hook\](.*?)\[test\.hook\]"' | 
-        sed -E 's/R"\[test\.hook\]\(//g' | 
-        sed -E 's/\)\[test\.hook\]"[\f \t]*/\/*end*\//g' | 
+# Counter file for sharing between subshells
+COUNTER_FILE=$(mktemp)
+echo "0" > $COUNTER_FILE
+trap "rm -f $COUNTER_FILE" EXIT
+
+# Process both [test.hook] and [test.hook.gas] blocks
+process_block() {
+    local tag_pattern="$1"   # regex pattern: "hook" or "hook\.gas"
+    local tag_output="$2"    # output string: "hook" or "hook.gas"
+    local skip_cleaner="$3"  # "0" for no skip, "1" for skip
+    
+    cat $INPUT_FILE | tr '\n' '\f' | 
+        grep -Po "R\"\[test\.${tag_pattern}\](.*?)\[test\.${tag_pattern}\]\"" | 
+        sed -E "s/R\"\[test\.${tag_pattern}\]\(//g" | 
+        sed -E "s/\)\[test\.${tag_pattern}\]\"[\f \t]*/\/*end*\//g" | 
         while read -r line
         do
+            COUNTER=$(cat $COUNTER_FILE)
             echo "/* ==== WASM: $COUNTER ==== */" >> $OUTPUT_FILE
-            echo -n '{ R"[test.hook](' >> $OUTPUT_FILE
+            echo -n "{ R\"[test.${tag_output}](" >> $OUTPUT_FILE
             cat <<< "$line" | sed -E 's/.{7}$//g' | tr -d '\n' | tr '\f' '\n' >> $OUTPUT_FILE
-            echo ')[test.hook]",' >> $OUTPUT_FILE
+            echo ")[test.${tag_output}]\"," >> $OUTPUT_FILE
             echo "{" >> $OUTPUT_FILE
             WAT=`grep -Eo '\(module' <<< $line | wc -l`
             if [ "$WAT" -eq "0" ]
@@ -69,10 +80,19 @@ cat $INPUT_FILE | tr '\n' '\f' |
                     echo "$line"
                     exit 1
                 fi
-                wasmcc -x c /dev/stdin -o /dev/stdout -O2 -Wl,--allow-undefined <<< "`tr '\f' '\n' <<< $line`" |
-                    hook-cleaner - - 2>/dev/null |
-                    xxd -p -u -c 10 | 
-                    sed -E 's/../0x&U,/g' | sed -E 's/^/    /g' >> $OUTPUT_FILE
+                if [ "$skip_cleaner" -eq "1" ]
+                then
+                    # Skip hook-cleaner for [test.hook.gas]
+                    wasmcc -x c /dev/stdin -o /dev/stdout -O2 -Wl,--allow-undefined <<< "`tr '\f' '\n' <<< $line`" |
+                        xxd -p -u -c 10 | 
+                        sed -E 's/../0x&U,/g' | sed -E 's/^/    /g' >> $OUTPUT_FILE
+                else
+                    # Run hook-cleaner for [test.hook]
+                    wasmcc -x c /dev/stdin -o /dev/stdout -O2 -Wl,--allow-undefined <<< "`tr '\f' '\n' <<< $line`" |
+                        hook-cleaner - - 2>/dev/null |
+                        xxd -p -u -c 10 | 
+                        sed -E 's/../0x&U,/g' | sed -E 's/^/    /g' >> $OUTPUT_FILE
+                fi
             else
                 wat2wasm - -o /dev/stdout <<< "`tr '\f' '\n' <<< $(sed -E 's/.{7}$//g' <<< $line)`" |
                     xxd -p -u -c 10 | 
@@ -85,8 +105,15 @@ cat $INPUT_FILE | tr '\n' '\f' |
             fi
             echo '}},' >> $OUTPUT_FILE
             echo >> $OUTPUT_FILE
-            COUNTER=`echo $COUNTER + 1 | bc`
+            echo $((COUNTER + 1)) > $COUNTER_FILE
         done
+}
+
+# Process [test.hook] blocks (with hook-cleaner)
+process_block "hook" "hook" "0"
+
+# Process [test.hook.gas] blocks (without hook-cleaner)
+process_block "hook\.gas" "hook.gas" "1"
 echo '};
 }
 }

@@ -344,6 +344,7 @@ enum TECcodes : TERUnderlyingType {
     tecIMMUTABLE = 188,
     tecTOO_MANY_REMARKS = 189,
     tecHAS_HOOK_STATE = 190,
+    tecHOOK_INSUFFICIENT_GAS = 191,
     tecLAST_POSSIBLE_ENTRY = 255,
 };
 

@@ -95,6 +95,7 @@ transResults()
         MAKE_ERROR(tecIMMUTABLE,                     "The remark is marked immutable on the object, and therefore cannot be updated."),
         MAKE_ERROR(tecTOO_MANY_REMARKS,              "The number of remarks on the object would exceed the limit of 32."),
         MAKE_ERROR(tecHAS_HOOK_STATE,                "Delete all hook state before reducing scale"),
+        MAKE_ERROR(tecHOOK_INSUFFICIENT_GAS,        "Insufficient hook gas to complete the transaction."),
 
         MAKE_ERROR(tefALREADY,                     "The exact transaction was already in this ledger."),
         MAKE_ERROR(tefBAD_ADD_AUTH,                "Not authorized to add account."),

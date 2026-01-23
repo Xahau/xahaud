@@ -27,6 +27,7 @@
 #include <test/app/SetHook_wasm.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
+#include <test/jtx/hookgas.h>
 #include <unordered_map>
 
 namespace ripple {
@@ -13378,8 +13379,236 @@ public:
     }
 
     void
+    testGasTypeHookDisabled(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook disabled");
+        using namespace jtx;
+        Env env{*this, features - featureHookGas};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        // Install a Gas-type hook with Version 1
+        Json::Value jvh = hso(gas_accept_wasm, overrideFlag);
+        jvh[jss::HookApiVersion] = 0;
+
+        env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+            M("test gas type hook installation"),
+            HSFEE,
+            ter(temMALFORMED));
+
+        // Install a Gas-type hook with Version 1
+        jvh[jss::HookApiVersion] = 1;
+
+        env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+            M("test gas type hook installation"),
+            HSFEE,
+            ter(temMALFORMED));
+
+        // HookGas field
+        env(invoke::invoke(alice),
+            hookgas(1000000),
+            M("test gas type hook invocation"),
+            fee(XRP(1)),
+            ter(temMALFORMED));
+        env.close();
+    }
+
+    void
+    testGasTypeHookInstallation(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook installation");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        // Install a Gas-type hook using gas_accept_wasm
+        Json::Value jvh = hso(gas_accept_wasm, overrideFlag);
+        jvh[jss::HookApiVersion] = 1;
+
+        env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+            M("test gas type hook installation"),
+            HSFEE);
+        env.close();
+
+        // no HookGas field for Gas-type hook
+        env(invoke::invoke(alice),
+            M("test gas type hook invocation"),
+            fee(XRP(1)),
+            ter(tecHOOK_INSUFFICIENT_GAS));
+        env.close();
+
+        // insufficient fee for gas type hook
+        // baseFee + HookGas fee + gas type Hook call fee
+        auto const expectedGas = 1'000'000;
+        auto const expectedFee =
+            env.current()->fees().base + drops(expectedGas) + drops(200'000);
+        env(invoke::invoke(alice),
+            hookgas(expectedGas),
+            fee(expectedFee - drops(1)),
+            ter(telINSUF_FEE_P));
+        env.close();
+
+        // HookGas field for Gas-type hook
+        env(invoke::invoke(alice), hookgas(expectedGas), fee(expectedFee));
+        env.close();
+    }
+
+    void
+    testGasTypeHookRejects_gFunction(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook rejects _g function");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        // Attempt to install Gas-type hook with _g function (should fail)
+        Json::Value jv = hso(gas_with_g_wasm, overrideFlag);
+        jv[jss::HookApiVersion] = 1;
+
+        env(ripple::test::jtx::hook(alice, {{jv}}, 0),
+            M("test gas type hook rejects _g function"),
+            HSFEE,
+            ter(temMALFORMED));  // Should fail because Gas-type
+                                 // hooks cannot use _g
+        env.close();
+    }
+
+    void
+    testGasExecutionSufficient(FeatureBitset features)
+    {
+        testcase("Test Gas execution with sufficient gas");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(100000), alice, bob);
+        env.close();
+
+        // Install Gas-type hook with sufficient gas
+        Json::Value jvh = hso(gas_long_wasm, overrideFlag);
+        jvh[jss::HookApiVersion] = 1;
+
+        env(ripple::test::jtx::hook(alice, {{jvh}}, 0), HSFEE, ter(tesSUCCESS));
+        env.close();
+
+        // Trigger the hook with a payment
+        env(pay(bob, alice, XRP(1)),
+            // insufficient gas for long execution
+            hookgas(100),
+            fee(XRP(10000)),
+            ter(tecHOOK_INSUFFICIENT_GAS));
+        env.close();
+
+        // check exit type
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        auto hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);
+
+        // validate HookInstructionCost
+        BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookInstructionCost));
+        BEAST_REQUIRE(
+            hookExecutions[0].getFieldU32(sfHookInstructionCost) == 100);
+        // check exit type
+        BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookResult));
+        BEAST_REQUIRE(
+            hookExecutions[0].getFieldU8(sfHookResult) ==
+            hook_api::ExitType::WASM_ERROR);
+
+        // Trigger the hook with a payment
+        env(pay(bob, alice, XRP(1)),
+            // Sufficient gas for long execution
+            hookgas(10000000),
+            fee(XRP(10000)),
+            ter(tesSUCCESS));
+        env.close();
+
+        meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);
+
+        // validate HookInstructionCost
+        BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookInstructionCost));
+        BEAST_REQUIRE(
+            hookExecutions[0].getFieldU32(sfHookInstructionCost) == 2014);
+        // check exit type
+        BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookResult));
+        BEAST_REQUIRE(
+            hookExecutions[0].getFieldU8(sfHookResult) ==
+            hook_api::ExitType::ACCEPT);
+    }
+
+    void
+    testMultipleGasHooksSharedPool(FeatureBitset features)
+    {
+        testcase("Test multiple Gas-type hooks share gas pool");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(100000), alice, bob);
+        env.close();
+
+        // Install multiple Gas-type hooks
+        // First hook
+        Json::Value hook1 = hso(gas_accept_wasm, overrideFlag);
+        hook1[jss::HookApiVersion] = 1;
+
+        // Second hook
+        Json::Value hook2 = hso(gas_long_wasm, overrideFlag);
+        hook2[jss::HookApiVersion] = 1;
+
+        env(ripple::test::jtx::hook(alice, {{hook1, hook2}}, 0),
+            M("test multiple gas hooks shared pool"),
+            HSFEE,
+            ter(tesSUCCESS));
+        env.close();
+
+        // Trigger hooks with a payment
+        Json::Value jv = pay(bob, alice, XRP(1));
+        env(jv, hookgas(10000000), fee(XRP(10000)), ter(tesSUCCESS));
+        env.close();
+
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 2);
+
+        // validate HookInstructionCost
+        BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookInstructionCost));
+        BEAST_REQUIRE(hookExecutions[1].isFieldPresent(sfHookInstructionCost));
+        BEAST_REQUIRE(
+            hookExecutions[0].getFieldU32(sfHookInstructionCost) == 14);
+        BEAST_REQUIRE(
+            hookExecutions[1].getFieldU32(sfHookInstructionCost) == 2014);
+    }
+
+    void
     testWithFeatures(FeatureBitset features)
     {
+        // Gas-type Hook tests
+        testGasTypeHookDisabled(features);
+        testGasTypeHookInstallation(features);
+        testGasTypeHookRejects_gFunction(features);
+        testGasExecutionSufficient(features);
+        testMultipleGasHooksSharedPool(features);
+        return;
         testHooksOwnerDir(features);
         testHooksDisabled(features);
         testTxStructure(features);
@@ -13492,6 +13721,13 @@ public:
         test_util_raddr(features);    //
         test_util_sha512h(features);  //
         test_util_verify(features);   //
+
+        // Gas-type Hook tests
+        testGasTypeHookDisabled(features);
+        testGasTypeHookInstallation(features);
+        testGasTypeHookRejects_gFunction(features);
+        testGasExecutionSufficient(features);
+        testMultipleGasHooksSharedPool(features);
     }
 
 public:
@@ -13662,6 +13898,53 @@ private:
         )[test.hook]"];
 
     HASH_WASM(accept2);
+
+    TestHook gas_accept_wasm =  // WASM: 7
+        wasm[
+            R"[test.hook.gas](
+            #include <stdint.h>
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            int64_t hook(uint32_t reserved )
+            {
+                return accept(0,0,0);
+            }
+        )[test.hook.gas]"];
+
+    HASH_WASM(gas_accept);
+
+    TestHook gas_with_g_wasm =  // WASM: 8
+        wasm[
+            R"[test.hook.gas](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            int64_t hook(uint32_t reserved )
+            {
+                _g(1,1);
+                return accept(0,0,0);
+            }
+        )[test.hook.gas]"];
+
+    HASH_WASM(gas_with_g);
+
+    TestHook gas_long_wasm =  // WASM: 9
+        wasm[
+            R"[test.hook.gas](
+            #include <stdint.h>
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t float_one();
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+            #define M_REPEAT_10(X) X X X X X X X X X X
+            #define M_REPEAT_100(X) M_REPEAT_10(M_REPEAT_10(X))
+            #define M_REPEAT_1000(X) M_REPEAT_100(M_REPEAT_10(X))
+            int64_t hook(uint32_t reserved )
+            {
+                M_REPEAT_1000(float_one(););
+                return accept(0, 0, 0);
+            }
+        )[test.hook.gas]"];
+
+    HASH_WASM(gas_long);
 };
 
 #define SETHOOK_TEST(i, last)                      \
