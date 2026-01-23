@@ -32,6 +32,7 @@
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/TxFlags.h>
+#include <iostream>
 #include <string_view>
 
 namespace ripple {
@@ -1096,6 +1097,9 @@ TER
 Change::applyExport()
 {
     uint256 txnID(ctx_.tx.getFieldH256(sfTransactionHash));
+    std::cerr
+        << "[EXPORT-TRACE] STEP-4: doApply ttEXPORT (Change::applyExport) "
+        << "txnID=" << txnID << " viewSeq=" << view().seq() << std::endl;
     do
     {
         JLOG(j_.info()) << "HookExport[" << txnID
@@ -1127,6 +1131,9 @@ Change::applyExport()
         }
 
         view().erase(sle);
+        std::cerr
+            << "[EXPORT-TRACE] STEP-4: CLEANUP DONE (erased ltEXPORTED_TXN)"
+            << " txnID=" << txnID << std::endl;
     } while (0);
     return tesSUCCESS;
 }

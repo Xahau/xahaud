@@ -338,6 +338,14 @@ RCLConsensus::Adaptor::onClose(
     DBG_EXPORT("onClose: iterating initialLedger->txs");
     for (auto const& tx : initialLedger->txs)
     {
+        auto txType = tx.first->getTxnType();
+        if (txType == ttEXPORT_SIGN || txType == ttEXPORT)
+        {
+            DBG_EXPORT(
+                "[EXPORT-TRACE] onClose: adding to consensus txSet type="
+                << (txType == ttEXPORT_SIGN ? "ttEXPORT_SIGN" : "ttEXPORT")
+                << " txID=" << tx.first->getTransactionID());
+        }
         DBG_EXPORT("onClose: processing tx " << tx.first->getTransactionID());
         JLOG(j_.trace()) << "Adding open ledger TX "
                          << tx.first->getTransactionID();
@@ -693,8 +701,13 @@ RCLConsensus::Adaptor::doAccept(
                             tx->add(*s);
                             view.rawTxInsert(txID, std::move(s), nullptr);
                             DBG_EXPORT(
-                                "standalone: queued ttEXPORT_SIGN txID="
-                                << txID);
+                                "[EXPORT-TRACE] STEP-2a: rawTxInsert "
+                                "ttEXPORT_SIGN txID="
+                                << txID << " callbackSeq=" << view.info().seq);
+                            DBG_EXPORT(
+                                "ttEXPORT_SIGN JSON:\n"
+                                << tx->getJson(JsonOptions::none)
+                                       .toStyledString());
                         }
                         else
                         {
@@ -703,6 +716,10 @@ RCLConsensus::Adaptor::doAccept(
                             DBG_EXPORT(
                                 "network: submitted ttEXPORT_SIGN txID="
                                 << txID);
+                            DBG_EXPORT(
+                                "ttEXPORT_SIGN JSON:\n"
+                                << tx->getJson(JsonOptions::none)
+                                       .toStyledString());
                         }
                     }
                 }

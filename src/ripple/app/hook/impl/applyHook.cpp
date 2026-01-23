@@ -2071,6 +2071,10 @@ hook::finalizeHookResult(
                         applyCtx.view().info().seq;
                     (*sleExported)[sfTransactionHash] = id;
                     applyCtx.view().insert(sleExported);
+                    std::cerr << "[EXPORT-TRACE] STEP-1: xport() created "
+                              << "ltEXPORTED_TXN txnID=" << id
+                              << " ledgerSeq=" << applyCtx.view().info().seq
+                              << std::endl;
                 }
                 else
                 {

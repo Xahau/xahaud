@@ -1744,8 +1744,12 @@ TxQ::accept(Application& app, OpenView& view)
                         // processed
                         uint256 txID = exportTx.getTransactionID();
                         DBG_EXPORT(
-                            "export inject: rawTxInsert ttEXPORT txID="
-                            << txID);
+                            "[EXPORT-TRACE] STEP-3a: rawTxInsert ttEXPORT txID="
+                            << txID << " callbackSeq=" << seq);
+                        DBG_EXPORT(
+                            "export inject: ttEXPORT JSON:\n"
+                            << exportTx.getJson(JsonOptions::none)
+                                   .toStyledString());
 
                         auto s = std::make_shared<ripple::Serializer>();
                         exportTx.add(*s);

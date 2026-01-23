@@ -111,8 +111,20 @@ OpenLedger::accept(
     // would get lost.
     std::lock_guard lock1(modify_mutex_);
     // Apply tx from the current open view
+    DBG_EXPORT(
+        "OpenLedger::accept BEFORE apply(current_->txs)"
+        << " closedLedgerSeq=" << ledger->seq());
+    for (auto const& txPair : current_->txs)
+    {
+        DBG_EXPORT(
+            "  -> tx in current_->txs: type="
+            << txPair.first->getTxnType()
+            << " txID=" << txPair.first->getTransactionID());
+    }
     if (!current_->txs.empty())
     {
+        DBG_EXPORT(
+            "OpenLedger::accept CALLING apply() to process current_->txs");
         apply(
             app,
             *next,
@@ -134,6 +146,13 @@ OpenLedger::accept(
     DBG_EXPORT(
         "OpenLedger::accept AFTER CALLBACK seq="
         << next->info().seq << " locals.size()=" << locals.size());
+    DBG_EXPORT("OpenLedger::accept txs staged in next->txs (via rawTxInsert):");
+    for (auto const& txPair : next->txs)
+    {
+        DBG_EXPORT(
+            "  -> staged tx: type=" << txPair.first->getTxnType() << " txID="
+                                    << txPair.first->getTransactionID());
+    }
     // Apply local tx
     for (auto const& item : locals)
     {

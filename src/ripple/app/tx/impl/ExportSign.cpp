@@ -79,6 +79,8 @@ TER
 ExportSign::doApply()
 {
     uint256 txnID(ctx_.tx.getFieldH256(sfTransactionHash));
+    std::cerr << "[EXPORT-TRACE] STEP-2b: doApply ttEXPORT_SIGN txnID=" << txnID
+              << " viewSeq=" << view().seq() << std::endl;
 
     JLOG(j_.info()) << "HookExport[" << txnID
                     << "]: ttExportSign adding signature to transaction";
