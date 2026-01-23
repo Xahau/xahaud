@@ -515,8 +515,8 @@ struct HookResult
         false;  // hook_again allows strong pre-apply to nominate
                 // additional weak post-apply execution
     std::shared_ptr<STObject const> provisionalMeta;
-    uint16_t hookApiVersion = 0;      // 0 = Guard-type, 1 = Gas-type
-    std::optional<uint64_t> hookGas;  // Gas limit for Gas-type hooks
+    uint16_t hookApiVersion = 0;  // 0 = Guard-type, 1 = Gas-type
+    uint32_t hookGas;             // Gas limit for Gas-type hooks
 };
 
 class HookExecutor;
@@ -764,20 +764,22 @@ public:
         }
 
         // Set Gas limit for Gas-type hooks (HookApiVersion == 1)
-        if (hookCtx.result.hookApiVersion == 1 &&
-            hookCtx.result.hookGas.has_value())
+        if (hookCtx.result.hookApiVersion == 1)
         {
             auto* statsCtx = WasmEdge_VMGetStatisticsContext(vm.ctx);
             if (statsCtx)
             {
                 // Convert HookGas to cost limit count (1 Gas = 1 cost)
-                uint32_t gasLimit = *hookCtx.result.hookGas;
+                uint32_t gasLimit = hookCtx.result.hookGas;
                 WasmEdge_StatisticsSetCostLimit(statsCtx, gasLimit);
 
                 JLOG(j.trace())
                     << "HookInfo[" << HC_ACC() << "]: Set Gas limit to "
                     << gasLimit << " cost limit for Gas-type Hook";
             }
+
+            uint32_t maxMemoryPage = 8;
+            WasmEdge_ConfigureSetMaxMemoryPage(vm.conf, maxMemoryPage);
         }
 
         WasmEdge_Value params[1] = {WasmEdge_ValueGenI32((int64_t)wasmParam)};
@@ -809,7 +811,7 @@ public:
             {
                 JLOG(j.trace()) << "HookError[" << HC_ACC()
                                 << "]: Gas limit exceeded. Limit was "
-                                << *hookCtx.result.hookGas << " instructions";
+                                << hookCtx.result.hookGas;
             }
 
             hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;

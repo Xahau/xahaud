@@ -20,38 +20,158 @@
 #include <ripple/app/hook/GasValidator.h>
 #include <ripple/app/hook/Guard.h>
 #include <ripple/app/hook/Macro.h>
+#include <ripple/basics/Expected.h>
 #include <ripple/basics/Log.h>
 #include <ripple/protocol/Feature.h>
 #include <wasmedge/wasmedge.h>
 
 namespace hook {
 
-std::optional<std::string>
-validateWasmHostFunctionsForGas(
-    std::vector<uint8_t> const& wasm,
+Expected<void, std::string>
+validateExportSection(
+    WasmEdge_LoaderContext* loader,
+    WasmEdge_ASTModuleContext* astModule,
+    beast::Journal const& j)
+{
+    // Get export count
+    uint32_t exportCount = WasmEdge_ASTModuleListExportsLength(astModule);
+    if (exportCount == 0)
+    {
+        WasmEdge_ASTModuleDelete(astModule);
+        WasmEdge_LoaderDelete(loader);
+        return Unexpected("WASM must export at least hook API functions");
+    }
+
+    // Get exports
+    const WasmEdge_ExportTypeContext* exports[256];
+    uint32_t actualExportCount = std::min(exportCount, 256u);
+    actualExportCount =
+        WasmEdge_ASTModuleListExports(astModule, exports, actualExportCount);
+
+    // Track if we found required hook() function
+    bool foundHook = false;
+
+    // Check each export
+    for (uint32_t i = 0; i < actualExportCount; i++)
+    {
+        // Only check function exports
+        WasmEdge_ExternalType const type =
+            WasmEdge_ExportTypeGetExternalType(exports[i]);
+        if (type != WasmEdge_ExternalType_Function)
+            continue;
+
+        WasmEdge_String const name =
+            WasmEdge_ExportTypeGetExternalName(exports[i]);
+        std::string nameStr(name.Buf, name.Length);
+
+        if (nameStr.starts_with("__"))
+        {
+            // skip runtime support functions
+            continue;
+        }
+
+        // Only allow hook() and cbak() exports
+        if (nameStr != "hook" && nameStr != "cbak")
+        {
+            JLOG(j.trace()) << "HookSet(" << hook::log::EXPORT_MISSING
+                            << "): Unauthorized export function '" << nameStr
+                            << "'. Only 'hook' and 'cbak' are allowed";
+            return Unexpected(
+                "Unauthorized export function '" + nameStr +
+                "'. Only 'hook' and 'cbak' are allowed");
+        }
+
+        if (nameStr == "hook")
+            foundHook = true;
+
+        // Get function type to validate signature
+        WasmEdge_FunctionTypeContext const* functionType =
+            WasmEdge_ExportTypeGetFunctionType(astModule, exports[i]);
+
+        // Validate parameter count (must be exactly 1)
+        uint32_t paramCount =
+            WasmEdge_FunctionTypeGetParametersLength(functionType);
+        if (paramCount != 1)
+        {
+            JLOG(j.trace())
+                << "HookSet("
+                << (nameStr == "hook" ? hook::log::EXPORT_HOOK_FUNC
+                                      : hook::log::EXPORT_CBAK_FUNC)
+                << "): Function '" << nameStr
+                << "' must have exactly 1 parameter, found " << paramCount;
+            return Unexpected(
+                "Function '" + nameStr +
+                "' must have exactly 1 parameter of type uint32_t");
+        }
+
+        // Validate parameter type (must be i32 / uint32_t)
+        WasmEdge_ValType parameters[1];
+        WasmEdge_FunctionTypeGetParameters(functionType, parameters, 1);
+        if (parameters[0] != WasmEdge_ValType_I32)
+        {
+            JLOG(j.trace()) << "HookSet("
+                            << (nameStr == "hook" ? hook::log::EXPORT_HOOK_FUNC
+                                                  : hook::log::EXPORT_CBAK_FUNC)
+                            << "): Function '" << nameStr
+                            << "' parameter must be uint32_t (i32), found type "
+                            << parameters[0];
+            return Unexpected(
+                "Function '" + nameStr + "' parameter must be uint32_t (i32)");
+        }
+
+        // Validate return type (must be i64 / uint64_t)
+        uint32_t returnCount =
+            WasmEdge_FunctionTypeGetReturnsLength(functionType);
+        if (returnCount != 1)
+        {
+            JLOG(j.trace())
+                << "HookSet("
+                << (nameStr == "hook" ? hook::log::EXPORT_HOOK_FUNC
+                                      : hook::log::EXPORT_CBAK_FUNC)
+                << "): Function '" << nameStr
+                << "' must return exactly 1 value, found " << returnCount;
+            return Unexpected(
+                "Function '" + nameStr +
+                "' must return exactly 1 value of type uint64_t");
+        }
+
+        WasmEdge_ValType returns[1];
+        WasmEdge_FunctionTypeGetReturns(functionType, returns, 1);
+        if (returns[0] != WasmEdge_ValType_I64)
+        {
+            JLOG(j.trace())
+                << "HookSet("
+                << (nameStr == "hook" ? hook::log::EXPORT_HOOK_FUNC
+                                      : hook::log::EXPORT_CBAK_FUNC)
+                << "): Function '" << nameStr
+                << "' return type must be uint64_t (i64), found type "
+                << returns[0];
+            return Unexpected(
+                "Function '" + nameStr +
+                "' return type must be uint64_t (i64)");
+        }
+    }
+
+    // Ensure hook() function was exported (required)
+    if (!foundHook)
+    {
+        JLOG(j.trace()) << "HookSet(" << hook::log::EXPORT_MISSING
+                        << "): Required function 'hook' not found in exports";
+        WasmEdge_ASTModuleDelete(astModule);
+        WasmEdge_LoaderDelete(loader);
+        return Unexpected("Required function 'hook' not found in exports");
+    }
+
+    return {};
+}
+
+Expected<void, std::string>
+validateImportSection(
+    WasmEdge_LoaderContext* loader,
+    WasmEdge_ASTModuleContext* astModule,
     Rules const& rules,
     beast::Journal const& j)
 {
-    // Create WasmEdge Loader
-    WasmEdge_LoaderContext* loader = WasmEdge_LoaderCreate(NULL);
-    if (!loader)
-    {
-        return "Failed to create WasmEdge Loader";
-    }
-
-    // Parse WASM binary
-    WasmEdge_ASTModuleContext* astModule = NULL;
-    WasmEdge_Result res = WasmEdge_LoaderParseFromBuffer(
-        loader, &astModule, wasm.data(), wasm.size());
-
-    if (!WasmEdge_ResultOK(res))
-    {
-        WasmEdge_LoaderDelete(loader);
-        const char* msg = WasmEdge_ResultGetMessage(res);
-        return std::string("Failed to parse WASM: ") +
-            (msg ? msg : "unknown error");
-    }
-
     // Get import count
     uint32_t importCount = WasmEdge_ASTModuleListImportsLength(astModule);
 
@@ -61,7 +181,7 @@ validateWasmHostFunctionsForGas(
         WasmEdge_LoaderDelete(loader);
         JLOG(j.trace()) << "HookSet(" << hook::log::IMPORTS_MISSING
                         << "): WASM must import at least hook API functions";
-        return "WASM must import at least hook API functions";
+        return Unexpected("WASM must import at least hook API functions");
     }
 
     // Get imports (max 256)
@@ -96,8 +216,7 @@ validateWasmHostFunctionsForGas(
             JLOG(j.trace())
                 << "HookSet(" << hook::log::IMPORT_MODULE_ENV
                 << "): Import module must be 'env', found: " << modName;
-            error = "Import module must be 'env', found: " + modName;
-            break;
+            return Unexpected("Import module must be 'env', found: " + modName);
         }
 
         // Check for forbidden _g function (guard function)
@@ -106,51 +225,178 @@ validateWasmHostFunctionsForGas(
             JLOG(j.trace())
                 << "HookSet(" << hook::log::IMPORT_ILLEGAL
                 << "): Gas-type hooks cannot import _g (guard) function";
-            error = "Gas-type hooks cannot import _g (guard) function";
-            break;
+            return Unexpected(
+                "Gas-type hooks cannot import _g (guard) function");
         }
 
-        // Check external name length
-        if (extName.length() < 1 || extName.length() > 64)
+        // Determine which whitelist contains the function and get expected
+        // signature
+        std::vector<uint8_t> const* expectedSig = nullptr;
+        auto baseIt = hook_api::import_whitelist.find(extName);
+        if (baseIt != hook_api::import_whitelist.end())
         {
-            JLOG(j.trace()) << "HookSet(" << hook::log::IMPORT_NAME_BAD
-                            << "): Import name length invalid: " << extName;
-            error = "Import name length invalid: " + extName;
-            break;
+            expectedSig = &baseIt->second;
         }
-
-        // Check against whitelist using find()
-        bool found = false;
-
-        // Check base whitelist (import_whitelist)
-        if (hook_api::import_whitelist.find(extName) !=
-            hook_api::import_whitelist.end())
+        else if (rules.enabled(featureHooksUpdate1))
         {
-            found = true;
+            auto extIt = hook_api::import_whitelist_1.find(extName);
+            if (extIt != hook_api::import_whitelist_1.end())
+            {
+                expectedSig = &extIt->second;
+            }
         }
 
-        // Check extended whitelist (import_whitelist_1)
-        if (!found && rules.enabled(featureHooksUpdate1) &&
-            hook_api::import_whitelist_1.find(extName) !=
-                hook_api::import_whitelist_1.end())
-        {
-            found = true;
-        }
-
-        if (!found)
+        // Function not in any whitelist
+        if (!expectedSig)
         {
             JLOG(j.trace()) << "HookSet(" << hook::log::IMPORT_ILLEGAL
                             << "): Import not in whitelist: " << extName;
-            error = "Import not in whitelist: " + extName;
-            break;
+            return Unexpected("Import not in whitelist: " + extName);
         }
+
+        // Get function type for signature validation
+        WasmEdge_FunctionTypeContext const* functionType =
+            WasmEdge_ImportTypeGetFunctionType(astModule, imports[i]);
+
+        if (!functionType)
+        {
+            JLOG(j.trace()) << "HookSet(" << hook::log::FUNC_TYPELESS
+                            << "): Import function '" << extName
+                            << "' has no function type definition";
+            return Unexpected(
+                "Import function '" + extName +
+                "' has no function type definition");
+        }
+
+        // Validate return type
+        // expectedSig[0] is the return type
+        uint32_t returnCount =
+            WasmEdge_FunctionTypeGetReturnsLength(functionType);
+
+        if (returnCount != 1)
+        {
+            JLOG(j.trace())
+                << "HookSet(" << hook::log::FUNC_RETURN_COUNT
+                << "): Import function '" << extName
+                << "' must return exactly 1 value, found " << returnCount;
+            return Unexpected(
+                "Import function '" + extName +
+                "' must return exactly 1 value");
+        }
+
+        WasmEdge_ValType actualReturnType;
+        WasmEdge_FunctionTypeGetReturns(functionType, &actualReturnType, 1);
+
+        if (actualReturnType != (*expectedSig)[0])
+        {
+            JLOG(j.trace()) << "HookSet(" << hook::log::FUNC_RETURN_INVALID
+                            << "): Import function '" << extName
+                            << "' has incorrect return type. Expected "
+                            << static_cast<int>((*expectedSig)[0]) << ", found "
+                            << static_cast<int>(actualReturnType);
+            return Unexpected(
+                "Import function '" + extName + "' has incorrect return type");
+        }
+
+        // Validate parameter count and types
+        // expectedSig[1..N] are the parameter types
+        uint32_t expectedParamCount =
+            expectedSig->size() > 0 ? expectedSig->size() - 1 : 0;
+        uint32_t actualParamCount =
+            WasmEdge_FunctionTypeGetParametersLength(functionType);
+
+        if (actualParamCount != expectedParamCount)
+        {
+            JLOG(j.trace()) << "HookSet(" << hook::log::FUNC_PARAM_INVALID
+                            << "): Import function '" << extName << "' has "
+                            << actualParamCount << " parameters, expected "
+                            << expectedParamCount;
+            return Unexpected(
+                "Import function '" + extName +
+                "' has incorrect parameter count");
+        }
+
+        // Validate each parameter type
+        if (actualParamCount > 0)
+        {
+            std::vector<WasmEdge_ValType> actualParams(actualParamCount);
+            WasmEdge_FunctionTypeGetParameters(
+                functionType, actualParams.data(), actualParamCount);
+
+            for (uint32_t p = 0; p < actualParamCount; p++)
+            {
+                uint8_t expectedParamType = (*expectedSig)[1 + p];
+                if (actualParams[p] != expectedParamType)
+                {
+                    JLOG(j.trace())
+                        << "HookSet(" << hook::log::FUNC_PARAM_INVALID
+                        << "): Import function '" << extName << "' parameter "
+                        << p << " has incorrect type. Expected "
+                        << static_cast<int>(expectedParamType) << ", found "
+                        << static_cast<int>(actualParams[p]);
+                    return Unexpected(
+                        "Import function '" + extName +
+                        "' has incorrect parameter types");
+                }
+            }
+        }
+    }
+
+    return {};
+}
+
+std::optional<std::string>
+validateWasmHostFunctionsForGas(
+    std::vector<uint8_t> const& wasm,
+    Rules const& rules,
+    beast::Journal const& j)
+{
+    // Create WasmEdge Loader
+    WasmEdge_LoaderContext* loader = WasmEdge_LoaderCreate(NULL);
+    if (!loader)
+    {
+        return "Failed to create WasmEdge Loader";
+    }
+
+    // Parse WASM binary
+    WasmEdge_ASTModuleContext* astModule = NULL;
+    WasmEdge_Result res = WasmEdge_LoaderParseFromBuffer(
+        loader, &astModule, wasm.data(), wasm.size());
+
+    if (!WasmEdge_ResultOK(res))
+    {
+        WasmEdge_LoaderDelete(loader);
+        const char* msg = WasmEdge_ResultGetMessage(res);
+        return std::string("Failed to parse WASM: ") +
+            (msg ? msg : "unknown error");
+    }
+
+    //
+    // check export section
+    //
+    if (auto result = validateExportSection(loader, astModule, j); !result)
+    {
+        WasmEdge_ASTModuleDelete(astModule);
+        WasmEdge_LoaderDelete(loader);
+        return result.error();
+    }
+
+    //
+    // check import section
+    //
+    if (auto result = validateImportSection(loader, astModule, rules, j);
+        !result)
+    {
+        WasmEdge_ASTModuleDelete(astModule);
+        WasmEdge_LoaderDelete(loader);
+        return result.error();
     }
 
     // Cleanup
     WasmEdge_ASTModuleDelete(astModule);
     WasmEdge_LoaderDelete(loader);
 
-    return error;
+    return {};
 }
 
 }  // namespace hook
