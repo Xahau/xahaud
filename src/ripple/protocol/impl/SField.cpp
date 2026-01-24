@@ -161,7 +161,6 @@ CONSTRUCT_TYPED_SFIELD(sfFirstNFTokenSequence,  "FirstNFTokenSequence", UINT32, 
 // 32-bit integers (hook)
 CONSTRUCT_TYPED_SFIELD(sfHookInstructionCost,   "HookInstructionCost",  UINT32,    91);
 CONSTRUCT_TYPED_SFIELD(sfHookGas,               "HookGas",              UINT32,    92);
-
 CONSTRUCT_TYPED_SFIELD(sfStartTime,             "StartTime",            UINT32,    93);
 CONSTRUCT_TYPED_SFIELD(sfRepeatCount,           "RepeatCount",          UINT32,    94);
 CONSTRUCT_TYPED_SFIELD(sfDelaySeconds,          "DelaySeconds",         UINT32,    95);
@@ -273,7 +272,6 @@ CONSTRUCT_TYPED_SFIELD(sfLockedBalance,         "LockedBalance",        AMOUNT, 
 CONSTRUCT_TYPED_SFIELD(sfBaseFeeDrops,            "BaseFeeDrops",           AMOUNT,    22);
 CONSTRUCT_TYPED_SFIELD(sfReserveBaseDrops,        "ReserveBaseDrops",       AMOUNT,    23);
 CONSTRUCT_TYPED_SFIELD(sfReserveIncrementDrops,   "ReserveIncrementDrops",  AMOUNT,    24);
-
 
 // variable length (common)
 CONSTRUCT_TYPED_SFIELD(sfPublicKey,             "PublicKey",            VL,         1);
