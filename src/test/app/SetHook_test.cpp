@@ -14297,6 +14297,152 @@ public:
     }
 
     void
+    testGasTypeHookMemoryValidation(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook memory.grow validation");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(100000), alice, bob);
+        env.close();
+
+        // Test 1: Install hook that grows memory to 8 pages (should succeed)
+        {
+            TestHook gas_memory_grow_to_8_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (import "env" "rollback" (func (;1;) (type 0)))
+                    (func (;2;) (type 1) (param i32) (result i64)
+                        ;; Grow memory from 1 page to 8 pages (7 page increase)
+                        i32.const 7
+                        memory.grow
+                        i32.const -1
+                        i32.eq
+                        if (result i64)
+                        ;; Should not happen
+                        i32.const 0
+                        i32.const 0
+                        i64.const 1
+                        call 1  ;; rollback
+                        else
+                        ;; Success
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0  ;; accept
+                        end)
+                    (memory (;0;) 1)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 2)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_memory_grow_to_8);
+
+            Json::Value jvh = hso(gas_memory_grow_to_8_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 1;
+
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("install hook with memory.grow to 8 pages"),
+                HSFEE);
+            env.close();
+
+            // Trigger the hook with sufficient gas
+            env(pay(bob, alice, XRP(1)),
+                hookgas(1000000),
+                fee(XRP(10000)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // Verify hook executed successfully
+            auto meta = env.meta();
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+            auto hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+
+            // Check that hook accepted (memory.grow succeeded)
+            BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookResult));
+            BEAST_REQUIRE(
+                hookExecutions[0].getFieldU8(sfHookResult) ==
+                hook_api::ExitType::ACCEPT);
+        }
+
+        // Test 2: Install hook that tries to grow memory to 9 pages (should
+        // rollback)
+        {
+            TestHook gas_memory_grow_to_9_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (import "env" "rollback" (func (;1;) (type 0)))
+                    (func (;2;) (type 1) (param i32) (result i64)
+                        ;; Try to grow memory from 1 page to 9 pages (8 page increase)
+                        ;; This should fail because maxMemoryPage=8
+                        i32.const 8
+                        memory.grow
+                        i32.const -1
+                        i32.eq
+                        if (result i64)
+                        ;; Expected failure
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 1  ;; rollback
+                        else
+                        ;; Should not happen
+                        i32.const 0
+                        i32.const 0
+                        i64.const 1
+                        call 0  ;; accept
+                        end)
+                    (memory (;0;) 1)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 2)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_memory_grow_to_9);
+
+            Json::Value jvh = hso(gas_memory_grow_to_9_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 1;
+
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("install hook with memory.grow to 9 pages"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // Trigger the hook - should rollback due to memory.grow failure
+            env(pay(bob, alice, XRP(1)),
+                hookgas(1000000),
+                fee(XRP(10000)),
+                ter(tecHOOK_REJECTED));
+            env.close();
+
+            // Verify hook rolled back (memory.grow to 9 pages failed)
+            auto meta = env.meta();
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+            auto hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+
+            // Check that hook rolled back (memory limit exceeded)
+            BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookResult));
+            BEAST_REQUIRE(
+                hookExecutions[0].getFieldU8(sfHookResult) ==
+                hook_api::ExitType::ROLLBACK);
+        }
+    }
+
+    void
     testMultipleGasHooksSharedPool(FeatureBitset features)
     {
         testcase("Test multiple Gas-type hooks share gas pool");
@@ -14356,6 +14502,7 @@ public:
         testGasTypeHookHostFunctionValidation(features);
         testGasTypeHookExportErrors(features);
         testGasTypeHookImportErrors(features);
+        testGasTypeHookMemoryValidation(features);
         return;
         testHooksOwnerDir(features);
         testHooksDisabled(features);
@@ -14479,6 +14626,7 @@ public:
         testGasTypeHookHostFunctionValidation(features);
         testGasTypeHookExportErrors(features);
         testGasTypeHookImportErrors(features);
+        testGasTypeHookMemoryValidation(features);
     }
 
 public:

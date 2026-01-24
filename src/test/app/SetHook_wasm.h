@@ -33804,6 +33804,97 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
 
     /* ==== WASM: 121 ==== */
     {R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (import "env" "rollback" (func (;1;) (type 0)))
+                    (func (;2;) (type 1) (param i32) (result i64)
+                        ;; Grow memory from 1 page to 8 pages (7 page increase)
+                        i32.const 7
+                        memory.grow
+                        i32.const -1
+                        i32.eq
+                        if (result i64)
+                        ;; Should not happen
+                        i32.const 0
+                        i32.const 0
+                        i64.const 1
+                        call 1  ;; rollback
+                        else
+                        ;; Success
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0  ;; accept
+                        end)
+                    (memory (;0;) 1)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 2)))
+                )[test.hook.gas]",
+     {
+         0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x0DU,
+         0x02U, 0x60U, 0x03U, 0x7FU, 0x7FU, 0x7EU, 0x01U, 0x7EU, 0x60U, 0x01U,
+         0x7FU, 0x01U, 0x7EU, 0x02U, 0x1DU, 0x02U, 0x03U, 0x65U, 0x6EU, 0x76U,
+         0x06U, 0x61U, 0x63U, 0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x00U, 0x03U,
+         0x65U, 0x6EU, 0x76U, 0x08U, 0x72U, 0x6FU, 0x6CU, 0x6CU, 0x62U, 0x61U,
+         0x63U, 0x6BU, 0x00U, 0x00U, 0x03U, 0x02U, 0x01U, 0x01U, 0x05U, 0x03U,
+         0x01U, 0x00U, 0x01U, 0x07U, 0x11U, 0x02U, 0x06U, 0x6DU, 0x65U, 0x6DU,
+         0x6FU, 0x72U, 0x79U, 0x02U, 0x00U, 0x04U, 0x68U, 0x6FU, 0x6FU, 0x6BU,
+         0x00U, 0x02U, 0x0AU, 0x1FU, 0x01U, 0x1DU, 0x00U, 0x41U, 0x07U, 0x40U,
+         0x00U, 0x41U, 0x7FU, 0x46U, 0x04U, 0x7EU, 0x41U, 0x00U, 0x41U, 0x00U,
+         0x42U, 0x01U, 0x10U, 0x01U, 0x05U, 0x41U, 0x00U, 0x41U, 0x00U, 0x42U,
+         0x00U, 0x10U, 0x00U, 0x0BU, 0x0BU,
+     }},
+
+    /* ==== WASM: 122 ==== */
+    {R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (import "env" "rollback" (func (;1;) (type 0)))
+                    (func (;2;) (type 1) (param i32) (result i64)
+                        ;; Try to grow memory from 1 page to 9 pages (8 page increase)
+                        ;; This should fail because maxMemoryPage=8
+                        i32.const 8
+                        memory.grow
+                        i32.const -1
+                        i32.eq
+                        if (result i64)
+                        ;; Expected failure
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 1  ;; rollback
+                        else
+                        ;; Should not happen
+                        i32.const 0
+                        i32.const 0
+                        i64.const 1
+                        call 0  ;; accept
+                        end)
+                    (memory (;0;) 1)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 2)))
+                )[test.hook.gas]",
+     {
+         0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x0DU,
+         0x02U, 0x60U, 0x03U, 0x7FU, 0x7FU, 0x7EU, 0x01U, 0x7EU, 0x60U, 0x01U,
+         0x7FU, 0x01U, 0x7EU, 0x02U, 0x1DU, 0x02U, 0x03U, 0x65U, 0x6EU, 0x76U,
+         0x06U, 0x61U, 0x63U, 0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x00U, 0x03U,
+         0x65U, 0x6EU, 0x76U, 0x08U, 0x72U, 0x6FU, 0x6CU, 0x6CU, 0x62U, 0x61U,
+         0x63U, 0x6BU, 0x00U, 0x00U, 0x03U, 0x02U, 0x01U, 0x01U, 0x05U, 0x03U,
+         0x01U, 0x00U, 0x01U, 0x07U, 0x11U, 0x02U, 0x06U, 0x6DU, 0x65U, 0x6DU,
+         0x6FU, 0x72U, 0x79U, 0x02U, 0x00U, 0x04U, 0x68U, 0x6FU, 0x6FU, 0x6BU,
+         0x00U, 0x02U, 0x0AU, 0x1FU, 0x01U, 0x1DU, 0x00U, 0x41U, 0x08U, 0x40U,
+         0x00U, 0x41U, 0x7FU, 0x46U, 0x04U, 0x7EU, 0x41U, 0x00U, 0x41U, 0x00U,
+         0x42U, 0x00U, 0x10U, 0x01U, 0x05U, 0x41U, 0x00U, 0x41U, 0x00U, 0x42U,
+         0x01U, 0x10U, 0x00U, 0x0BU, 0x0BU,
+     }},
+
+    /* ==== WASM: 123 ==== */
+    {R"[test.hook.gas](
             #include <stdint.h>
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             int64_t hook(uint32_t reserved )
@@ -33852,7 +33943,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x33U, 0x36U, 0x35U, 0x29U,
      }},
 
-    /* ==== WASM: 122 ==== */
+    /* ==== WASM: 124 ==== */
     {R"[test.hook.gas](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -33907,7 +33998,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x33U, 0x36U, 0x35U, 0x29U,
      }},
 
-    /* ==== WASM: 123 ==== */
+    /* ==== WASM: 125 ==== */
     {R"[test.hook.gas](
             #include <stdint.h>
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);

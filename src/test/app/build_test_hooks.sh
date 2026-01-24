@@ -83,12 +83,12 @@ process_block() {
                 if [ "$skip_cleaner" -eq "1" ]
                 then
                     # Skip hook-cleaner for [test.hook.gas]
-                    wasmcc -x c /dev/stdin -o /dev/stdout -O2 -Wl,--allow-undefined <<< "`tr '\f' '\n' <<< $line`" |
+                    wasmcc -x c /dev/stdin -o /dev/stdout -O2 -Wl,--allow-undefined -Wno-int-conversion -Wno-pointer-sign -Wno-return-type <<< "`tr '\f' '\n' <<< $line`" |
                         xxd -p -u -c 10 | 
                         sed -E 's/../0x&U,/g' | sed -E 's/^/    /g' >> $OUTPUT_FILE
                 else
                     # Run hook-cleaner for [test.hook]
-                    wasmcc -x c /dev/stdin -o /dev/stdout -O2 -Wl,--allow-undefined <<< "`tr '\f' '\n' <<< $line`" |
+                    wasmcc -x c /dev/stdin -o /dev/stdout -O2 -Wl,--allow-undefined -Wno-int-conversion -Wno-pointer-sign -Wno-return-type <<< "`tr '\f' '\n' <<< $line`" |
                         hook-cleaner - - 2>/dev/null |
                         xxd -p -u -c 10 | 
                         sed -E 's/../0x&U,/g' | sed -E 's/^/    /g' >> $OUTPUT_FILE
