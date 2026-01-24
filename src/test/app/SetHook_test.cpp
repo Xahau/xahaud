@@ -17,6 +17,7 @@
 */
 //==============================================================================
 #include <ripple/app/hook/Enum.h>
+#include <ripple/app/hook/GasValidator.h>
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/json/json_reader.h>
@@ -13379,6 +13380,750 @@ public:
     }
 
     void
+    testGasTypeHookHostFunctionValidation(FeatureBitset features)
+    {
+        testcase("Direct test of validateWasmHostFunctionsForGas");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const& rules = env.current()->rules();
+        auto const& j = env.journal;
+
+        // Test 1: Valid gas hook (no _g) should return nullopt
+        {
+            // Gas Type Hook Host Function Validation Tests - WASM Definitions
+
+            // Test 1: Valid Gas hook - no _g function (should succeed)
+            TestHook gas_valid_no_g_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (import "env" "trace_num" (func (;1;) (type 0)))
+                    (func (;2;) (type 1) (param i32) (result i64)
+                        i32.const 0
+                        i32.const 15
+                        i64.const 1
+                        call 1
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 2)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_valid_no_g);
+
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_valid_no_g_wasm, rules, j);
+            BEAST_EXPECT(!result);  // No error
+        }
+
+        // Test 2: Invalid gas hook (has _g) should return error
+        {
+            // Test 2: Invalid Gas hook - contains _g function (should fail)
+            TestHook gas_invalid_with_g_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32) (result i32)))
+                    (type (;1;) (func (param i32 i32 i64) (result i64)))
+                    (type (;2;) (func (param i32) (result i64)))
+                    (import "env" "_g" (func (;0;) (type 0)))
+                    (import "env" "accept" (func (;1;) (type 1)))
+                    (func (;2;) (type 2) (param i32) (result i64)
+                        i32.const 1
+                        i32.const 1
+                        call 0
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 1)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 2)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_invalid_with_g);
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_invalid_with_g_wasm, rules, j);
+            BEAST_EXPECT(result);  // Has error
+            if (result)
+            {
+                BEAST_EXPECT(
+                    result->find(
+                        "Gas-type hooks cannot import _g (guard) function") !=
+                    std::string::npos);
+            }
+        }
+
+        // Test 3: Valid gas hook with multiple allowed host functions should
+        // return nullopt
+        {
+            // Test 3: Valid Gas hook - multiple allowed host functions
+            TestHook gas_valid_multi_hostfn_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (result i64)))
+                    (type (;2;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (import "env" "trace_num" (func (;1;) (type 0)))
+                    (import "env" "ledger_seq" (func (;2;) (type 1)))
+                    (import "env" "fee_base" (func (;3;) (type 1)))
+                    (func (;4;) (type 2) (param i32) (result i64)
+                        (local i64 i64)
+                        call 2
+                        local.set 1
+                        call 3
+                        local.set 2
+                        i32.const 0
+                        i32.const 10
+                        local.get 1
+                        call 1
+                        drop
+                        i32.const 0
+                        i32.const 8
+                        local.get 2
+                        call 1
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 4)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_valid_multi_hostfn);
+
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_valid_multi_hostfn_wasm, rules, j);
+            BEAST_EXPECT(!result);  // No error
+        }
+
+        // Note: Export and Import error tests are in separate functions
+    }
+
+    void
+    testGasTypeHookExportErrors(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook export section validation");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const& rules = env.current()->rules();
+        auto const& j = env.journal;
+
+        // Test: No exports at all
+        TestHook test_gas_validation_no_exports_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_no_exports);
+
+        // Test 5: Export Section Error - Export function named
+        // "unauthorized_fn"
+        TestHook test_gas_validation_unauthorized_export_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1))
+              (export "unauthorized_fn" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_unauthorized_export);
+
+        // Test 6: Export Section Error - Only export cbak, not hook
+        TestHook test_gas_validation_missing_hook_export_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "cbak" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_missing_hook_export);
+
+        // Test 7: Export Section Error - hook() with signature () -> i64
+        TestHook test_gas_validation_hook_no_params_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_hook_no_params);
+
+        // Test 8: Export Section Error - hook() with signature (i32, i32) ->
+        // i64
+        TestHook test_gas_validation_hook_too_many_params_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32 i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32 i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_hook_too_many_params);
+
+        // Test 9: Export Section Error - hook() with signature (i64) -> i64
+        TestHook test_gas_validation_hook_wrong_param_type_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i64) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i64) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_hook_wrong_param_type);
+
+        // Test 10: Export Section Error - hook() with signature (i32) (no
+        // return)
+        TestHook test_gas_validation_hook_no_return_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0
+                drop)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_hook_no_return);
+
+        // Test 11: Export Section Error - hook() with signature (i32) -> i32
+        TestHook test_gas_validation_hook_wrong_return_type_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i32)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i32)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0
+                drop
+                i32.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_hook_wrong_return_type);
+
+        // Test 12: Export Section Error - cbak() with signature () -> i64
+        TestHook test_gas_validation_cbak_wrong_params_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (type (;2;) (func (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (func (;2;) (type 2) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1))
+              (export "cbak" (func 2)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_cbak_wrong_params);
+
+        // Test 13: Export Section Error - cbak() with signature (i64) -> i64
+        TestHook test_gas_validation_cbak_wrong_param_type_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (type (;2;) (func (param i64) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (func (;2;) (type 2) (param i64) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1))
+              (export "cbak" (func 2)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_cbak_wrong_param_type);
+
+        // Test 14: Export Section Error - cbak() with signature (i32) -> i32
+        TestHook test_gas_validation_cbak_wrong_return_type_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (type (;2;) (func (param i32) (result i32)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (func (;2;) (type 2) (param i32) (result i32)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0
+                drop
+                i32.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1))
+              (export "cbak" (func 2)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_cbak_wrong_return_type);
+
+        // Execute export section error tests
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_no_exports_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find(
+                        "WASM must export at least hook API functions") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_unauthorized_export_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("Unauthorized export function") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_missing_hook_export_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("Required function 'hook' not found") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_no_params_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("must have exactly 1 parameter") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_too_many_params_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("must have exactly 1 parameter") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_wrong_param_type_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("parameter must be uint32_t") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_no_return_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("must return exactly 1 value") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_wrong_return_type_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("return type must be uint64_t") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_cbak_wrong_params_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("must have exactly 1 parameter") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_cbak_wrong_param_type_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("parameter must be uint32_t") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_cbak_wrong_return_type_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("return type must be uint64_t") !=
+                    std::string::npos);
+        }
+    }
+
+    void
+    testGasTypeHookImportErrors(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook import section validation");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const& rules = env.current()->rules();
+        auto const& j = env.journal;
+
+        // Test: No imports (should fail)
+        TestHook test_gas_validation_no_imports_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32) (result i64)))
+              (func (;0;) (type 0) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 0)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_no_imports);
+
+        // Test: Import from wrong module (should fail)
+        TestHook test_gas_validation_wrong_import_module_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "wasi_snapshot_preview1" "fd_write" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_wrong_import_module);
+
+        // Test: Import not in whitelist (should fail)
+        TestHook test_gas_validation_import_not_whitelisted_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32) (result i32)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "malloc" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_not_whitelisted);
+
+        // Test: Import with no return value (should fail)
+        TestHook test_gas_validation_import_no_return_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_no_return);
+
+        // Test: Import with wrong return type (should fail)
+        TestHook test_gas_validation_import_wrong_return_type_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i32)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_wrong_return_type);
+
+        // Test: Import with too few parameters (should fail)
+        TestHook test_gas_validation_import_too_few_params_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_too_few_params);
+
+        // Test: Import with too many parameters (should fail)
+        TestHook test_gas_validation_import_too_many_params_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64 i32) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_too_many_params);
+
+        // Test: Import with wrong parameter type (should fail)
+        TestHook test_gas_validation_import_wrong_param_type_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i64 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_wrong_param_type);
+
+        // Test: Import with multiple wrong parameter types (should fail)
+        TestHook test_gas_validation_import_multiple_wrong_params_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i64 i64 i64 i64 i64 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "util_verify" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_multiple_wrong_params);
+
+        // ========================================
+        // Execute import error test cases
+        // ========================================
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_no_imports_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find(
+                        "WASM must import at least hook API functions") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_wrong_import_module_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("Import module must be 'env'") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_not_whitelisted_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("Import not in whitelist") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_no_return_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("must return exactly 1 value") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_wrong_return_type_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("has incorrect return type") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_too_few_params_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("has incorrect parameter count") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_too_many_params_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("has incorrect parameter count") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_wrong_param_type_wasm, rules, j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("has incorrect parameter types") !=
+                    std::string::npos);
+        }
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_multiple_wrong_params_wasm,
+                rules,
+                j);
+            BEAST_EXPECT(result);
+            if (result)
+                BEAST_EXPECT(
+                    result->find("has incorrect parameter types") !=
+                    std::string::npos);
+        }
+    }
+
+    void
     testGasTypeHookDisabled(FeatureBitset features)
     {
         testcase("Test Gas-type Hook disabled");
@@ -13608,6 +14353,9 @@ public:
         testGasTypeHookRejects_gFunction(features);
         testGasExecutionSufficient(features);
         testMultipleGasHooksSharedPool(features);
+        testGasTypeHookHostFunctionValidation(features);
+        testGasTypeHookExportErrors(features);
+        testGasTypeHookImportErrors(features);
         return;
         testHooksOwnerDir(features);
         testHooksDisabled(features);
@@ -13728,6 +14476,9 @@ public:
         testGasTypeHookRejects_gFunction(features);
         testGasExecutionSufficient(features);
         testMultipleGasHooksSharedPool(features);
+        testGasTypeHookHostFunctionValidation(features);
+        testGasTypeHookExportErrors(features);
+        testGasTypeHookImportErrors(features);
     }
 
 public:

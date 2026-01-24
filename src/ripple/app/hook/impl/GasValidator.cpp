@@ -29,7 +29,6 @@ namespace hook {
 
 Expected<void, std::string>
 validateExportSection(
-    WasmEdge_LoaderContext* loader,
     WasmEdge_ASTModuleContext* astModule,
     beast::Journal const& j)
 {
@@ -37,8 +36,6 @@ validateExportSection(
     uint32_t exportCount = WasmEdge_ASTModuleListExportsLength(astModule);
     if (exportCount == 0)
     {
-        WasmEdge_ASTModuleDelete(astModule);
-        WasmEdge_LoaderDelete(loader);
         return Unexpected("WASM must export at least hook API functions");
     }
 
@@ -157,8 +154,6 @@ validateExportSection(
     {
         JLOG(j.trace()) << "HookSet(" << hook::log::EXPORT_MISSING
                         << "): Required function 'hook' not found in exports";
-        WasmEdge_ASTModuleDelete(astModule);
-        WasmEdge_LoaderDelete(loader);
         return Unexpected("Required function 'hook' not found in exports");
     }
 
@@ -167,7 +162,6 @@ validateExportSection(
 
 Expected<void, std::string>
 validateImportSection(
-    WasmEdge_LoaderContext* loader,
     WasmEdge_ASTModuleContext* astModule,
     Rules const& rules,
     beast::Journal const& j)
@@ -177,8 +171,6 @@ validateImportSection(
 
     if (importCount == 0)
     {
-        WasmEdge_ASTModuleDelete(astModule);
-        WasmEdge_LoaderDelete(loader);
         JLOG(j.trace()) << "HookSet(" << hook::log::IMPORTS_MISSING
                         << "): WASM must import at least hook API functions";
         return Unexpected("WASM must import at least hook API functions");
@@ -374,7 +366,7 @@ validateWasmHostFunctionsForGas(
     //
     // check export section
     //
-    if (auto result = validateExportSection(loader, astModule, j); !result)
+    if (auto result = validateExportSection(astModule, j); !result)
     {
         WasmEdge_ASTModuleDelete(astModule);
         WasmEdge_LoaderDelete(loader);
@@ -384,8 +376,7 @@ validateWasmHostFunctionsForGas(
     //
     // check import section
     //
-    if (auto result = validateImportSection(loader, astModule, rules, j);
-        !result)
+    if (auto result = validateImportSection(astModule, rules, j); !result)
     {
         WasmEdge_ASTModuleDelete(astModule);
         WasmEdge_LoaderDelete(loader);
