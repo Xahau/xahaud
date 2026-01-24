@@ -638,7 +638,7 @@ Change::activateXahauGenesis()
 
             std::optional<std::string> result2 =
                 hook::HookExecutor::validateWasm(
-                    wasmBytes.data(), (size_t)wasmBytes.size());
+                    wasmBytes.data(), (size_t)wasmBytes.size(), 0);
 
             if (result2)
             {

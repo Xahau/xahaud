@@ -586,7 +586,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 
                 std::optional<std::string> result2 =
                     hook::HookExecutor::validateWasm(
-                        hook.data(), (size_t)hook.size());
+                        hook.data(), (size_t)hook.size(), version);
 
                 if (result2)
                 {

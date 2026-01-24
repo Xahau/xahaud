@@ -656,13 +656,18 @@ public:
         WasmEdge_ConfigureContext* conf = NULL;
         WasmEdge_VMContext* ctx = NULL;
 
-        WasmEdgeVM()
+        WasmEdgeVM(uint16_t hookApiVersion)
         {
             conf = WasmEdge_ConfigureCreate();
             if (!conf)
                 return;
             WasmEdge_ConfigureStatisticsSetInstructionCounting(conf, true);
-            WasmEdge_ConfigureStatisticsSetCostMeasuring(conf, true);
+            if (hookApiVersion == 1)
+            {
+                WasmEdge_ConfigureStatisticsSetCostMeasuring(conf, true);
+                uint32_t maxMemoryPage = 8;
+                WasmEdge_ConfigureSetMaxMemoryPage(conf, maxMemoryPage);
+            }
             ctx = WasmEdge_VMCreate(conf, NULL);
         }
 
@@ -697,9 +702,9 @@ public:
      * Validate that a web assembly blob can be loaded by wasmedge
      */
     static std::optional<std::string>
-    validateWasm(const void* wasm, size_t len)
+    validateWasm(const void* wasm, size_t len, uint16_t hookApiVersion)
     {
-        WasmEdgeVM vm;
+        WasmEdgeVM vm{hookApiVersion};
 
         if (!vm.sane())
             return "Could not create WASMEDGE instance";
@@ -742,7 +747,7 @@ public:
 
         WasmEdge_LogOff();
 
-        WasmEdgeVM vm;
+        WasmEdgeVM vm{hookCtx.result.hookApiVersion};
 
         if (!vm.sane())
         {
@@ -777,9 +782,6 @@ public:
                     << "HookInfo[" << HC_ACC() << "]: Set Gas limit to "
                     << gasLimit << " cost limit for Gas-type Hook";
             }
-
-            uint32_t maxMemoryPage = 8;
-            WasmEdge_ConfigureSetMaxMemoryPage(vm.conf, maxMemoryPage);
         }
 
         WasmEdge_Value params[1] = {WasmEdge_ValueGenI32((int64_t)wasmParam)};
