@@ -66,6 +66,7 @@ using SLE = STLedgerEntry;
 using CachedSLEs = TaggedCache<uint256, SLE const>;
 
 class CollectorManager;
+class ExportSignatureCollector;
 class Family;
 class HashRouter;
 class Logs;
@@ -184,6 +185,8 @@ public:
     getAmendmentTable() = 0;
     virtual HashRouter&
     getHashRouter() = 0;
+    virtual ExportSignatureCollector&
+    getExportSignatureCollector() = 0;
     virtual LoadFeeTrack&
     getFeeTrack() = 0;
     virtual LoadManager&

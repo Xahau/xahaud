@@ -22,6 +22,7 @@
 #include <ripple/app/ledger/Ledger.h>
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/AmendmentTable.h>
+#include <ripple/app/misc/ExportSignatureCollector.h>
 #include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/app/tx/impl/Change.h>
 #include <ripple/app/tx/impl/SetSignerList.h>
@@ -1134,6 +1135,9 @@ Change::applyExport()
         std::cerr
             << "[EXPORT-TRACE] STEP-4: CLEANUP DONE (erased ltEXPORTED_TXN)"
             << " txnID=" << txnID << std::endl;
+
+        // Clear ephemeral signatures from memory now that export is processed
+        ctx_.app.getExportSignatureCollector().clearForTxn(txnID);
     } while (0);
     return tesSUCCESS;
 }

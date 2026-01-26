@@ -19,6 +19,7 @@
 
 #include <ripple/app/ledger/OpenLedger.h>
 #include <ripple/app/main/Application.h>
+#include <ripple/app/misc/ExportSignatureCollector.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/LoadFeeTrack.h>
 #include <ripple/app/misc/TxQ.h>
@@ -1669,24 +1670,33 @@ TxQ::accept(Application& app, OpenView& view)
                     continue;
                 }
 
-                if (exportedLgrSeq < seq - 1)
+                // Check if we have quorum for this export using ephemeral
+                // signatures collected via validation messages
+                auto& collector = app.getExportSignatureCollector();
+                bool const hasQuorum = collector.hasQuorum(txnHash, view, app);
+                auto const sigCount = collector.signatureCount(txnHash);
+
+                JLOG(j_.info())
+                    << "[EXPORT-TIMING] TxQ: checking quorum for txn="
+                    << txnHash << " exportedLgrSeq=" << exportedLgrSeq
+                    << " viewSeq=" << seq << " sigCount=" << sigCount
+                    << " hasQuorum=" << hasQuorum;
+
+                DBG_EXPORT(
+                    "export inject: txnHash="
+                    << txnHash << " hasQuorum=" << hasQuorum << " sigCount="
+                    << sigCount << " exportedLgrSeq=" << exportedLgrSeq);
+
+                if (hasQuorum)
                 {
                     DBG_EXPORT(
-                        "export inject: condition met! "
-                        << exportedLgrSeq << " < " << (seq - 1)
-                        << ", creating ttEXPORT");
-                    // all old entries need to be turned into Export
-                    // transactions so they can be removed from the directory
+                        "export inject: quorum reached! "
+                        << sigCount << " signatures, creating ttEXPORT");
+                    // Quorum reached - collect signatures from memory and
+                    // create the ttEXPORT transaction
 
-                    // in the previous ledger all the ExportSign transactions
-                    // were executed, and one-by-one added the validators'
-                    // signatures to the ltEXPORTED_TXN's sfSigners array. now
-                    // we need to collect these together and place them inside
-                    // the ExportedTxn blob and publish the blob in the Export
-                    // transaction type.
-
-                    DBG_EXPORT("export inject: getting signers array");
-                    STArray signers = sleItem->getFieldArray(sfSigners);
+                    DBG_EXPORT("export inject: getting signers from collector");
+                    STArray signers = collector.getSignatures(txnHash);
                     DBG_EXPORT(
                         "export inject: signers count=" << signers.size());
 

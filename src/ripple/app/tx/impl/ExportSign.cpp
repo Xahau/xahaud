@@ -254,4 +254,135 @@ makeExportSignTxns(OpenView& view, Application& app, beast::Journal const& j)
 }
 //@@end make-export-sign-txns
 
+//@@start sign-pending-exports
+std::vector<std::pair<uint256, STObject>>
+signPendingExports(
+    ReadView const& view,
+    Application& app,
+    beast::Journal const& j)
+{
+    std::vector<std::pair<uint256, STObject>> result;
+
+    if (!view.rules().enabled(featureExport))
+        return result;
+
+    JLOG(j.debug()) << "signPendingExports: started";
+
+    auto const seq = view.info().seq;
+
+    // If we're not a validator we do nothing here
+    if (app.getValidationPublicKey().empty())
+        return result;
+
+    auto const& keys = app.getValidatorKeys();
+
+    if (keys.configInvalid())
+        return result;
+
+    PublicKey pkSigning = app.getValidationPublicKey();
+    auto const pk = app.validatorManifests().getMasterKey(pkSigning);
+
+    // Only continue if we're on the UNLReport
+    if (!inUNLReport(view, app, pk, j))
+        return result;
+
+    AccountID signingAcc = calcAccountID(pkSigning);
+
+    Keylet const exportedDirKeylet{keylet::exportedDir()};
+    if (dirIsEmpty(view, exportedDirKeylet))
+        return result;
+
+    std::shared_ptr<SLE const> sleDirNode{};
+    unsigned int uDirEntry{0};
+    uint256 dirEntry{beast::zero};
+
+    if (!cdirFirst(
+            view, exportedDirKeylet.key, sleDirNode, uDirEntry, dirEntry))
+        return result;
+
+    do
+    {
+        Keylet const itemKeylet{ltCHILD, dirEntry};
+        auto sleItem = view.read(itemKeylet);
+        if (!sleItem)
+        {
+            JLOG(j.warn()) << "signPendingExports: directory node in ledger "
+                           << seq << " has index to object that is missing: "
+                           << to_string(dirEntry);
+            continue;
+        }
+
+        LedgerEntryType const nodeType{
+            safe_cast<LedgerEntryType>((*sleItem)[sfLedgerEntryType])};
+
+        if (nodeType != ltEXPORTED_TXN)
+        {
+            JLOG(j.warn()) << "signPendingExports: exported directory "
+                              "contained non ltEXPORTED_TXN type";
+            continue;
+        }
+
+        auto const& exported = const_cast<ripple::STLedgerEntry&>(*sleItem)
+                                   .getField(sfExportedTxn)
+                                   .downcast<STObject>();
+
+        auto exportedLgrSeq = sleItem->getFieldU32(sfLedgerSequence);
+
+        // Sign transactions that were added in the CURRENT ledger being
+        // validated (This is called during validation, so we sign what's in
+        // this ledger)
+        if (exportedLgrSeq != seq)
+            continue;
+
+        auto s = std::make_shared<ripple::Serializer>();
+        exported.add(*s);
+        SerialIter sitTrans(s->slice());
+        try
+        {
+            auto const& stpTrans =
+                std::make_shared<STTx const>(std::ref(sitTrans));
+
+            if (!stpTrans->isFieldPresent(sfAccount) ||
+                stpTrans->getAccountID(sfAccount) == beast::zero)
+            {
+                JLOG(j.warn())
+                    << "signPendingExports: sfAccount missing or zero.";
+                continue;
+            }
+
+            auto txnHash = stpTrans->getTransactionID();
+
+            // Build the multisig for the exported transaction
+            Serializer sigData = buildMultiSigningData(*stpTrans, signingAcc);
+            auto multisig =
+                ripple::sign(keys.publicKey, keys.secretKey, sigData.slice());
+
+            // Create the sfSigner object (same as what goes in ttEXPORT_SIGN)
+            STObject signer(sfSigner);
+            signer.setFieldVL(sfSigningPubKey, keys.publicKey);
+            signer.setAccountID(sfAccount, signingAcc);
+            signer.setFieldVL(sfTxnSignature, multisig);
+
+            JLOG(j.debug())
+                << "signPendingExports: signed export " << txnHash
+                << " with validator " << toBase58(TokenType::NodePublic, pk);
+
+            result.emplace_back(txnHash, std::move(signer));
+        }
+        catch (std::exception& e)
+        {
+            JLOG(j.warn()) << "signPendingExports: Failure: " << e.what()
+                           << "\n";
+        }
+
+    } while (
+        cdirNext(view, exportedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
+
+    JLOG(j.debug()) << "signPendingExports: signed " << result.size()
+                    << " exports";
+
+    return result;
+}
+//@@end sign-pending-exports
+
 }  // namespace ripple

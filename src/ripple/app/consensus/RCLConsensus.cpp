@@ -27,6 +27,7 @@
 #include <ripple/app/ledger/LocalTxs.h>
 #include <ripple/app/ledger/OpenLedger.h>
 #include <ripple/app/misc/AmendmentTable.h>
+#include <ripple/app/misc/ExportSignatureCollector.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/LoadFeeTrack.h>
 #include <ripple/app/misc/NegativeUNLVote.h>
@@ -669,6 +670,10 @@ RCLConsensus::Adaptor::doAccept(
             rules = makeRulesGivenLedger(*lastVal, app_.config().features);
         else
             rules.emplace(app_.config().features);
+        JLOG(j_.info())
+            << "[EXPORT-TIMING] onAccept: openLedger().accept() START for seq="
+            << built.ledger_->info().seq + 1
+            << " (parent=" << built.ledger_->info().seq << ")";
         app_.openLedger().accept(
             app_,
             *rules,
@@ -679,53 +684,16 @@ RCLConsensus::Adaptor::doAccept(
             tapNONE,
             "consensus",
             [&](OpenView& view, beast::Journal j) {
-                DBG_EXPORT("consensus callback seq=" << view.info().seq);
-                //@@start export-sign-submit
-                // Generate ttEXPORT_SIGN UVTxns if we're a validator on the
-                // UNLReport. In standalone mode we queue via rawTxInsert so
-                // it's applied when this open ledger closes. In network mode
-                // we submit for relay to other validators.
-                if (view.rules().enabled(featureExport))
-                {
-                    auto exportSignTxns = makeExportSignTxns(view, app_, j_);
-                    for (auto const& tx : exportSignTxns)
-                    {
-                        uint256 txID = tx->getTransactionID();
-                        app_.getHashRouter().setFlags(txID, SF_PRIVATE2);
-
-                        if (app_.config().standalone())
-                        {
-                            // Standalone: queue in open ledger, applied when it
-                            // closes
-                            auto s = std::make_shared<ripple::Serializer>();
-                            tx->add(*s);
-                            view.rawTxInsert(txID, std::move(s), nullptr);
-                            DBG_EXPORT(
-                                "[EXPORT-TRACE] STEP-2a: rawTxInsert "
-                                "ttEXPORT_SIGN txID="
-                                << txID << " callbackSeq=" << view.info().seq);
-                            DBG_EXPORT(
-                                "ttEXPORT_SIGN JSON:\n"
-                                << tx->getJson(JsonOptions::none)
-                                       .toStyledString());
-                        }
-                        else
-                        {
-                            // Network: submit for relay to other validators
-                            app_.getOPs().submitTransaction(tx);
-                            DBG_EXPORT(
-                                "network: submitted ttEXPORT_SIGN txID="
-                                << txID);
-                            DBG_EXPORT(
-                                "ttEXPORT_SIGN JSON:\n"
-                                << tx->getJson(JsonOptions::none)
-                                       .toStyledString());
-                        }
-                    }
-                }
-                //@@end export-sign-submit
+                JLOG(j.info()) << "[EXPORT-TIMING] TxQ.accept callback seq="
+                               << view.info().seq;
+                // Export signatures are now collected ephemerally via
+                // validation messages (signPendingExports in validate()),
+                // not via ttEXPORT_SIGN transactions. This eliminates the
+                // O(n²) metadata bloat from accumulating signatures on-ledger.
                 return app_.getTxQ().accept(app_, view);
             });
+        JLOG(j_.info())
+            << "[EXPORT-TIMING] onAccept: openLedger().accept() END";
 
         // Signal a potential fee change to subscribers after the open ledger
         // is created
@@ -940,9 +908,42 @@ RCLConsensus::Adaptor::validate(
 
     handleNewValidation(app_, v, "local");
 
+    JLOG(j_.info()) << "[EXPORT-TIMING] validate(): signing exports for seq="
+                    << ledger.seq();
+
+    // Sign pending exports and collect signatures
+    auto exportSigs = signPendingExports(*ledger.ledger_, app_, j_);
+
+    JLOG(j_.info()) << "[EXPORT-TIMING] validate(): signed "
+                    << exportSigs.size() << " exports for seq=" << ledger.seq();
+
+    // Store our own signatures in memory
+    auto const currentSeq = ledger.ledger_->info().seq;
+    for (auto const& [txnHash, signer] : exportSigs)
+    {
+        JLOG(j_.info())
+            << "[EXPORT-TIMING] validate(): storing OWN signature for txn="
+            << txnHash << " seq=" << currentSeq;
+        app_.getExportSignatureCollector().addSignature(
+            txnHash, app_.getValidationPublicKey(), signer, currentSeq);
+    }
+
     // Broadcast to all our peers:
     protocol::TMValidation val;
     val.set_validation(serialized.data(), serialized.size());
+
+    // Add export signatures to the validation message
+    for (auto const& [txnHash, signer] : exportSigs)
+    {
+        Serializer s;
+        s.addBitString(txnHash);
+        signer.add(s);
+        val.add_exportsignatures(s.data(), s.size());
+    }
+
+    JLOG(j_.info())
+        << "[EXPORT-TIMING] validate(): broadcasting TMValidation with "
+        << exportSigs.size() << " export sigs for seq=" << ledger.seq();
     app_.overlay().broadcast(val);
 
     // Publish to all our subscribers:

@@ -1,0 +1,226 @@
+//------------------------------------------------------------------------------
+/*
+    This file is part of rippled: https://github.com/ripple/rippled
+    Copyright (c) 2024 Ripple Labs Inc.
+
+    Permission to use, copy, modify, and/or distribute this software for any
+    purpose  with  or without fee is hereby granted, provided that the above
+    copyright notice and this permission notice appear in all copies.
+
+    THE  SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+    WITH  REGARD  TO  THIS  SOFTWARE  INCLUDING  ALL  IMPLIED  WARRANTIES  OF
+    MERCHANTABILITY  AND  FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+    ANY  SPECIAL ,  DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+    WHATSOEVER  RESULTING  FROM  LOSS  OF USE, DATA OR PROFITS, WHETHER IN AN
+    ACTION  OF  CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+*/
+//==============================================================================
+
+#include <ripple/app/main/Application.h>
+#include <ripple/app/misc/ExportSignatureCollector.h>
+#include <ripple/app/misc/ValidatorList.h>
+#include <ripple/ledger/ReadView.h>
+#include <ripple/ledger/View.h>
+#include <ripple/protocol/SField.h>
+
+namespace ripple {
+
+ExportSignatureCollector::ExportSignatureCollector(beast::Journal journal)
+    : j_(journal)
+{
+}
+
+void
+ExportSignatureCollector::addSignature(
+    uint256 const& txnHash,
+    PublicKey const& validator,
+    STObject signer,
+    LedgerIndex currentSeq)
+{
+    std::lock_guard lock(mutex_);
+
+    // Track first-seen time for cleanup
+    if (firstSeenLedger_.find(txnHash) == firstSeenLedger_.end())
+    {
+        firstSeenLedger_[txnHash] = currentSeq;
+        JLOG(j_.debug()) << "ExportSignatureCollector: first signature for "
+                         << txnHash << " at ledger " << currentSeq;
+    }
+
+    // Add or update signature for this validator
+    auto& signerMap = signatures_[txnHash];
+    auto [it, inserted] = signerMap.emplace(validator, std::move(signer));
+
+    if (inserted)
+    {
+        JLOG(j_.debug()) << "ExportSignatureCollector: added signature from "
+                         << toBase58(TokenType::NodePublic, validator)
+                         << " for " << txnHash
+                         << " (total: " << signerMap.size() << ")";
+    }
+}
+
+STArray
+ExportSignatureCollector::getSignatures(uint256 const& txnHash) const
+{
+    std::lock_guard lock(mutex_);
+
+    STArray signers(sfSigners);
+
+    auto it = signatures_.find(txnHash);
+    if (it != signatures_.end())
+    {
+        for (auto const& [pk, signer] : it->second)
+        {
+            signers.push_back(signer);
+        }
+    }
+
+    return signers;
+}
+
+std::size_t
+ExportSignatureCollector::signatureCount(uint256 const& txnHash) const
+{
+    std::lock_guard lock(mutex_);
+
+    auto it = signatures_.find(txnHash);
+    if (it != signatures_.end())
+        return it->second.size();
+    return 0;
+}
+
+std::size_t
+ExportSignatureCollector::getUNLSize(ReadView const& view, Application& app)
+    const
+{
+    // For first 256 ledgers, UNLReport may not exist
+    // In standalone mode, we're the only validator
+    auto const seq = view.info().seq;
+    if (seq < 256 || app.config().standalone())
+        return 1;
+
+    // Try to get UNL size from UNLReport
+    auto const unlReportKey = keylet::UNLReport();
+    auto const sle = view.read(unlReportKey);
+    if (sle && sle->isFieldPresent(sfActiveValidators))
+    {
+        return sle->getFieldArray(sfActiveValidators).size();
+    }
+
+    // Fallback: use validator list count
+    auto const count = app.validators().count();
+    return count > 0 ? count : 1;
+}
+
+bool
+ExportSignatureCollector::hasQuorum(
+    uint256 const& txnHash,
+    ReadView const& view,
+    Application& app) const
+{
+    auto const sigCount = signatureCount(txnHash);
+    auto const unlSize = getUNLSize(view, app);
+
+    // Quorum is 80% of UNL, rounded up
+    auto const threshold = (unlSize * 80 + 99) / 100;
+
+    JLOG(j_.trace()) << "ExportSignatureCollector::hasQuorum: " << txnHash
+                     << " sigCount=" << sigCount << " unlSize=" << unlSize
+                     << " threshold=" << threshold;
+
+    return sigCount >= threshold;
+}
+
+std::vector<uint256>
+ExportSignatureCollector::getExportsWithQuorum(
+    ReadView const& view,
+    Application& app) const
+{
+    std::lock_guard lock(mutex_);
+
+    std::vector<uint256> ready;
+    auto const unlSize = getUNLSize(view, app);
+    auto const threshold = (unlSize * 80 + 99) / 100;
+
+    for (auto const& [txnHash, signerMap] : signatures_)
+    {
+        if (signerMap.size() >= threshold)
+        {
+            ready.push_back(txnHash);
+            JLOG(j_.debug())
+                << "ExportSignatureCollector: quorum reached for " << txnHash
+                << " (" << signerMap.size() << "/" << unlSize << ")";
+        }
+    }
+
+    return ready;
+}
+
+std::vector<uint256>
+ExportSignatureCollector::getPendingExports() const
+{
+    std::lock_guard lock(mutex_);
+
+    std::vector<uint256> pending;
+    pending.reserve(signatures_.size());
+
+    for (auto const& [txnHash, _] : signatures_)
+    {
+        pending.push_back(txnHash);
+    }
+
+    return pending;
+}
+
+void
+ExportSignatureCollector::clearForTxn(uint256 const& txnHash)
+{
+    std::lock_guard lock(mutex_);
+
+    auto sigCount = signatures_.erase(txnHash);
+    auto seqCount = firstSeenLedger_.erase(txnHash);
+
+    if (sigCount > 0 || seqCount > 0)
+    {
+        JLOG(j_.debug()) << "ExportSignatureCollector: cleared " << txnHash;
+    }
+}
+
+void
+ExportSignatureCollector::cleanupStale(
+    LedgerIndex currentSeq,
+    LedgerIndex maxAge)
+{
+    std::lock_guard lock(mutex_);
+
+    std::vector<uint256> toRemove;
+
+    for (auto const& [txnHash, firstSeen] : firstSeenLedger_)
+    {
+        if (currentSeq > firstSeen + maxAge)
+        {
+            toRemove.push_back(txnHash);
+        }
+    }
+
+    for (auto const& txnHash : toRemove)
+    {
+        JLOG(j_.warn()) << "ExportSignatureCollector: cleaning up stale export "
+                        << txnHash
+                        << " (age: " << (currentSeq - firstSeenLedger_[txnHash])
+                        << " ledgers)";
+
+        signatures_.erase(txnHash);
+        firstSeenLedger_.erase(txnHash);
+    }
+
+    if (!toRemove.empty())
+    {
+        JLOG(j_.info()) << "ExportSignatureCollector: cleaned up "
+                        << toRemove.size() << " stale exports";
+    }
+}
+
+}  // namespace ripple

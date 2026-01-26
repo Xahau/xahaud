@@ -71,6 +71,24 @@ public:
  */
 std::vector<std::shared_ptr<STTx const>>
 makeExportSignTxns(OpenView& view, Application& app, beast::Journal const& j);
+
+/**
+ * Sign pending exports for ephemeral signature collection.
+ *
+ * Returns a vector of (txnHash, sfSigner) pairs for exports that need signing.
+ * The signatures are NOT wrapped in ttEXPORT_SIGN transactions - they're
+ * intended to be broadcast via validation messages and collected in memory.
+ *
+ * @param view The current ledger view
+ * @param app The application (for validator keys and UNL)
+ * @param j Journal for logging
+ * @return Vector of (txnHash, signerObject) pairs
+ */
+std::vector<std::pair<uint256, STObject>>
+signPendingExports(
+    ReadView const& view,
+    Application& app,
+    beast::Journal const& j);
 //@@end exportsign-class
 
 }  // namespace ripple
