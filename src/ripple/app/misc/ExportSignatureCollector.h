@@ -30,6 +30,7 @@
 
 #include <map>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 namespace ripple {
@@ -43,8 +44,23 @@ class ReadView;
     on-ledger transactions. This eliminates the O(n²) metadata bloat that
     occurs when accumulating signatures in ledger entries.
 
-    The collector stores signatures in memory until quorum is reached,
+    The collector stores signatures in memory until quorum (80% UNL) is reached,
     at which point a ttEXPORT transaction can be created with all signatures.
+
+    Continuous broadcasting:
+    ========================
+    Validators sign ALL pending ltEXPORTED_TXN entries every ledger. The
+    collector caches signatures so validators don't need to re-sign; they
+    just retrieve and re-broadcast their cached signature.
+
+    This ensures:
+    - Late validators can contribute (sign when they come online)
+    - Network partitions self-heal (signatures propagate on reconnect)
+    - Node restarts recover (re-sign from ledger state, ltEXPORTED_TXN exists)
+
+    The ltEXPORTED_TXN in the ledger is the gatekeeper - once deleted (after
+    ttEXPORT processed or export expired), signatures naturally stop being
+    broadcast. The collector clears its cache when ttEXPORT is applied.
 
     Thread safety: All public methods are thread-safe.
 */
@@ -111,6 +127,26 @@ public:
     */
     std::vector<uint256>
     getPendingExports() const;
+
+    /** Check if we have a signature from a specific validator.
+
+        Used to check if we've already signed an export (for caching).
+
+        @param txnHash The hash of the exported transaction
+        @param validator The public key of the validator
+        @return true if signature exists from this validator
+    */
+    bool
+    hasSignatureFrom(uint256 const& txnHash, PublicKey const& validator) const;
+
+    /** Get a signature from a specific validator.
+
+        @param txnHash The hash of the exported transaction
+        @param validator The public key of the validator
+        @return The signer object, or std::nullopt if not found
+    */
+    std::optional<STObject>
+    getSignatureFrom(uint256 const& txnHash, PublicKey const& validator) const;
 
     /** Clear signatures for a completed export.
 

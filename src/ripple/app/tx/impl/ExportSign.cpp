@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <ripple/app/main/Application.h>
+#include <ripple/app/misc/ExportSignatureCollector.h>
 #include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/tx/impl/ExportSign.h>
 #include <ripple/basics/Log.h>
@@ -255,6 +256,36 @@ makeExportSignTxns(OpenView& view, Application& app, beast::Journal const& j)
 //@@end make-export-sign-txns
 
 //@@start sign-pending-exports
+/**
+ * Sign pending exports for ephemeral signature collection.
+ *
+ * Called during validate() to sign ALL pending ltEXPORTED_TXN entries. The
+ * signatures are returned as (txnHash, sfSigner) pairs to be included in the
+ * TMValidation message and broadcast to peers.
+ *
+ * Continuous broadcasting design:
+ * ===============================
+ * We sign ALL pending exports (not just those from the current ledger) and
+ * cache signatures in ExportSignatureCollector. On subsequent calls:
+ *
+ * 1. If we have a cached signature -> return it (no re-signing needed)
+ * 2. If no cached signature -> sign now and it gets cached when stored
+ *
+ * This ensures:
+ * - Late validators can still contribute (they sign when they come online)
+ * - Network partitions self-heal on reconnect
+ * - Node restarts recover (re-sign from ledger state)
+ * - Signatures keep broadcasting until export is finalized
+ *
+ * The ltEXPORTED_TXN existing in the ledger is the gatekeeper - once it's
+ * deleted (after ttEXPORT processed or expired), signatures naturally stop
+ * being broadcast. No explicit expiry check needed.
+ *
+ * @param view The current ledger view being validated
+ * @param app The application (for validator keys and UNL)
+ * @param j Journal for logging
+ * @return Vector of (txnHash, signerObject) pairs to broadcast
+ */
 std::vector<std::pair<uint256, STObject>>
 signPendingExports(
     ReadView const& view,
@@ -326,14 +357,7 @@ signPendingExports(
                                    .getField(sfExportedTxn)
                                    .downcast<STObject>();
 
-        auto exportedLgrSeq = sleItem->getFieldU32(sfLedgerSequence);
-
-        // Sign transactions that were added in the CURRENT ledger being
-        // validated (This is called during validation, so we sign what's in
-        // this ledger)
-        if (exportedLgrSeq != seq)
-            continue;
-
+        // Parse the exported transaction to get its hash
         auto s = std::make_shared<ripple::Serializer>();
         exported.add(*s);
         SerialIter sitTrans(s->slice());
@@ -352,12 +376,34 @@ signPendingExports(
 
             auto txnHash = stpTrans->getTransactionID();
 
+            // Check if we already have our signature cached in the collector.
+            // This enables continuous broadcasting: we sign once, then keep
+            // re-broadcasting our cached signature every ledger until the
+            // export is finalized (ltEXPORTED_TXN deleted).
+            auto& collector = app.getExportSignatureCollector();
+            auto cachedSig = collector.getSignatureFrom(txnHash, pkSigning);
+
+            if (cachedSig)
+            {
+                // Use cached signature - no need to re-sign
+                JLOG(j.info()) << "[EXPORT-TIMING] signPendingExports: using "
+                                  "CACHED signature for "
+                               << txnHash;
+                result.emplace_back(txnHash, *cachedSig);
+                continue;
+            }
+
+            // First time seeing this export - sign it now
+            JLOG(j.info())
+                << "[EXPORT-TIMING] signPendingExports: signing FRESH for "
+                << txnHash;
+
             // Build the multisig for the exported transaction
             Serializer sigData = buildMultiSigningData(*stpTrans, signingAcc);
             auto multisig =
                 ripple::sign(keys.publicKey, keys.secretKey, sigData.slice());
 
-            // Create the sfSigner object (same as what goes in ttEXPORT_SIGN)
+            // Create the sfSigner object
             STObject signer(sfSigner);
             signer.setFieldVL(sfSigningPubKey, keys.publicKey);
             signer.setAccountID(sfAccount, signingAcc);

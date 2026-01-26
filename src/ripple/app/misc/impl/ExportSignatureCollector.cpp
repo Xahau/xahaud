@@ -174,6 +174,38 @@ ExportSignatureCollector::getPendingExports() const
     return pending;
 }
 
+bool
+ExportSignatureCollector::hasSignatureFrom(
+    uint256 const& txnHash,
+    PublicKey const& validator) const
+{
+    std::lock_guard lock(mutex_);
+
+    auto txnIt = signatures_.find(txnHash);
+    if (txnIt == signatures_.end())
+        return false;
+
+    return txnIt->second.find(validator) != txnIt->second.end();
+}
+
+std::optional<STObject>
+ExportSignatureCollector::getSignatureFrom(
+    uint256 const& txnHash,
+    PublicKey const& validator) const
+{
+    std::lock_guard lock(mutex_);
+
+    auto txnIt = signatures_.find(txnHash);
+    if (txnIt == signatures_.end())
+        return std::nullopt;
+
+    auto sigIt = txnIt->second.find(validator);
+    if (sigIt == txnIt->second.end())
+        return std::nullopt;
+
+    return sigIt->second;
+}
+
 void
 ExportSignatureCollector::clearForTxn(uint256 const& txnHash)
 {
