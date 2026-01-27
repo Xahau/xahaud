@@ -374,11 +374,16 @@ signPendingExports(
 
             auto txnHash = stpTrans->getTransactionID();
 
+            // Get the collector and stash txn data for signature verification.
+            // This must happen before checking for cached signature so that
+            // peer signatures can be verified against this txn data.
+            auto& collector = app.getExportSignatureCollector();
+            collector.stashTxnData(txnHash, *s);
+
             // Check if we already have our signature cached in the collector.
             // This enables continuous broadcasting: we sign once, then keep
             // re-broadcasting our cached signature every ledger until the
             // export is finalized (ltEXPORTED_TXN deleted).
-            auto& collector = app.getExportSignatureCollector();
             auto cachedSig = collector.getSignatureFrom(txnHash, pkSigning);
 
             if (cachedSig)

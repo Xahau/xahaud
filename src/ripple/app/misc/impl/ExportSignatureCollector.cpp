@@ -22,7 +22,10 @@
 #include <ripple/app/misc/ValidatorList.h>
 #include <ripple/ledger/ReadView.h>
 #include <ripple/ledger/View.h>
+#include <ripple/protocol/PublicKey.h>
 #include <ripple/protocol/SField.h>
+#include <ripple/protocol/STTx.h>
+#include <ripple/protocol/Sign.h>
 
 namespace ripple {
 
@@ -213,6 +216,8 @@ ExportSignatureCollector::clearForTxn(uint256 const& txnHash)
 
     auto sigCount = signatures_.erase(txnHash);
     auto seqCount = firstSeenLedger_.erase(txnHash);
+    exportedTxnData_.erase(txnHash);
+    verified_.erase(txnHash);
 
     if (sigCount > 0 || seqCount > 0)
     {
@@ -246,12 +251,213 @@ ExportSignatureCollector::cleanupStale(
 
         signatures_.erase(txnHash);
         firstSeenLedger_.erase(txnHash);
+        exportedTxnData_.erase(txnHash);
+        verified_.erase(txnHash);
     }
 
     if (!toRemove.empty())
     {
         JLOG(j_.info()) << "Export: cleaned up " << toRemove.size()
                         << " stale exports";
+    }
+}
+
+void
+ExportSignatureCollector::stashTxnData(
+    uint256 const& txnHash,
+    Serializer txnData)
+{
+    std::lock_guard lock(mutex_);
+
+    // Only stash if we don't already have it
+    if (exportedTxnData_.find(txnHash) == exportedTxnData_.end())
+    {
+        exportedTxnData_.emplace(txnHash, std::move(txnData));
+        JLOG(j_.trace()) << "Export: stashed txn data for " << txnHash;
+    }
+}
+
+bool
+ExportSignatureCollector::verifyAndAddSignature(
+    uint256 const& txnHash,
+    PublicKey const& validator,
+    STObject signer,
+    LedgerIndex currentSeq)
+{
+    std::lock_guard lock(mutex_);
+
+    // Track first-seen time for cleanup
+    if (firstSeenLedger_.find(txnHash) == firstSeenLedger_.end())
+    {
+        firstSeenLedger_[txnHash] = currentSeq;
+        JLOG(j_.debug()) << "Export: first signature for " << txnHash
+                         << " at ledger " << currentSeq;
+    }
+
+    // Check if we already have this signature
+    auto& signerMap = signatures_[txnHash];
+    if (signerMap.find(validator) != signerMap.end())
+    {
+        JLOG(j_.trace()) << "Export: already have signature from "
+                         << toBase58(TokenType::NodePublic, validator)
+                         << " for " << txnHash;
+        return true;  // Already have it
+    }
+
+    // Try to verify if we have the txn data
+    bool verified = false;
+    auto txnIt = exportedTxnData_.find(txnHash);
+    if (txnIt != exportedTxnData_.end())
+    {
+        try
+        {
+            // Parse the stashed transaction
+            SerialIter sit(txnIt->second.slice());
+            auto stpTrans = std::make_shared<STTx const>(std::ref(sit));
+
+            // Get signer account from the signer object
+            auto signingAcc = signer.getAccountID(sfAccount);
+            auto sigPubKey = signer.getFieldVL(sfSigningPubKey);
+            auto signature = signer.getFieldVL(sfTxnSignature);
+
+            // Build the multisig data and verify
+            Serializer sigData = buildMultiSigningData(*stpTrans, signingAcc);
+            verified = ripple::verify(
+                PublicKey(makeSlice(sigPubKey)),
+                sigData.slice(),
+                makeSlice(signature),
+                true);
+
+            if (!verified)
+            {
+                JLOG(j_.warn())
+                    << "Export: signature verification FAILED for " << txnHash
+                    << " from " << toBase58(TokenType::NodePublic, validator);
+                return false;  // Don't add invalid signature
+            }
+
+            JLOG(j_.trace())
+                << "Export: signature verified for " << txnHash << " from "
+                << toBase58(TokenType::NodePublic, validator);
+        }
+        catch (std::exception const& e)
+        {
+            JLOG(j_.warn()) << "Export: signature verification exception for "
+                            << txnHash << ": " << e.what();
+            return false;  // Don't add if we can't verify
+        }
+    }
+    else
+    {
+        // No txn data yet - add unverified (will verify later or in Transactor)
+        JLOG(j_.trace()) << "Export: adding unverified signature for "
+                         << txnHash << " (no txn data yet)";
+    }
+
+    // Add the signature
+    signerMap.emplace(validator, std::move(signer));
+
+    if (verified)
+    {
+        verified_[txnHash].insert(validator);
+    }
+
+    JLOG(j_.trace()) << "Export: added signature from "
+                     << toBase58(TokenType::NodePublic, validator) << " for "
+                     << txnHash << " (total: " << signerMap.size()
+                     << ", verified=" << verified << ")";
+
+    return true;
+}
+
+bool
+ExportSignatureCollector::isSignatureVerified(
+    uint256 const& txnHash,
+    PublicKey const& validator) const
+{
+    std::lock_guard lock(mutex_);
+
+    auto it = verified_.find(txnHash);
+    if (it == verified_.end())
+        return false;
+
+    return it->second.find(validator) != it->second.end();
+}
+
+bool
+ExportSignatureCollector::verifySignature(
+    uint256 const& txnHash,
+    PublicKey const& validator)
+{
+    std::lock_guard lock(mutex_);
+
+    // Already verified?
+    auto verIt = verified_.find(txnHash);
+    if (verIt != verified_.end() &&
+        verIt->second.find(validator) != verIt->second.end())
+    {
+        return true;
+    }
+
+    // Get the signature
+    auto sigIt = signatures_.find(txnHash);
+    if (sigIt == signatures_.end())
+        return false;
+
+    auto signerIt = sigIt->second.find(validator);
+    if (signerIt == sigIt->second.end())
+        return false;
+
+    // Get the txn data
+    auto txnIt = exportedTxnData_.find(txnHash);
+    if (txnIt == exportedTxnData_.end())
+    {
+        JLOG(j_.warn()) << "Export: cannot verify signature - no txn data for "
+                        << txnHash;
+        return false;
+    }
+
+    try
+    {
+        // Parse the stashed transaction
+        SerialIter sit(txnIt->second.slice());
+        auto stpTrans = std::make_shared<STTx const>(std::ref(sit));
+
+        // Get signer info
+        auto const& signer = signerIt->second;
+        auto signingAcc = signer.getAccountID(sfAccount);
+        auto sigPubKey = signer.getFieldVL(sfSigningPubKey);
+        auto signature = signer.getFieldVL(sfTxnSignature);
+
+        // Build the multisig data and verify
+        Serializer sigData = buildMultiSigningData(*stpTrans, signingAcc);
+        bool verified = ripple::verify(
+            PublicKey(makeSlice(sigPubKey)),
+            sigData.slice(),
+            makeSlice(signature),
+            true);
+
+        if (verified)
+        {
+            verified_[txnHash].insert(validator);
+            JLOG(j_.trace())
+                << "Export: late-verified signature for " << txnHash << " from "
+                << toBase58(TokenType::NodePublic, validator);
+        }
+        else
+        {
+            JLOG(j_.warn())
+                << "Export: late signature verification FAILED for " << txnHash
+                << " from " << toBase58(TokenType::NodePublic, validator);
+        }
+
+        return verified;
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j_.warn()) << "Export: late verification exception for " << txnHash
+                        << ": " << e.what();
+        return false;
     }
 }
 

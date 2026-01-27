@@ -3219,7 +3219,9 @@ PeerImp::checkValidation(
                     << " from validator "
                     << toBase58(TokenType::NodePublic, validatorPK);
 
-                app_.getExportSignatureCollector().addSignature(
+                // Verify and add - will verify against cached txn data if
+                // available, otherwise adds unverified (verified later)
+                app_.getExportSignatureCollector().verifyAndAddSignature(
                     txnHash, validatorPK, std::move(signer), currentSeq);
             }
             catch (std::exception const& e)

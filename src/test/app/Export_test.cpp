@@ -528,59 +528,6 @@ struct Export_test : public beast::unit_test::suite
         {
             auto const exportedDirKey = keylet::exportedDir();
             bool dirEmpty = dirIsEmpty(*env.current(), exportedDirKey);
-
-            // Debug: if not empty, inspect what's in there
-            if (!dirEmpty && expectCleanup)
-            {
-                std::cerr << "=== DEBUG: exportedDir not empty ==="
-                          << std::endl;
-                std::shared_ptr<SLE const> sleDirNode{};
-                unsigned int uDirEntry{0};
-                uint256 dirEntry{beast::zero};
-                if (cdirFirst(
-                        *env.current(),
-                        exportedDirKey.key,
-                        sleDirNode,
-                        uDirEntry,
-                        dirEntry))
-                {
-                    do
-                    {
-                        auto sleItem =
-                            env.current()->read(Keylet{ltCHILD, dirEntry});
-                        if (sleItem)
-                        {
-                            std::cerr << "  Entry: " << dirEntry << std::endl;
-                            std::cerr << "    LedgerSeq: "
-                                      << sleItem->getFieldU32(sfLedgerSequence)
-                                      << std::endl;
-                            std::cerr
-                                << "    TxnHash: "
-                                << sleItem->getFieldH256(sfTransactionHash)
-                                << std::endl;
-                            if (sleItem->isFieldPresent(sfSigners))
-                            {
-                                auto const& signers =
-                                    sleItem->getFieldArray(sfSigners);
-                                std::cerr
-                                    << "    Signers count: " << signers.size()
-                                    << std::endl;
-                            }
-                            else
-                            {
-                                std::cerr << "    Signers: NONE" << std::endl;
-                            }
-                        }
-                    } while (cdirNext(
-                        *env.current(),
-                        exportedDirKey.key,
-                        sleDirNode,
-                        uDirEntry,
-                        dirEntry));
-                }
-                std::cerr << "=== END DEBUG ===" << std::endl;
-            }
-
             BEAST_EXPECT(dirEmpty == expectCleanup);
         }
 
