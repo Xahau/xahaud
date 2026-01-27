@@ -44,8 +44,8 @@ ExportSignatureCollector::addSignature(
     if (firstSeenLedger_.find(txnHash) == firstSeenLedger_.end())
     {
         firstSeenLedger_[txnHash] = currentSeq;
-        JLOG(j_.debug()) << "ExportSignatureCollector: first signature for "
-                         << txnHash << " at ledger " << currentSeq;
+        JLOG(j_.debug()) << "Export: first signature for " << txnHash
+                         << " at ledger " << currentSeq;
     }
 
     // Add or update signature for this validator
@@ -54,7 +54,7 @@ ExportSignatureCollector::addSignature(
 
     if (inserted)
     {
-        JLOG(j_.debug()) << "ExportSignatureCollector: added signature from "
+        JLOG(j_.trace()) << "Export: added signature from "
                          << toBase58(TokenType::NodePublic, validator)
                          << " for " << txnHash
                          << " (total: " << signerMap.size() << ")";
@@ -126,7 +126,7 @@ ExportSignatureCollector::hasQuorum(
     // Quorum is 80% of UNL, rounded up
     auto const threshold = (unlSize * 80 + 99) / 100;
 
-    JLOG(j_.trace()) << "ExportSignatureCollector::hasQuorum: " << txnHash
+    JLOG(j_.trace()) << "Export: hasQuorum check for " << txnHash
                      << " sigCount=" << sigCount << " unlSize=" << unlSize
                      << " threshold=" << threshold;
 
@@ -149,9 +149,9 @@ ExportSignatureCollector::getExportsWithQuorum(
         if (signerMap.size() >= threshold)
         {
             ready.push_back(txnHash);
-            JLOG(j_.debug())
-                << "ExportSignatureCollector: quorum reached for " << txnHash
-                << " (" << signerMap.size() << "/" << unlSize << ")";
+            JLOG(j_.info())
+                << "Export: quorum reached for " << txnHash << " ("
+                << signerMap.size() << "/" << unlSize << " signatures)";
         }
     }
 
@@ -216,7 +216,7 @@ ExportSignatureCollector::clearForTxn(uint256 const& txnHash)
 
     if (sigCount > 0 || seqCount > 0)
     {
-        JLOG(j_.debug()) << "ExportSignatureCollector: cleared " << txnHash;
+        JLOG(j_.debug()) << "Export: cleared signatures for " << txnHash;
     }
 }
 
@@ -239,7 +239,7 @@ ExportSignatureCollector::cleanupStale(
 
     for (auto const& txnHash : toRemove)
     {
-        JLOG(j_.warn()) << "ExportSignatureCollector: cleaning up stale export "
+        JLOG(j_.warn()) << "Export: cleaning up stale signatures for "
                         << txnHash
                         << " (age: " << (currentSeq - firstSeenLedger_[txnHash])
                         << " ledgers)";
@@ -250,8 +250,8 @@ ExportSignatureCollector::cleanupStale(
 
     if (!toRemove.empty())
     {
-        JLOG(j_.info()) << "ExportSignatureCollector: cleaned up "
-                        << toRemove.size() << " stale exports";
+        JLOG(j_.info()) << "Export: cleaned up " << toRemove.size()
+                        << " stale exports";
     }
 }
 

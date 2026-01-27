@@ -79,18 +79,6 @@
 #include <unordered_map>
 #include <utility>
 
-// Debug macro for export investigation - remove after debugging
-#include <execinfo.h>
-#include <thread>
-#define DBG_EXPORT(msg)                                                 \
-    do                                                                  \
-    {                                                                   \
-        std::cerr << "[" << __FILE__ << ":" << __LINE__                 \
-                  << " t=" << std::this_thread::get_id() << "] " << msg \
-                  << std::endl;                                         \
-        std::cerr.flush();                                              \
-    } while (0)
-
 namespace ripple {
 
 class NetworkOPsImp final : public NetworkOPs
@@ -1786,7 +1774,6 @@ NetworkOPsImp::switchLastClosedLedger(
             tapNONE,
             "jump",
             [&](OpenView& view, beast::Journal j) {
-                DBG_EXPORT("jump callback seq=" << view.info().seq);
                 // Stuff the ledger with transactions from the queue.
                 return app_.getTxQ().accept(app_, view);
             });
@@ -3974,44 +3961,12 @@ NetworkOPsImp::acceptLedger(
         Throw<std::runtime_error>(
             "Operation only possible in STANDALONE mode.");
 
-    // Detect reentrant calls
-    static thread_local int acceptLedgerDepth = 0;
-    auto closedSeq = m_ledgerMaster.getClosedLedger()->info().seq;
-    DBG_EXPORT(
-        "acceptLedger ENTER closedSeq="
-        << closedSeq << " depth=" << acceptLedgerDepth << " caller=" << caller);
-
-    if (acceptLedgerDepth > 0)
-    {
-        DBG_EXPORT(
-            "REENTRANT acceptLedger DETECTED! depth=" << acceptLedgerDepth);
-        // Print stack trace
-        void* callstack[128];
-        int frames = backtrace(callstack, 128);
-        char** strs = backtrace_symbols(callstack, frames);
-        std::cerr << "=== STACK TRACE ===" << std::endl;
-        for (int i = 0; i < frames; ++i)
-        {
-            std::cerr << strs[i] << std::endl;
-        }
-        free(strs);
-        std::cerr << "=== END STACK TRACE ===" << std::endl;
-        std::cerr.flush();
-        Throw<std::runtime_error>(
-            "REENTRANT acceptLedger call detected at depth " +
-            std::to_string(acceptLedgerDepth));
-    }
-    ++acceptLedgerDepth;
-
     // FIXME Could we improve on this and remove the need for a specialized
     // API in Consensus?
     beginConsensus(m_ledgerMaster.getClosedLedger()->info().hash);
     mConsensus.simulate(app_.timeKeeper().closeTime(), consensusDelay);
 
-    --acceptLedgerDepth;
-    auto result = m_ledgerMaster.getCurrentLedger()->info().seq;
-    DBG_EXPORT("acceptLedger EXIT result=" << result);
-    return result;
+    return m_ledgerMaster.getCurrentLedger()->info().seq;
 }
 
 // <-- bool: true=added, false=already there

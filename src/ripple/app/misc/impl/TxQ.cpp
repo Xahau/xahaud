@@ -34,17 +34,6 @@
 #include <limits>
 #include <numeric>
 
-// Debug macro for export investigation - remove after debugging
-#include <thread>
-#define DBG_EXPORT(msg)                                                 \
-    do                                                                  \
-    {                                                                   \
-        std::cerr << "[" << __FILE__ << ":" << __LINE__                 \
-                  << " t=" << std::this_thread::get_id() << "] " << msg \
-                  << std::endl;                                         \
-        std::cerr.flush();                                              \
-    } while (0)
-
 namespace ripple {
 
 //////////////////////////////////////////////////////////////////////////
@@ -1458,17 +1447,12 @@ TxQ::accept(Application& app, OpenView& view)
        Stop when the transaction fee level gets lower than the required fee
        level.
     */
-    DBG_EXPORT("TxQ::accept ENTER seq=" << view.info().seq);
-
     auto ledgerChanged = false;
 
-    DBG_EXPORT("TxQ::accept BEFORE LOCK seq=" << view.info().seq);
     std::lock_guard lock(mutex_);
-    DBG_EXPORT("TxQ::accept AFTER LOCK seq=" << view.info().seq);
 
     auto const metricsSnapshot = feeMetrics_.getSnapshot();
 
-    DBG_EXPORT("TxQ::accept SECTION 1: debug inject seq=" << view.info().seq);
     // try to inject any debug txns waiting in the debug queue
     {
         std::unique_lock<std::mutex> trylock(
@@ -1495,7 +1479,6 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
-    DBG_EXPORT("TxQ::accept SECTION 2: cron inject seq=" << view.info().seq);
     // Inject cron transactions, if any
     if (view.rules().enabled(featureCron))
     {
@@ -1558,49 +1541,32 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
-    DBG_EXPORT("TxQ::accept SECTION 3: export inject seq=" << view.info().seq);
     //@@start txq-inject-export
     // Inject exported transactions/signatures, if any
     if (view.rules().enabled(featureExport))
     {
         do
         {
-            DBG_EXPORT("export inject: checking validator key");
             // if we're not a validator we do nothing here
             if (app.getValidationPublicKey().empty())
-            {
-                DBG_EXPORT("export inject: no validator key, skipping");
                 break;
-            }
 
             auto const& keys = app.getValidatorKeys();
 
             if (keys.configInvalid())
-            {
-                DBG_EXPORT("export inject: config invalid, skipping");
                 break;
-            }
 
             // and if we're not on the UNLReport we also do nothing
             // Use inUNLReport() which has a grace period for seq < 256
             // (testing)
             if (!inUNLReport(view, app, keys.masterPublicKey, j_))
-            {
-                DBG_EXPORT("export inject: not in UNLReport, skipping");
                 break;
-            }
-
-            DBG_EXPORT("export inject: we are a validator on UNLReport");
 
             // execution to here means we're a validator and on the UNLReport
 
             Keylet const exportedDirKeylet{keylet::exportedDir()};
             if (dirIsEmpty(view, exportedDirKeylet))
-            {
-                DBG_EXPORT("export inject: exportedDir is empty, skipping");
                 break;
-            }
-            DBG_EXPORT("export inject: exportedDir has entries");
 
             std::shared_ptr<SLE const> sleDirNode{};
             unsigned int uDirEntry{0};
@@ -1645,7 +1611,7 @@ TxQ::accept(Application& app, OpenView& view)
                     continue;
                 }
 
-                JLOG(j_.info()) << "Processing exported txn: " << *sleItem;
+                JLOG(j_.trace()) << "Processing exported txn: " << *sleItem;
 
                 auto const& exported =
                     const_cast<ripple::STLedgerEntry&>(*sleItem)
@@ -1658,14 +1624,8 @@ TxQ::accept(Application& app, OpenView& view)
 
                 auto const seq = view.seq();
 
-                DBG_EXPORT(
-                    "export inject: entry exportedLgrSeq="
-                    << exportedLgrSeq << " viewSeq=" << seq);
-
                 if (exportedLgrSeq == seq)
                 {
-                    DBG_EXPORT(
-                        "export inject: exportedLgrSeq == seq, skipping");
                     // this shouldn't happen, but do nothing
                     continue;
                 }
@@ -1676,47 +1636,29 @@ TxQ::accept(Application& app, OpenView& view)
                 bool const hasQuorum = collector.hasQuorum(txnHash, view, app);
                 auto const sigCount = collector.signatureCount(txnHash);
 
-                JLOG(j_.info())
-                    << "[EXPORT-TIMING] TxQ: checking quorum for txn="
-                    << txnHash << " exportedLgrSeq=" << exportedLgrSeq
+                JLOG(j_.debug())
+                    << "Export: checking quorum for txn=" << txnHash
+                    << " exportedLgrSeq=" << exportedLgrSeq
                     << " viewSeq=" << seq << " sigCount=" << sigCount
                     << " hasQuorum=" << hasQuorum;
 
-                DBG_EXPORT(
-                    "export inject: txnHash="
-                    << txnHash << " hasQuorum=" << hasQuorum << " sigCount="
-                    << sigCount << " exportedLgrSeq=" << exportedLgrSeq);
-
                 if (hasQuorum)
                 {
-                    DBG_EXPORT(
-                        "export inject: quorum reached! "
-                        << sigCount << " signatures, creating ttEXPORT");
                     // Quorum reached - collect signatures from memory and
                     // create the ttEXPORT transaction
-
-                    DBG_EXPORT("export inject: getting signers from collector");
                     STArray signers = collector.getSignatures(txnHash);
-                    DBG_EXPORT(
-                        "export inject: signers count=" << signers.size());
 
                     auto s = std::make_shared<ripple::Serializer>();
                     exported.add(*s);
                     SerialIter sitTrans(s->slice());
                     try
                     {
-                        DBG_EXPORT(
-                            "export inject: creating STTx from exported txn");
                         auto stpTrans =
                             std::make_shared<STTx>(std::ref(sitTrans));
-                        DBG_EXPORT("export inject: STTx created");
 
                         if (!stpTrans->isFieldPresent(sfAccount) ||
                             stpTrans->getAccountID(sfAccount) == beast::zero)
                         {
-                            DBG_EXPORT(
-                                "export inject: sfAccount missing or zero, "
-                                "skipping");
                             // RH TODO: if this ever happens the entry should be
                             // gracefully removed (somehow)
                             continue;
@@ -1753,13 +1695,10 @@ TxQ::accept(Application& app, OpenView& view)
                         // Cleanup happens via Change::applyExport() when
                         // processed
                         uint256 txID = exportTx.getTransactionID();
-                        DBG_EXPORT(
-                            "[EXPORT-TRACE] STEP-3a: rawTxInsert ttEXPORT txID="
-                            << txID << " callbackSeq=" << seq);
-                        DBG_EXPORT(
-                            "export inject: ttEXPORT JSON:\n"
-                            << exportTx.getJson(JsonOptions::none)
-                                   .toStyledString());
+
+                        JLOG(j_.debug())
+                            << "Export: injecting ttEXPORT txID=" << txID
+                            << " with " << signers.size() << " signatures";
 
                         auto s = std::make_shared<ripple::Serializer>();
                         exportTx.add(*s);
@@ -1792,7 +1731,6 @@ TxQ::accept(Application& app, OpenView& view)
     }
     //@@end txq-inject-export
 
-    DBG_EXPORT("TxQ::accept SECTION 4: emit inject seq=" << view.info().seq);
     // Inject emitted transactions if any
     if (view.rules().enabled(featureHooks))
         do
@@ -1944,9 +1882,6 @@ TxQ::accept(Application& app, OpenView& view)
 
         } while (0);
 
-    DBG_EXPORT(
-        "TxQ::accept SECTION 5: process queue seq="
-        << view.info().seq << " byFee_.size()=" << byFee_.size());
     for (auto candidateIter = byFee_.begin(); candidateIter != byFee_.end();)
     {
         auto& account = byAccount_.at(candidateIter->account);
@@ -2066,7 +2001,6 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
-    DBG_EXPORT("TxQ::accept SECTION 6: rebuild queue seq=" << view.info().seq);
     // All transactions that can be moved out of the queue into the open
     // ledger have been. Rebuild the queue using the open ledger's
     // parent hash, so that transactions paying the same fee are
@@ -2074,10 +2008,6 @@ TxQ::accept(Application& app, OpenView& view)
     LedgerHash const& parentHash = view.info().parentHash;
 #if !NDEBUG
     auto const startingSize = byFee_.size();
-    DBG_EXPORT(
-        "TxQ::accept CHECK seq=" << view.info().seq
-                                 << " parentHash=" << parentHash
-                                 << " parentHash_=" << parentHash_);
     if (parentHash == parentHash_)
     {
         JLOG(j_.fatal()) << "TxQ::accept DOUBLE-ACCEPT DETECTED!"

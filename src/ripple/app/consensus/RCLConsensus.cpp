@@ -51,17 +51,6 @@
 #include <algorithm>
 #include <mutex>
 
-// Debug macro for export investigation - remove after debugging
-#include <thread>
-#define DBG_EXPORT(msg)                                                 \
-    do                                                                  \
-    {                                                                   \
-        std::cerr << "[" << __FILE__ << ":" << __LINE__                 \
-                  << " t=" << std::this_thread::get_id() << "] " << msg \
-                  << std::endl;                                         \
-        std::cerr.flush();                                              \
-    } while (0)
-
 namespace ripple {
 
 RCLConsensus::RCLConsensus(
@@ -336,18 +325,8 @@ RCLConsensus::Adaptor::onClose(
     initialSet->setUnbacked();
 
     // Build SHAMap containing all transactions in our open ledger
-    DBG_EXPORT("onClose: iterating initialLedger->txs");
     for (auto const& tx : initialLedger->txs)
     {
-        auto txType = tx.first->getTxnType();
-        if (txType == ttEXPORT_SIGN || txType == ttEXPORT)
-        {
-            DBG_EXPORT(
-                "[EXPORT-TRACE] onClose: adding to consensus txSet type="
-                << (txType == ttEXPORT_SIGN ? "ttEXPORT_SIGN" : "ttEXPORT")
-                << " txID=" << tx.first->getTransactionID());
-        }
-        DBG_EXPORT("onClose: processing tx " << tx.first->getTransactionID());
         JLOG(j_.trace()) << "Adding open ledger TX "
                          << tx.first->getTransactionID();
         Serializer s(2048);
@@ -356,7 +335,6 @@ RCLConsensus::Adaptor::onClose(
             SHAMapNodeType::tnTRANSACTION_NM,
             make_shamapitem(tx.first->getTransactionID(), s.slice()));
     }
-    DBG_EXPORT("onClose: done iterating initialLedger->txs");
 
     // Add pseudo-transactions to the set
     if (app_.config().standalone() || (proposing && !wrongLCL))
@@ -430,7 +408,6 @@ RCLConsensus::Adaptor::onForceAccept(
     ConsensusMode const& mode,
     Json::Value&& consensusJson)
 {
-    DBG_EXPORT("onForceAccept prevLedger.seq=" << prevLedger.seq());
     doAccept(
         result,
         prevLedger,
@@ -449,7 +426,6 @@ RCLConsensus::Adaptor::onAccept(
     ConsensusMode const& mode,
     Json::Value&& consensusJson)
 {
-    DBG_EXPORT("onAccept (async job) prevLedger.seq=" << prevLedger.seq());
     app_.getJobQueue().addJob(
         jtACCEPT,
         "acceptLedger",
@@ -479,7 +455,6 @@ RCLConsensus::Adaptor::doAccept(
     ConsensusMode const& mode,
     Json::Value&& consensusJson)
 {
-    DBG_EXPORT("doAccept prevLedger.seq=" << prevLedger.seq());
     prevProposers_ = result.proposers;
     prevRoundTime_ = result.roundTime.read();
 
@@ -670,10 +645,6 @@ RCLConsensus::Adaptor::doAccept(
             rules = makeRulesGivenLedger(*lastVal, app_.config().features);
         else
             rules.emplace(app_.config().features);
-        JLOG(j_.info())
-            << "[EXPORT-TIMING] onAccept: openLedger().accept() START for seq="
-            << built.ledger_->info().seq + 1
-            << " (parent=" << built.ledger_->info().seq << ")";
         app_.openLedger().accept(
             app_,
             *rules,
@@ -684,16 +655,12 @@ RCLConsensus::Adaptor::doAccept(
             tapNONE,
             "consensus",
             [&](OpenView& view, beast::Journal j) {
-                JLOG(j.info()) << "[EXPORT-TIMING] TxQ.accept callback seq="
-                               << view.info().seq;
                 // Export signatures are now collected ephemerally via
                 // validation messages (signPendingExports in validate()),
                 // not via ttEXPORT_SIGN transactions. This eliminates the
                 // O(n²) metadata bloat from accumulating signatures on-ledger.
                 return app_.getTxQ().accept(app_, view);
             });
-        JLOG(j_.info())
-            << "[EXPORT-TIMING] onAccept: openLedger().accept() END";
 
         // Signal a potential fee change to subscribers after the open ledger
         // is created
@@ -908,22 +875,13 @@ RCLConsensus::Adaptor::validate(
 
     handleNewValidation(app_, v, "local");
 
-    JLOG(j_.info()) << "[EXPORT-TIMING] validate(): signing exports for seq="
-                    << ledger.seq();
-
-    // Sign pending exports and collect signatures
+    // Sign pending exports and collect signatures for ephemeral broadcasting
     auto exportSigs = signPendingExports(*ledger.ledger_, app_, j_);
-
-    JLOG(j_.info()) << "[EXPORT-TIMING] validate(): signed "
-                    << exportSigs.size() << " exports for seq=" << ledger.seq();
 
     // Store our own signatures in memory
     auto const currentSeq = ledger.ledger_->info().seq;
     for (auto const& [txnHash, signer] : exportSigs)
     {
-        JLOG(j_.info())
-            << "[EXPORT-TIMING] validate(): storing OWN signature for txn="
-            << txnHash << " seq=" << currentSeq;
         app_.getExportSignatureCollector().addSignature(
             txnHash, app_.getValidationPublicKey(), signer, currentSeq);
     }
@@ -941,9 +899,12 @@ RCLConsensus::Adaptor::validate(
         val.add_exportsignatures(s.data(), s.size());
     }
 
-    JLOG(j_.info())
-        << "[EXPORT-TIMING] validate(): broadcasting TMValidation with "
-        << exportSigs.size() << " export sigs for seq=" << ledger.seq();
+    if (!exportSigs.empty())
+    {
+        JLOG(j_.debug()) << "Export: broadcasting " << exportSigs.size()
+                         << " signatures with validation for seq="
+                         << ledger.seq();
+    }
     app_.overlay().broadcast(val);
 
     // Publish to all our subscribers:

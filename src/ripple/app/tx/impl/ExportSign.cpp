@@ -80,11 +80,9 @@ TER
 ExportSign::doApply()
 {
     uint256 txnID(ctx_.tx.getFieldH256(sfTransactionHash));
-    std::cerr << "[EXPORT-TRACE] STEP-2b: doApply ttEXPORT_SIGN txnID=" << txnID
-              << " viewSeq=" << view().seq() << std::endl;
 
-    JLOG(j_.info()) << "HookExport[" << txnID
-                    << "]: ttExportSign adding signature to transaction";
+    JLOG(j_.debug()) << "HookExport[" << txnID
+                     << "]: ttExportSign adding signature to transaction";
 
     auto key = keylet::exportedTxn(txnID);
     auto const& sle = view().peek(key);
@@ -123,7 +121,7 @@ makeExportSignTxns(OpenView& view, Application& app, beast::Journal const& j)
     if (!view.rules().enabled(featureExport))
         return result;
 
-    JLOG(j.debug()) << "EXPORT_SIGN processing: started";
+    JLOG(j.trace()) << "makeExportSignTxns: started";
 
     auto const seq = view.info().seq;
 
@@ -237,8 +235,8 @@ makeExportSignTxns(OpenView& view, Application& app, beast::Journal const& j)
             // Sign the outer transaction using our ephemeral key
             exportSignTx->sign(pkSigning, app.getValidationSecretKey());
 
-            JLOG(j.debug())
-                << "EXPORT_SIGN txn: " << exportSignTx->getFullText();
+            JLOG(j.trace()) << "makeExportSignTxns: created "
+                            << exportSignTx->getFullText();
 
             result.push_back(exportSignTx);
         }
@@ -297,7 +295,7 @@ signPendingExports(
     if (!view.rules().enabled(featureExport))
         return result;
 
-    JLOG(j.debug()) << "signPendingExports: started";
+    JLOG(j.trace()) << "signPendingExports: started";
 
     auto const seq = view.info().seq;
 
@@ -386,17 +384,16 @@ signPendingExports(
             if (cachedSig)
             {
                 // Use cached signature - no need to re-sign
-                JLOG(j.info()) << "[EXPORT-TIMING] signPendingExports: using "
-                                  "CACHED signature for "
-                               << txnHash;
+                JLOG(j.trace()) << "signPendingExports: using cached signature "
+                                   "for "
+                                << txnHash;
                 result.emplace_back(txnHash, *cachedSig);
                 continue;
             }
 
             // First time seeing this export - sign it now
-            JLOG(j.info())
-                << "[EXPORT-TIMING] signPendingExports: signing FRESH for "
-                << txnHash;
+            JLOG(j.debug())
+                << "signPendingExports: signing fresh for " << txnHash;
 
             // Build the multisig for the exported transaction
             Serializer sigData = buildMultiSigningData(*stpTrans, signingAcc);
@@ -409,7 +406,7 @@ signPendingExports(
             signer.setAccountID(sfAccount, signingAcc);
             signer.setFieldVL(sfTxnSignature, multisig);
 
-            JLOG(j.debug())
+            JLOG(j.trace())
                 << "signPendingExports: signed export " << txnHash
                 << " with validator " << toBase58(TokenType::NodePublic, pk);
 

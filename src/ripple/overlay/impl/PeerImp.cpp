@@ -3201,10 +3201,9 @@ PeerImp::checkValidation(
         auto const validatorPK = val->getSignerPublic();
         auto const currentSeq = val->getFieldU32(sfLedgerSequence);
 
-        JLOG(p_journal_.info())
-            << "[EXPORT-TIMING] PeerImp: received TMValidation with "
-            << packet->exportsignatures_size() << " export sigs from peer"
-            << " for seq=" << currentSeq;
+        JLOG(p_journal_.debug())
+            << "Export: received " << packet->exportsignatures_size()
+            << " signatures from peer for seq=" << currentSeq;
 
         for (int i = 0; i < packet->exportsignatures_size(); ++i)
         {
@@ -3215,12 +3214,8 @@ PeerImp::checkValidation(
                 uint256 txnHash = sit.getBitString<256>();
                 STObject signer(sit, sfSigner);
 
-                JLOG(p_journal_.info()) << "[EXPORT-TIMING] PeerImp: storing "
-                                           "PEER signature for txn="
-                                        << txnHash << " seq=" << currentSeq;
-
-                JLOG(p_journal_.debug())
-                    << "Received export signature for " << txnHash
+                JLOG(p_journal_.trace())
+                    << "Export: received signature for " << txnHash
                     << " from validator "
                     << toBase58(TokenType::NodePublic, validatorPK);
 
@@ -3230,7 +3225,7 @@ PeerImp::checkValidation(
             catch (std::exception const& e)
             {
                 JLOG(p_journal_.warn())
-                    << "Failed to parse export signature: " << e.what();
+                    << "Export: failed to parse signature: " << e.what();
             }
         }
     }

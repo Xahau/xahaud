@@ -1098,13 +1098,10 @@ TER
 Change::applyExport()
 {
     uint256 txnID(ctx_.tx.getFieldH256(sfTransactionHash));
-    std::cerr
-        << "[EXPORT-TRACE] STEP-4: doApply ttEXPORT (Change::applyExport) "
-        << "txnID=" << txnID << " viewSeq=" << view().seq() << std::endl;
+
     do
     {
-        JLOG(j_.info()) << "HookExport[" << txnID
-                        << "]: ttExport exporting transaction";
+        JLOG(j_.debug()) << "Export: processing ttEXPORT for " << txnID;
 
         auto key = keylet::exportedTxn(txnID);
 
@@ -1115,8 +1112,8 @@ Change::applyExport()
             // most likely explanation is that this was somehow a double-up, so
             // just ignore
             JLOG(j_.warn())
-                << "HookError[" << txnID
-                << "]: ttExport could not find exported txn in ledger";
+                << "Export: ttEXPORT could not find ltEXPORTED_TXN for "
+                << txnID;
             break;
         }
 
@@ -1126,15 +1123,13 @@ Change::applyExport()
                 key,
                 false))
         {
-            JLOG(j_.fatal()) << "HookError[" << txnID
-                             << "]: ttExport (Change) tefBAD_LEDGER";
+            JLOG(j_.fatal())
+                << "Export: ttEXPORT failed to remove directory entry for "
+                << txnID;
             return tefBAD_LEDGER;
         }
 
         view().erase(sle);
-        std::cerr
-            << "[EXPORT-TRACE] STEP-4: CLEANUP DONE (erased ltEXPORTED_TXN)"
-            << " txnID=" << txnID << std::endl;
 
         // Clear ephemeral signatures from memory now that export is processed
         ctx_.app.getExportSignatureCollector().clearForTxn(txnID);
