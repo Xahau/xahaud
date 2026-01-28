@@ -563,8 +563,7 @@ struct HookContext
     api() const
     {
         if (!api_)
-            api_ = std::make_unique<HookAPI>(
-                const_cast<HookContext&>(*this));
+            api_ = std::make_unique<HookAPI>(const_cast<HookContext&>(*this));
         return *api_;
     }
 };
