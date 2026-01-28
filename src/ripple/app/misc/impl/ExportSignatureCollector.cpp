@@ -19,9 +19,13 @@
 
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/ExportSignatureCollector.h>
+#include <ripple/app/misc/Manifest.h>
+#include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/misc/ValidatorList.h>
 #include <ripple/ledger/ReadView.h>
 #include <ripple/ledger/View.h>
+#include <ripple/protocol/Feature.h>
+#include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/PublicKey.h>
 #include <ripple/protocol/SField.h>
 #include <ripple/protocol/STTx.h>
@@ -459,6 +463,154 @@ ExportSignatureCollector::verifySignature(
                         << ": " << e.what();
         return false;
     }
+}
+
+std::vector<std::pair<uint256, STObject>>
+signPendingExports(
+    ReadView const& view,
+    Application& app,
+    beast::Journal const& j)
+{
+    std::vector<std::pair<uint256, STObject>> result;
+
+    if (!view.rules().enabled(featureExport))
+        return result;
+
+    JLOG(j.trace()) << "signPendingExports: started";
+
+    auto const seq = view.info().seq;
+
+    // If we're not a validator we do nothing here
+    if (app.getValidationPublicKey().empty())
+        return result;
+
+    auto const& keys = app.getValidatorKeys();
+
+    if (keys.configInvalid())
+        return result;
+
+    PublicKey pkSigning = app.getValidationPublicKey();
+    auto const pk = app.validatorManifests().getMasterKey(pkSigning);
+
+    // Only continue if we're on the UNLReport
+    if (!inUNLReport(view, app, pk, j))
+        return result;
+
+    AccountID signingAcc = calcAccountID(pkSigning);
+
+    Keylet const exportedDirKeylet{keylet::exportedDir()};
+    if (dirIsEmpty(view, exportedDirKeylet))
+        return result;
+
+    std::shared_ptr<SLE const> sleDirNode{};
+    unsigned int uDirEntry{0};
+    uint256 dirEntry{beast::zero};
+
+    if (!cdirFirst(
+            view, exportedDirKeylet.key, sleDirNode, uDirEntry, dirEntry))
+        return result;
+
+    do
+    {
+        Keylet const itemKeylet{ltCHILD, dirEntry};
+        auto sleItem = view.read(itemKeylet);
+        if (!sleItem)
+        {
+            JLOG(j.warn()) << "signPendingExports: directory node in ledger "
+                           << seq << " has index to object that is missing: "
+                           << to_string(dirEntry);
+            continue;
+        }
+
+        LedgerEntryType const nodeType{
+            safe_cast<LedgerEntryType>((*sleItem)[sfLedgerEntryType])};
+
+        if (nodeType != ltEXPORTED_TXN)
+        {
+            JLOG(j.warn()) << "signPendingExports: exported directory "
+                              "contained non ltEXPORTED_TXN type";
+            continue;
+        }
+
+        auto const& exported = const_cast<ripple::STLedgerEntry&>(*sleItem)
+                                   .getField(sfExportedTxn)
+                                   .downcast<STObject>();
+
+        // Parse the exported transaction to get its hash
+        auto s = std::make_shared<ripple::Serializer>();
+        exported.add(*s);
+        SerialIter sitTrans(s->slice());
+        try
+        {
+            auto const& stpTrans =
+                std::make_shared<STTx const>(std::ref(sitTrans));
+
+            if (!stpTrans->isFieldPresent(sfAccount) ||
+                stpTrans->getAccountID(sfAccount) == beast::zero)
+            {
+                JLOG(j.warn())
+                    << "signPendingExports: sfAccount missing or zero.";
+                continue;
+            }
+
+            auto txnHash = stpTrans->getTransactionID();
+
+            // Get the collector and stash txn data for signature verification.
+            // This must happen before checking for cached signature so that
+            // peer signatures can be verified against this txn data.
+            auto& collector = app.getExportSignatureCollector();
+            collector.stashTxnData(txnHash, *s);
+
+            // Check if we already have our signature cached in the collector.
+            // This enables continuous broadcasting: we sign once, then keep
+            // re-broadcasting our cached signature every ledger until the
+            // export is finalized (ltEXPORTED_TXN deleted).
+            auto cachedSig = collector.getSignatureFrom(txnHash, pkSigning);
+
+            if (cachedSig)
+            {
+                // Use cached signature - no need to re-sign
+                JLOG(j.trace()) << "signPendingExports: using cached signature "
+                                   "for "
+                                << txnHash;
+                result.emplace_back(txnHash, *cachedSig);
+                continue;
+            }
+
+            // First time seeing this export - sign it now
+            JLOG(j.debug())
+                << "signPendingExports: signing fresh for " << txnHash;
+
+            // Build the multisig for the exported transaction
+            Serializer sigData = buildMultiSigningData(*stpTrans, signingAcc);
+            auto multisig =
+                ripple::sign(keys.publicKey, keys.secretKey, sigData.slice());
+
+            // Create the sfSigner object
+            STObject signer(sfSigner);
+            signer.setFieldVL(sfSigningPubKey, keys.publicKey);
+            signer.setAccountID(sfAccount, signingAcc);
+            signer.setFieldVL(sfTxnSignature, multisig);
+
+            JLOG(j.trace())
+                << "signPendingExports: signed export " << txnHash
+                << " with validator " << toBase58(TokenType::NodePublic, pk);
+
+            result.emplace_back(txnHash, std::move(signer));
+        }
+        catch (std::exception& e)
+        {
+            JLOG(j.warn()) << "signPendingExports: Failure: " << e.what()
+                           << "\n";
+        }
+
+    } while (
+        cdirNext(view, exportedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
+
+    JLOG(j.debug()) << "signPendingExports: signed " << result.size()
+                    << " exports";
+
+    return result;
 }
 
 }  // namespace ripple

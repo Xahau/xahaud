@@ -619,15 +619,4 @@ isPseudoTx(STObject const& tx)
         tt == ttEXPORT;
 }
 
-bool
-isUVTx(STObject const& tx)
-{
-    auto t = tx[~sfTransactionType];
-    if (!t)
-        return false;
-
-    auto tt = safe_cast<TxType>(*t);
-    return tt == ttEXPORT_SIGN;
-}
-
 }  // namespace ripple

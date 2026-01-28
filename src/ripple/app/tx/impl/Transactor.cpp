@@ -273,12 +273,6 @@ Transactor::calculateHookChainFee(
 XRPAmount
 Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    //@@start uvtx-fee
-    // UVTxns (UNL Validator Transactions) have zero fee
-    if (isUVTx(tx))
-        return XRPAmount{0};
-    //@@end uvtx-fee
-
     // Returns the fee in fee units.
 
     // The computation has two parts:
@@ -450,20 +444,6 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     {
         auto feeDue = minimumFee(ctx.app, baseFee, ctx.view.fees(), ctx.flags);
 
-        //@@start uvtx-fee-waiver
-        // UVTxns from validators in UNLReport don't have to pay a fee
-        if (ctx.view.rules().enabled(featureExport) && isUVTx(ctx.tx))
-        {
-            auto const& pkSignerField = ctx.tx.getSigningPubKey();
-            if (publicKeyType(makeSlice(pkSignerField)))
-            {
-                PublicKey pkSigner{makeSlice(pkSignerField)};
-                if (inUNLReport(ctx.view, ctx.app, pkSigner, ctx.j))
-                    feeDue = beast::zero;
-            }
-        }
-        //@@end uvtx-fee-waiver
-
         if (feePaid < feeDue)
         {
             JLOG(ctx.j.trace())
@@ -480,12 +460,6 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     auto const sle = ctx.view.read(keylet::account(id));
     if (!sle)
     {
-        //@@start uvtx-account-check
-        // UVTxns don't need an underlying account
-        if (isUVTx(ctx.tx))
-            return tesSUCCESS;
-        //@@end uvtx-account-check
-
         if (ctx.tx.getTxnType() == ttIMPORT)
         {
             if (!ctx.tx.isFieldPresent(sfIssuer))
@@ -565,16 +539,6 @@ Transactor::checkSeqProxy(
                 << toBase58(id);
             return tesSUCCESS;
         }
-
-        //@@start uvtx-seq
-        // UVTxns with seq=0 are allowed without an account
-        if (isUVTx(tx) && t_seqProx.isSeq() && tx[sfSequence] == 0)
-        {
-            JLOG(j.trace()) << "applyTransaction: allowing UVTx with seq=0 "
-                            << toBase58(id);
-            return tesSUCCESS;
-        }
-        //@@end uvtx-seq
 
         JLOG(j.trace())
             << "applyTransaction: delay: source account does not exist "
@@ -660,12 +624,7 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
         ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT && !ctx.tx.isFieldPresent(sfIssuer);
 
-    //@@start uvtx-preclaim-account
-    // UVTxns don't require an underlying account
-    bool const accRequired = !(isFirstImport || isUVTx(ctx.tx));
-    //@@end uvtx-preclaim-account
-
-    if (!sle && accRequired)
+    if (!sle && !isFirstImport)
     {
         JLOG(ctx.j.trace())
             << "applyTransaction: delay: source account does not exist "
@@ -820,16 +779,12 @@ Transactor::apply()
     // list one, preflight will have already a flagged a failure.
     auto const sle = view().peek(keylet::account(account_));
 
-    //@@start uvtx-apply-assert
-    // sle must exist except for transactions
-    // that allow zero account. (ttIMPORT and UVTxns)
+    // sle must exist except for first import (account creation via ttIMPORT)
     assert(
         sle != nullptr || account_ == beast::zero ||
         view().rules().enabled(featureImport) &&
             ctx_.tx.getTxnType() == ttIMPORT &&
-            !ctx_.tx.isFieldPresent(sfIssuer) ||
-        isUVTx(ctx_.tx));
-    //@@end uvtx-apply-assert
+            !ctx_.tx.isFieldPresent(sfIssuer));
 
     if (sle)
     {
@@ -905,13 +860,6 @@ Transactor::checkSingleSign(PreclaimContext const& ctx)
     auto const idSigner = calcAccountID(pkSigner);
     auto const idAccount = ctx.tx.getAccountID(sfAccount);
     auto const sleAccount = ctx.view.read(keylet::account(idAccount));
-
-    //@@start uvtx-sign
-    // UVTxns of the approved type don't need an underlying account
-    // and can be signed with the manifest ephemeral key
-    if (isUVTx(ctx.tx) && inUNLReport(ctx.view, ctx.app, pkSigner, ctx.j))
-        return tesSUCCESS;
-    //@@end uvtx-sign
 
     if (!sleAccount)
         return terNO_ACCOUNT;

@@ -2125,18 +2125,13 @@ TxQ::tryDirectApply(
     const bool isFirstImport = !sleAccount &&
         view.rules().enabled(featureImport) && tx->getTxnType() == ttIMPORT;
 
-    //@@start txq-uvtx-handling
-    // UVTxns don't require an account
-    const bool accRequired = !(isFirstImport || isUVTx(*tx));
-    //@@end txq-uvtx-handling
-
     // Don't attempt to direct apply if the account is not in the ledger.
-    if (!sleAccount && accRequired)
+    if (!sleAccount && !isFirstImport)
         return {};
 
     std::optional<SeqProxy> txSeqProx;
 
-    if (accRequired)
+    if (!isFirstImport)
     {
         SeqProxy const acctSeqProx =
             SeqProxy::sequence((*sleAccount)[sfSequence]);
@@ -2149,7 +2144,7 @@ TxQ::tryDirectApply(
     }
 
     FeeLevel64 const requiredFeeLevel =
-        !accRequired ? FeeLevel64{0} : [this, &view, flags]() {
+        isFirstImport ? FeeLevel64{0} : [this, &view, flags]() {
             std::lock_guard lock(mutex_);
             return getRequiredFeeLevel(
                 view, flags, feeMetrics_.getSnapshot(), lock);

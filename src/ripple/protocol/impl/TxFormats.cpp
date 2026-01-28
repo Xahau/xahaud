@@ -491,16 +491,6 @@ TxFormats::TxFormats()
         },
         commonFields);
 
-    //@@start export-formats
-    add(jss::ExportSign,
-        ttEXPORT_SIGN,
-        {
-            {sfSigner, soeREQUIRED},
-            {sfLedgerSequence, soeREQUIRED},
-            {sfTransactionHash, soeREQUIRED},
-        },
-        commonFields);
-
     add(jss::Export,
         ttEXPORT,
         {

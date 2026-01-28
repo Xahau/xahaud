@@ -33,7 +33,6 @@
 #include <ripple/app/tx/impl/DeleteAccount.h>
 #include <ripple/app/tx/impl/DepositPreauth.h>
 #include <ripple/app/tx/impl/Escrow.h>
-#include <ripple/app/tx/impl/ExportSign.h>
 #include <ripple/app/tx/impl/GenesisMint.h>
 #include <ripple/app/tx/impl/Import.h>
 #include <ripple/app/tx/impl/Invoke.h>
@@ -153,12 +152,8 @@ invoke_preflight(PreflightContext const& ctx)
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
-        //@@start export-preflight
         case ttEXPORT:
             return invoke_preflight_helper<Change>(ctx);
-        case ttEXPORT_SIGN:
-            return invoke_preflight_helper<ExportSign>(ctx);
-        //@@end export-preflight
         case ttHOOK_SET:
             return invoke_preflight_helper<SetHook>(ctx);
         case ttNFTOKEN_MINT:
@@ -289,12 +284,8 @@ invoke_preclaim(PreclaimContext const& ctx)
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
-        //@@start export-preclaim
         case ttEXPORT:
             return invoke_preclaim<Change>(ctx);
-        case ttEXPORT_SIGN:
-            return invoke_preclaim<ExportSign>(ctx);
-        //@@end export-preclaim
         case ttNFTOKEN_MINT:
             return invoke_preclaim<NFTokenMint>(ctx);
         case ttNFTOKEN_BURN:
@@ -385,12 +376,8 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
-        //@@start export-basefee
         case ttEXPORT:
             return Change::calculateBaseFee(view, tx);
-        case ttEXPORT_SIGN:
-            return ExportSign::calculateBaseFee(view, tx);
-        //@@end export-basefee
         case ttNFTOKEN_MINT:
             return NFTokenMint::calculateBaseFee(view, tx);
         case ttNFTOKEN_BURN:
@@ -560,17 +547,11 @@ invoke_apply(ApplyContext& ctx)
         case ttFEE:
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
-        //@@start export-apply
         case ttEXPORT:
         case ttEMIT_FAILURE: {
             Change p(ctx);
             return p();
         }
-        case ttEXPORT_SIGN: {
-            ExportSign p(ctx);
-            return p();
-        }
-        //@@end export-apply
         case ttNFTOKEN_MINT: {
             NFTokenMint p(ctx);
             return p();

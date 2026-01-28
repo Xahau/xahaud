@@ -149,13 +149,8 @@ enum TxType : std::uint16_t
     ttURITOKEN_CREATE_SELL_OFFER = 48,
     ttURITOKEN_CANCEL_SELL_OFFER = 49,
 
-    //@@start tt-export
     /* A pseudo-txn containing an exported transaction plus signatures from the validators */
     ttEXPORT = 90,
-
-    /* A pseudo-txn containing a validator's signature for an export transaction */
-    ttEXPORT_SIGN = 91,
-    //@@end tt-export
 
     /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
     ttCRON = 92,

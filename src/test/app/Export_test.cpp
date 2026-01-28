@@ -273,7 +273,7 @@ struct Export_test : public beast::unit_test::suite
         }
 
         // Close additional ledgers for signing flow
-        env.close();  // N+1: validators submit ttEXPORT_SIGN
+        env.close();  // N+1: validators sign via TMValidation
         env.close();  // N+2: ttEXPORT created (rawTxInsert)
         env.close();  // N+3: does ttEXPORT get applied here?
 

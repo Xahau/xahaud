@@ -39,6 +39,7 @@ namespace ripple {
 
 class Application;
 class ReadView;
+class ValidatorKeys;
 
 /** Collects validator signatures for pending exports.
 
@@ -248,6 +249,24 @@ private:
     std::size_t
     getUNLSize(ReadView const& view, Application& app) const;
 };
+
+/**
+ * Sign pending exports for ephemeral signature collection.
+ *
+ * Called during validate() to sign ALL pending ltEXPORTED_TXN entries. The
+ * signatures are returned as (txnHash, sfSigner) pairs to be included in the
+ * TMValidation message and broadcast to peers.
+ *
+ * @param view The current ledger view being validated
+ * @param app The application (for validator keys and UNL)
+ * @param j Journal for logging
+ * @return Vector of (txnHash, signerObject) pairs to broadcast
+ */
+std::vector<std::pair<uint256, STObject>>
+signPendingExports(
+    ReadView const& view,
+    Application& app,
+    beast::Journal const& j);
 
 }  // namespace ripple
 
