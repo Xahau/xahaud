@@ -329,5 +329,15 @@ meta_slot(uint32_t slot_no);
 extern int64_t
 xpop_slot(uint32_t slot_no_tx, uint32_t slot_no_meta);
 
+extern int64_t
+xport(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len);
+
+extern int64_t
+xport_reserve(uint32_t count);
+
 #define HOOK_EXTERN
 #endif  // HOOK_EXTERN
