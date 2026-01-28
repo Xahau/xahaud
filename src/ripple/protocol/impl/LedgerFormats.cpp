@@ -381,6 +381,7 @@ LedgerFormats::LedgerFormats()
         },
         commonFields);
     
+    //@@start lt-exported-txn-format
     // Signatures are collected ephemerally via TMValidation messages
     // (ExportSignatureCollector), not stored on-ledger.
     add(jss::ExportedTxn,
@@ -392,6 +393,7 @@ LedgerFormats::LedgerFormats()
             {sfTransactionHash, soeREQUIRED},
         },
         commonFields);
+    //@@end lt-exported-txn-format
 
     // clang-format on
 }

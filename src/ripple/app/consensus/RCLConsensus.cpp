@@ -874,6 +874,7 @@ RCLConsensus::Adaptor::validate(
 
     handleNewValidation(app_, v, "local");
 
+    //@@start validate-sign-exports
     // Sign pending exports and collect signatures for ephemeral broadcasting
     auto exportSigs = signPendingExports(*ledger.ledger_, app_, j_);
 
@@ -904,6 +905,7 @@ RCLConsensus::Adaptor::validate(
                          << " signatures with validation for seq="
                          << ledger.seq();
     }
+    //@@end validate-sign-exports
     app_.overlay().broadcast(val);
 
     // Publish to all our subscribers:

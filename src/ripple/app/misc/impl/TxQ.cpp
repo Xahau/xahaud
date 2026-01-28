@@ -1629,6 +1629,7 @@ TxQ::accept(Application& app, OpenView& view)
                     continue;
                 }
 
+                //@@start txq-export-quorum-check
                 // Check if we have quorum for this export using ephemeral
                 // signatures collected via validation messages
                 auto& collector = app.getExportSignatureCollector();
@@ -1706,6 +1707,7 @@ TxQ::accept(Application& app, OpenView& view)
                         app.getHashRouter().setFlags(txID, SF_EMITTED);
                         view.rawTxInsert(txID, std::move(s), nullptr);
                         ledgerChanged = true;
+                        //@@end txq-export-quorum-check
                     }
 
                     catch (std::exception& e)
