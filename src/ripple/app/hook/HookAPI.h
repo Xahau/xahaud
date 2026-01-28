@@ -1,3 +1,6 @@
+#ifndef HOOK_API_INCLUDED
+#define HOOK_API_INCLUDED 1
+
 #include <ripple/app/hook/Enum.h>
 #include <ripple/app/misc/Transaction.h>
 
@@ -339,3 +342,5 @@ private:
 };
 
 }  // namespace hook
+
+#endif  // HOOK_API_INCLUDED

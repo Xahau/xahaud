@@ -130,7 +130,7 @@ public:
             // PREREQUISITE_NOT_MET
             auto hookCtx = makeStubHookContext(
                 applyCtx, alice.id(), alice.id(), {.expected_etxn_count = -1});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
 
             auto const result = api.emit(emitInvokeTx.getSerializer().slice());
             BEAST_EXPECT(result.error() == PREREQUISITE_NOT_MET);
@@ -152,7 +152,7 @@ public:
                     .expected_etxn_count = 1,
                     .result = {.emittedTxn = emittedTxn},
                 });
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
 
             auto const result = api.emit(emitInvokeTx.getSerializer().slice());
             BEAST_EXPECT(result.error() == TOO_MANY_EMITTED_TXN);
@@ -168,7 +168,7 @@ public:
                     .expected_etxn_count = 1,
                     .nonce_used = {{uint256(0), true}},
                 });
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto tx = emitInvokeTx;
             Serializer s = tx.getSerializer();
             s.add8(0);  // invalid value
@@ -185,7 +185,7 @@ public:
                     .expected_etxn_count = 1,
                     .nonce_used = {{uint256(0), true}},
                 });
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto tx = emitInvokeTx;
             tx.setFieldU16(sfTransactionType, ttFEE);
             auto const result = api.emit(tx.getSerializer().slice());
@@ -202,7 +202,7 @@ public:
                  .result = {
                      .hookCanEmit = UINT256_BIT[ttINVOKE],
                  }});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto tx = emitInvokeTx;
             auto const result = api.emit(tx.getSerializer().slice());
             BEAST_EXPECT(result.error() == EMISSION_FAILURE);
@@ -218,7 +218,7 @@ public:
                     .nonce_used = {{uint256(0), true}},
                     .result = {.hookCanEmit = uint256()},
                 });
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.emit(emitSetHookTx.getSerializer().slice());
             BEAST_EXPECT(result.error() == EMISSION_FAILURE);
         }
@@ -233,7 +233,7 @@ public:
                     .nonce_used = {{uint256(0), true}},
                     .result = {.hookCanEmit = UINT256_BIT[ttHOOK_SET]},
                 });
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto tx = emitSetHookTx;
             auto const result = api.emit(tx.getSerializer().slice());
             BEAST_EXPECT(result.has_value());
@@ -248,7 +248,7 @@ public:
                 .nonce_used = {{uint256(0), true}},
                 .result = {.hookCanEmit = uint256()},
             });
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
         {
             // Invalid sfAccount
             auto tx = emitInvokeTx;
@@ -527,7 +527,7 @@ public:
             // PREREQUISITE_NOT_MET
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             std::array<uint8_t, 256> buffer{};
             auto const result = api.etxn_details(buffer.data());
             BEAST_EXPECT(!result.has_value());
@@ -542,7 +542,7 @@ public:
             };
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             std::array<uint8_t, 256> buffer{};
             auto const result = api.etxn_details(buffer.data());
             BEAST_EXPECT(!result.has_value());
@@ -557,7 +557,7 @@ public:
             };
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             std::array<uint8_t, 256> buffer{};
             auto const result = api.etxn_details(buffer.data());
             BEAST_EXPECT(result.has_value());
@@ -573,7 +573,7 @@ public:
             };
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             std::array<uint8_t, 256> buffer{};
             auto const result = api.etxn_details(buffer.data());
             BEAST_EXPECT(result.has_value());
@@ -603,7 +603,7 @@ public:
                 .nonce_used = {{uint256(0), true}},
                 .result = {.hookCanEmit = uint256()},
             });
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         // PREREQUISITE_NOT_MET
         {
@@ -670,7 +670,7 @@ public:
             // PREREQUISITE_NOT_MET
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.etxn_burden();
             BEAST_EXPECT(result.error() == PREREQUISITE_NOT_MET);
         }
@@ -683,7 +683,7 @@ public:
             };
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.etxn_burden();
             BEAST_EXPECT(result.error() == FEE_TOO_LARGE);
         }
@@ -693,7 +693,7 @@ public:
             StubHookContext stubCtx{.expected_etxn_count = 3, .burden = 5};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.etxn_burden();
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(result.value() == 15);
@@ -717,7 +717,7 @@ public:
             StubHookContext stubCtx{.generation = 4};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.etxn_generation() == 5);
         }
 
@@ -727,7 +727,7 @@ public:
             ApplyContext applyCtx = createApplyContext(env, ov, baseTx);
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.etxn_generation() == 1);
         }
 
@@ -741,7 +741,7 @@ public:
             ApplyContext applyCtx = createApplyContext(env, ov, emitTx);
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.etxn_generation() == 3);
         }
     }
@@ -772,7 +772,7 @@ public:
         // TOO_MANY_NONCES
         {
             hookCtx.emit_nonce_counter = hook_api::max_nonce + 1;
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.etxn_nonce();
             BEAST_EXPECT(result.error() == TOO_MANY_NONCES);
         }
@@ -780,7 +780,7 @@ public:
         // SUCCESS
         {
             hookCtx.emit_nonce_counter = hook_api::max_nonce;
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.etxn_nonce();
             BEAST_EXPECT(result.has_value());
         }
@@ -833,7 +833,7 @@ public:
             StubHookContext stubCtx{.expected_etxn_count = 1};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.etxn_reserve(2);
             BEAST_EXPECT(result.error() == ALREADY_SET);
         }
@@ -842,7 +842,7 @@ public:
             // TOO_SMALL
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.etxn_reserve(0);
             BEAST_EXPECT(result.error() == TOO_SMALL);
         }
@@ -851,7 +851,7 @@ public:
             // TOO_BIG
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.etxn_reserve(hook_api::max_emit + 1);
             BEAST_EXPECT(result.error() == TOO_BIG);
         }
@@ -860,7 +860,7 @@ public:
             // SUCCESS
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.etxn_reserve(3);
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(hookCtx.expected_etxn_count == 3);
@@ -880,7 +880,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         auto const expected = env.closed()->fees().base.drops();
         BEAST_EXPECT(api.fee_base() == expected);
@@ -928,7 +928,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         auto const testSuccess =
             [&](uint64_t left, uint64_t right, uint32_t mode) {
@@ -996,7 +996,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         auto const one = api.float_one();
 
@@ -1103,7 +1103,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         auto const one = api.float_one();
 
@@ -1207,7 +1207,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         // divide by 0
         BEAST_EXPECT(api.float_invert(0).error() == DIVISION_BY_ZERO);
@@ -1256,7 +1256,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         // check 0 is not allowed
         BEAST_EXPECT(api.float_log(0).error() == INVALID_ARGUMENT);
@@ -1313,7 +1313,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         // test canonical zero
         BEAST_EXPECT(api.float_mantissa(0).value() == 0);
@@ -1380,7 +1380,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         auto const one = api.float_one();
         auto const neg_one = api.float_negate(one);
@@ -1469,7 +1469,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         auto const one = api.float_one();
         auto const neg_one = api.float_negate(one);
@@ -1583,7 +1583,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         auto const one = api.float_one();
 
@@ -1626,7 +1626,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         auto const one = api.float_one();
         BEAST_EXPECT(one == 6089866696204910592ULL);
@@ -1648,7 +1648,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         auto const one = api.float_one();
 
@@ -1689,7 +1689,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         // zero mantissa should return canonical zero
         BEAST_EXPECT(api.float_set(-5, 0).value() == 0);
@@ -1752,7 +1752,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         // test canonical zero
         BEAST_EXPECT(api.float_sign(0) == 0);
@@ -1811,7 +1811,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         uint64_t const xfl = 6198187654261802496ULL;  // 1234567.0 as in SetHook
         // XRP serialization
@@ -1840,7 +1840,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         // Not enough bytes
         BEAST_EXPECT(
@@ -1871,7 +1871,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         auto const one = api.float_one();
         auto const neg_one = api.float_negate(api.float_one());
@@ -1945,7 +1945,7 @@ public:
         StubHookContext stubCtx{};
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         BEAST_EXPECT(api.hook_account() == alice.id());
     }
@@ -1971,7 +1971,7 @@ public:
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
             BEAST_EXPECT(hookCtx.result.executeAgainAsWeak);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.hook_again().error() == ALREADY_SET);
         }
         {
@@ -1980,7 +1980,7 @@ public:
             stubCtx.result.isStrong = true;
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(!hookCtx.result.executeAgainAsWeak);
             auto const result = api.hook_again();
             BEAST_EXPECT(result.has_value());
@@ -1993,7 +1993,7 @@ public:
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
             BEAST_EXPECT(!hookCtx.result.executeAgainAsWeak);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.hook_again().error() == PREREQUISITE_NOT_MET);
         }
     }
@@ -2030,7 +2030,7 @@ public:
         };
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         {
             // current hook hash
@@ -2086,7 +2086,7 @@ public:
             // TOO_SMALL / TOO_BIG
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.hook_param({}).error() == TOO_SMALL);
             BEAST_EXPECT(api.hook_param(Bytes(33, 1)).error() == TOO_BIG);
         }
@@ -2116,7 +2116,7 @@ public:
                 {stubCtx.result.hookHash, {{name, Bytes{}}}}};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.hook_param(name).error() == DOESNT_EXIST);
         }
 
@@ -2131,7 +2131,7 @@ public:
                 {stubCtx.result.hookHash, {{name, overrideValue}}}};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.hook_param(name);
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(result.value() == overrideValue);
@@ -2158,7 +2158,7 @@ public:
             // TOO_SMALL
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(
                 api.hook_param_set(hash, {}, Bytes{1}).error() == TOO_SMALL);
         }
@@ -2169,7 +2169,7 @@ public:
             stubCtx.result.overrideCount = hook_api::max_params;
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(
                 api.hook_param_set(
                        hash,
@@ -2193,7 +2193,7 @@ public:
             Bytes const value{5, 6};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.hook_param_set(hash, name, value);
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(result.value() == value.size());
@@ -2219,7 +2219,7 @@ public:
         stubCtx.result.hookChainPosition = 3;
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         BEAST_EXPECT(api.hook_pos() == 3);
     }
@@ -2249,7 +2249,7 @@ public:
             {
                 .result = {.hookSkips = {uint256{123}, uint256{456}}},
             });
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         {
             // INVALID_ARGUMENT
@@ -2328,7 +2328,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         {
             // does not match
@@ -2370,7 +2370,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         BEAST_EXPECT(api.ledger_last_hash() == ov.info().parentHash);
     }
@@ -2388,7 +2388,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         auto const expected =
             ov.info().parentCloseTime.time_since_epoch().count();
@@ -2416,7 +2416,7 @@ public:
                     static_cast<uint16_t>(hook_api::max_nonce + 1)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.ledger_nonce();
             BEAST_EXPECT(result.error() == TOO_MANY_NONCES);
         }
@@ -2425,7 +2425,7 @@ public:
             // SUCCESS
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const info = hookCtx.applyCtx.view().info();
             auto const expected = ripple::sha512Half(
                 ripple::HashPrefix::hookNonce,
@@ -2455,7 +2455,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         BEAST_EXPECT(api.ledger_seq() == ov.info().seq);
     }
@@ -2482,12 +2482,12 @@ public:
             alice.id(),
             alice.id(),
             {.result = {.provisionalMeta = env.meta()}});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         {
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             // prerequisite not met
             auto const result = api.meta_slot(0);
             BEAST_EXPECT(!result.has_value());
@@ -2510,14 +2510,14 @@ public:
             for (uint32_t i = 1; i <= hook_api::max_slots; ++i)
                 hookCtx.slot[i] = hook::SlotEntry{};
             // no free slots
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.meta_slot(0);
             BEAST_EXPECT(!result.has_value());
             BEAST_EXPECT(result.error() == NO_FREE_SLOTS);
         }
 
         {
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.meta_slot(0);
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(result.value() == 1);
@@ -2542,7 +2542,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         {
             STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
@@ -2550,7 +2550,7 @@ public:
             ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             // invalid transaction type
             auto const result = api.xpop_slot(0, 0);
             BEAST_EXPECT(!result.has_value());
@@ -2572,7 +2572,7 @@ public:
             // no free slots
             for (uint32_t i = 1; i <= hook_api::max_slots - 1; ++i)
                 hookCtx.slot[i] = hook::SlotEntry{};
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.xpop_slot(0, 0);
             BEAST_EXPECT(!result.has_value());
             BEAST_EXPECT(result.error() == NO_FREE_SLOTS);
@@ -2598,7 +2598,7 @@ public:
             ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.xpop_slot(0, 0);
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(result.value().first == 1);
@@ -2633,7 +2633,7 @@ public:
             StubHookContext stubCtx{.burden = 7};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.otxn_burden() == 7);
         }
 
@@ -2643,7 +2643,7 @@ public:
             ApplyContext applyCtx = createApplyContext(env, ov, baseTx);
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.otxn_burden() == 1);
         }
 
@@ -2656,7 +2656,7 @@ public:
             ApplyContext applyCtx = createApplyContext(env, ov, tx);
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.otxn_burden() == 1);
         }
 
@@ -2671,7 +2671,7 @@ public:
             ApplyContext applyCtx = createApplyContext(env, ov, tx);
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const burden = api.otxn_burden();
             BEAST_EXPECT(burden == 25);
             BEAST_EXPECT(api.otxn_burden() == burden);
@@ -2695,7 +2695,7 @@ public:
             StubHookContext stubCtx{.generation = 9};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.otxn_generation() == 9);
         }
 
@@ -2705,7 +2705,7 @@ public:
             ApplyContext applyCtx = createApplyContext(env, ov, baseTx);
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.otxn_generation() == 0);
         }
 
@@ -2718,7 +2718,7 @@ public:
             ApplyContext applyCtx = createApplyContext(env, ov, tx);
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.otxn_generation() == 0);
         }
 
@@ -2732,7 +2732,7 @@ public:
             ApplyContext applyCtx = createApplyContext(env, ov, tx);
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.otxn_generation() == 4);
             BEAST_EXPECT(api.otxn_generation() == 4);
         }
@@ -2754,7 +2754,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, tx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         // TODO: INVALID_FIELD now returns DOESNT_EXIST
         // BEAST_EXPECT(api.otxn_field(0).error() == INVALID_FIELD);
@@ -2785,7 +2785,7 @@ public:
             // Originating transaction ID
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.otxn_id(0);
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(result.value() == txID);
@@ -2803,7 +2803,7 @@ public:
             StubHookContext stubCtx{.emitFailure = emitFailedTx};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(
                 api.otxn_id(0).value() == tx.getFieldH256(sfTransactionHash));
             // flags bypass emitFailure
@@ -2829,7 +2829,7 @@ public:
             // Invalid slot argument
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.otxn_slot(hook_api::max_slots + 1);
             BEAST_EXPECT(result.error() == INVALID_ARGUMENT);
         }
@@ -2844,7 +2844,7 @@ public:
             for (uint32_t i = 1; i <= hook_api::max_slots; ++i)
                 hookCtx.slot[i] = hook::SlotEntry{};
             BEAST_EXPECT(stubCtx.slot.size() == hook_api::max_slots);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.otxn_slot(0).error() == NO_FREE_SLOTS);
         }
 
@@ -2855,7 +2855,7 @@ public:
             for (uint32_t i = 1; i <= 111; ++i)
                 hookCtx.slot[i] = hook::SlotEntry{};
             BEAST_EXPECT(!hookCtx.slot.contains(112));
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.otxn_slot(0);
             BEAST_EXPECT(result.has_value());
             auto const newSlot = result.value();
@@ -2870,7 +2870,7 @@ public:
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
             BEAST_EXPECT(!hookCtx.slot.contains(200));
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.otxn_slot(200);
             BEAST_EXPECT(result.has_value());
             auto const newSlot = result.value();
@@ -2900,14 +2900,14 @@ public:
             StubHookContext stubCtx{.emitFailure = failure};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.otxn_type() == ttACCOUNT_SET);
         }
 
         {
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.otxn_type() == ttINVOKE);
         }
     }
@@ -2953,7 +2953,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, tx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         BEAST_EXPECT(api.otxn_param({}).error() == TOO_SMALL);
         BEAST_EXPECT(api.otxn_param(Bytes(33, 1)).error() == TOO_BIG);
@@ -2983,13 +2983,12 @@ public:
         {
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.slot(1).error() == DOESNT_EXIST);
         }
 
         // Present slot pointing to an STAmount field
         {
-            printf("test\n");
             STObject obj(sfGeneric);
             obj.setFieldAmount(sfAmount, drops(1));
             auto storage = std::make_shared<STObject const>(obj);
@@ -2998,17 +2997,9 @@ public:
             stubCtx.slot[1].entry = &(*stubCtx.slot[1].storage);
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.slot(1);
             BEAST_EXPECT(result.has_value());
-
-            Serializer s;
-            (*result)->add(s);
-
-            STObject resultObj{s.slice(), sfGeneric};
-            printf(
-                "resultObj: %s\n",
-                resultObj.getJson(JsonOptions::none).toStyledString().c_str());
         }
     }
 
@@ -3030,7 +3021,7 @@ public:
         {
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.slot_clear(1).error() == DOESNT_EXIST);
         }
 
@@ -3042,7 +3033,7 @@ public:
             stubCtx.slot[2] = {.storage = storage, .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.slot_clear(2).has_value());
             BEAST_EXPECT(hookCtx.slot.find(2) == hookCtx.slot.end());
             BEAST_EXPECT(!hookCtx.slot_free.empty());
@@ -3067,7 +3058,7 @@ public:
         {
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.slot_count(1).error() == DOESNT_EXIST);
         }
 
@@ -3079,7 +3070,7 @@ public:
             stubCtx.slot[1] = {.storage = storage, .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.slot_count(1).error() == NOT_AN_ARRAY);
         }
 
@@ -3096,7 +3087,7 @@ public:
                 .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.slot_count(3).value() == 2);
         }
     }
@@ -3119,7 +3110,7 @@ public:
         {
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.slot_float(1).error() == DOESNT_EXIST);
         }
 
@@ -3131,7 +3122,7 @@ public:
             stubCtx.slot[1] = {.storage = storage, .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.slot_float(1).error() == NOT_AN_AMOUNT);
         }
 
@@ -3145,7 +3136,7 @@ public:
             stubCtx.slot[2] = {.storage = storage, .entry = amtPtr};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.slot_float(2);
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(result.value() != 0);
@@ -3168,7 +3159,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         // Invalid argument (wrong size)
         BEAST_EXPECT(
@@ -3197,7 +3188,7 @@ public:
         {
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.slot_size(1).error() == DOESNT_EXIST);
         }
 
@@ -3210,7 +3201,7 @@ public:
             stubCtx.slot[1] = {.storage = storage, .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.slot_size(1).value() > 0);
         }
     }
@@ -3233,7 +3224,7 @@ public:
         {
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.slot_subarray(1, 0, 0).error() == DOESNT_EXIST);
         }
 
@@ -3250,7 +3241,7 @@ public:
                 .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.slot_subarray(1, 1, 0);
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(result.value() != 0);
@@ -3276,7 +3267,7 @@ public:
         {
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(
                 api.slot_subfield(1, sfAccount.getCode(), 0).error() ==
                 DOESNT_EXIST);
@@ -3288,7 +3279,7 @@ public:
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
             for (int i = 0; i < hook_api::max_slots; i++)
                 hookCtx.slot[i] = hook::SlotEntry{};
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(
                 api.slot_subfield(1, sfAccount.getCode(), 0).error() ==
                 NO_FREE_SLOTS);
@@ -3306,7 +3297,7 @@ public:
             stubCtx.slot[1] = {.storage = storage, .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(
                 api.slot_subfield(1, ((99U << 16U) + 99U), 0).error() ==
                 INVALID_FIELD);
@@ -3324,7 +3315,7 @@ public:
             stubCtx.slot[1] = {.storage = storage, .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.slot_subfield(1, sfAmount.getCode(), 0);
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(result.value() != 0);
@@ -3351,7 +3342,7 @@ public:
         {
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             BEAST_EXPECT(api.slot_type(1, 0).error() == DOESNT_EXIST);
         }
 
@@ -3364,7 +3355,7 @@ public:
             stubCtx.slot[1] = {.storage = storage, .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.slot_type(1, 0);
             BEAST_EXPECT(result.has_value());
         }
@@ -3379,7 +3370,7 @@ public:
             stubCtx.slot[2] = {.storage = storage, .entry = amtPtr};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.slot_type(2, 1);
             BEAST_EXPECT(result.has_value());
         }
@@ -3436,7 +3427,7 @@ public:
                 1,    // hookStateScale
                 {{testNs, {{testKey, {false, expectedData}}}}}};
 
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             auto const result = api.state_foreign(testKey, testNs, alice.id());
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(result.value() == expectedData);
@@ -3456,7 +3447,7 @@ public:
             stateMap[alice.id()] = {
                 100, 1, 1, {{testNs, {{otherKey, {false, data}}}}}};
 
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             // testKey is not in cache, so it will try to read from ledger
             // which should return DOESNT_EXIST since there's no actual state
             auto const result = api.state_foreign(testKey, testNs, alice.id());
@@ -3507,7 +3498,7 @@ public:
             // Set modified_entry_count to max
             stateMap.modified_entry_count = max_state_modifications;
 
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             Bytes data{0x01};
             // This should fail because testKey is new and we're at max
             // modifications
@@ -3534,7 +3525,7 @@ public:
 
             stateMap.modified_entry_count = max_state_modifications;
 
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
             Bytes data{0x01};
             // This should also fail because TOO_MANY_STATE_MODIFICATIONS
             // applies to all modifications, not just new keys
@@ -3595,7 +3586,7 @@ public:
                 1,    // hookStateScale
                 {}};
 
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
 
             auto const result =
                 api.state_foreign_set(testKey, testNs, alice.id(), testData);
@@ -3623,7 +3614,7 @@ public:
                 1,    // hookStateScale
                 {{testNs, {{testKey, {false, testData}}}}}};
 
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
 
             // Delete (empty data)
             Bytes emptyData{};
@@ -3648,7 +3639,7 @@ public:
             HookStateMap stateMap;
             auto hookCtx = makeStubHookContext(
                 applyCtx, alice.id(), alice.id(), stubCtx, stateMap);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
 
             auto const result =
                 api.state_foreign_set(testKey, testNs, bob.id(), testData);
@@ -3664,7 +3655,7 @@ public:
             HookStateMap stateMap;
             auto hookCtx = makeStubHookContext(
                 applyCtx, alice.id(), alice.id(), stubCtx, stateMap);
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
 
             auto const result =
                 api.state_foreign_set(testKey, testNs, bob.id(), testData);
@@ -3687,7 +3678,7 @@ public:
                 1,    // hookStateScale
                 {}};
 
-            hook::HookAPI api(hookCtx);
+            auto& api = hookCtx.api();
 
             // First modification
             auto result1 =
@@ -3729,7 +3720,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         {
             // Invalid argument (wrong source_object size)
@@ -4113,7 +4104,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         {
             // Invalid data size
@@ -4172,7 +4163,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         {
             // Invalid data size
@@ -4232,7 +4223,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         BEAST_EXPECT(api.sto_validate(Bytes{}).error() == TOO_SMALL);
         BEAST_EXPECT(api.sto_validate(Bytes{0x00}).error() == TOO_SMALL);
@@ -4316,7 +4307,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         // Invalid base58 string
         BEAST_EXPECT(api.util_accid("invalid").error() == INVALID_ARGUMENT);
@@ -4353,7 +4344,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         // Wrong size
         BEAST_EXPECT(api.util_raddr(Bytes(10, 0)).error() == INVALID_ARGUMENT);
@@ -4381,7 +4372,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         std::string msg{"hello"};
         auto hash = api.util_sha512h(Slice(msg.data(), msg.size()));
@@ -4405,7 +4396,7 @@ public:
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        hook::HookAPI api(hookCtx);
+        auto& api = hookCtx.api();
 
         // Generate keypair and signature
         KeyType type = KeyType::secp256k1;

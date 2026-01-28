@@ -1412,8 +1412,6 @@ DEFINE_HOOK_FUNCTION(
 
     ripple::Blob data{memory + read_ptr, memory + read_ptr + read_len};
 
-    hook::HookAPI api(hookCtx);
-
     auto const result = api.state_foreign_set(*key, ns, acc, data);
     if (!result)
         return result.error();
@@ -1769,7 +1767,6 @@ DEFINE_HOOK_FUNCTION(
     if (!key)
         return INVALID_ARGUMENT;
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.state_foreign(*key, ns, acc);
     if (!result)
         return result.error();
@@ -1820,7 +1817,6 @@ DEFINE_HOOK_FUNCTION(
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.otxn_id(flags);
     if (!result)
         return result.error();
@@ -1851,7 +1847,6 @@ DEFINE_HOOK_FUNCNARG(int64_t, otxn_type)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     return api.otxn_type();
 
     HOOK_TEARDOWN();
@@ -1862,7 +1857,6 @@ DEFINE_HOOK_FUNCTION(int64_t, otxn_slot, uint32_t slot_into)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.otxn_slot(slot_into);
     if (!result)
         return result.error();
@@ -1877,7 +1871,6 @@ DEFINE_HOOK_FUNCTION(int64_t, otxn_slot, uint32_t slot_into)
 DEFINE_HOOK_FUNCNARG(int64_t, otxn_burden)
 {
     HOOK_SETUP();
-    hook::HookAPI api(hookCtx);
     return api.otxn_burden();
     HOOK_TEARDOWN();
 }
@@ -1888,7 +1881,6 @@ DEFINE_HOOK_FUNCNARG(int64_t, otxn_burden)
 DEFINE_HOOK_FUNCNARG(int64_t, otxn_generation)
 {
     HOOK_SETUP();
-    hook::HookAPI api(hookCtx);
     return api.otxn_generation();
     HOOK_TEARDOWN();
 }
@@ -1897,8 +1889,7 @@ DEFINE_HOOK_FUNCNARG(int64_t, otxn_generation)
 DEFINE_HOOK_FUNCNARG(int64_t, etxn_generation)
 {
     // proxy only, no setup or teardown
-    hook::HookAPI api(hookCtx);
-    return api.etxn_generation();
+    return hookCtx.api().etxn_generation();
 }
 
 // Return the current ledger sequence number
@@ -1906,7 +1897,6 @@ DEFINE_HOOK_FUNCNARG(int64_t, ledger_seq)
 {
     HOOK_SETUP();
 
-    hook::HookAPI api(hookCtx);
     return api.ledger_seq();
 
     HOOK_TEARDOWN();
@@ -1925,7 +1915,6 @@ DEFINE_HOOK_FUNCTION(
     if (write_len < 32)
         return TOO_SMALL;
 
-    hook::HookAPI api(hookCtx);
     auto const hash = api.ledger_last_hash();
 
     WRITE_WASM_MEMORY_AND_RETURN(
@@ -1938,7 +1927,6 @@ DEFINE_HOOK_FUNCNARG(int64_t, ledger_last_time)
 {
     HOOK_SETUP();
 
-    hook::HookAPI api(hookCtx);
     return api.ledger_last_time();
 
     HOOK_TEARDOWN();
@@ -1965,7 +1953,6 @@ DEFINE_HOOK_FUNCTION(
     else if NOT_IN_BOUNDS (write_ptr, write_len, memory_length)
         return OUT_OF_BOUNDS;
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.otxn_field(field_id);
     if (!result)
         return result.error();
@@ -2010,7 +1997,6 @@ DEFINE_HOOK_FUNCTION(
             return TOO_SMALL;
     }
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.slot(slot_no);
     if (!result)
         return result.error();
@@ -2033,7 +2019,6 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_clear, uint32_t slot_no)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.slot_clear(slot_no);
     if (!result)
         return result.error();
@@ -2048,7 +2033,6 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_count, uint32_t slot_no)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.slot_count(slot_no);
     if (!result)
         return result.error();
@@ -2071,7 +2055,6 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    hook::HookAPI api(hookCtx);
     Bytes data{memory + read_ptr, memory + read_ptr + read_len};
     auto const result = api.slot_set(data, slot_into);
     if (!result)
@@ -2087,7 +2070,6 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_size, uint32_t slot_no)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.slot_size(slot_no);
     if (!result)
         return result.error();
@@ -2107,7 +2089,6 @@ DEFINE_HOOK_FUNCTION(
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.slot_subarray(parent_slot, array_id, new_slot);
     if (!result)
         return result.error();
@@ -2127,7 +2108,6 @@ DEFINE_HOOK_FUNCTION(
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.slot_subfield(parent_slot, field_id, new_slot);
     if (!result)
         return result.error();
@@ -2142,7 +2122,6 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.slot_type(slot_no, flags);
     if (!result)
         return result.error();
@@ -2166,7 +2145,6 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_float, uint32_t slot_no)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.slot_float(slot_no);
     if (!result)
         return result.error();
@@ -2621,7 +2599,6 @@ DEFINE_HOOK_FUNCTION(
         return TOO_SMALL;
 
     // Delegate to decoupled HookAPI for emit logic
-    hook::HookAPI api(hookCtx);
     ripple::Slice txBlob{
         reinterpret_cast<const void*>(memory + read_ptr), read_len};
 
@@ -2676,7 +2653,6 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.hook_hash(hook_no);
     if (!result)
         return result.error();
@@ -2704,7 +2680,6 @@ DEFINE_HOOK_FUNCTION(
     if (ptr_len < 20)
         return TOO_SMALL;
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.hook_account();
 
     WRITE_WASM_MEMORY_AND_RETURN(
@@ -2735,7 +2710,6 @@ DEFINE_HOOK_FUNCTION(
     if (write_len < 32)
         return TOO_SMALL;
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.etxn_nonce();
     if (!result)
         return result.error();
@@ -2762,7 +2736,6 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.ledger_nonce();
     if (!result)
         return result.error();
@@ -2806,7 +2779,6 @@ DEFINE_HOOK_FUNCTION(
     if (!klHi)
         return INVALID_ARGUMENT;
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.ledger_keylet(*klLo, *klHi);
     if (!result)
         return result.error();
@@ -2823,7 +2795,6 @@ DEFINE_HOOK_FUNCTION(int64_t, etxn_reserve, uint32_t count)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.etxn_reserve(count);
     if (!result)
         return result.error();
@@ -2836,7 +2807,6 @@ DEFINE_HOOK_FUNCTION(int64_t, etxn_reserve, uint32_t count)
 DEFINE_HOOK_FUNCNARG(int64_t, etxn_burden)
 {
     HOOK_SETUP();
-    hook::HookAPI api(hookCtx);
     auto const burden = api.etxn_burden();
     if (!burden)
         return burden.error();
@@ -2862,7 +2832,6 @@ DEFINE_HOOK_FUNCTION(
         NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    hook::HookAPI api(hookCtx);
     auto const hash =
         api.util_sha512h(ripple::Slice{memory + read_ptr, read_len});
 
@@ -2889,7 +2858,6 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    hook::HookAPI api(hookCtx);
     Bytes data{memory + read_ptr, memory + read_ptr + read_len};
     auto const result = api.sto_subfield(data, field_id);
     if (!result)
@@ -2914,7 +2882,6 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    hook::HookAPI api(hookCtx);
     Bytes data{memory + read_ptr, memory + read_ptr + read_len};
     auto const result = api.sto_subarray(data, index_id);
     if (!result)
@@ -2943,7 +2910,6 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    hook::HookAPI api(hookCtx);
     auto const result =
         api.util_raddr(Bytes{memory + read_ptr, memory + read_ptr + read_len});
     if (!result)
@@ -2999,7 +2965,6 @@ DEFINE_HOOK_FUNCTION(
 
     std::string raddr{buffer};
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.util_accid(raddr);
     if (!result)
         return result.error();
@@ -3119,7 +3084,6 @@ DEFINE_HOOK_FUNCTION(
             return MEM_OVERLAP;
     }
 
-    hook::HookAPI api(hookCtx);
     Bytes source{memory + sread_ptr, memory + sread_ptr + sread_len};
     std::optional<Bytes> field;
     if (fread_len > 0 && fread_ptr > 0)
@@ -3188,7 +3152,6 @@ DEFINE_HOOK_FUNCTION(
         return OUT_OF_BOUNDS;
 
     Bytes data{read_ptr + memory, read_ptr + read_len + memory};
-    hook::HookAPI api(hookCtx);
     auto const result = api.sto_validate(data);
     if (!result)
         return result.error();
@@ -3225,7 +3188,6 @@ DEFINE_HOOK_FUNCTION(
     ripple::Slice sig{
         reinterpret_cast<const void*>(sread_ptr + memory), sread_len};
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.util_verify(data, sig, key);
     if (!result)
         return result.error();
@@ -3240,7 +3202,6 @@ DEFINE_HOOK_FUNCNARG(int64_t, fee_base)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     return api.fee_base();
 
     HOOK_TEARDOWN();
@@ -3257,7 +3218,6 @@ DEFINE_HOOK_FUNCTION(
     HOOK_SETUP();
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
-    hook::HookAPI api(hookCtx);
     ripple::Slice tx{
         reinterpret_cast<const void*>(read_ptr + memory), read_len};
     auto const fee_base = api.etxn_fee_base(tx);
@@ -3286,8 +3246,6 @@ DEFINE_HOOK_FUNCTION(
 
     if (write_len < expected_size)
         return TOO_SMALL;
-
-    hook::HookAPI api(hookCtx);
 
     auto const result = api.etxn_details(memory + write_ptr);
     if (!result)
@@ -3415,7 +3373,6 @@ DEFINE_HOOK_FUNCTION(int64_t, float_set, int32_t exp, int64_t mantissa)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.float_set(exp, mantissa);
     if (!result)
         return result.error();
@@ -3436,7 +3393,6 @@ DEFINE_HOOK_FUNCTION(
 
     RETURN_IF_INVALID_FLOAT(float1);
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.float_int(float1, decimal_places, absolute);
     if (!result)
         return result.error();
@@ -3453,7 +3409,6 @@ DEFINE_HOOK_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2)
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.float_multiply(float1, float2);
     if (!result)
         return result.error();
@@ -3475,7 +3430,6 @@ DEFINE_HOOK_FUNCTION(
 
     RETURN_IF_INVALID_FLOAT(float1);
 
-    hook::HookAPI api(hookCtx);
     auto const result =
         api.float_mulratio(float1, round_up, numerator, denominator);
     if (!result)
@@ -3492,7 +3446,6 @@ DEFINE_HOOK_FUNCTION(int64_t, float_negate, int64_t float1)
 
     RETURN_IF_INVALID_FLOAT(float1);
 
-    hook::HookAPI api(hookCtx);
     return api.float_negate(float1);
 
     HOOK_TEARDOWN();
@@ -3511,7 +3464,6 @@ DEFINE_HOOK_FUNCTION(
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.float_compare(float1, float2, mode);
     if (!result)
         return result.error();
@@ -3528,7 +3480,6 @@ DEFINE_HOOK_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2)
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.float_sum(float1, float2);
     if (!result)
         return result.error();
@@ -3596,7 +3547,6 @@ DEFINE_HOOK_FUNCTION(
 
     RETURN_IF_INVALID_FLOAT(float1);
 
-    hook::HookAPI api(hookCtx);
     auto const result =
         api.float_sto(currency, issuer, float1, field_code, write_len);
     if (!result)
@@ -3630,7 +3580,6 @@ DEFINE_HOOK_FUNCTION(
 
     Bytes data{read_ptr + memory, read_ptr + read_len + memory};
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.float_sto_set(data);
     if (!result)
         return result.error();
@@ -3647,7 +3596,6 @@ DEFINE_HOOK_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2)
     RETURN_IF_INVALID_FLOAT(float1);
     RETURN_IF_INVALID_FLOAT(float2);
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.float_divide(float1, float2);
     if (!result)
         return result.error();
@@ -3658,8 +3606,7 @@ DEFINE_HOOK_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2)
 
 DEFINE_HOOK_FUNCNARG(int64_t, float_one)
 {
-    hook::HookAPI api(hookCtx);
-    return api.float_one();
+    return hookCtx.api().float_one();
 }
 
 DEFINE_HOOK_FUNCTION(int64_t, float_invert, int64_t float1)
@@ -3669,7 +3616,6 @@ DEFINE_HOOK_FUNCTION(int64_t, float_invert, int64_t float1)
 
     RETURN_IF_INVALID_FLOAT(float1);
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.float_invert(float1);
     if (!result)
         return result.error();
@@ -3685,7 +3631,6 @@ DEFINE_HOOK_FUNCTION(int64_t, float_mantissa, int64_t float1)
 
     RETURN_IF_INVALID_FLOAT(float1);
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.float_mantissa(float1);
     if (!result)
         return result.error();
@@ -3701,7 +3646,6 @@ DEFINE_HOOK_FUNCTION(int64_t, float_sign, int64_t float1)
 
     RETURN_IF_INVALID_FLOAT(float1);
 
-    hook::HookAPI api(hookCtx);
     return api.float_sign(float1);
 
     HOOK_TEARDOWN();
@@ -3714,7 +3658,6 @@ DEFINE_HOOK_FUNCTION(int64_t, float_log, int64_t float1)
 
     RETURN_IF_INVALID_FLOAT(float1);
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.float_log(float1);
     if (!result)
         return result.error();
@@ -3730,7 +3673,6 @@ DEFINE_HOOK_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n)
 
     RETURN_IF_INVALID_FLOAT(float1);
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.float_root(float1, n);
     if (!result)
         return result.error();
@@ -3758,7 +3700,6 @@ DEFINE_HOOK_FUNCTION(
 
     Bytes paramName{read_ptr + memory, read_ptr + read_len + memory};
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.otxn_param(paramName);
     if (!result)
         return result.error();
@@ -3792,7 +3733,6 @@ DEFINE_HOOK_FUNCTION(
 
     Bytes paramName{read_ptr + memory, read_ptr + read_len + memory};
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.hook_param(paramName);
 
     if (!result)
@@ -3844,7 +3784,6 @@ DEFINE_HOOK_FUNCTION(
     Bytes paramValue{read_ptr + memory, read_ptr + read_len + memory};
     ripple::uint256 hash = ripple::uint256::fromVoid(memory + hread_ptr);
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.hook_param_set(hash, paramName, paramValue);
     if (!result)
         return result.error();
@@ -3871,7 +3810,6 @@ DEFINE_HOOK_FUNCTION(
 
     ripple::uint256 hash = ripple::uint256::fromVoid(memory + read_ptr);
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.hook_skip(hash, flags);
     if (!result)
         return result.error();
@@ -3882,15 +3820,13 @@ DEFINE_HOOK_FUNCTION(
 
 DEFINE_HOOK_FUNCNARG(int64_t, hook_pos)
 {
-    hook::HookAPI api(hookCtx);
-    return api.hook_pos();
+    return hookCtx.api().hook_pos();
 }
 
 DEFINE_HOOK_FUNCNARG(int64_t, hook_again)
 {
     HOOK_SETUP();
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.hook_again();
 
     if (!result)
@@ -3905,7 +3841,6 @@ DEFINE_HOOK_FUNCTION(int64_t, meta_slot, uint32_t slot_into)
 {
     HOOK_SETUP();
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.meta_slot(slot_into);
     if (!result)
         return result.error();
@@ -3923,7 +3858,6 @@ DEFINE_HOOK_FUNCTION(
 {
     HOOK_SETUP();
 
-    hook::HookAPI api(hookCtx);
     auto const result = api.xpop_slot(slot_into_tx, slot_into_meta);
     if (!result)
         return result.error();
