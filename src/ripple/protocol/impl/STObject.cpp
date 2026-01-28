@@ -23,7 +23,6 @@
 #include <ripple/protocol/STArray.h>
 #include <ripple/protocol/STBlob.h>
 #include <ripple/protocol/STObject.h>
-#include <iostream>
 
 namespace ripple {
 
