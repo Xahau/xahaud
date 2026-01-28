@@ -29,13 +29,11 @@
 
 namespace ripple {
 
-class OpenView;
-
 //@@start exportsign-class
 /**
- * ExportSign is a UVTxn (UNL Validator Transaction) that allows validators
- * on the UNLReport to submit their signatures for exported cross-chain
- * transactions without requiring a funded account.
+ * ExportSign handles ttEXPORT_SIGN transactions. This transaction type is
+ * kept for protocol completeness but is now a no-op - export signatures are
+ * collected ephemerally via TMValidation messages (see signPendingExports).
  */
 class ExportSign : public Transactor
 {
@@ -64,13 +62,6 @@ public:
     TER
     doApply() override;
 };
-
-/**
- * If this validator is on the UNLReport, generate signed ttEXPORT_SIGN
- * transactions for any exported transactions that need signing.
- */
-std::vector<std::shared_ptr<STTx const>>
-makeExportSignTxns(OpenView& view, Application& app, beast::Journal const& j);
 
 /**
  * Sign pending exports for ephemeral signature collection.

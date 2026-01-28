@@ -1719,11 +1719,6 @@ TxQ::accept(Application& app, OpenView& view)
                     continue;
                 }
 
-                // ttEXPORT_SIGN transactions are now submitted by validators
-                // as UVTxns (UNL Validator Transactions) via
-                // makeExportSignTxns, rather than being injected here as
-                // pseudo-transactions.
-
             } while (cdirNext(
                 view, exportedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
 
