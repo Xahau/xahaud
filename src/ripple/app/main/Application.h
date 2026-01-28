@@ -185,8 +185,10 @@ public:
     getAmendmentTable() = 0;
     virtual HashRouter&
     getHashRouter() = 0;
+    //@@start app-export-collector
     virtual ExportSignatureCollector&
     getExportSignatureCollector() = 0;
+    //@@end app-export-collector
     virtual LoadFeeTrack&
     getFeeTrack() = 0;
     virtual LoadManager&

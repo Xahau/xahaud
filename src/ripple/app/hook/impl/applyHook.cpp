@@ -6238,6 +6238,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
+//@@start xport-impl
 DEFINE_HOOK_FUNCTION(
     int64_t,
     xport,
@@ -6324,6 +6325,7 @@ DEFINE_HOOK_FUNCTION(
     return result;
     HOOK_TEARDOWN();
 }
+//@@end xport-impl
 /*
 
 DEFINE_HOOK_FUNCTION(

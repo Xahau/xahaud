@@ -3195,15 +3195,12 @@ PeerImp::checkValidation(
         return;
     }
 
+    //@@start peer-receive-export-sigs
     // Extract export signatures from the validation message
     if (packet->exportsignatures_size() > 0)
     {
         auto const validatorPK = val->getSignerPublic();
         auto const currentSeq = val->getFieldU32(sfLedgerSequence);
-
-        JLOG(p_journal_.debug())
-            << "Export: received " << packet->exportsignatures_size()
-            << " signatures from peer for seq=" << currentSeq;
 
         for (int i = 0; i < packet->exportsignatures_size(); ++i)
         {
@@ -3213,11 +3210,6 @@ PeerImp::checkValidation(
                 SerialIter sit(makeSlice(data));
                 uint256 txnHash = sit.getBitString<256>();
                 STObject signer(sit, sfSigner);
-
-                JLOG(p_journal_.trace())
-                    << "Export: received signature for " << txnHash
-                    << " from validator "
-                    << toBase58(TokenType::NodePublic, validatorPK);
 
                 // Verify and add - will verify against cached txn data if
                 // available, otherwise adds unverified (verified later)
@@ -3231,6 +3223,7 @@ PeerImp::checkValidation(
             }
         }
     }
+    //@@end peer-receive-export-sigs
 
     // FIXME it should be safe to remove this try/catch. Investigate codepaths.
     try
