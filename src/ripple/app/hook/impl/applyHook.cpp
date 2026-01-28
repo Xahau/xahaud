@@ -2028,7 +2028,6 @@ hook::finalizeHookResult(
             }
         }
 
-        //@@start finalize-export
         DBG_PRINTF("exported txn count: %d\n", hookResult.exportedTxn.size());
         for (; hookResult.exportedTxn.size() > 0; hookResult.exportedTxn.pop())
         {
@@ -2083,7 +2082,6 @@ hook::finalizeHookResult(
                 }
             }
         }
-        //@@end finalize-export
     }
 
     bool const fixV2 = applyCtx.view().rules().enabled(fixXahauV2);
@@ -3950,7 +3948,6 @@ DEFINE_HOOK_FUNCTION(int64_t, etxn_reserve, uint32_t count)
     HOOK_TEARDOWN();
 }
 
-//@@start xport-reserve
 DEFINE_HOOK_FUNCTION(int64_t, xport_reserve, uint32_t count)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
@@ -3971,7 +3968,6 @@ DEFINE_HOOK_FUNCTION(int64_t, xport_reserve, uint32_t count)
 
     HOOK_TEARDOWN();
 }
-//@@end xport-reserve
 
 // Compute the burden of an emitted transaction based on a number of factors
 DEFINE_HOOK_FUNCNARG(int64_t, etxn_burden)
@@ -6242,7 +6238,6 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-//@@start xport
 DEFINE_HOOK_FUNCTION(
     int64_t,
     xport,
@@ -6329,7 +6324,6 @@ DEFINE_HOOK_FUNCTION(
     return result;
     HOOK_TEARDOWN();
 }
-//@@end xport
 /*
 
 DEFINE_HOOK_FUNCTION(

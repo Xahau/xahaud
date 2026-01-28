@@ -74,10 +74,8 @@ private:
     TER
     applyEmitFailure();
 
-    //@@start apply-export-decl
     TER
     applyExport();
-    //@@end apply-export-decl
 
     TER
     applyUNLReport();

@@ -355,9 +355,7 @@ extern SF_UINT16 const sfHookEmitCount;
 extern SF_UINT16 const sfHookExecutionIndex;
 extern SF_UINT16 const sfHookApiVersion;
 extern SF_UINT16 const sfHookStateScale;
-//@@start sf-hook-export-count
 extern SF_UINT16 const sfHookExportCount;
-//@@end sf-hook-export-count
 
 // 32-bit integers (common)
 extern SF_UINT32 const sfNetworkID;
@@ -598,9 +596,7 @@ extern SField const sfSigner;
 extern SField const sfMajority;
 extern SField const sfDisabledValidator;
 extern SField const sfEmittedTxn;
-//@@start sf-exported-txn
 extern SField const sfExportedTxn;
-//@@end sf-exported-txn
 extern SField const sfHookExecution;
 extern SField const sfHookDefinition;
 extern SField const sfHookParameter;

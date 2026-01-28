@@ -41,10 +41,8 @@
 
 namespace ripple {
 
-//@@start shadow-ticket-namespace
 static const uint256 shadowTicketNamespace =
     uint256::fromVoid("RESERVED NAMESPACE SHADOW TICKET");
-//@@end shadow-ticket-namespace
 
 TxConsequences
 Import::makeTxConsequences(PreflightContext const& ctx)
@@ -203,14 +201,12 @@ Import::preflight(PreflightContext const& ctx)
     if (!stpTrans || !meta)
         return temMALFORMED;
 
-    //@@start import-ticket-preflight
     if (stpTrans->isFieldPresent(sfTicketSequence) &&
         !ctx.rules.enabled(featureExport))
     {
         JLOG(ctx.j.warn()) << "Import: cannot use TicketSequence XPOP.";
         return temMALFORMED;
     }
-    //@@end import-ticket-preflight
 
     // check if txn is emitted or a psuedo
     if (isPseudoTx(*stpTrans) || stpTrans->isFieldPresent(sfEmitDetails))
@@ -897,7 +893,6 @@ Import::preclaim(PreclaimContext const& ctx)
         return tefINTERNAL;
     }
 
-    //@@start import-shadow-ticket-preclaim
     bool const hasTicket = stpTrans->isFieldPresent(sfTicketSequence);
 
     if (hasTicket)
@@ -921,7 +916,6 @@ Import::preclaim(PreclaimContext const& ctx)
                                                // SF_BAD
         }
     }
-    //@@end import-shadow-ticket-preclaim
 
     auto const& sle = ctx.view.read(keylet::account(ctx.tx[sfAccount]));
 
@@ -963,7 +957,6 @@ Import::preclaim(PreclaimContext const& ctx)
         } while (0);
     }
 
-    //@@start import-ticket-replay-check
     if (!hasTicket)
     {
         if (sle && sle->isFieldPresent(sfImportSequence))
@@ -975,7 +968,6 @@ Import::preclaim(PreclaimContext const& ctx)
                 return tefPAST_IMPORT_SEQ;
         }
     }
-    //@@end import-ticket-replay-check
 
     // when importing for the first time the fee must be zero
     if (!sle && ctx.tx.getFieldAmount(sfFee) != beast::zero)
@@ -1282,7 +1274,6 @@ Import::doApply()
     auto const id = ctx_.tx[sfAccount];
     auto sle = view().peek(keylet::account(id));
 
-    //@@start import-ticket-apply-check
     std::optional<uint256> ticket;
     if (stpTrans->isFieldPresent(sfTicketSequence))
         ticket = uint256(stpTrans->getFieldU32(sfTicketSequence));
@@ -1290,7 +1281,6 @@ Import::doApply()
     if (sle && !ticket.has_value() &&
         sle->getFieldU32(sfImportSequence) >= importSequence)
     {
-        //@@end import-ticket-apply-check
         // make double sure import seq hasn't passed
         JLOG(ctx_.journal.warn()) << "Import: ImportSequence passed";
         return tefINTERNAL;
@@ -1382,7 +1372,6 @@ Import::doApply()
         }
     }
 
-    //@@start import-ticket-apply-finalize
     if (!ticket.has_value())
         sle->setFieldU32(sfImportSequence, importSequence);
 
@@ -1402,7 +1391,6 @@ Import::doApply()
 
         // RHUPTO: ticketseq billing?
     }
-    //@@end import-ticket-apply-finalize
 
     if (create)
     {

@@ -261,9 +261,7 @@ enum LedgerEntryType : std::uint16_t
      */
     ltEMITTED_TXN = 'E',
 
-    //@@start lt-exported-txn
     ltEXPORTED_TXN = 0x4578, // Ex (exported transaction)
-    //@@end lt-exported-txn
 };
 // clang-format off
 

@@ -1034,7 +1034,6 @@ validateGuards(
                     {
                         // PASS, this is a version 1 api
                     }
-                    //@@start guard-export-whitelist
                     else if (
                         rulesVersion & 0x04U &&
                         hook_api::import_whitelist_2.find(import_name) !=
@@ -1042,7 +1041,6 @@ validateGuards(
                     {
                         // PASS, this is an export api
                     }
-                    //@@end guard-export-whitelist
                     else
                     {
                         GUARDLOG(hook::log::IMPORT_ILLEGAL)
@@ -1267,7 +1265,6 @@ validateGuards(
                 {
                     for (auto const& [import_idx, api_name] : usage->second)
                     {
-                        //@@start guard-signature-lookup
                         auto const& api_signature =
                             hook_api::import_whitelist.find(api_name) !=
                                 hook_api::import_whitelist.end()
@@ -1280,7 +1277,6 @@ validateGuards(
                                    : hook_api::import_whitelist_2
                                          .find(api_name)
                                          ->second);
-                        //@@end guard-signature-lookup
 
                         if (!first_signature)
                         {

@@ -67,9 +67,7 @@ enum TELcodes : TERUnderlyingType {
     telNON_LOCAL_EMITTED_TXN,
     telIMPORT_VL_KEY_NOT_RECOGNISED,
     telCAN_NOT_QUEUE_IMPORT,
-    //@@start tel-shadow-ticket
     telSHADOW_TICKET_REQUIRED,
-    //@@end tel-shadow-ticket
 };
 
 //------------------------------------------------------------------------------

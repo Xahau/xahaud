@@ -1541,7 +1541,6 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
-    //@@start txq-inject-export
     // Inject exported transactions/signatures, if any
     if (view.rules().enabled(featureExport))
     {
@@ -1724,7 +1723,6 @@ TxQ::accept(Application& app, OpenView& view)
 
         } while (0);
     }
-    //@@end txq-inject-export
 
     // Inject emitted transactions if any
     if (view.rules().enabled(featureHooks))

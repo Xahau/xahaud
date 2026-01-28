@@ -502,7 +502,6 @@ TxFormats::TxFormats()
             {sfLedgerSequence, soeREQUIRED},
         },
         commonFields);
-    //@@end export-formats
 }
 
 TxFormats const&

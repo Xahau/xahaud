@@ -66,10 +66,8 @@ enum class LedgerNameSpace : std::uint16_t {
     HOOK_DEFINITION = 'D',
     EMITTED_TXN = 'E',
     EMITTED_DIR = 'F',
-    //@@start ledger-namespace-export
     EXPORTED_TXN = 0x4578,  // Ex
     EXPORTED_DIR = 0x4564,  // Ed
-    //@@end ledger-namespace-export
     NFTOKEN_OFFER = 'q',
     NFTOKEN_BUY_OFFERS = 'h',
     NFTOKEN_SELL_OFFERS = 'i',

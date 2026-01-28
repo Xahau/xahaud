@@ -97,13 +97,11 @@ Change::preflight(PreflightContext const& ctx)
         }
     }
 
-    //@@start export-preflight-check
     if (ctx.tx.getTxnType() == ttEXPORT && !ctx.rules.enabled(featureExport))
     {
         JLOG(ctx.j.warn()) << "Change: Export not enabled";
         return temDISABLED;
     }
-    //@@end export-preflight-check
 
     return tesSUCCESS;
 }
@@ -163,10 +161,8 @@ Change::preclaim(PreclaimContext const& ctx)
         case ttAMENDMENT:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
-        //@@start export-preclaim-case
         case ttEXPORT:
             return tesSUCCESS;
-        //@@end export-preclaim-case
         case ttUNL_REPORT: {
             if (!ctx.tx.isFieldPresent(sfImportVLKey) ||
                 ctx.app.config().IMPORT_VL_KEYS.empty())
@@ -221,10 +217,8 @@ Change::doApply()
             return applyEmitFailure();
         case ttUNL_REPORT:
             return applyUNLReport();
-        //@@start export-doapply-case
         case ttEXPORT:
             return applyExport();
-            //@@end export-doapply-case
 
         default:
             assert(0);
@@ -618,7 +612,6 @@ Change::activateXahauGenesis()
         for (auto const& [hookOn, wasmBytes, params] : genesis_hooks)
         {
             std::ostringstream loggerStream;
-            //@@start export-validate-guards
             auto result = validateGuards(
                 wasmBytes,  // wasm to verify
                 loggerStream,
@@ -626,7 +619,6 @@ Change::activateXahauGenesis()
                 (ctx_.view().rules().enabled(featureHooksUpdate1) ? 1 : 0) +
                     (ctx_.view().rules().enabled(fix20250131) ? 2 : 0) +
                     (ctx_.view().rules().enabled(featureExport) ? 4 : 0));
-            //@@end export-validate-guards
 
             if (!result)
             {
@@ -1092,7 +1084,6 @@ Change::applyEmitFailure()
     return tesSUCCESS;
 }
 
-//@@start apply-export
 TER
 Change::applyExport()
 {
@@ -1135,7 +1126,6 @@ Change::applyExport()
     } while (0);
     return tesSUCCESS;
 }
-//@@end apply-export
 
 TER
 Change::applyUNLModify()

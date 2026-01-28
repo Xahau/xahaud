@@ -484,9 +484,7 @@ REGISTER_FIX    (fixInvalidTxFlags,             Supported::yes, VoteBehavior::De
 REGISTER_FEATURE(ExtendedHookState,             Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FIX    (fixCronStacking,               Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fixHookAPI20251128,            Supported::yes, VoteBehavior::DefaultYes);
-//@@start register-export
 REGISTER_FEATURE(Export,                        Supported::yes, VoteBehavior::DefaultNo);
-//@@end register-export
 
 // The following amendments are obsolete, but must remain supported
 // because they could potentially get enabled.
