@@ -1919,6 +1919,100 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMLedgerData> const& m)
 }
 
 void
+PeerImp::onMessage(std::shared_ptr<protocol::TMShuffle> const& m)
+{
+    protocol::TMShuffle& shuf = *m;
+
+    auto const sig = makeSlice(shf.signature());
+
+    // Preliminary check for the validity of the signature: A DER encoded
+    // signature can't be longer than 72 bytes.
+    if ((std::clamp<std::size_t>(sig.size(), 64, 72) != sig.size()) ||
+        (publicKeyType(makeSlice(shf.nodepubkey())) != KeyType::secp256k1))
+    {
+        JLOG(p_journal_.warn()) << "Shuffle: malformed";
+        fee_ = Resource::feeInvalidSignature;
+        return;
+    }
+
+    if (!stringIsUint256Sized(shf.nodeentropy()) ||
+        !stringIsUint256Sized(shf.consensusentropy()) ||
+        !stringIsUint256Sized(shf.previousledger()))
+    {
+        JLOG(p_journal_.warn()) << "Shuffle: malformed";
+        fee_ = Resource::feeInvalidRequest;
+        return;
+    }
+
+    PublicKey const publicKey{makeSlice(shf.nodepubkey())};
+    auto const isTrusted = app_.validators().trusted(publicKey);
+
+    if (!isTrusted)
+        return;
+
+    uint256 const prevLedger{shf.previousledger()};
+    uint32_t const shuffleSeq{shf.shuffleseq()};
+    uint256 const nodeEntropy{shf.nodeentropy()};
+    uint256 const consensusEntropy{shf.consensusentropy()};
+
+    uint256 const suppression = sha512Half(std::string("TMShuffle", sig));
+
+    if (auto [added, relayed] =
+            app_.getHashRouter().addSuppressionPeerWithStatus(suppression, id_);
+        !added)
+    {
+        // Count unique messages (Slots has it's own 'HashRouter'), which a peer
+        // receives within IDLED seconds since the message has been relayed.
+        if (reduceRelayReady() && relayed &&
+            (stopwatch().now() - *relayed) < reduce_relay::IDLED)
+            overlay_.updateSlotAndSquelch(
+                suppression, publicKey, id_, protocol::mtSHUFFLE);
+        JLOG(p_journal_.trace()) << "Shuffle: duplicate";
+        return;
+    }
+
+    if (!isTrusted)
+    {
+        if (tracking_.load() == Tracking::diverged)
+        {
+            JLOG(p_journal_.debug())
+                << "Proposal: Dropping untrusted (peer divergence)";
+            return;
+        }
+
+        if (!cluster() && app_.getFeeTrack().isLoadedLocal())
+        {
+            JLOG(p_journal_.debug()) << "Proposal: Dropping untrusted (load)";
+            return;
+        }
+    }
+
+    JLOG(p_journal_.trace())
+        << "Proposal: " << (isTrusted ? "trusted" : "untrusted");
+
+    auto proposal = RCLCxPeerPos(
+        publicKey,
+        sig,
+        suppression,
+        RCLCxPeerPos::Proposal{
+            prevLedger,
+            set.proposeseq(),
+            proposeHash,
+            closeTime,
+            app_.timeKeeper().closeTime(),
+            calcNodeID(app_.validatorManifests().getMasterKey(publicKey))});
+
+    std::weak_ptr<PeerImp> weak = shared_from_this();
+    app_.getJobQueue().addJob(
+        isTrusted ? jtPROPOSAL_t : jtPROPOSAL_ut,
+        "recvPropose->checkPropose",
+        [weak, isTrusted, m, proposal]() {
+            if (auto peer = weak.lock())
+                peer->checkPropose(isTrusted, m, proposal);
+        });
+}
+
+void
 PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
 {
     protocol::TMProposeSet& set = *m;

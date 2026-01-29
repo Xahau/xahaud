@@ -1094,6 +1094,7 @@ trustTransferLockedBalance(
     }
     return tesSUCCESS;
 }
+
 }  // namespace ripple
 
 #endif

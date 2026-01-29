@@ -479,10 +479,23 @@ private:
         to reach consensus. Update our position only on the timer, and in this
         phase.
 
-        If we have consensus, move to the accepted phase.
+        If we have consensus, move to the shuffle phase.
     */
     void
     phaseEstablish();
+
+
+    /** Handle shuffle phase.
+
+        In the shuffle phase, UNLReport nodes exchange entropy to build
+        a consensus entropy that is then used as an RNG source for Hooks.
+
+        The entropy is injected as a ttSHUFFLE psuedo into the final ledger
+
+        If we have consensus, move to the accepted phase.
+    */
+    void
+    phaseShuffle();
 
     /** Evaluate whether pausing increases likelihood of validation.
      *
@@ -587,6 +600,10 @@ private:
 
     // Peer proposed positions for the current round
     hash_map<NodeID_t, PeerPosition_t> currPeerPositions_;
+
+    // our and our peers' entropy as per TMShuffle, used in phaseShuffle
+    std::optional<uint256> ourEntropy_;
+    hash_map<NodeID_t, std::pair<uint256, uint256>> currPeerEntropy_;
 
     // Recently received peer positions, available when transitioning between
     // ledgers or rounds
@@ -831,6 +848,10 @@ Consensus<Adaptor>::timerEntry(NetClock::time_point const& now)
     else if (phase_ == ConsensusPhase::establish)
     {
         phaseEstablish();
+    }
+    else if (phase_ == ConsensusPhase::shuffle)
+    {
+        phaseShuffle();
     }
 }
 
@@ -1291,8 +1312,12 @@ Consensus<Adaptor>::phaseEstablish()
     adaptor_.updateOperatingMode(currPeerPositions_.size());
     prevProposers_ = currPeerPositions_.size();
     prevRoundTime_ = result_->roundTime.read();
-    phase_ = ConsensusPhase::accepted;
-    JLOG(j_.debug()) << "transitioned to ConsensusPhase::accepted";
+
+    // RHTODO: guard with amendment
+    phase_ = ConsensusPhase::shuffle;
+    JLOG(j_.debug()) << "transitioned to ConsensusPhase::shuffle";
+
+    /*
     adaptor_.onAccept(
         *result_,
         previousLedger_,
@@ -1300,6 +1325,60 @@ Consensus<Adaptor>::phaseEstablish()
         rawCloseTimes_,
         mode_.get(),
         getJson(true));
+        */
+}
+
+template <class Adaptor>
+void
+Consensus<Adaptor>::phaseShuffle()
+{
+    // can only establish consensus if we already took a stance
+    assert(result_);
+
+    using namespace std::chrono;
+    ConsensusParms const& parms = adaptor_.parms();
+
+    result_->roundTime.tick(clock_.now());
+    result_->proposers = currPeerPositions_.size();
+
+    convergePercent_ = result_->roundTime.read() * 100 /
+        std::max<milliseconds>(prevRoundTime_, parms.avMIN_CONSENSUS_TIME);
+
+    // Give everyone a chance to take an initial position
+    if (result_->roundTime.read() < parms.ledgerMIN_CONSENSUS)
+        return;
+
+    updateOurPositions();
+
+    // Nothing to do if too many laggards or we don't have consensus.
+    if (shouldPause() || !haveConsensus())
+        return;
+
+    if (!haveCloseTimeConsensus_)
+    {
+        JLOG(j_.info()) << "We have TX consensus but not CT consensus";
+        return;
+    }
+
+    JLOG(j_.info()) << "Converge cutoff (" << currPeerPositions_.size()
+                    << " participants)";
+    adaptor_.updateOperatingMode(currPeerPositions_.size());
+    prevProposers_ = currPeerPositions_.size();
+    prevRoundTime_ = result_->roundTime.read();
+
+    // RHTODO: guard with amendment
+    phase_ = ConsensusPhase::shuffle;
+    JLOG(j_.debug()) << "transitioned to ConsensusPhase::shuffle";
+
+    /*
+    adaptor_.onAccept(
+        *result_,
+        previousLedger_,
+        closeResolution_,
+        rawCloseTimes_,
+        mode_.get(),
+        getJson(true));
+        */
 }
 
 template <class Adaptor>

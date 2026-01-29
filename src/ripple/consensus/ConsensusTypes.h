@@ -87,15 +87,15 @@ to_string(ConsensusMode m)
 /** Phases of consensus for a single ledger round.
 
     @code
-          "close"             "accept"
-     open ------- > establish ---------> accepted
-       ^               |                    |
-       |---------------|                    |
-       ^                     "startRound"   |
-       |------------------------------------|
+          "close"             "shuffle"        "accept"
+     open ------- > establish -------> shuffle ---------> accepted
+       ^               |                                     |
+       |---------------|                                     |
+       ^                                        "startRound" |
+       |-----------------------------------------------------|
    @endcode
 
-   The typical transition goes from open to establish to accepted and
+   The typical transition goes from open to establish to shuffle to accepted and
    then a call to startRound begins the process anew. However, if a wrong prior
    ledger is detected and recovered during the establish or accept phase,
    consensus will internally go back to open (see Consensus::handleWrongLedger).
@@ -106,6 +106,9 @@ enum class ConsensusPhase {
 
     //! Establishing consensus by exchanging proposals with our peers
     establish,
+
+    //! Negotitate featureRNG entropy
+    shuffle,
 
     //! We have accepted a new last closed ledger and are waiting on a call
     //! to startRound to begin the next consensus round.  No changes
@@ -122,6 +125,8 @@ to_string(ConsensusPhase p)
             return "open";
         case ConsensusPhase::establish:
             return "establish";
+        case ConsensusPhase::shuffle:
+            return "shuffle";
         case ConsensusPhase::accepted:
             return "accepted";
         default:
