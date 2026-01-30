@@ -1054,6 +1054,7 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                                           allowedSignerSet.end()
                                       ? "n"
                                       : "y")
+                              << ", signer: " << signer << ", for: " << acc
                               << "\n";
 
                     return tefBAD_SIGNATURE;
@@ -1064,7 +1065,8 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                 // The SigningAccount is not in the SignerEntries.
                 JLOG(ctx.j.trace())
                     << "applyTransaction: Invalid SigningAccount.Account.";
-                std::cout << "tefBAD_SIGNATURE: " << __LINE__ << "\n";
+                std::cout << "tefBAD_SIGNATURE: " << __LINE__
+                          << ", signer: " << signer << ", for: " << acc << "\n";
                 return tefBAD_SIGNATURE;
             }
 
@@ -1105,7 +1107,9 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                     JLOG(ctx.j.trace())
                         << "applyApplication: Leaf signer must have "
                            "SigningPubKey and TxnSignature.";
-                    std::cout << "tefBAD_SIGNATURE: " << __LINE__ << "\n";
+                    std::cout << "tefBAD_SIGNATURE: " << __LINE__
+                              << ", signer: " << signer << ", for: " << acc
+                              << "\n";
                     return tefBAD_SIGNATURE;
                 }
 
@@ -1115,7 +1119,9 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                 {
                     JLOG(ctx.j.trace())
                         << "checkMultiSign: signing public key type is unknown";
-                    std::cout << "tefBAD_SIGNATURE: " << __LINE__ << "\n";
+                    std::cout << "tefBAD_SIGNATURE: " << __LINE__
+                              << ", signer: " << signer << ", for: " << acc
+                              << "\n";
                     return tefBAD_SIGNATURE;
                 }
 
@@ -1147,7 +1153,9 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                         JLOG(ctx.j.trace())
                             << "applyTransaction: Non-phantom signer "
                                "lacks account root.";
-                        std::cout << "tefBAD_SIGNATURE: " << __LINE__ << "\n";
+                        std::cout << "tefBAD_SIGNATURE: " << __LINE__
+                                  << ", signer: " << signer << ", for: " << acc
+                                  << "\n";
                         return tefBAD_SIGNATURE;
                     }
 
@@ -1155,7 +1163,9 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                     {
                         JLOG(ctx.j.trace())
                             << "applyTransaction: Account lacks RegularKey.";
-                        std::cout << "tefBAD_SIGNATURE: " << __LINE__ << "\n";
+                        std::cout << "tefBAD_SIGNATURE: " << __LINE__
+                                  << ", signer: " << signer << ", for: " << acc
+                                  << "\n";
                         return tefBAD_SIGNATURE;
                     }
                     if (signingAcctIDFromPubKey !=
@@ -1163,7 +1173,9 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                     {
                         JLOG(ctx.j.trace()) << "applyTransaction: Account "
                                                "doesn't match RegularKey.";
-                        std::cout << "tefBAD_SIGNATURE: " << __LINE__ << "\n";
+                        std::cout << "tefBAD_SIGNATURE: " << __LINE__
+                                  << ", signer: " << signer << ", for: " << acc
+                                  << "\n";
                         return tefBAD_SIGNATURE;
                     }
                 }
