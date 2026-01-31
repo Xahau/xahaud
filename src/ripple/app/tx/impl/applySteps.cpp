@@ -28,6 +28,8 @@
 #include <ripple/app/tx/impl/CreateCheck.h>
 #include <ripple/app/tx/impl/CreateOffer.h>
 #include <ripple/app/tx/impl/CreateTicket.h>
+#include <ripple/app/tx/impl/Cron.h>
+#include <ripple/app/tx/impl/CronSet.h>
 #include <ripple/app/tx/impl/DeleteAccount.h>
 #include <ripple/app/tx/impl/DepositPreauth.h>
 #include <ripple/app/tx/impl/Escrow.h>
@@ -181,6 +183,10 @@ invoke_preflight(PreflightContext const& ctx)
         case ttURITOKEN_CREATE_SELL_OFFER:
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return invoke_preflight_helper<URIToken>(ctx);
+        case ttCRON_SET:
+            return invoke_preflight_helper<CronSet>(ctx);
+        case ttCRON:
+            return invoke_preflight_helper<Cron>(ctx);
         default:
             assert(false);
             return {temUNKNOWN, TxConsequences{temUNKNOWN}};
@@ -306,6 +312,10 @@ invoke_preclaim(PreclaimContext const& ctx)
         case ttURITOKEN_CREATE_SELL_OFFER:
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return invoke_preclaim<URIToken>(ctx);
+        case ttCRON_SET:
+            return invoke_preclaim<CronSet>(ctx);
+        case ttCRON:
+            return invoke_preclaim<Cron>(ctx);
         default:
             assert(false);
             return temUNKNOWN;
@@ -393,6 +403,10 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttURITOKEN_CREATE_SELL_OFFER:
         case ttURITOKEN_CANCEL_SELL_OFFER:
             return URIToken::calculateBaseFee(view, tx);
+        case ttCRON_SET:
+            return CronSet::calculateBaseFee(view, tx);
+        case ttCRON:
+            return Cron::calculateBaseFee(view, tx);
         default:
             return XRPAmount{0};
     }
@@ -584,6 +598,14 @@ invoke_apply(ApplyContext& ctx)
         case ttURITOKEN_CREATE_SELL_OFFER:
         case ttURITOKEN_CANCEL_SELL_OFFER: {
             URIToken p(ctx);
+            return p();
+        }
+        case ttCRON_SET: {
+            CronSet p(ctx);
+            return p();
+        }
+        case ttCRON: {
+            Cron p(ctx);
             return p();
         }
         default:

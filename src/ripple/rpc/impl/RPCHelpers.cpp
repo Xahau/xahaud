@@ -1106,30 +1106,32 @@ chooseLedgerEntryType(Json::Value const& params)
     std::pair<RPC::Status, LedgerEntryType> result{RPC::Status::OK, ltANY};
     if (params.isMember(jss::type))
     {
-        static constexpr std::array<std::pair<char const*, LedgerEntryType>, 22>
-            types{
-                {{jss::account, ltACCOUNT_ROOT},
-                 {jss::amendments, ltAMENDMENTS},
-                 {jss::check, ltCHECK},
-                 {jss::deposit_preauth, ltDEPOSIT_PREAUTH},
-                 {jss::directory, ltDIR_NODE},
-                 {jss::escrow, ltESCROW},
-                 {jss::emitted_txn, ltEMITTED_TXN},
-                 {jss::hook, ltHOOK},
-                 {jss::hook_definition, ltHOOK_DEFINITION},
-                 {jss::hook_state, ltHOOK_STATE},
-                 {jss::fee, ltFEE_SETTINGS},
-                 {jss::hashes, ltLEDGER_HASHES},
-                 {jss::import_vlseq, ltIMPORT_VLSEQ},
-                 {jss::offer, ltOFFER},
-                 {jss::payment_channel, ltPAYCHAN},
-                 {jss::uri_token, ltURI_TOKEN},
-                 {jss::signer_list, ltSIGNER_LIST},
-                 {jss::state, ltRIPPLE_STATE},
-                 {jss::ticket, ltTICKET},
-                 {jss::nft_offer, ltNFTOKEN_OFFER},
-                 {jss::nft_page, ltNFTOKEN_PAGE},
-                 {jss::unl_report, ltUNL_REPORT}}};
+        static constexpr std::array<std::pair<char const*, LedgerEntryType>, 23>
+            types{{
+                {jss::account, ltACCOUNT_ROOT},
+                {jss::amendments, ltAMENDMENTS},
+                {jss::check, ltCHECK},
+                {jss::deposit_preauth, ltDEPOSIT_PREAUTH},
+                {jss::directory, ltDIR_NODE},
+                {jss::escrow, ltESCROW},
+                {jss::emitted_txn, ltEMITTED_TXN},
+                {jss::hook, ltHOOK},
+                {jss::hook_definition, ltHOOK_DEFINITION},
+                {jss::hook_state, ltHOOK_STATE},
+                {jss::fee, ltFEE_SETTINGS},
+                {jss::hashes, ltLEDGER_HASHES},
+                {jss::import_vlseq, ltIMPORT_VLSEQ},
+                {jss::offer, ltOFFER},
+                {jss::payment_channel, ltPAYCHAN},
+                {jss::uri_token, ltURI_TOKEN},
+                {jss::signer_list, ltSIGNER_LIST},
+                {jss::state, ltRIPPLE_STATE},
+                {jss::ticket, ltTICKET},
+                {jss::nft_offer, ltNFTOKEN_OFFER},
+                {jss::nft_page, ltNFTOKEN_PAGE},
+                {jss::unl_report, ltUNL_REPORT},
+                {jss::cron, ltCRON},
+            }};
 
         auto const& p = params[jss::type];
         if (!p.isString())

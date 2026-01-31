@@ -2452,6 +2452,35 @@ public:
             BEAST_EXPECT(env.seq(alice) == aliceSeq);
         }
     }
+    
+    void
+    test_signerListSetFlags(FeatureBitset features)
+    {
+        using namespace test::jtx;
+
+        for (bool const withFixInvalidTxFlags : {false, true})
+        {
+            Env env{
+                *this,
+                withFixInvalidTxFlags ? features
+                                      : features - fixInvalidTxFlags};
+            Account const alice{"alice"};
+
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            testcase(
+                std::string("SignerListSet flag, fix ") +
+                (withFixInvalidTxFlags ? "enabled" : "disabled"));
+
+            ter const expected(
+                withFixInvalidTxFlags ? TER(temINVALID_FLAG) : TER(tesSUCCESS));
+            env(signers(alice, 2, {{bogie, 1}, {ghost, 1}}),
+                expected,
+                txflags(tfPassive));
+            env.close();
+        }
+    }
 
     void
     testAll(FeatureBitset features)
@@ -2493,6 +2522,9 @@ public:
         testAll(all - featureExpandedSignerList - featureNestedMultiSign);
         testAll(all - featureNestedMultiSign);
         testAll(all);
+
+        test_signerListSetFlags(all);
+
         test_amendmentTransition();
     }
 };

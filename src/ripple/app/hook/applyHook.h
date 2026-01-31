@@ -30,8 +30,9 @@ isEmittedTxn(ripple::STTx const& tx);
 class HookStateMap : public std::map<
                          ripple::AccountID,  // account that owns the state
                          std::tuple<
-                             int64_t,  // remaining available ownercount
-                             int64_t,  // total namespace count
+                             int64_t,   // remaining available ownercount
+                             int64_t,   // total namespace count
+                             uint16_t,  // hook state scale
                              std::map<
                                  ripple::uint256,  // namespace
                                  std::map<
@@ -74,6 +75,7 @@ DECLARE_HOOK_FUNCTION(
     uint32_t read_ptr,
     uint32_t read_len,
     int64_t error_code);
+
 DECLARE_HOOK_FUNCTION(
     int64_t,
     util_raddr,
@@ -97,6 +99,26 @@ DECLARE_HOOK_FUNCTION(
     uint32_t sread_len,
     uint32_t kread_ptr,
     uint32_t kread_len);
+DECLARE_HOOK_FUNCTION(
+    int64_t,
+    util_sha512h,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len);
+DECLARE_HOOK_FUNCTION(
+    int64_t,
+    util_keylet,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t keylet_type,
+    uint32_t a,
+    uint32_t b,
+    uint32_t c,
+    uint32_t d,
+    uint32_t e,
+    uint32_t f);
+
 DECLARE_HOOK_FUNCTION(
     int64_t,
     sto_validate,
@@ -133,25 +155,6 @@ DECLARE_HOOK_FUNCTION(
     uint32_t read_len,
     uint32_t field_id);
 
-DECLARE_HOOK_FUNCTION(
-    int64_t,
-    util_sha512h,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t read_ptr,
-    uint32_t read_len);
-DECLARE_HOOK_FUNCTION(
-    int64_t,
-    util_keylet,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t keylet_type,
-    uint32_t a,
-    uint32_t b,
-    uint32_t c,
-    uint32_t d,
-    uint32_t e,
-    uint32_t f);
 DECLARE_HOOK_FUNCNARG(int64_t, etxn_burden);
 DECLARE_HOOK_FUNCTION(
     int64_t,
@@ -214,7 +217,6 @@ DECLARE_HOOK_FUNCTION(
 DECLARE_HOOK_FUNCTION(int64_t, float_invert, int64_t float1);
 DECLARE_HOOK_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2);
 DECLARE_HOOK_FUNCNARG(int64_t, float_one);
-
 DECLARE_HOOK_FUNCTION(int64_t, float_mantissa, int64_t float1);
 DECLARE_HOOK_FUNCTION(int64_t, float_sign, int64_t float1);
 DECLARE_HOOK_FUNCTION(
@@ -226,17 +228,6 @@ DECLARE_HOOK_FUNCTION(
 DECLARE_HOOK_FUNCTION(int64_t, float_log, int64_t float1);
 DECLARE_HOOK_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n);
 
-DECLARE_HOOK_FUNCTION(
-    int64_t,
-    hook_account,
-    uint32_t write_ptr,
-    uint32_t write_len);
-DECLARE_HOOK_FUNCTION(
-    int64_t,
-    hook_hash,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    int32_t hook_no);
 DECLARE_HOOK_FUNCNARG(int64_t, fee_base);
 DECLARE_HOOK_FUNCNARG(int64_t, ledger_seq);
 DECLARE_HOOK_FUNCNARG(int64_t, ledger_last_time);
@@ -250,7 +241,6 @@ DECLARE_HOOK_FUNCTION(
     ledger_nonce,
     uint32_t write_ptr,
     uint32_t write_len);
-
 DECLARE_HOOK_FUNCTION(
     int64_t,
     ledger_keylet,
@@ -263,6 +253,17 @@ DECLARE_HOOK_FUNCTION(
 
 DECLARE_HOOK_FUNCTION(
     int64_t,
+    hook_account,
+    uint32_t write_ptr,
+    uint32_t write_len);
+DECLARE_HOOK_FUNCTION(
+    int64_t,
+    hook_hash,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    int32_t hook_no);
+DECLARE_HOOK_FUNCTION(
+    int64_t,
     hook_param_set,
     uint32_t read_ptr,
     uint32_t read_len,
@@ -270,7 +271,6 @@ DECLARE_HOOK_FUNCTION(
     uint32_t kread_len,
     uint32_t hread_ptr,
     uint32_t hread_len);
-
 DECLARE_HOOK_FUNCTION(
     int64_t,
     hook_param,
@@ -278,9 +278,7 @@ DECLARE_HOOK_FUNCTION(
     uint32_t write_len,
     uint32_t read_ptr,
     uint32_t read_len);
-
 DECLARE_HOOK_FUNCNARG(int64_t, hook_again);
-
 DECLARE_HOOK_FUNCTION(
     int64_t,
     hook_skip,
@@ -355,6 +353,7 @@ DECLARE_HOOK_FUNCTION(
     uint32_t nread_len,
     uint32_t aread_ptr,
     uint32_t aread_len);
+
 DECLARE_HOOK_FUNCTION(
     int64_t,
     trace,
@@ -466,9 +465,6 @@ apply(
     std::shared_ptr<STObject const> const& provisionalMeta);
 
 struct HookContext;
-
-uint32_t
-computeHookStateOwnerCount(uint32_t hookStateCount);
 
 int64_t
 computeExecutionFee(uint64_t instructionCount);

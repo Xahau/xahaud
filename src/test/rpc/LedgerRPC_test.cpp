@@ -290,7 +290,9 @@ public:
     {
         testcase("ledger_entry Request AccountRoot");
         using namespace test::jtx;
-        Env env{*this, supported_amendments() - featureXahauGenesis};
+        Env env{
+            *this,
+            supported_amendments() - featureXahauGenesis - fixHookAPI20251128};
         Account const alice{"alice"};
         env.fund(XRP(10000), alice);
         env.close();
@@ -1840,6 +1842,88 @@ public:
     }
 
     void
+    testLedgerEntryCron()
+    {
+        testcase("ledger_entry Request Cron");
+        using namespace test::jtx;
+
+        Env env{*this};
+
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        auto const startTime =
+            env.current()->parentCloseTime().time_since_epoch().count() + 100;
+        env(cron::set(alice),
+            cron::startTime(startTime),
+            cron::delay(100),
+            cron::repeat(200),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env.close();
+
+        std::string const ledgerHash{to_string(env.closed()->info().hash)};
+
+        uint256 const cronIndex{keylet::cron(startTime, alice).key};
+        {
+            // Request the cron using its index.
+            Json::Value jvParams;
+            jvParams[jss::cron] = to_string(cronIndex);
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][sfOwner.jsonName] == alice.human());
+            BEAST_EXPECT(jrr[jss::node][sfStartTime.jsonName] == startTime);
+            BEAST_EXPECT(jrr[jss::node][sfDelaySeconds.jsonName] == 100);
+            BEAST_EXPECT(jrr[jss::node][sfRepeatCount.jsonName] == 200);
+        }
+        {
+            // Request the cron using its owner and time.
+            Json::Value jvParams;
+            jvParams[jss::cron] = Json::objectValue;
+            jvParams[jss::cron][jss::owner] = alice.human();
+            jvParams[jss::cron][jss::time] = startTime;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(jrr[jss::node][sfOwner.jsonName] == alice.human());
+            BEAST_EXPECT(jrr[jss::node][sfStartTime.jsonName] == startTime);
+            BEAST_EXPECT(jrr[jss::node][sfDelaySeconds.jsonName] == 100);
+            BEAST_EXPECT(jrr[jss::node][sfRepeatCount.jsonName] == 200);
+        }
+        {
+            // Malformed uritoken object.  Missing owner member.
+            Json::Value jvParams;
+            jvParams[jss::cron] = Json::objectValue;
+            jvParams[jss::cron][jss::time] = startTime;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Malformed uritoken object. Missing time member.
+            Json::Value jvParams;
+            jvParams[jss::cron] = Json::objectValue;
+            jvParams[jss::cron][jss::owner] = alice.human();
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "malformedRequest", "");
+        }
+        {
+            // Request an index that is not a uritoken.
+            Json::Value jvParams;
+            jvParams[jss::cron] = ledgerHash;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            checkErrorValue(jrr, "entryNotFound", "");
+        }
+    }
+
+    void
     testLedgerEntryUnknownOption()
     {
         testcase("ledger_entry Request Unknown Option");
@@ -1939,8 +2023,8 @@ public:
             // access via the ledger_hash field
             Json::Value jvParams;
             jvParams[jss::ledger_hash] =
-                "D39C52DE7CBF561ECA875A6D636B7C9095408DE1FAF4EC4AAF3FDD8AB3A1EA"
-                "55";
+                "E86DE7F3D7A4D9CE17EF7C8BA08A8F4D"
+                "8F643B9552F0D895A31CDA78F541DE4E";
             auto jrr = env.rpc(
                 "json",
                 "ledger",
@@ -2089,7 +2173,7 @@ public:
                 return cfg;
             }),
             supported_amendments() - featureXahauGenesis -
-                fixProvisionalDoubleThreading};
+                fixProvisionalDoubleThreading - fixHookAPI20251128};
 
         Json::Value jv;
         jv[jss::ledger_index] = "current";
@@ -2165,7 +2249,7 @@ public:
             if (BEAST_EXPECT(jrr[jss::queue_data].size() == 2))
             {
                 const std::string txid1 = [&]() {
-                    auto const& txj = jrr[jss::queue_data][0u];
+                    auto const& txj = jrr[jss::queue_data][1u];
                     BEAST_EXPECT(txj[jss::account] == alice.human());
                     BEAST_EXPECT(txj[jss::fee_level] == "256");
                     BEAST_EXPECT(txj["preflight_result"] == "tesSUCCESS");
@@ -2177,7 +2261,7 @@ public:
                     return tx[jss::hash].asString();
                 }();
 
-                auto const& txj = jrr[jss::queue_data][1u];
+                auto const& txj = jrr[jss::queue_data][0u];
                 BEAST_EXPECT(txj[jss::account] == alice.human());
                 BEAST_EXPECT(txj[jss::fee_level] == "256");
                 BEAST_EXPECT(txj["preflight_result"] == "tesSUCCESS");
@@ -2190,7 +2274,7 @@ public:
                 uint256 tx0, tx1;
                 BEAST_EXPECT(tx0.parseHex(txid0));
                 BEAST_EXPECT(tx1.parseHex(txid1));
-                BEAST_EXPECT((tx1 ^ parentHash) < (tx0 ^ parentHash));
+                BEAST_EXPECT((tx0 ^ parentHash) < (tx1 ^ parentHash));
                 return txid0;
             }
             return std::string{};
@@ -2205,14 +2289,14 @@ public:
         {
             auto const& parentHash = env.current()->info().parentHash;
             auto const txid1 = [&]() {
-                auto const& txj = jrr[jss::queue_data][0u];
+                auto const& txj = jrr[jss::queue_data][1u];
                 BEAST_EXPECT(txj[jss::account] == alice.human());
                 BEAST_EXPECT(txj[jss::fee_level] == "256");
                 BEAST_EXPECT(txj["preflight_result"] == "tesSUCCESS");
                 BEAST_EXPECT(txj.isMember(jss::tx));
                 return txj[jss::tx].asString();
             }();
-            auto const& txj = jrr[jss::queue_data][1u];
+            auto const& txj = jrr[jss::queue_data][0u];
             BEAST_EXPECT(txj[jss::account] == alice.human());
             BEAST_EXPECT(txj[jss::fee_level] == "256");
             BEAST_EXPECT(txj["preflight_result"] == "tesSUCCESS");
@@ -2223,7 +2307,7 @@ public:
             uint256 tx0, tx1;
             BEAST_EXPECT(tx0.parseHex(txid0));
             BEAST_EXPECT(tx1.parseHex(txid1));
-            BEAST_EXPECT((tx1 ^ parentHash) < (tx0 ^ parentHash));
+            BEAST_EXPECT((tx0 ^ parentHash) < (tx1 ^ parentHash));
         }
 
         env.close();
@@ -2234,7 +2318,7 @@ public:
         jrr = env.rpc("json", "ledger", to_string(jv))[jss::result];
         if (BEAST_EXPECT(jrr[jss::queue_data].size() == 2))
         {
-            auto const& txj = jrr[jss::queue_data][1u];
+            auto const& txj = jrr[jss::queue_data][0u];
             BEAST_EXPECT(txj[jss::account] == alice.human());
             BEAST_EXPECT(txj[jss::fee_level] == "256");
             BEAST_EXPECT(txj["preflight_result"] == "tesSUCCESS");
@@ -2243,7 +2327,7 @@ public:
             BEAST_EXPECT(txj.isMember(jss::tx));
             BEAST_EXPECT(txj[jss::tx].isMember(jss::tx_blob));
 
-            auto const& txj2 = jrr[jss::queue_data][0u];
+            auto const& txj2 = jrr[jss::queue_data][1u];
             BEAST_EXPECT(txj2[jss::account] == alice.human());
             BEAST_EXPECT(txj2[jss::fee_level] == "256");
             BEAST_EXPECT(txj2["preflight_result"] == "tesSUCCESS");
@@ -2365,6 +2449,7 @@ public:
         testLedgerEntryTicket();
         testLedgerEntryURIToken();
         testLedgerEntryImportVLSeq();
+        testLedgerEntryCron();
         testLedgerEntryUnknownOption();
         testLookupLedger();
         testNoQueue();

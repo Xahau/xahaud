@@ -343,6 +343,7 @@ enum TECcodes : TERUnderlyingType {
     tecINSUF_RESERVE_SELLER = 187,
     tecIMMUTABLE = 188,
     tecTOO_MANY_REMARKS = 189,
+    tecHAS_HOOK_STATE = 190,
     tecLAST_POSSIBLE_ENTRY = 255,
 };
 

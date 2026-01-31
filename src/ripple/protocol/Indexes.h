@@ -297,6 +297,9 @@ import_vlseq(PublicKey const& key) noexcept;
 Keylet
 uritoken(AccountID const& issuer, Blob const& uri);
 
+Keylet
+cron(uint32_t timestamp, std::optional<AccountID> const& id = std::nullopt);
+
 }  // namespace keylet
 
 // Everything below is deprecated and should be removed in favor of keylets:
