@@ -82,7 +82,7 @@ preflight0(PreflightContext const& ctx)
     {
         JLOG(ctx.j.warn())
             << "applyTransaction: transaction id may not be zero";
-        std::cout << "temINVALID " << __LINE__ << "\n";
+        JLOG(ctx.j.trace()) << "temINVALID " << __LINE__;
         return temINVALID;
     }
 
@@ -132,7 +132,7 @@ preflight1(PreflightContext const& ctx)
             if (ctx.tx.getSeqProxy().isTicket() &&
                 ctx.tx.isFieldPresent(sfAccountTxnID))
             {
-                std::cout << "temINVALID " << __LINE__ << "\n";
+                JLOG(ctx.j.trace()) << "temINVALID " << __LINE__;
                 return temINVALID;
             }
 
@@ -168,7 +168,7 @@ preflight1(PreflightContext const& ctx)
     if (ctx.tx.getSeqProxy().isTicket() &&
         ctx.tx.isFieldPresent(sfAccountTxnID))
     {
-        std::cout << "temINVALID " << __LINE__ << "\n";
+        JLOG(ctx.j.trace()) << "temINVALID " << __LINE__;
         return temINVALID;
     }
 
@@ -188,7 +188,7 @@ preflight2(PreflightContext const& ctx)
     if (sigValid.first == Validity::SigBad)
     {
         JLOG(ctx.j.debug()) << "preflight2: bad signature. " << sigValid.second;
-        std::cout << "temINVALID " << __LINE__ << "\n";
+        JLOG(ctx.j.trace()) << "temINVALID " << __LINE__;
         return temINVALID;
     }
     return tesSUCCESS;
@@ -968,58 +968,55 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
     bool const allowNested = ctx.view.rules().enabled(featureNestedMultiSign);
     int const maxDepth = allowNested ? 4 : 1;
 
-    std::string lineno = "(unknown)";
-    if (ctx.tx.isFieldPresent(sfMemos))
-    {
-        auto const& memos = ctx.tx.getFieldArray(sfMemos);
-        for (auto const& memo : memos)
-        {
-            auto memoObj = dynamic_cast<STObject const*>(&memo);
-            auto hex = memoObj->getFieldVL(sfMemoData);
-            lineno = strHex(hex);
-            break;
-        }
-    }
-
     // Define recursive lambda for checking signers at any depth
-    std::function<NotTEC(AccountID const&, STArray const&, int)>
+    // ancestors tracks the signing chain to detect cycles
+    std::function<NotTEC(
+        AccountID const&, STArray const&, int, std::set<AccountID>)>
         validateSigners;
 
-    validateSigners =
-        [&](AccountID const& acc, STArray const& signers, int depth) -> NotTEC {
+    validateSigners = [&](AccountID const& acc,
+                          STArray const& signers,
+                          int depth,
+                          std::set<AccountID> ancestors) -> NotTEC {
+        // Cycle detection: if we're already validating this account up the
+        // chain it cannot contribute - but this isn't an error, just
+        // unavailable weight
+        if (ancestors.count(acc))
+        {
+            JLOG(ctx.j.trace())
+                << "checkMultiSign: Cyclic signer detected: " << acc;
+            return tesSUCCESS;
+        }
+
         // Check depth limit
         if (depth > maxDepth)
         {
             if (allowNested)
             {
                 JLOG(ctx.j.trace())
-                    << "applyTransaction: Multi-signing depth limit exceeded.";
-                std::cout << "tefBAD_SIGNATURE: " << __LINE__ << "\n";
+                    << "checkMultiSign: Multi-signing depth limit exceeded.";
                 return tefBAD_SIGNATURE;
             }
 
             JLOG(ctx.j.warn())
-                << "applyTransaction: Nested multisigning disabled.";
-
-            std::cout << "!!! temMALFORMED " << __FILE__ << " " << __LINE__
-                      << "\n";
+                << "checkMultiSign: Nested multisigning disabled.";
             return temMALFORMED;
         }
+
+        ancestors.insert(acc);
 
         // Get the SignerList for the account we're validating signers for
         std::shared_ptr<STLedgerEntry const> sleAllowedSigners =
             ctx.view.read(keylet::signers(acc));
 
-        // If the signer list doesn't exist, this account is not set up for
-        // multi-signing
         if (!sleAllowedSigners)
         {
-            JLOG(ctx.j.trace()) << "applyTransaction: Invalid: Account " << acc
+            JLOG(ctx.j.trace()) << "checkMultiSign: Account " << acc
                                 << " not set up for multi-signing.";
             return tefNOT_MULTI_SIGNING;
         }
 
-        uint32_t quorum = sleAllowedSigners->getFieldU32(sfSignerQuorum);
+        uint32_t const quorum = sleAllowedSigners->getFieldU32(sfSignerQuorum);
         uint32_t sum{0};
 
         auto allowedSigners =
@@ -1027,89 +1024,94 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
         if (!allowedSigners)
             return allowedSigners.error();
 
-        std::set<AccountID> allowedSignerSet;
-        for (auto const& as : *allowedSigners)
-            allowedSignerSet.emplace(as.account);
+        // Build lookup map for O(1) signer validation and weight retrieval
+        std::map<AccountID, uint16_t> signerWeights;
+        uint32_t totalWeight{0}, cyclicWeight{0};
+        for (auto const& entry : *allowedSigners)
+        {
+            signerWeights[entry.account] = entry.weight;
+            totalWeight += entry.weight;
+            if (ancestors.count(entry.account))
+                cyclicWeight += entry.weight;
+        }
 
         // Walk the signers array, validating each signer
-        auto iter = allowedSigners->begin();
+        // Signers must be in strict ascending order for consensus
+        std::optional<AccountID> prevSigner;
 
         for (auto const& signerEntry : signers)
         {
             AccountID const signer = signerEntry.getAccountID(sfAccount);
             bool const isNested = signerEntry.isFieldPresent(sfSigners);
 
-            // Find this signer in the authorized SignerEntries list
-            while (iter->account < signer)
+            // Enforce strict ascending order (required for consensus)
+            if (prevSigner && signer <= *prevSigner)
             {
-                std::cout << "iter acc: " << to_string(iter->account) << " < "
-                          << to_string(signer) << "\n";
-                if (++iter == allowedSigners->end())
-                {
-                    JLOG(ctx.j.trace())
-                        << "applyTransaction: Invalid SigningAccount.Account.";
-                    std::cout << "tefBAD_SIGNATURE: " << __LINE__
-                              << " in signer set? "
-                              << (allowedSignerSet.find(signer) ==
-                                          allowedSignerSet.end()
-                                      ? "n"
-                                      : "y")
-                              << ", signer: " << signer << ", for: " << acc
-                              << "\n";
-
-                    return tefBAD_SIGNATURE;
-                }
-            }
-            if (iter->account != signer)
-            {
-                // The SigningAccount is not in the SignerEntries.
                 JLOG(ctx.j.trace())
-                    << "applyTransaction: Invalid SigningAccount.Account.";
-                std::cout << "tefBAD_SIGNATURE: " << __LINE__
-                          << ", signer: " << signer << ", for: " << acc << "\n";
+                    << "checkMultiSign: Signers not in strict ascending order: "
+                    << signer << " <= " << *prevSigner;
+                return temMALFORMED;
+            }
+            prevSigner = signer;
+
+            // Skip cyclic signers - they cannot contribute at this level
+            if (ancestors.count(signer))
+            {
+                JLOG(ctx.j.trace())
+                    << "checkMultiSign: Skipping cyclic signer: " << signer;
+                continue;
+            }
+
+            // Lookup signer in authorized set
+            auto const weightIt = signerWeights.find(signer);
+            if (weightIt == signerWeights.end())
+            {
+                JLOG(ctx.j.trace())
+                    << "checkMultiSign: Invalid signer " << signer
+                    << " not in signer list for " << acc;
                 return tefBAD_SIGNATURE;
             }
+            uint16_t const weight = weightIt->second;
 
             // Check if this signer has nested signers (delegation)
-            if (signerEntry.isFieldPresent(sfSigners))
+            if (isNested)
             {
                 // This is a nested multi-signer that delegates to sub-signers
                 if (signerEntry.isFieldPresent(sfSigningPubKey) ||
                     signerEntry.isFieldPresent(sfTxnSignature))
                 {
-                    JLOG(ctx.j.trace())
-                        << "applyTransaction: Signer cannot have both nested "
-                           "signers and signature fields.";
-                    std::cout << "tefBAD_SIGNATURE: " << __LINE__ << "\n";
+                    JLOG(ctx.j.trace()) << "checkMultiSign: Signer " << signer
+                                        << " cannot have both nested signers "
+                                           "and signature fields.";
                     return tefBAD_SIGNATURE;
                 }
 
-                // Recursively validate the nested signers against
-                // signer's signer list
+                // Recursively validate the nested signers against signer's
+                // signer list
                 STArray const& nestedSigners =
                     signerEntry.getFieldArray(sfSigners);
-                NotTEC result =
-                    validateSigners(signer, nestedSigners, depth + 1);
+                NotTEC result = validateSigners(
+                    signer, nestedSigners, depth + 1, ancestors);
                 if (!isTesSuccess(result))
                     return result;
 
-                // If we get here, the nested signers met their quorum
-                // So we add THIS signer's weight (from current level's signer
-                // list)
-                sum += iter->weight;
+                // Nested signers met their quorum - add this signer's weight
+                sum += weight;
+
+                JLOG(ctx.j.trace())
+                    << "checkMultiSign: Nested signer " << signer
+                    << " validated, weight=" << weight << ", depth=" << depth
+                    << ", sum=" << sum << "/" << quorum;
             }
             else
             {
-                // This is a leaf signer - validate signature as before
+                // This is a leaf signer - validate signature
                 if (!signerEntry.isFieldPresent(sfSigningPubKey) ||
                     !signerEntry.isFieldPresent(sfTxnSignature))
                 {
                     JLOG(ctx.j.trace())
-                        << "applyApplication: Leaf signer must have "
-                           "SigningPubKey and TxnSignature.";
-                    std::cout << "tefBAD_SIGNATURE: " << __LINE__
-                              << ", signer: " << signer << ", for: " << acc
-                              << "\n";
+                        << "checkMultiSign: Leaf signer " << signer
+                        << " must have SigningPubKey and TxnSignature.";
                     return tefBAD_SIGNATURE;
                 }
 
@@ -1118,10 +1120,8 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                 if (!publicKeyType(makeSlice(spk)))
                 {
                     JLOG(ctx.j.trace())
-                        << "checkMultiSign: signing public key type is unknown";
-                    std::cout << "tefBAD_SIGNATURE: " << __LINE__
-                              << ", signer: " << signer << ", for: " << acc
-                              << "\n";
+                        << "checkMultiSign: Unknown public key type for signer "
+                        << signer;
                     return tefBAD_SIGNATURE;
                 }
 
@@ -1140,8 +1140,8 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                         if (signerAccountFlags & lsfDisableMaster)
                         {
                             JLOG(ctx.j.trace())
-                                << "applyTransaction: Signer:Account "
-                                   "lsfDisableMaster.";
+                                << "checkMultiSign: Signer " << signer
+                                << " has lsfDisableMaster set.";
                             return tefMASTER_DISABLED;
                         }
                     }
@@ -1151,53 +1151,76 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                     if (!sleTxSignerRoot)
                     {
                         JLOG(ctx.j.trace())
-                            << "applyTransaction: Non-phantom signer "
-                               "lacks account root.";
-                        std::cout << "tefBAD_SIGNATURE: " << __LINE__
-                                  << ", signer: " << signer << ", for: " << acc
-                                  << "\n";
+                            << "checkMultiSign: Non-phantom signer " << signer
+                            << " lacks account root.";
                         return tefBAD_SIGNATURE;
                     }
 
                     if (!sleTxSignerRoot->isFieldPresent(sfRegularKey))
                     {
-                        JLOG(ctx.j.trace())
-                            << "applyTransaction: Account lacks RegularKey.";
-                        std::cout << "tefBAD_SIGNATURE: " << __LINE__
-                                  << ", signer: " << signer << ", for: " << acc
-                                  << "\n";
+                        JLOG(ctx.j.trace()) << "checkMultiSign: Signer "
+                                            << signer << " lacks RegularKey.";
                         return tefBAD_SIGNATURE;
                     }
                     if (signingAcctIDFromPubKey !=
                         sleTxSignerRoot->getAccountID(sfRegularKey))
                     {
-                        JLOG(ctx.j.trace()) << "applyTransaction: Account "
-                                               "doesn't match RegularKey.";
-                        std::cout << "tefBAD_SIGNATURE: " << __LINE__
-                                  << ", signer: " << signer << ", for: " << acc
-                                  << "\n";
+                        JLOG(ctx.j.trace())
+                            << "checkMultiSign: Signer " << signer
+                            << " pubkey doesn't match RegularKey.";
                         return tefBAD_SIGNATURE;
                     }
                 }
-                // Valid leaf signer - add their weight
-                sum += iter->weight;
-            }
 
-            char spacing[] = "             ";
-            spacing[depth] = '\0';
-            std::cout << spacing << "sig check: "
-                      << "line: " << lineno << ", a=" << to_string(acc)
-                      << ", s=" << to_string(signer) << ", w=" << iter->weight
-                      << ", l=" << (isNested ? "f" : "t") << ", d=" << depth
-                      << ", " << sum << "/" << quorum << "\n";
+                // Valid leaf signer - add their weight
+                sum += weight;
+
+                JLOG(ctx.j.trace())
+                    << "checkMultiSign: Leaf signer " << signer
+                    << " validated, weight=" << weight << ", depth=" << depth
+                    << ", sum=" << sum << "/" << quorum;
+            }
         }
 
-        // Check if this level's accumulated weight meets its required quorum
-        if (sum < quorum)
+        // Calculate effective quorum, relaxing for cyclic lockout scenarios
+        // Sanity check: cyclicWeight must not exceed totalWeight (underflow
+        // guard)
+        if (cyclicWeight > totalWeight)
         {
-            JLOG(ctx.j.trace())
-                << "applyTransaction: Signers failed to meet quorum at depth "
-                << depth;
+            JLOG(ctx.j.error()) << "checkMultiSign: Invariant violation for "
+                                << acc << ": cyclicWeight (" << cyclicWeight
+                                << ") > totalWeight (" << totalWeight << ")";
+            return tefINTERNAL;
+        }
+
+        uint32_t effectiveQuorum = quorum;
+        uint32_t const maxAchievable = totalWeight - cyclicWeight;
+
+        if (cyclicWeight > 0 && maxAchievable < quorum)
+        {
+            JLOG(ctx.j.warn())
+                << "checkMultiSign: Cyclic lockout detected for " << acc
+                << ": relaxing quorum from " << quorum << " to "
+                << maxAchievable << " (total=" << totalWeight
+                << ", cyclic=" << cyclicWeight << ")";
+            effectiveQuorum = maxAchievable;
+        }
+
+        // Sanity check: effectiveQuorum of 0 means all signers are cyclic -
+        // this is an irrecoverable misconfiguration
+        if (effectiveQuorum == 0)
+        {
+            JLOG(ctx.j.warn()) << "checkMultiSign: All signers for " << acc
+                               << " are cyclic - no valid signing path exists.";
+            return tefBAD_QUORUM;
+        }
+
+        // Check if accumulated weight meets required quorum
+        if (sum < effectiveQuorum)
+        {
+            JLOG(ctx.j.trace()) << "checkMultiSign: Quorum not met for " << acc
+                                << " at depth " << depth << " (sum=" << sum
+                                << ", required=" << effectiveQuorum << ")";
             return tefBAD_QUORUM;
         }
 
@@ -1206,15 +1229,16 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
 
     STArray const& entries(ctx.tx.getFieldArray(sfSigners));
 
-    NotTEC result = validateSigners(id, entries, 1);
+    // Initial call with empty ancestor set - the function inserts acc after
+    // cycle check
+    NotTEC result = validateSigners(id, entries, 1, {});
     if (!isTesSuccess(result))
     {
-        std::cout << "Error: " << transToken(result) << "\n";
+        JLOG(ctx.j.trace())
+            << "checkMultiSign: Validation failed with " << transToken(result);
         return result;
     }
 
-    // The quorum check is already done inside validateSigners for the top level
-    // so if we get here, we've met the quorum
     return tesSUCCESS;
 }
 

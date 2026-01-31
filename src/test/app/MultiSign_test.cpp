@@ -1725,50 +1725,6 @@ public:
             acc12);
         env.close();
 
-        std::cout << "acc10: " << to_string(acc10) << "\n";
-        std::cout << "acc11: " << to_string(acc11) << "\n";
-        std::cout << "acc12: " << to_string(acc12) << "\n";
-        std::cout << "acc13: " << to_string(acc13) << "\n";
-        std::cout << "acc14: " << to_string(acc14) << "\n";
-        std::cout << "acc15: " << to_string(acc15) << "\n";
-        std::cout << "acc16: " << to_string(acc16) << "\n";
-        std::cout << "acc17: " << to_string(acc17) << "\n";
-        std::cout << "acc18: " << to_string(acc18) << "\n";
-        std::cout << "acc19: " << to_string(acc19) << "\n";
-        std::cout << "acc20: " << to_string(acc20) << "\n";
-        std::cout << "acc21: " << to_string(acc21) << "\n";
-        std::cout << "acc22: " << to_string(acc22) << "\n";
-        std::cout << "acc23: " << to_string(acc23) << "\n";
-        std::cout << "acc24: " << to_string(acc24) << "\n";
-        std::cout << "acc25: " << to_string(acc25) << "\n";
-        std::cout << "acc26: " << to_string(acc26) << "\n";
-        std::cout << "acc27: " << to_string(acc27) << "\n";
-        std::cout << "acc28: " << to_string(acc28) << "\n";
-        std::cout << "acc29: " << to_string(acc29) << "\n";
-        std::cout << "acc30: " << to_string(acc30) << "\n";
-        std::cout << "acc31: " << to_string(acc31) << "\n";
-        std::cout << "acc32: " << to_string(acc32) << "\n";
-        std::cout << "acc33: " << to_string(acc33) << "\n";
-        std::cout << "alice: " << to_string(alice) << "\n";
-        std::cout << "becky: " << to_string(becky) << "\n";
-        std::cout << "bogie: " << to_string(bogie) << "\n";
-        std::cout << "cheri: " << to_string(cheri) << "\n";
-        std::cout << "daria: " << to_string(daria) << "\n";
-        std::cout << "demon: " << to_string(demon) << "\n";
-        std::cout << "edgar: " << to_string(edgar) << "\n";
-        std::cout << "f1: " << to_string(f1) << "\n";
-        std::cout << "f2: " << to_string(f2) << "\n";
-        std::cout << "f3: " << to_string(f3) << "\n";
-        std::cout << "fiona: " << to_string(fiona) << "\n";
-        std::cout << "ghost: " << to_string(ghost) << "\n";
-        std::cout << "grace: " << to_string(grace) << "\n";
-        std::cout << "haunt: " << to_string(haunt) << "\n";
-        std::cout << "henry: " << to_string(henry) << "\n";
-        std::cout << "jinni: " << to_string(jinni) << "\n";
-        std::cout << "phase: " << to_string(phase) << "\n";
-        std::cout << "shade: " << to_string(shade) << "\n";
-        std::cout << "spook: " << to_string(spook) << "\n";
-
         auto const baseFee = env.current()->fees().base;
 
         if (!features[featureNestedMultiSign])
