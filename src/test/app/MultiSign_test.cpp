@@ -2452,7 +2452,7 @@ public:
             BEAST_EXPECT(env.seq(alice) == aliceSeq);
         }
     }
-    
+
     void
     test_signerListSetFlags(FeatureBitset features)
     {
