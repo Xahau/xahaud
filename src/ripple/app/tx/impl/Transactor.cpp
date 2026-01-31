@@ -82,7 +82,6 @@ preflight0(PreflightContext const& ctx)
     {
         JLOG(ctx.j.warn())
             << "applyTransaction: transaction id may not be zero";
-        JLOG(ctx.j.trace()) << "temINVALID " << __LINE__;
         return temINVALID;
     }
 
@@ -131,10 +130,7 @@ preflight1(PreflightContext const& ctx)
         {
             if (ctx.tx.getSeqProxy().isTicket() &&
                 ctx.tx.isFieldPresent(sfAccountTxnID))
-            {
-                JLOG(ctx.j.trace()) << "temINVALID " << __LINE__;
                 return temINVALID;
-            }
 
             return tesSUCCESS;
         }
@@ -167,10 +163,7 @@ preflight1(PreflightContext const& ctx)
     // We return temINVALID for such transactions.
     if (ctx.tx.getSeqProxy().isTicket() &&
         ctx.tx.isFieldPresent(sfAccountTxnID))
-    {
-        JLOG(ctx.j.trace()) << "temINVALID " << __LINE__;
         return temINVALID;
-    }
 
     return tesSUCCESS;
 }
@@ -188,7 +181,6 @@ preflight2(PreflightContext const& ctx)
     if (sigValid.first == Validity::SigBad)
     {
         JLOG(ctx.j.debug()) << "preflight2: bad signature. " << sigValid.second;
-        JLOG(ctx.j.trace()) << "temINVALID " << __LINE__;
         return temINVALID;
     }
     return tesSUCCESS;

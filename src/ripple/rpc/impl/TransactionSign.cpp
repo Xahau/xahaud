@@ -1197,17 +1197,6 @@ transactionSubmitMultiSigned(
                     obj.isFieldPresent(sfSigners))
                     return true;
 
-                /*
-                std::cout << "Error caused by:\n" <<
-                obj.getJson(JsonOptions::none) << "\n"
-                << "obj.isFieldPresent(sfAccount) = " <<
-                (obj.isFieldPresent(sfAccount) ? "t" : "f") << "\n"
-                << "obj.isFieldPresent(sfSigningPubKey) = " <<
-                (obj.isFieldPresent(sfSigningPubKey) ? "t" : "f") << "\n"
-                << "obj.isFieldPresent(sfTxnSignature) = " <<
-                (obj.isFieldPresent(sfTxnSignature) ? "t" : "f") << "\n"
-                << "obj.getCount() = " << obj.getCount() << "\n\n";
-                */
                 return false;
             }) != signers.end())
     {
