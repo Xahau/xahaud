@@ -145,8 +145,15 @@ public:
     std::vector<SignerPtr> signers;
 
 public:
+    // Initializer list constructor - resolves brace-init ambiguity
+    msig(std::initializer_list<SignerPtr> signers_)
+        : msig(std::vector<SignerPtr>(signers_))
+    {
+        // handled by :
+    }
+
     // Direct constructor with SignerPtr vector
-    msig(std::vector<SignerPtr> signers_);
+    explicit msig(std::vector<SignerPtr> signers_);
 
     // Backward compatibility constructor
     msig(std::vector<Reg> signers_);
