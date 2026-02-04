@@ -1757,30 +1757,32 @@ public:
 
         // This lambda contains the bulk of the test code.
         auto testMalformedSigningAccount =
-            [this, &txn](STObject const& signer, bool expectPass) {
-                // Create SigningAccounts array.
-                STArray signers(sfSigners, 1);
-                signers.push_back(signer);
+            [this, &txn](
+                STObject const& signer, bool expectPass) -> bool /* passed */ {
+            // Create SigningAccounts array.
+            STArray signers(sfSigners, 1);
+            signers.push_back(signer);
 
-                // Insert signers into transaction.
-                STTx tempTxn(txn);
-                tempTxn.setFieldArray(sfSigners, signers);
+            // Insert signers into transaction.
+            STTx tempTxn(txn);
+            tempTxn.setFieldArray(sfSigners, signers);
 
-                Serializer rawTxn;
-                tempTxn.add(rawTxn);
-                SerialIter sit(rawTxn.slice());
-                bool serialized = false;
-                try
-                {
-                    STTx copy(sit);
-                    serialized = true;
-                }
-                catch (std::exception const&)
-                {
-                    ;  // If it threw then serialization failed.
-                }
-                BEAST_EXPECT(serialized == expectPass);
-            };
+            Serializer rawTxn;
+            tempTxn.add(rawTxn);
+            SerialIter sit(rawTxn.slice());
+            bool serialized = false;
+            try
+            {
+                STTx copy(sit);
+                serialized = true;
+            }
+            catch (std::exception const&)
+            {
+                ;  // If it threw then serialization failed.
+            }
+            BEAST_EXPECT(serialized == expectPass);
+            return serialized == expectPass;
+        };
 
         {
             // Test case 1.  Make a valid Signer object.
@@ -1790,13 +1792,15 @@ public:
             soTest1.setFieldVL(sfTxnSignature, saMultiSignature);
             testMalformedSigningAccount(soTest1, true);
         }
-        {
+
+        /*{ // RHNOTE: featureNestedMultiSign covers this in the
+        checkMultiSign()
             // Test case 2.  Omit sfSigningPubKey from SigningAccount.
             STObject soTest2(sfSigner);
             soTest2.setAccountID(sfAccount, id2);
             soTest2.setFieldVL(sfTxnSignature, saMultiSignature);
             testMalformedSigningAccount(soTest2, false);
-        }
+        }*/
         {
             // Test case 3.  Extra sfAmount in SigningAccount.
             STObject soTest3(sfSigner);
