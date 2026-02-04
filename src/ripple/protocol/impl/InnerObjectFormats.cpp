@@ -44,8 +44,9 @@ InnerObjectFormats::InnerObjectFormats()
         sfSigner.getCode(),
         {
             {sfAccount, soeREQUIRED},
-            {sfSigningPubKey, soeREQUIRED},
-            {sfTxnSignature, soeREQUIRED},
+            {sfSigningPubKey, soeOPTIONAL},
+            {sfTxnSignature, soeOPTIONAL},
+            {sfSigners, soeOPTIONAL},
         });
 
     add(sfMajority.jsonName.c_str(),

@@ -369,64 +369,124 @@ STTx::checkMultiSign(
     bool const fullyCanonical = (getFlags() & tfFullyCanonicalSig) ||
         (requireCanonicalSig == RequireFullyCanonicalSig::yes);
 
-    // Signers must be in sorted order by AccountID.
-    AccountID lastAccountID(beast::zero);
-
     bool const isWildcardNetwork =
         isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535;
 
-    for (auto const& signer : signers)
-    {
-        auto const accountID = signer.getAccountID(sfAccount);
+    // Set max depth based on feature flag
+    int const maxDepth = rules.enabled(featureNestedMultiSign) ? 4 : 1;
 
-        // The account owner may not multisign for themselves.
-        if (accountID == txnAccountID)
-            return Unexpected("Invalid multisigner.");
+    // Define recursive lambda for checking signatures at any depth
+    std::function<Expected<void, std::string>(
+        STArray const&, AccountID const&, int)>
+        checkSignersArray;
 
-        // No duplicate signers allowed.
-        if (lastAccountID == accountID)
-            return Unexpected("Duplicate Signers not allowed.");
+    checkSignersArray = [&](STArray const& signersArray,
+                            AccountID const& parentAccountID,
+                            int depth) -> Expected<void, std::string> {
+        // Check depth limit
+        if (depth > maxDepth)
+            return Unexpected("Multi-signing depth limit exceeded.");
 
-        // Accounts must be in order by account ID.  No duplicates allowed.
-        if (lastAccountID > accountID)
-            return Unexpected("Unsorted Signers array.");
+        // There are well known bounds that the number of signers must be
+        // within.
+        if (signersArray.size() < minMultiSigners ||
+            signersArray.size() > maxMultiSigners(&rules))
+            return Unexpected("Invalid Signers array size.");
 
-        // The next signature must be greater than this one.
-        lastAccountID = accountID;
+        // Signers must be in sorted order by AccountID.
+        AccountID lastAccountID(beast::zero);
 
-        // Verify the signature.
-        bool validSig = false;
-        try
+        for (auto const& signer : signersArray)
         {
-            Serializer s = dataStart;
-            finishMultiSigningData(accountID, s);
+            auto const accountID = signer.getAccountID(sfAccount);
 
-            auto spk = signer.getFieldVL(sfSigningPubKey);
+            // The account owner may not multisign for themselves.
+            if (accountID == txnAccountID)
+                return Unexpected("Invalid multisigner.");
 
-            if (publicKeyType(makeSlice(spk)))
+            // No duplicate signers allowed.
+            if (lastAccountID == accountID)
+                return Unexpected("Duplicate Signers not allowed.");
+
+            // Accounts must be in order by account ID.  No duplicates allowed.
+            if (lastAccountID > accountID)
+                return Unexpected("Unsorted Signers array.");
+
+            // The next signature must be greater than this one.
+            lastAccountID = accountID;
+
+            // Check if this signer has nested signers
+            if (signer.isFieldPresent(sfSigners))
             {
-                Blob const signature = signer.getFieldVL(sfTxnSignature);
+                // This is a nested multi-signer
+                if (maxDepth == 1)
+                {
+                    // amendment is not enabled, this is an error
+                    return Unexpected("FeatureNestedMultiSign is disabled");
+                }
 
-                // wildcard network gets a free pass
-                validSig = isWildcardNetwork ||
-                    verify(PublicKey(makeSlice(spk)),
-                           s.slice(),
-                           makeSlice(signature),
-                           fullyCanonical);
+                // Ensure it doesn't also have signature fields
+                if (signer.isFieldPresent(sfSigningPubKey) ||
+                    signer.isFieldPresent(sfTxnSignature))
+                    return Unexpected(
+                        "Signer cannot have both nested signers and signature "
+                        "fields.");
+
+                // Recursively check nested signers
+                STArray const& nestedSigners = signer.getFieldArray(sfSigners);
+                auto result =
+                    checkSignersArray(nestedSigners, accountID, depth + 1);
+                if (!result)
+                    return result;
+            }
+            else
+            {
+                // This is a leaf node - must have signature
+                if (!signer.isFieldPresent(sfSigningPubKey) ||
+                    !signer.isFieldPresent(sfTxnSignature))
+                    return Unexpected(
+                        "Leaf signer must have SigningPubKey and "
+                        "TxnSignature.");
+
+                // Verify the signature
+                bool validSig = false;
+                try
+                {
+                    Serializer s = dataStart;
+                    finishMultiSigningData(accountID, s);
+
+                    auto spk = signer.getFieldVL(sfSigningPubKey);
+
+                    if (publicKeyType(makeSlice(spk)))
+                    {
+                        Blob const signature =
+                            signer.getFieldVL(sfTxnSignature);
+
+                        // wildcard network gets a free pass
+                        validSig = isWildcardNetwork ||
+                            verify(PublicKey(makeSlice(spk)),
+                                   s.slice(),
+                                   makeSlice(signature),
+                                   fullyCanonical);
+                    }
+                }
+                catch (std::exception const&)
+                {
+                    // We assume any problem lies with the signature.
+                    validSig = false;
+                }
+                if (!validSig)
+                    return Unexpected(
+                        std::string("Invalid signature on account ") +
+                        toBase58(accountID) + ".");
             }
         }
-        catch (std::exception const&)
-        {
-            // We assume any problem lies with the signature.
-            validSig = false;
-        }
-        if (!validSig)
-            return Unexpected(
-                std::string("Invalid signature on account ") +
-                toBase58(accountID) + ".");
-    }
-    // All signatures verified.
-    return {};
+
+        return {};
+    };
+
+    // Start the recursive check at depth 1
+    return checkSignersArray(signers, txnAccountID, 1);
 }
 
 //------------------------------------------------------------------------------

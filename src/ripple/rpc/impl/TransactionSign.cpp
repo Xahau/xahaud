@@ -1183,12 +1183,21 @@ transactionSubmitMultiSigned(
     // The Signers array may only contain Signer objects.
     if (std::find_if_not(
             signers.begin(), signers.end(), [](STObject const& obj) {
-                return (
-                    // A Signer object always contains these fields and no
-                    // others.
-                    obj.isFieldPresent(sfAccount) &&
-                    obj.isFieldPresent(sfSigningPubKey) &&
-                    obj.isFieldPresent(sfTxnSignature) && obj.getCount() == 3);
+                if (obj.getCount() != 4 || !obj.isFieldPresent(sfAccount))
+                    return false;
+                // leaf signer
+                if (obj.isFieldPresent(sfSigningPubKey) &&
+                    obj.isFieldPresent(sfTxnSignature) &&
+                    !obj.isFieldPresent(sfSigners))
+                    return true;
+
+                // nested signer
+                if (!obj.isFieldPresent(sfSigningPubKey) &&
+                    !obj.isFieldPresent(sfTxnSignature) &&
+                    obj.isFieldPresent(sfSigners))
+                    return true;
+
+                return false;
             }) != signers.end())
     {
         return RPC::make_param_error(

@@ -289,8 +289,40 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 
     // Each signer adds one more baseFee to the minimum required fee
     // for the transaction.
-    std::size_t const signerCount =
-        tx.isFieldPresent(sfSigners) ? tx.getFieldArray(sfSigners).size() : 0;
+    std::size_t signerCount = 0;
+    if (tx.isFieldPresent(sfSigners))
+    {
+        // Define recursive lambda to count all leaf signers
+        std::function<std::size_t(STArray const&)> countSigners;
+
+        countSigners = [&](STArray const& signers) -> std::size_t {
+            std::size_t count = 0;
+
+            for (auto const& signer : signers)
+            {
+                if (signer.isFieldPresent(sfSigners))
+                {
+                    // This is a nested signer - recursively count its signers
+                    count += countSigners(signer.getFieldArray(sfSigners));
+                }
+                else
+                {
+                    // This is a leaf signer (one who actually signs)
+                    // Count it only if it has signing fields (not just a
+                    // placeholder)
+                    if (signer.isFieldPresent(sfSigningPubKey) &&
+                        signer.isFieldPresent(sfTxnSignature))
+                    {
+                        count += 1;
+                    }
+                }
+            }
+
+            return count;
+        };
+
+        signerCount = countSigners(tx.getFieldArray(sfSigners));
+    }
 
     XRPAmount hookExecutionFee{0};
     uint64_t burden{1};
@@ -923,157 +955,282 @@ NotTEC
 Transactor::checkMultiSign(PreclaimContext const& ctx)
 {
     auto const id = ctx.tx.getAccountID(sfAccount);
-    // Get mTxnAccountID's SignerList and Quorum.
-    std::shared_ptr<STLedgerEntry const> sleAccountSigners =
-        ctx.view.read(keylet::signers(id));
-    // If the signer list doesn't exist the account is not multi-signing.
-    if (!sleAccountSigners)
-    {
-        JLOG(ctx.j.trace())
-            << "applyTransaction: Invalid: Not a multi-signing account.";
-        return tefNOT_MULTI_SIGNING;
-    }
 
-    // We have plans to support multiple SignerLists in the future.  The
-    // presence and defaulted value of the SignerListID field will enable that.
-    assert(sleAccountSigners->isFieldPresent(sfSignerListID));
-    assert(sleAccountSigners->getFieldU32(sfSignerListID) == 0);
+    // Set max depth based on feature flag
+    bool const allowNested = ctx.view.rules().enabled(featureNestedMultiSign);
+    int const maxDepth = allowNested ? 4 : 1;
 
-    auto accountSigners =
-        SignerEntries::deserialize(*sleAccountSigners, ctx.j, "ledger");
-    if (!accountSigners)
-        return accountSigners.error();
+    // Define recursive lambda for checking signers at any depth
+    // ancestors tracks the signing chain to detect cycles
+    std::function<NotTEC(
+        AccountID const&, STArray const&, int, std::set<AccountID>)>
+        validateSigners;
 
-    // Get the array of transaction signers.
-    STArray const& txSigners(ctx.tx.getFieldArray(sfSigners));
-
-    // Walk the accountSigners performing a variety of checks and see if
-    // the quorum is met.
-
-    // Both the multiSigners and accountSigners are sorted by account.  So
-    // matching multi-signers to account signers should be a simple
-    // linear walk.  *All* signers must be valid or the transaction fails.
-    std::uint32_t weightSum = 0;
-    auto iter = accountSigners->begin();
-    for (auto const& txSigner : txSigners)
-    {
-        AccountID const txSignerAcctID = txSigner.getAccountID(sfAccount);
-
-        // Attempt to match the SignerEntry with a Signer;
-        while (iter->account < txSignerAcctID)
+    validateSigners = [&](AccountID const& acc,
+                          STArray const& signers,
+                          int depth,
+                          std::set<AccountID> ancestors) -> NotTEC {
+        // Cycle detection: if we're already validating this account up the
+        // chain it cannot contribute - but this isn't an error, just
+        // unavailable weight
+        if (ancestors.count(acc))
         {
-            if (++iter == accountSigners->end())
+            JLOG(ctx.j.trace())
+                << "checkMultiSign: Cyclic signer detected: " << acc;
+            return tesSUCCESS;
+        }
+
+        // Check depth limit
+        if (depth > maxDepth)
+        {
+            if (allowNested)
             {
                 JLOG(ctx.j.trace())
-                    << "applyTransaction: Invalid SigningAccount.Account.";
+                    << "checkMultiSign: Multi-signing depth limit exceeded.";
                 return tefBAD_SIGNATURE;
             }
-        }
-        if (iter->account != txSignerAcctID)
-        {
-            // The SigningAccount is not in the SignerEntries.
-            JLOG(ctx.j.trace())
-                << "applyTransaction: Invalid SigningAccount.Account.";
-            return tefBAD_SIGNATURE;
+
+            JLOG(ctx.j.warn())
+                << "checkMultiSign: Nested multisigning disabled.";
+            return temMALFORMED;
         }
 
-        // We found the SigningAccount in the list of valid signers.  Now we
-        // need to compute the accountID that is associated with the signer's
-        // public key.
-        auto const spk = txSigner.getFieldVL(sfSigningPubKey);
+        ancestors.insert(acc);
 
-        if (!publicKeyType(makeSlice(spk)))
+        // Get the SignerList for the account we're validating signers for
+        std::shared_ptr<STLedgerEntry const> sleAllowedSigners =
+            ctx.view.read(keylet::signers(acc));
+
+        if (!sleAllowedSigners)
         {
-            JLOG(ctx.j.trace())
-                << "checkMultiSign: signing public key type is unknown";
-            return tefBAD_SIGNATURE;
+            JLOG(ctx.j.trace()) << "checkMultiSign: Account " << acc
+                                << " not set up for multi-signing.";
+            return tefNOT_MULTI_SIGNING;
         }
 
-        AccountID const signingAcctIDFromPubKey =
-            calcAccountID(PublicKey(makeSlice(spk)));
+        uint32_t const quorum = sleAllowedSigners->getFieldU32(sfSignerQuorum);
+        uint32_t sum{0};
 
-        // Verify that the signingAcctID and the signingAcctIDFromPubKey
-        // belong together.  Here is are the rules:
-        //
-        //   1. "Phantom account": an account that is not in the ledger
-        //      A. If signingAcctID == signingAcctIDFromPubKey and the
-        //         signingAcctID is not in the ledger then we have a phantom
-        //         account.
-        //      B. Phantom accounts are always allowed as multi-signers.
-        //
-        //   2. "Master Key"
-        //      A. signingAcctID == signingAcctIDFromPubKey, and signingAcctID
-        //         is in the ledger.
-        //      B. If the signingAcctID in the ledger does not have the
-        //         asfDisableMaster flag set, then the signature is allowed.
-        //
-        //   3. "Regular Key"
-        //      A. signingAcctID != signingAcctIDFromPubKey, and signingAcctID
-        //         is in the ledger.
-        //      B. If signingAcctIDFromPubKey == signingAcctID.RegularKey (from
-        //         ledger) then the signature is allowed.
-        //
-        // No other signatures are allowed.  (January 2015)
+        auto allowedSigners =
+            SignerEntries::deserialize(*sleAllowedSigners, ctx.j, "ledger");
+        if (!allowedSigners)
+            return allowedSigners.error();
 
-        // In any of these cases we need to know whether the account is in
-        // the ledger.  Determine that now.
-        auto sleTxSignerRoot = ctx.view.read(keylet::account(txSignerAcctID));
-
-        if (signingAcctIDFromPubKey == txSignerAcctID)
+        // Build lookup map for O(1) signer validation and weight retrieval
+        std::map<AccountID, uint16_t> signerWeights;
+        uint32_t totalWeight{0}, cyclicWeight{0};
+        for (auto const& entry : *allowedSigners)
         {
-            // Either Phantom or Master.  Phantoms automatically pass.
-            if (sleTxSignerRoot)
+            signerWeights[entry.account] = entry.weight;
+            totalWeight += entry.weight;
+            if (ancestors.count(entry.account))
+                cyclicWeight += entry.weight;
+        }
+
+        // Walk the signers array, validating each signer
+        // Signers must be in strict ascending order for consensus
+        std::optional<AccountID> prevSigner;
+
+        for (auto const& signerEntry : signers)
+        {
+            AccountID const signer = signerEntry.getAccountID(sfAccount);
+            bool const isNested = signerEntry.isFieldPresent(sfSigners);
+
+            // Enforce strict ascending order (required for consensus)
+            if (prevSigner && signer <= *prevSigner)
             {
-                // Master Key.  Account may not have asfDisableMaster set.
-                std::uint32_t const signerAccountFlags =
-                    sleTxSignerRoot->getFieldU32(sfFlags);
+                JLOG(ctx.j.trace())
+                    << "checkMultiSign: Signers not in strict ascending order: "
+                    << signer << " <= " << *prevSigner;
+                return temMALFORMED;
+            }
+            prevSigner = signer;
 
-                if (signerAccountFlags & lsfDisableMaster)
+            // Skip cyclic signers - they cannot contribute at this level
+            if (ancestors.count(signer))
+            {
+                JLOG(ctx.j.trace())
+                    << "checkMultiSign: Skipping cyclic signer: " << signer;
+                continue;
+            }
+
+            // Lookup signer in authorized set
+            auto const weightIt = signerWeights.find(signer);
+            if (weightIt == signerWeights.end())
+            {
+                JLOG(ctx.j.trace())
+                    << "checkMultiSign: Invalid signer " << signer
+                    << " not in signer list for " << acc;
+                return tefBAD_SIGNATURE;
+            }
+            uint16_t const weight = weightIt->second;
+
+            // Check if this signer has nested signers (delegation)
+            if (isNested)
+            {
+                // This is a nested multi-signer that delegates to sub-signers
+                if (signerEntry.isFieldPresent(sfSigningPubKey) ||
+                    signerEntry.isFieldPresent(sfTxnSignature))
+                {
+                    JLOG(ctx.j.trace()) << "checkMultiSign: Signer " << signer
+                                        << " cannot have both nested signers "
+                                           "and signature fields.";
+                    return tefBAD_SIGNATURE;
+                }
+
+                // Recursively validate the nested signers against signer's
+                // signer list
+                STArray const& nestedSigners =
+                    signerEntry.getFieldArray(sfSigners);
+                NotTEC result = validateSigners(
+                    signer, nestedSigners, depth + 1, ancestors);
+                if (!isTesSuccess(result))
+                    return result;
+
+                // Nested signers met their quorum - add this signer's weight
+                sum += weight;
+
+                JLOG(ctx.j.trace())
+                    << "checkMultiSign: Nested signer " << signer
+                    << " validated, weight=" << weight << ", depth=" << depth
+                    << ", sum=" << sum << "/" << quorum;
+            }
+            else
+            {
+                // This is a leaf signer - validate signature
+                if (!signerEntry.isFieldPresent(sfSigningPubKey) ||
+                    !signerEntry.isFieldPresent(sfTxnSignature))
                 {
                     JLOG(ctx.j.trace())
-                        << "applyTransaction: Signer:Account lsfDisableMaster.";
-                    return tefMASTER_DISABLED;
+                        << "checkMultiSign: Leaf signer " << signer
+                        << " must have SigningPubKey and TxnSignature.";
+                    return tefBAD_SIGNATURE;
                 }
+
+                auto const spk = signerEntry.getFieldVL(sfSigningPubKey);
+
+                if (!publicKeyType(makeSlice(spk)))
+                {
+                    JLOG(ctx.j.trace())
+                        << "checkMultiSign: Unknown public key type for signer "
+                        << signer;
+                    return tefBAD_SIGNATURE;
+                }
+
+                AccountID const signingAcctIDFromPubKey =
+                    calcAccountID(PublicKey(makeSlice(spk)));
+
+                auto sleTxSignerRoot = ctx.view.read(keylet::account(signer));
+
+                if (signingAcctIDFromPubKey == signer)
+                {
+                    if (sleTxSignerRoot)
+                    {
+                        std::uint32_t const signerAccountFlags =
+                            sleTxSignerRoot->getFieldU32(sfFlags);
+
+                        if (signerAccountFlags & lsfDisableMaster)
+                        {
+                            JLOG(ctx.j.trace())
+                                << "checkMultiSign: Signer " << signer
+                                << " has lsfDisableMaster set.";
+                            return tefMASTER_DISABLED;
+                        }
+                    }
+                }
+                else
+                {
+                    if (!sleTxSignerRoot)
+                    {
+                        JLOG(ctx.j.trace())
+                            << "checkMultiSign: Non-phantom signer " << signer
+                            << " lacks account root.";
+                        return tefBAD_SIGNATURE;
+                    }
+
+                    if (!sleTxSignerRoot->isFieldPresent(sfRegularKey))
+                    {
+                        JLOG(ctx.j.trace()) << "checkMultiSign: Signer "
+                                            << signer << " lacks RegularKey.";
+                        return tefBAD_SIGNATURE;
+                    }
+                    if (signingAcctIDFromPubKey !=
+                        sleTxSignerRoot->getAccountID(sfRegularKey))
+                    {
+                        JLOG(ctx.j.trace())
+                            << "checkMultiSign: Signer " << signer
+                            << " pubkey doesn't match RegularKey.";
+                        return tefBAD_SIGNATURE;
+                    }
+                }
+
+                // Valid leaf signer - add their weight
+                sum += weight;
+
+                JLOG(ctx.j.trace())
+                    << "checkMultiSign: Leaf signer " << signer
+                    << " validated, weight=" << weight << ", depth=" << depth
+                    << ", sum=" << sum << "/" << quorum;
             }
         }
-        else
+
+        // Calculate effective quorum, relaxing for cyclic lockout scenarios
+        // Sanity check: cyclicWeight must not exceed totalWeight (underflow
+        // guard)
+        if (cyclicWeight > totalWeight)
         {
-            // May be a Regular Key.  Let's find out.
-            // Public key must hash to the account's regular key.
-            if (!sleTxSignerRoot)
-            {
-                JLOG(ctx.j.trace()) << "applyTransaction: Non-phantom signer "
-                                       "lacks account root.";
-                return tefBAD_SIGNATURE;
-            }
-
-            if (!sleTxSignerRoot->isFieldPresent(sfRegularKey))
-            {
-                JLOG(ctx.j.trace())
-                    << "applyTransaction: Account lacks RegularKey.";
-                return tefBAD_SIGNATURE;
-            }
-            if (signingAcctIDFromPubKey !=
-                sleTxSignerRoot->getAccountID(sfRegularKey))
-            {
-                JLOG(ctx.j.trace())
-                    << "applyTransaction: Account doesn't match RegularKey.";
-                return tefBAD_SIGNATURE;
-            }
+            JLOG(ctx.j.error()) << "checkMultiSign: Invariant violation for "
+                                << acc << ": cyclicWeight (" << cyclicWeight
+                                << ") > totalWeight (" << totalWeight << ")";
+            return tefINTERNAL;
         }
-        // The signer is legitimate.  Add their weight toward the quorum.
-        weightSum += iter->weight;
-    }
 
-    // Cannot perform transaction if quorum is not met.
-    if (weightSum < sleAccountSigners->getFieldU32(sfSignerQuorum))
+        uint32_t effectiveQuorum = quorum;
+        uint32_t const maxAchievable = totalWeight - cyclicWeight;
+
+        if (cyclicWeight > 0 && maxAchievable < quorum)
+        {
+            JLOG(ctx.j.warn())
+                << "checkMultiSign: Cyclic lockout detected for " << acc
+                << ": relaxing quorum from " << quorum << " to "
+                << maxAchievable << " (total=" << totalWeight
+                << ", cyclic=" << cyclicWeight << ")";
+            effectiveQuorum = maxAchievable;
+        }
+
+        // Sanity check: effectiveQuorum of 0 means all signers are cyclic -
+        // this is an irrecoverable misconfiguration
+        if (effectiveQuorum == 0)
+        {
+            JLOG(ctx.j.warn()) << "checkMultiSign: All signers for " << acc
+                               << " are cyclic - no valid signing path exists.";
+            return tefBAD_QUORUM;
+        }
+
+        // Check if accumulated weight meets required quorum
+        if (sum < effectiveQuorum)
+        {
+            JLOG(ctx.j.trace()) << "checkMultiSign: Quorum not met for " << acc
+                                << " at depth " << depth << " (sum=" << sum
+                                << ", required=" << effectiveQuorum << ")";
+            return tefBAD_QUORUM;
+        }
+
+        return tesSUCCESS;
+    };
+
+    STArray const& entries(ctx.tx.getFieldArray(sfSigners));
+
+    // Initial call with empty ancestor set - the function inserts acc after
+    // cycle check
+    NotTEC result = validateSigners(id, entries, 1, {});
+    if (!isTesSuccess(result))
     {
         JLOG(ctx.j.trace())
-            << "applyTransaction: Signers failed to meet quorum.";
-        return tefBAD_QUORUM;
+            << "checkMultiSign: Validation failed with " << transToken(result);
+        return result;
     }
 
-    // Met the quorum.  Continue.
     return tesSUCCESS;
 }
 

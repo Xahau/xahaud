@@ -21,6 +21,7 @@
 #define RIPPLE_TEST_JTX_MULTISIGN_H_INCLUDED
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <test/jtx/Account.h>
 #include <test/jtx/amount.h>
@@ -65,6 +66,48 @@ signers(Account const& account, none_t);
 class msig
 {
 public:
+    // Recursive signer structure
+    struct Signer
+    {
+        Account acct;
+        Account sig;  // For leaf signers (same as acct for master key)
+        std::vector<std::shared_ptr<Signer>> nested;  // For nested signers
+
+        // Leaf signer constructor (regular signing)
+        Signer(Account const& masterSig) : acct(masterSig), sig(masterSig)
+        {
+        }
+
+        // Leaf signer constructor (with different signing key)
+        Signer(Account const& acct_, Account const& regularSig)
+            : acct(acct_), sig(regularSig)
+        {
+        }
+
+        // Nested signer constructor
+        Signer(
+            Account const& acct_,
+            std::vector<std::shared_ptr<Signer>> nested_)
+            : acct(acct_), nested(std::move(nested_))
+        {
+        }
+
+        bool
+        isNested() const
+        {
+            return !nested.empty();
+        }
+
+        AccountID
+        id() const
+        {
+            return acct.id();
+        }
+    };
+
+    using SignerPtr = std::shared_ptr<Signer>;
+
+    // For backward compatibility
     struct Reg
     {
         Account acct;
@@ -73,16 +116,13 @@ public:
         Reg(Account const& masterSig) : acct(masterSig), sig(masterSig)
         {
         }
-
         Reg(Account const& acct_, Account const& regularSig)
             : acct(acct_), sig(regularSig)
         {
         }
-
         Reg(char const* masterSig) : acct(masterSig), sig(masterSig)
         {
         }
-
         Reg(char const* acct_, char const* regularSig)
             : acct(acct_), sig(regularSig)
         {
@@ -93,13 +133,32 @@ public:
         {
             return acct < rhs.acct;
         }
+
+        // Convert to Signer
+        SignerPtr
+        toSigner() const
+        {
+            return std::make_shared<Signer>(acct, sig);
+        }
     };
 
-    std::vector<Reg> signers;
+    std::vector<SignerPtr> signers;
 
 public:
+    // Initializer list constructor - resolves brace-init ambiguity
+    msig(std::initializer_list<SignerPtr> signers_)
+        : msig(std::vector<SignerPtr>(signers_))
+    {
+        // handled by :
+    }
+
+    // Direct constructor with SignerPtr vector
+    explicit msig(std::vector<SignerPtr> signers_);
+
+    // Backward compatibility constructor
     msig(std::vector<Reg> signers_);
 
+    // Variadic constructor for backward compatibility
     template <class AccountType, class... Accounts>
     explicit msig(AccountType&& a0, Accounts&&... aN)
         : msig{std::vector<Reg>{
@@ -111,6 +170,30 @@ public:
     void
     operator()(Env&, JTx& jt) const;
 };
+
+// Helper functions to create signers - renamed to avoid conflict with sig()
+// transaction modifier
+inline msig::SignerPtr
+msigner(Account const& acct)
+{
+    return std::make_shared<msig::Signer>(acct);
+}
+
+inline msig::SignerPtr
+msigner(Account const& acct, Account const& signingKey)
+{
+    return std::make_shared<msig::Signer>(acct, signingKey);
+}
+
+// Create nested signer with initializer list
+template <typename... Args>
+inline msig::SignerPtr
+msigner(Account const& acct, Args&&... args)
+{
+    std::vector<msig::SignerPtr> nested;
+    (nested.push_back(std::forward<Args>(args)), ...);
+    return std::make_shared<msig::Signer>(acct, std::move(nested));
+}
 
 //------------------------------------------------------------------------------
 
