@@ -20,6 +20,7 @@
 #ifndef RIPPLE_APP_HOOK_GASVALIDATOR_H_INCLUDED
 #define RIPPLE_APP_HOOK_GASVALIDATOR_H_INCLUDED
 
+#include <ripple/basics/Expected.h>
 #include <ripple/beast/utility/Journal.h>
 #include <ripple/protocol/Rules.h>
 #include <functional>
@@ -44,9 +45,12 @@ namespace hook {
  * @param wasm The WASM binary to validate
  * @param guardLog Logging function for validation errors
  * @param guardLogAccStr Account string for logging
- * @return std::nullopt if validation succeeds, error message otherwise
+ * @return bool if validation succeeds,
+ * @return true if contains cbak function
+ * @return false if otherwise
+ * @return error message if validation fails
  */
-std::optional<std::string>
+ripple::Expected<bool, std::string>
 validateWasmHostFunctionsForGas(
     std::vector<uint8_t> const& wasm,
     ripple::Rules const& rules,

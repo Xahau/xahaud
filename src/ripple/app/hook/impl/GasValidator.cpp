@@ -27,7 +27,7 @@
 
 namespace hook {
 
-Expected<void, std::string>
+Expected<bool, std::string>
 validateExportSection(
     WasmEdge_ASTModuleContext* astModule,
     beast::Journal const& j)
@@ -47,6 +47,7 @@ validateExportSection(
 
     // Track if we found required hook() function
     bool foundHook = false;
+    bool foundCbak = false;
 
     // Check each export
     for (uint32_t i = 0; i < actualExportCount; i++)
@@ -80,6 +81,8 @@ validateExportSection(
 
         if (nameStr == "hook")
             foundHook = true;
+        if (nameStr == "cbak")
+            foundCbak = true;
 
         // Get function type to validate signature
         WasmEdge_FunctionTypeContext const* functionType =
@@ -157,7 +160,7 @@ validateExportSection(
         return Unexpected("Required function 'hook' not found in exports");
     }
 
-    return {};
+    return foundCbak;
 }
 
 Expected<void, std::string>
@@ -337,7 +340,7 @@ validateImportSection(
     return {};
 }
 
-std::optional<std::string>
+Expected<bool, std::string>
 validateWasmHostFunctionsForGas(
     std::vector<uint8_t> const& wasm,
     Rules const& rules,
@@ -347,7 +350,7 @@ validateWasmHostFunctionsForGas(
     WasmEdge_LoaderContext* loader = WasmEdge_LoaderCreate(NULL);
     if (!loader)
     {
-        return "Failed to create WasmEdge Loader";
+        return Unexpected("Failed to create WasmEdge Loader");
     }
 
     // Parse WASM binary
@@ -359,19 +362,24 @@ validateWasmHostFunctionsForGas(
     {
         WasmEdge_LoaderDelete(loader);
         const char* msg = WasmEdge_ResultGetMessage(res);
-        return std::string("Failed to parse WASM: ") +
-            (msg ? msg : "unknown error");
+        return Unexpected(
+            std::string("Failed to parse WASM: ") +
+            (msg ? msg : "unknown error"));
     }
+
+    bool foundCbak = false;
 
     //
     // check export section
     //
-    if (auto result = validateExportSection(astModule, j); !result)
+    auto resultExport = validateExportSection(astModule, j);
+    if (!resultExport)
     {
         WasmEdge_ASTModuleDelete(astModule);
         WasmEdge_LoaderDelete(loader);
-        return result.error();
+        return Unexpected(resultExport.error());
     }
+    foundCbak = resultExport.value();
 
     //
     // check import section
@@ -380,14 +388,14 @@ validateWasmHostFunctionsForGas(
     {
         WasmEdge_ASTModuleDelete(astModule);
         WasmEdge_LoaderDelete(loader);
-        return result.error();
+        return Unexpected(result.error());
     }
 
     // Cleanup
     WasmEdge_ASTModuleDelete(astModule);
     WasmEdge_LoaderDelete(loader);
 
-    return {};
+    return foundCbak;
 }
 
 }  // namespace hook

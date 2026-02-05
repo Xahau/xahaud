@@ -74,7 +74,9 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookStateChangeCount, soeREQUIRED},
          {sfHookEmitCount, soeREQUIRED},
          {sfFlags, soeOPTIONAL},
-         {sfHookInstructionCost, soeOPTIONAL}});
+         {sfHookInstructionCost, soeOPTIONAL},
+         {sfHookWeakGas, soeOPTIONAL},
+         {sfHookCallbackGas, soeOPTIONAL}});
 
     add(sfHookEmission.jsonName.c_str(),
         sfHookEmission.getCode(),
@@ -104,6 +106,8 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookOn, soeOPTIONAL},
          {sfHookCanEmit, soeOPTIONAL},
          {sfHookApiVersion, soeOPTIONAL},
+         {sfHookCallbackGas, soeOPTIONAL},
+         {sfHookWeakGas, soeOPTIONAL},
          {sfFlags, soeOPTIONAL}});
 
     add(sfHookGrant.jsonName.c_str(),

@@ -210,6 +210,12 @@ Transactor::Transactor(ApplyContext& ctx)
 {
 }
 
+XRPAmount
+calculateHookGas(uint32_t gas)
+{
+    return XRPAmount{gas};
+}
+
 // RH NOTE: this only computes one chain at a time, so if there is a receiving
 // side to a txn then it must seperately be computed by a second call here
 XRPAmount
@@ -280,17 +286,30 @@ Transactor::calculateHookChainFee(
             }
             else if (apiVersion == 1)  // Gas type
             {
-                // Gas type: only count
-                gasTypeHookCount++;
+                if (!collectCallsOnly)
+                {
+                    // Gas type: only count
+                    gasTypeHookCount++;
+                }
+                else
+                {
+                    auto const weakFee = hookObj.isFieldPresent(sfHookWeakGas)
+                        ? hookObj.getFieldU32(sfHookWeakGas)
+                        : hookDef->getFieldU32(sfHookWeakGas);
+                    XRPAmount const toAdd = calculateHookGas(weakFee);
+                    if (fee + toAdd < fee)
+                        fee = XRPAmount{INITIAL_XRP.drops()};
+                    else
+                        fee += toAdd;
+                }
             }
         }
     }
 
-    // Additional cost for Gas type: 0.2 XAH/Hook = 200,000 drops/Hook
+    // Additional cost for Gas type: baseFee * 100 /Hook = 10*100 drops/Hook
     if (gasTypeHookCount > 0)
     {
-        // TODO:
-        auto const baseGasFee = 200000;
+        auto const baseGasFee = view.fees().base * 100;
         XRPAmount const gasTypeFee{gasTypeHookCount * baseGasFee};
         if (fee + gasTypeFee < fee)
             fee = XRPAmount{INITIAL_XRP.drops()};  // overflow
@@ -360,6 +379,47 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
                     hookExecutionFee += toAdd;
             }
 
+            if (const auto hookSLE =
+                    view.read(keylet::hook(tx.getAccountID(sfAccount))))
+            {
+                const auto& hooks = hookSLE->getFieldArray(sfHooks);
+                for (auto const& hookObj : hooks)
+                {
+                    if (hookObj.isFieldPresent(sfHookHash))
+                    {
+                        uint32_t callbackGas = 0;
+
+                        // Priority 1: Check HookObject
+                        if (hookObj.isFieldPresent(sfHookCallbackGas))
+                        {
+                            callbackGas =
+                                hookObj.getFieldU32(sfHookCallbackGas);
+                        }
+                        // Priority 2: Check HookDefinition
+                        else if (
+                            hookDef &&
+                            hookDef->isFieldPresent(sfHookCallbackGas))
+                        {
+                            callbackGas =
+                                hookDef->getFieldU32(sfHookCallbackGas);
+                        }
+                        // Priority 3: Default to 0 (implicit)
+
+                        if (callbackGas > 0)
+                        {
+                            XRPAmount const toAdd =
+                                calculateHookGas(callbackGas);
+                            if (hookExecutionFee + toAdd < hookExecutionFee)
+                                hookExecutionFee =
+                                    XRPAmount{INITIAL_XRP.drops()};
+                            else
+                                hookExecutionFee += toAdd;
+                        }
+                        break;
+                    }
+                }
+            }
+
             assert(emitDetails.isFieldPresent(sfEmitBurden));
 
             burden = emitDetails.getFieldU64(sfEmitBurden);
@@ -380,7 +440,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 
         if (view.rules().enabled(featureHookGas) &&
             tx.isFieldPresent(sfHookGas))
-            hookExecutionFee += XRPAmount{tx.getFieldU32(sfHookGas)};
+            hookExecutionFee += calculateHookGas(tx.getFieldU32(sfHookGas));
     }
 
     XRPAmount accumulator = baseFee;
@@ -1315,8 +1375,17 @@ Transactor::executeHookChain(
         uint32_t hookGas = 0;
         if (hookApiVersion == 1)
         {
-            // Pass remaining Gas pool to this hook
-            hookGas = gasPool;
+            if (!strong)  // WeakTSH execution
+            {
+                hookGas = hookObj.isFieldPresent(sfHookWeakGas)
+                    ? hookObj.getFieldU32(sfHookWeakGas)
+                    : hookDef->getFieldU32(sfHookWeakGas);
+            }
+            else  // Strong execution
+            {
+                // Pass remaining Gas pool to this hook
+                hookGas = gasPool;
+            }
         }
 
         try
@@ -1505,10 +1574,21 @@ Transactor::doHookCallback(
             // Extract HookApiVersion for callback
             uint16_t hookApiVersion = hookDef->getFieldU16(sfHookApiVersion);
 
-            // Callbacks don't consume HookGas independently, but we pass it
-            // for consistency
+            // Get callback gas with fallback priority:
+            // 1. HookObject's HookCallbackGas
+            // 2. HookDefinition's HookCallbackGas
+            // 3. Transaction's HookGas (for backward compatibility)
             uint32_t hookGas = 0;
-            if (ctx_.tx.isFieldPresent(sfHookGas))
+
+            if (hookObj.isFieldPresent(sfHookCallbackGas))
+            {
+                hookGas = hookObj.getFieldU32(sfHookCallbackGas);
+            }
+            else if (hookDef->isFieldPresent(sfHookCallbackGas))
+            {
+                hookGas = hookDef->getFieldU32(sfHookCallbackGas);
+            }
+            else if (ctx_.tx.isFieldPresent(sfHookGas))
             {
                 hookGas = ctx_.tx.getFieldU32(sfHookGas);
             }

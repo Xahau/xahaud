@@ -43,6 +43,36 @@ public:
     operator()(Env&, JTx& jt) const;
 };
 
+/** Set the HookCallbackGas on a JTx. */
+class cbakgas
+{
+private:
+    std::uint32_t gas_;
+
+public:
+    cbakgas(std::uint32_t gas) : gas_{gas}
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jt) const;
+};
+
+/** Set the HookWeakGas on a JTx. */
+class weakgas
+{
+private:
+    std::uint32_t gas_;
+
+public:
+    weakgas(std::uint32_t gas) : gas_{gas}
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jt) const;
+};
+
 }  // namespace jtx
 }  // namespace test
 }  // namespace ripple

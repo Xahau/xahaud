@@ -159,6 +159,8 @@ CONSTRUCT_TYPED_SFIELD(sfLockCount,             "LockCount",            UINT32, 
 CONSTRUCT_TYPED_SFIELD(sfFirstNFTokenSequence,  "FirstNFTokenSequence", UINT32,    50);
 
 // 32-bit integers (hook)
+CONSTRUCT_TYPED_SFIELD(sfHookCallbackGas,       "HookCallbackGas",      UINT32,    89);
+CONSTRUCT_TYPED_SFIELD(sfHookWeakGas,           "HookWeakGas",          UINT32,    90);
 CONSTRUCT_TYPED_SFIELD(sfHookInstructionCost,   "HookInstructionCost",  UINT32,    91);
 CONSTRUCT_TYPED_SFIELD(sfHookGas,               "HookGas",              UINT32,    92);
 CONSTRUCT_TYPED_SFIELD(sfStartTime,             "StartTime",            UINT32,    93);

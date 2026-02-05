@@ -416,6 +416,8 @@ extern SF_UINT32 const sfRepeatCount;
 extern SF_UINT32 const sfStartTime;
 extern SF_UINT32 const sfHookGas;
 extern SF_UINT32 const sfHookInstructionCost;
+extern SF_UINT32 const sfHookCallbackGas;
+extern SF_UINT32 const sfHookWeakGas;
 
 // 64-bit integers (common)
 extern SF_UINT64 const sfIndexNext;

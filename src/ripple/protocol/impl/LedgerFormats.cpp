@@ -232,12 +232,14 @@ LedgerFormats::LedgerFormats()
             {sfHookCanEmit, soeOPTIONAL},
             {sfHookNamespace, soeREQUIRED},
             {sfHookParameters, soeREQUIRED},
-            {sfHookApiVersion, soeREQUIRED},  
+            {sfHookApiVersion, soeREQUIRED},
             {sfCreateCode, soeREQUIRED},
             {sfHookSetTxnID, soeREQUIRED},
             {sfReferenceCount, soeREQUIRED},
-            {sfFee, soeREQUIRED},
-            {sfHookCallbackFee, soeOPTIONAL}
+            {sfFee, soeOPTIONAL},
+            {sfHookCallbackFee, soeOPTIONAL},
+            {sfHookCallbackGas, soeOPTIONAL},
+            {sfHookWeakGas, soeOPTIONAL}
         },
         commonFields);
 

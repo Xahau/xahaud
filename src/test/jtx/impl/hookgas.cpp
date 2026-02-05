@@ -30,6 +30,18 @@ hookgas::operator()(Env&, JTx& jt) const
     jt[sfHookGas.jsonName] = gas_;
 }
 
+void
+cbakgas::operator()(Env&, JTx& jt) const
+{
+    jt[sfHookCallbackGas.jsonName] = gas_;
+}
+
+void
+weakgas::operator()(Env&, JTx& jt) const
+{
+    jt[sfHookWeakGas.jsonName] = gas_;
+}
+
 }  // namespace jtx
 }  // namespace test
 }  // namespace ripple

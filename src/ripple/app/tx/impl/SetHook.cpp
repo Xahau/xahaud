@@ -458,6 +458,81 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 return false;
             }
 
+            // validate sfHookCallbackGas
+            auto hasHookCallbackGas = false;
+            if (hookSetObj.isFieldPresent(sfHookCallbackGas))
+            {
+                if (version != 1)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook "
+                           "sfHookCallbackGas is "
+                           "not allowed in version "
+                        << version << ".";
+                    return false;
+                }
+                if (hookSetObj.getFieldU32(sfHookCallbackGas) == 0)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook "
+                           "sfHookCallbackGas must be greater than 0.";
+                    return false;
+                }
+                hasHookCallbackGas = true;
+            }
+
+            // validate sfHookWeakGas
+            if (hookSetObj.isFieldPresent(sfHookWeakGas))
+            {
+                if (version != 1)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook sfHookWeakGas is "
+                           "not allowed in version "
+                        << version << ".";
+                    return false;
+                }
+                if (hookSetObj.getFieldU32(sfHookWeakGas) == 0)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook sfHookWeakGas "
+                           "must be greater than 0.";
+                    return false;
+                }
+
+                if (!(flags & hsfCOLLECT))
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook with "
+                           "sfHookWeakGas must be used with hsfCOLLECT "
+                           "flag.";
+                    return false;
+                }
+            }
+            else if (version == 1)
+            {
+                if (flags & hsfCOLLECT)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook with "
+                           "sfHookWeakGas must be used with hsfCOLLECT "
+                           "flag.";
+                    return false;
+                }
+            }
+
             // validate sfHookOn
             if (!hookSetObj.isFieldPresent(sfHookOn))
             {
@@ -558,17 +633,31 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 else if (version == 1)  // Gas type
                 {
                     // validate with GasValidator
-                    auto error = hook::validateWasmHostFunctionsForGas(
-                        hook, ctx.rules, ctx.j);
+                    auto validationResult =
+                        hook::validateWasmHostFunctionsForGas(
+                            hook, ctx.rules, ctx.j);
 
-                    if (error)
+                    if (!validationResult)
                     {
                         JLOG(ctx.j.trace())
                             << "HookSet(" << hook::log::IMPORT_ILLEGAL << ")["
                             << HS_ACC()
                             << "]: Malformed transaction: Gas-type Hook "
                                "validation failed: "
-                            << *error;
+                            << validationResult.error();
+                        return false;
+                    }
+
+                    auto const hasCbak = validationResult.value();
+                    if ((!hasCbak && hasHookCallbackGas) ||
+                        (hasCbak && !hasHookCallbackGas))
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::HOOK_INVALID_FIELD
+                            << ")[" << HS_ACC()
+                            << "]: Malformed transaction: Gas-type Hook must "
+                               "contain either sfHookCallbackGas if it "
+                               "contains cbak function";
                         return false;
                     }
 
@@ -787,6 +876,11 @@ SetHook::preflight(PreflightContext const& ctx)
             hookSetObj.isFieldPresent(sfHookCanEmit))
             return temDISABLED;
 
+        if (!ctx.rules.enabled(featureHookGas) &&
+            (hookSetObj.isFieldPresent(sfHookCallbackGas) ||
+             hookSetObj.isFieldPresent(sfHookWeakGas)))
+            return temDISABLED;
+
         for (auto const& hookSetElement : hookSetObj)
         {
             auto const& name = hookSetElement.getFName();
@@ -795,7 +889,8 @@ SetHook::preflight(PreflightContext const& ctx)
                 name != sfHookNamespace && name != sfHookParameters &&
                 name != sfHookOn && name != sfHookGrants &&
                 name != sfHookApiVersion && name != sfFlags &&
-                name != sfHookCanEmit)
+                name != sfHookCanEmit && name != sfHookCallbackGas &&
+                name != sfHookWeakGas)
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
@@ -1235,6 +1330,34 @@ struct KeyletComparator
 };
 
 TER
+validateGasHook(
+    STObject const& hook,
+    std::shared_ptr<STLedgerEntry> const& defSLE)
+{
+    auto const version = defSLE->getFieldU16(sfHookApiVersion);
+    if (version == 1)
+    {
+        // Gas Hook
+        if (!defSLE->isFieldPresent(sfHookCallbackGas) &&
+            hook.isFieldPresent(sfHookCallbackGas))
+            return tecHOOK_INVALID;
+
+        auto const flags = defSLE->getFieldU32(sfFlags);
+        if (((flags & hsfCOLLECT) && !hook.isFieldPresent(sfHookWeakGas)) ||
+            (!(flags & hsfCOLLECT) && hook.isFieldPresent(sfHookWeakGas)))
+            return tecHOOK_INVALID;
+    }
+    else
+    {
+        // Guard Hook
+        if (hook.isFieldPresent(sfHookCallbackGas) ||
+            hook.isFieldPresent(sfHookWeakGas))
+            return tecHOOK_INVALID;
+    }
+    return tesSUCCESS;
+}
+
+TER
 SetHook::setHook()
 {
     /**
@@ -1610,6 +1733,10 @@ SetHook::setHook()
                 if (flags)
                     newHook.setFieldU32(sfFlags, *flags);
 
+                TER result = validateGasHook(newHook, oldDefSLE);
+                if (!isTesSuccess(result))
+                    return result;
+
                 newHooks.push_back(std::move(newHook));
                 continue;
             }
@@ -1731,6 +1858,19 @@ SetHook::setHook()
                     newHookDef->setFieldH256(
                         sfHookSetTxnID, ctx.tx.getTransactionID());
                     newHookDef->setFieldU64(sfReferenceCount, 1);
+
+                    // Set HookCallbackGas if present in hookSetObj
+                    if (hookSetObj->get().isFieldPresent(sfHookCallbackGas))
+                        newHookDef->setFieldU32(
+                            sfHookCallbackGas,
+                            hookSetObj->get().getFieldU32(sfHookCallbackGas));
+
+                    // Set HookWeakGas if present in hookSetObj
+                    if (hookSetObj->get().isFieldPresent(sfHookWeakGas))
+                        newHookDef->setFieldU32(
+                            sfHookWeakGas,
+                            hookSetObj->get().getFieldU32(sfHookWeakGas));
+
                     if (hookSetObj->get().getFieldU16(sfHookApiVersion) != 1)
                         newHookDef->setFieldAmount(
                             sfFee,
@@ -1757,6 +1897,38 @@ SetHook::setHook()
 
                     slesToInsert.emplace(keylet, newHookDef);
                     newHook.setFieldH256(sfHookHash, *createHookHash);
+
+                    // Set HookCallbackGas in Hook object only if different from
+                    // Definition
+                    if (hookSetObj->get().isFieldPresent(sfHookCallbackGas))
+                    {
+                        uint32_t objGas =
+                            hookSetObj->get().getFieldU32(sfHookCallbackGas);
+                        if (!newHookDef->isFieldPresent(sfHookCallbackGas) ||
+                            newHookDef->getFieldU32(sfHookCallbackGas) !=
+                                objGas)
+                        {
+                            newHook.setFieldU32(sfHookCallbackGas, objGas);
+                        }
+                    }
+
+                    // Set HookWeakGas in Hook object only if different from
+                    // Definition
+                    if (hookSetObj->get().isFieldPresent(sfHookWeakGas))
+                    {
+                        uint32_t objGas =
+                            hookSetObj->get().getFieldU32(sfHookWeakGas);
+                        if (!newHookDef->isFieldPresent(sfHookWeakGas) ||
+                            newHookDef->getFieldU32(sfHookWeakGas) != objGas)
+                        {
+                            newHook.setFieldU32(sfHookWeakGas, objGas);
+                        }
+                    }
+
+                    TER result = validateGasHook(newHook, newHookDef);
+                    if (!isTesSuccess(result))
+                        return result;
+
                     newHooks.push_back(std::move(newHook));
                     continue;
                 }
@@ -1851,6 +2023,10 @@ SetHook::setHook()
 
                 if (flags)
                     newHook.setFieldU32(sfFlags, newFlags);
+
+                result = validateGasHook(newHook, newDefSLE);
+                if (!isTesSuccess(result))
+                    return result;
 
                 newHooks.push_back(std::move(newHook));
 

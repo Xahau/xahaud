@@ -33267,6 +33267,34 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
 
     /* ==== WASM: 101 ==== */
     {R"[test.hook.gas](
+                (module
+                (type (;0;) (func (param i32 i32 i64) (result i64)))
+                (type (;1;) (func (param i32) (result i64)))
+                (import "env" "accept" (func (;0;) (type 0)))
+                (func (;1;) (type 1) (param i32) (result i64)
+                    i32.const 0
+                    i32.const 0
+                    i64.const 0
+                    call 0)
+                (memory (;0;) 2)
+                (export "memory" (memory 0))
+                (export "hook" (func 1))
+                (export "cbak" (func 1)))
+            )[test.hook.gas]",
+     {
+         0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x0DU,
+         0x02U, 0x60U, 0x03U, 0x7FU, 0x7FU, 0x7EU, 0x01U, 0x7EU, 0x60U, 0x01U,
+         0x7FU, 0x01U, 0x7EU, 0x02U, 0x0EU, 0x01U, 0x03U, 0x65U, 0x6EU, 0x76U,
+         0x06U, 0x61U, 0x63U, 0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x00U, 0x03U,
+         0x02U, 0x01U, 0x01U, 0x05U, 0x03U, 0x01U, 0x00U, 0x02U, 0x07U, 0x18U,
+         0x03U, 0x06U, 0x6DU, 0x65U, 0x6DU, 0x6FU, 0x72U, 0x79U, 0x02U, 0x00U,
+         0x04U, 0x68U, 0x6FU, 0x6FU, 0x6BU, 0x00U, 0x01U, 0x04U, 0x63U, 0x62U,
+         0x61U, 0x6BU, 0x00U, 0x01U, 0x0AU, 0x0CU, 0x01U, 0x0AU, 0x00U, 0x41U,
+         0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
+     }},
+
+    /* ==== WASM: 102 ==== */
+    {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
               (type (;1;) (func (param i32) (result i64)))
@@ -33288,7 +33316,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 102 ==== */
+    /* ==== WASM: 103 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33317,7 +33345,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 103 ==== */
+    /* ==== WASM: 104 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33344,7 +33372,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 104 ==== */
+    /* ==== WASM: 105 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33370,7 +33398,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 105 ==== */
+    /* ==== WASM: 106 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33397,7 +33425,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 106 ==== */
+    /* ==== WASM: 107 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33424,7 +33452,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 107 ==== */
+    /* ==== WASM: 108 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33452,7 +33480,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x1AU, 0x0BU,
      }},
 
-    /* ==== WASM: 108 ==== */
+    /* ==== WASM: 109 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33481,7 +33509,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x1AU, 0x41U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 109 ==== */
+    /* ==== WASM: 110 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33517,7 +33545,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 110 ==== */
+    /* ==== WASM: 111 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33553,7 +33581,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 111 ==== */
+    /* ==== WASM: 112 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33591,7 +33619,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x42U, 0x00U, 0x10U, 0x00U, 0x1AU, 0x41U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 112 ==== */
+    /* ==== WASM: 113 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32) (result i64)))
@@ -33610,7 +33638,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x06U, 0x01U, 0x04U, 0x00U, 0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 113 ==== */
+    /* ==== WASM: 114 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33639,7 +33667,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 114 ==== */
+    /* ==== WASM: 115 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32) (result i32)))
@@ -33662,7 +33690,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 115 ==== */
+    /* ==== WASM: 116 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64)))
@@ -33685,7 +33713,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 116 ==== */
+    /* ==== WASM: 117 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i32)))
@@ -33708,7 +33736,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x04U, 0x00U, 0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 117 ==== */
+    /* ==== WASM: 118 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32) (result i64)))
@@ -33732,7 +33760,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x41U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 118 ==== */
+    /* ==== WASM: 119 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64 i32) (result i64)))
@@ -33755,7 +33783,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x01U, 0x04U, 0x00U, 0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 119 ==== */
+    /* ==== WASM: 120 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i64 i32 i64) (result i64)))
@@ -33778,7 +33806,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x04U, 0x00U, 0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 120 ==== */
+    /* ==== WASM: 121 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i64 i64 i64 i64 i64 i64) (result i64)))
@@ -33802,7 +33830,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 121 ==== */
+    /* ==== WASM: 122 ==== */
     {R"[test.hook.gas](
                     (module
                     (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33847,7 +33875,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x10U, 0x00U, 0x0BU, 0x0BU,
      }},
 
-    /* ==== WASM: 122 ==== */
+    /* ==== WASM: 123 ==== */
     {R"[test.hook.gas](
                     (module
                     (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -33893,7 +33921,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x01U, 0x10U, 0x00U, 0x0BU, 0x0BU,
      }},
 
-    /* ==== WASM: 123 ==== */
+    /* ==== WASM: 124 ==== */
     {R"[test.hook.gas](
             #include <stdint.h>
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -33943,7 +33971,64 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x33U, 0x36U, 0x35U, 0x29U,
      }},
 
-    /* ==== WASM: 124 ==== */
+    /* ==== WASM: 125 ==== */
+    {R"[test.hook.gas](
+            #include <stdint.h>
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            int64_t cbak(uint32_t reserved )
+            {
+                return accept(0,0,0);
+            }
+            int64_t hook(uint32_t reserved )
+            {
+                return accept(0,0,0);
+            }
+        )[test.hook.gas]",
+     {
+         0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x10U,
+         0x03U, 0x60U, 0x03U, 0x7FU, 0x7FU, 0x7EU, 0x01U, 0x7EU, 0x60U, 0x00U,
+         0x00U, 0x60U, 0x01U, 0x7FU, 0x01U, 0x7EU, 0x02U, 0x0EU, 0x01U, 0x03U,
+         0x65U, 0x6EU, 0x76U, 0x06U, 0x61U, 0x63U, 0x63U, 0x65U, 0x70U, 0x74U,
+         0x00U, 0x00U, 0x03U, 0x04U, 0x03U, 0x01U, 0x02U, 0x02U, 0x04U, 0x05U,
+         0x01U, 0x70U, 0x01U, 0x01U, 0x01U, 0x05U, 0x03U, 0x01U, 0x00U, 0x02U,
+         0x06U, 0x21U, 0x05U, 0x7FU, 0x01U, 0x41U, 0x80U, 0x88U, 0x04U, 0x0BU,
+         0x7FU, 0x00U, 0x41U, 0x80U, 0x08U, 0x0BU, 0x7FU, 0x00U, 0x41U, 0x80U,
+         0x08U, 0x0BU, 0x7FU, 0x00U, 0x41U, 0x80U, 0x88U, 0x04U, 0x0BU, 0x7FU,
+         0x00U, 0x41U, 0x80U, 0x08U, 0x0BU, 0x07U, 0x66U, 0x08U, 0x06U, 0x6DU,
+         0x65U, 0x6DU, 0x6FU, 0x72U, 0x79U, 0x02U, 0x00U, 0x11U, 0x5FU, 0x5FU,
+         0x77U, 0x61U, 0x73U, 0x6DU, 0x5FU, 0x63U, 0x61U, 0x6CU, 0x6CU, 0x5FU,
+         0x63U, 0x74U, 0x6FU, 0x72U, 0x73U, 0x00U, 0x01U, 0x0AU, 0x5FU, 0x5FU,
+         0x64U, 0x61U, 0x74U, 0x61U, 0x5FU, 0x65U, 0x6EU, 0x64U, 0x03U, 0x01U,
+         0x0DU, 0x5FU, 0x5FU, 0x67U, 0x6CU, 0x6FU, 0x62U, 0x61U, 0x6CU, 0x5FU,
+         0x62U, 0x61U, 0x73U, 0x65U, 0x03U, 0x02U, 0x0BU, 0x5FU, 0x5FU, 0x68U,
+         0x65U, 0x61U, 0x70U, 0x5FU, 0x62U, 0x61U, 0x73U, 0x65U, 0x03U, 0x03U,
+         0x0CU, 0x5FU, 0x5FU, 0x64U, 0x73U, 0x6FU, 0x5FU, 0x68U, 0x61U, 0x6EU,
+         0x64U, 0x6CU, 0x65U, 0x03U, 0x04U, 0x04U, 0x63U, 0x62U, 0x61U, 0x6BU,
+         0x00U, 0x02U, 0x04U, 0x68U, 0x6FU, 0x6FU, 0x6BU, 0x00U, 0x03U, 0x0AU,
+         0x22U, 0x03U, 0x02U, 0x00U, 0x0BU, 0x0EU, 0x00U, 0x41U, 0x00U, 0x41U,
+         0x00U, 0x42U, 0x00U, 0x10U, 0x80U, 0x80U, 0x80U, 0x80U, 0x00U, 0x0BU,
+         0x0EU, 0x00U, 0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x80U,
+         0x80U, 0x80U, 0x80U, 0x00U, 0x0BU, 0x00U, 0x2FU, 0x04U, 0x6EU, 0x61U,
+         0x6DU, 0x65U, 0x01U, 0x28U, 0x04U, 0x00U, 0x06U, 0x61U, 0x63U, 0x63U,
+         0x65U, 0x70U, 0x74U, 0x01U, 0x11U, 0x5FU, 0x5FU, 0x77U, 0x61U, 0x73U,
+         0x6DU, 0x5FU, 0x63U, 0x61U, 0x6CU, 0x6CU, 0x5FU, 0x63U, 0x74U, 0x6FU,
+         0x72U, 0x73U, 0x02U, 0x04U, 0x63U, 0x62U, 0x61U, 0x6BU, 0x03U, 0x04U,
+         0x68U, 0x6FU, 0x6FU, 0x6BU, 0x00U, 0x75U, 0x09U, 0x70U, 0x72U, 0x6FU,
+         0x64U, 0x75U, 0x63U, 0x65U, 0x72U, 0x73U, 0x01U, 0x0CU, 0x70U, 0x72U,
+         0x6FU, 0x63U, 0x65U, 0x73U, 0x73U, 0x65U, 0x64U, 0x2DU, 0x62U, 0x79U,
+         0x01U, 0x05U, 0x63U, 0x6CU, 0x61U, 0x6EU, 0x67U, 0x55U, 0x39U, 0x2EU,
+         0x30U, 0x2EU, 0x30U, 0x20U, 0x28U, 0x68U, 0x74U, 0x74U, 0x70U, 0x73U,
+         0x3AU, 0x2FU, 0x2FU, 0x67U, 0x69U, 0x74U, 0x68U, 0x75U, 0x62U, 0x2EU,
+         0x63U, 0x6FU, 0x6DU, 0x2FU, 0x6CU, 0x6CU, 0x76U, 0x6DU, 0x2FU, 0x6CU,
+         0x6CU, 0x76U, 0x6DU, 0x2DU, 0x70U, 0x72U, 0x6FU, 0x6AU, 0x65U, 0x63U,
+         0x74U, 0x20U, 0x30U, 0x33U, 0x39U, 0x39U, 0x64U, 0x35U, 0x61U, 0x39U,
+         0x36U, 0x38U, 0x32U, 0x62U, 0x33U, 0x63U, 0x65U, 0x66U, 0x37U, 0x31U,
+         0x63U, 0x36U, 0x35U, 0x33U, 0x33U, 0x37U, 0x33U, 0x65U, 0x33U, 0x38U,
+         0x38U, 0x39U, 0x30U, 0x63U, 0x36U, 0x33U, 0x63U, 0x34U, 0x63U, 0x33U,
+         0x36U, 0x35U, 0x29U,
+     }},
+
+    /* ==== WASM: 126 ==== */
     {R"[test.hook.gas](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -33998,7 +34083,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x33U, 0x36U, 0x35U, 0x29U,
      }},
 
-    /* ==== WASM: 125 ==== */
+    /* ==== WASM: 127 ==== */
     {R"[test.hook.gas](
             #include <stdint.h>
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
