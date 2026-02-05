@@ -205,16 +205,20 @@ struct ConsensusResult
     using NodeID_t = typename Traits::NodeID_t;
 
     using Tx_t = typename TxSet_t::Tx;
+    // Use Traits::Position_t for RNG support (defaults to TxSet_t::ID)
     using Proposal_t = ConsensusProposal<
         NodeID_t,
         typename Ledger_t::ID,
-        typename TxSet_t::ID>;
+        typename Traits::Position_t>;
     using Dispute_t = DisputedTx<Tx_t, NodeID_t>;
 
     ConsensusResult(TxSet_t&& s, Proposal_t&& p)
         : txns{std::move(s)}, position{std::move(p)}
     {
-        assert(txns.id() == position.position());
+        // Use implicit conversion to uint256 for ExtendedPosition
+        assert(
+            txns.id() ==
+            static_cast<typename TxSet_t::ID>(position.position()));
     }
 
     //! The set of transactions consensus agrees go in the ledger

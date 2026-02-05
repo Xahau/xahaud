@@ -28,12 +28,159 @@
 #include <ripple/protocol/HashPrefix.h>
 #include <ripple/protocol/PublicKey.h>
 #include <ripple/protocol/SecretKey.h>
+#include <ripple/protocol/Serializer.h>
 #include <boost/container/static_vector.hpp>
 #include <chrono>
 #include <cstdint>
+#include <optional>
+#include <ostream>
 #include <string>
 
 namespace ripple {
+
+/** Extended position for consensus with RNG entropy support.
+
+    Carries both the consensus targets (set hashes that require agreement)
+    and pipelined leaves (per-validator data transported via gossip).
+
+    Critical design:
+    - operator== excludes leaves (allows convergence with unique leaves)
+    - add() includes ALL fields (prevents signature stripping attacks)
+*/
+struct ExtendedPosition
+{
+    // === Consensus Targets (Agreement Required) ===
+    uint256 txSetHash;
+    std::optional<uint256> commitSetHash;
+    std::optional<uint256> entropySetHash;
+
+    // === Pipelined Leaves (No Agreement Required) ===
+    std::optional<uint256> myCommitment;
+    std::optional<uint256> myReveal;
+
+    ExtendedPosition() = default;
+    explicit ExtendedPosition(uint256 const& txSet) : txSetHash(txSet)
+    {
+    }
+
+    // Implicit conversion for legacy compatibility
+    operator uint256() const
+    {
+        return txSetHash;
+    }
+
+    // Helper to update TxSet while preserving sidecar data
+    void
+    updateTxSet(uint256 const& set)
+    {
+        txSetHash = set;
+    }
+
+    // CRITICAL: Exclude leaves from equality - consensus only on set hashes
+    bool
+    operator==(ExtendedPosition const& other) const
+    {
+        return txSetHash == other.txSetHash &&
+            commitSetHash == other.commitSetHash &&
+            entropySetHash == other.entropySetHash;
+    }
+
+    bool
+    operator!=(ExtendedPosition const& other) const
+    {
+        return !(*this == other);
+    }
+
+    // Comparison with uint256 (compares txSetHash only)
+    bool
+    operator==(uint256 const& hash) const
+    {
+        return txSetHash == hash;
+    }
+
+    bool
+    operator!=(uint256 const& hash) const
+    {
+        return txSetHash != hash;
+    }
+
+    friend bool
+    operator==(uint256 const& hash, ExtendedPosition const& pos)
+    {
+        return pos.txSetHash == hash;
+    }
+
+    friend bool
+    operator!=(uint256 const& hash, ExtendedPosition const& pos)
+    {
+        return pos.txSetHash != hash;
+    }
+
+    // CRITICAL: Include ALL fields for signing (prevents stripping attacks)
+    void
+    add(Serializer& s) const
+    {
+        s.addBitString(txSetHash);
+
+        std::uint8_t flags = 0;
+        if (commitSetHash)
+            flags |= 0x01;
+        if (entropySetHash)
+            flags |= 0x02;
+        if (myCommitment)
+            flags |= 0x04;
+        if (myReveal)
+            flags |= 0x08;
+        s.add8(flags);
+
+        if (commitSetHash)
+            s.addBitString(*commitSetHash);
+        if (entropySetHash)
+            s.addBitString(*entropySetHash);
+        if (myCommitment)
+            s.addBitString(*myCommitment);
+        if (myReveal)
+            s.addBitString(*myReveal);
+    }
+
+    Json::Value
+    getJson() const
+    {
+        Json::Value ret = Json::objectValue;
+        ret["tx_set"] = to_string(txSetHash);
+        if (commitSetHash)
+            ret["commit_set"] = to_string(*commitSetHash);
+        if (entropySetHash)
+            ret["entropy_set"] = to_string(*entropySetHash);
+        return ret;
+    }
+};
+
+// For logging/debugging - returns txSetHash as string
+inline std::string
+to_string(ExtendedPosition const& pos)
+{
+    return to_string(pos.txSetHash);
+}
+
+// Stream output for logging
+inline std::ostream&
+operator<<(std::ostream& os, ExtendedPosition const& pos)
+{
+    return os << pos.txSetHash;
+}
+
+// For hash_append (used in sha512Half and similar)
+template <class Hasher>
+void
+hash_append(Hasher& h, ExtendedPosition const& pos)
+{
+    using beast::hash_append;
+    // Serialize full position including all fields
+    Serializer s;
+    pos.add(s);
+    hash_append(h, s.slice());
+}
 
 /** A peer's signed, proposed position for use in RCLConsensus.
 
@@ -43,8 +190,9 @@ namespace ripple {
 class RCLCxPeerPos
 {
 public:
-    //< The type of the proposed position
-    using Proposal = ConsensusProposal<NodeID, uint256, uint256>;
+    //< The type of the proposed position (uses ExtendedPosition for RNG
+    //support)
+    using Proposal = ConsensusProposal<NodeID, uint256, ExtendedPosition>;
 
     /** Constructor
 
@@ -112,7 +260,10 @@ private:
         hash_append(h, std::uint32_t(proposal().proposeSeq()));
         hash_append(h, proposal().closeTime());
         hash_append(h, proposal().prevLedger());
-        hash_append(h, proposal().position());
+        // Serialize full ExtendedPosition for hashing
+        Serializer s;
+        proposal().position().add(s);
+        hash_append(h, s.slice());
     }
 };
 
@@ -125,7 +276,7 @@ private:
     order to validate the signature. If the last closed ledger is left out, then
     it is considered as all zeroes for the purposes of signing.
 
-    @param proposeHash The hash of the proposed position
+    @param position The extended position (includes entropy fields)
     @param previousLedger The hash of the ledger the proposal is based upon
     @param proposeSeq Sequence number of the proposal
     @param closeTime Close time of the proposal
@@ -134,7 +285,7 @@ private:
 */
 uint256
 proposalUniqueId(
-    uint256 const& proposeHash,
+    ExtendedPosition const& position,
     uint256 const& previousLedger,
     std::uint32_t proposeSeq,
     NetClock::time_point closeTime,

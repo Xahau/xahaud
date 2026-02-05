@@ -145,6 +145,7 @@ public:
         using namespace csf;
         using namespace std::chrono;
 
+        //@@start peers-agree
         ConsensusParms const parms{};
         Sim sim;
         PeerGroup peers = sim.createGroup(5);
@@ -174,6 +175,7 @@ public:
                     BEAST_EXPECT(lcl.txs().find(Tx{i}) != lcl.txs().end());
             }
         }
+        //@@end peers-agree
     }
 
     void
@@ -186,6 +188,7 @@ public:
         // that have significantly longer network delays to the rest of the
         // network
 
+        //@@start slow-peer-scenario
         // Test when a slow peer doesn't delay a consensus quorum (4/5 agree)
         {
             ConsensusParms const parms{};
@@ -224,16 +227,18 @@ public:
                     BEAST_EXPECT(
                         peer->prevRoundTime == network[0]->prevRoundTime);
 
+                    // Slow peer's transaction (Tx{0}) didn't make it in time
                     BEAST_EXPECT(lcl.txs().find(Tx{0}) == lcl.txs().end());
                     for (std::uint32_t i = 2; i < network.size(); ++i)
                         BEAST_EXPECT(lcl.txs().find(Tx{i}) != lcl.txs().end());
 
-                    // Tx 0 didn't make it
+                    // Tx 0 is still in the open transaction set for next round
                     BEAST_EXPECT(
                         peer->openTxs.find(Tx{0}) != peer->openTxs.end());
                 }
             }
         }
+        //@@end slow-peer-scenario
 
         // Test when the slow peers delay a consensus quorum (4/6 agree)
         {
@@ -421,6 +426,7 @@ public:
         // the wrong LCL at different phases of consensus
         for (auto validationDelay : {0ms, parms.ledgerMIN_CLOSE})
         {
+            //@@start wrong-lcl-scenario
             // Consider 10 peers:
             // 0 1         2 3 4       5 6 7 8 9
             // minority   majorityA   majorityB
@@ -441,6 +447,7 @@ public:
 
             // This topology can potentially fork with the above trust relations
             // but that is intended for this test.
+            //@@end wrong-lcl-scenario
 
             Sim sim;
 
@@ -724,6 +731,7 @@ public:
             }
             sim.run(1);
 
+            //@@start fork-threshold
             // Fork should not happen for 40% or greater overlap
             // Since the overlapped nodes have a UNL that is the union of the
             // two cliques, the maximum sized UNL list is the number of peers
@@ -735,6 +743,7 @@ public:
                 // One for cliqueA, one for cliqueB and one for nodes in both
                 BEAST_EXPECT(sim.branches() <= 3);
             }
+            //@@end fork-threshold
         }
     }
 

@@ -159,6 +159,8 @@ struct Peer
     using NodeKey_t = PeerKey;
     using TxSet_t = TxSet;
     using PeerPosition_t = Position;
+    using Position_t =
+        typename TxSet_t::ID;  // Use TxSet::ID for test framework
     using Result = ConsensusResult<Peer>;
     using NodeKey = Validation::NodeKey;
 

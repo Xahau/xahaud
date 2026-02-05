@@ -93,6 +93,7 @@ class RCLConsensus
         using NodeKey_t = PublicKey;
         using TxSet_t = RCLTxSet;
         using PeerPosition_t = RCLCxPeerPos;
+        using Position_t = ExtendedPosition;
 
         using Result = ConsensusResult<Adaptor>;
 

@@ -1961,7 +1961,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     NetClock::time_point const closeTime{NetClock::duration{set.closetime()}};
 
     uint256 const suppression = proposalUniqueId(
-        proposeHash,
+        ExtendedPosition{proposeHash},
         prevLedger,
         set.proposeseq(),
         closeTime,
@@ -2008,7 +2008,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         RCLCxPeerPos::Proposal{
             prevLedger,
             set.proposeseq(),
-            proposeHash,
+            ExtendedPosition{proposeHash},
             closeTime,
             app_.timeKeeper().closeTime(),
             calcNodeID(app_.validatorManifests().getMasterKey(publicKey))});

@@ -47,8 +47,16 @@ RCLCxPeerPos::RCLCxPeerPos(
 bool
 RCLCxPeerPos::checkSign() const
 {
-    return verifyDigest(
-        publicKey(), proposal_.signingHash(), signature(), false);
+    // Use proposalUniqueId to ensure full ExtendedPosition is covered
+    auto const signingHash = proposalUniqueId(
+        proposal_.position(),
+        proposal_.prevLedger(),
+        proposal_.proposeSeq(),
+        proposal_.closeTime(),
+        publicKey_.slice(),
+        Slice{nullptr, 0});  // Exclude signature for signing hash
+
+    return verifyDigest(publicKey(), signingHash, signature(), false);
 }
 
 Json::Value
@@ -64,7 +72,7 @@ RCLCxPeerPos::getJson() const
 
 uint256
 proposalUniqueId(
-    uint256 const& proposeHash,
+    ExtendedPosition const& position,
     uint256 const& previousLedger,
     std::uint32_t proposeSeq,
     NetClock::time_point closeTime,
@@ -72,10 +80,14 @@ proposalUniqueId(
     Slice const& signature)
 {
     Serializer s(512);
-    s.addBitString(proposeHash);
-    s.addBitString(previousLedger);
+    s.add32(HashPrefix::proposal);
     s.add32(proposeSeq);
     s.add32(closeTime.time_since_epoch().count());
+    s.addBitString(previousLedger);
+
+    // Serialize full ExtendedPosition (TxSet + Sets + Leaves)
+    position.add(s);
+
     s.addVL(publicKey);
     s.addVL(signature);
 

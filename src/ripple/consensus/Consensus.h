@@ -36,6 +36,21 @@
 
 namespace ripple {
 
+/** Sub-states for pipelined consensus with RNG entropy support.
+
+    The establish phase is divided into sub-states to support commit-reveal
+    for consensus-derived randomness while maintaining low latency through
+    pipelining.
+
+    @note Data collection (commits, reveals) happens continuously via proposal
+          leaves. Sub-states are checkpoints, not serial waits.
+*/
+enum class EstablishState {
+    ConvergingTx,      ///< Normal txset convergence + harvesting commits
+    ConvergingCommit,  ///< Confirming commitSet agreement (near-instant)
+    ConvergingReveal   ///< Collecting reveals + confirming entropySet
+};
+
 /** Determines whether the current ledger should close at this time.
 
     This function should be called when a ledger is open and there is no close
@@ -289,10 +304,11 @@ class Consensus
     using NodeID_t = typename Adaptor::NodeID_t;
     using Tx_t = typename TxSet_t::Tx;
     using PeerPosition_t = typename Adaptor::PeerPosition_t;
+    // Use Adaptor::Position_t for RNG support (ExtendedPosition)
     using Proposal_t = ConsensusProposal<
         NodeID_t,
         typename Ledger_t::ID,
-        typename TxSet_t::ID>;
+        typename Adaptor::Position_t>;
 
     using Result = ConsensusResult<Adaptor>;
 
@@ -542,6 +558,7 @@ private:
     Adaptor& adaptor_;
 
     ConsensusPhase phase_{ConsensusPhase::accepted};
+    EstablishState estState_{EstablishState::ConvergingTx};
     MonitoredMode mode_{ConsensusMode::observing};
     bool firstRound_ = true;
     bool haveCloseTimeConsensus_ = false;
@@ -1515,7 +1532,21 @@ Consensus<Adaptor>::updateOurPositions()
                         << consensusCloseTime.time_since_epoch().count()
                         << ", tx " << newID;
 
-        result_->position.changePosition(newID, consensusCloseTime, now_);
+        // Preserve sidecar data (RNG fields), only update txSetHash
+        // Use type traits to conditionally handle ExtendedPosition vs simple ID
+        if constexpr (requires(typename Adaptor::Position_t p) {
+                          p.updateTxSet(newID);
+                      })
+        {
+            auto currentPos = result_->position.position();
+            currentPos.updateTxSet(newID);
+            result_->position.changePosition(
+                currentPos, consensusCloseTime, now_);
+        }
+        else
+        {
+            result_->position.changePosition(newID, consensusCloseTime, now_);
+        }
 
         // Share our new transaction set and update disputes
         // if we haven't already received it
