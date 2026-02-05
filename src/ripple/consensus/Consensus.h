@@ -24,6 +24,7 @@
 #include <ripple/basics/chrono.h>
 #include <ripple/beast/utility/Journal.h>
 #include <ripple/consensus/ConsensusParms.h>
+#include <ripple/protocol/digest.h>
 #include <ripple/consensus/ConsensusProposal.h>
 #include <ripple/consensus/ConsensusTypes.h>
 #include <ripple/consensus/DisputedTx.h>
@@ -699,6 +700,15 @@ Consensus<Adaptor>::startRoundInternal(
     rawCloseTimes_.self = {};
     deadNodes_.clear();
 
+    // Reset RNG state for new round if adaptor supports it
+    if constexpr (requires(Adaptor& a) { a.clearRngState(); })
+    {
+        adaptor_.clearRngState();
+    }
+
+    // Reset establish sub-state for new round
+    estState_ = EstablishState::ConvergingTx;
+
     closeResolution_ = getNextLedgerTimeResolution(
         previousLedger_.closeTimeResolution(),
         previousLedger_.closeAgree(),
@@ -1315,6 +1325,90 @@ Consensus<Adaptor>::phaseEstablish()
         return;
     }
 
+    // --- RNG Sub-state Checkpoints (if adaptor supports RNG) ---
+    if constexpr (requires(Adaptor& a) {
+                      a.hasQuorumOfCommits();
+                      a.buildCommitSet();
+                      a.generateEntropySecret();
+                  })
+    {
+        if (estState_ == EstablishState::ConvergingTx)
+        {
+            if (adaptor_.hasQuorumOfCommits())
+            {
+                auto commitSetHash = adaptor_.buildCommitSet();
+                adaptor_.generateEntropySecret();
+
+                auto newPos = result_->position.position();
+                newPos.commitSetHash = commitSetHash;
+                newPos.myCommitment = sha512Half(
+                    adaptor_.getEntropySecret(),
+                    adaptor_.validatorKey(),
+                    previousLedger_.seq() + typename Ledger_t::Seq{1});
+
+                result_->position.changePosition(
+                    newPos,
+                    asCloseTime(result_->position.closeTime()),
+                    now_);
+
+                if (mode_.get() == ConsensusMode::proposing)
+                    adaptor_.propose(result_->position);
+
+                estState_ = EstablishState::ConvergingCommit;
+                JLOG(j_.debug()) << "RNG: transitioned to ConvergingCommit";
+                return;  // Wait for next tick
+            }
+        }
+        else if (estState_ == EstablishState::ConvergingCommit)
+        {
+            // haveConsensus() implies agreement on commitSetHash
+            auto newPos = result_->position.position();
+            newPos.myReveal = adaptor_.getEntropySecret();
+
+            result_->position.changePosition(
+                newPos,
+                asCloseTime(result_->position.closeTime()),
+                now_);
+
+            if (mode_.get() == ConsensusMode::proposing)
+                adaptor_.propose(result_->position);
+
+            estState_ = EstablishState::ConvergingReveal;
+            JLOG(j_.debug()) << "RNG: transitioned to ConvergingReveal";
+            return;  // Wait for next tick
+        }
+        else if (estState_ == EstablishState::ConvergingReveal)
+        {
+            bool timeout = result_->roundTime.read() > parms.ledgerMAX_CONSENSUS;
+            bool ready = false;
+
+            if ((haveConsensus() && adaptor_.hasMinimumReveals()) || timeout)
+            {
+                if (timeout && !adaptor_.hasAnyReveals())
+                {
+                    adaptor_.setEntropyFailed();
+                    JLOG(j_.warn()) << "RNG: entropy failed (no reveals)";
+                }
+                else
+                {
+                    auto entropySetHash = adaptor_.buildEntropySet();
+                    auto newPos = result_->position.position();
+                    newPos.entropySetHash = entropySetHash;
+
+                    result_->position.changePosition(
+                        newPos,
+                        asCloseTime(result_->position.closeTime()),
+                        now_);
+                    JLOG(j_.debug()) << "RNG: built entropySet";
+                }
+                ready = true;
+            }
+
+            if (!ready)
+                return;
+        }
+    }
+
     JLOG(j_.info()) << "Converge cutoff (" << currPeerPositions_.size()
                     << " participants)";
     adaptor_.updateOperatingMode(currPeerPositions_.size());
@@ -1339,6 +1433,7 @@ Consensus<Adaptor>::closeLedger()
     assert(!result_);
 
     phase_ = ConsensusPhase::establish;
+    estState_ = EstablishState::ConvergingTx;
     JLOG(j_.debug()) << "transitioned to ConsensusPhase::establish";
     rawCloseTimes_.self = now_;
 
