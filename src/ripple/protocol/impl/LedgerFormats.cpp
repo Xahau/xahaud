@@ -381,6 +381,15 @@ LedgerFormats::LedgerFormats()
         },
         commonFields);
 
+    add(jss::ConsensusEntropy,
+        ltCONSENSUS_ENTROPY,
+        {
+            {sfDigest,               soeREQUIRED},  // The consensus-derived entropy
+            {sfPreviousTxnID,        soeREQUIRED},
+            {sfPreviousTxnLgrSeq,    soeREQUIRED},
+        },
+        commonFields);
+
     // clang-format on
 }
 

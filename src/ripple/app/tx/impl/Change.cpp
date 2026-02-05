@@ -96,6 +96,22 @@ Change::preflight(PreflightContext const& ctx)
         }
     }
 
+    if (ctx.tx.getTxnType() == ttCONSENSUS_ENTROPY)
+    {
+        // TODO: Add amendment gating when the feature is finalized
+        // if (!ctx.rules.enabled(featureConsensusEntropy))
+        // {
+        //     JLOG(ctx.j.warn()) << "Change: ConsensusEntropy is not enabled.";
+        //     return temDISABLED;
+        // }
+
+        if (!ctx.tx.isFieldPresent(sfDigest))
+        {
+            JLOG(ctx.j.warn()) << "Change: ConsensusEntropy must have sfDigest";
+            return temMALFORMED;
+        }
+    }
+
     return tesSUCCESS;
 }
 
@@ -154,6 +170,7 @@ Change::preclaim(PreclaimContext const& ctx)
         case ttAMENDMENT:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
+        case ttCONSENSUS_ENTROPY:
             return tesSUCCESS;
         case ttUNL_REPORT: {
             if (!ctx.tx.isFieldPresent(sfImportVLKey) ||
@@ -209,10 +226,39 @@ Change::doApply()
             return applyEmitFailure();
         case ttUNL_REPORT:
             return applyUNLReport();
+        case ttCONSENSUS_ENTROPY:
+            return applyConsensusEntropy();
         default:
             assert(0);
             return tefFAILURE;
     }
+}
+
+TER
+Change::applyConsensusEntropy()
+{
+    auto const entropy = ctx_.tx.getFieldH256(sfDigest);
+    auto const seq = view().info().seq;
+
+    auto sle = view().peek(keylet::consensusEntropy());
+    bool const created = !sle;
+
+    if (created)
+        sle = std::make_shared<SLE>(keylet::consensusEntropy());
+
+    sle->setFieldH256(sfDigest, entropy);
+    sle->setFieldH256(sfPreviousTxnID, ctx_.tx.getTransactionID());
+    sle->setFieldU32(sfPreviousTxnLgrSeq, seq);
+
+    if (created)
+        view().insert(sle);
+    else
+        view().update(sle);
+
+    JLOG(j_.info()) << "ConsensusEntropy: updated entropy to " << entropy
+                    << " at ledger " << seq;
+
+    return tesSUCCESS;
 }
 
 TER

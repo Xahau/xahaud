@@ -197,6 +197,13 @@ enum TxType : std::uint16_t
     ttUNL_MODIFY = 102,
     ttEMIT_FAILURE = 103,
     ttUNL_REPORT = 104,
+
+    /** This system-generated transaction type is used to record consensus-derived entropy.
+
+        The entropy is computed from a commit-reveal scheme during consensus and
+        written to the ledger for use by hooks and other deterministic applications.
+     */
+    ttCONSENSUS_ENTROPY = 105,
 };
 // clang-format on
 

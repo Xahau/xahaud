@@ -254,7 +254,8 @@ JSS(count);            // in: AccountTx*, ValidatorList
 JSS(counters);         // in/out: retrieve counters
 JSS(coins);
 JSS(children);
-JSS(ctid);  // in/out: Tx RPC
+JSS(ConsensusEntropy);  // transaction and ledger type.
+JSS(ctid);              // in/out: Tx RPC
 JSS(cres);
 JSS(cron);
 JSS(currency_a);         // out: BookChanges

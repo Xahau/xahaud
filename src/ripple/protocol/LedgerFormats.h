@@ -183,7 +183,15 @@ enum LedgerEntryType : std::uint16_t
      *
      * \sa keylet::UNLReport
      */
-    ltUNL_REPORT = 0x0052, 
+    ltUNL_REPORT = 0x0052,
+
+    /** The ledger object which stores consensus-derived entropy.
+
+        \note This is a singleton: only one such object exists in the ledger.
+
+        \sa keylet::consensusEntropy
+     */
+    ltCONSENSUS_ENTROPY = 0x0058, 
 
     //---------------------------------------------------------------------------
     /** A special type, matching any ledger entry type.

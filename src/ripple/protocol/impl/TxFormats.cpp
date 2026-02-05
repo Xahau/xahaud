@@ -490,6 +490,14 @@ TxFormats::TxFormats()
             {sfStartTime, soeOPTIONAL},
         },
         commonFields);
+
+    add(jss::ConsensusEntropy,
+        ttCONSENSUS_ENTROPY,
+        {
+            {sfLedgerSequence, soeREQUIRED},
+            {sfDigest, soeREQUIRED},  // The computed entropy value
+        },
+        commonFields);
 }
 
 TxFormats const&

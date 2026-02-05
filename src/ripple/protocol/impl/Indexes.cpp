@@ -73,6 +73,7 @@ enum class LedgerNameSpace : std::uint16_t {
     IMPORT_VLSEQ = 'I',
     UNL_REPORT = 'R',
     CRON = 'L',
+    CONSENSUS_ENTROPY = 'X',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -494,6 +495,14 @@ cron(uint32_t timestamp, std::optional<AccountID> const& id)
     std::memcpy(h + 12, accHash.cdata(), 20);
 
     return {ltCRON, uint256::fromVoid(h)};
+}
+
+Keylet const&
+consensusEntropy() noexcept
+{
+    static Keylet const ret{
+        ltCONSENSUS_ENTROPY, indexHash(LedgerNameSpace::CONSENSUS_ENTROPY)};
+    return ret;
 }
 
 }  // namespace keylet
