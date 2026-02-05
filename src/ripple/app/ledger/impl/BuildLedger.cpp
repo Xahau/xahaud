@@ -25,6 +25,7 @@
 #include <ripple/app/misc/CanonicalTXSet.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/protocol/Feature.h>
+#include <ripple/protocol/TxFormats.h>
 
 namespace ripple {
 
@@ -102,6 +103,42 @@ applyTransactions(
 {
     bool certainRetry = true;
     std::size_t count = 0;
+
+    // CRITICAL: Apply consensus entropy pseudo-tx FIRST before any other
+    // transactions. This ensures hooks can read entropy during this ledger.
+    for (auto it = txns.begin(); it != txns.end(); ++it)
+    {
+        if (it->second->getTxnType() == ttCONSENSUS_ENTROPY)
+        {
+            auto const txid = it->first.getTXID();
+            JLOG(j.debug()) << "Applying entropy tx FIRST: " << txid;
+
+            try
+            {
+                auto const result =
+                    applyTransaction(app, view, *it->second, true, tapNONE, j);
+
+                if (result == ApplyResult::Success)
+                {
+                    ++count;
+                    JLOG(j.debug()) << "Entropy tx applied successfully";
+                }
+                else
+                {
+                    failed.insert(txid);
+                    JLOG(j.warn()) << "Entropy tx failed to apply";
+                }
+            }
+            catch (std::exception const& ex)
+            {
+                JLOG(j.warn()) << "Entropy tx throws: " << ex.what();
+                failed.insert(txid);
+            }
+
+            txns.erase(it);
+            break;  // Only one entropy tx per ledger
+        }
+    }
 
     // Attempt to apply all of the retriable transactions
     for (int pass = 0; pass < LEDGER_TOTAL_PASSES; ++pass)

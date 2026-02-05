@@ -27,6 +27,7 @@
 #include <ripple/app/ledger/LocalTxs.h>
 #include <ripple/app/ledger/OpenLedger.h>
 #include <ripple/app/misc/AmendmentTable.h>
+#include <ripple/app/misc/CanonicalTXSet.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/LoadFeeTrack.h>
 #include <ripple/app/misc/NegativeUNLVote.h>
@@ -36,14 +37,16 @@
 #include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/misc/ValidatorList.h>
 #include <ripple/basics/random.h>
-#include <ripple/crypto/csprng.h>
 #include <ripple/beast/core/LexicalCast.h>
 #include <ripple/consensus/LedgerTiming.h>
+#include <ripple/crypto/csprng.h>
 #include <ripple/nodestore/DatabaseShard.h>
 #include <ripple/overlay/Overlay.h>
 #include <ripple/overlay/predicates.h>
 #include <ripple/protocol/BuildInfo.h>
 #include <ripple/protocol/Feature.h>
+#include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/TxFormats.h>
 #include <ripple/protocol/digest.h>
 
 #include <algorithm>
@@ -520,6 +523,10 @@ RCLConsensus::Adaptor::doAccept(
                 << "    Tx: " << item.key() << " throws: " << ex.what();
         }
     }
+
+    // Inject consensus entropy pseudo-transaction
+    // This must happen before buildLCL so the entropy tx is in the ledger
+    injectEntropyPseudoTx(retriableTxs, prevLedger.seq() + 1);
 
     auto built = buildLCL(
         prevLedger,
@@ -1096,10 +1103,9 @@ RCLConsensus::Adaptor::buildCommitSet()
         if (it != nodeIdToKey_.end())
             sorted.emplace_back(it->second, commit);
     }
-    std::sort(
-        sorted.begin(),
-        sorted.end(),
-        [](auto const& a, auto const& b) { return a.first < b.first; });
+    std::sort(sorted.begin(), sorted.end(), [](auto const& a, auto const& b) {
+        return a.first < b.first;
+    });
 
     Serializer s;
     for (auto const& [key, commit] : sorted)
@@ -1121,10 +1127,9 @@ RCLConsensus::Adaptor::buildEntropySet()
         if (it != nodeIdToKey_.end())
             sorted.emplace_back(it->second, reveal);
     }
-    std::sort(
-        sorted.begin(),
-        sorted.end(),
-        [](auto const& a, auto const& b) { return a.first < b.first; });
+    std::sort(sorted.begin(), sorted.end(), [](auto const& a, auto const& b) {
+        return a.first < b.first;
+    });
 
     Serializer s;
     for (auto const& [key, reveal] : sorted)
@@ -1172,6 +1177,79 @@ RCLConsensus::Adaptor::clearRngState()
 }
 
 void
+RCLConsensus::Adaptor::injectEntropyPseudoTx(
+    CanonicalTXSet& retriableTxs,
+    LedgerIndex seq)
+{
+    uint256 finalEntropy;
+    bool hasEntropy = false;
+
+    // Calculate entropy from collected reveals
+    if (entropyFailed_ || pendingReveals_.empty())
+    {
+        // Liveness fallback: inject zero entropy.
+        // Hooks MUST check for zero to know entropy is unavailable.
+        finalEntropy.zero();
+        hasEntropy = true;
+        JLOG(j_.warn()) << "RNG: Injecting ZERO entropy (fallback) for ledger "
+                        << seq;
+    }
+    else
+    {
+        // Sort reveals deterministically by Validator Public Key
+        std::vector<std::pair<PublicKey, uint256>> sorted;
+        sorted.reserve(pendingReveals_.size());
+
+        for (auto const& [nodeId, reveal] : pendingReveals_)
+        {
+            auto it = nodeIdToKey_.find(nodeId);
+            if (it != nodeIdToKey_.end())
+                sorted.emplace_back(it->second, reveal);
+        }
+
+        if (!sorted.empty())
+        {
+            std::sort(
+                sorted.begin(), sorted.end(), [](auto const& a, auto const& b) {
+                    return a.first.slice() < b.first.slice();
+                });
+
+            // Mix all reveals into final entropy
+            Serializer s;
+            for (auto const& [key, reveal] : sorted)
+            {
+                s.addVL(key.slice());
+                s.addBitString(reveal);
+            }
+            finalEntropy = sha512Half(s.slice());
+            hasEntropy = true;
+
+            JLOG(j_.info()) << "RNG: Injecting entropy " << finalEntropy
+                            << " from " << sorted.size() << " reveals"
+                            << " for ledger " << seq;
+        }
+    }
+
+    // Synthesize and inject the pseudo-transaction
+    if (hasEntropy)
+    {
+        // Account Zero convention for pseudo-transactions (same as ttFEE, etc)
+        STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
+            obj.setFieldU32(sfLedgerSequence, seq);
+            obj.setAccountID(sfAccount, AccountID{});
+            obj.setFieldU32(sfSequence, 0);
+            obj.setFieldAmount(sfFee, STAmount{});
+            obj.setFieldH256(sfDigest, finalEntropy);
+        });
+
+        retriableTxs.insert(std::make_shared<STTx>(std::move(tx)));
+    }
+
+    // Reset RNG state for next round
+    clearRngState();
+}
+
+void
 RCLConsensus::Adaptor::harvestRngData(
     NodeID const& nodeId,
     PublicKey const& publicKey,
@@ -1183,39 +1261,40 @@ RCLConsensus::Adaptor::harvestRngData(
     // Harvest commitment if present
     if (position.myCommitment)
     {
-        auto [it, inserted] = pendingCommits_.emplace(nodeId, *position.myCommitment);
+        auto [it, inserted] =
+            pendingCommits_.emplace(nodeId, *position.myCommitment);
         if (!inserted && it->second != *position.myCommitment)
         {
             // Commitment changed - this is suspicious but could be from a
             // restarted validator. Log and update.
-            JLOG(j_.warn()) << "Validator " << nodeId
-                            << " changed commitment from " << it->second
-                            << " to " << *position.myCommitment;
+            JLOG(j_.warn())
+                << "Validator " << nodeId << " changed commitment from "
+                << it->second << " to " << *position.myCommitment;
             it->second = *position.myCommitment;
         }
         else if (inserted)
         {
-            JLOG(j_.trace()) << "Harvested commitment from " << nodeId
-                             << ": " << *position.myCommitment;
+            JLOG(j_.trace()) << "Harvested commitment from " << nodeId << ": "
+                             << *position.myCommitment;
         }
     }
 
     // Harvest reveal if present
     if (position.myReveal)
     {
-        auto [it, inserted] = pendingReveals_.emplace(nodeId, *position.myReveal);
+        auto [it, inserted] =
+            pendingReveals_.emplace(nodeId, *position.myReveal);
         if (!inserted && it->second != *position.myReveal)
         {
             // Reveal changed - this should never happen for honest validators
-            JLOG(j_.warn()) << "Validator " << nodeId
-                            << " changed reveal from " << it->second
-                            << " to " << *position.myReveal;
+            JLOG(j_.warn()) << "Validator " << nodeId << " changed reveal from "
+                            << it->second << " to " << *position.myReveal;
             it->second = *position.myReveal;
         }
         else if (inserted)
         {
-            JLOG(j_.trace()) << "Harvested reveal from " << nodeId
-                             << ": " << *position.myReveal;
+            JLOG(j_.trace()) << "Harvested reveal from " << nodeId << ": "
+                             << *position.myReveal;
         }
     }
 }

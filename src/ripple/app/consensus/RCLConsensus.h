@@ -40,6 +40,7 @@
 #include <set>
 namespace ripple {
 
+class CanonicalTXSet;
 class InboundTransactions;
 class LocalTxs;
 class LedgerMaster;
@@ -233,6 +234,18 @@ class RCLConsensus
         /** Clear RNG state for new round */
         void
         clearRngState();
+
+        /** Inject consensus entropy pseudo-transaction into the tx set.
+
+            Creates a ttCONSENSUS_ENTROPY pseudo-transaction from collected
+            reveals and injects it into the transaction set. This must be
+            called before buildLCL so the entropy is written to the ledger.
+
+            @param retriableTxs The canonical transaction set to inject into
+            @param seq The ledger sequence being built
+        */
+        void
+        injectEntropyPseudoTx(CanonicalTXSet& retriableTxs, LedgerIndex seq);
 
         /** Harvest RNG data from a peer proposal.
 

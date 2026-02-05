@@ -238,7 +238,6 @@ TER
 Change::applyConsensusEntropy()
 {
     auto const entropy = ctx_.tx.getFieldH256(sfDigest);
-    auto const seq = view().info().seq;
 
     auto sle = view().peek(keylet::consensusEntropy());
     bool const created = !sle;
@@ -247,8 +246,9 @@ Change::applyConsensusEntropy()
         sle = std::make_shared<SLE>(keylet::consensusEntropy());
 
     sle->setFieldH256(sfDigest, entropy);
-    sle->setFieldH256(sfPreviousTxnID, ctx_.tx.getTransactionID());
-    sle->setFieldU32(sfPreviousTxnLgrSeq, seq);
+    // Note: sfPreviousTxnID and sfPreviousTxnLgrSeq are set automatically
+    // by ApplyStateTable::threadItem() because isThreadedType() returns true
+    // for ledger entries that have sfPreviousTxnID in their format.
 
     if (created)
         view().insert(sle);
@@ -256,7 +256,7 @@ Change::applyConsensusEntropy()
         view().update(sle);
 
     JLOG(j_.info()) << "ConsensusEntropy: updated entropy to " << entropy
-                    << " at ledger " << seq;
+                    << " at ledger " << view().info().seq;
 
     return tesSUCCESS;
 }
