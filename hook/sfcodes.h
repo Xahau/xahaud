@@ -63,6 +63,8 @@
 #define sfEmitGeneration ((2U << 16U) + 46U)
 #define sfLockCount ((2U << 16U) + 49U)
 #define sfFirstNFTokenSequence ((2U << 16U) + 50U)
+#define sfHookCallbackGas ((2U << 16U) + 89U)
+#define sfHookWeakGas ((2U << 16U) + 90U)
 #define sfHookInstructionCost ((2U << 16U) + 91U)
 #define sfHookGas ((2U << 16U) + 92U)
 #define sfStartTime ((2U << 16U) + 93U)
