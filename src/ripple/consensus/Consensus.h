@@ -796,6 +796,18 @@ Consensus<Adaptor>::peerProposalInternal(
             currPeerPositions_.emplace(peerID, newPeerPos);
     }
 
+    // Harvest RNG data from proposal if adaptor supports it
+    if constexpr (requires(Adaptor& a, PeerPosition_t const& pp) {
+                      a.harvestRngData(
+                          pp.proposal().nodeID(),
+                          pp.publicKey(),
+                          pp.proposal().position());
+                  })
+    {
+        adaptor_.harvestRngData(
+            peerID, newPeerPos.publicKey(), newPeerProp.position());
+    }
+
     if (newPeerProp.isInitial())
     {
         // Record the close time estimate

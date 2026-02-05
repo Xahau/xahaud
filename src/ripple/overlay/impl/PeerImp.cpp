@@ -1935,7 +1935,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         return;
     }
 
-    if (!stringIsUint256Sized(set.currenttxhash()) ||
+    // Position data must be at least 32 bytes (txSetHash), previous ledger exactly 32
+    if (set.currenttxhash().size() < 32 ||
         !stringIsUint256Sized(set.previousledger()))
     {
         JLOG(p_journal_.warn()) << "Proposal: malformed";
@@ -1955,13 +1956,18 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     if (!isTrusted && app_.config().RELAY_UNTRUSTED_PROPOSALS == -1)
         return;
 
-    uint256 const proposeHash{set.currenttxhash()};
+    // Deserialize ExtendedPosition (handles both legacy 32-byte and extended formats)
+    auto const positionSlice = makeSlice(set.currenttxhash());
+    SerialIter sit(positionSlice);
+    ExtendedPosition const position =
+        ExtendedPosition::fromSerialIter(sit, positionSlice.size());
+
     uint256 const prevLedger{set.previousledger()};
 
     NetClock::time_point const closeTime{NetClock::duration{set.closetime()}};
 
     uint256 const suppression = proposalUniqueId(
-        ExtendedPosition{proposeHash},
+        position,
         prevLedger,
         set.proposeseq(),
         closeTime,
@@ -2008,7 +2014,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         RCLCxPeerPos::Proposal{
             prevLedger,
             set.proposeseq(),
-            ExtendedPosition{proposeHash},
+            position,
             closeTime,
             app_.timeKeeper().closeTime(),
             calcNodeID(app_.validatorManifests().getMasterKey(publicKey))});

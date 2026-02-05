@@ -87,6 +87,15 @@ class RCLConsensus
         RCLCensorshipDetector<TxID, LedgerIndex> censorshipDetector_;
         NegativeUNLVote nUnlVote_;
 
+        // --- RNG Pipelined Storage ---
+        hash_map<NodeID, uint256> pendingCommits_;
+        hash_map<NodeID, uint256> pendingReveals_;
+        hash_map<NodeID, PublicKey> nodeIdToKey_;
+
+        // Ephemeral entropy secret (in-memory only, crash = non-revealer)
+        uint256 myEntropySecret_;
+        bool entropyFailed_ = false;
+
     public:
         using Ledger_t = RCLCxLedger;
         using NodeID_t = NodeID;
@@ -178,6 +187,67 @@ class RCLConsensus
         {
             return parms_;
         }
+
+        // --- RNG Helper Methods ---
+
+        /** Get the quorum threshold (80% of trusted validators) */
+        std::size_t
+        quorumThreshold() const;
+
+        /** Check if we have quorum of commits */
+        bool
+        hasQuorumOfCommits() const;
+
+        /** Check if we have minimum reveals for consensus */
+        bool
+        hasMinimumReveals() const;
+
+        /** Check if we have any reveals at all */
+        bool
+        hasAnyReveals() const;
+
+        /** Build deterministic hash of all collected commits */
+        uint256
+        buildCommitSet();
+
+        /** Build deterministic hash of all collected reveals */
+        uint256
+        buildEntropySet();
+
+        /** Generate new entropy secret for this round */
+        void
+        generateEntropySecret();
+
+        /** Get the current entropy secret */
+        uint256
+        getEntropySecret() const;
+
+        /** Mark entropy as failed for this round */
+        void
+        setEntropyFailed();
+
+        /** Get our validator public key */
+        PublicKey const&
+        validatorKey() const;
+
+        /** Clear RNG state for new round */
+        void
+        clearRngState();
+
+        /** Harvest RNG data from a peer proposal.
+
+            Extracts commits and reveals from the proposal's ExtendedPosition
+            and stores them in pending collections for later processing.
+
+            @param nodeId The node ID of the proposer
+            @param publicKey The public key of the proposer
+            @param position The proposal's ExtendedPosition
+        */
+        void
+        harvestRngData(
+            NodeID const& nodeId,
+            PublicKey const& publicKey,
+            ExtendedPosition const& position);
 
     private:
         //---------------------------------------------------------------------

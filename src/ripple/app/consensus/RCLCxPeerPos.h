@@ -154,6 +154,36 @@ struct ExtendedPosition
             ret["entropy_set"] = to_string(*entropySetHash);
         return ret;
     }
+
+    /** Deserialize from wire format.
+        Handles both legacy 32-byte hash and new extended format.
+    */
+    static ExtendedPosition
+    fromSerialIter(SerialIter& sit, std::size_t totalSize)
+    {
+        ExtendedPosition pos;
+        pos.txSetHash = sit.get256();
+
+        // Legacy format: exactly 32 bytes
+        if (totalSize == 32)
+            return pos;
+
+        // Extended format: has flags + optional fields
+        if (sit.empty())
+            return pos;
+
+        std::uint8_t flags = sit.get8();
+        if (flags & 0x01)
+            pos.commitSetHash = sit.get256();
+        if (flags & 0x02)
+            pos.entropySetHash = sit.get256();
+        if (flags & 0x04)
+            pos.myCommitment = sit.get256();
+        if (flags & 0x08)
+            pos.myReveal = sit.get256();
+
+        return pos;
+    }
 };
 
 // For logging/debugging - returns txSetHash as string

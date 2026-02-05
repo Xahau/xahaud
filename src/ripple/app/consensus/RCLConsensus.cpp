@@ -36,6 +36,7 @@
 #include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/misc/ValidatorList.h>
 #include <ripple/basics/random.h>
+#include <ripple/crypto/csprng.h>
 #include <ripple/beast/core/LexicalCast.h>
 #include <ripple/consensus/LedgerTiming.h>
 #include <ripple/nodestore/DatabaseShard.h>
@@ -165,9 +166,12 @@ RCLConsensus::Adaptor::share(RCLCxPeerPos const& peerPos)
     prop.set_proposeseq(proposal.proposeSeq());
     prop.set_closetime(proposal.closeTime().time_since_epoch().count());
 
-    prop.set_currenttxhash(
-        proposal.position().txSetHash.begin(),
-        proposal.position().txSetHash.size());
+    // Serialize full ExtendedPosition (includes RNG leaves)
+    Serializer positionData;
+    proposal.position().add(positionData);
+    auto const posSlice = positionData.slice();
+    prop.set_currenttxhash(posSlice.data(), posSlice.size());
+
     prop.set_previousledger(
         proposal.prevLedger().begin(), proposal.prevLedger().size());
 
@@ -210,9 +214,12 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
 
     protocol::TMProposeSet prop;
 
-    prop.set_currenttxhash(
-        proposal.position().txSetHash.begin(),
-        proposal.position().txSetHash.size());
+    // Serialize full ExtendedPosition (includes RNG leaves)
+    Serializer positionData;
+    proposal.position().add(positionData);
+    auto const posSlice = positionData.slice();
+    prop.set_currenttxhash(posSlice.data(), posSlice.size());
+
     prop.set_previousledger(
         proposal.prevLedger().begin(), proposal.prevLedger().size());
     prop.set_proposeseq(proposal.proposeSeq());
@@ -1047,6 +1054,170 @@ RCLConsensus::Adaptor::updateOperatingMode(std::size_t const positions) const
 {
     if (!positions && app_.getOPs().isFull())
         app_.getOPs().setMode(OperatingMode::CONNECTED);
+}
+
+//------------------------------------------------------------------------------
+// RNG Helper Methods
+
+std::size_t
+RCLConsensus::Adaptor::quorumThreshold() const
+{
+    auto [quorum, trustedKeys] = getQuorumKeys();
+    // Use 80% quorum for RNG commit/reveal
+    return (trustedKeys.size() * 80 + 99) / 100;
+}
+
+bool
+RCLConsensus::Adaptor::hasQuorumOfCommits() const
+{
+    return pendingCommits_.size() >= quorumThreshold();
+}
+
+bool
+RCLConsensus::Adaptor::hasMinimumReveals() const
+{
+    return pendingReveals_.size() >= quorumThreshold();
+}
+
+bool
+RCLConsensus::Adaptor::hasAnyReveals() const
+{
+    return !pendingReveals_.empty();
+}
+
+uint256
+RCLConsensus::Adaptor::buildCommitSet()
+{
+    // Sort commits deterministically by public key
+    std::vector<std::pair<PublicKey, uint256>> sorted;
+    for (auto const& [nodeId, commit] : pendingCommits_)
+    {
+        auto it = nodeIdToKey_.find(nodeId);
+        if (it != nodeIdToKey_.end())
+            sorted.emplace_back(it->second, commit);
+    }
+    std::sort(
+        sorted.begin(),
+        sorted.end(),
+        [](auto const& a, auto const& b) { return a.first < b.first; });
+
+    Serializer s;
+    for (auto const& [key, commit] : sorted)
+    {
+        s.addVL(key.slice());
+        s.addBitString(commit);
+    }
+    return sha512Half(s.slice());
+}
+
+uint256
+RCLConsensus::Adaptor::buildEntropySet()
+{
+    // Sort reveals deterministically by public key
+    std::vector<std::pair<PublicKey, uint256>> sorted;
+    for (auto const& [nodeId, reveal] : pendingReveals_)
+    {
+        auto it = nodeIdToKey_.find(nodeId);
+        if (it != nodeIdToKey_.end())
+            sorted.emplace_back(it->second, reveal);
+    }
+    std::sort(
+        sorted.begin(),
+        sorted.end(),
+        [](auto const& a, auto const& b) { return a.first < b.first; });
+
+    Serializer s;
+    for (auto const& [key, reveal] : sorted)
+    {
+        s.addVL(key.slice());
+        s.addBitString(reveal);
+    }
+    return sha512Half(s.slice());
+}
+
+void
+RCLConsensus::Adaptor::generateEntropySecret()
+{
+    // Generate cryptographically secure random entropy
+    crypto_prng()(myEntropySecret_.data(), myEntropySecret_.size());
+    entropyFailed_ = false;
+}
+
+uint256
+RCLConsensus::Adaptor::getEntropySecret() const
+{
+    return myEntropySecret_;
+}
+
+void
+RCLConsensus::Adaptor::setEntropyFailed()
+{
+    entropyFailed_ = true;
+}
+
+PublicKey const&
+RCLConsensus::Adaptor::validatorKey() const
+{
+    return validatorKeys_.publicKey;
+}
+
+void
+RCLConsensus::Adaptor::clearRngState()
+{
+    pendingCommits_.clear();
+    pendingReveals_.clear();
+    nodeIdToKey_.clear();
+    myEntropySecret_ = uint256{};
+    entropyFailed_ = false;
+}
+
+void
+RCLConsensus::Adaptor::harvestRngData(
+    NodeID const& nodeId,
+    PublicKey const& publicKey,
+    ExtendedPosition const& position)
+{
+    // Store nodeId -> publicKey mapping for deterministic ordering
+    nodeIdToKey_[nodeId] = publicKey;
+
+    // Harvest commitment if present
+    if (position.myCommitment)
+    {
+        auto [it, inserted] = pendingCommits_.emplace(nodeId, *position.myCommitment);
+        if (!inserted && it->second != *position.myCommitment)
+        {
+            // Commitment changed - this is suspicious but could be from a
+            // restarted validator. Log and update.
+            JLOG(j_.warn()) << "Validator " << nodeId
+                            << " changed commitment from " << it->second
+                            << " to " << *position.myCommitment;
+            it->second = *position.myCommitment;
+        }
+        else if (inserted)
+        {
+            JLOG(j_.trace()) << "Harvested commitment from " << nodeId
+                             << ": " << *position.myCommitment;
+        }
+    }
+
+    // Harvest reveal if present
+    if (position.myReveal)
+    {
+        auto [it, inserted] = pendingReveals_.emplace(nodeId, *position.myReveal);
+        if (!inserted && it->second != *position.myReveal)
+        {
+            // Reveal changed - this should never happen for honest validators
+            JLOG(j_.warn()) << "Validator " << nodeId
+                            << " changed reveal from " << it->second
+                            << " to " << *position.myReveal;
+            it->second = *position.myReveal;
+        }
+        else if (inserted)
+        {
+            JLOG(j_.trace()) << "Harvested reveal from " << nodeId
+                             << ": " << *position.myReveal;
+        }
+    }
 }
 
 void
