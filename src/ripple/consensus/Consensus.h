@@ -1444,7 +1444,8 @@ Consensus<Adaptor>::phaseEstablish()
 
         if (estState_ == EstablishState::ConvergingTx)
         {
-            if (adaptor_.hasQuorumOfCommits())  // 80% of active UNL
+            if (adaptor_.hasQuorumOfCommits())  // all expected proposers (80%
+                                                // fallback)
             {
                 auto commitSetHash = adaptor_.buildCommitSet(buildSeq);
 
