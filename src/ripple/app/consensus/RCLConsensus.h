@@ -104,6 +104,9 @@ class RCLConsensus
         // Track pending RNG set hashes we've triggered fetches for
         hash_set<uint256> pendingRngFetches_;
 
+        // Cached set of NodeIDs from UNL Report (or fallback UNL)
+        hash_set<NodeID> activeUNLNodeIds_;
+
     public:
         using Ledger_t = RCLCxLedger;
         using NodeID_t = NodeID;
@@ -239,6 +242,16 @@ class RCLConsensus
         /** Trigger fetch for a peer's unknown RNG set hash */
         void
         fetchRngSetIfNeeded(std::optional<uint256> const& hash);
+
+        /** Cache the active UNL NodeIDs for this round.
+            Reads from UNL Report (in-ledger), falls back to normal UNL.
+        */
+        void
+        cacheActiveUNL();
+
+        /** Check if a NodeID is in the active UNL for this round */
+        bool
+        isActiveUNLMember(NodeID const& nodeId) const;
 
         /** Generate new entropy secret for this round */
         void

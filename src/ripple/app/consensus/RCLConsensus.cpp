@@ -421,6 +421,7 @@ RCLConsensus::Adaptor::onClose(
     // in our very first proposal so peers can collect it during consensus.
     if (proposing && prevLedger->rules().enabled(featureConsensusEntropy))
     {
+        cacheActiveUNL();
         generateEntropySecret();
         pos.myCommitment = sha512Half(
             myEntropySecret_,
@@ -1160,6 +1161,9 @@ RCLConsensus::Adaptor::buildCommitSet(LedgerIndex seq)
 
     for (auto const& [nodeId, commit] : pendingCommits_)
     {
+        if (!isActiveUNLMember(nodeId))
+            continue;
+
         auto kit = nodeIdToKey_.find(nodeId);
         if (kit == nodeIdToKey_.end())
             continue;
@@ -1206,6 +1210,9 @@ RCLConsensus::Adaptor::buildEntropySet(LedgerIndex seq)
 
     for (auto const& [nodeId, reveal] : pendingReveals_)
     {
+        if (!isActiveUNLMember(nodeId))
+            continue;
+
         auto kit = nodeIdToKey_.find(nodeId);
         if (kit == nodeIdToKey_.end())
             continue;
@@ -1278,6 +1285,53 @@ RCLConsensus::Adaptor::clearRngState()
     commitSetMap_.reset();
     entropySetMap_.reset();
     pendingRngFetches_.clear();
+    activeUNLNodeIds_.clear();
+}
+
+void
+RCLConsensus::Adaptor::cacheActiveUNL()
+{
+    activeUNLNodeIds_.clear();
+
+    // Try UNL Report from the validated ledger
+    if (auto const prevLedger = ledgerMaster_.getValidatedLedger())
+    {
+        if (auto const sle = prevLedger->read(keylet::UNLReport()))
+        {
+            if (sle->isFieldPresent(sfActiveValidators))
+            {
+                for (auto const& obj : sle->getFieldArray(sfActiveValidators))
+                {
+                    auto const pk = obj.getFieldVL(sfPublicKey);
+                    if (publicKeyType(makeSlice(pk)))
+                    {
+                        activeUNLNodeIds_.insert(
+                            calcNodeID(PublicKey(makeSlice(pk))));
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback to normal UNL if no report or empty
+    if (activeUNLNodeIds_.empty())
+    {
+        for (auto const& masterKey : app_.validators().getTrustedMasterKeys())
+        {
+            activeUNLNodeIds_.insert(calcNodeID(masterKey));
+        }
+    }
+
+    // Always include ourselves
+    activeUNLNodeIds_.insert(validatorKeys_.nodeID);
+
+    JLOG(j_.debug()) << "RNG: cacheActiveUNL size=" << activeUNLNodeIds_.size();
+}
+
+bool
+RCLConsensus::Adaptor::isActiveUNLMember(NodeID const& nodeId) const
+{
+    return activeUNLNodeIds_.count(nodeId) > 0;
 }
 
 bool
@@ -1360,6 +1414,13 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
                     NodeID nodeId;
                     std::memcpy(nodeId.data(), acctId.data(), nodeId.size());
 
+                    if (!isActiveUNLMember(nodeId))
+                    {
+                        JLOG(j_.debug()) << "RNG: rejecting non-UNL entry from "
+                                         << nodeId << " in acquired set";
+                        continue;
+                    }
+
                     pendingData[nodeId] = digest;
                     nodeIdToKey_[nodeId] = pubKey;
                     ++merged;
@@ -1394,6 +1455,13 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
                     auto const acctId = stx->getAccountID(sfAccount);
                     NodeID nodeId;
                     std::memcpy(nodeId.data(), acctId.data(), nodeId.size());
+
+                    if (!isActiveUNLMember(nodeId))
+                    {
+                        JLOG(j_.debug()) << "RNG: rejecting non-UNL entry from "
+                                         << nodeId << " in acquired set";
+                        return;
+                    }
 
                     pendingData[nodeId] = digest;
                     nodeIdToKey_[nodeId] = pubKey;
@@ -1527,6 +1595,14 @@ RCLConsensus::Adaptor::harvestRngData(
     JLOG(j_.debug()) << "RNG: harvestRngData from " << nodeId
                      << " commit=" << (position.myCommitment ? "yes" : "no")
                      << " reveal=" << (position.myReveal ? "yes" : "no");
+
+    // Reject data from validators not in the active UNL
+    if (!isActiveUNLMember(nodeId))
+    {
+        JLOG(j_.debug()) << "RNG: rejecting data from non-UNL validator "
+                         << nodeId;
+        return;
+    }
 
     // Store nodeId -> publicKey mapping for deterministic ordering
     nodeIdToKey_[nodeId] = publicKey;
