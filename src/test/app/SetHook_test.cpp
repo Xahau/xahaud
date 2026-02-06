@@ -14361,10 +14361,162 @@ public:
     {
         testcase("Test Gas-type Hook cbak gas");
         using namespace jtx;
-        Env env{*this, features};
         auto const alice = Account{"alice"};
-        env.fund(XRP(10000), alice);
-        env.close();
+
+        TestHook hook_wasm = wasm[
+            R"[test.hook.gas](
+            #include <stdint.h>
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t emit     (uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+            extern int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
+            extern int64_t etxn_reserve(uint32_t);
+            extern int64_t etxn_fee_base (uint32_t read_ptr, uint32_t read_len);
+            extern int64_t etxn_details (uint32_t write_ptr, uint32_t write_len);
+            extern int64_t ledger_seq (void);
+
+            #define SBUF(x) (uint32_t)x,sizeof(x)
+
+            // clang-format off
+            uint8_t txn[229] =
+            {
+            /* size, upto, field name               */
+            /*    3,    0, tt = AccountSet          */   0x12U, 0x00U, 0x03U,
+            /*    5,    3, flags                    */   0x22U, 0x00U, 0x00U, 0x00U, 0x00U,
+            /*    5,    8, sequence                 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+            /*    6,   13, firstledgersequence      */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
+            /*    6,   19, lastledgersequence       */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
+            /*    9,   25, fee                      */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+            /*   35,   34, signingpubkey            */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+            /*   22,   69, account                  */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+            /*  138,   91, emit details             */ 
+            /*    0,  229,                          */ 
+            };
+            // clang-format on
+
+            // TX BUILDER
+            #define FLAGS_OUT (txn + 4U)
+            #define FLS_OUT (txn + 15U)
+            #define LLS_OUT (txn + 21U)
+            #define FEE_OUT (txn + 26U)
+            #define ACCOUNT_OUT (txn + 71U)
+            #define EMIT_OUT (txn + 91U)
+
+            #define FLIP_ENDIAN_32(value)                                                  \
+            (uint32_t)(((value & 0xFFU) << 24) | ((value & 0xFF00U) << 8) |              \
+                        ((value & 0xFF0000U) >> 8) | ((value & 0xFF000000U) >> 24))
+
+            #define SET_UINT32(ptr, value) *((uint32_t *)(ptr)) = FLIP_ENDIAN_32(value);
+
+            #define SET_NATIVE_AMOUNT(ptr, amount)                                         \
+            do {                                                                           \
+                uint8_t *b = (ptr);                                                        \
+                *b++ = 0b01000000 + ((amount >> 56) & 0b00111111);                         \
+                *b++ = (amount >> 48) & 0xFFU;                                             \
+                *b++ = (amount >> 40) & 0xFFU;                                             \
+                *b++ = (amount >> 32) & 0xFFU;                                             \
+                *b++ = (amount >> 24) & 0xFFU;                                             \
+                *b++ = (amount >> 16) & 0xFFU;                                             \
+                *b++ = (amount >> 8) & 0xFFU;                                              \
+                *b++ = (amount >> 0) & 0xFFU;                                              \
+            } while (0)
+
+            #define PREPARE_TXN()                                                          \
+            do {                                                                           \
+                etxn_reserve(1);                                                           \
+                uint32_t fls = (uint32_t)ledger_seq() + 1;                                 \
+                SET_UINT32(FLS_OUT, fls);                                                  \
+                SET_UINT32(LLS_OUT, fls + 4);                                              \
+                hook_account(ACCOUNT_OUT, 20);                                             \
+                etxn_details(EMIT_OUT, 138U);                                              \
+                int64_t fee = etxn_fee_base(SBUF(txn));                                    \
+                SET_NATIVE_AMOUNT(FEE_OUT, fee);                                           \
+            } while (0)
+
+            int64_t cbak(uint32_t reserved )
+            {
+                for(int i = 0; i < 1000; i++)
+                    ledger_seq();
+                return accept(0,0,0);
+            }
+            int64_t hook(uint32_t reserved )
+            {
+                PREPARE_TXN(); 
+                uint8_t emithash[32]; 
+                int64_t emit_result = emit(SBUF(emithash), SBUF(txn)); 
+                if (emit_result > 0)
+                    return accept(0,0,0);
+                else
+                    return rollback(0,0,0);
+            }
+        )[test.hook.gas]"];
+
+        HASH_WASM(hook);
+
+        for (auto const success : {true, false})
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            auto const expectedGas = success ? 1000 : 1;
+
+            Json::Value jv = hso(hook_wasm, overrideFlag);
+            jv[jss::HookApiVersion] = 1;
+            jv[sfHookCallbackGas.jsonName] = expectedGas;
+
+            env(ripple::test::jtx::hook(alice, {{jv}}, 0),
+                M("test gas type hook cbak gas installation"),
+                HSFEE);
+            env.close();
+
+            env(invoke::invoke(alice),
+                hookgas(1000),
+                M("test gas type hook cbak gas invocation"),
+                fee(XRP(1)));
+
+            auto meta = env.meta();
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+            auto const& hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+
+            auto const& hookExecution = hookExecutions[0];
+            BEAST_REQUIRE(hookExecution.isFieldPresent(sfHookResult));
+            BEAST_REQUIRE(
+                hookExecution.getFieldU8(sfHookResult) ==
+                hook_api::ExitType::ACCEPT);
+
+            BEAST_REQUIRE(hookExecution.isFieldPresent(sfHookInstructionCost));
+            BEAST_REQUIRE(
+                hookExecution.getFieldU32(sfHookInstructionCost) == 140);
+
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookEmissions));
+            BEAST_REQUIRE(meta->getFieldArray(sfHookEmissions).size() == 1);
+            auto const& hookEmission = meta->getFieldArray(sfHookEmissions)[0];
+            auto const& emittedTxnID =
+                hookEmission.getFieldH256(sfEmittedTxnID);
+
+            // proceed ledger
+            env.close();
+
+            auto const& txPair = env.closed()->txRead(emittedTxnID);
+            auto const& tx = txPair.first;
+            meta = txPair.second;
+            BEAST_REQUIRE(
+                tx->getFieldAmount(sfFee).xrp() ==
+                env.current()->fees().base + drops(expectedGas));
+
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+            BEAST_REQUIRE(meta->getFieldArray(sfHookExecutions).size() == 1);
+            auto const& execution = meta->getFieldArray(sfHookExecutions)[0];
+            BEAST_REQUIRE(execution.isFieldPresent(sfHookResult));
+            BEAST_REQUIRE(
+                execution.getFieldU8(sfHookResult) == success
+                    ? hook_api::ExitType::ACCEPT
+                    : hook_api::ExitType::GAS_INSUFFICIENT);
+        }
     }
 
     void
@@ -14410,7 +14562,7 @@ public:
         BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookResult));
         BEAST_REQUIRE(
             hookExecutions[0].getFieldU8(sfHookResult) ==
-            hook_api::ExitType::WASM_ERROR);
+            hook_api::ExitType::GAS_INSUFFICIENT);
 
         // Trigger the hook with a payment
         env(pay(bob, alice, XRP(1)),
@@ -14635,20 +14787,6 @@ public:
     void
     testWithFeatures(FeatureBitset features)
     {
-        // Gas-type Hook tests
-        testGasTypeHookWeakGas(features);
-        return;
-        testGasTypeHookDisabled(features);
-        testGasTypeHookInstallation(features);
-        testGasTypeHookCbakGas(features);
-        testGasTypeHookRejects_gFunction(features);
-        testGasExecutionSufficient(features);
-        testMultipleGasHooksSharedPool(features);
-        testGasTypeHookHostFunctionValidation(features);
-        testGasTypeHookExportErrors(features);
-        testGasTypeHookImportErrors(features);
-        testGasTypeHookMemoryValidation(features);
-        return;
         testHooksOwnerDir(features);
         testHooksDisabled(features);
         testTxStructure(features);

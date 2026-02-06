@@ -1364,7 +1364,8 @@ Transactor::executeHookChain(
             return tecINTERNAL;
         }
 
-        bool hasCallback = hookDef->isFieldPresent(sfHookCallbackFee);
+        bool hasCallback = hookDef->isFieldPresent(sfHookCallbackFee) ||
+            hookDef->isFieldPresent(sfHookCallbackGas);
 
         // Extract HookApiVersion for Gas-type hooks
         uint16_t hookApiVersion = hookDef->isFieldPresent(sfHookApiVersion)
@@ -1514,7 +1515,8 @@ Transactor::doHookCallback(
         return;
     }
 
-    if (!hookDef->isFieldPresent(sfHookCallbackFee))
+    if (!hookDef->isFieldPresent(sfHookCallbackFee) &&
+        !hookDef->isFieldPresent(sfHookCallbackGas))
     {
         JLOG(j_.trace()) << "HookInfo[" << callbackAccountID
                          << "]: Callback specified by emitted txn "
@@ -1587,10 +1589,6 @@ Transactor::doHookCallback(
             else if (hookDef->isFieldPresent(sfHookCallbackGas))
             {
                 hookGas = hookDef->getFieldU32(sfHookCallbackGas);
-            }
-            else if (ctx_.tx.isFieldPresent(sfHookGas))
-            {
-                hookGas = ctx_.tx.getFieldU32(sfHookGas);
             }
 
             hook::HookResult callbackResult = hook::apply(
@@ -1911,7 +1909,8 @@ Transactor::doAgainAsWeak(
                 stateMap,
                 ctx_,
                 hookAccountID,
-                hookDef->isFieldPresent(sfHookCallbackFee),
+                hookDef->isFieldPresent(sfHookCallbackFee) ||
+                    hookDef->isFieldPresent(sfHookCallbackGas),
                 false,
                 false,
                 2UL,  // param 2 = aaw
