@@ -816,7 +816,7 @@ public:
                                 << hookCtx.result.hookGas;
             }
 
-            hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+            hookCtx.result.exitType = hook_api::ExitType::GAS_INSUFFICIENT;
             return;
         }
 

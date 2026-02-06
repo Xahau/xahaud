@@ -1342,7 +1342,7 @@ validateGasHook(
             hook.isFieldPresent(sfHookCallbackGas))
             return tecHOOK_INVALID;
 
-        auto const flags = defSLE->getFieldU32(sfFlags);
+        auto const flags = hook.getFlags();
         if (((flags & hsfCOLLECT) && !hook.isFieldPresent(sfHookWeakGas)) ||
             (!(flags & hsfCOLLECT) && hook.isFieldPresent(sfHookWeakGas)))
             return tecHOOK_INVALID;
@@ -1446,6 +1446,14 @@ SetHook::setHook()
         std::optional<uint256> newHookCanEmit;
         std::optional<uint256> defHookCanEmit;
 
+        std::optional<uint32_t> oldHookWeakGas;
+        std::optional<uint32_t> newHookWeakGas;
+        std::optional<uint32_t> defHookWeakGas;
+
+        std::optional<uint32_t> oldHookCallbackGas;
+        std::optional<uint32_t> newHookCallbackGas;
+        std::optional<uint32_t> defHookCallbackGas;
+
         // when hsoCREATE is invoked it populates this variable in case the hook
         // definition already exists and the operation falls through into a
         // hsoINSTALL operation instead
@@ -1514,6 +1522,23 @@ SetHook::setHook()
                 oldHookCanEmit = oldHook->get().getFieldH256(sfHookCanEmit);
             else if (defHookCanEmit)
                 oldHookCanEmit = *defHookCanEmit;
+
+            if (oldDefSLE && oldDefSLE->isFieldPresent(sfHookWeakGas))
+                defHookWeakGas = oldDefSLE->getFieldU32(sfHookWeakGas);
+
+            if (oldHook && oldHook->get().isFieldPresent(sfHookWeakGas))
+                oldHookWeakGas = oldHook->get().getFieldU32(sfHookWeakGas);
+            else if (defHookWeakGas)
+                oldHookWeakGas = *defHookWeakGas;
+
+            if (oldDefSLE && oldDefSLE->isFieldPresent(sfHookCallbackGas))
+                defHookCallbackGas = oldDefSLE->getFieldU32(sfHookCallbackGas);
+
+            if (oldHook && oldHook->get().isFieldPresent(sfHookCallbackGas))
+                oldHookCallbackGas =
+                    oldHook->get().getFieldU32(sfHookCallbackGas);
+            else if (defHookCallbackGas)
+                oldHookCallbackGas = *defHookCallbackGas;
         }
 
         // in preparation for three way merge populate fields if they are
@@ -1687,6 +1712,31 @@ SetHook::setHook()
                     }
                     else
                         newHook.setFieldH256(sfHookCanEmit, *newHookCanEmit);
+                }
+
+                if (newHookWeakGas)
+                {
+                    if (defHookWeakGas.has_value() &&
+                        *defHookWeakGas == *newHookWeakGas)
+                    {
+                        if (newHook.isFieldPresent(sfHookWeakGas))
+                            newHook.makeFieldAbsent(sfHookWeakGas);
+                    }
+                    else
+                        newHook.setFieldU32(sfHookWeakGas, *newHookWeakGas);
+                }
+
+                if (newHookCallbackGas)
+                {
+                    if (defHookCallbackGas.has_value() &&
+                        *defHookCallbackGas == *newHookCallbackGas)
+                    {
+                        if (newHook.isFieldPresent(sfHookCallbackGas))
+                            newHook.makeFieldAbsent(sfHookCallbackGas);
+                    }
+                    else
+                        newHook.setFieldU32(
+                            sfHookCallbackGas, *newHookCallbackGas);
                 }
 
                 // parameters
@@ -2000,6 +2050,16 @@ SetHook::setHook()
                     !(defHookCanEmit.has_value() &&
                       *defHookCanEmit == *newHookCanEmit))
                     newHook.setFieldH256(sfHookCanEmit, *newHookCanEmit);
+
+                if (newHookCallbackGas &&
+                    !(defHookCallbackGas.has_value() &&
+                      *defHookCallbackGas == *newHookCallbackGas))
+                    newHook.setFieldU32(sfHookCallbackGas, *newHookCallbackGas);
+
+                if (newHookWeakGas &&
+                    !(defHookWeakGas.has_value() &&
+                      *defHookWeakGas == *newHookWeakGas))
+                    newHook.setFieldU32(sfHookWeakGas, *newHookWeakGas);
 
                 // parameters
                 TER result = updateHookParameters(

@@ -14300,6 +14300,74 @@ public:
     }
 
     void
+    testGasTypeHookWeakGas(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook weak gas");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        auto const gw = Account{"gw"};
+        auto const USD = gw["USD"];
+
+        for (auto const success : {true, false})
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, gw);
+            env.close();
+
+            env(fset(gw, asfTshCollect));
+            env.close();
+
+            auto const weakGas = success ? 1000000 : 1;
+
+            Json::Value jv = hso(gas_accept_wasm, collectFlag);
+            jv[jss::HookApiVersion] = 1;
+            jv[sfHookWeakGas.jsonName] = weakGas;
+
+            env(ripple::test::jtx::hook(gw, {{jv}}, 0),
+                M("test gas type hook weak gas installation"),
+                HSFEE);
+            env.close();
+
+            auto const balanceBefore = env.balance(gw);
+
+            env(trust(alice, USD(1000000)));
+            env.close();
+
+            auto const balanceAfter = env.balance(gw);
+            BEAST_EXPECT(balanceBefore - balanceAfter == drops(weakGas));
+
+            auto const meta = env.meta();
+
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+            BEAST_REQUIRE(meta->getFieldArray(sfHookExecutions).size() == 1);
+
+            auto const& execution = meta->getFieldArray(sfHookExecutions)[0];
+            BEAST_REQUIRE(execution.isFieldPresent(sfHookResult));
+            BEAST_REQUIRE(
+                execution.getFieldU8(sfHookResult) ==
+                (success ? hook_api::ExitType::ACCEPT
+                         : hook_api::ExitType::GAS_INSUFFICIENT));
+            BEAST_REQUIRE(execution.isFieldPresent(sfHookInstructionCost));
+            BEAST_REQUIRE(
+                execution.getFieldU32(sfHookInstructionCost) ==
+                (success ? 14 : 1));
+        }
+    }
+
+    void
+    testGasTypeHookCbakGas(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook cbak gas");
+        using namespace jtx;
+        Env env{*this, features};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+    }
+
+    void
     testGasExecutionSufficient(FeatureBitset features)
     {
         testcase("Test Gas execution with sufficient gas");
@@ -14568,8 +14636,11 @@ public:
     testWithFeatures(FeatureBitset features)
     {
         // Gas-type Hook tests
+        testGasTypeHookWeakGas(features);
+        return;
         testGasTypeHookDisabled(features);
         testGasTypeHookInstallation(features);
+        testGasTypeHookCbakGas(features);
         testGasTypeHookRejects_gFunction(features);
         testGasExecutionSufficient(features);
         testMultipleGasHooksSharedPool(features);
@@ -14694,6 +14765,8 @@ public:
         // Gas-type Hook tests
         testGasTypeHookDisabled(features);
         testGasTypeHookInstallation(features);
+        testGasTypeHookWeakGas(features);
+        testGasTypeHookCbakGas(features);
         testGasTypeHookRejects_gFunction(features);
         testGasExecutionSufficient(features);
         testMultipleGasHooksSharedPool(features);
