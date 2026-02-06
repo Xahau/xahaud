@@ -255,6 +255,26 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
 
     prop.set_signature(sig.data(), sig.size());
 
+    // Store our own proposal proof for embedding in SHAMap entries.
+    // The proposal signature already covers the full ExtendedPosition,
+    // so this proof lets peers verify provenance of our commit/reveal.
+    if (proposal.position().myCommitment || proposal.position().myReveal)
+    {
+        ProposalProof proof;
+        proof.proposeSeq = proposal.proposeSeq();
+        proof.closeTime = static_cast<std::uint32_t>(
+            proposal.closeTime().time_since_epoch().count());
+        proof.prevLedger = proposal.prevLedger();
+
+        Serializer s;
+        proposal.position().add(s);
+        proof.positionData = std::move(s);
+
+        proof.signature = Buffer(sig.data(), sig.size());
+
+        proposalProofs_[validatorKeys_.nodeID] = std::move(proof);
+    }
+
     auto const suppression = proposalUniqueId(
         proposal.position(),
         proposal.prevLedger(),
@@ -1181,6 +1201,9 @@ RCLConsensus::Adaptor::buildCommitSet(LedgerIndex seq)
             obj.setFieldAmount(sfFee, STAmount{});
             obj.setFieldH256(sfDigest, commit);
             obj.setFieldVL(sfSigningPubKey, kit->second.slice());
+            auto proofIt = proposalProofs_.find(nodeId);
+            if (proofIt != proposalProofs_.end())
+                obj.setFieldVL(sfBlob, serializeProof(proofIt->second));
         });
 
         Serializer s(2048);
@@ -1228,6 +1251,9 @@ RCLConsensus::Adaptor::buildEntropySet(LedgerIndex seq)
             obj.setFieldAmount(sfFee, STAmount{});
             obj.setFieldH256(sfDigest, reveal);
             obj.setFieldVL(sfSigningPubKey, kit->second.slice());
+            auto proofIt = proposalProofs_.find(nodeId);
+            if (proofIt != proposalProofs_.end())
+                obj.setFieldVL(sfBlob, serializeProof(proofIt->second));
         });
 
         Serializer s(2048);
@@ -1286,6 +1312,7 @@ RCLConsensus::Adaptor::clearRngState()
     entropySetMap_.reset();
     pendingRngFetches_.clear();
     activeUNLNodeIds_.clear();
+    proposalProofs_.clear();
 }
 
 void
@@ -1425,6 +1452,20 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
                         continue;
                     }
 
+                    // Verify proposal proof if present
+                    if (stx->isFieldPresent(sfBlob))
+                    {
+                        auto proofBlob = stx->getFieldVL(sfBlob);
+                        if (!verifyProof(
+                                proofBlob, pubKey, digest, isCommitSet))
+                        {
+                            JLOG(j_.warn())
+                                << "RNG: invalid proof from " << nodeId
+                                << " in acquired set (diff)";
+                            continue;
+                        }
+                    }
+
                     pendingData[nodeId] = digest;
                     nodeIdToKey_[nodeId] = pubKey;
                     ++merged;
@@ -1465,6 +1506,20 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
                         JLOG(j_.debug()) << "RNG: rejecting non-UNL entry from "
                                          << nodeId << " in acquired set";
                         return;
+                    }
+
+                    // Verify proposal proof if present
+                    if (stx->isFieldPresent(sfBlob))
+                    {
+                        auto proofBlob = stx->getFieldVL(sfBlob);
+                        if (!verifyProof(
+                                proofBlob, pubKey, digest, isCommitSet))
+                        {
+                            JLOG(j_.warn())
+                                << "RNG: invalid proof from " << nodeId
+                                << " in acquired set (visit)";
+                            return;
+                        }
                     }
 
                     pendingData[nodeId] = digest;
@@ -1594,7 +1649,11 @@ void
 RCLConsensus::Adaptor::harvestRngData(
     NodeID const& nodeId,
     PublicKey const& publicKey,
-    ExtendedPosition const& position)
+    ExtendedPosition const& position,
+    std::uint32_t proposeSeq,
+    NetClock::time_point closeTime,
+    uint256 const& prevLedger,
+    Slice const& signature)
 {
     JLOG(j_.debug()) << "RNG: harvestRngData from " << nodeId
                      << " commit=" << (position.myCommitment ? "yes" : "no")
@@ -1618,8 +1677,6 @@ RCLConsensus::Adaptor::harvestRngData(
             pendingCommits_.emplace(nodeId, *position.myCommitment);
         if (!inserted && it->second != *position.myCommitment)
         {
-            // Commitment changed - this is suspicious but could be from a
-            // restarted validator. Log and update.
             JLOG(j_.warn())
                 << "Validator " << nodeId << " changed commitment from "
                 << it->second << " to " << *position.myCommitment;
@@ -1639,7 +1696,6 @@ RCLConsensus::Adaptor::harvestRngData(
             pendingReveals_.emplace(nodeId, *position.myReveal);
         if (!inserted && it->second != *position.myReveal)
         {
-            // Reveal changed - this should never happen for honest validators
             JLOG(j_.warn()) << "Validator " << nodeId << " changed reveal from "
                             << it->second << " to " << *position.myReveal;
             it->second = *position.myReveal;
@@ -1649,6 +1705,88 @@ RCLConsensus::Adaptor::harvestRngData(
             JLOG(j_.trace()) << "Harvested reveal from " << nodeId << ": "
                              << *position.myReveal;
         }
+    }
+
+    // Store proposal proof for embedding in SHAMap entries.
+    // The proposal signature covers the full ExtendedPosition (including
+    // myCommitment/myReveal), so this proof lets any node verify provenance
+    // of entries in fetched commit/entropy SHAMaps.
+    if (position.myCommitment || position.myReveal)
+    {
+        ProposalProof proof;
+        proof.proposeSeq = proposeSeq;
+        proof.closeTime =
+            static_cast<std::uint32_t>(closeTime.time_since_epoch().count());
+        proof.prevLedger = prevLedger;
+
+        Serializer s;
+        position.add(s);
+        proof.positionData = std::move(s);
+
+        proof.signature = Buffer(signature.data(), signature.size());
+
+        proposalProofs_[nodeId] = std::move(proof);
+    }
+}
+
+Blob
+RCLConsensus::Adaptor::serializeProof(ProposalProof const& proof)
+{
+    Serializer s;
+    s.add32(proof.proposeSeq);
+    s.add32(proof.closeTime);
+    s.addBitString(proof.prevLedger);
+    s.addVL(proof.positionData.slice());
+    s.addVL(Slice(proof.signature.data(), proof.signature.size()));
+    return s.getData();
+}
+
+bool
+RCLConsensus::Adaptor::verifyProof(
+    Blob const& proofBlob,
+    PublicKey const& publicKey,
+    uint256 const& expectedDigest,
+    bool isCommit)
+{
+    try
+    {
+        SerialIter sit(makeSlice(proofBlob));
+
+        auto proposeSeq = sit.get32();
+        auto closeTime = sit.get32();
+        auto prevLedger = sit.get256();
+        auto positionData = sit.getVL();
+        auto signature = sit.getVL();
+
+        // Deserialize ExtendedPosition from the proof
+        SerialIter posIter(makeSlice(positionData));
+        auto position =
+            ExtendedPosition::fromSerialIter(posIter, positionData.size());
+
+        // Verify the expected digest matches the position's leaf
+        if (isCommit)
+        {
+            if (!position.myCommitment ||
+                *position.myCommitment != expectedDigest)
+                return false;
+        }
+        else
+        {
+            if (!position.myReveal || *position.myReveal != expectedDigest)
+                return false;
+        }
+
+        // Recompute the signing hash (must match
+        // ConsensusProposal::signingHash)
+        auto signingHash = sha512Half(
+            HashPrefix::proposal, proposeSeq, closeTime, prevLedger, position);
+
+        // Verify the proposal signature
+        return verifyDigest(publicKey, signingHash, makeSlice(signature));
+    }
+    catch (std::exception const&)
+    {
+        return false;
     }
 }
 

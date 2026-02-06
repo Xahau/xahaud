@@ -835,7 +835,11 @@ Consensus<Adaptor>::peerProposalInternal(
                       a.harvestRngData(
                           pp.proposal().nodeID(),
                           pp.publicKey(),
-                          pp.proposal().position());
+                          pp.proposal().position(),
+                          pp.proposal().proposeSeq(),
+                          pp.proposal().closeTime(),
+                          pp.proposal().prevLedger(),
+                          pp.signature());
                   })
     {
         JLOG(j_.debug()) << "RNG: peerProposal from " << peerID << " commit="
@@ -843,7 +847,13 @@ Consensus<Adaptor>::peerProposalInternal(
                          << " reveal="
                          << (newPeerProp.position().myReveal ? "yes" : "no");
         adaptor_.harvestRngData(
-            peerID, newPeerPos.publicKey(), newPeerProp.position());
+            peerID,
+            newPeerPos.publicKey(),
+            newPeerProp.position(),
+            newPeerProp.proposeSeq(),
+            newPeerProp.closeTime(),
+            newPeerProp.prevLedger(),
+            newPeerPos.signature());
 
         // Trigger fetch for unknown RNG set hashes
         if constexpr (requires(Adaptor & a) {
@@ -1402,6 +1412,18 @@ Consensus<Adaptor>::phaseEstablish()
                 JLOG(j_.debug()) << "RNG: transitioned to ConvergingCommit"
                                  << " commitSet=" << commitSetHash;
                 return;  // Wait for next tick
+            }
+
+            // Don't let the round close while waiting for commit quorum.
+            // Without this gate, execution falls through to the normal
+            // consensus close logic and nodes inject partial/zero entropy
+            // while others are still collecting — causing ledger mismatches.
+            {
+                bool timeout =
+                    result_->roundTime.read() > parms.ledgerMAX_CONSENSUS;
+                if (!timeout)
+                    return;  // Wait for more commits
+                // On timeout: fall through to normal close (zero entropy)
             }
         }
         else if (estState_ == EstablishState::ConvergingCommit)

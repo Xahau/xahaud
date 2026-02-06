@@ -495,7 +495,8 @@ TxFormats::TxFormats()
         ttCONSENSUS_ENTROPY,
         {
             {sfLedgerSequence, soeREQUIRED},
-            {sfDigest, soeREQUIRED},  // The computed entropy value
+            {sfDigest, soeREQUIRED},
+            {sfBlob, soeOPTIONAL},  // Proposal proof for SHAMap entries
         },
         commonFields);
 }

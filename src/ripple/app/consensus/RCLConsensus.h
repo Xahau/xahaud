@@ -107,6 +107,21 @@ class RCLConsensus
         // Cached set of NodeIDs from UNL Report (or fallback UNL)
         hash_set<NodeID> activeUNLNodeIds_;
 
+        /** Proof data from a proposal signature, for embedding in SHAMap
+            entries. Contains everything needed to independently verify
+            that a validator committed/revealed a specific value. */
+        struct ProposalProof
+        {
+            std::uint32_t proposeSeq;
+            std::uint32_t closeTime;
+            uint256 prevLedger;
+            Serializer positionData;  // serialized ExtendedPosition
+            Buffer signature;
+        };
+
+        // Proposal proofs keyed by NodeID
+        hash_map<NodeID, ProposalProof> proposalProofs_;
+
     public:
         using Ledger_t = RCLCxLedger;
         using NodeID_t = NodeID;
@@ -289,16 +304,30 @@ class RCLConsensus
 
             Extracts commits and reveals from the proposal's ExtendedPosition
             and stores them in pending collections for later processing.
-
-            @param nodeId The node ID of the proposer
-            @param publicKey The public key of the proposer
-            @param position The proposal's ExtendedPosition
+            Also captures a ProposalProof for embedding in SHAMap entries.
         */
         void
         harvestRngData(
             NodeID const& nodeId,
             PublicKey const& publicKey,
-            ExtendedPosition const& position);
+            ExtendedPosition const& position,
+            std::uint32_t proposeSeq,
+            NetClock::time_point closeTime,
+            uint256 const& prevLedger,
+            Slice const& signature);
+
+        /** Serialize a ProposalProof into a blob for sfBlob */
+        static Blob
+        serializeProof(ProposalProof const& proof);
+
+        /** Verify a proof blob against the entry's public key and digest.
+            @return true if the proof is valid */
+        static bool
+        verifyProof(
+            Blob const& proofBlob,
+            PublicKey const& publicKey,
+            uint256 const& expectedDigest,
+            bool isCommit);
 
     private:
         //---------------------------------------------------------------------
