@@ -555,6 +555,13 @@ public:
         return consensus_.phase();
     }
 
+    //! @see Consensus::inRngSubState
+    bool
+    inRngSubState() const
+    {
+        return consensus_.inRngSubState();
+    }
+
     //! @see Consensus::getJson
     Json::Value
     getJson(bool full) const;

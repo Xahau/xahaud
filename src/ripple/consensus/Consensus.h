@@ -390,6 +390,18 @@ public:
     void
     timerEntry(NetClock::time_point const& now);
 
+    /** Whether the RNG sub-state machine wants faster polling.
+
+        Returns true during ConvergingCommit and ConvergingReveal so the
+        heartbeat timer can use a shorter interval (e.g. 250ms) instead
+        of the normal ledgerGRANULARITY (1s).
+    */
+    bool
+    inRngSubState() const
+    {
+        return estState_ != EstablishState::ConvergingTx;
+    }
+
     /** Process a transaction set acquired from the network
 
         @param now The network adjusted time

@@ -540,7 +540,8 @@ private:
         std::function<void()> onExpire,
         std::function<void()> onError);
     void
-    setHeartbeatTimer();
+    setHeartbeatTimer(
+        std::chrono::milliseconds interval = std::chrono::milliseconds{0});
     void
     setClusterTimer();
     void
@@ -887,11 +888,14 @@ NetworkOPsImp::setTimer(
 }
 
 void
-NetworkOPsImp::setHeartbeatTimer()
+NetworkOPsImp::setHeartbeatTimer(std::chrono::milliseconds interval)
 {
+    if (interval == std::chrono::milliseconds{0})
+        interval = mConsensus.parms().ledgerGRANULARITY;
+
     setTimer(
         heartbeatTimer_,
-        mConsensus.parms().ledgerGRANULARITY,
+        interval,
         [this]() {
             m_job_queue.addJob(jtNETOP_TIMER, "NetOPs.heartbeat", [this]() {
                 processHeartbeatTimer();
@@ -984,7 +988,12 @@ NetworkOPsImp::processHeartbeatTimer()
         mLastConsensusPhase = currPhase;
     }
 
-    setHeartbeatTimer();
+    // Use faster polling (250ms) during RNG sub-state transitions
+    // to reduce latency of commit-reveal rounds.
+    if (mConsensus.inRngSubState())
+        setHeartbeatTimer(std::chrono::milliseconds{250});
+    else
+        setHeartbeatTimer();
 }
 
 void
