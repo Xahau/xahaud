@@ -728,6 +728,10 @@ Consensus<Adaptor>::startRoundInternal(
     if constexpr (requires(Adaptor & a) { a.clearRngState(); })
     {
         adaptor_.clearRngState();
+        // Populate UNL cache for all nodes (including observers).
+        // onClose only caches for proposing validators, so observers
+        // would otherwise have an empty set and reject all RNG data.
+        adaptor_.cacheActiveUNL();
     }
 
     // Reset establish sub-state for new round

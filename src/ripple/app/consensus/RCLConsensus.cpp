@@ -1689,9 +1689,38 @@ RCLConsensus::Adaptor::harvestRngData(
         }
     }
 
-    // Harvest reveal if present
+    // Harvest reveal if present — verify it matches the stored commitment
     if (position.myReveal)
     {
+        auto commitIt = pendingCommits_.find(nodeId);
+        if (commitIt == pendingCommits_.end())
+        {
+            // No commitment on record — cannot verify. Ignore to prevent
+            // grinding attacks where a validator skips the commit phase.
+            JLOG(j_.warn()) << "RNG: rejecting reveal from " << nodeId
+                            << " (no commitment on record)";
+            return;
+        }
+
+        // Verify Hash(reveal | pubKey | seq) == commitment
+        auto const prevLgr = ledgerMaster_.getLedgerByHash(prevLedger);
+        if (!prevLgr)
+        {
+            JLOG(j_.warn()) << "RNG: cannot verify reveal from " << nodeId
+                            << " (prevLedger not available)";
+            return;
+        }
+
+        auto const seq = prevLgr->info().seq + 1;
+        auto const calculated = sha512Half(*position.myReveal, publicKey, seq);
+
+        if (calculated != commitIt->second)
+        {
+            JLOG(j_.warn()) << "RNG: fraudulent reveal from " << nodeId
+                            << " (does not match commitment)";
+            return;
+        }
+
         auto [it, inserted] =
             pendingReveals_.emplace(nodeId, *position.myReveal);
         if (!inserted && it->second != *position.myReveal)
