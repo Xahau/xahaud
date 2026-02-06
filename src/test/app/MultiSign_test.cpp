@@ -1448,6 +1448,78 @@ public:
     }
 
     void
+    test_countPresentFields()
+    {
+        testcase("countPresentFields vs getCount");
+
+        // Construct Signer STObjects with template applied.
+        // The sfSigner template has 4 fields:
+        //   Account (required), SigningPubKey (opt), TxnSignature (opt),
+        //   Signers (opt)
+        // After template application, getCount() returns 4 (all template
+        // slots), but countPresentFields() should return only the populated
+        // ones.
+        //
+        // Note: Account must be set before applyTemplateFromSField because
+        // the template marks it as required.
+
+        // Leaf signer: set Account + SigningPubKey + TxnSignature
+        {
+            STObject signer(sfSigner);
+            signer.setAccountID(sfAccount, AccountID{1});
+            signer.setFieldVL(sfSigningPubKey, Blob(33, 0x02));
+            signer.setFieldVL(sfTxnSignature, Blob(64, 0xAA));
+            signer.applyTemplateFromSField(sfSigner);
+
+            // getCount() includes all template slots (should be 4)
+            BEAST_EXPECT(signer.getCount() != 3);
+            BEAST_EXPECT(signer.getCount() == 4);
+
+            // countPresentFields() counts only populated fields (should be 3)
+            BEAST_EXPECT(countPresentFields(signer) == 3);
+
+            // Helpers should recognize this as a valid leaf signer
+            BEAST_EXPECT(isLeafSigner(signer));
+            BEAST_EXPECT(!isNestedSigner(signer));
+            BEAST_EXPECT(isValidSignerEntry(signer));
+        }
+
+        // Nested signer: set Account + Signers
+        {
+            STObject signer(sfSigner);
+            signer.setAccountID(sfAccount, AccountID{2});
+            signer.setFieldArray(sfSigners, STArray{});
+            signer.applyTemplateFromSField(sfSigner);
+
+            BEAST_EXPECT(signer.getCount() != 2);
+            BEAST_EXPECT(signer.getCount() == 4);
+
+            BEAST_EXPECT(countPresentFields(signer) == 2);
+
+            BEAST_EXPECT(!isLeafSigner(signer));
+            BEAST_EXPECT(isNestedSigner(signer));
+            BEAST_EXPECT(isValidSignerEntry(signer));
+        }
+
+        // Invalid: all 4 fields set (both leaf and nested fields)
+        {
+            STObject signer(sfSigner);
+            signer.setAccountID(sfAccount, AccountID{3});
+            signer.setFieldVL(sfSigningPubKey, Blob(33, 0x02));
+            signer.setFieldVL(sfTxnSignature, Blob(64, 0xAA));
+            signer.setFieldArray(sfSigners, STArray{});
+            signer.applyTemplateFromSField(sfSigner);
+
+            BEAST_EXPECT(countPresentFields(signer) == 4);
+
+            // Both helpers reject (mutually exclusive field sets)
+            BEAST_EXPECT(!isLeafSigner(signer));
+            BEAST_EXPECT(!isNestedSigner(signer));
+            BEAST_EXPECT(!isValidSignerEntry(signer));
+        }
+    }
+
+    void
     test_amendmentTransition()
     {
         testcase("Amendment Transition");
@@ -2633,6 +2705,7 @@ public:
 
         test_signerListSetFlags(all);
 
+        test_countPresentFields();
         test_amendmentTransition();
     }
 };

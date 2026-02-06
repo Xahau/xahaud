@@ -292,11 +292,10 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     std::size_t signerCount = 0;
     if (tx.isFieldPresent(sfSigners))
     {
-        // Max depth for nested multi-signing (4 when enabled, 1 otherwise).
-        // We use a conservative depth limit here to prevent stack overflow
-        // from malicious deep nesting, even before signature validation.
-        int const maxDepth =
-            view.rules().enabled(featureNestedMultiSign) ? 4 : 1;
+        // Depth guard to prevent stack overflow from malicious deep nesting.
+        int const maxDepth = view.rules().enabled(featureNestedMultiSign)
+            ? nestedMultiSignMaxDepth
+            : legacyMultiSignMaxDepth;
 
         // Define recursive lambda to count all leaf signers with depth guard
         std::function<std::size_t(STArray const&, int)> countSigners;
@@ -963,7 +962,8 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
 
     // Set max depth based on feature flag
     bool const allowNested = ctx.view.rules().enabled(featureNestedMultiSign);
-    int const maxDepth = allowNested ? 4 : 1;
+    int const maxDepth =
+        allowNested ? nestedMultiSignMaxDepth : legacyMultiSignMaxDepth;
 
     // Define recursive lambda for checking signers at any depth
     // ancestors tracks the signing chain to detect cycles

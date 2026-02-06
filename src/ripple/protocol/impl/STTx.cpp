@@ -373,7 +373,9 @@ STTx::checkMultiSign(
         isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535;
 
     // Set max depth based on feature flag
-    int const maxDepth = rules.enabled(featureNestedMultiSign) ? 4 : 1;
+    int const maxDepth = rules.enabled(featureNestedMultiSign)
+        ? nestedMultiSignMaxDepth
+        : legacyMultiSignMaxDepth;
 
     // Define recursive lambda for checking signatures at any depth
     // parentAccountID identifies which account the signers are signing for

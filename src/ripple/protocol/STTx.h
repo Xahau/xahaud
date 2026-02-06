@@ -194,6 +194,16 @@ STTx::getTransactionID() const
 }
 
 //------------------------------------------------------------------------------
+// Multi-sign depth limits
+//------------------------------------------------------------------------------
+
+/** Maximum nesting depth for nested multi-signing (featureNestedMultiSign). */
+constexpr int nestedMultiSignMaxDepth = 4;
+
+/** Maximum nesting depth when nested multi-signing is disabled (flat only). */
+constexpr int legacyMultiSignMaxDepth = 1;
+
+//------------------------------------------------------------------------------
 // Multi-sign signer entry helpers
 //------------------------------------------------------------------------------
 
@@ -220,9 +230,10 @@ countPresentFields(STObject const& obj)
 inline bool
 isLeafSigner(STObject const& signer)
 {
-    return signer.isFieldPresent(sfSigningPubKey) &&
+    return signer.isFieldPresent(sfAccount) &&
+        signer.isFieldPresent(sfSigningPubKey) &&
         signer.isFieldPresent(sfTxnSignature) &&
-        !signer.isFieldPresent(sfSigners);
+        !signer.isFieldPresent(sfSigners) && countPresentFields(signer) == 3;
 }
 
 /** Check if a signer entry is a nested signer (delegates to sub-signers).
@@ -232,33 +243,20 @@ isLeafSigner(STObject const& signer)
 inline bool
 isNestedSigner(STObject const& signer)
 {
-    return signer.isFieldPresent(sfSigners) &&
+    return signer.isFieldPresent(sfAccount) &&
+        signer.isFieldPresent(sfSigners) &&
         !signer.isFieldPresent(sfSigningPubKey) &&
-        !signer.isFieldPresent(sfTxnSignature);
+        !signer.isFieldPresent(sfTxnSignature) &&
+        countPresentFields(signer) == 2;
 }
 
 /** Check if a signer entry has valid structure for multi-signing.
-    Returns true if:
-    - Has Account field, AND
-    - Is either a valid leaf signer (exactly 3 present fields) OR
-      valid nested signer (exactly 2 present fields)
-    - Has no extra fields beyond the expected set
+    Returns true if the entry is either a valid leaf or nested signer.
 */
 inline bool
 isValidSignerEntry(STObject const& signer)
 {
-    if (!signer.isFieldPresent(sfAccount))
-        return false;
-
-    auto const presentCount = countPresentFields(signer);
-
-    if (isLeafSigner(signer))
-        return presentCount == 3;
-
-    if (isNestedSigner(signer))
-        return presentCount == 2;
-
-    return false;
+    return isLeafSigner(signer) || isNestedSigner(signer);
 }
 
 }  // namespace ripple

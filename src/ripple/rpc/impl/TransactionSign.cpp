@@ -1180,15 +1180,13 @@ transactionSubmitMultiSigned(
     if (signers.empty())
         return RPC::make_param_error("tx_json.Signers array may not be empty.");
 
-    // Recursively validate all signer entries (including nested ones).
-    // Uses isValidSignerEntry() which checks exact present-field counts:
-    // - Leaf signer: exactly 3 fields (Account + SigningPubKey + TxnSignature)
-    // - Nested signer: exactly 2 fields (Account + Signers)
-    // Max depth of 4 to match the protocol limit.
+    // Recursively validate signer entry structure (including nested ones).
+    // Note: feature enablement is enforced later in preflight; RPC only
+    // validates shape.
     std::function<bool(STArray const&, int)> validateSignersRecursive;
     validateSignersRecursive = [&](STArray const& arr, int depth) -> bool {
-        if (depth > 4)
-            return false;  // Exceeds max nesting depth
+        if (depth > nestedMultiSignMaxDepth)
+            return false;
 
         for (auto const& signer : arr)
         {
