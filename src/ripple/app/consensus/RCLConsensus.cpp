@@ -1149,9 +1149,28 @@ RCLConsensus::Adaptor::updateOperatingMode(std::size_t const positions) const
 std::size_t
 RCLConsensus::Adaptor::quorumThreshold() const
 {
-    auto [quorum, trustedKeys] = getQuorumKeys();
-    // Use 80% quorum for RNG commit/reveal
-    return (trustedKeys.size() * 80 + 99) / 100;
+    // Base quorum on the active UNL — the same set used by
+    // isActiveUNLMember() to filter RNG data.  This comes from the
+    // UNL Report (in-ledger) with fallback to the trusted key list.
+    // If a node drops off the UNL Report, the denominator shrinks
+    // and quorum becomes achievable with fewer participants.
+    //
+    // TODO: This needs more careful thought.  Open questions:
+    //   - Should there be a minimum absolute count (e.g. at least 3
+    //     committers) to prevent weak entropy from tiny partitions?
+    //   - Is 80% the right percentage for RNG, or should it differ
+    //     from the tx consensus threshold?
+    //   - What happens if the UNL Report is stale and over-counts
+    //     active validators?  The "impossible quorum" early-exit in
+    //     Consensus.h mitigates the worst case (no delay), but the
+    //     node still falls back to ZERO entropy.
+    //   - On a fresh network with no UNL Report, the fallback is
+    //     getTrustedMasterKeys() which includes all configured
+    //     validators — possibly including offline ones.
+    auto const base = activeUNLNodeIds_.size();
+    if (base == 0)
+        return 1;  // safety: need at least one commit
+    return (base * 80 + 99) / 100;
 }
 
 bool

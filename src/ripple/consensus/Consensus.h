@@ -1440,20 +1440,38 @@ Consensus<Adaptor>::phaseEstablish()
             // consensus close logic and nodes inject partial/zero entropy
             // while others are still collecting — causing ledger mismatches.
             //
+            // However, if we've already converged on the txSet (which we
+            // have — haveConsensus() passed above) and there aren't enough
+            // participants to ever reach quorum, skip immediately.  With
+            // 3 nodes and quorum=3, losing one node means 2/3 commits
+            // forever — waiting 3s per round just delays recovery.
+            //
             // NOTE: Late-joining nodes (e.g. restarting after a crash)
             // cannot help here.  They enter the round as proposing=false
             // and onClose() skips commitment generation for non-proposers.
             // It takes at least one full round of observing before
-            // consensus promotes them to proposing.  So waiting beyond
-            // a few seconds is pointless — use rngPIPELINE_TIMEOUT (3s)
-            // rather than ledgerMAX_CONSENSUS (10s) to avoid penalizing
-            // the recovery path.
+            // consensus promotes them to proposing.
             {
-                bool timeout =
-                    result_->roundTime.read() > parms.rngPIPELINE_TIMEOUT;
-                if (!timeout)
-                    return;  // Wait for more commits
-                // On timeout: fall through to normal close (zero entropy)
+                // participants = peers + ourselves
+                auto const participants = currPeerPositions_.size() + 1;
+                auto const threshold = adaptor_.quorumThreshold();
+                bool const impossible = participants < threshold;
+
+                if (impossible)
+                {
+                    JLOG(j_.debug())
+                        << "RNG: skipping commit wait (participants="
+                        << participants << " < threshold=" << threshold << ")";
+                    // Fall through to close with zero entropy
+                }
+                else
+                {
+                    bool timeout =
+                        result_->roundTime.read() > parms.rngPIPELINE_TIMEOUT;
+                    if (!timeout)
+                        return;  // Wait for more commits
+                    // On timeout: fall through to normal close (zero entropy)
+                }
             }
         }
         else if (estState_ == EstablishState::ConvergingCommit)
