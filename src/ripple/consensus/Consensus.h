@@ -584,6 +584,7 @@ private:
 
     ConsensusPhase phase_{ConsensusPhase::accepted};
     EstablishState estState_{EstablishState::ConvergingTx};
+    std::chrono::steady_clock::time_point revealPhaseStart_{};
     MonitoredMode mode_{ConsensusMode::observing};
     bool firstRound_ = true;
     bool haveCloseTimeConsensus_ = false;
@@ -736,6 +737,7 @@ Consensus<Adaptor>::startRoundInternal(
 
     // Reset establish sub-state for new round
     estState_ = EstablishState::ConvergingTx;
+    revealPhaseStart_ = {};
 
     closeResolution_ = getNextLedgerTimeResolution(
         previousLedger_.closeTimeResolution(),
@@ -1399,6 +1401,22 @@ Consensus<Adaptor>::phaseEstablish()
     // we reach these checkpoints most data is already collected. The
     // SHAMap fetch/diff/merge in handleAcquiredRngSet is a safety net
     // for stragglers, not a voting mechanism.
+    //
+    // Why 80% for commits but 100% for reveals?
+    //
+    // COMMITS: quorum is based on the active UNL, but we don't know
+    // which UNL members are actually online until they propose — and
+    // commitments ride on those same proposals.  Chicken-and-egg: we
+    // learn who's active by receiving their commits.  80% of the UNL
+    // says "we've heard from enough validators, let's go."  The
+    // impossible-quorum early-exit handles the case where too few
+    // participants exist to ever reach 80%.
+    //
+    // REVEALS: the commit set is now locked and we know *exactly* who
+    // committed.  Every committer broadcasts their reveal immediately.
+    // So we wait for ALL of them, with rngREVEAL_TIMEOUT (measured
+    // from ConvergingReveal entry) as the safety valve for nodes that
+    // crash between commit and reveal.
     if constexpr (requires(Adaptor & a) {
                       a.hasQuorumOfCommits();
                       a.buildCommitSet(typename Ledger_t::Seq{});
@@ -1412,7 +1430,7 @@ Consensus<Adaptor>::phaseEstablish()
 
         if (estState_ == EstablishState::ConvergingTx)
         {
-            if (adaptor_.hasQuorumOfCommits())
+            if (adaptor_.hasQuorumOfCommits())  // 80% of active UNL
             {
                 auto commitSetHash = adaptor_.buildCommitSet(buildSeq);
 
@@ -1487,14 +1505,18 @@ Consensus<Adaptor>::phaseEstablish()
                 adaptor_.propose(result_->position);
 
             estState_ = EstablishState::ConvergingReveal;
+            revealPhaseStart_ = std::chrono::steady_clock::now();
             JLOG(j_.debug()) << "RNG: transitioned to ConvergingReveal"
                              << " reveal=" << adaptor_.getEntropySecret();
             return;  // Wait for next tick
         }
         else if (estState_ == EstablishState::ConvergingReveal)
         {
-            bool timeout =
-                result_->roundTime.read() > parms.rngPIPELINE_TIMEOUT;
+            // Wait for ALL committers to reveal (not just 80%).
+            // Timeout measured from ConvergingReveal entry, not round start.
+            auto const elapsed =
+                std::chrono::steady_clock::now() - revealPhaseStart_;
+            bool timeout = elapsed > parms.rngREVEAL_TIMEOUT;
             bool ready = false;
 
             if ((haveConsensus() && adaptor_.hasMinimumReveals()) || timeout)

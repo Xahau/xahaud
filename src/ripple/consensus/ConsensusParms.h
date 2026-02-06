@@ -105,6 +105,15 @@ struct ConsensusParms
      */
     std::chrono::milliseconds rngPIPELINE_TIMEOUT = std::chrono::seconds{3};
 
+    /** Reveal-phase timeout — maximum time to wait for reveals after
+     *  entering ConvergingReveal.  Measured from the moment we broadcast
+     *  our own reveal, NOT from round start.  This is the defense against
+     *  a validator that commits but never reveals (crash or malice).
+     *  1.5s is generous for propagation on any network.
+     */
+    std::chrono::milliseconds rngREVEAL_TIMEOUT =
+        std::chrono::milliseconds{1500};
+
     //! Minimum number of seconds to wait to ensure others have computed the LCL
     std::chrono::milliseconds ledgerMIN_CLOSE = std::chrono::seconds{2};
 
