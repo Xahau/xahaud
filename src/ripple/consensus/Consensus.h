@@ -832,6 +832,15 @@ Consensus<Adaptor>::peerProposalInternal(
                          << (newPeerProp.position().myReveal ? "yes" : "no");
         adaptor_.harvestRngData(
             peerID, newPeerPos.publicKey(), newPeerProp.position());
+
+        // Trigger fetch for unknown RNG set hashes
+        if constexpr (requires(Adaptor & a) {
+                          a.fetchRngSetIfNeeded(std::optional<uint256>{});
+                      })
+        {
+            adaptor_.fetchRngSetIfNeeded(newPeerProp.position().commitSetHash);
+            adaptor_.fetchRngSetIfNeeded(newPeerProp.position().entropySetHash);
+        }
     }
 
     if (newPeerProp.isInitial())
@@ -1344,10 +1353,12 @@ Consensus<Adaptor>::phaseEstablish()
     // --- RNG Sub-state Checkpoints (if adaptor supports RNG) ---
     if constexpr (requires(Adaptor & a) {
                       a.hasQuorumOfCommits();
-                      a.buildCommitSet();
+                      a.buildCommitSet(typename Ledger_t::Seq{});
                       a.generateEntropySecret();
                   })
     {
+        auto const buildSeq = previousLedger_.seq() + typename Ledger_t::Seq{1};
+
         JLOG(j_.debug()) << "RNG: phaseEstablish estState="
                          << static_cast<int>(estState_);
 
@@ -1355,7 +1366,7 @@ Consensus<Adaptor>::phaseEstablish()
         {
             if (adaptor_.hasQuorumOfCommits())
             {
-                auto commitSetHash = adaptor_.buildCommitSet();
+                auto commitSetHash = adaptor_.buildCommitSet(buildSeq);
 
                 // Keep the same entropy secret from onClose() — do NOT
                 // regenerate.  The commitment in the commitSet was built
@@ -1408,7 +1419,7 @@ Consensus<Adaptor>::phaseEstablish()
                 }
                 else
                 {
-                    auto entropySetHash = adaptor_.buildEntropySet();
+                    auto entropySetHash = adaptor_.buildEntropySet(buildSeq);
                     auto newPos = result_->position.position();
                     newPos.entropySetHash = entropySetHash;
 

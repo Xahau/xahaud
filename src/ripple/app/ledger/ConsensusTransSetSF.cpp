@@ -26,6 +26,7 @@
 #include <ripple/core/JobQueue.h>
 #include <ripple/nodestore/Database.h>
 #include <ripple/protocol/HashPrefix.h>
+#include <ripple/protocol/STTx.h>
 #include <ripple/protocol/digest.h>
 
 namespace ripple {
@@ -61,6 +62,13 @@ ConsensusTransSetSF::gotNode(
             SerialIter sit(s.slice());
             auto stx = std::make_shared<STTx const>(std::ref(sit));
             assert(stx->getTransactionID() == nodeHash.as_uint256());
+
+            // Don't submit pseudo-transactions (consensus entropy, fees,
+            // amendments, etc.) — they exist as SHAMap entries for
+            // content-addressed identification but are not real user txns.
+            if (isPseudoTx(*stx))
+                return;
+
             auto const pap = &app_;
             app_.getJobQueue().addJob(jtTRANSACTION, "TXS->TXN", [pap, stx]() {
                 pap->getOPs().submitTransaction(stx);

@@ -46,10 +46,12 @@
 #include <ripple/protocol/BuildInfo.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/TxFlags.h>
 #include <ripple/protocol/TxFormats.h>
 #include <ripple/protocol/digest.h>
 
 #include <algorithm>
+#include <cstring>
 #include <mutex>
 
 namespace ripple {
@@ -1150,51 +1152,93 @@ RCLConsensus::Adaptor::hasAnyReveals() const
 }
 
 uint256
-RCLConsensus::Adaptor::buildCommitSet()
+RCLConsensus::Adaptor::buildCommitSet(LedgerIndex seq)
 {
-    // Sort commits deterministically by public key
-    std::vector<std::pair<PublicKey, uint256>> sorted;
+    auto map =
+        std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
+    map->setUnbacked();
+
     for (auto const& [nodeId, commit] : pendingCommits_)
     {
-        auto it = nodeIdToKey_.find(nodeId);
-        if (it != nodeIdToKey_.end())
-            sorted.emplace_back(it->second, commit);
-    }
-    std::sort(sorted.begin(), sorted.end(), [](auto const& a, auto const& b) {
-        return a.first < b.first;
-    });
+        auto kit = nodeIdToKey_.find(nodeId);
+        if (kit == nodeIdToKey_.end())
+            continue;
 
-    Serializer s;
-    for (auto const& [key, commit] : sorted)
-    {
-        s.addVL(key.slice());
-        s.addBitString(commit);
+        // Encode the NodeID into sfAccount so handleAcquiredRngSet can
+        // recover it without recomputing (master vs signing key issue).
+        AccountID acctId;
+        std::memcpy(acctId.data(), nodeId.data(), acctId.size());
+
+        STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
+            obj.setFieldU32(sfFlags, tfEntropyCommit);
+            obj.setFieldU32(sfLedgerSequence, seq);
+            obj.setAccountID(sfAccount, acctId);
+            obj.setFieldU32(sfSequence, 0);
+            obj.setFieldAmount(sfFee, STAmount{});
+            obj.setFieldH256(sfDigest, commit);
+            obj.setFieldVL(sfSigningPubKey, kit->second.slice());
+        });
+
+        Serializer s(2048);
+        tx.add(s);
+        map->addItem(
+            SHAMapNodeType::tnTRANSACTION_NM,
+            make_shamapitem(tx.getTransactionID(), s.slice()));
     }
-    return sha512Half(s.slice());
+
+    map = map->snapShot(false);
+    commitSetMap_ = map;
+
+    auto const hash = map->getHash().as_uint256();
+    inboundTransactions_.giveSet(hash, map, false);
+
+    JLOG(j_.debug()) << "RNG: built commitSet SHAMap hash=" << hash
+                     << " entries=" << pendingCommits_.size();
+    return hash;
 }
 
 uint256
-RCLConsensus::Adaptor::buildEntropySet()
+RCLConsensus::Adaptor::buildEntropySet(LedgerIndex seq)
 {
-    // Sort reveals deterministically by public key
-    std::vector<std::pair<PublicKey, uint256>> sorted;
+    auto map =
+        std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
+    map->setUnbacked();
+
     for (auto const& [nodeId, reveal] : pendingReveals_)
     {
-        auto it = nodeIdToKey_.find(nodeId);
-        if (it != nodeIdToKey_.end())
-            sorted.emplace_back(it->second, reveal);
-    }
-    std::sort(sorted.begin(), sorted.end(), [](auto const& a, auto const& b) {
-        return a.first < b.first;
-    });
+        auto kit = nodeIdToKey_.find(nodeId);
+        if (kit == nodeIdToKey_.end())
+            continue;
 
-    Serializer s;
-    for (auto const& [key, reveal] : sorted)
-    {
-        s.addVL(key.slice());
-        s.addBitString(reveal);
+        AccountID acctId;
+        std::memcpy(acctId.data(), nodeId.data(), acctId.size());
+
+        STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
+            obj.setFieldU32(sfFlags, tfEntropyReveal);
+            obj.setFieldU32(sfLedgerSequence, seq);
+            obj.setAccountID(sfAccount, acctId);
+            obj.setFieldU32(sfSequence, 0);
+            obj.setFieldAmount(sfFee, STAmount{});
+            obj.setFieldH256(sfDigest, reveal);
+            obj.setFieldVL(sfSigningPubKey, kit->second.slice());
+        });
+
+        Serializer s(2048);
+        tx.add(s);
+        map->addItem(
+            SHAMapNodeType::tnTRANSACTION_NM,
+            make_shamapitem(tx.getTransactionID(), s.slice()));
     }
-    return sha512Half(s.slice());
+
+    map = map->snapShot(false);
+    entropySetMap_ = map;
+
+    auto const hash = map->getHash().as_uint256();
+    inboundTransactions_.giveSet(hash, map, false);
+
+    JLOG(j_.debug()) << "RNG: built entropySet SHAMap hash=" << hash
+                     << " entries=" << pendingReveals_.size();
+    return hash;
 }
 
 void
@@ -1231,6 +1275,169 @@ RCLConsensus::Adaptor::clearRngState()
     nodeIdToKey_.clear();
     myEntropySecret_ = uint256{};
     entropyFailed_ = false;
+    commitSetMap_.reset();
+    entropySetMap_.reset();
+    pendingRngFetches_.clear();
+}
+
+bool
+RCLConsensus::Adaptor::isRngSet(uint256 const& hash) const
+{
+    if (commitSetMap_ && commitSetMap_->getHash().as_uint256() == hash)
+        return true;
+    if (entropySetMap_ && entropySetMap_->getHash().as_uint256() == hash)
+        return true;
+    return pendingRngFetches_.count(hash) > 0;
+}
+
+void
+RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
+{
+    auto const hash = map->getHash().as_uint256();
+    pendingRngFetches_.erase(hash);
+
+    JLOG(j_.debug()) << "RNG: handleAcquiredRngSet hash=" << hash;
+
+    // Determine if this is a commitSet or entropySet by inspecting entries
+    bool isCommitSet = false;
+    bool isEntropySet = false;
+
+    map->visitLeaves([&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+        try
+        {
+            // Skip prefix (4 bytes) when deserializing
+            SerialIter sit(item->slice());
+            auto stx = std::make_shared<STTx const>(std::ref(sit));
+            auto flags = stx->getFieldU32(sfFlags);
+            if (flags & tfEntropyCommit)
+                isCommitSet = true;
+            else if (flags & tfEntropyReveal)
+                isEntropySet = true;
+        }
+        catch (std::exception const&)
+        {
+            // Skip malformed entries
+        }
+    });
+
+    if (!isCommitSet && !isEntropySet)
+    {
+        JLOG(j_.warn()) << "RNG: acquired set " << hash
+                        << " has no recognizable RNG entries";
+        return;
+    }
+
+    // Diff against our local set and merge missing entries
+    auto& localMap = isCommitSet ? commitSetMap_ : entropySetMap_;
+    auto& pendingData = isCommitSet ? pendingCommits_ : pendingReveals_;
+
+    std::size_t merged = 0;
+
+    if (localMap)
+    {
+        SHAMap::Delta delta;
+        localMap->compare(*map, delta, 65536);
+
+        for (auto const& [key, pair] : delta)
+        {
+            // pair.first = our entry, pair.second = their entry
+            // If we don't have it (pair.first is null), merge it
+            if (!pair.first && pair.second)
+            {
+                try
+                {
+                    SerialIter sit(pair.second->slice());
+                    auto stx = std::make_shared<STTx const>(std::ref(sit));
+
+                    auto pk = stx->getFieldVL(sfSigningPubKey);
+                    PublicKey pubKey(makeSlice(pk));
+                    auto digest = stx->getFieldH256(sfDigest);
+
+                    // Recover NodeID from sfAccount (encoded by
+                    // buildCommitSet/buildEntropySet) to avoid
+                    // master-vs-signing key mismatch.
+                    auto const acctId = stx->getAccountID(sfAccount);
+                    NodeID nodeId;
+                    std::memcpy(nodeId.data(), acctId.data(), nodeId.size());
+
+                    pendingData[nodeId] = digest;
+                    nodeIdToKey_[nodeId] = pubKey;
+                    ++merged;
+
+                    JLOG(j_.trace())
+                        << "RNG: merged " << (isCommitSet ? "commit" : "reveal")
+                        << " from " << nodeId;
+                }
+                catch (std::exception const& ex)
+                {
+                    JLOG(j_.warn())
+                        << "RNG: failed to parse entry from acquired set: "
+                        << ex.what();
+                }
+            }
+        }
+    }
+    else
+    {
+        // We don't have a local set yet — extract all entries
+        map->visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                try
+                {
+                    SerialIter sit(item->slice());
+                    auto stx = std::make_shared<STTx const>(std::ref(sit));
+
+                    auto pk = stx->getFieldVL(sfSigningPubKey);
+                    PublicKey pubKey(makeSlice(pk));
+                    auto digest = stx->getFieldH256(sfDigest);
+
+                    auto const acctId = stx->getAccountID(sfAccount);
+                    NodeID nodeId;
+                    std::memcpy(nodeId.data(), acctId.data(), nodeId.size());
+
+                    pendingData[nodeId] = digest;
+                    nodeIdToKey_[nodeId] = pubKey;
+                    ++merged;
+                }
+                catch (std::exception const&)
+                {
+                    // Skip malformed entries
+                }
+            });
+    }
+
+    JLOG(j_.info()) << "RNG: merged " << merged << " entries from "
+                    << (isCommitSet ? "commitSet" : "entropySet")
+                    << " hash=" << hash;
+}
+
+void
+RCLConsensus::Adaptor::fetchRngSetIfNeeded(std::optional<uint256> const& hash)
+{
+    if (!hash || *hash == uint256{})
+        return;
+
+    // Check if we already have this set
+    if (commitSetMap_ && commitSetMap_->getHash().as_uint256() == *hash)
+        return;
+    if (entropySetMap_ && entropySetMap_->getHash().as_uint256() == *hash)
+        return;
+
+    // Check if already fetching
+    if (pendingRngFetches_.count(*hash))
+        return;
+
+    // Check if InboundTransactions already has it
+    if (auto existing = inboundTransactions_.getSet(*hash, false))
+    {
+        handleAcquiredRngSet(existing);
+        return;
+    }
+
+    // Trigger network fetch
+    JLOG(j_.debug()) << "RNG: triggering fetch for set " << *hash;
+    pendingRngFetches_.insert(*hash);
+    inboundTransactions_.getSet(*hash, true);
 }
 
 void

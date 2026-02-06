@@ -1882,7 +1882,17 @@ NetworkOPsImp::mapComplete(std::shared_ptr<SHAMap> const& map, bool fromAcquire)
 
     // We acquired it because consensus asked us to
     if (fromAcquire)
+    {
+        auto const hash = map->getHash().as_uint256();
+        if (mConsensus.isRngSet(hash))
+        {
+            // RNG set (commitSet or entropySet) — route to adaptor
+            // for diff/merge, not into txSet consensus machinery.
+            mConsensus.gotRngSet(map);
+            return;
+        }
         mConsensus.gotTxSet(app_.timeKeeper().closeTime(), RCLTxSet{map});
+    }
 }
 
 void

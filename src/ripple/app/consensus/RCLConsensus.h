@@ -97,6 +97,13 @@ class RCLConsensus
         uint256 myEntropySecret_;
         bool entropyFailed_ = false;
 
+        // Real SHAMaps for the current round (unbacked, ephemeral)
+        std::shared_ptr<SHAMap> commitSetMap_;
+        std::shared_ptr<SHAMap> entropySetMap_;
+
+        // Track pending RNG set hashes we've triggered fetches for
+        hash_set<uint256> pendingRngFetches_;
+
     public:
         using Ledger_t = RCLCxLedger;
         using NodeID_t = NodeID;
@@ -207,13 +214,31 @@ class RCLConsensus
         bool
         hasAnyReveals() const;
 
-        /** Build deterministic hash of all collected commits */
+        /** Build real SHAMap from collected commits, register for fetch.
+            @param seq The ledger sequence being built
+            @return The SHAMap root hash (commitSetHash)
+        */
         uint256
-        buildCommitSet();
+        buildCommitSet(LedgerIndex seq);
 
-        /** Build deterministic hash of all collected reveals */
+        /** Build real SHAMap from collected reveals, register for fetch.
+            @param seq The ledger sequence being built
+            @return The SHAMap root hash (entropySetHash)
+        */
         uint256
-        buildEntropySet();
+        buildEntropySet(LedgerIndex seq);
+
+        /** Check if a hash is a known RNG set (commitSet or entropySet) */
+        bool
+        isRngSet(uint256 const& hash) const;
+
+        /** Handle an acquired RNG set — diff, merge missing entries */
+        void
+        handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map);
+
+        /** Trigger fetch for a peer's unknown RNG set hash */
+        void
+        fetchRngSetIfNeeded(std::optional<uint256> const& hash);
 
         /** Generate new entropy secret for this round */
         void
@@ -560,6 +585,22 @@ public:
     inRngSubState() const
     {
         return consensus_.inRngSubState();
+    }
+
+    //! Check if a hash is a known RNG set (commitSet or entropySet)
+    bool
+    isRngSet(uint256 const& hash) const
+    {
+        std::lock_guard _{mutex_};
+        return adaptor_.isRngSet(hash);
+    }
+
+    //! Handle an acquired RNG set from InboundTransactions
+    void
+    gotRngSet(std::shared_ptr<SHAMap> const& map)
+    {
+        std::lock_guard _{mutex_};
+        adaptor_.handleAcquiredRngSet(map);
     }
 
     //! @see Consensus::getJson
