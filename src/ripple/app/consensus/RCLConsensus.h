@@ -107,6 +107,10 @@ class RCLConsensus
         // Cached set of NodeIDs from UNL Report (or fallback UNL)
         hash_set<NodeID> activeUNLNodeIds_;
 
+        // Expected proposers for commit quorum — derived from last round's
+        // actual proposers (best signal), falling back to activeUNL.
+        hash_set<NodeID> expectedProposers_;
+
         /** Proof data from a proposal signature, for embedding in SHAMap
             entries. Contains everything needed to independently verify
             that a validator committed/revealed a specific value. */
@@ -119,7 +123,10 @@ class RCLConsensus
             Buffer signature;
         };
 
-        // Proposal proofs keyed by NodeID
+        // Proposal proofs keyed by NodeID.
+        // commitProofs_: only seq=0 proofs (deterministic across all nodes).
+        // proposalProofs_: latest proof with reveal (for entropySet).
+        hash_map<NodeID, ProposalProof> commitProofs_;
         hash_map<NodeID, ProposalProof> proposalProofs_;
 
     public:
@@ -219,6 +226,12 @@ class RCLConsensus
         /** Get the quorum threshold (80% of trusted validators) */
         std::size_t
         quorumThreshold() const;
+
+        /** Set expected proposers for this round's commit quorum.
+            Cascade: recent proposers > activeUNL > (empty = 80% fallback).
+        */
+        void
+        setExpectedProposers(hash_set<NodeID> proposers);
 
         /** Check if we have quorum of commits */
         bool

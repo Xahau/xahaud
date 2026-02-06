@@ -719,6 +719,18 @@ Consensus<Adaptor>::startRoundInternal(
     convergePercent_ = 0;
     haveCloseTimeConsensus_ = false;
     openTime_.reset(clock_.now());
+
+    // Capture last round's proposer IDs before clearing — this is the
+    // best signal for who will propose this round.
+    hash_set<NodeID_t> lastProposers;
+    if constexpr (requires(Adaptor & a) {
+                      a.setExpectedProposers(hash_set<NodeID_t>{});
+                  })
+    {
+        for (auto const& [id, pos] : currPeerPositions_)
+            lastProposers.insert(id);
+    }
+
     currPeerPositions_.clear();
     acquired_.clear();
     rawCloseTimes_.peers.clear();
@@ -733,6 +745,8 @@ Consensus<Adaptor>::startRoundInternal(
         // onClose only caches for proposing validators, so observers
         // would otherwise have an empty set and reject all RNG data.
         adaptor_.cacheActiveUNL();
+        // Set expected proposers: recent proposers > activeUNL > 80% fallback
+        adaptor_.setExpectedProposers(std::move(lastProposers));
     }
 
     // Reset establish sub-state for new round

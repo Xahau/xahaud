@@ -256,23 +256,28 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
     prop.set_signature(sig.data(), sig.size());
 
     // Store our own proposal proof for embedding in SHAMap entries.
-    // The proposal signature already covers the full ExtendedPosition,
-    // so this proof lets peers verify provenance of our commit/reveal.
+    // commitProofs_ gets seq=0 only (deterministic commitSet).
+    // proposalProofs_ gets the latest with a reveal (for entropySet).
     if (proposal.position().myCommitment || proposal.position().myReveal)
     {
-        ProposalProof proof;
-        proof.proposeSeq = proposal.proposeSeq();
-        proof.closeTime = static_cast<std::uint32_t>(
-            proposal.closeTime().time_since_epoch().count());
-        proof.prevLedger = proposal.prevLedger();
+        auto makeProof = [&]() {
+            ProposalProof proof;
+            proof.proposeSeq = proposal.proposeSeq();
+            proof.closeTime = static_cast<std::uint32_t>(
+                proposal.closeTime().time_since_epoch().count());
+            proof.prevLedger = proposal.prevLedger();
+            Serializer s;
+            proposal.position().add(s);
+            proof.positionData = std::move(s);
+            proof.signature = Buffer(sig.data(), sig.size());
+            return proof;
+        };
 
-        Serializer s;
-        proposal.position().add(s);
-        proof.positionData = std::move(s);
+        if (proposal.position().myCommitment && proposal.proposeSeq() == 0)
+            commitProofs_.emplace(validatorKeys_.nodeID, makeProof());
 
-        proof.signature = Buffer(sig.data(), sig.size());
-
-        proposalProofs_[validatorKeys_.nodeID] = std::move(proof);
+        if (proposal.position().myReveal)
+            proposalProofs_[validatorKeys_.nodeID] = makeProof();
     }
 
     auto const suppression = proposalUniqueId(
@@ -1173,13 +1178,65 @@ RCLConsensus::Adaptor::quorumThreshold() const
     return (base * 80 + 99) / 100;
 }
 
+void
+RCLConsensus::Adaptor::setExpectedProposers(hash_set<NodeID> proposers)
+{
+    if (!proposers.empty())
+    {
+        // Recent proposers from last round — best signal for who's active.
+        // Always include ourselves.
+        proposers.insert(validatorKeys_.nodeID);
+        expectedProposers_ = std::move(proposers);
+        JLOG(j_.debug()) << "RNG: expectedProposers from recent proposers: "
+                         << expectedProposers_.size();
+        return;
+    }
+
+    // First round (no previous proposers): fall back to activeUNL.
+    // cacheActiveUNL() was called just before this, so it's populated.
+    if (!activeUNLNodeIds_.empty())
+    {
+        expectedProposers_ = activeUNLNodeIds_;
+        JLOG(j_.debug()) << "RNG: expectedProposers from activeUNL: "
+                         << expectedProposers_.size();
+        return;
+    }
+
+    // No data at all (shouldn't happen — cacheActiveUNL falls back to
+    // trusted keys).  Leave empty → hasQuorumOfCommits uses 80% fallback.
+    JLOG(j_.warn()) << "RNG: no expectedProposers available";
+}
+
 bool
 RCLConsensus::Adaptor::hasQuorumOfCommits() const
 {
+    if (!expectedProposers_.empty())
+    {
+        // Wait for commits from all expected proposers.
+        // rngPIPELINE_TIMEOUT is the safety valve for dead nodes.
+        for (auto const& id : expectedProposers_)
+        {
+            if (pendingCommits_.find(id) == pendingCommits_.end())
+            {
+                JLOG(j_.debug())
+                    << "RNG: hasQuorumOfCommits? " << pendingCommits_.size()
+                    << "/" << expectedProposers_.size() << " -> no";
+                return false;
+            }
+        }
+        JLOG(j_.debug()) << "RNG: hasQuorumOfCommits? "
+                         << pendingCommits_.size() << "/"
+                         << expectedProposers_.size()
+                         << " -> YES (all expected)";
+        return true;
+    }
+
+    // Fallback: 80% of active UNL (cold boot, no expected set)
     auto threshold = quorumThreshold();
     bool result = pendingCommits_.size() >= threshold;
     JLOG(j_.debug()) << "RNG: hasQuorumOfCommits? " << pendingCommits_.size()
-                     << "/" << threshold << " -> " << (result ? "YES" : "no");
+                     << "/" << threshold << " -> " << (result ? "YES" : "no")
+                     << " (80% fallback)";
     return result;
 }
 
@@ -1234,8 +1291,8 @@ RCLConsensus::Adaptor::buildCommitSet(LedgerIndex seq)
             obj.setFieldAmount(sfFee, STAmount{});
             obj.setFieldH256(sfDigest, commit);
             obj.setFieldVL(sfSigningPubKey, kit->second.slice());
-            auto proofIt = proposalProofs_.find(nodeId);
-            if (proofIt != proposalProofs_.end())
+            auto proofIt = commitProofs_.find(nodeId);
+            if (proofIt != commitProofs_.end())
                 obj.setFieldVL(sfBlob, serializeProof(proofIt->second));
         });
 
@@ -1345,6 +1402,8 @@ RCLConsensus::Adaptor::clearRngState()
     entropySetMap_.reset();
     pendingRngFetches_.clear();
     activeUNLNodeIds_.clear();
+    expectedProposers_.clear();
+    commitProofs_.clear();
     proposalProofs_.clear();
 }
 
@@ -1769,25 +1828,30 @@ RCLConsensus::Adaptor::harvestRngData(
         }
     }
 
-    // Store proposal proof for embedding in SHAMap entries.
-    // The proposal signature covers the full ExtendedPosition (including
-    // myCommitment/myReveal), so this proof lets any node verify provenance
-    // of entries in fetched commit/entropy SHAMaps.
+    // Store proposal proofs for embedding in SHAMap entries.
+    // commitProofs_: only seq=0 (commitments always ride on seq=0,
+    //   so all nodes store the same proof → deterministic commitSet).
+    // proposalProofs_: latest proof carrying a reveal (for entropySet).
     if (position.myCommitment || position.myReveal)
     {
-        ProposalProof proof;
-        proof.proposeSeq = proposeSeq;
-        proof.closeTime =
-            static_cast<std::uint32_t>(closeTime.time_since_epoch().count());
-        proof.prevLedger = prevLedger;
+        auto makeProof = [&]() {
+            ProposalProof proof;
+            proof.proposeSeq = proposeSeq;
+            proof.closeTime = static_cast<std::uint32_t>(
+                closeTime.time_since_epoch().count());
+            proof.prevLedger = prevLedger;
+            Serializer s;
+            position.add(s);
+            proof.positionData = std::move(s);
+            proof.signature = Buffer(signature.data(), signature.size());
+            return proof;
+        };
 
-        Serializer s;
-        position.add(s);
-        proof.positionData = std::move(s);
+        if (position.myCommitment && proposeSeq == 0)
+            commitProofs_.emplace(nodeId, makeProof());
 
-        proof.signature = Buffer(signature.data(), signature.size());
-
-        proposalProofs_[nodeId] = std::move(proof);
+        if (position.myReveal)
+            proposalProofs_[nodeId] = makeProof();
     }
 }
 
