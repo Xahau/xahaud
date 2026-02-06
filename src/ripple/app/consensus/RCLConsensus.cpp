@@ -1207,6 +1207,12 @@ RCLConsensus::Adaptor::setExpectedProposers(hash_set<NodeID> proposers)
     JLOG(j_.warn()) << "RNG: no expectedProposers available";
 }
 
+std::size_t
+RCLConsensus::Adaptor::pendingCommitCount() const
+{
+    return pendingCommits_.size();
+}
+
 bool
 RCLConsensus::Adaptor::hasQuorumOfCommits() const
 {

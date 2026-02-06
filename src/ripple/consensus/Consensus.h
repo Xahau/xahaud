@@ -1502,7 +1502,37 @@ Consensus<Adaptor>::phaseEstablish()
                         result_->roundTime.read() > parms.rngPIPELINE_TIMEOUT;
                     if (!timeout)
                         return;  // Wait for more commits
-                    // On timeout: fall through to normal close (zero entropy)
+
+                    // Timeout waiting for all expected proposers.
+                    // If we still have quorum (80% of UNL), proceed
+                    // with what we have — the SHAMap merge handles
+                    // any fuzziness for this transition round.
+                    auto const commits = adaptor_.pendingCommitCount();
+                    auto const quorum = adaptor_.quorumThreshold();
+                    if (commits >= quorum)
+                    {
+                        JLOG(j_.info())
+                            << "RNG: commit timeout but have quorum ("
+                            << commits << "/" << quorum
+                            << "), proceeding with partial set";
+                        // Jump to the same path as hasQuorumOfCommits
+                        auto commitSetHash = adaptor_.buildCommitSet(buildSeq);
+                        auto newPos = result_->position.position();
+                        newPos.commitSetHash = commitSetHash;
+                        result_->position.changePosition(
+                            newPos,
+                            asCloseTime(result_->position.closeTime()),
+                            now_);
+                        if (mode_.get() == ConsensusMode::proposing)
+                            adaptor_.propose(result_->position);
+                        estState_ = EstablishState::ConvergingCommit;
+                        JLOG(j_.debug())
+                            << "RNG: transitioned to ConvergingCommit"
+                            << " commitSet=" << commitSetHash
+                            << " (timeout fallback)";
+                        return;
+                    }
+                    // Truly below quorum: fall through to zero entropy
                 }
             }
         }

@@ -233,6 +233,10 @@ class RCLConsensus
         void
         setExpectedProposers(hash_set<NodeID> proposers);
 
+        /** Number of pending commits (for timeout fallback check) */
+        std::size_t
+        pendingCommitCount() const;
+
         /** Check if we have quorum of commits */
         bool
         hasQuorumOfCommits() const;
