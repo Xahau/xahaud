@@ -1186,10 +1186,16 @@ RCLConsensus::Adaptor::hasQuorumOfCommits() const
 bool
 RCLConsensus::Adaptor::hasMinimumReveals() const
 {
-    auto threshold = quorumThreshold();
-    bool result = pendingReveals_.size() >= threshold;
+    // Wait for reveals from ALL committers, not just 80%.  The commit
+    // set is deterministic (SHAMap agreed), so we know exactly which
+    // validators should reveal.  Waiting for all of them ensures every
+    // node builds the same entropy set.  rngPIPELINE_TIMEOUT in
+    // Consensus.h is the safety valve for nodes that crash/partition
+    // between commit and reveal.
+    auto const expected = pendingCommits_.size();
+    bool result = pendingReveals_.size() >= expected;
     JLOG(j_.debug()) << "RNG: hasMinimumReveals? " << pendingReveals_.size()
-                     << "/" << threshold << " -> " << (result ? "YES" : "no");
+                     << "/" << expected << " -> " << (result ? "YES" : "no");
     return result;
 }
 

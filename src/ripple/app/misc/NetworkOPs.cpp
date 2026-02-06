@@ -988,10 +988,18 @@ NetworkOPsImp::processHeartbeatTimer()
         mLastConsensusPhase = currPhase;
     }
 
-    // Use faster polling (250ms) during RNG sub-state transitions
+    // Use faster polling during RNG sub-state transitions
     // to reduce latency of commit-reveal rounds.
+    // Tunable via XAHAU_RNG_POLL_MS env var (default 250ms).
     if (mConsensus.inRngSubState())
-        setHeartbeatTimer(std::chrono::milliseconds{250});
+    {
+        static auto const rngPollMs = []() -> std::chrono::milliseconds {
+            if (auto const* env = std::getenv("XAHAU_RNG_POLL_MS"))
+                return std::chrono::milliseconds{std::atoi(env)};
+            return std::chrono::milliseconds{250};
+        }();
+        setHeartbeatTimer(rngPollMs);
+    }
     else
         setHeartbeatTimer();
 }

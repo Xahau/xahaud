@@ -109,14 +109,20 @@ public:
     Consumer
     newInboundEndpoint(beast::IP::Endpoint const& address)
     {
+        // Inbound connections from the same IP normally share one
+        // resource bucket (port stripped) for DoS protection.  For
+        // loopback addresses, preserve the port so local testnet nodes
+        // each get their own bucket instead of all sharing one.
+        auto const key = is_loopback(address) ? address : address.at_port(0);
+
         Entry* entry(nullptr);
 
         {
             std::lock_guard _(lock_);
             auto [resultIt, resultInserted] = table_.emplace(
                 std::piecewise_construct,
-                std::make_tuple(kindInbound, address.at_port(0)),  // Key
-                std::make_tuple(m_clock.now()));                   // Entry
+                std::make_tuple(kindInbound, key),
+                std::make_tuple(m_clock.now()));
 
             entry = &resultIt->second;
             entry->key = &resultIt->first;
