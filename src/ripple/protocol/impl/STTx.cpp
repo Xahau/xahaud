@@ -376,12 +376,14 @@ STTx::checkMultiSign(
     int const maxDepth = rules.enabled(featureNestedMultiSign) ? 4 : 1;
 
     // Define recursive lambda for checking signatures at any depth
+    // parentAccountID identifies which account the signers are signing for
+    // (used for context in recursive calls, not currently validated against)
     std::function<Expected<void, std::string>(
         STArray const&, AccountID const&, int)>
         checkSignersArray;
 
     checkSignersArray = [&](STArray const& signersArray,
-                            AccountID const& parentAccountID,
+                            [[maybe_unused]] AccountID const& parentAccountID,
                             int depth) -> Expected<void, std::string> {
         // Check depth limit
         if (depth > maxDepth)
@@ -415,22 +417,15 @@ STTx::checkMultiSign(
             // The next signature must be greater than this one.
             lastAccountID = accountID;
 
-            // Check if this signer has nested signers
-            if (signer.isFieldPresent(sfSigners))
+            // Check signer type using helpers
+            if (isNestedSigner(signer))
             {
-                // This is a nested multi-signer
+                // This is a nested multi-signer (has Signers, no signature)
                 if (maxDepth == 1)
                 {
-                    // amendment is not enabled, this is an error
+                    // Amendment is not enabled
                     return Unexpected("FeatureNestedMultiSign is disabled");
                 }
-
-                // Ensure it doesn't also have signature fields
-                if (signer.isFieldPresent(sfSigningPubKey) ||
-                    signer.isFieldPresent(sfTxnSignature))
-                    return Unexpected(
-                        "Signer cannot have both nested signers and signature "
-                        "fields.");
 
                 // Recursively check nested signers
                 STArray const& nestedSigners = signer.getFieldArray(sfSigners);
@@ -439,14 +434,9 @@ STTx::checkMultiSign(
                 if (!result)
                     return result;
             }
-            else
+            else if (isLeafSigner(signer))
             {
-                // This is a leaf node - must have signature
-                if (!signer.isFieldPresent(sfSigningPubKey) ||
-                    !signer.isFieldPresent(sfTxnSignature))
-                    return Unexpected(
-                        "Leaf signer must have SigningPubKey and "
-                        "TxnSignature.");
+                // This is a leaf signer - verify the signature
 
                 // Verify the signature
                 bool validSig = false;
@@ -479,6 +469,13 @@ STTx::checkMultiSign(
                     return Unexpected(
                         std::string("Invalid signature on account ") +
                         toBase58(accountID) + ".");
+            }
+            else
+            {
+                // Neither a valid leaf nor nested signer
+                return Unexpected(
+                    std::string("Malformed signer entry for account ") +
+                    toBase58(accountID) + ".");
             }
         }
 

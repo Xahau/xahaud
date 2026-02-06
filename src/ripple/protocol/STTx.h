@@ -193,6 +193,74 @@ STTx::getTransactionID() const
     return tid_;
 }
 
+//------------------------------------------------------------------------------
+// Multi-sign signer entry helpers
+//------------------------------------------------------------------------------
+
+/** Count the number of present (non-STI_NOTPRESENT) fields in an STObject.
+    STObject::getCount() returns v_.size() which includes template slots for
+    optional fields that aren't set. This helper counts only populated fields.
+*/
+inline std::size_t
+countPresentFields(STObject const& obj)
+{
+    std::size_t count = 0;
+    for (auto const& field : obj)
+    {
+        if (field.getSType() != STI_NOTPRESENT)
+            ++count;
+    }
+    return count;
+}
+
+/** Check if a signer entry is a leaf signer (has signature fields).
+    A leaf signer has exactly 3 present fields:
+    Account + SigningPubKey + TxnSignature (no nested Signers).
+*/
+inline bool
+isLeafSigner(STObject const& signer)
+{
+    return signer.isFieldPresent(sfSigningPubKey) &&
+        signer.isFieldPresent(sfTxnSignature) &&
+        !signer.isFieldPresent(sfSigners);
+}
+
+/** Check if a signer entry is a nested signer (delegates to sub-signers).
+    A nested signer has exactly 2 present fields:
+    Account + Signers (no SigningPubKey/TxnSignature).
+*/
+inline bool
+isNestedSigner(STObject const& signer)
+{
+    return signer.isFieldPresent(sfSigners) &&
+        !signer.isFieldPresent(sfSigningPubKey) &&
+        !signer.isFieldPresent(sfTxnSignature);
+}
+
+/** Check if a signer entry has valid structure for multi-signing.
+    Returns true if:
+    - Has Account field, AND
+    - Is either a valid leaf signer (exactly 3 present fields) OR
+      valid nested signer (exactly 2 present fields)
+    - Has no extra fields beyond the expected set
+*/
+inline bool
+isValidSignerEntry(STObject const& signer)
+{
+    if (!signer.isFieldPresent(sfAccount))
+        return false;
+
+    auto const presentCount = countPresentFields(signer);
+
+    if (isLeafSigner(signer))
+        return presentCount == 3;
+
+    if (isNestedSigner(signer))
+        return presentCount == 2;
+
+    return false;
+}
+
 }  // namespace ripple
 
 #endif

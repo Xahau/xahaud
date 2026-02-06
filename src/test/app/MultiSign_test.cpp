@@ -2451,6 +2451,114 @@ public:
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq);
         }
+
+        // Test Case 16: Fee calculation with nested signers
+        // Verify that fees are based on total LEAF signers, not nested entries
+        // Note: Not using L() macro here to get clean fee calculations
+        {
+            testcase("Nested Fee Calculation");
+
+            // Reset signer lists
+            env(signers(alice, jtx::none));
+            env(signers(becky, jtx::none));
+            env(signers(cheri, jtx::none));
+            env.close();
+
+            // Setup: alice -> becky -> {bogie, demon}
+            // This means 2 leaf signers even though there's 1 nested entry
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 2, {{bogie, 1}, {demon, 1}}));
+            env.close();
+
+            // Fee = baseFee + (2 leaf signers * baseFee) = 3 * baseFee
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(becky, msigner(bogie), msigner(demon))}),
+                fee(3 * baseFee));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+
+            // Fee too low: 2 * baseFee is not enough for 2 leaf signers
+            aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(becky, msigner(bogie), msigner(demon))}),
+                fee((3 * baseFee) - 1),
+                ter(telINSUF_FEE_P));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+
+            // Deeper nesting: alice -> becky -> cheri -> {bogie, demon, ghost}
+            // 3 leaf signers
+            env(signers(becky, 1, {{cheri, 1}}));
+            env(signers(cheri, 3, {{bogie, 1}, {demon, 1}, {ghost, 1}}));
+            env.close();
+
+            // Fee = baseFee + (3 leaf signers * baseFee) = 4 * baseFee
+            aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(
+                    becky,
+                    msigner(
+                        cheri,
+                        msigner(bogie),
+                        msigner(demon),
+                        msigner(ghost)))}),
+                fee(4 * baseFee));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+
+            // Fee too low: 3 * baseFee not enough for 3 leaf signers
+            aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(
+                    becky,
+                    msigner(
+                        cheri,
+                        msigner(bogie),
+                        msigner(demon),
+                        msigner(ghost)))}),
+                fee((4 * baseFee) - 1),
+                ter(telINSUF_FEE_P));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
+
+        // Test Case 17: Mixed flat and nested signers fee calculation
+        {
+            testcase("Mixed Flat and Nested Fee Calculation");
+
+            // Reset signer lists
+            env(signers(alice, jtx::none));
+            env(signers(becky, jtx::none));
+            env.close();
+
+            // alice -> {becky (nested -> bogie, demon), daria (flat)}
+            // Total leaf signers: 3 (bogie, demon, daria)
+            env(signers(alice, 2, {{becky, 1}, {daria, 1}}));
+            env(signers(becky, 2, {{bogie, 1}, {demon, 1}}));
+            env.close();
+
+            // Fee = baseFee + (3 leaf signers * baseFee) = 4 * baseFee
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig(
+                    {msigner(becky, msigner(bogie), msigner(demon)),
+                     msigner(daria)}),
+                fee(4 * baseFee));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+
+            // Fee too low
+            aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig(
+                    {msigner(becky, msigner(bogie), msigner(demon)),
+                     msigner(daria)}),
+                fee((4 * baseFee) - 1),
+                ter(telINSUF_FEE_P));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
     }
 
     void

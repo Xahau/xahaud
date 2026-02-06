@@ -1180,28 +1180,36 @@ transactionSubmitMultiSigned(
     if (signers.empty())
         return RPC::make_param_error("tx_json.Signers array may not be empty.");
 
-    // The Signers array may only contain Signer objects.
-    if (std::find_if_not(
-            signers.begin(), signers.end(), [](STObject const& obj) {
-                if (obj.getCount() != 4 || !obj.isFieldPresent(sfAccount))
-                    return false;
-                // leaf signer
-                if (obj.isFieldPresent(sfSigningPubKey) &&
-                    obj.isFieldPresent(sfTxnSignature) &&
-                    !obj.isFieldPresent(sfSigners))
-                    return true;
+    // Recursively validate all signer entries (including nested ones).
+    // Uses isValidSignerEntry() which checks exact present-field counts:
+    // - Leaf signer: exactly 3 fields (Account + SigningPubKey + TxnSignature)
+    // - Nested signer: exactly 2 fields (Account + Signers)
+    // Max depth of 4 to match the protocol limit.
+    std::function<bool(STArray const&, int)> validateSignersRecursive;
+    validateSignersRecursive = [&](STArray const& arr, int depth) -> bool {
+        if (depth > 4)
+            return false;  // Exceeds max nesting depth
 
-                // nested signer
-                if (!obj.isFieldPresent(sfSigningPubKey) &&
-                    !obj.isFieldPresent(sfTxnSignature) &&
-                    obj.isFieldPresent(sfSigners))
-                    return true;
-
+        for (auto const& signer : arr)
+        {
+            if (!isValidSignerEntry(signer))
                 return false;
-            }) != signers.end())
+
+            // If nested, recursively validate the nested Signers array
+            if (isNestedSigner(signer))
+            {
+                if (!validateSignersRecursive(
+                        signer.getFieldArray(sfSigners), depth + 1))
+                    return false;
+            }
+        }
+        return true;
+    };
+
+    if (!validateSignersRecursive(signers, 1))
     {
         return RPC::make_param_error(
-            "Signers array may only contain Signer entries.");
+            "Signers array may only contain valid Signer entries.");
     }
 
     // The array must be sorted and validated.

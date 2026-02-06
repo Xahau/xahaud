@@ -292,36 +292,41 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     std::size_t signerCount = 0;
     if (tx.isFieldPresent(sfSigners))
     {
-        // Define recursive lambda to count all leaf signers
-        std::function<std::size_t(STArray const&)> countSigners;
+        // Max depth for nested multi-signing (4 when enabled, 1 otherwise).
+        // We use a conservative depth limit here to prevent stack overflow
+        // from malicious deep nesting, even before signature validation.
+        int const maxDepth =
+            view.rules().enabled(featureNestedMultiSign) ? 4 : 1;
 
-        countSigners = [&](STArray const& signers) -> std::size_t {
+        // Define recursive lambda to count all leaf signers with depth guard
+        std::function<std::size_t(STArray const&, int)> countSigners;
+
+        countSigners = [&](STArray const& signers, int depth) -> std::size_t {
+            // Depth guard: stop recursing beyond max allowed depth
+            if (depth > maxDepth)
+                return 0;
+
             std::size_t count = 0;
 
             for (auto const& signer : signers)
             {
-                if (signer.isFieldPresent(sfSigners))
+                if (isNestedSigner(signer))
                 {
                     // This is a nested signer - recursively count its signers
-                    count += countSigners(signer.getFieldArray(sfSigners));
+                    count += countSigners(
+                        signer.getFieldArray(sfSigners), depth + 1);
                 }
-                else
+                else if (isLeafSigner(signer))
                 {
                     // This is a leaf signer (one who actually signs)
-                    // Count it only if it has signing fields (not just a
-                    // placeholder)
-                    if (signer.isFieldPresent(sfSigningPubKey) &&
-                        signer.isFieldPresent(sfTxnSignature))
-                    {
-                        count += 1;
-                    }
+                    count += 1;
                 }
             }
 
             return count;
         };
 
-        signerCount = countSigners(tx.getFieldArray(sfSigners));
+        signerCount = countSigners(tx.getFieldArray(sfSigners), 1);
     }
 
     XRPAmount hookExecutionFee{0};
@@ -970,28 +975,16 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                           STArray const& signers,
                           int depth,
                           std::set<AccountID> ancestors) -> NotTEC {
-        // Cycle detection: if we're already validating this account up the
-        // chain it cannot contribute - but this isn't an error, just
-        // unavailable weight
-        if (ancestors.count(acc))
-        {
-            JLOG(ctx.j.trace())
-                << "checkMultiSign: Cyclic signer detected: " << acc;
-            return tesSUCCESS;
-        }
+        // Note: Cycle detection is handled by skipping cyclic signers in the
+        // loop below, not by early return here. The ancestors set tracks the
+        // signing chain to detect cycles.
 
-        // Check depth limit
+        // Check depth limit - this is a structural error (malformed tx)
         if (depth > maxDepth)
         {
-            if (allowNested)
-            {
-                JLOG(ctx.j.trace())
-                    << "checkMultiSign: Multi-signing depth limit exceeded.";
-                return tefBAD_SIGNATURE;
-            }
-
-            JLOG(ctx.j.warn())
-                << "checkMultiSign: Nested multisigning disabled.";
+            JLOG(ctx.j.trace())
+                << "checkMultiSign: Multi-signing depth limit exceeded at "
+                << depth << " (max=" << maxDepth << ")";
             return temMALFORMED;
         }
 
@@ -1007,6 +1000,12 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                                 << " not set up for multi-signing.";
             return tefNOT_MULTI_SIGNING;
         }
+
+        // We have plans to support multiple SignerLists in the future.  The
+        // presence and defaulted value of the SignerListID field will enable
+        // that.
+        assert(sleAllowedSigners->isFieldPresent(sfSignerListID));
+        assert(sleAllowedSigners->getFieldU32(sfSignerListID) == 0);
 
         uint32_t const quorum = sleAllowedSigners->getFieldU32(sfSignerQuorum);
         uint32_t sum{0};
@@ -1034,7 +1033,6 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
         for (auto const& signerEntry : signers)
         {
             AccountID const signer = signerEntry.getAccountID(sfAccount);
-            bool const isNested = signerEntry.isFieldPresent(sfSigners);
 
             // Enforce strict ascending order (required for consensus)
             if (prevSigner && signer <= *prevSigner)
@@ -1065,18 +1063,12 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
             }
             uint16_t const weight = weightIt->second;
 
-            // Check if this signer has nested signers (delegation)
-            if (isNested)
+            // Check signer type using helpers
+            if (isNestedSigner(signerEntry))
             {
                 // This is a nested multi-signer that delegates to sub-signers
-                if (signerEntry.isFieldPresent(sfSigningPubKey) ||
-                    signerEntry.isFieldPresent(sfTxnSignature))
-                {
-                    JLOG(ctx.j.trace()) << "checkMultiSign: Signer " << signer
-                                        << " cannot have both nested signers "
-                                           "and signature fields.";
-                    return tefBAD_SIGNATURE;
-                }
+                // (has Signers array, no signature fields - validated by
+                // helper)
 
                 // Recursively validate the nested signers against signer's
                 // signer list
@@ -1095,17 +1087,10 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                     << " validated, weight=" << weight << ", depth=" << depth
                     << ", sum=" << sum << "/" << quorum;
             }
-            else
+            else if (isLeafSigner(signerEntry))
             {
                 // This is a leaf signer - validate signature
-                if (!signerEntry.isFieldPresent(sfSigningPubKey) ||
-                    !signerEntry.isFieldPresent(sfTxnSignature))
-                {
-                    JLOG(ctx.j.trace())
-                        << "checkMultiSign: Leaf signer " << signer
-                        << " must have SigningPubKey and TxnSignature.";
-                    return tefBAD_SIGNATURE;
-                }
+                // (has SigningPubKey and TxnSignature - validated by helper)
 
                 auto const spk = signerEntry.getFieldVL(sfSigningPubKey);
 
@@ -1171,6 +1156,13 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                     << "checkMultiSign: Leaf signer " << signer
                     << " validated, weight=" << weight << ", depth=" << depth
                     << ", sum=" << sum << "/" << quorum;
+            }
+            else
+            {
+                // Neither a valid leaf nor nested signer
+                JLOG(ctx.j.trace())
+                    << "checkMultiSign: Malformed signer entry for " << signer;
+                return tefBAD_SIGNATURE;
             }
         }
 
