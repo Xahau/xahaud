@@ -1381,7 +1381,11 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
         return;
     }
 
-    // Diff against our local set and merge missing entries
+    // Union-merge: diff against our local set and add any entries we're
+    // missing. Unlike normal txSets which use avalanche voting to resolve
+    // disagreements, RNG sets use pure union — every valid UNL entry
+    // belongs in the set. Differences arise only from propagation timing,
+    // not from conflicting opinions about inclusion.
     auto& localMap = isCommitSet ? commitSetMap_ : entropySetMap_;
     auto& pendingData = isCommitSet ? pendingCommits_ : pendingReveals_;
 

@@ -45,6 +45,18 @@ namespace ripple {
 
     @note Data collection (commits, reveals) happens continuously via proposal
           leaves. Sub-states are checkpoints, not serial waits.
+
+    @note Convergence model: commitSet and entropySet use UNION convergence,
+          not avalanche voting. This is sufficient because:
+          - Each validator contributes exactly one deterministic entry
+          - Entries are piggybacked on proposals (already reliably propagated)
+          - There is no disagreement about inclusion — every valid entry belongs
+          - The only source of difference between nodes is timing
+          - Union is monotonic (sets only grow) and bounded (one per UNL member)
+          - SHAMap fetch/diff/merge handles late arrivals as a safety net
+          Avalanche is needed when nodes disagree about what to include/exclude
+          (e.g. disputed user transactions). For RNG sets, all honest nodes
+          want the same thing — include everything — so union suffices.
 */
 enum class EstablishState {
     ConvergingTx,      ///< Normal txset convergence + harvesting commits
@@ -1351,6 +1363,11 @@ Consensus<Adaptor>::phaseEstablish()
     }
 
     // --- RNG Sub-state Checkpoints (if adaptor supports RNG) ---
+    // These sub-states use union convergence (not avalanche).
+    // Commits and reveals arrive piggybacked on proposals, so by the time
+    // we reach these checkpoints most data is already collected. The
+    // SHAMap fetch/diff/merge in handleAcquiredRngSet is a safety net
+    // for stragglers, not a voting mechanism.
     if constexpr (requires(Adaptor & a) {
                       a.hasQuorumOfCommits();
                       a.buildCommitSet(typename Ledger_t::Seq{});
