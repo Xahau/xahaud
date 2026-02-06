@@ -1935,7 +1935,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         return;
     }
 
-    // Position data must be at least 32 bytes (txSetHash), previous ledger exactly 32
+    // Position data must be at least 32 bytes (txSetHash), previous ledger
+    // exactly 32
     if (set.currenttxhash().size() < 32 ||
         !stringIsUint256Sized(set.previousledger()))
     {
@@ -1956,11 +1957,18 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     if (!isTrusted && app_.config().RELAY_UNTRUSTED_PROPOSALS == -1)
         return;
 
-    // Deserialize ExtendedPosition (handles both legacy 32-byte and extended formats)
+    // Deserialize ExtendedPosition (handles both legacy 32-byte and extended
+    // formats)
     auto const positionSlice = makeSlice(set.currenttxhash());
     SerialIter sit(positionSlice);
     ExtendedPosition const position =
         ExtendedPosition::fromSerialIter(sit, positionSlice.size());
+
+    JLOG(p_journal_.debug())
+        << "RNG: recv proposal size=" << positionSlice.size()
+        << " commit=" << (position.myCommitment ? "yes" : "no")
+        << " reveal=" << (position.myReveal ? "yes" : "no") << " from "
+        << toBase58(TokenType::NodePublic, publicKey);
 
     uint256 const prevLedger{set.previousledger()};
 

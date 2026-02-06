@@ -1,0 +1,321 @@
+//------------------------------------------------------------------------------
+/*
+    This file is part of rippled: https://github.com/ripple/rippled
+    Copyright (c) 2024 Ripple Labs Inc.
+
+    Permission to use, copy, modify, and/or distribute this software for any
+    purpose  with  or without fee is hereby granted, provided that the above
+    copyright notice and this permission notice appear in all copies.
+
+    THE  SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+    WITH  REGARD  TO  THIS  SOFTWARE  INCLUDING  ALL  IMPLIED  WARRANTIES  OF
+    MERCHANTABILITY  AND  FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+    ANY  SPECIAL ,  DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+    WHATSOEVER  RESULTING  FROM  LOSS  OF USE, DATA OR PROFITS, WHETHER IN AN
+    ACTION  OF  CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+*/
+//==============================================================================
+
+#include <ripple/app/consensus/RCLCxPeerPos.h>
+#include <ripple/beast/unit_test.h>
+#include <ripple/consensus/ConsensusProposal.h>
+#include <ripple/protocol/SecretKey.h>
+#include <ripple/protocol/digest.h>
+#include <cstring>
+
+namespace ripple {
+namespace test {
+
+class ExtendedPosition_test : public beast::unit_test::suite
+{
+    // Generate deterministic test hashes
+    static uint256
+    makeHash(char const* label)
+    {
+        return sha512Half(Slice(label, std::strlen(label)));
+    }
+
+    void
+    testSerializationRoundTrip()
+    {
+        testcase("Serialization round-trip");
+
+        // Empty position (legacy compat)
+        {
+            auto const txSet = makeHash("txset-a");
+            ExtendedPosition pos{txSet};
+
+            Serializer s;
+            pos.add(s);
+
+            // Should be exactly 32 bytes (no flags byte)
+            BEAST_EXPECT(s.getDataLength() == 32);
+
+            SerialIter sit(s.slice());
+            auto deserialized =
+                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
+
+            BEAST_EXPECT(deserialized.txSetHash == txSet);
+            BEAST_EXPECT(!deserialized.myCommitment);
+            BEAST_EXPECT(!deserialized.myReveal);
+            BEAST_EXPECT(!deserialized.commitSetHash);
+            BEAST_EXPECT(!deserialized.entropySetHash);
+        }
+
+        // Position with commitment
+        {
+            auto const txSet = makeHash("txset-b");
+            auto const commit = makeHash("commit-b");
+
+            ExtendedPosition pos{txSet};
+            pos.myCommitment = commit;
+
+            Serializer s;
+            pos.add(s);
+
+            // 32 (txSet) + 1 (flags) + 32 (commitment) = 65
+            BEAST_EXPECT(s.getDataLength() == 65);
+
+            SerialIter sit(s.slice());
+            auto deserialized =
+                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
+
+            BEAST_EXPECT(deserialized.txSetHash == txSet);
+            BEAST_EXPECT(deserialized.myCommitment == commit);
+            BEAST_EXPECT(!deserialized.myReveal);
+        }
+
+        // Position with all fields
+        {
+            auto const txSet = makeHash("txset-c");
+            auto const commitSet = makeHash("commitset-c");
+            auto const entropySet = makeHash("entropyset-c");
+            auto const commit = makeHash("commit-c");
+            auto const reveal = makeHash("reveal-c");
+
+            ExtendedPosition pos{txSet};
+            pos.commitSetHash = commitSet;
+            pos.entropySetHash = entropySet;
+            pos.myCommitment = commit;
+            pos.myReveal = reveal;
+
+            Serializer s;
+            pos.add(s);
+
+            // 32 + 1 + 32 + 32 + 32 + 32 = 161
+            BEAST_EXPECT(s.getDataLength() == 161);
+
+            SerialIter sit(s.slice());
+            auto deserialized =
+                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
+
+            BEAST_EXPECT(deserialized.txSetHash == txSet);
+            BEAST_EXPECT(deserialized.commitSetHash == commitSet);
+            BEAST_EXPECT(deserialized.entropySetHash == entropySet);
+            BEAST_EXPECT(deserialized.myCommitment == commit);
+            BEAST_EXPECT(deserialized.myReveal == reveal);
+        }
+    }
+
+    void
+    testSigningConsistency()
+    {
+        testcase("Signing hash consistency");
+
+        // The signing hash from ConsensusProposal::signingHash() must match
+        // what a receiver would compute via the same function after
+        // deserializing the ExtendedPosition from the wire.
+
+        auto const [pk, sk] = randomKeyPair(KeyType::secp256k1);
+        auto const nodeId = calcNodeID(pk);
+        auto const prevLedger = makeHash("prevledger");
+        auto const closeTime =
+            NetClock::time_point{NetClock::duration{1234567}};
+
+        // Test with commitment (the case that was failing)
+        {
+            auto const txSet = makeHash("txset-sign");
+            auto const commit = makeHash("commitment-sign");
+
+            ExtendedPosition pos{txSet};
+            pos.myCommitment = commit;
+
+            using Proposal =
+                ConsensusProposal<NodeID, uint256, ExtendedPosition>;
+
+            Proposal prop{
+                prevLedger,
+                Proposal::seqJoin,
+                pos,
+                closeTime,
+                NetClock::time_point{},
+                nodeId};
+
+            // Sign it (same as propose() does)
+            auto const signingHash = prop.signingHash();
+            auto sig = signDigest(pk, sk, signingHash);
+
+            // Serialize position to wire format
+            Serializer positionData;
+            pos.add(positionData);
+            auto const posSlice = positionData.slice();
+
+            // Deserialize (same as PeerImp::onMessage does)
+            SerialIter sit(posSlice);
+            auto const receivedPos =
+                ExtendedPosition::fromSerialIter(sit, posSlice.size());
+
+            // Reconstruct proposal on receiver side
+            Proposal receivedProp{
+                prevLedger,
+                Proposal::seqJoin,
+                receivedPos,
+                closeTime,
+                NetClock::time_point{},
+                nodeId};
+
+            // The signing hash must match
+            BEAST_EXPECT(receivedProp.signingHash() == signingHash);
+
+            // Verify signature (same as checkSign does)
+            BEAST_EXPECT(
+                verifyDigest(pk, receivedProp.signingHash(), sig, false));
+        }
+
+        // Test without commitment (legacy case)
+        {
+            auto const txSet = makeHash("txset-legacy");
+            ExtendedPosition pos{txSet};
+
+            using Proposal =
+                ConsensusProposal<NodeID, uint256, ExtendedPosition>;
+
+            Proposal prop{
+                prevLedger,
+                Proposal::seqJoin,
+                pos,
+                closeTime,
+                NetClock::time_point{},
+                nodeId};
+
+            auto const signingHash = prop.signingHash();
+            auto sig = signDigest(pk, sk, signingHash);
+
+            Serializer positionData;
+            pos.add(positionData);
+
+            SerialIter sit(positionData.slice());
+            auto const receivedPos = ExtendedPosition::fromSerialIter(
+                sit, positionData.getDataLength());
+
+            Proposal receivedProp{
+                prevLedger,
+                Proposal::seqJoin,
+                receivedPos,
+                closeTime,
+                NetClock::time_point{},
+                nodeId};
+
+            BEAST_EXPECT(receivedProp.signingHash() == signingHash);
+            BEAST_EXPECT(
+                verifyDigest(pk, receivedProp.signingHash(), sig, false));
+        }
+    }
+
+    void
+    testSuppressionConsistency()
+    {
+        testcase("Suppression hash consistency");
+
+        // proposalUniqueId must produce the same result on sender and
+        // receiver when given the same ExtendedPosition data.
+
+        auto const [pk, sk] = randomKeyPair(KeyType::secp256k1);
+        auto const prevLedger = makeHash("prevledger-supp");
+        auto const closeTime =
+            NetClock::time_point{NetClock::duration{1234567}};
+        std::uint32_t const proposeSeq = 0;
+
+        auto const txSet = makeHash("txset-supp");
+        auto const commit = makeHash("commitment-supp");
+
+        ExtendedPosition pos{txSet};
+        pos.myCommitment = commit;
+
+        // Sign (to get a real signature for suppression)
+        using Proposal = ConsensusProposal<NodeID, uint256, ExtendedPosition>;
+        Proposal prop{
+            prevLedger,
+            proposeSeq,
+            pos,
+            closeTime,
+            NetClock::time_point{},
+            calcNodeID(pk)};
+
+        auto sig = signDigest(pk, sk, prop.signingHash());
+
+        // Sender computes suppression
+        auto const senderSuppression =
+            proposalUniqueId(pos, prevLedger, proposeSeq, closeTime, pk, sig);
+
+        // Simulate wire: serialize and deserialize
+        Serializer positionData;
+        pos.add(positionData);
+        SerialIter sit(positionData.slice());
+        auto const receivedPos =
+            ExtendedPosition::fromSerialIter(sit, positionData.getDataLength());
+
+        // Receiver computes suppression
+        auto const receiverSuppression = proposalUniqueId(
+            receivedPos, prevLedger, proposeSeq, closeTime, pk, sig);
+
+        BEAST_EXPECT(senderSuppression == receiverSuppression);
+    }
+
+    void
+    testEquality()
+    {
+        testcase("Equality is txSetHash only");
+
+        auto const txSet = makeHash("txset-eq");
+        auto const txSet2 = makeHash("txset-eq-2");
+
+        ExtendedPosition a{txSet};
+        a.myCommitment = makeHash("commit1-eq");
+
+        ExtendedPosition b{txSet};
+        b.myCommitment = makeHash("commit2-eq");
+
+        // Same txSetHash, different leaves -> equal
+        BEAST_EXPECT(a == b);
+
+        // Same txSetHash, different commitSetHash -> still equal
+        // (sub-state quorum handles commitSetHash agreement)
+        b.commitSetHash = makeHash("cs-eq");
+        BEAST_EXPECT(a == b);
+
+        // Same txSetHash, different entropySetHash -> still equal
+        b.entropySetHash = makeHash("es-eq");
+        BEAST_EXPECT(a == b);
+
+        // Different txSetHash -> not equal
+        ExtendedPosition c{txSet2};
+        BEAST_EXPECT(a != c);
+    }
+
+public:
+    void
+    run() override
+    {
+        testSerializationRoundTrip();
+        testSigningConsistency();
+        testSuppressionConsistency();
+        testEquality();
+    }
+};
+
+BEAST_DEFINE_TESTSUITE(ExtendedPosition, consensus, ripple);
+
+}  // namespace test
+}  // namespace ripple

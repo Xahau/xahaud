@@ -47,16 +47,8 @@ RCLCxPeerPos::RCLCxPeerPos(
 bool
 RCLCxPeerPos::checkSign() const
 {
-    // Use proposalUniqueId to ensure full ExtendedPosition is covered
-    auto const signingHash = proposalUniqueId(
-        proposal_.position(),
-        proposal_.prevLedger(),
-        proposal_.proposeSeq(),
-        proposal_.closeTime(),
-        publicKey_.slice(),
-        Slice{nullptr, 0});  // Exclude signature for signing hash
-
-    return verifyDigest(publicKey(), signingHash, signature(), false);
+    return verifyDigest(
+        publicKey(), proposal_.signingHash(), signature(), false);
 }
 
 Json::Value
@@ -79,15 +71,13 @@ proposalUniqueId(
     Slice const& publicKey,
     Slice const& signature)
 {
+    // This is for suppression/dedup only, NOT for signing.
+    // Must include all fields that distinguish proposals.
     Serializer s(512);
-    s.add32(HashPrefix::proposal);
+    position.add(s);
+    s.addBitString(previousLedger);
     s.add32(proposeSeq);
     s.add32(closeTime.time_since_epoch().count());
-    s.addBitString(previousLedger);
-
-    // Serialize full ExtendedPosition (TxSet + Sets + Leaves)
-    position.add(s);
-
     s.addVL(publicKey);
     s.addVL(signature);
 

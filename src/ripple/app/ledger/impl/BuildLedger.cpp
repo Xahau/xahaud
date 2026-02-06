@@ -106,38 +106,41 @@ applyTransactions(
 
     // CRITICAL: Apply consensus entropy pseudo-tx FIRST before any other
     // transactions. This ensures hooks can read entropy during this ledger.
-    for (auto it = txns.begin(); it != txns.end(); ++it)
+    for (auto it = txns.begin(); it != txns.end(); /* manual */)
     {
-        if (it->second->getTxnType() == ttCONSENSUS_ENTROPY)
+        if (it->second->getTxnType() != ttCONSENSUS_ENTROPY)
         {
-            auto const txid = it->first.getTXID();
-            JLOG(j.debug()) << "Applying entropy tx FIRST: " << txid;
-
-            try
-            {
-                auto const result =
-                    applyTransaction(app, view, *it->second, true, tapNONE, j);
-
-                if (result == ApplyResult::Success)
-                {
-                    ++count;
-                    JLOG(j.debug()) << "Entropy tx applied successfully";
-                }
-                else
-                {
-                    failed.insert(txid);
-                    JLOG(j.warn()) << "Entropy tx failed to apply";
-                }
-            }
-            catch (std::exception const& ex)
-            {
-                JLOG(j.warn()) << "Entropy tx throws: " << ex.what();
-                failed.insert(txid);
-            }
-
-            txns.erase(it);
-            break;  // Only one entropy tx per ledger
+            ++it;
+            continue;
         }
+
+        auto const txid = it->first.getTXID();
+        JLOG(j.debug()) << "Applying entropy tx FIRST: " << txid;
+
+        try
+        {
+            auto const result =
+                applyTransaction(app, view, *it->second, true, tapNONE, j);
+
+            if (result == ApplyResult::Success)
+            {
+                ++count;
+                JLOG(j.debug()) << "Entropy tx applied successfully";
+            }
+            else
+            {
+                failed.insert(txid);
+                JLOG(j.warn()) << "Entropy tx failed to apply";
+            }
+        }
+        catch (std::exception const& ex)
+        {
+            JLOG(j.warn()) << "Entropy tx throws: " << ex.what();
+            failed.insert(txid);
+        }
+
+        it = txns.erase(it);
+        break;  // Only one entropy tx per ledger
     }
 
     // Attempt to apply all of the retriable transactions

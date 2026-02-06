@@ -223,6 +223,22 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
     auto const posSlice = positionData.slice();
     prop.set_currenttxhash(posSlice.data(), posSlice.size());
 
+    JLOG(j_.info()) << "RNG: propose seq=" << proposal.proposeSeq()
+                    << " wireBytes=" << posSlice.size() << " commit="
+                    << (proposal.position().myCommitment ? "yes" : "no")
+                    << " reveal="
+                    << (proposal.position().myReveal ? "yes" : "no");
+
+    // Self-seed our own reveal so we count toward reveal quorum
+    // (harvestRngData only sees peer proposals, not our own).
+    if (proposal.position().myReveal)
+    {
+        auto const ownNodeId = validatorKeys_.nodeID;
+        pendingReveals_[ownNodeId] = *proposal.position().myReveal;
+        nodeIdToKey_[ownNodeId] = validatorKeys_.publicKey;
+        JLOG(j_.debug()) << "RNG: self-seeded reveal for " << ownNodeId;
+    }
+
     prop.set_previousledger(
         proposal.prevLedger().begin(), proposal.prevLedger().size());
     prop.set_proposeseq(proposal.proposeSeq());
@@ -397,12 +413,42 @@ RCLConsensus::Adaptor::onClose(
     // Needed because of the move below.
     auto const setHash = initialSet->getHash().as_uint256();
 
+    ExtendedPosition pos{setHash};
+
+    // Bootstrap commit-reveal: generate entropy and include commitment
+    // in our very first proposal so peers can collect it during consensus.
+    if (proposing && prevLedger->rules().enabled(featureConsensusEntropy))
+    {
+        generateEntropySecret();
+        pos.myCommitment = sha512Half(
+            myEntropySecret_,
+            validatorKeys_.publicKey,
+            prevLedger->info().seq + 1);
+
+        // Seed our own commitment into pendingCommits_ so we count
+        // toward quorum (harvestRngData only sees peer proposals).
+        auto const ownNodeId = validatorKeys_.nodeID;
+        pendingCommits_[ownNodeId] = *pos.myCommitment;
+        nodeIdToKey_[ownNodeId] = validatorKeys_.publicKey;
+
+        JLOG(j_.info()) << "RNG: onClose bootstrap seq="
+                        << (prevLedger->info().seq + 1)
+                        << " commitment=" << *pos.myCommitment;
+    }
+    else
+    {
+        JLOG(j_.debug()) << "RNG: onClose skipped (proposing=" << proposing
+                         << " amendment="
+                         << prevLedger->rules().enabled(featureConsensusEntropy)
+                         << ")";
+    }
+
     return Result{
         std::move(initialSet),
         RCLCxPeerPos::Proposal{
             initialLedger->info().parentHash,
             RCLCxPeerPos::Proposal::seqJoin,
-            ExtendedPosition{setHash},
+            std::move(pos),
             closeTime,
             app_.timeKeeper().closeTime(),
             validatorKeys_.nodeID}};
@@ -1080,13 +1126,21 @@ RCLConsensus::Adaptor::quorumThreshold() const
 bool
 RCLConsensus::Adaptor::hasQuorumOfCommits() const
 {
-    return pendingCommits_.size() >= quorumThreshold();
+    auto threshold = quorumThreshold();
+    bool result = pendingCommits_.size() >= threshold;
+    JLOG(j_.debug()) << "RNG: hasQuorumOfCommits? " << pendingCommits_.size()
+                     << "/" << threshold << " -> " << (result ? "YES" : "no");
+    return result;
 }
 
 bool
 RCLConsensus::Adaptor::hasMinimumReveals() const
 {
-    return pendingReveals_.size() >= quorumThreshold();
+    auto threshold = quorumThreshold();
+    bool result = pendingReveals_.size() >= threshold;
+    JLOG(j_.debug()) << "RNG: hasMinimumReveals? " << pendingReveals_.size()
+                     << "/" << threshold << " -> " << (result ? "YES" : "no");
+    return result;
 }
 
 bool
@@ -1184,6 +1238,11 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
     CanonicalTXSet& retriableTxs,
     LedgerIndex seq)
 {
+    JLOG(j_.info()) << "RNG: injectEntropy seq=" << seq
+                    << " commits=" << pendingCommits_.size()
+                    << " reveals=" << pendingReveals_.size()
+                    << " failed=" << entropyFailed_;
+
     uint256 finalEntropy;
     bool hasEntropy = false;
 
@@ -1258,6 +1317,10 @@ RCLConsensus::Adaptor::harvestRngData(
     PublicKey const& publicKey,
     ExtendedPosition const& position)
 {
+    JLOG(j_.debug()) << "RNG: harvestRngData from " << nodeId
+                     << " commit=" << (position.myCommitment ? "yes" : "no")
+                     << " reveal=" << (position.myReveal ? "yes" : "no");
+
     // Store nodeId -> publicKey mapping for deterministic ordering
     nodeIdToKey_[nodeId] = publicKey;
 

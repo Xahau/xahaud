@@ -40,21 +40,24 @@ namespace ripple {
 
 /** Extended position for consensus with RNG entropy support.
 
-    Carries both the consensus targets (set hashes that require agreement)
-    and pipelined leaves (per-validator data transported via gossip).
+    Carries the tx-set hash (the core convergence target), RNG set hashes
+    (agreed via sub-state quorum, not via operator==), and per-validator
+    leaves (unique to each proposer, piggybacked on proposals).
 
     Critical design:
-    - operator== excludes leaves (allows convergence with unique leaves)
-    - add() includes ALL fields (prevents signature stripping attacks)
+    - operator== compares txSetHash ONLY (sub-states handle the rest)
+    - add() includes ALL fields for signing (prevents stripping attacks)
 */
 struct ExtendedPosition
 {
-    // === Consensus Targets (Agreement Required) ===
+    // === Core Convergence Target ===
     uint256 txSetHash;
+
+    // === RNG Set Hashes (sub-state quorum, not in operator==) ===
     std::optional<uint256> commitSetHash;
     std::optional<uint256> entropySetHash;
 
-    // === Pipelined Leaves (No Agreement Required) ===
+    // === Per-Validator Leaves (unique per proposer) ===
     std::optional<uint256> myCommitment;
     std::optional<uint256> myReveal;
 
@@ -76,13 +79,36 @@ struct ExtendedPosition
         txSetHash = set;
     }
 
-    // CRITICAL: Exclude leaves from equality - consensus only on set hashes
+    // TODO: replace operator== with a named method (e.g. txSetMatches())
+    //   so call sites read as intent, not as "full equality".  Overloading
+    //   operator== to ignore most fields is surprising and fragile.
+    //
+    // CRITICAL: Only compare txSetHash for consensus convergence.
+    //
+    // Why not commitSetHash / entropySetHash?
+    //   Nodes transition through sub-states (ConvergingTx → ConvergingCommit
+    //   → ConvergingReveal) at slightly different times.  If we included
+    //   commitSetHash here, a node that transitions first would set it,
+    //   making its position "different" from peers who haven't transitioned
+    //   yet — deadlocking haveConsensus() for everyone.
+    //
+    //   Instead, the sub-state machine in phaseEstablish handles agreement
+    //   on those fields via quorum checks (hasQuorumOfCommits, etc.).
+    //
+    // Implications to consider:
+    //   - Two nodes with the same txSetHash but different commitSetHash
+    //     will appear to "agree" from the convergence engine's perspective.
+    //     This is intentional: tx consensus must not be blocked by RNG.
+    //   - A malicious node could propose a different commitSetHash without
+    //     affecting tx convergence.  This is safe because commitSetHash
+    //     disagreement is caught by the sub-state quorum checks, and the
+    //     entropy result is verified deterministically from collected reveals.
+    //   - Leaves (myCommitment, myReveal) are also excluded — they are
+    //     per-validator data unique to each proposer.
     bool
     operator==(ExtendedPosition const& other) const
     {
-        return txSetHash == other.txSetHash &&
-            commitSetHash == other.commitSetHash &&
-            entropySetHash == other.entropySetHash;
+        return txSetHash == other.txSetHash;
     }
 
     bool
@@ -121,6 +147,11 @@ struct ExtendedPosition
     add(Serializer& s) const
     {
         s.addBitString(txSetHash);
+
+        // Wire compatibility: if no extensions, emit exactly 32 bytes
+        // so legacy nodes that expect a plain uint256 work unchanged.
+        if (!commitSetHash && !entropySetHash && !myCommitment && !myReveal)
+            return;
 
         std::uint8_t flags = 0;
         if (commitSetHash)
@@ -221,7 +252,7 @@ class RCLCxPeerPos
 {
 public:
     //< The type of the proposed position (uses ExtendedPosition for RNG
-    //support)
+    // support)
     using Proposal = ConsensusProposal<NodeID, uint256, ExtendedPosition>;
 
     /** Constructor

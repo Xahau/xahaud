@@ -848,6 +848,7 @@ if (tests)
     #]===============================]
     src/test/consensus/ByzantineFailureSim_test.cpp
     src/test/consensus/Consensus_test.cpp
+    src/test/consensus/ExtendedPosition_test.cpp
     src/test/consensus/DistributedValidatorsSim_test.cpp
     src/test/consensus/LedgerTiming_test.cpp
     src/test/consensus/LedgerTrie_test.cpp

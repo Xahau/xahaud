@@ -24,12 +24,12 @@
 #include <ripple/basics/chrono.h>
 #include <ripple/beast/utility/Journal.h>
 #include <ripple/consensus/ConsensusParms.h>
-#include <ripple/protocol/digest.h>
 #include <ripple/consensus/ConsensusProposal.h>
 #include <ripple/consensus/ConsensusTypes.h>
 #include <ripple/consensus/DisputedTx.h>
 #include <ripple/consensus/LedgerTiming.h>
 #include <ripple/json/json_writer.h>
+#include <ripple/protocol/digest.h>
 #include <boost/logic/tribool.hpp>
 #include <deque>
 #include <optional>
@@ -701,7 +701,7 @@ Consensus<Adaptor>::startRoundInternal(
     deadNodes_.clear();
 
     // Reset RNG state for new round if adaptor supports it
-    if constexpr (requires(Adaptor& a) { a.clearRngState(); })
+    if constexpr (requires(Adaptor & a) { a.clearRngState(); })
     {
         adaptor_.clearRngState();
     }
@@ -807,13 +807,17 @@ Consensus<Adaptor>::peerProposalInternal(
     }
 
     // Harvest RNG data from proposal if adaptor supports it
-    if constexpr (requires(Adaptor& a, PeerPosition_t const& pp) {
+    if constexpr (requires(Adaptor & a, PeerPosition_t const& pp) {
                       a.harvestRngData(
                           pp.proposal().nodeID(),
                           pp.publicKey(),
                           pp.proposal().position());
                   })
     {
+        JLOG(j_.debug()) << "RNG: peerProposal from " << peerID << " commit="
+                         << (newPeerProp.position().myCommitment ? "yes" : "no")
+                         << " reveal="
+                         << (newPeerProp.position().myReveal ? "yes" : "no");
         adaptor_.harvestRngData(
             peerID, newPeerPos.publicKey(), newPeerProp.position());
     }
@@ -1326,36 +1330,37 @@ Consensus<Adaptor>::phaseEstablish()
     }
 
     // --- RNG Sub-state Checkpoints (if adaptor supports RNG) ---
-    if constexpr (requires(Adaptor& a) {
+    if constexpr (requires(Adaptor & a) {
                       a.hasQuorumOfCommits();
                       a.buildCommitSet();
                       a.generateEntropySecret();
                   })
     {
+        JLOG(j_.debug()) << "RNG: phaseEstablish estState="
+                         << static_cast<int>(estState_);
+
         if (estState_ == EstablishState::ConvergingTx)
         {
             if (adaptor_.hasQuorumOfCommits())
             {
                 auto commitSetHash = adaptor_.buildCommitSet();
-                adaptor_.generateEntropySecret();
 
+                // Keep the same entropy secret from onClose() — do NOT
+                // regenerate.  The commitment in the commitSet was built
+                // from that original secret; regenerating would make the
+                // later reveal fail verification.
                 auto newPos = result_->position.position();
                 newPos.commitSetHash = commitSetHash;
-                newPos.myCommitment = sha512Half(
-                    adaptor_.getEntropySecret(),
-                    adaptor_.validatorKey(),
-                    previousLedger_.seq() + typename Ledger_t::Seq{1});
 
                 result_->position.changePosition(
-                    newPos,
-                    asCloseTime(result_->position.closeTime()),
-                    now_);
+                    newPos, asCloseTime(result_->position.closeTime()), now_);
 
                 if (mode_.get() == ConsensusMode::proposing)
                     adaptor_.propose(result_->position);
 
                 estState_ = EstablishState::ConvergingCommit;
-                JLOG(j_.debug()) << "RNG: transitioned to ConvergingCommit";
+                JLOG(j_.debug()) << "RNG: transitioned to ConvergingCommit"
+                                 << " commitSet=" << commitSetHash;
                 return;  // Wait for next tick
             }
         }
@@ -1366,20 +1371,20 @@ Consensus<Adaptor>::phaseEstablish()
             newPos.myReveal = adaptor_.getEntropySecret();
 
             result_->position.changePosition(
-                newPos,
-                asCloseTime(result_->position.closeTime()),
-                now_);
+                newPos, asCloseTime(result_->position.closeTime()), now_);
 
             if (mode_.get() == ConsensusMode::proposing)
                 adaptor_.propose(result_->position);
 
             estState_ = EstablishState::ConvergingReveal;
-            JLOG(j_.debug()) << "RNG: transitioned to ConvergingReveal";
+            JLOG(j_.debug()) << "RNG: transitioned to ConvergingReveal"
+                             << " reveal=" << adaptor_.getEntropySecret();
             return;  // Wait for next tick
         }
         else if (estState_ == EstablishState::ConvergingReveal)
         {
-            bool timeout = result_->roundTime.read() > parms.ledgerMAX_CONSENSUS;
+            bool timeout =
+                result_->roundTime.read() > parms.ledgerMAX_CONSENSUS;
             bool ready = false;
 
             if ((haveConsensus() && adaptor_.hasMinimumReveals()) || timeout)
