@@ -855,13 +855,20 @@ Consensus<Adaptor>::peerProposalInternal(
             newPeerProp.prevLedger(),
             newPeerPos.signature());
 
-        // Trigger fetch for unknown RNG set hashes
+        // Trigger fetch for unknown RNG set hashes, but only once we've
+        // built our own local set for diffing.  During ConvergingTx all
+        // data arrives via proposal leaves — fetching a peer's commitSet
+        // before we have our own just generates unnecessary traffic.
         if constexpr (requires(Adaptor & a) {
                           a.fetchRngSetIfNeeded(std::optional<uint256>{});
                       })
         {
-            adaptor_.fetchRngSetIfNeeded(newPeerProp.position().commitSetHash);
-            adaptor_.fetchRngSetIfNeeded(newPeerProp.position().entropySetHash);
+            if (estState_ != EstablishState::ConvergingTx)
+                adaptor_.fetchRngSetIfNeeded(
+                    newPeerProp.position().commitSetHash);
+            if (estState_ == EstablishState::ConvergingReveal)
+                adaptor_.fetchRngSetIfNeeded(
+                    newPeerProp.position().entropySetHash);
         }
     }
 
