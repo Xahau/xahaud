@@ -524,9 +524,12 @@ RCLConsensus::Adaptor::doAccept(
         }
     }
 
-    // Inject consensus entropy pseudo-transaction
+    // Inject consensus entropy pseudo-transaction (if amendment enabled)
     // This must happen before buildLCL so the entropy tx is in the ledger
-    injectEntropyPseudoTx(retriableTxs, prevLedger.seq() + 1);
+    if (prevLedger.ledger_->rules().enabled(featureConsensusEntropy))
+        injectEntropyPseudoTx(retriableTxs, prevLedger.seq() + 1);
+    else
+        clearRngState();
 
     auto built = buildLCL(
         prevLedger,

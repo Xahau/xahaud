@@ -98,12 +98,11 @@ Change::preflight(PreflightContext const& ctx)
 
     if (ctx.tx.getTxnType() == ttCONSENSUS_ENTROPY)
     {
-        // TODO: Add amendment gating when the feature is finalized
-        // if (!ctx.rules.enabled(featureConsensusEntropy))
-        // {
-        //     JLOG(ctx.j.warn()) << "Change: ConsensusEntropy is not enabled.";
-        //     return temDISABLED;
-        // }
+        if (!ctx.rules.enabled(featureConsensusEntropy))
+        {
+            JLOG(ctx.j.warn()) << "Change: ConsensusEntropy is not enabled.";
+            return temDISABLED;
+        }
 
         if (!ctx.tx.isFieldPresent(sfDigest))
         {
