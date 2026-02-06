@@ -863,6 +863,16 @@ Consensus<Adaptor>::peerProposalInternal(
         // built our own local set for diffing.  During ConvergingTx all
         // data arrives via proposal leaves — fetching a peer's commitSet
         // before we have our own just generates unnecessary traffic.
+        //
+        // IMPORTANT: SHAMap fetch/diff/merge is a safety net for the
+        // rare case where active proposers have slightly different
+        // commit/reveal sets due to dropped proposals.  It does NOT
+        // help late-joining nodes: a node that restarts mid-round
+        // enters as proposing=false and cannot generate commitments
+        // (onClose gates on proposing).  It must observe for at least
+        // one full round before consensus promotes it to proposing.
+        // The primary data transport is proposals themselves — the
+        // SHAMap sync is belt-and-suspenders, not the critical path.
         if constexpr (requires(Adaptor & a) {
                           a.fetchRngSetIfNeeded(std::optional<uint256>{});
                       })
@@ -1429,9 +1439,18 @@ Consensus<Adaptor>::phaseEstablish()
             // Without this gate, execution falls through to the normal
             // consensus close logic and nodes inject partial/zero entropy
             // while others are still collecting — causing ledger mismatches.
+            //
+            // NOTE: Late-joining nodes (e.g. restarting after a crash)
+            // cannot help here.  They enter the round as proposing=false
+            // and onClose() skips commitment generation for non-proposers.
+            // It takes at least one full round of observing before
+            // consensus promotes them to proposing.  So waiting beyond
+            // a few seconds is pointless — use rngPIPELINE_TIMEOUT (3s)
+            // rather than ledgerMAX_CONSENSUS (10s) to avoid penalizing
+            // the recovery path.
             {
                 bool timeout =
-                    result_->roundTime.read() > parms.ledgerMAX_CONSENSUS;
+                    result_->roundTime.read() > parms.rngPIPELINE_TIMEOUT;
                 if (!timeout)
                     return;  // Wait for more commits
                 // On timeout: fall through to normal close (zero entropy)
@@ -1457,7 +1476,7 @@ Consensus<Adaptor>::phaseEstablish()
         else if (estState_ == EstablishState::ConvergingReveal)
         {
             bool timeout =
-                result_->roundTime.read() > parms.ledgerMAX_CONSENSUS;
+                result_->roundTime.read() > parms.rngPIPELINE_TIMEOUT;
             bool ready = false;
 
             if ((haveConsensus() && adaptor_.hasMinimumReveals()) || timeout)

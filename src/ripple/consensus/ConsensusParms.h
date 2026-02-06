@@ -88,6 +88,23 @@ struct ConsensusParms
      */
     std::chrono::milliseconds ledgerMAX_CONSENSUS = std::chrono::seconds{10};
 
+    /** Maximum time to wait for RNG commit/reveal quorum before giving up.
+     *
+     *  This is intentionally shorter than ledgerMAX_CONSENSUS because
+     *  waiting longer won't help: a node that missed the start of the
+     *  round (e.g. restarting after a crash) enters as proposing=false
+     *  and cannot generate commitments until consensus promotes it to
+     *  proposing — which takes at least one full round of observing.
+     *  Waiting the full 10s just delays the inevitable ZERO-entropy
+     *  fallback and slows recovery for the restarting node (it can't
+     *  catch up until the survivors close a ledger).
+     *
+     *  3s is long enough for commits to propagate on any reasonable
+     *  network, but short enough that a missing-node scenario recovers
+     *  quickly via the ZERO-entropy fallback path.
+     */
+    std::chrono::milliseconds rngPIPELINE_TIMEOUT = std::chrono::seconds{3};
+
     //! Minimum number of seconds to wait to ensure others have computed the LCL
     std::chrono::milliseconds ledgerMIN_CLOSE = std::chrono::seconds{2};
 

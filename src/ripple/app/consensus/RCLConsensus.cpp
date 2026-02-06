@@ -439,6 +439,14 @@ RCLConsensus::Adaptor::onClose(
 
     // Bootstrap commit-reveal: generate entropy and include commitment
     // in our very first proposal so peers can collect it during consensus.
+    //
+    // This is gated on `proposing` — a node that just restarted enters
+    // as proposing=false (observing) and must watch at least one full
+    // round before consensus promotes it to proposing.  During those
+    // observation rounds it cannot contribute to the RNG pipeline at
+    // all: no commitment, no reveal, no SHAMap entries.  The surviving
+    // proposers will close those rounds with fewer commits (possibly
+    // falling back to ZERO entropy) until the rejoiner starts proposing.
     if (proposing && prevLedger->rules().enabled(featureConsensusEntropy))
     {
         cacheActiveUNL();
