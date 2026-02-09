@@ -1805,6 +1805,7 @@ rpcClient(
             }
 
             {
+                //@@start blocking-request
                 boost::asio::io_service isService;
                 RPCCall::fromNetwork(
                     isService,
@@ -1828,6 +1829,7 @@ rpcClient(
                     headers);
                 isService.run();  // This blocks until there are no more
                                   // outstanding async calls.
+                //@@end blocking-request
             }
             if (jvOutput.isMember("result"))
             {
@@ -1946,6 +1948,7 @@ fromNetwork(
     // HTTP call?
     auto constexpr RPC_NOTIFY = 30s;
 
+    //@@start async-request
     HTTPClient::request(
         bSSL,
         io_service,
@@ -1970,6 +1973,7 @@ fromNetwork(
             std::placeholders::_3,
             j),
         j);
+    //@@end async-request
 }
 
 }  // namespace RPCCall

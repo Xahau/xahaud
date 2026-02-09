@@ -156,13 +156,19 @@ private:
             // Send outside of the lock.
             if (bSend)
             {
-                // XXX Might not need this in a try.
                 try
                 {
                     JLOG(j_.info()) << "RPCCall::fromNetwork: " << mIp;
 
+                    // Use a local io_service so the HTTP call blocks
+                    // until completion (or timeout). Without this,
+                    // fromNetwork() posts async ops to the app's
+                    // io_service and returns immediately, causing
+                    // unbounded concurrent connections that exhaust
+                    // file descriptors when endpoints are failing.
+                    boost::asio::io_service io_service;
                     RPCCall::fromNetwork(
-                        m_io_service,
+                        io_service,
                         mIp,
                         mPort,
                         mUsername,
@@ -173,11 +179,16 @@ private:
                         mSSL,
                         true,
                         logs_);
+                    io_service.run();
                 }
                 catch (const std::exception& e)
                 {
-                    JLOG(j_.info())
+                    JLOG(j_.warn())
                         << "RPCCall::fromNetwork exception: " << e.what();
+                }
+                catch (...)
+                {
+                    JLOG(j_.warn()) << "RPCCall::fromNetwork unknown exception";
                 }
             }
         } while (bSend);
