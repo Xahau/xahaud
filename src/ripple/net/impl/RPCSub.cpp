@@ -78,14 +78,12 @@ public:
     {
         std::lock_guard sl(mLock);
 
-        // Wietse: we're not going to limit this, this is admin-port only, scale
-        // accordingly Dropping events just like this results in inconsistent
-        // data on the receiving end if (mDeque.size() >= eventQueueMax)
-        // {
-        //     // Drop the previous event.
-        //     JLOG(j_.warn()) << "RPCCall::fromNetwork drop";
-        //     mDeque.pop_back();
-        // }
+        if (mDeque.size() >= maxQueueSize)
+        {
+            JLOG(j_.warn()) << "RPCCall::fromNetwork drop: queue full ("
+                            << mDeque.size() << "), endpoint=" << mIp;
+            return;
+        }
 
         auto jm = broadcast ? j_.debug() : j_.info();
         JLOG(jm) << "RPCCall::fromNetwork push: " << jvObj;
@@ -121,48 +119,49 @@ public:
     }
 
 private:
-    // XXX Could probably create a bunch of send jobs in a single get of the
-    // lock.
+    // Maximum concurrent HTTP deliveries per batch. Bounds file
+    // descriptor usage while still allowing parallel delivery to
+    // capable endpoints. With a 1024 FD process limit shared across
+    // peers, clients, and the node store, 32 per subscriber is a
+    // meaningful but survivable chunk even with multiple subscribers.
+    static constexpr int maxInFlight = 32;
+
+    // Maximum queued events before dropping. At ~5-10KB per event
+    // this is ~80-160MB worst case — trivial memory-wise. The real
+    // purpose is detecting a hopelessly behind endpoint: at 100+
+    // events per ledger (every ~4s), 16384 events is ~10 minutes
+    // of buffer. Consumers detect gaps via the seq field.
+    static constexpr std::size_t maxQueueSize = 16384;
+
     void
     sendThread()
     {
-        Json::Value jvEvent;
         bool bSend;
 
         do
         {
+            // Local io_service per batch — cheap to create (just an
+            // internal event queue, no threads, no syscalls). Using a
+            // local rather than the app's m_io_service is what makes
+            // .run() block until exactly this batch completes, giving
+            // us flow control. Same pattern used by rpcClient() in
+            // RPCCall.cpp for CLI commands.
+            boost::asio::io_service io_service;
+            int dispatched = 0;
+
             {
-                // Obtain the lock to manipulate the queue and change sending.
                 std::lock_guard sl(mLock);
 
-                if (mDeque.empty())
-                {
-                    mSending = false;
-                    bSend = false;
-                }
-                else
+                while (!mDeque.empty() && dispatched < maxInFlight)
                 {
                     auto const [seq, env] = mDeque.front();
-
                     mDeque.pop_front();
 
-                    jvEvent = env;
+                    Json::Value jvEvent = env;
                     jvEvent["seq"] = seq;
 
-                    bSend = true;
-                }
-            }
-
-            // Send outside of the lock.
-            if (bSend)
-            {
-                // XXX Might not need this in a try.
-                try
-                {
-                    JLOG(j_.info()) << "RPCCall::fromNetwork: " << mIp;
-
                     RPCCall::fromNetwork(
-                        m_io_service,
+                        io_service,
                         mIp,
                         mPort,
                         mUsername,
@@ -173,20 +172,38 @@ private:
                         mSSL,
                         true,
                         logs_);
+                    ++dispatched;
+                }
+
+                if (dispatched == 0)
+                    mSending = false;
+            }
+
+            bSend = dispatched > 0;
+
+            if (bSend)
+            {
+                try
+                {
+                    JLOG(j_.info())
+                        << "RPCCall::fromNetwork: " << mIp << " dispatching "
+                        << dispatched << " events";
+                    io_service.run();
                 }
                 catch (const std::exception& e)
                 {
-                    JLOG(j_.info())
+                    JLOG(j_.warn())
                         << "RPCCall::fromNetwork exception: " << e.what();
+                }
+                catch (...)
+                {
+                    JLOG(j_.warn()) << "RPCCall::fromNetwork unknown exception";
                 }
             }
         } while (bSend);
     }
 
 private:
-    // Wietse: we're not going to limit this, this is admin-port only, scale
-    // accordingly enum { eventQueueMax = 32 };
-
     boost::asio::io_service& m_io_service;
     JobQueue& m_jobQueue;
 
