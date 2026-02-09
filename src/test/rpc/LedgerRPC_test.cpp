@@ -1821,7 +1821,7 @@ public:
                                NetClock::time_point const& cancelAfter) {
             Json::Value jv;
             jv[jss::TransactionType] = jss::EscrowCreate;
-            jv[jss::Flags] = tfUniversal;
+            jv[jss::Flags] = tfUniversal - tfInnerBatchTxn;
             jv[jss::Account] = account.human();
             jv[jss::Destination] = to.human();
             jv[jss::Amount] = amount.getJson(JsonOptions::none);

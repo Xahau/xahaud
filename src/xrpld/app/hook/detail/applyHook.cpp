@@ -573,6 +573,9 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttREMARKS_SET: {
             break;
         }
+        case ttBATCH: {
+            break;
+        }
         // pseudo transactions
         case ttCRON: {
             ADD_TSH(tx.getAccountID(sfOwner), tshWEAK);
@@ -4831,7 +4834,7 @@ DEFINE_HOOK_FUNCTION(
                        *(applyCtx.app.openLedger().current()), *stpTrans)
                 .drops();
 
-        return invoke_calculateBaseFee(
+        return calculateBaseFee(
                    *(applyCtx.app.openLedger().current()), *stpTrans)
             .drops();
     }

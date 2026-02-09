@@ -380,7 +380,6 @@ public:
             {
                 Json::Value jv;
                 jv[jss::TransactionType] = jss::EscrowCreate;
-                jv[jss::Flags] = tfUniversal;
                 jv[jss::Account] = Account{"bob5"}.human();
                 jv[jss::Destination] = Account{"bob6"}.human();
                 jv[jss::Amount] = XRP(50).value().getJson(JsonOptions::none);
@@ -424,7 +423,6 @@ public:
             {
                 Json::Value jv;
                 jv[jss::TransactionType] = jss::PaymentChannelCreate;
-                jv[jss::Flags] = tfUniversal;
                 jv[jss::Account] = Account{"bob6"}.human();
                 jv[jss::Destination] = Account{"bob7"}.human();
                 jv[jss::Amount] = XRP(100).value().getJson(JsonOptions::none);

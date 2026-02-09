@@ -118,10 +118,11 @@ ApplyStateTable::generateTxMeta(
     std::optional<STAmount> const& deliver,
     std::vector<STObject> const& hookExecution,
     std::vector<STObject> const& hookEmission,
+    std::optional<uint256 const> const& parentBatchId,
     beast::Journal j,
     bool isProvisional)
 {
-    TxMeta meta(tx.getTransactionID(), to.seq());
+    TxMeta meta(tx.getTransactionID(), to.seq(), parentBatchId);
     if (deliver)
         meta.setDeliveredAmount(*deliver);
 
@@ -305,6 +306,7 @@ ApplyStateTable::apply(
     std::optional<STAmount> const& deliver,
     std::vector<STObject> const& hookExecution,
     std::vector<STObject> const& hookEmission,
+    std::optional<uint256 const> const& parentBatchId,
     bool isDryRun,
     beast::Journal j)
 {
@@ -316,8 +318,8 @@ ApplyStateTable::apply(
     if (!to.open() || isDryRun)
     {
         // generate meta
-        auto [meta, newMod] =
-            generateTxMeta(to, tx, deliver, hookExecution, hookEmission, j);
+        auto [meta, newMod] = generateTxMeta(
+            to, tx, deliver, hookExecution, hookEmission, parentBatchId, j);
 
         if (!isDryRun)
         {

@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2019 Ripple Labs Inc.
+    Copyright (c) 2024 Ripple Labs Inc.
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,34 +17,39 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
-#define RIPPLE_TEST_JTX_ACCTDELETE_H_INCLUDED
+#ifndef RIPPLE_TX_BATCH_H_INCLUDED
+#define RIPPLE_TX_BATCH_H_INCLUDED
 
-#include <test/jtx/Account.h>
-#include <test/jtx/Env.h>
+#include <xrpld/app/tx/detail/Transactor.h>
+#include <xrpld/core/Config.h>
 
-#include <xrpl/beast/unit_test/suite.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/protocol/Indexes.h>
 
 namespace ripple {
-namespace test {
-namespace jtx {
 
-/** Delete account.  If successful transfer remaining XRP to dest. */
-Json::Value
-acctdelete(Account const& account, Account const& dest);
+class Batch : public Transactor
+{
+public:
+    static constexpr ConsequencesFactoryType ConsequencesFactory{Normal};
 
-// Close the ledger until the ledger sequence is large enough to close
-// the account.  If margin is specified, close the ledger so `margin`
-// more closes are needed
-void
-incLgrSeqForAccDel(
-    jtx::Env& env,
-    jtx::Account const& acc,
-    std::uint32_t margin = 0);
+    explicit Batch(ApplyContext& ctx) : Transactor(ctx)
+    {
+    }
 
-}  // namespace jtx
+    static XRPAmount
+    calculateBaseFee(ReadView const& view, STTx const& tx);
 
-}  // namespace test
+    static NotTEC
+    preflight(PreflightContext const& ctx);
+
+    static NotTEC
+    checkSign(PreclaimContext const& ctx);
+
+    TER
+    doApply() override;
+};
+
 }  // namespace ripple
 
 #endif

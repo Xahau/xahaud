@@ -143,8 +143,8 @@ enum TEMcodes : TERUnderlyingType {
 
     temARRAY_EMPTY,
     temARRAY_TOO_LARGE,
-
     temBAD_TRANSFER_FEE,
+    temINVALID_INNER_BATCH,
 };
 
 //------------------------------------------------------------------------------
@@ -648,27 +648,27 @@ using TER = TERSubset<CanCvtToTER>;
 //------------------------------------------------------------------------------
 
 inline bool
-isTelLocal(TER x)
+isTelLocal(TER x) noexcept
 {
-    return ((x) >= telLOCAL_ERROR && (x) < temMALFORMED);
+    return (x >= telLOCAL_ERROR && x < temMALFORMED);
 }
 
 inline bool
-isTemMalformed(TER x)
+isTemMalformed(TER x) noexcept
 {
-    return ((x) >= temMALFORMED && (x) < tefFAILURE);
+    return (x >= temMALFORMED && x < tefFAILURE);
 }
 
 inline bool
-isTefFailure(TER x)
+isTefFailure(TER x) noexcept
 {
-    return ((x) >= tefFAILURE && (x) < terRETRY);
+    return (x >= tefFAILURE && x < terRETRY);
 }
 
 inline bool
-isTerRetry(TER x)
+isTerRetry(TER x) noexcept
 {
-    return ((x) >= terRETRY && (x) < tesSUCCESS);
+    return (x >= terRETRY && x < tesSUCCESS);
 }
 
 template <typename T>
@@ -679,13 +679,13 @@ isTesSuccess(T x)
 }
 
 inline bool
-isTesSuccess(TER x)
+isTesSuccess(TER x) noexcept
 {
     return ((x) >= tesSUCCESS) && (x) < tecCLAIM;
 }
 
 inline bool
-isTecClaim(TER x)
+isTecClaim(TER x) noexcept
 {
     return ((x) >= tecCLAIM);
 }
