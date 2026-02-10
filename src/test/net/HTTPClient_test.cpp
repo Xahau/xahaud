@@ -321,14 +321,21 @@ class HTTPClient_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{*this};
 
-        // No server listening — connection refused.
-        // Use a port that's very unlikely to be in use.
+        // Bind a port, then close it — guarantees nothing is listening.
+        boost::asio::io_service tmp;
+        boost::asio::ip::tcp::acceptor acc(
+            tmp,
+            boost::asio::ip::tcp::endpoint(
+                boost::asio::ip::address::from_string("127.0.0.1"), 0));
+        auto port = acc.local_endpoint().port();
+        acc.close();
+
         std::atomic<int> completed{0};
         auto j = env.app().journal("HTTPClient");
 
         {
             boost::asio::io_service ios;
-            fireRequest(ios, "127.0.0.1", 19999, completed, j);
+            fireRequest(ios, "127.0.0.1", port, completed, j);
             ios.run();
         }
 

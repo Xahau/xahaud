@@ -80,8 +80,10 @@ public:
 
         if (mDeque.size() >= maxQueueSize)
         {
-            JLOG(j_.warn()) << "RPCCall::fromNetwork drop: queue full ("
-                            << mDeque.size() << "), endpoint=" << mIp;
+            JLOG(j_.warn())
+                << "RPCCall::fromNetwork drop: queue full (" << mDeque.size()
+                << "), seq=" << mSeq << ", endpoint=" << mIp;
+            ++mSeq;
             return;
         }
 
