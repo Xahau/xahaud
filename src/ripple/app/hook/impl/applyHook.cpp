@@ -6175,7 +6175,17 @@ fairRng(ApplyContext& applyCtx, hook::HookResult& hr, uint32_t byteCount)
     auto const sleEntropy = view.peek(ripple::keylet::consensusEntropy());
     auto const seq = view.info().seq;
 
-    if (!sleEntropy || sleEntropy->getFieldU32(sfLedgerSequence) != seq ||
+    auto const entropySeq =
+        sleEntropy ? sleEntropy->getFieldU32(sfLedgerSequence) : 0u;
+
+    // Allow entropy from current ledger (during close) or previous ledger
+    // (open ledger / speculative execution).  On the real network hooks
+    // always execute during buildLCL where the entropy pseudo-tx has
+    // already updated the SLE to the current seq.
+    // TODO: open-ledger entropy uses previous ledger's entropy, so
+    // dice/random results will differ between speculative and final
+    // execution.  This needs further thought re: UX implications.
+    if (!sleEntropy || entropySeq > seq || (seq - entropySeq) > 1 ||
         sleEntropy->getFieldU16(sfEntropyCount) < 5)
         return {};
 

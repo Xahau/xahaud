@@ -889,6 +889,9 @@ public:
         ADD_HOOK_FUNCTION(str_concat, ctx);
         */
 
+        ADD_HOOK_FUNCTION(dice, ctx);
+        ADD_HOOK_FUNCTION(random, ctx);
+
         WasmEdge_TableInstanceContext* hostTable =
             WasmEdge_TableInstanceCreate(tableType);
         WasmEdge_ModuleInstanceAddTable(importObj, tableName, hostTable);
