@@ -744,8 +744,8 @@ Consensus<Adaptor>::startRoundInternal(
         // Populate UNL cache for all nodes (including observers).
         // onClose only caches for proposing validators, so observers
         // would otherwise have an empty set and reject all RNG data.
-        adaptor_.cacheActiveUNL();
-        // Set expected proposers: recent proposers > activeUNL > 80% fallback
+        adaptor_.cacheUNLReport();
+        // Set expected proposers: recent proposers > UNL Report > 80% fallback
         adaptor_.setExpectedProposers(std::move(lastProposers));
     }
 

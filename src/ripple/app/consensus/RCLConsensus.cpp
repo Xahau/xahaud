@@ -454,7 +454,7 @@ RCLConsensus::Adaptor::onClose(
     // falling back to ZERO entropy) until the rejoiner starts proposing.
     if (proposing && prevLedger->rules().enabled(featureConsensusEntropy))
     {
-        cacheActiveUNL();
+        cacheUNLReport();
         generateEntropySecret();
         pos.myCommitment = sha512Half(
             myEntropySecret_,
@@ -1154,25 +1154,15 @@ RCLConsensus::Adaptor::updateOperatingMode(std::size_t const positions) const
 std::size_t
 RCLConsensus::Adaptor::quorumThreshold() const
 {
-    // Base quorum on the active UNL — the same set used by
-    // isActiveUNLMember() to filter RNG data.  This comes from the
-    // UNL Report (in-ledger) with fallback to the trusted key list.
-    // If a node drops off the UNL Report, the denominator shrinks
-    // and quorum becomes achievable with fewer participants.
+    // Prefer expected proposers (recent proposers ∩ UNL) — this
+    // adapts to actual network conditions rather than relying on
+    // the potentially stale UNL Report.  Falls back to full
+    // UNL Report for cold boot (first round).
     //
-    // TODO: This needs more careful thought.  Open questions:
-    //   - Should there be a minimum absolute count (e.g. at least 3
-    //     committers) to prevent weak entropy from tiny partitions?
-    //   - Is 80% the right percentage for RNG, or should it differ
-    //     from the tx consensus threshold?
-    //   - What happens if the UNL Report is stale and over-counts
-    //     active validators?  The "impossible quorum" early-exit in
-    //     Consensus.h mitigates the worst case (no delay), but the
-    //     node still falls back to ZERO entropy.
-    //   - On a fresh network with no UNL Report, the fallback is
-    //     getTrustedMasterKeys() which includes all configured
-    //     validators — possibly including offline ones.
-    auto const base = activeUNLNodeIds_.size();
+    // Round 1: threshold based on full UNL (conservative)
+    // Round 2+: threshold based on who actually proposed last round
+    auto const base = expectedProposers_.empty() ? unlReportNodeIds_.size()
+                                                 : expectedProposers_.size();
     if (base == 0)
         return 1;  // safety: need at least one commit
     return (base * 80 + 99) / 100;
@@ -1183,26 +1173,33 @@ RCLConsensus::Adaptor::setExpectedProposers(hash_set<NodeID> proposers)
 {
     if (!proposers.empty())
     {
-        // Recent proposers from last round — best signal for who's active.
-        // Always include ourselves.
-        proposers.insert(validatorKeys_.nodeID);
-        expectedProposers_ = std::move(proposers);
+        // Intersect with active UNL — only expect commits from
+        // validators we trust.  Non-UNL proposers are ignored.
+        hash_set<NodeID> filtered;
+        for (auto const& id : proposers)
+        {
+            if (unlReportNodeIds_.count(id))
+                filtered.insert(id);
+        }
+        filtered.insert(validatorKeys_.nodeID);
+        expectedProposers_ = std::move(filtered);
         JLOG(j_.debug()) << "RNG: expectedProposers from recent proposers: "
-                         << expectedProposers_.size();
+                         << expectedProposers_.size() << " (filtered from "
+                         << proposers.size() << ")";
         return;
     }
 
-    // First round (no previous proposers): fall back to activeUNL.
-    // cacheActiveUNL() was called just before this, so it's populated.
-    if (!activeUNLNodeIds_.empty())
+    // First round (no previous proposers): fall back to UNL Report.
+    // cacheUNLReport() was called just before this, so it's populated.
+    if (!unlReportNodeIds_.empty())
     {
-        expectedProposers_ = activeUNLNodeIds_;
-        JLOG(j_.debug()) << "RNG: expectedProposers from activeUNL: "
+        expectedProposers_ = unlReportNodeIds_;
+        JLOG(j_.debug()) << "RNG: expectedProposers from UNL Report: "
                          << expectedProposers_.size();
         return;
     }
 
-    // No data at all (shouldn't happen — cacheActiveUNL falls back to
+    // No data at all (shouldn't happen — cacheUNLReport falls back to
     // trusted keys).  Leave empty → hasQuorumOfCommits uses 80% fallback.
     JLOG(j_.warn()) << "RNG: no expectedProposers available";
 }
@@ -1277,7 +1274,7 @@ RCLConsensus::Adaptor::buildCommitSet(LedgerIndex seq)
 
     for (auto const& [nodeId, commit] : pendingCommits_)
     {
-        if (!isActiveUNLMember(nodeId))
+        if (!isUNLReportMember(nodeId))
             continue;
 
         auto kit = nodeIdToKey_.find(nodeId);
@@ -1329,7 +1326,7 @@ RCLConsensus::Adaptor::buildEntropySet(LedgerIndex seq)
 
     for (auto const& [nodeId, reveal] : pendingReveals_)
     {
-        if (!isActiveUNLMember(nodeId))
+        if (!isUNLReportMember(nodeId))
             continue;
 
         auto kit = nodeIdToKey_.find(nodeId);
@@ -1407,16 +1404,16 @@ RCLConsensus::Adaptor::clearRngState()
     commitSetMap_.reset();
     entropySetMap_.reset();
     pendingRngFetches_.clear();
-    activeUNLNodeIds_.clear();
+    unlReportNodeIds_.clear();
     expectedProposers_.clear();
     commitProofs_.clear();
     proposalProofs_.clear();
 }
 
 void
-RCLConsensus::Adaptor::cacheActiveUNL()
+RCLConsensus::Adaptor::cacheUNLReport()
 {
-    activeUNLNodeIds_.clear();
+    unlReportNodeIds_.clear();
 
     // Try UNL Report from the validated ledger
     if (auto const prevLedger = ledgerMaster_.getValidatedLedger())
@@ -1430,7 +1427,7 @@ RCLConsensus::Adaptor::cacheActiveUNL()
                     auto const pk = obj.getFieldVL(sfPublicKey);
                     if (publicKeyType(makeSlice(pk)))
                     {
-                        activeUNLNodeIds_.insert(
+                        unlReportNodeIds_.insert(
                             calcNodeID(PublicKey(makeSlice(pk))));
                     }
                 }
@@ -1439,24 +1436,24 @@ RCLConsensus::Adaptor::cacheActiveUNL()
     }
 
     // Fallback to normal UNL if no report or empty
-    if (activeUNLNodeIds_.empty())
+    if (unlReportNodeIds_.empty())
     {
         for (auto const& masterKey : app_.validators().getTrustedMasterKeys())
         {
-            activeUNLNodeIds_.insert(calcNodeID(masterKey));
+            unlReportNodeIds_.insert(calcNodeID(masterKey));
         }
     }
 
     // Always include ourselves
-    activeUNLNodeIds_.insert(validatorKeys_.nodeID);
+    unlReportNodeIds_.insert(validatorKeys_.nodeID);
 
-    JLOG(j_.debug()) << "RNG: cacheActiveUNL size=" << activeUNLNodeIds_.size();
+    JLOG(j_.debug()) << "RNG: cacheUNLReport size=" << unlReportNodeIds_.size();
 }
 
 bool
-RCLConsensus::Adaptor::isActiveUNLMember(NodeID const& nodeId) const
+RCLConsensus::Adaptor::isUNLReportMember(NodeID const& nodeId) const
 {
-    return activeUNLNodeIds_.count(nodeId) > 0;
+    return unlReportNodeIds_.count(nodeId) > 0;
 }
 
 bool
@@ -1543,7 +1540,7 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
                     NodeID nodeId;
                     std::memcpy(nodeId.data(), acctId.data(), nodeId.size());
 
-                    if (!isActiveUNLMember(nodeId))
+                    if (!isUNLReportMember(nodeId))
                     {
                         JLOG(j_.debug()) << "RNG: rejecting non-UNL entry from "
                                          << nodeId << " in acquired set";
@@ -1599,7 +1596,7 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
                     NodeID nodeId;
                     std::memcpy(nodeId.data(), acctId.data(), nodeId.size());
 
-                    if (!isActiveUNLMember(nodeId))
+                    if (!isUNLReportMember(nodeId))
                     {
                         JLOG(j_.debug()) << "RNG: rejecting non-UNL entry from "
                                          << nodeId << " in acquired set";
@@ -1758,7 +1755,7 @@ RCLConsensus::Adaptor::harvestRngData(
                      << " reveal=" << (position.myReveal ? "yes" : "no");
 
     // Reject data from validators not in the active UNL
-    if (!isActiveUNLMember(nodeId))
+    if (!isUNLReportMember(nodeId))
     {
         JLOG(j_.debug()) << "RNG: rejecting data from non-UNL validator "
                          << nodeId;

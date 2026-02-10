@@ -105,10 +105,10 @@ class RCLConsensus
         hash_set<uint256> pendingRngFetches_;
 
         // Cached set of NodeIDs from UNL Report (or fallback UNL)
-        hash_set<NodeID> activeUNLNodeIds_;
+        hash_set<NodeID> unlReportNodeIds_;
 
         // Expected proposers for commit quorum — derived from last round's
-        // actual proposers (best signal), falling back to activeUNL.
+        // actual proposers (best signal), falling back to UNL Report.
         hash_set<NodeID> expectedProposers_;
 
         /** Proof data from a proposal signature, for embedding in SHAMap
@@ -228,7 +228,7 @@ class RCLConsensus
         quorumThreshold() const;
 
         /** Set expected proposers for this round's commit quorum.
-            Cascade: recent proposers > activeUNL > (empty = 80% fallback).
+            Cascade: recent proposers > UNL Report > (empty = 80% fallback).
         */
         void
         setExpectedProposers(hash_set<NodeID> proposers);
@@ -279,11 +279,11 @@ class RCLConsensus
             Reads from UNL Report (in-ledger), falls back to normal UNL.
         */
         void
-        cacheActiveUNL();
+        cacheUNLReport();
 
         /** Check if a NodeID is in the active UNL for this round */
         bool
-        isActiveUNLMember(NodeID const& nodeId) const;
+        isUNLReportMember(NodeID const& nodeId) const;
 
         /** Generate new entropy secret for this round */
         void
