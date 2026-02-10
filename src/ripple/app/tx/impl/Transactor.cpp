@@ -1015,7 +1015,7 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
         if (!allowedSigners)
             return allowedSigners.error();
 
-        // Build lookup map for O(1) signer validation and weight retrieval
+        // Build lookup map for signer validation and weight retrieval
         std::map<AccountID, uint16_t> signerWeights;
         uint32_t totalWeight{0}, cyclicWeight{0};
         for (auto const& entry : *allowedSigners)

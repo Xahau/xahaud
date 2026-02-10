@@ -1466,7 +1466,7 @@ public:
         // Leaf signer: set Account + SigningPubKey + TxnSignature
         {
             STObject signer(sfSigner);
-            signer.setAccountID(sfAccount, AccountID{1});
+            signer.setAccountID(sfAccount, bogie.id());
             signer.setFieldVL(sfSigningPubKey, Blob(33, 0x02));
             signer.setFieldVL(sfTxnSignature, Blob(64, 0xAA));
             signer.applyTemplateFromSField(sfSigner);
@@ -1487,7 +1487,7 @@ public:
         // Nested signer: set Account + Signers
         {
             STObject signer(sfSigner);
-            signer.setAccountID(sfAccount, AccountID{2});
+            signer.setAccountID(sfAccount, demon.id());
             signer.setFieldArray(sfSigners, STArray{});
             signer.applyTemplateFromSField(sfSigner);
 
@@ -1504,7 +1504,7 @@ public:
         // Invalid: all 4 fields set (both leaf and nested fields)
         {
             STObject signer(sfSigner);
-            signer.setAccountID(sfAccount, AccountID{3});
+            signer.setAccountID(sfAccount, ghost.id());
             signer.setFieldVL(sfSigningPubKey, Blob(33, 0x02));
             signer.setFieldVL(sfTxnSignature, Blob(64, 0xAA));
             signer.setFieldArray(sfSigners, STArray{});
