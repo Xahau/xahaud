@@ -149,6 +149,7 @@ test.ledger > ripple.ledger
 test.ledger > ripple.protocol
 test.ledger > test.jtx
 test.ledger > test.toplevel
+test.net > ripple.basics
 test.net > ripple.net
 test.net > test.jtx
 test.net > test.toplevel
