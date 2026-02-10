@@ -957,6 +957,7 @@ if (tests)
          subdir: net
     #]===============================]
     src/test/net/DatabaseDownloader_test.cpp
+    src/test/net/HTTPClient_test.cpp
     #[===============================[
        test sources:
          subdir: nodestore

@@ -451,6 +451,12 @@ public:
             if (mShutdown)
             {
                 JLOG(j_.trace()) << "Complete.";
+
+                mResponse.commit(bytes_transferred);
+                std::string strBody{
+                    {std::istreambuf_iterator<char>(&mResponse)},
+                    std::istreambuf_iterator<char>()};
+                invokeComplete(ecResult, mStatus, mBody + strBody);
             }
             else
             {
