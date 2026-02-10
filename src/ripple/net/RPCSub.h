@@ -22,7 +22,6 @@
 
 #include <ripple/core/JobQueue.h>
 #include <ripple/net/InfoSub.h>
-#include <boost/asio/io_service.hpp>
 
 namespace ripple {
 
@@ -39,11 +38,9 @@ protected:
     explicit RPCSub(InfoSub::Source& source);
 };
 
-// VFALCO Why is the io_service needed?
 std::shared_ptr<RPCSub>
 make_RPCSub(
     InfoSub::Source& source,
-    boost::asio::io_service& io_service,
     JobQueue& jobQueue,
     std::string const& strUrl,
     std::string const& strUsername,
