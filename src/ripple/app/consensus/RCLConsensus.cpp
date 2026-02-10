@@ -1725,12 +1725,16 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
     if (hasEntropy)
     {
         // Account Zero convention for pseudo-transactions (same as ttFEE, etc)
+        auto const entropyCount = static_cast<std::uint16_t>(
+            entropyFailed_ || pendingReveals_.empty() ? 0
+                                                      : pendingReveals_.size());
         STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
             obj.setFieldU32(sfLedgerSequence, seq);
             obj.setAccountID(sfAccount, AccountID{});
             obj.setFieldU32(sfSequence, 0);
             obj.setFieldAmount(sfFee, STAmount{});
             obj.setFieldH256(sfDigest, finalEntropy);
+            obj.setFieldU16(sfEntropyCount, entropyCount);
         });
 
         retriableTxs.insert(std::make_shared<STTx>(std::move(tx)));

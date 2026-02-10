@@ -1034,6 +1034,13 @@ validateGuards(
                     {
                         // PASS, this is a version 1 api
                     }
+                    else if (
+                        (rulesVersion & 0x04U) &&
+                        hook_api::import_whitelist_entropy.find(import_name) !=
+                            hook_api::import_whitelist_entropy.end())
+                    {
+                        // PASS, this is a consensus entropy api
+                    }
                     else
                     {
                         GUARDLOG(hook::log::IMPORT_ILLEGAL)
@@ -1262,8 +1269,13 @@ validateGuards(
                             hook_api::import_whitelist.find(api_name) !=
                                 hook_api::import_whitelist.end()
                             ? hook_api::import_whitelist.find(api_name)->second
-                            : hook_api::import_whitelist_1.find(api_name)
-                                  ->second;
+                            : hook_api::import_whitelist_1.find(api_name) !=
+                                    hook_api::import_whitelist_1.end()
+                                ? hook_api::import_whitelist_1.find(api_name)
+                                      ->second
+                                : hook_api::import_whitelist_entropy
+                                      .find(api_name)
+                                      ->second;
 
                         if (!first_signature)
                         {

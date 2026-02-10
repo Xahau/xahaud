@@ -350,7 +350,8 @@ enum hook_return_code : int64_t {
     MEM_OVERLAP = -43,   // one or more specified buffers are the same memory
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 5000 modified state
                                          // entires in the combined hook chains
-    TOO_MANY_NAMESPACES = -45
+    TOO_MANY_NAMESPACES = -45,
+    TOO_LITTLE_ENTROPY = -46,
 };
 
 enum ExitType : uint8_t {
@@ -466,6 +467,14 @@ static const APIWhitelist import_whitelist{
 static const APIWhitelist import_whitelist_1{
     // clang-format off
     HOOK_API_DEFINITION(I64, xpop_slot, (I32, I32)),
+    // clang-format on
+};
+
+// featureConsensusEntropy
+static const APIWhitelist import_whitelist_entropy{
+    // clang-format off
+    HOOK_API_DEFINITION(I64, dice, (I32)),
+    HOOK_API_DEFINITION(I64, random, (I32, I32)),
     // clang-format on
 };
 

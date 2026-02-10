@@ -6156,6 +6156,117 @@ DEFINE_HOOK_FUNCTION(
 
     HOOK_TEARDOWN();
 }
+
+// byteCount must be a multiple of 32
+inline std::vector<uint8_t>
+fairRng(ApplyContext& applyCtx, hook::HookResult& hr, uint32_t byteCount)
+{
+    if (byteCount > 512)
+        byteCount = 512;
+
+    // force the byte count to be a multiple of 32
+    byteCount &= ~0b11111;
+
+    if (byteCount == 0)
+        return {};
+
+    auto& view = applyCtx.view();
+
+    auto const sleEntropy = view.peek(ripple::keylet::consensusEntropy());
+    auto const seq = view.info().seq;
+
+    if (!sleEntropy || sleEntropy->getFieldU32(sfLedgerSequence) != seq ||
+        sleEntropy->getFieldU16(sfEntropyCount) < 5)
+        return {};
+
+    // we'll generate bytes in lots of 32
+
+    uint256 rndData = sha512Half(
+        view.info().seq,
+        applyCtx.tx.getTransactionID(),
+        hr.otxnAccount,
+        hr.hookHash,
+        hr.account,
+        hr.hookChainPosition,
+        hr.executeAgainAsWeak ? std::string("weak") : std::string("strong"),
+        sleEntropy->getFieldH256(sfDigest),
+        hr.rngCallCounter++);
+
+    std::vector<uint8_t> bytesOut;
+    bytesOut.resize(byteCount);
+
+    uint8_t* ptr = bytesOut.data();
+    while (1)
+    {
+        std::memcpy(ptr, rndData.data(), 32);
+        ptr += 32;
+
+        if (ptr - bytesOut.data() >= byteCount)
+            break;
+
+        rndData = sha512Half(rndData);
+    }
+
+    return bytesOut;
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, dice, uint32_t sides)
+{
+    HOOK_SETUP();
+
+    auto vec = fairRng(applyCtx, hookCtx.result, 32);
+
+    if (vec.empty())
+        return TOO_LITTLE_ENTROPY;
+
+    if (vec.size() != 32)
+        return INTERNAL_ERROR;
+
+    uint32_t value;
+    std::memcpy(&value, vec.data(), sizeof(uint32_t));
+
+    return value % sides;
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, random, uint32_t write_ptr, uint32_t write_len)
+{
+    HOOK_SETUP();
+
+    if (write_len == 0)
+        return TOO_SMALL;
+
+    if (write_len > 512)
+        return TOO_BIG;
+
+    uint32_t required = write_len;
+
+    if ((required & ~0b11111) == required)
+    {
+        // already a multiple of 32 bytes
+    }
+    else
+    {
+        // round up
+        required &= ~0b11111;
+        required += 32;
+    }
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto vec = fairRng(applyCtx, hookCtx.result, required);
+
+    if (vec.empty())
+        return TOO_LITTLE_ENTROPY;
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, write_len, vec.data(), vec.size(), memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
 /*
 
 DEFINE_HOOK_FUNCTION(

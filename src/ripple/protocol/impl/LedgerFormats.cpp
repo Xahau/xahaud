@@ -385,6 +385,8 @@ LedgerFormats::LedgerFormats()
         ltCONSENSUS_ENTROPY,
         {
             {sfDigest,               soeREQUIRED},  // The consensus-derived entropy
+            {sfEntropyCount,         soeREQUIRED},  // Number of validators that contributed
+            {sfLedgerSequence,       soeREQUIRED},  // Ledger this entropy is for
             {sfPreviousTxnID,        soeREQUIRED},
             {sfPreviousTxnLgrSeq,    soeREQUIRED},
         },

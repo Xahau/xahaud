@@ -496,6 +496,7 @@ TxFormats::TxFormats()
         {
             {sfLedgerSequence, soeREQUIRED},
             {sfDigest, soeREQUIRED},
+            {sfEntropyCount, soeREQUIRED},
             {sfBlob, soeOPTIONAL},  // Proposal proof for SHAMap entries
         },
         commonFields);
