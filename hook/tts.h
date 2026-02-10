@@ -47,3 +47,4 @@
 #define ttUNL_MODIFY 102
 #define ttEMIT_FAILURE 103
 #define ttUNL_REPORT 104
+#define ttCONSENSUS_ENTROPY 105

@@ -16,6 +16,7 @@
 #define sfHookExecutionIndex ((1U << 16U) + 19U)
 #define sfHookApiVersion ((1U << 16U) + 20U)
 #define sfHookStateScale ((1U << 16U) + 21U)
+#define sfEntropyCount ((1U << 16U) + 99U)
 #define sfNetworkID ((2U << 16U) + 1U)
 #define sfFlags ((2U << 16U) + 2U)
 #define sfSourceTag ((2U << 16U) + 3U)
