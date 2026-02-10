@@ -1272,19 +1272,24 @@ RCLConsensus::Adaptor::buildCommitSet(LedgerIndex seq)
         std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
     map->setUnbacked();
 
-    for (auto const& [nodeId, commit] : pendingCommits_)
+    // NOTE: avoid structured bindings in for-loops containing lambdas —
+    // clang-14 (CI) rejects capturing them (P2036R3 not implemented).
+    for (auto const& entry : pendingCommits_)
     {
-        if (!isUNLReportMember(nodeId))
+        auto const& nid = entry.first;
+        auto const& commit = entry.second;
+
+        if (!isUNLReportMember(nid))
             continue;
 
-        auto kit = nodeIdToKey_.find(nodeId);
+        auto kit = nodeIdToKey_.find(nid);
         if (kit == nodeIdToKey_.end())
             continue;
 
         // Encode the NodeID into sfAccount so handleAcquiredRngSet can
         // recover it without recomputing (master vs signing key issue).
         AccountID acctId;
-        std::memcpy(acctId.data(), nodeId.data(), acctId.size());
+        std::memcpy(acctId.data(), nid.data(), acctId.size());
 
         STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
             obj.setFieldU32(sfFlags, tfEntropyCommit);
@@ -1294,7 +1299,7 @@ RCLConsensus::Adaptor::buildCommitSet(LedgerIndex seq)
             obj.setFieldAmount(sfFee, STAmount{});
             obj.setFieldH256(sfDigest, commit);
             obj.setFieldVL(sfSigningPubKey, kit->second.slice());
-            auto proofIt = commitProofs_.find(nodeId);
+            auto proofIt = commitProofs_.find(nid);
             if (proofIt != commitProofs_.end())
                 obj.setFieldVL(sfBlob, serializeProof(proofIt->second));
         });
@@ -1324,17 +1329,21 @@ RCLConsensus::Adaptor::buildEntropySet(LedgerIndex seq)
         std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
     map->setUnbacked();
 
-    for (auto const& [nodeId, reveal] : pendingReveals_)
+    // NOTE: avoid structured bindings — clang-14 can't capture them (P2036R3).
+    for (auto const& entry : pendingReveals_)
     {
-        if (!isUNLReportMember(nodeId))
+        auto const& nid = entry.first;
+        auto const& reveal = entry.second;
+
+        if (!isUNLReportMember(nid))
             continue;
 
-        auto kit = nodeIdToKey_.find(nodeId);
+        auto kit = nodeIdToKey_.find(nid);
         if (kit == nodeIdToKey_.end())
             continue;
 
         AccountID acctId;
-        std::memcpy(acctId.data(), nodeId.data(), acctId.size());
+        std::memcpy(acctId.data(), nid.data(), acctId.size());
 
         STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
             obj.setFieldU32(sfFlags, tfEntropyReveal);
@@ -1344,7 +1353,7 @@ RCLConsensus::Adaptor::buildEntropySet(LedgerIndex seq)
             obj.setFieldAmount(sfFee, STAmount{});
             obj.setFieldH256(sfDigest, reveal);
             obj.setFieldVL(sfSigningPubKey, kit->second.slice());
-            auto proofIt = proposalProofs_.find(nodeId);
+            auto proofIt = proposalProofs_.find(nid);
             if (proofIt != proposalProofs_.end())
                 obj.setFieldVL(sfBlob, serializeProof(proofIt->second));
         });
