@@ -736,6 +736,7 @@ if (tests)
     src/test/app/BaseFee_test.cpp
     src/test/app/Check_test.cpp
     src/test/app/ClaimReward_test.cpp
+    src/test/app/ConsensusEntropy_test.cpp
     src/test/app/Cron_test.cpp
     src/test/app/Clawback_test.cpp
     src/test/app/CrossingLimits_test.cpp

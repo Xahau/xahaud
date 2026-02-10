@@ -1676,7 +1676,16 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
     bool hasEntropy = false;
 
     // Calculate entropy from collected reveals
-    if (entropyFailed_ || pendingReveals_.empty())
+    if (app_.config().standalone())
+    {
+        // Standalone mode: generate synthetic deterministic entropy
+        // so that Hook APIs (dice/random) work for testing.
+        finalEntropy = sha512Half(std::string("standalone-entropy"), seq);
+        hasEntropy = true;
+        JLOG(j_.info()) << "RNG: Standalone synthetic entropy " << finalEntropy
+                        << " for ledger " << seq;
+    }
+    else if (entropyFailed_ || pendingReveals_.empty())
     {
         // Liveness fallback: inject zero entropy.
         // Hooks MUST check for zero to know entropy is unavailable.
@@ -1726,8 +1735,11 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
     {
         // Account Zero convention for pseudo-transactions (same as ttFEE, etc)
         auto const entropyCount = static_cast<std::uint16_t>(
-            entropyFailed_ || pendingReveals_.empty() ? 0
-                                                      : pendingReveals_.size());
+            app_.config().standalone()
+                ? 20  // synthetic: high enough for Hook APIs (need >= 5)
+                : (entropyFailed_ || pendingReveals_.empty()
+                       ? 0
+                       : pendingReveals_.size()));
         STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
             obj.setFieldU32(sfLedgerSequence, seq);
             obj.setAccountID(sfAccount, AccountID{});
