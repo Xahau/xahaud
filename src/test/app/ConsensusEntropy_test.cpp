@@ -193,6 +193,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         BEAST_REQUIRE(hookExecutions.size() == 1);
 
         auto const returnCode = hookExecutions[0].getFieldU64(sfHookReturnCode);
+        std::cerr << "  dice(6) returnCode = " << returnCode << " (hex 0x"
+                  << std::hex << returnCode << std::dec << ")\n";
         // dice(6) returns 0..5
         BEAST_EXPECT(returnCode <= 5);
 
@@ -296,9 +298,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
 
         BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
 
-        // Hook calls dice(1000000) twice and returns:
-        //   0 if both calls returned different values (pass)
-        //   -1 if they returned the same value (fail)
+        // dice(1000000) twice — large range makes collision near-impossible
+        // encode r1 in low 20 bits, r2 in high bits
         TestHook hook = consensusentropy_test_wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -323,7 +324,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 if (r1 == r2)
                     rollback(0, 0, -1);
 
-                return accept(0, 0, 0);
+                return accept(0, 0, r1 | (r2 << 20));
             }
         )[test.hook]"];
 
@@ -344,8 +345,19 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
         BEAST_REQUIRE(hookExecutions.size() == 1);
 
-        BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
+        auto const rc = hookExecutions[0].getFieldU64(sfHookReturnCode);
+        auto const r1 = rc & 0xFFFFF;
+        auto const r2 = (rc >> 20) & 0xFFFFF;
+
+        std::cerr << "  two-call dice(1000000): returnCode=" << rc << " hex=0x"
+                  << std::hex << rc << std::dec << " r1=" << r1 << " r2=" << r2
+                  << "\n";
+
+        // hookResult 3 = accept (would be 1 if r1==r2 triggered rollback)
         BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
+        BEAST_EXPECT(r1 < 1000000);
+        BEAST_EXPECT(r2 < 1000000);
+        BEAST_EXPECT(r1 != r2);
     }
 
     void
