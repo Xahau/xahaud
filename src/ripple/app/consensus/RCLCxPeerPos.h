@@ -188,10 +188,15 @@ struct ExtendedPosition
 
     /** Deserialize from wire format.
         Handles both legacy 32-byte hash and new extended format.
+        Returns nullopt if the payload is malformed (truncated for the
+        flags advertised).
     */
-    static ExtendedPosition
+    static std::optional<ExtendedPosition>
     fromSerialIter(SerialIter& sit, std::size_t totalSize)
     {
+        if (totalSize < 32)
+            return std::nullopt;
+
         ExtendedPosition pos;
         pos.txSetHash = sit.get256();
 
@@ -199,11 +204,26 @@ struct ExtendedPosition
         if (totalSize == 32)
             return pos;
 
-        // Extended format: has flags + optional fields
+        // Extended format: flags byte + optional uint256 fields
         if (sit.empty())
             return pos;
 
         std::uint8_t flags = sit.get8();
+
+        // Reject unknown flag bits (reduces wire malleability)
+        if (flags & 0xF0)
+            return std::nullopt;
+
+        // Validate exact byte count for the flagged fields.
+        // Each flag bit indicates a 32-byte uint256.
+        int fieldCount = 0;
+        for (int i = 0; i < 4; ++i)
+            if (flags & (1 << i))
+                ++fieldCount;
+
+        if (sit.getBytesLeft() != static_cast<std::size_t>(fieldCount * 32))
+            return std::nullopt;
+
         if (flags & 0x01)
             pos.commitSetHash = sit.get256();
         if (flags & 0x02)

@@ -361,12 +361,79 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
+    testDiceZeroSides()
+    {
+        testcase("Hook dice(0) returns INVALID_ARGUMENT");
+        using namespace jtx;
+
+        Env env{
+            *this,
+            envconfig(),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+
+        // Hook calls dice(0) and returns whatever dice returns.
+        // dice(0) should return INVALID_ARGUMENT (-7).
+        TestHook hook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t dice(uint32_t sides);
+
+            int64_t cbak(uint32_t r) { return 0; }
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                int64_t result = dice(0);
+                // dice(0) should return negative error code, pass it through
+                return accept(0, 0, result);
+            }
+        )[test.hook]"];
+
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set dice0 hook"),
+            HSFEE);
+        env.close();
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = alice.human();
+        env(invoke, M("test dice(0)"), fee(XRP(1)));
+
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);
+
+        // INVALID_ARGUMENT = -7, encoded as 0x8000000000000000 + abs(code)
+        // (see applyHook.cpp unsigned_exit_code encoding)
+        auto const rawCode = hookExecutions[0].getFieldU64(sfHookReturnCode);
+        int64_t returnCode = (rawCode & 0x8000000000000000ULL)
+            ? -static_cast<int64_t>(rawCode & 0x7FFFFFFFFFFFFFFFULL)
+            : static_cast<int64_t>(rawCode);
+        std::cerr << "  dice(0) returnCode = " << returnCode << " (raw 0x"
+                  << std::hex << rawCode << std::dec << ")\n";
+        BEAST_EXPECT(returnCode == -7);
+        BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
+    }
+
+    void
     run() override
     {
         testSLECreated();
         testSLEUpdatedOnSubsequentClose();
         testNoSLEWithoutAmendment();
         testDice();
+        testDiceZeroSides();
         testRandom();
         testDiceConsecutiveCallsDiffer();
     }

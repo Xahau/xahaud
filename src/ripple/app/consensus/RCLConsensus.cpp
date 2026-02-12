@@ -1914,8 +1914,11 @@ RCLConsensus::Adaptor::verifyProof(
 
         // Deserialize ExtendedPosition from the proof
         SerialIter posIter(makeSlice(positionData));
-        auto position =
+        auto maybePos =
             ExtendedPosition::fromSerialIter(posIter, positionData.size());
+        if (!maybePos)
+            return false;
+        auto position = std::move(*maybePos);
 
         // Verify the expected digest matches the position's leaf
         if (isCommit)

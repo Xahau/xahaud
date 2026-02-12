@@ -56,11 +56,14 @@ class ExtendedPosition_test : public beast::unit_test::suite
             auto deserialized =
                 ExtendedPosition::fromSerialIter(sit, s.getDataLength());
 
-            BEAST_EXPECT(deserialized.txSetHash == txSet);
-            BEAST_EXPECT(!deserialized.myCommitment);
-            BEAST_EXPECT(!deserialized.myReveal);
-            BEAST_EXPECT(!deserialized.commitSetHash);
-            BEAST_EXPECT(!deserialized.entropySetHash);
+            BEAST_EXPECT(deserialized.has_value());
+            if (!deserialized)
+                return;
+            BEAST_EXPECT(deserialized->txSetHash == txSet);
+            BEAST_EXPECT(!deserialized->myCommitment);
+            BEAST_EXPECT(!deserialized->myReveal);
+            BEAST_EXPECT(!deserialized->commitSetHash);
+            BEAST_EXPECT(!deserialized->entropySetHash);
         }
 
         // Position with commitment
@@ -81,9 +84,12 @@ class ExtendedPosition_test : public beast::unit_test::suite
             auto deserialized =
                 ExtendedPosition::fromSerialIter(sit, s.getDataLength());
 
-            BEAST_EXPECT(deserialized.txSetHash == txSet);
-            BEAST_EXPECT(deserialized.myCommitment == commit);
-            BEAST_EXPECT(!deserialized.myReveal);
+            BEAST_EXPECT(deserialized.has_value());
+            if (!deserialized)
+                return;
+            BEAST_EXPECT(deserialized->txSetHash == txSet);
+            BEAST_EXPECT(deserialized->myCommitment == commit);
+            BEAST_EXPECT(!deserialized->myReveal);
         }
 
         // Position with all fields
@@ -110,11 +116,14 @@ class ExtendedPosition_test : public beast::unit_test::suite
             auto deserialized =
                 ExtendedPosition::fromSerialIter(sit, s.getDataLength());
 
-            BEAST_EXPECT(deserialized.txSetHash == txSet);
-            BEAST_EXPECT(deserialized.commitSetHash == commitSet);
-            BEAST_EXPECT(deserialized.entropySetHash == entropySet);
-            BEAST_EXPECT(deserialized.myCommitment == commit);
-            BEAST_EXPECT(deserialized.myReveal == reveal);
+            BEAST_EXPECT(deserialized.has_value());
+            if (!deserialized)
+                return;
+            BEAST_EXPECT(deserialized->txSetHash == txSet);
+            BEAST_EXPECT(deserialized->commitSetHash == commitSet);
+            BEAST_EXPECT(deserialized->entropySetHash == entropySet);
+            BEAST_EXPECT(deserialized->myCommitment == commit);
+            BEAST_EXPECT(deserialized->myReveal == reveal);
         }
     }
 
@@ -163,14 +172,18 @@ class ExtendedPosition_test : public beast::unit_test::suite
 
             // Deserialize (same as PeerImp::onMessage does)
             SerialIter sit(posSlice);
-            auto const receivedPos =
+            auto const maybeReceivedPos =
                 ExtendedPosition::fromSerialIter(sit, posSlice.size());
+
+            BEAST_EXPECT(maybeReceivedPos.has_value());
+            if (!maybeReceivedPos)
+                return;
 
             // Reconstruct proposal on receiver side
             Proposal receivedProp{
                 prevLedger,
                 Proposal::seqJoin,
-                receivedPos,
+                *maybeReceivedPos,
                 closeTime,
                 NetClock::time_point{},
                 nodeId};
@@ -206,13 +219,17 @@ class ExtendedPosition_test : public beast::unit_test::suite
             pos.add(positionData);
 
             SerialIter sit(positionData.slice());
-            auto const receivedPos = ExtendedPosition::fromSerialIter(
+            auto const maybeReceivedPos = ExtendedPosition::fromSerialIter(
                 sit, positionData.getDataLength());
+
+            BEAST_EXPECT(maybeReceivedPos.has_value());
+            if (!maybeReceivedPos)
+                return;
 
             Proposal receivedProp{
                 prevLedger,
                 Proposal::seqJoin,
-                receivedPos,
+                *maybeReceivedPos,
                 closeTime,
                 NetClock::time_point{},
                 nodeId};
@@ -263,14 +280,119 @@ class ExtendedPosition_test : public beast::unit_test::suite
         Serializer positionData;
         pos.add(positionData);
         SerialIter sit(positionData.slice());
-        auto const receivedPos =
+        auto const maybeReceivedPos =
             ExtendedPosition::fromSerialIter(sit, positionData.getDataLength());
+
+        BEAST_EXPECT(maybeReceivedPos.has_value());
+        if (!maybeReceivedPos)
+            return;
 
         // Receiver computes suppression
         auto const receiverSuppression = proposalUniqueId(
-            receivedPos, prevLedger, proposeSeq, closeTime, pk, sig);
+            *maybeReceivedPos, prevLedger, proposeSeq, closeTime, pk, sig);
 
         BEAST_EXPECT(senderSuppression == receiverSuppression);
+    }
+
+    void
+    testMalformedPayload()
+    {
+        testcase("Malformed payload rejected");
+
+        // Too short (< 32 bytes)
+        {
+            Serializer s;
+            s.add32(0xDEADBEEF);  // only 4 bytes
+            SerialIter sit(s.slice());
+            auto result =
+                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
+            BEAST_EXPECT(!result.has_value());
+        }
+
+        // Empty payload
+        {
+            Serializer s;
+            SerialIter sit(s.slice());
+            auto result = ExtendedPosition::fromSerialIter(sit, 0);
+            BEAST_EXPECT(!result.has_value());
+        }
+
+        // Flags claim fields that aren't present (truncated)
+        {
+            auto const txSet = makeHash("txset-malformed");
+            Serializer s;
+            s.addBitString(txSet);
+            // flags = 0x0F (all 4 fields), but no field data follows
+            s.add8(0x0F);
+            SerialIter sit(s.slice());
+            auto result =
+                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
+            BEAST_EXPECT(!result.has_value());
+        }
+
+        // Flags claim 2 fields but only 1 field's worth of data
+        {
+            auto const txSet = makeHash("txset-malformed2");
+            auto const commit = makeHash("commit-malformed2");
+            Serializer s;
+            s.addBitString(txSet);
+            // flags = 0x03 (commitSetHash + entropySetHash), but only
+            // provide commitSetHash data
+            s.add8(0x03);
+            s.addBitString(commit);
+            SerialIter sit(s.slice());
+            auto result =
+                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
+            BEAST_EXPECT(!result.has_value());
+        }
+
+        // Unknown flag bits in upper nibble (wire malleability)
+        {
+            auto const txSet = makeHash("txset-unkflags");
+            Serializer s;
+            s.addBitString(txSet);
+            s.add8(0x11);  // bit 4 is unknown, bit 0 = commitSetHash
+            s.addBitString(makeHash("commitset-unkflags"));
+            SerialIter sit(s.slice());
+            auto result =
+                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
+            BEAST_EXPECT(!result.has_value());
+        }
+
+        // Trailing extra bytes after valid fields
+        {
+            auto const txSet = makeHash("txset-trailing");
+            auto const commitSet = makeHash("commitset-trailing");
+            Serializer s;
+            s.addBitString(txSet);
+            s.add8(0x01);  // commitSetHash only
+            s.addBitString(commitSet);
+            s.add32(0xDEADBEEF);  // 4 extra trailing bytes
+            SerialIter sit(s.slice());
+            auto result =
+                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
+            BEAST_EXPECT(!result.has_value());
+        }
+
+        // Valid flags with exactly the right amount of data (should succeed)
+        {
+            auto const txSet = makeHash("txset-ok");
+            auto const commitSet = makeHash("commitset-ok");
+            Serializer s;
+            s.addBitString(txSet);
+            s.add8(0x01);  // commitSetHash only
+            s.addBitString(commitSet);
+            SerialIter sit(s.slice());
+            auto result =
+                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
+            BEAST_EXPECT(result.has_value());
+            if (result)
+            {
+                BEAST_EXPECT(result->txSetHash == txSet);
+                BEAST_EXPECT(result->commitSetHash == commitSet);
+                BEAST_EXPECT(!result->entropySetHash);
+            }
+        }
     }
 
     void
@@ -311,6 +433,7 @@ public:
         testSerializationRoundTrip();
         testSigningConsistency();
         testSuppressionConsistency();
+        testMalformedPayload();
         testEquality();
     }
 };

@@ -6224,6 +6224,9 @@ DEFINE_HOOK_FUNCTION(int64_t, dice, uint32_t sides)
 {
     HOOK_SETUP();
 
+    if (sides == 0)
+        return INVALID_ARGUMENT;
+
     auto vec = fairRng(applyCtx, hookCtx.result, 32);
 
     if (vec.empty())

@@ -1958,11 +1958,20 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         return;
 
     // Deserialize ExtendedPosition (handles both legacy 32-byte and extended
-    // formats)
+    // formats).  Reject malformed payloads early.
     auto const positionSlice = makeSlice(set.currenttxhash());
     SerialIter sit(positionSlice);
-    ExtendedPosition const position =
+    auto const maybePosition =
         ExtendedPosition::fromSerialIter(sit, positionSlice.size());
+    if (!maybePosition)
+    {
+        JLOG(p_journal_.warn())
+            << "Malformed proposal payload (" << positionSlice.size()
+            << " bytes) from " << toBase58(TokenType::NodePublic, publicKey);
+        fee_ = Resource::feeInvalidRequest;
+        return;
+    }
+    ExtendedPosition const& position = *maybePosition;
 
     JLOG(p_journal_.debug())
         << "RNG: recv proposal size=" << positionSlice.size()
