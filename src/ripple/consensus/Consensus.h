@@ -1409,6 +1409,7 @@ Consensus<Adaptor>::phaseEstablish()
         return;
     }
 
+    //@@start rng-phase-establish-substates
     // --- RNG Sub-state Checkpoints (if adaptor supports RNG) ---
     // These sub-states use union convergence (not avalanche).
     // Commits and reveals arrive piggybacked on proposals, so by the time
@@ -1590,6 +1591,7 @@ Consensus<Adaptor>::phaseEstablish()
                 return;
         }
     }
+    //@@end rng-phase-establish-substates
 
     JLOG(j_.info()) << "Converge cutoff (" << currPeerPositions_.size()
                     << " participants)";

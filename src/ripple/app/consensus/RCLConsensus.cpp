@@ -1268,6 +1268,7 @@ RCLConsensus::Adaptor::hasAnyReveals() const
 uint256
 RCLConsensus::Adaptor::buildCommitSet(LedgerIndex seq)
 {
+    //@@start rng-build-commit-set
     auto map =
         std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
     map->setUnbacked();
@@ -1320,11 +1321,13 @@ RCLConsensus::Adaptor::buildCommitSet(LedgerIndex seq)
     JLOG(j_.debug()) << "RNG: built commitSet SHAMap hash=" << hash
                      << " entries=" << pendingCommits_.size();
     return hash;
+    //@@end rng-build-commit-set
 }
 
 uint256
 RCLConsensus::Adaptor::buildEntropySet(LedgerIndex seq)
 {
+    //@@start rng-build-entropy-set
     auto map =
         std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
     map->setUnbacked();
@@ -1374,6 +1377,7 @@ RCLConsensus::Adaptor::buildEntropySet(LedgerIndex seq)
     JLOG(j_.debug()) << "RNG: built entropySet SHAMap hash=" << hash
                      << " entries=" << pendingReveals_.size();
     return hash;
+    //@@end rng-build-entropy-set
 }
 
 void
@@ -1684,6 +1688,7 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
     uint256 finalEntropy;
     bool hasEntropy = false;
 
+    //@@start rng-inject-entropy-selection
     // Calculate entropy from collected reveals
     if (app_.config().standalone())
     {
@@ -1738,7 +1743,9 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
                             << " for ledger " << seq;
         }
     }
+    //@@end rng-inject-entropy-selection
 
+    //@@start rng-inject-pseudotx
     // Synthesize and inject the pseudo-transaction
     if (hasEntropy)
     {
@@ -1760,6 +1767,7 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
 
         retriableTxs.insert(std::make_shared<STTx>(std::move(tx)));
     }
+    //@@end rng-inject-pseudotx
 
     // Reset RNG state for next round
     clearRngState();
@@ -1779,6 +1787,7 @@ RCLConsensus::Adaptor::harvestRngData(
                      << " commit=" << (position.myCommitment ? "yes" : "no")
                      << " reveal=" << (position.myReveal ? "yes" : "no");
 
+    //@@start rng-harvest-trust-and-reveal-verification
     // Reject data from validators not in the active UNL
     if (!isUNLReportMember(nodeId))
     {
@@ -1855,6 +1864,7 @@ RCLConsensus::Adaptor::harvestRngData(
                              << *position.myReveal;
         }
     }
+    //@@end rng-harvest-trust-and-reveal-verification
 
     // Store proposal proofs for embedding in SHAMap entries.
     // commitProofs_: only seq=0 (commitments always ride on seq=0,

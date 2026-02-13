@@ -104,6 +104,7 @@ applyTransactions(
     bool certainRetry = true;
     std::size_t count = 0;
 
+    //@@start rng-entropy-first-application
     // CRITICAL: Apply consensus entropy pseudo-tx FIRST before any other
     // transactions. This ensures hooks can read entropy during this ledger.
     for (auto it = txns.begin(); it != txns.end(); /* manual */)
@@ -142,6 +143,7 @@ applyTransactions(
         it = txns.erase(it);
         break;  // Only one entropy tx per ledger
     }
+    //@@end rng-entropy-first-application
 
     // Attempt to apply all of the retriable transactions
     for (int pass = 0; pass < LEDGER_TOTAL_PASSES; ++pass)

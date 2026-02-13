@@ -105,6 +105,7 @@ struct ExtendedPosition
     //     entropy result is verified deterministically from collected reveals.
     //   - Leaves (myCommitment, myReveal) are also excluded — they are
     //     per-validator data unique to each proposer.
+    //@@start rng-extended-position-equality
     bool
     operator==(ExtendedPosition const& other) const
     {
@@ -141,8 +142,10 @@ struct ExtendedPosition
     {
         return pos.txSetHash != hash;
     }
+    //@@end rng-extended-position-equality
 
     // CRITICAL: Include ALL fields for signing (prevents stripping attacks)
+    //@@start rng-extended-position-serialize
     void
     add(Serializer& s) const
     {
@@ -173,6 +176,7 @@ struct ExtendedPosition
         if (myReveal)
             s.addBitString(*myReveal);
     }
+    //@@end rng-extended-position-serialize
 
     Json::Value
     getJson() const
@@ -191,6 +195,7 @@ struct ExtendedPosition
         Returns nullopt if the payload is malformed (truncated for the
         flags advertised).
     */
+    //@@start rng-extended-position-deserialize
     static std::optional<ExtendedPosition>
     fromSerialIter(SerialIter& sit, std::size_t totalSize)
     {
@@ -235,6 +240,7 @@ struct ExtendedPosition
 
         return pos;
     }
+    //@@end rng-extended-position-deserialize
 };
 
 // For logging/debugging - returns txSetHash as string

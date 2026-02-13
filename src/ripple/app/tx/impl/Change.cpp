@@ -238,6 +238,7 @@ Change::applyConsensusEntropy()
 {
     auto const entropy = ctx_.tx.getFieldH256(sfDigest);
 
+    //@@start rng-consensus-entropy-sle-write
     auto sle = view().peek(keylet::consensusEntropy());
     bool const created = !sle;
 
@@ -255,6 +256,7 @@ Change::applyConsensusEntropy()
         view().insert(sle);
     else
         view().update(sle);
+    //@@end rng-consensus-entropy-sle-write
 
     JLOG(j_.info()) << "ConsensusEntropy: updated entropy to " << entropy
                     << " at ledger " << view().info().seq;
