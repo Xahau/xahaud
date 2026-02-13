@@ -109,11 +109,13 @@ public:
     Consumer
     newInboundEndpoint(beast::IP::Endpoint const& address)
     {
+        //@@start rng-local-testnet-resource-bucket
         // Inbound connections from the same IP normally share one
         // resource bucket (port stripped) for DoS protection.  For
         // loopback addresses, preserve the port so local testnet nodes
         // each get their own bucket instead of all sharing one.
         auto const key = is_loopback(address) ? address : address.at_port(0);
+        //@@end rng-local-testnet-resource-bucket
 
         Entry* entry(nullptr);
 

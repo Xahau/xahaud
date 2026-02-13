@@ -988,6 +988,7 @@ NetworkOPsImp::processHeartbeatTimer()
         mLastConsensusPhase = currPhase;
     }
 
+    //@@start rng-fast-polling
     // Use faster polling during RNG sub-state transitions
     // to reduce latency of commit-reveal rounds.
     // Tunable via XAHAU_RNG_POLL_MS env var (default 250ms).
@@ -1002,6 +1003,7 @@ NetworkOPsImp::processHeartbeatTimer()
     }
     else
         setHeartbeatTimer();
+    //@@end rng-fast-polling
 }
 
 void

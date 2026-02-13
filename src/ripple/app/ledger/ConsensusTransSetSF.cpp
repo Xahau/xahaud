@@ -63,11 +63,13 @@ ConsensusTransSetSF::gotNode(
             auto stx = std::make_shared<STTx const>(std::ref(sit));
             assert(stx->getTransactionID() == nodeHash.as_uint256());
 
+            //@@start rng-pseudo-tx-submission-filtering
             // Don't submit pseudo-transactions (consensus entropy, fees,
             // amendments, etc.) — they exist as SHAMap entries for
             // content-addressed identification but are not real user txns.
             if (isPseudoTx(*stx))
                 return;
+            //@@end rng-pseudo-tx-submission-filtering
 
             auto const pap = &app_;
             app_.getJobQueue().addJob(jtTRANSACTION, "TXS->TXN", [pap, stx]() {
