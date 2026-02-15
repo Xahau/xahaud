@@ -6872,7 +6872,10 @@ public:
         std::vector<std::string> const keys = {
             "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC"
             "1"};
-        Env env{*this, network::makeNetworkVLConfig(21337, keys)};
+        Env env{
+            *this,
+            network::makeNetworkVLConfig(21337, keys),
+            features - featureHooksUpdate1};
 
         auto const master = Account("masterpassphrase");
         env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
@@ -6949,6 +6952,16 @@ public:
                 return accept(0,0,2);
             }
         )[test.hook]"];
+
+        // before featureHooksUpdate1
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set xpop_slot (disabled)"),
+            HSFEE,
+            ter(temMALFORMED));
+        env.close();
+
+        env.enableFeature(featureHooksUpdate1);
+        env.close();
 
         // install the hook on alice
         env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
