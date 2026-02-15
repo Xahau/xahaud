@@ -153,6 +153,7 @@
         [[maybe_unused]] const uint64_t memory_length =              \
             WasmEdge_MemoryInstanceGetPageSize(memoryCtx) *          \
             WasmEdge_kPageSize;                                      \
+        [[maybe_unused]] auto& api = hookCtx.api();                  \
         if (!memoryCtx || !memory || !memory_length)                 \
             return INTERNAL_ERROR;
 
