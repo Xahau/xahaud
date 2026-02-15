@@ -25,7 +25,8 @@
     _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, N, ...) \
     N
 #define VA_NARGS(__drop, ...) \
-    VA_NARGS_IMPL(__VA_ARGS__, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+    VA_NARGS_IMPL(            \
+        __VA_OPT__(__VA_ARGS__, ) 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
 #define FIRST(a, b) a
 #define SECOND(a, b) b
 #define STRIP_TYPES(...) FOR_VARS(SECOND, 0, __VA_ARGS__)
@@ -88,30 +89,18 @@
 
 #define WASM_VAL_TYPE(T, b) CAT2(TYP_, T)
 
-#define DECLARE_HOOK_FUNCTION(R, F, ...)                      \
-    R F(hook::HookContext& hookCtx,                           \
-        WasmEdge_CallingFrameContext const& frameCtx,         \
-        __VA_ARGS__);                                         \
-    extern WasmEdge_Result WasmFunction##F(                   \
-        void* data_ptr,                                       \
-        const WasmEdge_CallingFrameContext* frameCtx,         \
-        const WasmEdge_Value* in,                             \
-        WasmEdge_Value* out);                                 \
-    extern WasmEdge_ValType WasmFunctionParams##F[];          \
-    extern WasmEdge_ValType WasmFunctionResult##F[];          \
-    extern WasmEdge_FunctionTypeContext* WasmFunctionType##F; \
-    extern WasmEdge_String WasmFunctionName##F;
-
-#define DECLARE_HOOK_FUNCNARG(R, F)                           \
-    R F(hook::HookContext& hookCtx,                           \
-        WasmEdge_CallingFrameContext const& frameCtx);        \
-    extern WasmEdge_Result WasmFunction##F(                   \
-        void* data_ptr,                                       \
-        const WasmEdge_CallingFrameContext* frameCtx,         \
-        const WasmEdge_Value* in,                             \
-        WasmEdge_Value* out);                                 \
-    extern WasmEdge_ValType WasmFunctionResult##F[];          \
-    extern WasmEdge_FunctionTypeContext* WasmFunctionType##F; \
+#define DECLARE_HOOK_FUNCTION(R, F, ...)                         \
+    R F(hook::HookContext& hookCtx,                              \
+        WasmEdge_CallingFrameContext const& frameCtx __VA_OPT__( \
+            COMMA __VA_ARGS__));                                 \
+    extern WasmEdge_Result WasmFunction##F(                      \
+        void* data_ptr,                                          \
+        const WasmEdge_CallingFrameContext* frameCtx,            \
+        const WasmEdge_Value* in,                                \
+        WasmEdge_Value* out);                                    \
+    extern WasmEdge_ValType WasmFunctionParams##F[];             \
+    extern WasmEdge_ValType WasmFunctionResult##F[];             \
+    extern WasmEdge_FunctionTypeContext* WasmFunctionType##F;    \
     extern WasmEdge_String WasmFunctionName##F;
 
 #define DEFINE_HOOK_FUNCTION(R, F, ...)                             \
@@ -121,61 +110,35 @@
         const WasmEdge_Value* in,                                   \
         WasmEdge_Value* out)                                        \
     {                                                               \
-        int _stack = 0;                                             \
-        FOR_VARS(VAR_ASSIGN, 2, __VA_ARGS__);                       \
+        __VA_OPT__(int _stack = 0;)                                 \
+        __VA_OPT__(FOR_VARS(VAR_ASSIGN, 2, __VA_ARGS__);)           \
         hook::HookContext* hookCtx =                                \
             reinterpret_cast<hook::HookContext*>(data_ptr);         \
         R return_code = hook_api::F(                                \
             *hookCtx,                                               \
-            *const_cast<WasmEdge_CallingFrameContext*>(frameCtx),   \
-            STRIP_TYPES(__VA_ARGS__));                              \
+            *const_cast<WasmEdge_CallingFrameContext*>(frameCtx)    \
+                __VA_OPT__(COMMA STRIP_TYPES(__VA_ARGS__)));        \
         if (return_code == RC_ROLLBACK || return_code == RC_ACCEPT) \
             return WasmEdge_Result_Terminate;                       \
         out[0] = RET_ASSIGN(R, return_code);                        \
         return WasmEdge_Result_Success;                             \
     };                                                              \
     WasmEdge_ValType hook_api::WasmFunctionParams##F[] = {          \
-        FOR_VARS(WASM_VAL_TYPE, 0, __VA_ARGS__)};                   \
+        __VA_OPT__(FOR_VARS(WASM_VAL_TYPE, 0, __VA_ARGS__))};       \
     WasmEdge_ValType hook_api::WasmFunctionResult##F[1] = {         \
         WASM_VAL_TYPE(R, dummy)};                                   \
     WasmEdge_FunctionTypeContext* hook_api::WasmFunctionType##F =   \
         WasmEdge_FunctionTypeCreate(                                \
             WasmFunctionParams##F,                                  \
-            VA_NARGS(NULL, __VA_ARGS__),                            \
+            VA_NARGS(NULL __VA_OPT__(, __VA_ARGS__)),               \
             WasmFunctionResult##F,                                  \
             1);                                                     \
     WasmEdge_String hook_api::WasmFunctionName##F =                 \
         WasmEdge_StringCreateByCString(#F);                         \
     R hook_api::F(                                                  \
         hook::HookContext& hookCtx,                                 \
-        WasmEdge_CallingFrameContext const& frameCtx,               \
-        __VA_ARGS__)
-
-#define DEFINE_HOOK_FUNCNARG(R, F)                                           \
-    WasmEdge_Result hook_api::WasmFunction##F(                               \
-        void* data_ptr,                                                      \
-        const WasmEdge_CallingFrameContext* frameCtx,                        \
-        const WasmEdge_Value* in,                                            \
-        WasmEdge_Value* out)                                                 \
-    {                                                                        \
-        hook::HookContext* hookCtx =                                         \
-            reinterpret_cast<hook::HookContext*>(data_ptr);                  \
-        R return_code = hook_api::F(                                         \
-            *hookCtx, *const_cast<WasmEdge_CallingFrameContext*>(frameCtx)); \
-        if (return_code == RC_ROLLBACK || return_code == RC_ACCEPT)          \
-            return WasmEdge_Result_Terminate;                                \
-        out[0] = CAT2(RET_, R(return_code));                                 \
-        return WasmEdge_Result_Success;                                      \
-    };                                                                       \
-    WasmEdge_ValType hook_api::WasmFunctionResult##F[1] = {                  \
-        WASM_VAL_TYPE(R, dummy)};                                            \
-    WasmEdge_FunctionTypeContext* hook_api::WasmFunctionType##F =            \
-        WasmEdge_FunctionTypeCreate({}, 0, WasmFunctionResult##F, 1);        \
-    WasmEdge_String hook_api::WasmFunctionName##F =                          \
-        WasmEdge_StringCreateByCString(#F);                                  \
-    R hook_api::F(                                                           \
-        hook::HookContext& hookCtx,                                          \
-        WasmEdge_CallingFrameContext const& frameCtx)
+        WasmEdge_CallingFrameContext const& frameCtx __VA_OPT__(    \
+            COMMA __VA_ARGS__))
 
 #define HOOK_SETUP()                                                 \
     try                                                              \

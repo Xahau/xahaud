@@ -490,8 +490,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     hook,  // wasm to verify
                     logger,
                     hsacc,
-                    (ctx.rules.enabled(featureHooksUpdate1) ? 1 : 0) +
-                        (ctx.rules.enabled(fix20250131) ? 2 : 0));
+                    hook_api::getImportWhitelist(ctx.rules),
+                    hook_api::getGuardRulesVersion(ctx.rules));
 
                 if (ctx.j.trace())
                 {
