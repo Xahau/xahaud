@@ -2355,7 +2355,7 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // Return the tt (Transaction Type) numeric code of the originating transaction
-DEFINE_HOOK_FUNCNARG(int64_t, otxn_type)
+DEFINE_HOOK_FUNCTION(int64_t, otxn_type)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -2405,7 +2405,7 @@ DEFINE_HOOK_FUNCTION(int64_t, otxn_slot, uint32_t slot_into)
 // Return the burden of the originating transaction... this will be 1 unless the
 // originating transaction was itself an emitted transaction from a previous
 // hook invocation
-DEFINE_HOOK_FUNCNARG(int64_t, otxn_burden)
+DEFINE_HOOK_FUNCTION(int64_t, otxn_burden)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -2442,7 +2442,7 @@ DEFINE_HOOK_FUNCNARG(int64_t, otxn_burden)
 // Return the generation of the originating transaction... this will be 1 unless
 // the originating transaction was itself an emitted transaction from a previous
 // hook invocation
-DEFINE_HOOK_FUNCNARG(int64_t, otxn_generation)
+DEFINE_HOOK_FUNCTION(int64_t, otxn_generation)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -2474,14 +2474,14 @@ DEFINE_HOOK_FUNCNARG(int64_t, otxn_generation)
 }
 
 // Return the generation of a hypothetically emitted transaction from this hook
-DEFINE_HOOK_FUNCNARG(int64_t, etxn_generation)
+DEFINE_HOOK_FUNCTION(int64_t, etxn_generation)
 {
     // proxy only, no setup or teardown
     return otxn_generation(hookCtx, frameCtx) + 1;
 }
 
 // Return the current ledger sequence number
-DEFINE_HOOK_FUNCNARG(int64_t, ledger_seq)
+DEFINE_HOOK_FUNCTION(int64_t, ledger_seq)
 {
     HOOK_SETUP();
 
@@ -2511,7 +2511,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCNARG(int64_t, ledger_last_time)
+DEFINE_HOOK_FUNCTION(int64_t, ledger_last_time)
 {
     HOOK_SETUP();
 
@@ -3967,7 +3967,7 @@ DEFINE_HOOK_FUNCTION(int64_t, etxn_reserve, uint32_t count)
 }
 
 // Compute the burden of an emitted transaction based on a number of factors
-DEFINE_HOOK_FUNCNARG(int64_t, etxn_burden)
+DEFINE_HOOK_FUNCTION(int64_t, etxn_burden)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -4789,7 +4789,7 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // Return the current fee base of the current ledger (multiplied by a margin)
-DEFINE_HOOK_FUNCNARG(int64_t, fee_base)
+DEFINE_HOOK_FUNCTION(int64_t, fee_base)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
@@ -5712,7 +5712,7 @@ DEFINE_HOOK_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCNARG(int64_t, float_one)
+DEFINE_HOOK_FUNCTION(int64_t, float_one)
 {
     return float_one_internal;
 }
@@ -6108,12 +6108,12 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCNARG(int64_t, hook_pos)
+DEFINE_HOOK_FUNCTION(int64_t, hook_pos)
 {
     return hookCtx.result.hookChainPosition;
 }
 
-DEFINE_HOOK_FUNCNARG(int64_t, hook_again)
+DEFINE_HOOK_FUNCTION(int64_t, hook_again)
 {
     HOOK_SETUP();
 
