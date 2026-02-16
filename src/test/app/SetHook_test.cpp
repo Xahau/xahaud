@@ -2579,6 +2579,7 @@ public:
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
+
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
@@ -3094,6 +3095,7 @@ public:
             extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t etxn_details (uint32_t, uint32_t);
             extern int64_t etxn_reserve(uint32_t);
+            extern int64_t hook_hash (uint32_t, uint32_t, int32_t);
             #define TOO_SMALL -4
             #define OUT_OF_BOUNDS -1
             #define PREREQUISITE_NOT_MET -9
@@ -3115,6 +3117,45 @@ public:
 
                 etxn_reserve(1);
                 ASSERT(etxn_details((uint32_t)det, 116) == 116);
+
+                uint8_t expected1[49] = {
+                    0xEDU, 0x20U, 0x2EU, 0x00U, 0x00U, 0x00U, 0x01U, 0x3DU, 0x00U, 0x00U,
+                    0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U, 0x5BU, 0xB8U, 0x05U, 0xD6U,
+                    0xC3U, 0x52U, 0xDFU, 0x7AU, 0x27U, 0x76U, 0x6DU, 0xC0U, 0x20U, 0x47U,
+                    0xB7U, 0x64U, 0x22U, 0x5AU, 0xB7U, 0x5DU, 0xF3U, 0xFAU, 0x0DU, 0xE3U,
+                    0xBDU, 0xC6U, 0x40U, 0xBAU, 0xD0U, 0x0AU, 0x66U, 0xEBU, 0x68U,
+                };
+                // 0x5CU
+                // EmitNonce 32bytes
+                uint8_t expected_emit_nonce[32] = {
+                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+                    0xFFU, 0xFFU
+                };
+                // 0x5DU, 
+                // EmitHookHash
+                uint8_t expected_hook_hash[32] = {
+                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+                    0xFFU, 0xFFU,
+                };
+                // 0xE1U
+                
+                // current hook hash
+                ASSERT(hook_hash((uint32_t)expected_hook_hash, 32, -1) == 32);
+
+                for (int i = 0; GUARD(49), i < sizeof(expected1); ++i)
+                    ASSERT(det[i] == expected1[i]);
+                ASSERT(det[49] == 0x5CU);
+                // TODO: need to test this
+                // for (int i = 0; GUARD(32), i < sizeof(expected_emit_nonce); ++i)
+                //     ASSERT(det[50 + i] == expected_emit_nonce[i]);
+                ASSERT(det[82] == 0x5DU);
+                for (int i = 0; GUARD(32), i < sizeof(expected_hook_hash); ++i)
+                    ASSERT(det[83 + i] == expected_hook_hash[i]);
+                ASSERT(det[115] == 0xE1);
 
                 return accept(0,0,0);
             }
@@ -3280,6 +3321,7 @@ public:
                 }
 
                 ASSERT(etxn_nonce((uint32_t)nonce, 116) == TOO_MANY_NONCES);
+                ASSERT(etxn_nonce((uint32_t)nonce, 31) == TOO_MANY_NONCES);
 
                 return accept(0,0,0);
             }
@@ -6872,7 +6914,10 @@ public:
         std::vector<std::string> const keys = {
             "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC"
             "1"};
-        Env env{*this, network::makeNetworkVLConfig(21337, keys)};
+        Env env{
+            *this,
+            network::makeNetworkVLConfig(21337, keys),
+            features - featureHooksUpdate1};
 
         auto const master = Account("masterpassphrase");
         env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
@@ -6949,6 +6994,16 @@ public:
                 return accept(0,0,2);
             }
         )[test.hook]"];
+
+        // before featureHooksUpdate1
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set xpop_slot (disabled)"),
+            HSFEE,
+            ter(temMALFORMED));
+        env.close();
+
+        env.enableFeature(featureHooksUpdate1);
+        env.close();
 
         // install the hook on alice
         env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
