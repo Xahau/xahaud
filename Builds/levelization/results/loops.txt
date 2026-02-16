@@ -10,6 +10,9 @@ Loop: test.jtx test.toplevel
 Loop: test.jtx test.unit_test
   test.unit_test == test.jtx
 
+Loop: xrpl.hook xrpld.app
+  xrpld.app > xrpl.hook
+
 Loop: xrpl.protocol xrpld.app
   xrpld.app > xrpl.protocol
 

@@ -18,11 +18,25 @@ jobs:
             generator: bash ./hook/generate_sfcodes.sh
           - target: hook/tts.h
             generator: ./hook/generate_tts.sh
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      CLANG_VERSION: 18
     name: ${{ matrix.target }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          codename=$( lsb_release --codename --short )
+          sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null <<EOF
+          deb http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-${CLANG_VERSION} main
+          deb-src http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-${CLANG_VERSION} main
+          EOF
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add
+          sudo apt-get update
+          sudo apt-get install clang-format-${CLANG_VERSION}
+          sudo ln -sf /usr/bin/clang-format-${CLANG_VERSION} /usr/local/bin/clang-format
 
       - name: Verify ${{ matrix.target }}
         run: |
