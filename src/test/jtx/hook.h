@@ -20,8 +20,8 @@
 #ifndef RIPPLE_TEST_JTX_HOOK_H_INCLUDED
 #define RIPPLE_TEST_JTX_HOOK_H_INCLUDED
 
-#include <xrpld/app/hook/applyHook.h>
 #include <test/jtx/Account.h>
+#include <xrpld/app/hook/applyHook.h>
 #include <xrpl/json/json_value.h>
 #include <cstdint>
 #include <map>
