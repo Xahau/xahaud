@@ -3961,7 +3961,7 @@ public:
             M("set etxn_details"),
             HSFEE);
         env.close();
-        EXPECT_HOOK_FEE(hook, 88);
+        EXPECT_HOOK_FEE(hook, 2436);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_details"), fee(XRP(1)));
@@ -4131,7 +4131,7 @@ public:
             M("set etxn_nonce"),
             HSFEE);
         env.close();
-        EXPECT_HOOK_FEE(hook, 11644);
+        EXPECT_HOOK_FEE(hook, 11657);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_nonce"), fee(XRP(1)));
@@ -7884,7 +7884,7 @@ public:
         HASH_WASM(hook);
 
         // before featureHooksUpdate1
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set xpop_slot (disabled)"),
             HSFEE,
             ter(temMALFORMED));
