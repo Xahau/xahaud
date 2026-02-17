@@ -465,6 +465,8 @@ extern SF_UINT256 const sfEmitParentTxnID;
 extern SF_UINT256 const sfEmitNonce;
 extern SF_UINT256 const sfEmitHookHash;
 extern SF_UINT256 const sfObjectID;
+extern SF_UINT256 const sfHookOnIncoming;
+extern SF_UINT256 const sfHookOnOutgoing;
 
 // 256-bit (uncommon)
 extern SF_UINT256 const sfBookDirectory;
