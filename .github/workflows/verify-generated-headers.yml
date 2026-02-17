@@ -18,11 +18,22 @@ jobs:
             generator: bash ./hook/generate_sfcodes.sh
           - target: hook/tts.h
             generator: ./hook/generate_tts.sh
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    env:
+      CLANG_VERSION: 10
     name: ${{ matrix.target }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Download and install clang-format
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libtinfo5
+          curl -LO https://github.com/llvm/llvm-project/releases/download/llvmorg-10.0.1/clang+llvm-10.0.1-x86_64-linux-gnu-ubuntu-16.04.tar.xz
+          tar -xf clang+llvm-10.0.1-x86_64-linux-gnu-ubuntu-16.04.tar.xz
+          sudo mv clang+llvm-10.0.1-x86_64-linux-gnu-ubuntu-16.04 /opt/clang-10
+          sudo ln -s /opt/clang-10/bin/clang-format /usr/local/bin/clang-format-10
 
       - name: Verify ${{ matrix.target }}
         run: |
