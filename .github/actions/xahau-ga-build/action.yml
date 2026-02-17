@@ -53,10 +53,11 @@ inputs:
     required: false
     default: 'dev'
   stdlib:
-    description: 'C++ standard library to use'
+    description: 'C++ standard library to use (default = compiler default, e.g. GCC always uses libstdc++)'
     required: true
     type: choice
     options:
+      - default
       - libstdcxx
       - libcxx
   clang_gcc_toolchain:
@@ -99,11 +100,6 @@ runs:
         export CCACHE_CONFIGPATH="$HOME/.config/ccache/ccache.conf"
         echo "CCACHE_CONFIGPATH=$CCACHE_CONFIGPATH" >> $GITHUB_ENV
 
-        # Keep config separate from cache_dir so configs aren't swapped when CCACHE_DIR changes between steps
-        mkdir -p ~/.config/ccache
-        export CCACHE_CONFIGPATH="$HOME/.config/ccache/ccache.conf"
-        echo "CCACHE_CONFIGPATH=$CCACHE_CONFIGPATH" >> $GITHUB_ENV
-
         # Configure ccache settings AFTER cache restore (prevents stale cached config)
         ccache --set-config=max_size=${{ inputs.ccache_max_size }}
         ccache --set-config=hash_dir=${{ inputs.ccache_hash_dir }}
@@ -136,7 +132,6 @@ runs:
 
         if [ -n "${{ inputs.gcov }}" ]; then
           ln -sf /usr/bin/${{ inputs.gcov }} /usr/local/bin/gcov
-          export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
         fi
 
         # Create wrapper toolchain that overlays ccache on top of Conan's toolchain
@@ -225,7 +220,7 @@ runs:
           VERBOSE_FLAG="-- -v"
         fi
 
-        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc) ${VERBOSE_FLAG} --target ${{ inputs.cmake-target }}
+        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc) --target ${{ inputs.cmake-target }} ${VERBOSE_FLAG}
 
     - name: Show ccache statistics
       if: inputs.ccache_enabled == 'true'
