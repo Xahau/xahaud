@@ -24,8 +24,7 @@ jobs:
     if: >
       github.event_name != 'pull_request' ||
       contains(fromJson('["dev","candidate","release"]'), github.base_ref) ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'full-ci') ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'ci-nix-full-matrix')
+      contains(join(github.event.pull_request.labels.*.name, ','), 'full-ci')
     runs-on: [self-hosted, generic, 20.04]
     container: python:3-slim
     outputs:
@@ -160,7 +159,7 @@ jobs:
               manual_full
               or "[ci-nix-full-matrix]" in commit_message
               or "[ci-nix-full-matrix]" in pr_title
-              or "ci-nix-full-matrix" in pr_labels
+              or ("full-ci" in pr_labels and "ci-nix-full-matrix" in pr_labels)
           )
           force_min = (
               "full-ci" in pr_labels
