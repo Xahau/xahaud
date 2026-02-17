@@ -46,7 +46,7 @@ jobs:
                   "cc": "gcc-11",
                   "cxx": "g++-11",
                   "compiler_version": 11,
-                  "stdlib": "libstdcxx",
+                  "stdlib": "default",
                   "configuration": "Debug",
                   "job_type": "build"
               },
@@ -56,6 +56,7 @@ jobs:
                   "cc": "gcc-13",
                   "cxx": "g++-13",
                   "compiler_version": 13,
+                  "stdlib": "default",
                   "configuration": "Debug",
                   "job_type": "build"
               },
@@ -66,7 +67,7 @@ jobs:
                   "cxx": "g++-13",
                   "gcov": "gcov-13",
                   "compiler_version": 13,
-                  "stdlib": "libstdcxx",
+                  "stdlib": "default",
                   "configuration": "Debug",
                   "job_type": "coverage"
               },
@@ -377,6 +378,7 @@ jobs:
           compiler-id: ${{ matrix.compiler_id }}
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          stdlib: ${{ matrix.stdlib }}
           cmake-args: '-Dcoverage=ON -Dcoverage_format=xml -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS="-O0" -DCMAKE_C_FLAGS="-O0"'
           cmake-target: 'coverage'
           ccache_max_size: '100G'
