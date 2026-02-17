@@ -89,6 +89,12 @@ canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit);
 ripple::uint256
 getHookCanEmit(ripple::STObject const& hookObj, SLE::pointer const& hookDef);
 
+ripple::uint256
+getHookOn(
+    STObject const& obj,
+    std::shared_ptr<SLE const> const& def,
+    SField const& field);
+
 struct HookResult;
 
 HookResult
