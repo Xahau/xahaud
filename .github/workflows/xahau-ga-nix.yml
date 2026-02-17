@@ -24,7 +24,7 @@ jobs:
     if: >
       github.event_name != 'pull_request' ||
       contains(fromJson('["dev","candidate","release"]'), github.base_ref) ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'run-ci') ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'full-ci') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci-nix-full-matrix')
     runs-on: [self-hosted, generic, 20.04]
     container: python:3-slim
@@ -163,7 +163,7 @@ jobs:
               or "ci-nix-full-matrix" in pr_labels
           )
           force_min = (
-              "run-ci" in pr_labels
+              "full-ci" in pr_labels
           )
           print(f"Force full matrix: {force_full}")
           print(f"Force min matrix: {force_min}")
@@ -177,7 +177,7 @@ jobs:
               # Override: always use full matrix if forced by manual input or label.
               use_full = True
           elif force_min:
-              # Override: always use minimal matrix if run-ci label is present.
+              # Override: always use minimal matrix if full-ci label is present.
               use_full = False
           elif event_name == "pull_request":
               # For PRs, base_ref is just the branch name (e.g., "dev", not "refs/heads/dev")

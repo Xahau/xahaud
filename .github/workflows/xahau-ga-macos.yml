@@ -18,7 +18,7 @@ jobs:
     if: >
       github.event_name != 'pull_request' ||
       contains(fromJson('["dev","candidate","release"]'), github.base_ref) ||
-      contains(join(github.event.pull_request.labels.*.name, ','), 'run-ci') ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'full-ci') ||
       contains(join(github.event.pull_request.labels.*.name, ','), 'ci-nix-full-matrix')
     strategy:
       matrix:
