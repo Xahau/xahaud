@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <ripple/app/hook/Enum.h>
 #include <ripple/app/hook/Guard.h>
 #include <ripple/app/hook/applyHook.h>
 #include <ripple/app/ledger/Ledger.h>
@@ -605,8 +606,8 @@ Change::activateXahauGenesis()
                 wasmBytes,  // wasm to verify
                 loggerStream,
                 "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
-                (ctx_.view().rules().enabled(featureHooksUpdate1) ? 1 : 0) +
-                    (ctx_.view().rules().enabled(fix20250131) ? 2 : 0));
+                hook_api::getImportWhitelist(ctx_.view().rules()),
+                hook_api::getGuardRulesVersion(ctx_.view().rules()));
 
             if (!result)
             {

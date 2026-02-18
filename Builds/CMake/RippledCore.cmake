@@ -488,6 +488,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/apply.cpp
   src/ripple/app/tx/impl/applySteps.cpp
   src/ripple/app/hook/impl/applyHook.cpp
+  src/ripple/app/hook/impl/HookAPI.cpp
   src/ripple/app/tx/impl/details/NFTokenUtils.cpp
   #[===============================[
      main sources:
@@ -749,6 +750,7 @@ if (tests)
     src/test/app/Freeze_test.cpp
     src/test/app/GenesisMint_test.cpp
     src/test/app/HashRouter_test.cpp
+    src/test/app/HookAPI_test.cpp
     src/test/app/Import_test.cpp
     src/test/app/Invoke_test.cpp
     src/test/app/LedgerHistory_test.cpp
