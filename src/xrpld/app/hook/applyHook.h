@@ -70,7 +70,7 @@ namespace hook_api {
     DECLARE_HOOK_FUNCTION(                                                 \
         RETURN_TYPE, FUNCTION_NAME, HOOK_WRAP_PARAMS PARAMS_TUPLE);
 
-#include <ripple/app/hook/hook_api.macro>
+#include <xrpl/hook/hook_api.macro>
 
 #undef HOOK_API_DEFINITION
 #undef HOOK_WRAP_PARAMS
@@ -468,7 +468,7 @@ public:
 #define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
     ADD_HOOK_FUNCTION(FUNCTION_NAME, ctx);
 
-#include <ripple/app/hook/hook_api.macro>
+#include <xrpl/hook/hook_api.macro>
 
 #undef HOOK_API_DEFINITION
 #undef HOOK_WRAP_PARAMS
