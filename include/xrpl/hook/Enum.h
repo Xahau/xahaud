@@ -300,7 +300,17 @@ enum keylet_code : uint32_t {
     NFT_OFFER = 23,
     HOOK_DEFINITION = 24,
     HOOK_STATE_DIR = 25,
-    CRON = 26
+    CRON = 26,
+    AMM = 27,
+    BRIDGE = 28,
+    XCHAIN_OWNED_CLAIM_ID = 29,
+    XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID = 30,
+    DID = 31,
+    ORACLE = 32,
+    MPTOKEN_ISSUANCE = 33,
+    MPTOKEN = 34,
+    CREDENTIAL = 35,
+    PERMISSIONED_DOMAIN = 36,
 };
 }
 

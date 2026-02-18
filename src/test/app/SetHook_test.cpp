@@ -11414,7 +11414,19 @@ public:
             #define KEYLET_PAYCHAN 21
             #define KEYLET_EMITTED_TXN 22
             #define KEYLET_NFT_OFFER 23
+            #define KEYLET_HOOK_DEFINITION 24
+            #define KEYLET_HOOK_STATE_DIR 25
             #define KEYLET_CRON 26
+            #define KEYLET_AMM 27
+            #define KEYLET_BRIDGE 28
+            #define KEYLET_XCHAIN_OWNED_CLAIM_ID 29
+            #define KEYLET_XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID 30
+            #define KEYLET_DID 31
+            #define KEYLET_ORACLE 32
+            #define KEYLET_MPTOKEN_ISSUANCE 33
+            #define KEYLET_MPTOKEN 34
+            #define KEYLET_CREDENTIAL 35
+            #define KEYLET_PERMISSIONED_DOMAIN 36
             #define ASSERT(x)\
                 if (!(x))\
                     rollback((uint32_t)#x, sizeof(#x), __LINE__);
@@ -11459,6 +11471,22 @@ public:
 
             uint8_t b[] = //raKM1bZkGmASBqN5v2swrf2uAPJ32Cd8GV
             {
+                0x3AU,0x51U,0x8AU,0x22U,0x53U,0x81U,0x60U,0x84U,0x1CU,0x14U,0x32U,0xFEU,
+                0x6FU,0x3EU,0x6DU,0x6EU,0x76U,0x29U,0xFBU,0xBAU
+            };
+            
+            uint8_t asset1[] = // USD.rB6v18pQ765Z9DH5RQsTFevoQPFmRtBqhT
+            {
+                0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x00U,0x00U,0x55U,0x53U,0x44U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x75U,0x6EU,0xDEU,0x88U,0xA9U,0x07U,0xD4U,0xCCU,0xF3U,0x8DU,0x6AU,0xDBU,
+                0x9FU,0xC7U,0x94U,0x64U,0x19U,0xF0U,0xC4U,0x1DU
+            };
+            
+            uint8_t asset2[] = // EUR.raKM1bZkGmASBqN5v2swrf2uAPJ32Cd8GV
+            {
+                0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x00U,0x00U,0x45U,0x48U,0x52U,0x00U,0x00U,0x00U,0x00U,0x00U,
                 0x3AU,0x51U,0x8AU,0x22U,0x53U,0x81U,0x60U,0x84U,0x1CU,0x14U,0x32U,0xFEU,
                 0x6FU,0x3EU,0x6DU,0x6EU,0x76U,0x29U,0xFBU,0xBAU
             };
@@ -11916,9 +11944,74 @@ public:
                     0,0
                 )));
 
-
                 ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_NFT_OFFER,
                     SBUF(a), SBUF(ns),
+                    0,0
+                )));
+                
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_HOOK_DEFINITION,
+                    SBUF(ns),
+                    0,0,
+                    0,0
+                )));
+                
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_HOOK_STATE_DIR,
+                    SBUF(a), SBUF(ns),
+                    0,0
+                )));
+                
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_AMM,
+                    SBUF(asset1), SBUF(asset2),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_BRIDGE,
+                    SBUF(a), SBUF(b),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_XCHAIN_OWNED_CLAIM_ID,
+                    SBUF(a), SBUF(b),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID,
+                    SBUF(a), SBUF(b),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_DID,
+                    SBUF(a),
+                    0,0,
+                    0,0
+                )));
+                
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_ORACLE,
+                    SBUF(a), 3,
+                    0,
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_MPTOKEN_ISSUANCE,
+                    SBUF(a),
+                    0,0,
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_MPTOKEN,
+                    SBUF(a),
+                    0,0,
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_CREDENTIAL,
+                    SBUF(a), SBUF(b),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_PERMISSIONED_DOMAIN,
+                    SBUF(a),
+                    0,0,
                     0,0
                 )));
 
