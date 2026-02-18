@@ -78,6 +78,8 @@ JSS(HookCanEmit);         // field
 JSS(HookHash);            // field
 JSS(HookNamespace);       // field
 JSS(HookOn);              // field
+JSS(HookOnIncoming);      // field
+JSS(HookOnOutgoing);      // field
 JSS(Hooks);               // field
 JSS(HookGrants);          // field
 JSS(HookParameters);      // field
@@ -96,6 +98,7 @@ JSS(Issuer);                   // in: Credential transactions
 JSS(InvoiceID);                // field
 JSS(LastLedgerSequence);       // in: TransactionSign; field
 JSS(LastUpdateTime);           // field.
+JSS(FirstLedgerSequence);      // in: TransactionSign; field
 JSS(LimitAmount);              // field.
 JSS(NetworkID);                // field.
 JSS(LPTokenOut);               // in: AMM Liquidity Provider deposit tokens
@@ -119,6 +122,7 @@ JSS(Signer);                   // field.
 JSS(Signers);                  // field.
 JSS(HookStateData);            // field.
 JSS(HookStateKey);             // field.
+JSS(EmitDetails);              // field.
 JSS(SigningPubKey);            // field.
 JSS(Subject);                  // in: Credential transactions
 JSS(TakerGets);                // field.

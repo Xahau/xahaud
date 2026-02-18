@@ -24,6 +24,8 @@
 #error "undefined macro: XRPL_FIX"
 #endif
 
+// clang-format off
+
 // Add new amendments to the top of this list.
 // Keep it sorted in reverse chronological order.
 // If you add an amendment here, then do not forget to increment `numFeatures`
@@ -51,6 +53,8 @@ XRPL_FEATURE(DID,                        Supported::no,  VoteBehavior::DefaultNo
 XRPL_FIX    (DisallowIncomingV1,         Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(XChainBridge,               Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FEATURE(AMM,                        Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FEATURE(HookOnV2,                   Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FEATURE(HooksUpdate2,               Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (HookAPI20251128,            Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (CronStacking,               Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(ExtendedHookState,          Supported::yes, VoteBehavior::DefaultNo)
@@ -143,3 +147,4 @@ XRPL_FIX    (NFTokenDirV1,          Supported::yes, VoteBehavior::Obsolete)
 XRPL_FEATURE(NonFungibleTokensV1,   Supported::yes, VoteBehavior::Obsolete)
 XRPL_FEATURE(CryptoConditionsSuite, Supported::yes, VoteBehavior::Obsolete)
 
+// clang-format on
