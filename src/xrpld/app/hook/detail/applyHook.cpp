@@ -1001,6 +1001,23 @@ hook::getHookCanEmit(
     return hookCanEmit;
 }
 
+ripple::uint256
+hook::getHookOn(
+    STObject const& obj,
+    std::shared_ptr<SLE const> const& def,
+    SField const& field)
+{
+    if (obj.isFieldPresent(field))
+        return obj.getFieldH256(field);
+    if (obj.isFieldPresent(sfHookOn))
+        return obj.getFieldH256(sfHookOn);
+    if (def->isFieldPresent(field))
+        return def->getFieldH256(field);
+    if (def->isFieldPresent(sfHookOn))
+        return def->getFieldH256(sfHookOn);
+    return uint256{0};
+}
+
 // Update HookState ledger objects for the hook... only called after accept()
 // assumes the specified acc has already been checked for authoriation (hook
 // grants)

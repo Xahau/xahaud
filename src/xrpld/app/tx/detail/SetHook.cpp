@@ -1578,20 +1578,26 @@ SetHook::setHook()
 
                 if (newHookOnOutgoing)
                 {
-                    if (*defHookOnOutgoing == *newHookOnOutgoing)
+                    if (defHookOnOutgoing.has_value() &&
+                        *defHookOnOutgoing == *newHookOnOutgoing)
                     {
                         if (newHook.isFieldPresent(sfHookOnOutgoing))
                             newHook.makeFieldAbsent(sfHookOnOutgoing);
                     }
+                    else
+                        newHook.setFieldH256(sfHookOnOutgoing, *newHookOnOutgoing);
                 }
 
                 if (newHookOnIncoming)
                 {
-                    if (*defHookOnIncoming == *newHookOnIncoming)
+                    if (defHookOnIncoming.has_value() &&
+                        *defHookOnIncoming == *newHookOnIncoming)
                     {
                         if (newHook.isFieldPresent(sfHookOnIncoming))
                             newHook.makeFieldAbsent(sfHookOnIncoming);
                     }
+                    else
+                        newHook.setFieldH256(sfHookOnIncoming, *newHookOnIncoming);
                 }
 
                 // set the hookcanemit field if it differs from definition
@@ -1872,17 +1878,22 @@ SetHook::setHook()
                 if (newNamespace && *defNamespace != *newNamespace)
                     newHook.setFieldH256(sfHookNamespace, *newNamespace);
 
-                defHookOn = newDefSLE->getFieldH256(sfHookOn);
-                defHookOnIncoming = newDefSLE->getFieldH256(sfHookOnIncoming);
-                defHookOnOutgoing = newDefSLE->getFieldH256(sfHookOnOutgoing);
+                if (newDefSLE->isFieldPresent(sfHookOn))
+                    defHookOn = newDefSLE->getFieldH256(sfHookOn);
+                if (newDefSLE->isFieldPresent(sfHookOnIncoming))
+                    defHookOnIncoming = newDefSLE->getFieldH256(sfHookOnIncoming);
+                if (newDefSLE->isFieldPresent(sfHookOnOutgoing))
+                    defHookOnOutgoing = newDefSLE->getFieldH256(sfHookOnOutgoing);
 
                 // set the hookon field if it differs from definition
                 if (newHookOn)
                 {
                     auto const diffFromDef = defHookOn != *newHookOn;
                     auto const hasIncOutgDef =
-                        *defHookOnIncoming != *defHookOnOutgoing ||
-                        *newHookOn != *defHookOnIncoming;
+                        defHookOnIncoming.has_value() &&
+                        defHookOnOutgoing.has_value() &&
+                        (*defHookOnIncoming != *defHookOnOutgoing ||
+                         *newHookOn != *defHookOnIncoming);
                     if (diffFromDef || hasIncOutgDef)
                     {
                         newHook.setFieldH256(sfHookOn, *newHookOn);
@@ -1891,14 +1902,14 @@ SetHook::setHook()
 
                 // set the incoming/outgoing hookon field if it differs from
                 // definition
-                if (newHookOnIncoming || newHookOnOutgoing)
+                if (newHookOnIncoming && newHookOnOutgoing)
                 {
                     auto const diffFromDef =
-                        *defHookOnIncoming != *newHookOnIncoming ||
-                        *defHookOnOutgoing != *newHookOnOutgoing;
+                        defHookOnIncoming != newHookOnIncoming ||
+                        defHookOnOutgoing != newHookOnOutgoing;
                     auto const hasHookOnDef =
-                        *newHookOnIncoming != *defHookOn ||
-                        *newHookOnOutgoing != *defHookOn;
+                        defHookOn != newHookOnIncoming ||
+                        defHookOn != newHookOnOutgoing;
                     if (diffFromDef || hasHookOnDef)
                     {
                         newHook.setFieldH256(
