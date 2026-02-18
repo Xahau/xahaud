@@ -58,6 +58,9 @@ public:
     // sto_erase(): same as sto_emplace with field_object = nullopt
 
     /// etxn APIs
+    Expected<Bytes, HookReturnCode>
+    prepare(Slice const& txBlob) const;
+
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
     emit(Slice const& txBlob) const;
 
@@ -329,14 +332,15 @@ private:
         int32_t,
         parse_error>
     get_stobject_length(
-        unsigned char* start,     // in - begin iterator
-        unsigned char* maxptr,    // in - end iterator
-        int& type,                // out - populated by serialized type code
-        int& field,               // out - populated by serialized field code
-        int& payload_start,       // out - the start of actual payload data for
-                                  // this type
-        int& payload_length,      // out - the length of actual payload data for
-                                  // this type
+        unsigned char* start,   // in - begin iterator
+        unsigned char* maxptr,  // in - end iterator
+        int& type,              // out - populated by serialized type code
+        int& field,             // out - populated by serialized field code
+        int& payload_start,     // out - the start of actual payload data for
+                                // this type
+        int& payload_length,    // out - the length of actual payload data for
+                                // this type
+        Rules const& rules,
         int recursion_depth = 0)  // used internally
         const;
 };

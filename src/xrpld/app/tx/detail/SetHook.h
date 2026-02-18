@@ -91,6 +91,9 @@ public:
     static HookSetValidation
     validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj);
 
+    static uint32_t
+    computeHookReserve(STObject const& hookObj);
+
 private:
     TER
     setHook();

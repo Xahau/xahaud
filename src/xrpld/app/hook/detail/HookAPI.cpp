@@ -4,6 +4,7 @@
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpl/hook/HookAPI.h>
+#include <xrpl/protocol/STParsedJSON.h>
 #include <cfenv>
 
 namespace hook {
@@ -355,7 +356,14 @@ HookAPI::sto_validate(Bytes const& data) const
     {
         int type = -1, field = -1, payload_start = -1, payload_length = -1;
         auto const length = get_stobject_length(
-            upto, end, type, field, payload_start, payload_length, 0);
+            upto,
+            end,
+            type,
+            field,
+            payload_start,
+            payload_length,
+            hookCtx.applyCtx.view().rules(),
+            0);
         if (!length)
             return 0;
         upto += length.value();
@@ -389,7 +397,14 @@ HookAPI::sto_subfield(Bytes const& data, uint32_t field_id) const
     {
         int type = -1, field = -1, payload_start = -1, payload_length = -1;
         auto const length = get_stobject_length(
-            upto, end, type, field, payload_start, payload_length, 0);
+            upto,
+            end,
+            type,
+            field,
+            payload_start,
+            payload_length,
+            hookCtx.applyCtx.view().rules(),
+            0);
         if (!length)
             return Unexpected(PARSE_ERROR);
         if ((type << 16) + field == field_id)
@@ -464,7 +479,14 @@ HookAPI::sto_subarray(Bytes const& data, uint32_t index_id) const
     {
         int type = -1, field = -1, payload_start = -1, payload_length = -1;
         auto const length = get_stobject_length(
-            upto, end, type, field, payload_start, payload_length, 0);
+            upto,
+            end,
+            type,
+            field,
+            payload_start,
+            payload_length,
+            hookCtx.applyCtx.view().rules(),
+            0);
         if (!length)
             return Unexpected(PARSE_ERROR);
 
@@ -530,6 +552,7 @@ HookAPI::sto_emplace(
             field,
             payload_start,
             payload_length,
+            hookCtx.applyCtx.view().rules(),
             0);
         if (!length)
             return Unexpected(PARSE_ERROR);
@@ -565,7 +588,14 @@ HookAPI::sto_emplace(
     {
         int type = -1, field = -1, payload_start = -1, payload_length = -1;
         auto const length = get_stobject_length(
-            upto, end, type, field, payload_start, payload_length, 0);
+            upto,
+            end,
+            type,
+            field,
+            payload_start,
+            payload_length,
+            hookCtx.applyCtx.view().rules(),
+            0);
         if (!length)
             return Unexpected(PARSE_ERROR);
         if ((type << 16) + field == field_id)
@@ -625,6 +655,115 @@ HookAPI::sto_emplace(
 // sto_erase
 
 /// etxn APIs
+Expected<Bytes, HookReturnCode>
+HookAPI::prepare(Slice const& txBlob) const
+{
+    auto& applyCtx = hookCtx.applyCtx;
+    auto j = applyCtx.app.journal("View");
+
+    if (hookCtx.expected_etxn_count < 0)
+        return Unexpected(PREREQUISITE_NOT_MET);
+
+    Json::Value json;
+
+    try
+    {
+        SerialIter sitTrans{txBlob};
+        json =
+            STObject(std::ref(sitTrans), sfGeneric).getJson(JsonOptions::none);
+    }
+    catch (std::exception& e)
+    {
+        JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: prepare Failed "
+                        << e.what() << "\n";
+        return Unexpected(INVALID_ARGUMENT);
+    }
+
+    // add a dummy fee
+    json[jss::Fee] = "0";
+
+    // force key to empty
+    json[jss::SigningPubKey] =
+        "000000000000000000000000000000000000000000000000000000000000000000";
+
+    // force sequence to 0
+    json[jss::Sequence] = Json::Value(0u);
+
+    std::string raddr = encodeBase58Token(
+        TokenType::AccountID, hookCtx.result.account.data(), 20);
+
+    json[jss::Account] = raddr;
+
+    uint32_t seq = applyCtx.view().info().seq;
+    if (!json.isMember(jss::FirstLedgerSequence))
+        json[jss::FirstLedgerSequence] = Json::Value(seq + 1);
+
+    if (!json.isMember(jss::LastLedgerSequence))
+        json[jss::LastLedgerSequence] = Json::Value(seq + 5);
+
+    uint8_t details[512];
+    if (!json.isMember(jss::EmitDetails))
+    {
+        auto ret = etxn_details(details);
+        if (!ret || ret.value() < 2)
+            return Unexpected(INTERNAL_ERROR);
+
+        // truncate the head and tail (emit details object markers)
+        Slice s(
+            reinterpret_cast<void const*>(details + 1),
+            (size_t)(ret.value() - 2));
+
+        try
+        {
+            SerialIter sit{s};
+            STObject st{sit, sfEmitDetails};
+            json[jss::EmitDetails] = st.getJson(JsonOptions::none);
+        }
+        catch (std::exception const& ex)
+        {
+            JLOG(j.warn()) << "HookInfo[" << HC_ACC() << "]: Exception in "
+                           << __func__ << ": " << ex.what();
+            return Unexpected(INTERNAL_ERROR);
+        }
+    }
+
+    Blob tx_blob;
+    {
+        STParsedJSONObject parsed(std::string(jss::tx_json), json);
+        if (!parsed.object.has_value())
+            return Unexpected(INVALID_ARGUMENT);
+
+        STObject& obj = *(parsed.object);
+
+        // serialize it
+        Serializer s;
+        obj.add(s);
+        tx_blob = s.getData();
+    }
+
+    // run it through the fee estimate, this doubles as a txn sanity check
+    auto fee = etxn_fee_base(Slice(tx_blob.data(), tx_blob.size()));
+    if (!fee)
+        return Unexpected(INVALID_ARGUMENT);
+
+    json[jss::Fee] = to_string(fee.value());
+
+    {
+        STParsedJSONObject parsed(std::string(jss::tx_json), json);
+        if (!parsed.object.has_value())
+            return Unexpected(INVALID_ARGUMENT);
+
+        STObject& obj = *(parsed.object);
+
+        // serialize it
+        Serializer s;
+        obj.add(s);
+        tx_blob = s.getData();
+    }
+
+    return tx_blob;
+}
+
 Expected<std::shared_ptr<Transaction>, HookReturnCode>
 HookAPI::emit(Slice const& txBlob) const
 {
@@ -2998,11 +3137,19 @@ HookAPI::get_stobject_length(
     int& payload_start,  // out - the start of actual payload data for this type
     int& payload_length,  // out - the length of actual payload data for this
                           // type
+    Rules const& rules,
     int recursion_depth)  // used internally
     const
 {
     if (recursion_depth > 10)
         return Unexpected(pe_excessive_nesting);
+
+    uint16_t max_sti_type = rules.enabled(featureHookAPISerializedType240)
+        ? STI_CURRENCY
+        : STI_VECTOR256;
+
+    if (type > max_sti_type)
+        return pe_unknown_type_early;
 
     unsigned char* end = maxptr;
     unsigned char* upto = start;
@@ -3055,14 +3202,20 @@ HookAPI::get_stobject_length(
     auto const& fieldObj = ripple::SField::getField;
     */
 
-    if (type < 1 || type > 19 || (type >= 9 && type <= 13))
+    // type 10~13 are reserved
+    if (type < 1 || max_sti_type < type || (10 <= type && type <= 13))
         return Unexpected(pe_unknown_type_early);
 
+    // not supported types
+    if (type == STI_NUMBER || type == STI_UINT96 || type == STI_UINT192 ||
+        type == STI_UINT384 || type == STI_UINT512)
+        return pe_unknown_type_early;
+
     bool is_vl =
-        (type == SerializedTypeID::STI_ACCOUNT ||
-         type == SerializedTypeID::STI_VL ||
-         type == SerializedTypeID::STI_PATHSET ||
-         type == SerializedTypeID::STI_VECTOR256);
+        (type == STI_ACCOUNT || type == STI_VL ||
+         (type == STI_PATHSET &&
+          !rules.enabled(featureHookAPISerializedType240)) ||
+         type == STI_VECTOR256);
 
     int length = -1;
     if (is_vl)
@@ -3095,41 +3248,115 @@ HookAPI::get_stobject_length(
                 return Unexpected(pe_unexpected_end);
         }
     }
-    else if ((type >= 1 && type <= 5) || type == 16 || type == 17)
+    else if (
+        (type >= STI_UINT16 && type <= STI_UINT256) || type == STI_UINT8 ||
+        type == STI_UINT160 || type == STI_CURRENCY)
     {
         switch (type)
         {
-            case SerializedTypeID::STI_UINT16:
+            case STI_UINT16:
                 length = 2;
                 break;
-            case SerializedTypeID::STI_UINT32:
+            case STI_UINT32:
                 length = 4;
                 break;
-            case SerializedTypeID::STI_UINT64:
+            case STI_UINT64:
                 length = 8;
                 break;
-            case SerializedTypeID::STI_UINT128:
+            case STI_UINT128:
                 length = 16;
                 break;
-            case SerializedTypeID::STI_UINT256:
+            case STI_UINT256:
                 length = 32;
                 break;
-            case SerializedTypeID::STI_UINT8:
+            case STI_UINT8:
                 length = 1;
                 break;
-            case SerializedTypeID::STI_UINT160:
+            case STI_UINT160:
+                length = 20;
+                break;
+            case STI_CURRENCY:
                 length = 20;
                 break;
             default:
-                length = -1;
-                break;
+                return -1;
         }
     }
-    else if (type == SerializedTypeID::STI_AMOUNT)
+    else if (type == STI_AMOUNT) /* AMOUNT */
     {
         length = (*upto >> 6 == 1) ? 8 : 48;
         if (upto >= end)
             return Unexpected(pe_unexpected_end);
+    }
+    else if (
+        type == STI_PATHSET && rules.enabled(featureHookAPISerializedType240))
+    {
+        length = 0;
+        while (upto + length < end)
+        {
+            // iterate Path step
+            while (*(upto + length) & 0x01 || *(upto + length) & 0x10 ||
+                   *(upto + length) & 0x20)
+            {
+                int flag = *(upto + length++);
+                // flag shoud be 0x01 or 0x10 or 0x20 or those union
+                if (flag == 0 || flag & ~(0x01 | 0x10 | 0x20))
+                    return pe_unexpected_end;
+                if (flag & 0x01)  // account
+                    length += 20;
+                if (flag & 0x10)  // currency
+                    length += 20;
+                if (flag & 0x20)  // issuer
+                    length += 20;
+
+                int next_flag = *(upto + length);
+                if (next_flag == 0x00 || next_flag == 0xff)
+                    // end of Path step
+                    break;
+            }
+
+            // continue or end of Paths
+            int lastflag = *(upto + length++);
+            if (lastflag == 0xff)
+                continue;  // continue byte
+            else if (lastflag == 0x00)
+                break;  // end byte
+            else
+                return pe_unexpected_end;
+        }
+        if (upto >= end)
+            return pe_unexpected_end;
+    }
+    else if (type == STI_ISSUE)
+    {
+        auto zero20 = std::array<char, 20>{0};
+        // if first 20 byte is all zeros return 20
+        // else return 40
+        if (memcmp(upto, zero20.data(), 20) == 0)
+            length = 20;
+        else
+            length = 40;
+    }
+    else if (type == STI_XCHAIN_BRIDGE)
+    {
+        auto zero20 = std::array<char, 20>{0};
+        // Lock Chain
+        length = 1;    // Door Account1 prefix length
+        length += 20;  // Door Account1 length
+        // Door Issue1
+        if (memcmp(upto + length, zero20.data(), 20) == 0)
+            length += 20;  // only Currency
+        else
+            length += 40;  // Currency and Issue
+
+        // Issuing Chain
+        length += 1;   // Door Account2 prefix length
+        length += 20;  // Door Account2 length
+        // Door Issue2
+        if (memcmp(upto + length, zero20.data(), 20) == 0)
+            length += 20;  // only Currency
+        else
+            length += 40;  // Currency and Issue
     }
 
     if (length > -1)
@@ -3149,8 +3376,7 @@ HookAPI::get_stobject_length(
         return length + (upto - start);
     }
 
-    if (type == SerializedTypeID::STI_OBJECT ||
-        type == SerializedTypeID::STI_ARRAY)
+    if (type == STI_OBJECT || type == STI_ARRAY)
     {
         payload_start = upto - start;
 
@@ -3165,6 +3391,7 @@ HookAPI::get_stobject_length(
                 subfield,
                 payload_start_,
                 payload_length_,
+                hookCtx.applyCtx.view().rules(),
                 recursion_depth + 1);
             DBG_PRINTF(
                 "%d get_stobject_length i %d %d-%d, upto %d sublength %d\n",
@@ -3180,8 +3407,8 @@ HookAPI::get_stobject_length(
             if (upto >= end)
                 return Unexpected(pe_unexpected_end);
 
-            if ((*upto == 0xE1U && type == 0xEU) ||
-                (*upto == 0xF1U && type == 0xFU))
+            if ((*upto == 0xE1U && type == 0xEU) ||  // STI_OBJECT Maker
+                (*upto == 0xF1U && type == 0xFU))    // STI_ARRAY Maker
             {
                 payload_length = upto - start - payload_start;
                 upto++;

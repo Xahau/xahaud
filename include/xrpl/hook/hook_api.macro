@@ -367,3 +367,8 @@ HOOK_API_DEFINITION(
 HOOK_API_DEFINITION(
   int64_t, xpop_slot, (uint32_t, uint32_t),
   featureHooksUpdate1)
+
+// int64_t prepare(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+HOOK_API_DEFINITION(
+  int64_t, prepare, (uint32_t, uint32_t, uint32_t, uint32_t),
+  featureHooksUpdate2)
