@@ -7,9 +7,9 @@
 #define HOOKENUM_INCLUDED 1
 
 #ifndef GUARD_CHECKER_BUILD
-#include <ripple/basics/base_uint.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Rules.h>
+#include <xrpl/basics/base_uint.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Rules.h>
 #else
 // Override uint256, Feature and Rules for guard checker build
 #define uint256 std::string

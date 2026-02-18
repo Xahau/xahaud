@@ -94,7 +94,7 @@ public:
         STTx const emitInvokeTx = STTx(ttINVOKE, [&](STObject& obj) {
             obj[sfAccount] = alice.id();
             obj[sfSequence] = 0;
-            obj[sfSigningPubKey] = PublicKey();
+            obj[sfSigningPubKey] = Slice{};
             obj[sfFirstLedgerSequence] = env.closed()->seq() + 1;
             obj[sfLastLedgerSequence] = env.closed()->seq() + 5;
             obj[sfFee] = env.closed()->fees().base;
@@ -110,7 +110,7 @@ public:
         STTx const emitSetHookTx = STTx(ttHOOK_SET, [&](STObject& obj) {
             obj[sfAccount] = alice.id();
             obj[sfSequence] = 0;
-            obj[sfSigningPubKey] = PublicKey();
+            obj[sfSigningPubKey] = Slice{};
             obj[sfFirstLedgerSequence] = env.closed()->seq() + 1;
             obj[sfLastLedgerSequence] = env.closed()->seq() + 5;
             obj[sfFee] = env.closed()->fees().base;
