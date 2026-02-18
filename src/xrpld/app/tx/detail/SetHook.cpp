@@ -1585,7 +1585,8 @@ SetHook::setHook()
                             newHook.makeFieldAbsent(sfHookOnOutgoing);
                     }
                     else
-                        newHook.setFieldH256(sfHookOnOutgoing, *newHookOnOutgoing);
+                        newHook.setFieldH256(
+                            sfHookOnOutgoing, *newHookOnOutgoing);
                 }
 
                 if (newHookOnIncoming)
@@ -1597,7 +1598,8 @@ SetHook::setHook()
                             newHook.makeFieldAbsent(sfHookOnIncoming);
                     }
                     else
-                        newHook.setFieldH256(sfHookOnIncoming, *newHookOnIncoming);
+                        newHook.setFieldH256(
+                            sfHookOnIncoming, *newHookOnIncoming);
                 }
 
                 // set the hookcanemit field if it differs from definition
@@ -1881,16 +1883,17 @@ SetHook::setHook()
                 if (newDefSLE->isFieldPresent(sfHookOn))
                     defHookOn = newDefSLE->getFieldH256(sfHookOn);
                 if (newDefSLE->isFieldPresent(sfHookOnIncoming))
-                    defHookOnIncoming = newDefSLE->getFieldH256(sfHookOnIncoming);
+                    defHookOnIncoming =
+                        newDefSLE->getFieldH256(sfHookOnIncoming);
                 if (newDefSLE->isFieldPresent(sfHookOnOutgoing))
-                    defHookOnOutgoing = newDefSLE->getFieldH256(sfHookOnOutgoing);
+                    defHookOnOutgoing =
+                        newDefSLE->getFieldH256(sfHookOnOutgoing);
 
                 // set the hookon field if it differs from definition
                 if (newHookOn)
                 {
                     auto const diffFromDef = defHookOn != *newHookOn;
-                    auto const hasIncOutgDef =
-                        defHookOnIncoming.has_value() &&
+                    auto const hasIncOutgDef = defHookOnIncoming.has_value() &&
                         defHookOnOutgoing.has_value() &&
                         (*defHookOnIncoming != *defHookOnOutgoing ||
                          *newHookOn != *defHookOnIncoming);
@@ -1907,8 +1910,7 @@ SetHook::setHook()
                     auto const diffFromDef =
                         defHookOnIncoming != newHookOnIncoming ||
                         defHookOnOutgoing != newHookOnOutgoing;
-                    auto const hasHookOnDef =
-                        defHookOn != newHookOnIncoming ||
+                    auto const hasHookOnDef = defHookOn != newHookOnIncoming ||
                         defHookOn != newHookOnOutgoing;
                     if (diffFromDef || hasHookOnDef)
                     {
