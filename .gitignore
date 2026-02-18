@@ -76,6 +76,7 @@ docs/html_doc
 # Xcode
 .DS_Store
 */build/*
+!/docs/build/
 *.pbxuser
 !default.pbxuser
 *.mode1v3
