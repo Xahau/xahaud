@@ -25,6 +25,7 @@
 #include <ripple/app/misc/AmendmentTable.h>
 #include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/app/tx/impl/Change.h>
+#include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/app/tx/impl/SetSignerList.h>
 #include <ripple/app/tx/impl/XahauGenesis.h>
 #include <ripple/basics/Log.h>
@@ -584,10 +585,6 @@ Change::activateXahauGenesis()
         SetSignerList::removeFromLedger(ctx_.app, sb, accid, j_);
 
     // Step 4: install genesis hooks
-    sle->setFieldU32(
-        sfOwnerCount, sle->getFieldU32(sfOwnerCount) + genesis_hooks.size());
-    sb.update(sle);
-
     if (sb.exists(keylet::hook(accid)))
     {
         JLOG(j_.warn()) << "featureXahauGenesis genesis account already has "
@@ -598,6 +595,7 @@ Change::activateXahauGenesis()
     {
         ripple::STArray hooks{sfHooks, static_cast<int>(genesis_hooks.size())};
         int hookCount = 0;
+        uint32_t hookReserve = 0;
 
         for (auto const& [hookOn, wasmBytes, params] : genesis_hooks)
         {
@@ -703,7 +701,13 @@ Change::activateXahauGenesis()
             }
 
             hooks.push_back(hookObj);
+
+            hookReserve += SetHook::computeHookReserve(hookObj);
         }
+
+        sle->setFieldU32(
+            sfOwnerCount, sle->getFieldU32(sfOwnerCount) + hookReserve);
+        sb.update(sle);
 
         auto sle = std::make_shared<SLE>(keylet::hook(accid));
         sle->setFieldArray(sfHooks, hooks);
@@ -745,6 +749,8 @@ Change::activateXahauGenesis()
         ripple::STArray hooks{sfHooks, 1};
         STObject hookObj{sfHook};
         hookObj.setFieldH256(sfHookHash, governHash);
+
+        uint32_t hookReserve = 0;
         // parameters
         {
             std::vector<STObject> vec;
@@ -760,6 +766,7 @@ Change::activateXahauGenesis()
                 sfHookParameters, STArray(vec, sfHookParameters));
         }
 
+        hookReserve += SetHook::computeHookReserve(hookObj);
         hooks.push_back(hookObj);
 
         auto sle = std::make_shared<SLE>(hookKL);
@@ -786,7 +793,8 @@ Change::activateXahauGenesis()
 
             sle->setAccountID(sfRegularKey, noAccount());
             sle->setFieldU32(sfFlags, lsfDisableMaster);
-            sle->setFieldU32(sfOwnerCount, sle->getFieldU32(sfOwnerCount) + 1);
+            sle->setFieldU32(
+                sfOwnerCount, sle->getFieldU32(sfOwnerCount) + hookReserve);
             sb.update(sle);
         }
     }

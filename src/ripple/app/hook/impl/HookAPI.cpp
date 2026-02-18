@@ -4,6 +4,7 @@
 #include <ripple/app/ledger/OpenLedger.h>
 #include <ripple/app/ledger/TransactionMaster.h>
 #include <ripple/app/tx/impl/Import.h>
+#include <ripple/protocol/STParsedJSON.h>
 #include <cfenv>
 
 namespace hook {
@@ -625,6 +626,122 @@ HookAPI::sto_emplace(
 // sto_erase
 
 /// etxn APIs
+Expected<Bytes, HookReturnCode>
+HookAPI::prepare(Slice const& txBlob) const
+{
+    auto& applyCtx = hookCtx.applyCtx;
+    auto j = applyCtx.app.journal("View");
+
+    if (hookCtx.expected_etxn_count < 0)
+        return Unexpected(PREREQUISITE_NOT_MET);
+
+    Json::Value json;
+
+    // std::shared_ptr<STObject const> stpTrans;
+    try
+    {
+        SerialIter sitTrans{txBlob};
+        json =
+            STObject(std::ref(sitTrans), sfGeneric).getJson(JsonOptions::none);
+    }
+    catch (std::exception& e)
+    {
+        JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: prepare Failed "
+                        << e.what() << "\n";
+        return Unexpected(INVALID_ARGUMENT);
+    }
+
+    // add a dummy fee
+    json[jss::Fee] = "0";
+
+    // force key to empty
+    json[jss::SigningPubKey] =
+        "000000000000000000000000000000000000000000000000000000000000000000";
+
+    // force sequence to 0
+    json[jss::Sequence] = Json::Value(0u);
+
+    std::string raddr = encodeBase58Token(
+        TokenType::AccountID, hookCtx.result.account.data(), 20);
+
+    json[jss::Account] = raddr;
+
+    uint32_t seq = applyCtx.view().info().seq;
+    if (!json.isMember(jss::FirstLedgerSequence))
+        json[jss::FirstLedgerSequence] = Json::Value(seq + 1);
+
+    if (!json.isMember(jss::LastLedgerSequence))
+        json[jss::LastLedgerSequence] = Json::Value(seq + 5);
+
+    uint8_t details[512];
+    if (!json.isMember(jss::EmitDetails))
+    {
+        auto ret = etxn_details(details);
+        if (!ret || ret.value() < 2)
+            return Unexpected(INTERNAL_ERROR);
+
+        // truncate the head and tail (emit details object markers)
+        Slice s(
+            reinterpret_cast<void const*>(details + 1),
+            (size_t)(ret.value() - 2));
+
+        // std::cout << "emitdets: " << strHex(s) << "\n";
+        try
+        {
+            SerialIter sit{s};
+            STObject st{sit, sfEmitDetails};
+            json[jss::EmitDetails] = st.getJson(JsonOptions::none);
+        }
+        catch (std::exception const& ex)
+        {
+            JLOG(j.warn()) << "HookInfo[" << HC_ACC() << "]: Exception in "
+                           << __func__ << ": " << ex.what();
+            return Unexpected(INTERNAL_ERROR);
+        }
+    }
+
+    // {
+    //     const std::string flat = Json::FastWriter().write(json);
+    //     std::cout << "intermediate: `" << flat << "`\n";
+    // }
+
+    Blob tx_blob;
+    {
+        STParsedJSONObject parsed(std::string(jss::tx_json), json);
+        if (!parsed.object.has_value())
+            return Unexpected(INVALID_ARGUMENT);
+
+        STObject& obj = *(parsed.object);
+
+        // serialize it
+        Serializer s;
+        obj.add(s);
+        tx_blob = s.getData();
+    }
+
+    // run it through the fee estimate, this doubles as a txn sanity check
+    auto fee = etxn_fee_base(Slice(tx_blob.data(), tx_blob.size()));
+    if (!fee)
+        return Unexpected(INVALID_ARGUMENT);
+
+    json[jss::Fee] = to_string(fee.value());
+
+    {
+        STParsedJSONObject parsed(std::string(jss::tx_json), json);
+        if (!parsed.object.has_value())
+            return Unexpected(INVALID_ARGUMENT);
+
+        STObject& obj = *(parsed.object);
+
+        // serialize it
+        Serializer s;
+        obj.add(s);
+        tx_blob = s.getData();
+    }
+
+    return tx_blob;
+}
+
 Expected<std::shared_ptr<Transaction>, HookReturnCode>
 HookAPI::emit(Slice const& txBlob) const
 {
