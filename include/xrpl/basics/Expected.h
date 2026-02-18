@@ -138,14 +138,14 @@ public:
     template <typename U>
         requires std::convertible_to<U, T>
     constexpr Expected(U&& r)
-        : Base(boost::outcome_v2::in_place_type_t<T>{}, std::forward<U>(r))
+        : Base(boost::outcome_v2::success(T(std::forward<U>(r))))
     {
     }
 
     template <typename U>
         requires std::convertible_to<U, E> && (!std::is_reference_v<U>)
     constexpr Expected(Unexpected<U> e)
-        : Base(boost::outcome_v2::in_place_type_t<E>{}, std::move(e.value()))
+        : Base(boost::outcome_v2::failure(E(std::move(e.value()))))
     {
     }
 
@@ -230,7 +230,8 @@ public:
 
     template <typename U>
         requires std::convertible_to<U, E> && (!std::is_reference_v<U>)
-    constexpr Expected(Unexpected<U> e) : Base(E(std::move(e.value())))
+    constexpr Expected(Unexpected<U> e)
+        : Base(boost::outcome_v2::failure(E(std::move(e.value()))))
     {
     }
 

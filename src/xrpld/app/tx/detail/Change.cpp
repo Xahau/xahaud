@@ -27,6 +27,7 @@
 #include <xrpld/app/tx/detail/XahauGenesis.h>
 #include <xrpld/ledger/Sandbox.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Guard.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Feature.h>
@@ -607,8 +608,8 @@ Change::activateXahauGenesis()
                 wasmBytes,  // wasm to verify
                 loggerStream,
                 "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
-                (ctx_.view().rules().enabled(featureHooksUpdate1) ? 1 : 0) +
-                    (ctx_.view().rules().enabled(fix20250131) ? 2 : 0));
+                hook_api::getImportWhitelist(ctx_.view().rules()),
+                hook_api::getGuardRulesVersion(ctx_.view().rules()));
 
             if (!result)
             {

@@ -2579,6 +2579,7 @@ public:
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
+
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
@@ -3094,6 +3095,7 @@ public:
             extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t etxn_details (uint32_t, uint32_t);
             extern int64_t etxn_reserve(uint32_t);
+            extern int64_t hook_hash (uint32_t, uint32_t, int32_t);
             #define TOO_SMALL -4
             #define OUT_OF_BOUNDS -1
             #define PREREQUISITE_NOT_MET -9
@@ -3115,6 +3117,45 @@ public:
 
                 etxn_reserve(1);
                 ASSERT(etxn_details((uint32_t)det, 116) == 116);
+
+                uint8_t expected1[49] = {
+                    0xEDU, 0x20U, 0x2EU, 0x00U, 0x00U, 0x00U, 0x01U, 0x3DU, 0x00U, 0x00U,
+                    0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U, 0x5BU, 0xB8U, 0x05U, 0xD6U,
+                    0xC3U, 0x52U, 0xDFU, 0x7AU, 0x27U, 0x76U, 0x6DU, 0xC0U, 0x20U, 0x47U,
+                    0xB7U, 0x64U, 0x22U, 0x5AU, 0xB7U, 0x5DU, 0xF3U, 0xFAU, 0x0DU, 0xE3U,
+                    0xBDU, 0xC6U, 0x40U, 0xBAU, 0xD0U, 0x0AU, 0x66U, 0xEBU, 0x68U,
+                };
+                // 0x5CU
+                // EmitNonce 32bytes
+                uint8_t expected_emit_nonce[32] = {
+                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+                    0xFFU, 0xFFU
+                };
+                // 0x5DU, 
+                // EmitHookHash
+                uint8_t expected_hook_hash[32] = {
+                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
+                    0xFFU, 0xFFU,
+                };
+                // 0xE1U
+                
+                // current hook hash
+                ASSERT(hook_hash((uint32_t)expected_hook_hash, 32, -1) == 32);
+
+                for (int i = 0; GUARD(49), i < sizeof(expected1); ++i)
+                    ASSERT(det[i] == expected1[i]);
+                ASSERT(det[49] == 0x5CU);
+                // TODO: need to test this
+                // for (int i = 0; GUARD(32), i < sizeof(expected_emit_nonce); ++i)
+                //     ASSERT(det[50 + i] == expected_emit_nonce[i]);
+                ASSERT(det[82] == 0x5DU);
+                for (int i = 0; GUARD(32), i < sizeof(expected_hook_hash); ++i)
+                    ASSERT(det[83 + i] == expected_hook_hash[i]);
+                ASSERT(det[115] == 0xE1);
 
                 return accept(0,0,0);
             }
@@ -3280,6 +3321,7 @@ public:
                 }
 
                 ASSERT(etxn_nonce((uint32_t)nonce, 116) == TOO_MANY_NONCES);
+                ASSERT(etxn_nonce((uint32_t)nonce, 31) == TOO_MANY_NONCES);
 
                 return accept(0,0,0);
             }
@@ -6872,7 +6914,10 @@ public:
         std::vector<std::string> const keys = {
             "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC"
             "1"};
-        Env env{*this, network::makeNetworkVLConfig(21337, keys)};
+        Env env{
+            *this,
+            network::makeNetworkVLConfig(21337, keys),
+            features - featureHooksUpdate1};
 
         auto const master = Account("masterpassphrase");
         env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
@@ -6949,6 +6994,16 @@ public:
                 return accept(0,0,2);
             }
         )[test.hook]"];
+
+        // before featureHooksUpdate1
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set xpop_slot (disabled)"),
+            HSFEE,
+            ter(temMALFORMED));
+        env.close();
+
+        env.enableFeature(featureHooksUpdate1);
+        env.close();
 
         // install the hook on alice
         env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
@@ -11539,7 +11594,19 @@ public:
             #define KEYLET_PAYCHAN 21
             #define KEYLET_EMITTED_TXN 22
             #define KEYLET_NFT_OFFER 23
+            #define KEYLET_HOOK_DEFINITION 24
+            #define KEYLET_HOOK_STATE_DIR 25
             #define KEYLET_CRON 26
+            #define KEYLET_AMM 27
+            #define KEYLET_BRIDGE 28
+            #define KEYLET_XCHAIN_OWNED_CLAIM_ID 29
+            #define KEYLET_XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID 30
+            #define KEYLET_DID 31
+            #define KEYLET_ORACLE 32
+            #define KEYLET_MPTOKEN_ISSUANCE 33
+            #define KEYLET_MPTOKEN 34
+            #define KEYLET_CREDENTIAL 35
+            #define KEYLET_PERMISSIONED_DOMAIN 36
             #define ASSERT(x)\
                 if (!(x))\
                     rollback((uint32_t)#x, sizeof(#x), __LINE__);
@@ -11584,6 +11651,22 @@ public:
 
             uint8_t b[] = //raKM1bZkGmASBqN5v2swrf2uAPJ32Cd8GV
             {
+                0x3AU,0x51U,0x8AU,0x22U,0x53U,0x81U,0x60U,0x84U,0x1CU,0x14U,0x32U,0xFEU,
+                0x6FU,0x3EU,0x6DU,0x6EU,0x76U,0x29U,0xFBU,0xBAU
+            };
+            
+            uint8_t asset1[] = // USD.rB6v18pQ765Z9DH5RQsTFevoQPFmRtBqhT
+            {
+                0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x00U,0x00U,0x55U,0x53U,0x44U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x75U,0x6EU,0xDEU,0x88U,0xA9U,0x07U,0xD4U,0xCCU,0xF3U,0x8DU,0x6AU,0xDBU,
+                0x9FU,0xC7U,0x94U,0x64U,0x19U,0xF0U,0xC4U,0x1DU
+            };
+            
+            uint8_t asset2[] = // EUR.raKM1bZkGmASBqN5v2swrf2uAPJ32Cd8GV
+            {
+                0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x00U,0x00U,0x45U,0x48U,0x52U,0x00U,0x00U,0x00U,0x00U,0x00U,
                 0x3AU,0x51U,0x8AU,0x22U,0x53U,0x81U,0x60U,0x84U,0x1CU,0x14U,0x32U,0xFEU,
                 0x6FU,0x3EU,0x6DU,0x6EU,0x76U,0x29U,0xFBU,0xBAU
             };
@@ -12041,9 +12124,74 @@ public:
                     0,0
                 )));
 
-
                 ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_NFT_OFFER,
                     SBUF(a), SBUF(ns),
+                    0,0
+                )));
+                
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_HOOK_DEFINITION,
+                    SBUF(ns),
+                    0,0,
+                    0,0
+                )));
+                
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_HOOK_STATE_DIR,
+                    SBUF(a), SBUF(ns),
+                    0,0
+                )));
+                
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_AMM,
+                    SBUF(asset1), SBUF(asset2),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_BRIDGE,
+                    SBUF(a), SBUF(b),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_XCHAIN_OWNED_CLAIM_ID,
+                    SBUF(a), SBUF(b),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID,
+                    SBUF(a), SBUF(b),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_DID,
+                    SBUF(a),
+                    0,0,
+                    0,0
+                )));
+                
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_ORACLE,
+                    SBUF(a), 3,
+                    0,
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_MPTOKEN_ISSUANCE,
+                    SBUF(a),
+                    0,0,
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_MPTOKEN,
+                    SBUF(a),
+                    0,0,
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_CREDENTIAL,
+                    SBUF(a), SBUF(b),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_PERMISSIONED_DOMAIN,
+                    SBUF(a),
+                    0,0,
                     0,0
                 )));
 

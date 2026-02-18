@@ -1,0 +1,24 @@
+name: Guard Checker Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  guard-checker-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - run-on: ubuntu-latest
+          - run-on: macos-latest
+    runs-on: ${{ matrix.run-on }}
+    name: Guard Checker Build - ${{ matrix.run-on }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Build Guard Checker
+        run: |
+          cd include/xrpl/hook
+          make guard_checker

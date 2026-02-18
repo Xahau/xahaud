@@ -140,6 +140,7 @@ test.toplevel > test.csf
 test.toplevel > xrpl.json
 test.unit_test > xrpl.basics
 xrpl.hook > xrpl.basics
+xrpl.hook > xrpl.protocol
 xrpl.json > xrpl.basics
 xrpl.protocol > xrpl.basics
 xrpl.protocol > xrpl.json
@@ -154,7 +155,6 @@ xrpld.app > xrpl.basics
 xrpld.app > xrpld.conditions
 xrpld.app > xrpld.consensus
 xrpld.app > xrpld.perflog
-xrpld.app > xrpl.hook
 xrpld.app > xrpl.json
 xrpld.app > xrpl.resource
 xrpld.conditions > xrpl.basics

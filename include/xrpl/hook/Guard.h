@@ -634,7 +634,7 @@ check_guard(
             }
             else if (fc_type == 10)  // memory.copy
             {
-                if (rulesVersion & 0x02U)
+                if (rulesVersion & hook_api::GuardRuleFix20250131)
                     GUARD_ERROR("Memory.copy instruction is not allowed.");
 
                 REQUIRE(2);
@@ -642,7 +642,7 @@ check_guard(
             }
             else if (fc_type == 11)  // memory.fill
             {
-                if (rulesVersion & 0x02U)
+                if (rulesVersion & hook_api::GuardRuleFix20250131)
                     GUARD_ERROR("Memory.fill instruction is not allowed.");
 
                 ADVANCE(1);
@@ -826,6 +826,7 @@ validateGuards(
     std::vector<uint8_t> const& wasm,
     GuardLog guardLog,
     std::string guardLogAccStr,
+    hook_api::APIWhitelist const import_whitelist,
     /* RH NOTE:
      * rules version is a bit field, so rule update 1 is 0x01, update 2 is 0x02
      * and update 3 is 0x04 ideally at rule version 3 all bits so far are set
@@ -835,7 +836,7 @@ validateGuards(
      * might have unforeseen consequences, without also rolling back further
      * changes that are fine.
      */
-    uint64_t rulesVersion = 0)
+    uint64_t rulesVersion = 0x00)
 {
     uint64_t byteCount = wasm.size();
 
@@ -1020,31 +1021,24 @@ validateGuards(
                 int type_idx = parseLeb128(wasm, i, &i);
                 CHECK_SHORT_HOOK();
 
+                auto it = import_whitelist.find(import_name);
+                auto it_end = import_whitelist.end();
+                bool found_in_whitelist = (it != it_end);
+
                 if (import_name == "_g")
                 {
                     guard_import_number = func_upto;
                 }
-                else if (
-                    hook_api::import_whitelist.find(import_name) ==
-                    hook_api::import_whitelist.end())
+                if (!found_in_whitelist)
                 {
-                    if (rulesVersion > 0 &&
-                        hook_api::import_whitelist_1.find(import_name) !=
-                            hook_api::import_whitelist_1.end())
-                    {
-                        // PASS, this is a version 1 api
-                    }
-                    else
-                    {
-                        GUARDLOG(hook::log::IMPORT_ILLEGAL)
-                            << "Malformed transaction. "
-                            << "Hook attempted to import a function that does "
-                               "not "
-                            << "appear in the hook_api function set: `"
-                            << import_name << "`"
-                            << "\n";
-                        return {};
-                    }
+                    GUARDLOG(hook::log::IMPORT_ILLEGAL)
+                        << "Malformed transaction. "
+                        << "Hook attempted to import a function that does "
+                           "not "
+                        << "appear in the hook_api function set: `"
+                        << import_name << "`"
+                        << "\n";
+                    return {};
                 }
 
                 // add to import map
@@ -1259,11 +1253,7 @@ validateGuards(
                     for (auto const& [import_idx, api_name] : usage->second)
                     {
                         auto const& api_signature =
-                            hook_api::import_whitelist.find(api_name) !=
-                                hook_api::import_whitelist.end()
-                            ? hook_api::import_whitelist.find(api_name)->second
-                            : hook_api::import_whitelist_1.find(api_name)
-                                  ->second;
+                            import_whitelist.find(api_name)->second;
 
                         if (!first_signature)
                         {
