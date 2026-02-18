@@ -244,6 +244,8 @@ CONSTRUCT_TYPED_SFIELD(sfGovernanceMarks,       "GovernanceMarks",      UINT256,
 CONSTRUCT_TYPED_SFIELD(sfEmittedTxnID,          "EmittedTxnID",         UINT256,   97);
 CONSTRUCT_TYPED_SFIELD(sfHookCanEmit,           "HookCanEmit",          UINT256,   96);
 CONSTRUCT_TYPED_SFIELD(sfCron,                  "Cron",                 UINT256,   95);
+CONSTRUCT_TYPED_SFIELD(sfHookOnIncoming,        "HookOnIncoming",       UINT256,   94);
+CONSTRUCT_TYPED_SFIELD(sfHookOnOutgoing,        "HookOnOutgoing",       UINT256,   93);
 
 // currency amount (common)
 CONSTRUCT_TYPED_SFIELD(sfAmount,                "Amount",               AMOUNT,     1);
