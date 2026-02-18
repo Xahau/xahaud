@@ -487,7 +487,7 @@ isMemoOkay(STObject const& st, std::string& reason)
             if (!paramObj->isFieldPresent(sfHookParameterValue) ||
                 paramObj->getFieldVL(sfHookParameterValue).size() > maxVal)
             {
-                reason = "HookParameterValue cannot exceed 128 bytes.";
+                reason = "HookParameterValue cannot exceed 256 bytes.";
                 return false;
             }
         }
