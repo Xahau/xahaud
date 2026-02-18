@@ -1221,6 +1221,12 @@ updateHookParameters(
     return tesSUCCESS;
 }
 
+/**
+ * Compute the reserve required for a hook object.
+ * @param hookObj The hook object to compute the reserve for.(not Transaction
+ *        field, use the Hook object inside the ltHook object.)
+ * @return The reserve required for the hook object.
+ */
 uint32_t
 SetHook::computeHookReserve(STObject const& hookObj)
 {
