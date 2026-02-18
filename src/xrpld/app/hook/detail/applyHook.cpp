@@ -2745,6 +2745,43 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    prepare,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    ripple::Slice txBlob{
+        reinterpret_cast<const void*>(memory + read_ptr), read_len};
+
+    auto const res = api.prepare(txBlob);
+    if (!res)
+        return res.error();
+
+    auto tx_blob = res.value();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        tx_blob.size(),
+        tx_blob.data(),
+        tx_blob.size(),
+        memory,
+        memory_length);
+
+    HOOK_TEARDOWN();
+}
+
 /* Emit a transaction from this hook. Transaction must be in STObject form,
  * fully formed and valid. XRPLD does not modify transactions it only checks
  * them for validity. */

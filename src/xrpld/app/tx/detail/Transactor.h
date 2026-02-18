@@ -179,6 +179,7 @@ public:
         ReadView const& view,
         STTx const& tx,
         Keylet const& hookKeylet,
+        bool isOutgoing,
         bool collectCallsOnly = false);
 
 protected:
@@ -211,6 +212,7 @@ protected:
         std::vector<hook::HookResult>& results,
         ripple::AccountID const& account,
         bool strong,
+        bool isOutgoing,
         std::shared_ptr<STObject const> const& provisionalMeta);
 
     void

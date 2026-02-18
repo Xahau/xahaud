@@ -58,6 +58,9 @@ public:
     // sto_erase(): same as sto_emplace with field_object = nullopt
 
     /// etxn APIs
+    Expected<Bytes, HookReturnCode>
+    prepare(Slice const& txBlob) const;
+
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
     emit(Slice const& txBlob) const;
 

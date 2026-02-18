@@ -157,6 +157,8 @@
 #define sfEmittedTxnID ((5U << 16U) + 97U)
 #define sfHookCanEmit ((5U << 16U) + 96U)
 #define sfCron ((5U << 16U) + 95U)
+#define sfHookOnIncoming ((5U << 16U) + 94U)
+#define sfHookOnOutgoing ((5U << 16U) + 93U)
 #define sfNumber ((9U << 16U) + 1U)
 #define sfAmount ((6U << 16U) + 1U)
 #define sfBalance ((6U << 16U) + 2U)
