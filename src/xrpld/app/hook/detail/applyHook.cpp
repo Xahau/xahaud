@@ -2327,7 +2327,13 @@ DEFINE_HOOK_FUNCTION(
             case keylet_code::OWNER_DIR:
             case keylet_code::SIGNERS:
             case keylet_code::ACCOUNT:
-            case keylet_code::HOOK: {
+            case keylet_code::HOOK:
+            case keylet_code::DID: {
+                if (keylet_type == keylet_code::DID)
+                {
+                    if (!applyCtx.view().rules().enabled(featureDID))
+                        return INVALID_ARGUMENT;
+                }
                 if (a == 0 || b == 0)
                     return INVALID_ARGUMENT;
 
@@ -2350,13 +2356,43 @@ DEFINE_HOOK_FUNCTION(
                     ? ripple::keylet::signers(id)
                     : keylet_type == keylet_code::OWNER_DIR
                     ? ripple::keylet::ownerDir(id)
+                    : keylet_type == keylet_code::DID
+                    ? ripple::keylet::did(id)
                     : ripple::keylet::account(id);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
 
-            // keylets that take 20 byte account id, and (4 byte uint for 32
-            // byte hash)
+                // keylets that take 20 byte account id, and (4 byte uint for 32
+                // byte hash)
+            case keylet_code::ORACLE: {
+                if (!applyCtx.view().rules().enabled(featurePriceOracle))
+                    return INVALID_ARGUMENT;
+
+                if (a == 0 || b == 0)
+                    return INVALID_ARGUMENT;
+                if (d != 0 || e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t read_ptr = a, read_len = b;
+
+                if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (read_len != 20)
+                    return INVALID_ARGUMENT;
+
+                ripple::AccountID id = AccountID::fromVoid(memory + read_ptr);
+
+                uint32_t seqId = c;
+
+                ripple::Keylet kl = ripple::keylet::oracle(id, seqId);
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // keylets that take 20 byte account id, and UInt32or256 (4 byte
+            // uint or 32 byte hash)
             case keylet_code::OFFER:
             case keylet_code::CHECK:
             case keylet_code::ESCROW:
@@ -2638,6 +2674,62 @@ DEFINE_HOOK_FUNCTION(
                 ripple::Keylet kl = ripple::keylet::payChan(aid, bid, seq);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // keylets that take two 40 byte assets
+            case keylet_code::AMM: {
+                if (!applyCtx.view().rules().enabled(featureAMM))
+                    return INVALID_ARGUMENT;
+
+                if (a == 0 || b == 0 || c == 0 || d == 0)
+                    return INVALID_ARGUMENT;
+
+                if (e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t aread_ptr = a, aread_len = b;
+                uint32_t bread_ptr = c, bread_len = d;
+
+                if (NOT_IN_BOUNDS(aread_ptr, aread_len, memory_length) ||
+                    NOT_IN_BOUNDS(bread_ptr, bread_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (aread_len != 40 || bread_len != 40)
+                    return INVALID_ARGUMENT;
+
+                Currency aCur = Currency::fromVoid(memory + aread_ptr);
+                Currency bCur = Currency::fromVoid(memory + bread_ptr);
+
+                AccountID aAcc = AccountID::fromVoid(memory + aread_ptr + 20);
+                AccountID bAcc = AccountID::fromVoid(memory + bread_ptr + 20);
+
+                Issue aIss = Issue{aCur, aAcc};
+                Issue bIss = Issue{bCur, bAcc};
+
+                ripple::Keylet kl =
+                    ripple::keylet::amm(Asset{aIss}, Asset{bIss});
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+            case keylet_code::BRIDGE:
+            case keylet_code::XCHAIN_OWNED_CLAIM_ID:
+            case keylet_code::XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID: {
+                if (!applyCtx.view().rules().enabled(featureXChainBridge))
+                    return INVALID_ARGUMENT;
+            }
+            case keylet_code::MPTOKEN_ISSUANCE:
+            case keylet_code::MPTOKEN: {
+                if (!applyCtx.view().rules().enabled(featureMPTokensV1))
+                    return INVALID_ARGUMENT;
+            }
+            case keylet_code::CREDENTIAL: {
+                if (!applyCtx.view().rules().enabled(featureCredentials))
+                    return INVALID_ARGUMENT;
+            }
+            case keylet_code::PERMISSIONED_DOMAIN: {
+                if (!applyCtx.view().rules().enabled(
+                        featurePermissionedDomains))
+                    return INVALID_ARGUMENT;
             }
         }
     }
