@@ -60,7 +60,7 @@ git-subtree. See those directories' README files for more details.
   - [Xrpl Documentation](https://xrpl.org)
   - [Xahau Documentation](https://xahau.network/)
   - [Hooks Technical Documentation](https://xrpl-hooks.readme.io/)
-- **Explorers**: Explore the Xahau ledger using various explorers:
+- **Explorers**: Explore the Xahau Network using various explorers:
   - [xahauexplorer.com](https://xahauexplorer.com)
   - [xahscan.com](https://xahscan.com)
   - [xahau.xrpl.org](https://xahau.xrpl.org)
