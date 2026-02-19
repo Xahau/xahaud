@@ -935,21 +935,10 @@ public:
             env.close();
         }
 
-        auto const key = uint256::fromVoid(
-            (std::array<uint8_t, 32>{
-                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
-                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
-                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
-                 0x00U, 0x00U, 0x00U, 0x00U, 'k',   'e',   'y',   0x00U})
-                .data());
-
-        auto const ns = uint256::fromVoid(
-            (std::array<uint8_t, 32>{
-                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
-                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
-                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
-                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU})
-                .data());
+        uint256 constexpr key{
+            "000000000000000000000000000000000000000000000000000000006b657900"};
+        uint256 constexpr ns{
+            "cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe"};
 
         auto const stateKeylet =
             keylet::hookState(Account("alice").id(), key, ns);
@@ -1084,7 +1073,7 @@ public:
                 ripple::test::jtx::hook(carol, {{hso(scaled_state_wasm)}}, 0);
             jv[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = ns_str;
             jv[jss::Hooks][0U][jss::Hook][jss::HookOn] =
-                to_string(UINT256_BIT[ttACCOUNT_SET]);
+                to_string(hook::UINT256_BIT[ttACCOUNT_SET]);
             env(jv, M("Create scaled state hook"), HSFEE, ter(tesSUCCESS));
             env.close();
 
@@ -2131,24 +2120,23 @@ public:
 
             // check all fields were updated to correct values
             BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookOn));
-            BEAST_EXPECT(hooks[0].getFieldH256(sfHookOn) == UINT256_BIT[0]);
+            BEAST_EXPECT(
+                hooks[0].getFieldH256(sfHookOn) == hook::UINT256_BIT[0]);
 
             if (hasHookCanEmit)
             {
                 BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookCanEmit));
                 BEAST_EXPECT(
                     hooks[0].getFieldH256(sfHookCanEmit) ==
-                    ripple::uint256("000000000000000000000000000000000000000000"
-                                    "0000000000000000000001"));
+                    ripple::uint256(
+                        "000000000000000000000000000000000000000000"
+                        "0000000000000000000001"));
             }
 
-            auto const ns = uint256::fromVoid(
-                (std::array<uint8_t, 32>{
-                     0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
-                     0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
-                     0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
-                     0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU})
-                    .data());
+            uint256 constexpr ns(
+                "cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafeca"
+                "fe");
+
             BEAST_REQUIRE(hooks[0].isFieldPresent(sfHookNamespace));
             BEAST_EXPECT(hooks[0].getFieldH256(sfHookNamespace) == ns);
 
@@ -2659,7 +2647,7 @@ public:
         // hsoUPDATE
         {
             STObject hso{sfHook};
-            hso.setFieldH256(sfHookOn, UINT256_BIT[0]);
+            hso.setFieldH256(sfHookOn, hook::UINT256_BIT[0]);
             BEAST_EXPECT(SetHook::inferOperation(hso) == hsoUPDATE);
         }
 
@@ -10263,17 +10251,19 @@ public:
                 data1[0] == 0xCAU && data1[1] == 0xFEU && data1[2] == 0xBAU &&
                 data1[3] == 0xBEU);
 
-            uint8_t key2[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3};
+            std::array<uint8_t, 32> const key2{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                               0, 0, 0, 0, 0, 0, 0, 1, 2, 3};
 
-            auto const state2 = env.le(ripple::keylet::hookState(
-                aliceid, uint256::fromVoid(key2), beast::zero));
+            auto const state2 = env.le(
+                ripple::keylet::hookState(
+                    aliceid, uint256(key2), beast::zero));
 
             BEAST_REQUIRE(!!state2);
 
             auto const lekey2 = state2->getFieldH256(sfHookStateKey);
 
-            BEAST_EXPECT(lekey2 == uint256::fromVoid(key2));
+            BEAST_EXPECT(lekey2 == uint256(key2));
 
             uint8_t data2[128] = {
                 0x23U, 0x13U, 0x96U, 0x68U, 0x78U, 0xDCU, 0xABU, 0xC4U, 0x40U,
@@ -10524,11 +10514,13 @@ public:
             for (uint32_t i = 0; i < sizeof(data1); ++i)
                 BEAST_EXPECT(data1[i] == ledata1[i]);
 
-            uint8_t key2[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3};
-
-            auto const state2 = env.le(ripple::keylet::hookState(
-                aliceid, uint256::fromVoid(key2), beast::zero));
+            auto const state2 = env.le(
+                ripple::keylet::hookState(
+                    aliceid,
+                    uint256(
+                        "000000000000000000000000000000000000000000000000000000"
+                        "0000010203"),
+                    beast::zero));
 
             BEAST_REQUIRE(!state2);
         }
@@ -10599,12 +10591,12 @@ public:
                 fee(XRP(1)),
                 ter(tecHOOK_REJECTED));
 
-            uint8_t key[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,    0,
-                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0,    0,
-                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFFU};
+            uint256 constexpr keyx(
+                "00000000000000000000000000000000000000000000000000000000000000"
+                "ff");
 
-            auto const state = env.le(ripple::keylet::hookState(
-                aliceid, uint256::fromVoid(key), beast::zero));
+            auto const state =
+                env.le(ripple::keylet::hookState(aliceid, keyx, beast::zero));
 
             BEAST_EXPECT(state);
 
@@ -10620,8 +10612,8 @@ public:
 
             // check the state is still present
             {
-                auto const state = env.le(ripple::keylet::hookState(
-                    aliceid, uint256::fromVoid(key), beast::zero));
+                auto const state = env.le(
+                    ripple::keylet::hookState(aliceid, keyx, beast::zero));
                 BEAST_EXPECT(state);
             }
 
@@ -10638,8 +10630,8 @@ public:
 
             // check the state is still present
             {
-                auto const state = env.le(ripple::keylet::hookState(
-                    aliceid, uint256::fromVoid(key), beast::zero));
+                auto const state = env.le(
+                    ripple::keylet::hookState(aliceid, keyx, beast::zero));
                 BEAST_EXPECT(state);
             }
 
@@ -10850,7 +10842,7 @@ public:
                 ripple::test::jtx::hook(gary, {{hso(scaled_state_wasm)}}, 0);
             // jv[jss::Hooks][0U][jss::Hook][jss::HookNamespace] = ns_str;
             jv[jss::Hooks][0U][jss::Hook][jss::HookOn] =
-                to_string(UINT256_BIT[ttACCOUNT_SET]);
+                to_string(hook::UINT256_BIT[ttACCOUNT_SET]);
             env(jv, M("Create scaled state hook"), HSFEE, ter(tesSUCCESS));
             env.close();
 
@@ -14625,6 +14617,7 @@ public:
     void
     run() override
     {
+        log << "Apparently equal!";
         run(0);
     }
 

@@ -948,7 +948,7 @@ SetHook::destroyNamespace(
             return tefBAD_LEDGER;
         }
 
-        toDelete.push_back(uint256::fromVoid(itemKeylet.key.data()));
+        toDelete.push_back(itemKeylet.key);
 
     } while (cdirNext(view, dirKeylet.key, sleDirNode, uDirEntry, dirEntry));
 

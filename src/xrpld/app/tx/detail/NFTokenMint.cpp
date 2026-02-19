@@ -170,7 +170,7 @@ NFTokenMint::createNFTokenID(
         std::distance(buf.data(), ptr) == buf.size(),
         "ripple::NFTokenMint::createNFTokenID : data size matches the buffer");
 
-    return uint256::fromVoid(buf.data());
+    return uint256{buf};
 }
 
 TER

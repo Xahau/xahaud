@@ -961,7 +961,7 @@ amountFromJson(SField const& name, Json::Value const& v)
 
     bool const native = !currencyOrMPTID.isString() ||
         currencyOrMPTID.asString().empty() ||
-        (currencyOrMPTID.asString() == systemCurrencyCode());
+        (currencyOrMPTID.asString() == systemCurrencyCode);
 
     if (native)
     {

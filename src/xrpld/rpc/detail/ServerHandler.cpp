@@ -1240,6 +1240,20 @@ ServerHandler::processRequest(
 
 //------------------------------------------------------------------------------
 
+static std::string const serverOkayBody = []() {
+    std::string s;
+
+    s.append("<!DOCTYPE html><html><head><title>Test page for ");
+    s.append(systemName);
+    s.append("</title></head><body><h1>");
+    s.append(systemName);
+    s.append(
+        "</h1><p>This page shows http(s) connectivity is "
+        "working.</p></body></html>");
+
+    return s;
+}();
+
 /*  This response is used with load balancing.
     If the server is overloaded, status 500 is reported. Otherwise status 200
     is reported, meaning the server can accept more connections.
@@ -1253,15 +1267,12 @@ ServerHandler::statusResponse(http_request_type const& request) const
     std::string reason;
     if (app_.serverOkay(reason))
     {
-        msg.result(boost::beast::http::status::ok);
-        msg.body() = "<!DOCTYPE html><html><head><title>" + systemName() +
-            " Test page for rippled</title></head><body><h1>" + systemName() +
-            " Test</h1><p>This page shows rippled http(s) "
-            "connectivity is working.</p></body></html>";
+        msg.result(status::ok);
+        msg.body() = serverOkayBody;
     }
     else
     {
-        msg.result(boost::beast::http::status::internal_server_error);
+        msg.result(status::internal_server_error);
         msg.body() = "<HTML><BODY>Server cannot accept clients: " + reason +
             "</BODY></HTML>";
     }

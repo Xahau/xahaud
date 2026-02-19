@@ -518,10 +518,10 @@ cron(uint32_t timestamp, std::optional<AccountID> const& id)
 {
     static const uint256 ns = indexHash(LedgerNameSpace::CRON);
 
-    uint8_t h[32];
+    std::array<uint8_t, 32> h{};
 
     // first 8 bytes are the namespacing
-    std::memcpy(h, ns.data(), 8);
+    std::copy_n(ns.data(), 8, h.data());
 
     // next 4 bytes are the timestamp in BE
     h[8] = static_cast<uint8_t>((timestamp >> 24) & 0xFFU);
@@ -529,19 +529,16 @@ cron(uint32_t timestamp, std::optional<AccountID> const& id)
     h[10] = static_cast<uint8_t>((timestamp >> 8) & 0xFFU);
     h[11] = static_cast<uint8_t>((timestamp >> 0) & 0xFFU);
 
-    if (!id.has_value())
+    if (id)
     {
-        // final 20 bytes are zero
-        std::memset(h + 12, 0, 20);
-        return {ltCRON, uint256::fromVoid(h)};
+        const uint256 accHash =
+            indexHash(LedgerNameSpace::CRON, timestamp, *id);
+
+        // final 20 bytes are account ID
+        std::copy_n(accHash.cdata(), 20, h.data() + 12);
     }
 
-    const uint256 accHash = indexHash(LedgerNameSpace::CRON, timestamp, *id);
-
-    // final 20 bytes are account ID
-    std::memcpy(h + 12, accHash.cdata(), 20);
-
-    return {ltCRON, uint256::fromVoid(h)};
+    return {ltCRON, uint256(h)};
 }
 
 Keylet

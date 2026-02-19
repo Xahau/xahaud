@@ -134,7 +134,7 @@ class Hooks_test : public beast::unit_test::suite
                 }
 
                 case STI_UINT256: {
-                    uint256 u = uint256::fromVoid(
+                    uint256 const u(
                         "DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBE"
                         "EFDEADBEEF");
                     dummy.setFieldH256(f, u);
