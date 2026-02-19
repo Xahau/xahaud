@@ -188,6 +188,21 @@ protected:
         return item;
     }
 
+    Item const&
+    addAlias(char const* name, KeyType type)
+    {
+        auto const item = findByType(type);
+        if (!item)
+        {
+            LogicError(
+                std::string("Unknown type for item '") + name +
+                "': " + std::to_string(type));
+        }
+
+        names_[name] = item;
+        return *item;
+    }
+
 private:
     std::string name_;
 

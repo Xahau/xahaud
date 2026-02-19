@@ -124,6 +124,8 @@ JSS(Payment);                  // transaction type.
 JSS(PaymentChannelClaim);      // transaction type.
 JSS(PaymentChannelCreate);     // transaction type.
 JSS(PaymentChannelFund);       // transaction type.
+JSS(RegularKeySet);            // transaction type.
+JSS(RemarksSet);               // transaction type.
 JSS(Remit);                    // transaction type.
 JSS(RippleState);              // ledger type.
 JSS(SLE_hit_rate);             // out: GetCounts.
@@ -138,6 +140,7 @@ JSS(SetFlag);                  // field.
 JSS(SetRegularKey);            // transaction type.
 JSS(SetHook);                  // transaction type.
 JSS(Hook);                     // ledger type.
+JSS(HookSet);                  // transaction type.
 JSS(HookDefinition);           // ledger type.
 JSS(HookState);                // ledger type.
 JSS(HookStateData);            // field.
