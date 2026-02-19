@@ -4,9 +4,16 @@ on:
   push:
     branches: ["dev", "candidate", "release"]
   pull_request:
-    branches: ["dev", "candidate", "release"]
+    branches: ["**"]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
     - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      full_matrix:
+        description: "Force full matrix (6 configs)"
+        required: false
+        default: "false"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -14,6 +21,10 @@ concurrency:
 
 jobs:
   matrix-setup:
+    if: >
+      github.event_name != 'pull_request' ||
+      contains(fromJson('["dev","candidate","release"]'), github.base_ref) ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci-full-build')
     runs-on: [self-hosted, generic, 20.04]
     container: python:3-slim
     outputs:
@@ -111,6 +122,7 @@ jobs:
           base_ref = "${{ github.base_ref }}"  # For PRs, this is the target branch
           event_name = "${{ github.event_name }}"
           pr_title = """${{ steps.escape.outputs.title }}"""
+          pr_labels = """${{ join(github.event.pull_request.labels.*.name, ',') }}"""
           pr_head_sha = "${{ github.event.pull_request.head.sha }}"
 
           # Get commit message - for PRs, fetch via API since head_commit.message is empty
@@ -136,11 +148,24 @@ jobs:
           print(f"Base ref: {base_ref}")
           print(f"PR head SHA: {pr_head_sha}")
           print(f"PR title: {pr_title}")
+          print(f"PR labels: {pr_labels}")
           print(f"Commit message: {commit_message}")
           
-          # Check for override tags in commit message or PR title
-          force_full = "[ci-nix-full-matrix]" in commit_message or "[ci-nix-full-matrix]" in pr_title
+          # Manual trigger input to force full matrix.
+          manual_full = "${{ github.event.inputs.full_matrix || 'false' }}" == "true"
+
+          # Label/manual overrides, while preserving existing title/commit behavior.
+          force_full = (
+              manual_full
+              or "[ci-nix-full-matrix]" in commit_message
+              or "[ci-nix-full-matrix]" in pr_title
+              or ("ci-full-build" in pr_labels and "ci-nix-full-matrix" in pr_labels)
+          )
+          force_min = (
+              "ci-full-build" in pr_labels
+          )
           print(f"Force full matrix: {force_full}")
+          print(f"Force min matrix: {force_min}")
           
           # Check if this is targeting a main branch
           # For PRs: check base_ref (target branch)
@@ -148,8 +173,11 @@ jobs:
           main_branches = ["refs/heads/dev", "refs/heads/release", "refs/heads/candidate"]
           
           if force_full:
-              # Override: always use full matrix if tag is present
+              # Override: always use full matrix if forced by manual input or label.
               use_full = True
+          elif force_min:
+              # Override: always use minimal matrix if ci-full-build label is present.
+              use_full = False
           elif event_name == "pull_request":
               # For PRs, base_ref is just the branch name (e.g., "dev", not "refs/heads/dev")
               # Check if the PR targets release or candidate (more critical branches)
