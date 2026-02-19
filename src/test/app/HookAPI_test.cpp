@@ -18,7 +18,9 @@
 //==============================================================================
 #include <ripple/app/hook/HookAPI.h>
 #include <ripple/basics/StringUtilities.h>
+#include <ripple/beast/unit_test/suite.hpp>
 #include <ripple/json/json_writer.h>
+#include <ripple/protocol/SField.h>
 #include <ripple/protocol/STAccount.h>
 #include <limits>
 #include <test/app/Import_json.h>
@@ -73,6 +75,84 @@ public:
 
         // TODO
         BEAST_EXPECT(true);
+    }
+
+    void
+    test_prepare(FeatureBitset features)
+    {
+        testcase("Test prepare");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+
+        using namespace hook_api;
+        Env env{*this, features};
+
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        STTx const emitInvokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+
+        {
+            // PREREQUISITE_NOT_MET
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            auto tx = emitInvokeTx;
+            Serializer s = tx.getSerializer();
+            s.add8(0);  // invalid value
+            auto const result = api.prepare(s.slice());
+            BEAST_EXPECT(result.error() == PREREQUISITE_NOT_MET);
+        }
+
+        {
+            // Invalid txn
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {
+                    .expected_etxn_count = 1,
+                });
+            auto& api = hookCtx.api();
+            auto tx = emitInvokeTx;
+            Serializer s = tx.getSerializer();
+            s.add8(0);  // invalid value
+            auto const result = api.prepare(s.slice());
+            BEAST_EXPECT(result.error() == INVALID_ARGUMENT);
+        }
+
+        {
+            // success
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {
+                    .expected_etxn_count = 1,
+                });
+            auto& api = hookCtx.api();
+            auto tx = emitInvokeTx;
+            Serializer s = tx.getSerializer();
+            auto const result = api.prepare(s.slice());
+            BEAST_EXPECT(result.has_value());
+
+            SerialIter sit(Slice(result.value().data(), result.value().size()));
+            STObject st(sit, sfGeneric);
+            BEAST_EXPECT(st.getFieldAmount(sfFee) > XRPAmount(0));
+            BEAST_EXPECT(st.getFieldU32(sfSequence) == 0);
+            BEAST_EXPECT(st.getAccountID(sfAccount) == alice.id());
+            auto const seq = applyCtx.view().info().seq;
+            BEAST_EXPECT(st.getFieldU32(sfFirstLedgerSequence) == seq + 1);
+            BEAST_EXPECT(st.getFieldU32(sfLastLedgerSequence) == seq + 5);
+            BEAST_EXPECT(st.isFieldPresent(sfEmitDetails));
+
+            auto const result2 =
+                api.emit(Slice(result.value().data(), result.value().size()));
+            BEAST_EXPECT(result2.has_value());
+        }
     }
 
     void
@@ -4441,6 +4521,7 @@ public:
         test_rollback(features);
         testGuards(features);
 
+        test_prepare(features);
         test_emit(features);
         test_etxn_burden(features);
         test_etxn_generation(features);

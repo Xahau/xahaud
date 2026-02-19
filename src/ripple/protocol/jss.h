@@ -85,6 +85,8 @@ JSS(HookCanEmit);         // field
 JSS(HookHash);            // field
 JSS(HookNamespace);       // field
 JSS(HookOn);              // field
+JSS(HookOnIncoming);      // field
+JSS(HookOnOutgoing);      // field
 JSS(Hooks);               // field
 JSS(HookGrants);          // field
 JSS(HookParameters);      // field
@@ -101,6 +103,7 @@ JSS(Invalid);                  //
 JSS(Invoke);                   // transaction type
 JSS(InvoiceID);                // field
 JSS(LastLedgerSequence);       // in: TransactionSign; field
+JSS(FirstLedgerSequence);      // in: TransactionSign; field
 JSS(LedgerHashes);             // ledger type.
 JSS(LimitAmount);              // field.
 JSS(NetworkID);                // field.
@@ -140,6 +143,7 @@ JSS(HookState);                // ledger type.
 JSS(HookStateData);            // field.
 JSS(HookStateKey);             // field.
 JSS(EmittedTxn);               // ledger type.
+JSS(EmitDetails);              // field.
 JSS(SignerList);               // ledger type.
 JSS(SignerListSet);            // transaction type.
 JSS(SigningPubKey);            // field.
