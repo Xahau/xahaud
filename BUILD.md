@@ -1,7 +1,7 @@
-| :warning: **WARNING** :warning:
-|---|
-| These instructions assume you have a C++ development environment ready with Git, Python, Conan, CMake, and a C++ compiler. For help setting one up on Linux, macOS, or Windows, [see this guide](./docs/build/environment.md). |
-
+> These instructions assume you have a C++ development environment ready
+> with Git, Python, Conan, CMake, and a C++ compiler. For help setting one up
+> on Linux, macOS, or Windows, see [our guide](./docs/build/environment.md).
+>
 > These instructions also assume a basic familiarity with Conan and CMake.
 > If you are unfamiliar with Conan,
 > you can read our [crash course](./docs/build/conan.md)
@@ -10,7 +10,7 @@
 ## Branches
 
 For a stable release, choose the `master` branch or one of the [tagged
-releases](https://github.com/ripple/rippled/releases).
+releases](https://github.com/Xahau/xahaud/releases).
 
 ```
 git checkout master
@@ -29,70 +29,46 @@ branch.
 git checkout develop
 ```
 
+
 ## Minimum Requirements
-
-See [System Requirements](https://xrpl.org/system-requirements.html).
-
-Building rippled generally requires git, Python, Conan, CMake, and a C++ compiler. Some guidance on setting up such a [C++ development environment can be found here](./docs/build/environment.md).
 
 - [Python 3.7](https://www.python.org/downloads/)
 - [Conan 2.x](https://conan.io/downloads)
 - [CMake 3.16](https://cmake.org/download/)
 
-[^1]: It is possible to build with Conan 2.x,
-but the instructions are significantly different,
-which is why we are not recommending it yet.
-Notably, the `conan profile update` command is removed in 2.x.
-Profiles must be edited by hand.
-
-`rippled` is written in the C++20 dialect and includes the `<concepts>` header.
+`xahaud` is written in the C++20 dialect and includes the `<concepts>` header.
 The [minimum compiler versions][2] required are:
 
 | Compiler    | Version |
 |-------------|---------|
-| GCC         | 11      |
+| GCC         | 10      |
 | Clang       | 13      |
 | Apple Clang | 13.1.6  |
 | MSVC        | 19.23   |
 
-### Linux
+We don't recommend Windows for `xahaud` production at this time. As of
+November 2025, Ubuntu has the highest level of quality assurance, testing,
+and support.
 
-The Ubuntu operating system has received the highest level of
-quality assurance, testing, and support.
+Windows developers should use Visual Studio 2019. `xahaud` isn't
+compatible with [Boost](https://www.boost.org/) 1.78 or 1.79, and Conan
+can't build earlier Boost versions.
 
-Here are [sample instructions for setting up a C++ development environment on Linux](./docs/build/environment.md#linux).
+**Note:** 32-bit Windows development isn't supported.
 
-### Mac
-
-Many rippled engineers use macOS for development.
-
-Here are [sample instructions for setting up a C++ development environment on macOS](./docs/build/environment.md#macos).
-
-### Windows
-
-Windows is not recommended for production use at this time.
-
-- Additionally, 32-bit Windows development is not supported.
-
-[Boost]: https://www.boost.org/
 
 ## Steps
 
+
 ### Set Up Conan
 
-After you have a [C++ development environment](./docs/build/environment.md) ready with Git, Python, Conan, CMake, and a C++ compiler, you may need to set up your Conan profile.
-
-These instructions assume a basic familiarity with Conan and CMake.
-
-If you are unfamiliar with Conan, then please read [this crash course](./docs/build/conan.md) or the official [Getting Started][3] walkthrough.
-
-You'll need at least one Conan profile:
+1. (Optional) If you've never used Conan, use autodetect to set up a default profile.
 
    ```
    conan profile detect --force
    ```
 
-Update the compiler settings:
+2. Update the compiler settings.
 
    For Conan 2, you can edit the profile directly at `~/.conan2/profiles/default`,
    or use the Conan CLI. Ensure C++20 is set:
@@ -109,16 +85,10 @@ Update the compiler settings:
    compiler.cppstd=20
    ```
 
-Configure Conan (1.x only) to use recipe revisions:
-
-   ```
-   conan config set general.revisions_enabled=1
-   ```
-
-**Linux** developers will commonly have a default Conan [profile][] that compiles
-with GCC and links with libstdc++.
-If you are linking with libstdc++ (see profile setting `compiler.libcxx`),
-then you will need to choose the `libstdc++11` ABI:
+   Linux developers will commonly have a default Conan [profile][] that compiles
+   with GCC and links with libstdc++.
+   If you are linking with libstdc++ (see profile setting `compiler.libcxx`),
+   then you will need to choose the `libstdc++11` ABI.
 
    ```
    # In ~/.conan2/profiles/default, ensure:
@@ -126,26 +96,12 @@ then you will need to choose the `libstdc++11` ABI:
    compiler.libcxx=libstdc++11
    ```
 
+   On Windows, you should use the x64 native build tools.
+   An easy way to do that is to run the shortcut "x64 Native Tools Command
+   Prompt" for the version of Visual Studio that you have installed.
 
-Ensure inter-operability between `boost::string_view` and `std::string_view` types:
-
-```
-conan profile update 'conf.tools.build:cxxflags+=["-DBOOST_BEAST_USE_STD_STRING_VIEW"]' default
-conan profile update 'env.CXXFLAGS="-DBOOST_BEAST_USE_STD_STRING_VIEW"' default
-```
-
-If you have other flags in the `conf.tools.build` or `env.CXXFLAGS` sections, make sure to retain the existing flags and append the new ones. You can check them with:
-```
-conan profile show default
-```
-
-
-**Windows** developers may need to use the x64 native build tools.
-An easy way to do that is to run the shortcut "x64 Native Tools Command
-Prompt" for the version of Visual Studio that you have installed.
-
-   Windows developers must also build `rippled` and its dependencies for the x64
-   architecture:
+   Windows developers must also build `xahaud` and its dependencies for the x64
+   architecture.
 
    ```
    # In ~/.conan2/profiles/default, ensure:
@@ -181,8 +137,8 @@ Prompt" for the version of Visual Studio that you have installed.
    conan export external/snappy --version 1.1.10 --user xahaud --channel stable
    ```
 
-Export our [Conan recipe for RocksDB](./external/rocksdb).
-It does not override paths to dependencies when building with Visual Studio.
+5. Export our [Conan recipe for SOCI](./external/soci).
+   It patches their CMake to correctly import its dependencies.
 
    ```
    conan export external/soci --version 4.0.3 --user xahaud --channel stable
@@ -212,14 +168,12 @@ It does not override paths to dependencies when building with Visual Studio.
    the `install-folder` or `-if` option to every `conan install` command
    in the next step.
 
-2. Use conan to generate CMake files for every configuration you want to build:
+2. Generate CMake files for every configuration you want to build. 
 
     ```
     conan install .. --output-folder . --build missing --settings build_type=Release
     conan install .. --output-folder . --build missing --settings build_type=Debug
     ```
-
-    To build Debug, in the next step, be sure to set `-DCMAKE_BUILD_TYPE=Debug`
 
     For a single-configuration generator, e.g. `Unix Makefiles` or `Ninja`,
     you only need to run this command once.
@@ -231,13 +185,13 @@ It does not override paths to dependencies when building with Visual Studio.
     generated by the first. You can pass the build type on the command line with
     `--settings build_type=$BUILD_TYPE` or in the profile itself,
     under the section `[settings]` with the key `build_type`.
-
+    
     If you are using a Microsoft Visual C++ compiler,
     then you will need to ensure consistency between the `build_type` setting
     and the `compiler.runtime` setting.
-
+    
     When `build_type` is `Release`, `compiler.runtime` should be `MT`.
-
+    
     When `build_type` is `Debug`, `compiler.runtime` should be `MTd`.
 
     ```
@@ -249,31 +203,29 @@ It does not override paths to dependencies when building with Visual Studio.
    `$OUTPUT_FOLDER/build/generators/conan_toolchain.cmake`.
 
     Single-config generators:
+    
+    ```
+    cmake -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release ..
+    ```
 
     Pass the CMake variable [`CMAKE_BUILD_TYPE`][build_type]
-    and make sure it matches the one of the `build_type` settings
-    you chose in the previous step.
+    and make sure it matches the `build_type` setting you chose in the previous
+    step.
 
-    For example, to build Debug, in the next command, replace "Release" with "Debug"
-
-    ```
-    cmake -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release -Dxrpld=ON -Dtests=ON ..
-    ```
-
-
-    Multi-config generators:
+    Multi-config gnerators:
 
     ```
-    cmake -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake -Dxrpld=ON -Dtests=ON  ..
+    cmake -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake ..
     ```
 
-    **Note:** You can pass build options for `rippled` in this step.
+    **Note:** You can pass build options for `xahaud` in this step.
 
-5. Build `rippled`.
+4. Build `xahaud`.
 
    For a single-configuration generator, it will build whatever configuration
    you passed for `CMAKE_BUILD_TYPE`. For a multi-configuration generator,
    you must pass the option `--config` to select the build configuration. 
+   The output file is currently named 'rippled'.
 
    Single-config generators:
 
@@ -282,13 +234,13 @@ It does not override paths to dependencies when building with Visual Studio.
    ```
 
    Multi-config generators:
-
+    
    ```
    cmake --build . --config Release
    cmake --build . --config Debug
    ```
 
-6. Test rippled.
+5. Test xahaud.
 
    Single-config generators:
 
@@ -303,67 +255,8 @@ It does not override paths to dependencies when building with Visual Studio.
    ./Debug/rippled --unittest
    ```
 
-   The location of `rippled` in your build directory depends on your CMake
+   The location of `xahaud` in your build directory depends on your CMake
    generator. Pass `--help` to see the rest of the command line options.
-
-
-## Coverage report
-
-The coverage report is intended for developers using compilers GCC
-or Clang (including Apple Clang). It is generated by the build target `coverage`,
-which is only enabled when the `coverage` option is set, e.g. with
-`--options coverage=True` in `conan` or `-Dcoverage=ON` variable in `cmake`
-
-Prerequisites for the coverage report:
-
-- [gcovr tool][gcovr] (can be installed e.g. with [pip][python-pip])
-- `gcov` for GCC (installed with the compiler by default) or
-- `llvm-cov` for Clang (installed with the compiler by default)
-- `Debug` build type
-
-A coverage report is created when the following steps are completed, in order:
-
-1. `rippled` binary built with instrumentation data, enabled by the `coverage`
-   option mentioned above
-2. completed run of unit tests, which populates coverage capture data
-3. completed run of the `gcovr` tool (which internally invokes either `gcov` or `llvm-cov`)
-   to assemble both instrumentation data and the coverage capture data into a coverage report
-
-The above steps are automated into a single target `coverage`. The instrumented
-`rippled` binary can also be used for regular development or testing work, at
-the cost of extra disk space utilization and a small performance hit
-(to store coverage capture). In case of a spurious failure of unit tests, it is
-possible to re-run the `coverage` target without rebuilding the `rippled` binary
-(since it is simply a dependency of the coverage report target). It is also possible
-to select only specific tests for the purpose of the coverage report, by setting
-the `coverage_test` variable in `cmake`
-
-The default coverage report format is `html-details`, but the user
-can override it to any of the formats listed in `cmake/CodeCoverage.cmake`
-by setting the `coverage_format` variable in `cmake`. It is also possible
-to generate more than one format at a time by setting the `coverage_extra_args`
-variable in `cmake`. The specific command line used to run the `gcovr` tool will be
-displayed if the `CODE_COVERAGE_VERBOSE` variable is set.
-
-By default, the code coverage tool runs parallel unit tests with `--unittest-jobs`
- set to the number of available CPU cores. This may cause spurious test
-errors on Apple. Developers can override the number of unit test jobs with
-the `coverage_test_parallelism` variable in `cmake`.
-
-Example use with some cmake variables set:
-
-```
-cd .build
-conan install .. --output-folder . --build missing --settings build_type=Debug
-cmake -DCMAKE_BUILD_TYPE=Debug -Dcoverage=ON -Dxrpld=ON -Dtests=ON -Dcoverage_test_parallelism=2 -Dcoverage_format=html-details -Dcoverage_extra_args="--json coverage.json" -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake ..
-cmake --build . --target coverage
-```
-
-After the `coverage` target is completed, the generated coverage report will be
-stored inside the build directory, as either of:
-
-- file named `coverage.`_extension_ , with a suitable extension for the report format, or
-- directory named `coverage`, with the `index.html` and other files inside, for the `html-details` or `html-nested` report formats.
 
 
 ## Options
@@ -371,11 +264,10 @@ stored inside the build directory, as either of:
 | Option | Default Value | Description |
 | --- | ---| ---|
 | `assert` | OFF | Enable assertions.
-| `coverage` | OFF | Prepare the coverage report. |
-| `san` | N/A | Enable a sanitizer with Clang. Choices are `thread` and `address`. |
-| `tests` | OFF | Build tests. |
+| `reporting` | OFF | Build the reporting mode feature. |
+| `tests` | ON | Build tests. |
 | `unity` | ON | Configure a unity build. |
-| `xrpld` | OFF | Build the xrpld (`rippled`) application, and not just the libxrpl library. |
+| `san` | N/A | Enable a sanitizer with Clang. Choices are `thread` and `address`. |
 
 [Unity builds][5] may be faster for the first build
 (at the cost of much more memory) since they concatenate sources into fewer
@@ -411,18 +303,6 @@ Edit `~/.conan2/profiles/default` and add under the `[conf]` section:
 ```
 [conf]
 tools.build:cxxflags=["-Wno-missing-template-arg-list-after-template-kw"]
-```
-
-
-### call to 'async_teardown' is ambiguous
-
-If you are compiling with an early version of Clang 16, then you might hit
-a [regression][6] when compiling C++20 that manifests as an [error in a Boost
-header][7]. You can workaround it by adding this preprocessor definition:
-
-```
-conan profile update 'env.CXXFLAGS="-DBOOST_ASIO_DISABLE_CONCEPTS"' default
-conan profile update 'conf.tools.build:cxxflags+=["-DBOOST_ASIO_DISABLE_CONCEPTS"]' default
 ```
 
 
@@ -577,10 +457,6 @@ but it is more convenient to put them in a [profile][profile].
 
 [1]: https://github.com/conan-io/conan-center-index/issues/13168
 [5]: https://en.wikipedia.org/wiki/Unity_build
-[6]: https://github.com/boostorg/beast/issues/2648
-[7]: https://github.com/boostorg/beast/issues/2661
-[gcovr]: https://gcovr.com/en/stable/getting-started.html
-[python-pip]: https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/
 [build_type]: https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html
 [runtime]: https://cmake.org/cmake/help/latest/variable/CMAKE_MSVC_RUNTIME_LIBRARY.html
 [toolchain]: https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html
