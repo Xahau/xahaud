@@ -732,23 +732,21 @@ struct XahauGenesis_test : public beast::unit_test::suite
         uint8_t layer,
         AccountID const& id)
     {
-        uint8_t data[32];
+        std::array<uint8_t, 32> data{};
 
-        memset(data, 0, 32);
         data[0] = voteType;
         data[1] = topic1;
         data[2] = topic2;
         data[3] = layer;
 
-        for (int i = 0; i < 20; ++i)
-            data[12 + i] = id.data()[i];
+        std::copy_n(id.data(), id.size(), &data[12]);
 
-        return uint256::fromVoid(data);
+        return uint256{data};
     }
 
-    uint8_t const member_count_key[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0,   0,  0,
-                                          0, 0, 0, 0, 0, 0, 0, 0, 0,   0,  0,
-                                          0, 0, 0, 0, 0, 0, 0, 0, 'M', 'C'};
+    std::array<uint8_t, 32> const member_count_key = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,   0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'M', 'C'};
 
     void
     testGovernanceL1(FeatureBitset features)
@@ -848,44 +846,16 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     break;
                 }
 
-            uint8_t const key[32] = {
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                static_cast<uint8_t>(topic1 == 'S' ? 0 : topic1),
-                static_cast<uint8_t>(topic2)};
+            std::array<uint8_t, 32> key{};
+            if (topic1 != 'S')
+                key[30] = static_cast<uint8_t>(topic1);
+            key[31] = static_cast<uint8_t>(topic2);
+
             // check actioning prior to vote
             {
                 auto entry = env.le(
                     keylet::hookState(
-                        env.master.id(), uint256::fromVoid(key), beast::zero));
+                        env.master.id(), uint256(key), beast::zero));
                 if (DEBUG_XGTEST)
                 {
                     std::cout
@@ -964,7 +934,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 // if it's high enough it will be the new value
                 auto entry = env.le(
                     keylet::hookState(
-                        env.master.id(), uint256::fromVoid(key), beast::zero));
+                        env.master.id(), uint256(key), beast::zero));
 
                 if (!actioned && isOldDataZero)
                 {
@@ -1341,9 +1311,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         {
             auto entry = env.le(
                 keylet::hookState(
-                    env.master.id(),
-                    uint256::fromVoid(member_count_key),
-                    beast::zero));
+                    env.master.id(), uint256(member_count_key), beast::zero));
             std::vector<uint8_t> const expected_data{0x04U};
             BEAST_REQUIRE(!!entry);
             BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
@@ -1366,9 +1334,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         {
             auto entry = env.le(
                 keylet::hookState(
-                    env.master.id(),
-                    uint256::fromVoid(member_count_key),
-                    beast::zero));
+                    env.master.id(), uint256(member_count_key), beast::zero));
             std::vector<uint8_t> const expected_data{0x03U};
             BEAST_REQUIRE(!!entry);
             BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
@@ -1385,9 +1351,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         {
             auto entry = env.le(
                 keylet::hookState(
-                    env.master.id(),
-                    uint256::fromVoid(member_count_key),
-                    beast::zero));
+                    env.master.id(), uint256(member_count_key), beast::zero));
             std::vector<uint8_t> const expected_data{0x02U};
             BEAST_REQUIRE(!!entry);
             BEAST_EXPECT(entry->getFieldVL(sfHookStateData) == expected_data);
@@ -1406,7 +1370,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             auto entry = env.le(
                 keylet::hookState(
                     env.master.id(),
-                    uint256::fromVoid(member_count_key),
+                    uint256(member_count_key),
                     beast::zero));
             std::vector<uint8_t> const expected_data{0x02U};
             BEAST_REQUIRE(!!entry);
@@ -1425,7 +1389,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             auto entry = env.le(
                 keylet::hookState(
                     env.master.id(),
-                    uint256::fromVoid(member_count_key),
+                    uint256(member_count_key),
                     beast::zero));
             std::vector<uint8_t> const expected_data{0x02U};
             BEAST_REQUIRE(!!entry);
@@ -1449,7 +1413,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             auto entry = env.le(
                 keylet::hookState(
                     env.master.id(),
-                    uint256::fromVoid(member_count_key),
+                    uint256(member_count_key),
                     beast::zero));
             std::vector<uint8_t> const expected_data{0x02U};
             BEAST_REQUIRE(!!entry);
@@ -1490,7 +1454,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 auto entry = env.le(
                     keylet::hookState(
                         env.master.id(),
-                        uint256::fromVoid(member_count_key),
+                        uint256(member_count_key),
                         beast::zero));
                 std::vector<uint8_t> const expected_data{final_count};
 
@@ -1532,15 +1496,14 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // check that m6 is still in seat 2
         {
-            uint8_t key[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+            std::array<uint8_t, 32> key{};
 
             for (int i = 12; i < 32; ++i)
                 key[i] = m6.id().data()[i - 12];
 
             auto entry = env.le(
                 keylet::hookState(
-                    env.master.id(), uint256::fromVoid(key), beast::zero));
+                    env.master.id(), uint256(key), beast::zero));
             BEAST_EXPECT(
                 !!entry &&
                 entry->getFieldVL(sfHookStateData) ==
@@ -1791,15 +1754,14 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // check this is the case forward and reverse keys
 
         auto const checkSeat = [&](uint8_t seat, Account const* acc) {
-            uint8_t key[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+            std::array<uint8_t, 32> key{};
 
             // seatno => accid
             {
                 key[31] = seat;
                 auto entry = env.le(
                     keylet::hookState(
-                        env.master.id(), uint256::fromVoid(key), beast::zero));
+                        env.master.id(), uint256(key), beast::zero));
 
                 if (!acc)
                 {
@@ -1838,7 +1800,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
                 auto entry = env.le(
                     keylet::hookState(
-                        env.master.id(), uint256::fromVoid(key), beast::zero));
+                        env.master.id(), uint256(key), beast::zero));
 
                 if (DEBUG_XGTEST)
                 {
@@ -2283,12 +2245,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     auto const mVec = vecFromAcc(*m);
                     // forward key
 
-                    uint8_t key[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                       0, 0, 0, 0, 0, 0, 0, 0, 0, mc};
+                    std::array<uint8_t, 32> key = {
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, mc};
 
-                    auto const forward = env.le(
-                        keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                    auto const forward =
+                        env.le(keylet::hookState(tableID, uint256(key), ns));
                     BEAST_EXPECT(
                         !!forward &&
                         forward->getFieldVL(sfHookStateData) == mVec);
@@ -2299,7 +2261,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                         key[i] = mVec[i - 12];
 
                     auto const reverse = env.le(
-                        keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                        keylet::hookState(tableID, uint256(key), ns));
                     BEAST_EXPECT(
                         !!reverse &&
                         reverse->getFieldVL(sfHookStateData) ==
@@ -2310,11 +2272,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // check membercount is correct
             {
-                uint8_t key[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0,   0,  0,
-                                   0, 0, 0, 0, 0, 0, 0, 0, 0,   0,  0,
-                                   0, 0, 0, 0, 0, 0, 0, 0, 'M', 'C'};
-                auto const mcLE = env.le(
-                    keylet::hookState(tableID, uint256::fromVoid(key), ns));
+                std::array<uint8_t, 32> key = {
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,   0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'M', 'C'};
+
+                auto const mcLE =
+                    env.le(keylet::hookState(tableID, uint256(key), ns));
                 BEAST_EXPECT(
                     !!mcLE &&
                     mcLE->getFieldVL(sfHookStateData) ==
@@ -2323,20 +2286,17 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // check the hook didn't setup a reward rate or delay key
             {
-                uint8_t key[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0,   0,  0,
-                                   0, 0, 0, 0, 0, 0, 0, 0, 0,   0,  0,
-                                   0, 0, 0, 0, 0, 0, 0, 0, 'R', 'R'};
-                {
-                    auto const le = env.le(
-                        keylet::hookState(tableID, uint256::fromVoid(key), ns));
-                    BEAST_EXPECT(!le);
-                }
+                std::array<uint8_t, 32> key = {
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,   0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'R', 'R'};
+
+                BEAST_EXPECT(
+                    !env.le(keylet::hookState(tableID, uint256(key), ns)));
+
                 key[31] = 'D';
-                {
-                    auto const le = env.le(
-                        keylet::hookState(tableID, uint256::fromVoid(key), ns));
-                    BEAST_EXPECT(!le);
-                }
+
+                BEAST_EXPECT(
+                    !env.le(keylet::hookState(tableID, uint256(key), ns)));
             }
 
             // check account has correct ownercount and is blackholed
@@ -2379,44 +2339,21 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     break;
                 }
 
-            uint8_t const key[32] = {
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                static_cast<uint8_t>(topic1 == 'S' ? 0 : topic1),
-                static_cast<uint8_t>(topic2)};
+            std::array<uint8_t, 32> key = {
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                           0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+            if (topic1 != 'S')
+                key[30] = static_cast<uint8_t>(topic1);
+
+            key[31] = static_cast<uint8_t>(topic2);
+
             // check actioning prior to vote
             {
                 auto entry = env.le(
                     keylet::hookState(
-                        env.master.id(), uint256::fromVoid(key), beast::zero));
+                        env.master.id(), uint256(key), beast::zero));
                 if (DEBUG_XGTEST)
                 {
                     std::cout
@@ -2487,7 +2424,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 // if it's high enough it will be the new value
                 auto entry = env.le(
                     keylet::hookState(
-                        env.master.id(), uint256::fromVoid(key), beast::zero));
+                        env.master.id(), uint256(key), beast::zero));
 
                 if (!actioned && isOldDataZero)
                 {
@@ -2561,45 +2498,18 @@ struct XahauGenesis_test : public beast::unit_test::suite
                     break;
                 }
 
-            uint8_t const key[32] = {
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                static_cast<uint8_t>(topic1 == 'S' ? 0 : topic1),
-                static_cast<uint8_t>(topic2)};
+            std::array<uint8_t, 32> key{};
+
+            if (topic1 != 'S')
+                key[30] = static_cast<uint8_t>(topic1);
+            key[31] = static_cast<uint8_t>(topic2);
+
             // check actioning prior to vote
             {
                 auto entry = env.le(
                     keylet::hookState(
                         layer == 1 ? env.master.id() : table.id(),
-                        uint256::fromVoid(key),
+                        uint256(key),
                         beast::zero));
                 if (DEBUG_XGTEST)
                 {
@@ -2674,7 +2584,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 auto entry = env.le(
                     keylet::hookState(
                         layer == 1 ? env.master.id() : table.id(),
-                        uint256::fromVoid(key),
+                        uint256(key),
                         beast::zero));
 
                 if (!actioned && isOldDataZero)
@@ -2759,7 +2669,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 auto entry = env.le(
                     keylet::hookState(
                         env.master.id(),
-                        uint256::fromVoid(member_count_key),
+                        uint256(member_count_key),
                         beast::zero));
                 std::vector<uint8_t> const expected_data{final_count};
 
@@ -2815,7 +2725,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 auto entry = env.le(
                     keylet::hookState(
                         layer == 1 ? env.master.id() : table.id(),
-                        uint256::fromVoid(member_count_key),
+                        uint256(member_count_key),
                         beast::zero));
                 std::vector<uint8_t> const expected_data{final_count};
 
@@ -2903,7 +2813,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // check the vote counter
             auto checkCounter = [&](uint64_t lineno, uint8_t c) {
-                uint8_t counter_key[32] = {
+                std::array<uint8_t, 32> counter_key = {
                     'C',   'R',   'R',   1,     0,     0,     0,     0,
                     0,     0,     0,     0,     0,     0,     0,     0,
                     0,     0,     0,     0,     0,     0,     0,     0,
@@ -2911,7 +2821,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 uint256 ns = beast::zero;
                 auto const counterLE = env.le(
                     keylet::hookState(
-                        env.master.id(), uint256::fromVoid(counter_key), ns));
+                        env.master.id(), uint256(counter_key), ns));
 
                 if (DEBUG_XGTEST)
                 {
@@ -3019,7 +2929,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // check the vote counter
             auto checkCounter = [&](uint64_t lineno, uint8_t c) {
-                uint8_t counter_key[32] = {
+                std::array<uint8_t, 32> counter_key = {
                     'C',   'R',   'D',   1,     0,     0,     0,     0,
                     0,     0,     0,     0,     0,     0,     0,     0,
                     0,     0,     0,     0,     0,     0,     0,     0,
@@ -3027,7 +2937,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 uint256 ns = beast::zero;
                 auto const counterLE = env.le(
                     keylet::hookState(
-                        env.master.id(), uint256::fromVoid(counter_key), ns));
+                        env.master.id(), uint256(counter_key), ns));
 
                 if (DEBUG_XGTEST)
                 {
@@ -3149,7 +3059,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 auto entry = env.le(
                     keylet::hookState(
                         env.master.id(),
-                        uint256::fromVoid(key.data()),
+                        uint256(key),
                         beast::zero));
                 BEAST_EXPECT(
                     !!entry &&
@@ -3163,7 +3073,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 auto entry = env.le(
                     keylet::hookState(
                         env.master.id(),
-                        uint256::fromVoid(key.data()),
+                        uint256(key),
                         beast::zero));
                 BEAST_EXPECT(
                     !!entry &&
@@ -3200,7 +3110,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 auto entry = env.le(
                     keylet::hookState(
                         env.master.id(),
-                        uint256::fromVoid(key.data()),
+                        uint256(key),
                         beast::zero));
                 BEAST_EXPECT(!entry);
             }
@@ -3212,7 +3122,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 auto entry = env.le(
                     keylet::hookState(
                         env.master.id(),
-                        uint256::fromVoid(key.data()),
+                        uint256(key),
                         beast::zero));
                 BEAST_EXPECT(
                     !!entry &&

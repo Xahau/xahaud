@@ -775,33 +775,6 @@ hook::removeHookNamespaceEntry(ripple::SLE& sleAccount, ripple::uint256 ns)
     return false;
 }
 
-// Called by Transactor.cpp to determine if a transaction type can trigger a
-// given hook... The HookOn field in the SetHook transaction determines which
-// transaction types (tt's) trigger the hook. Every bit except ttHookSet is
-// active low, so for example ttESCROW_FINISH = 2, so if the 2nd bit (counting
-// from 0) from the right is 0 then the hook will trigger on ESCROW_FINISH. If
-// it is 1 then ESCROW_FINISH will not trigger the hook. However ttHOOK_SET = 22
-// is active high, so by default (HookOn == 0) ttHOOK_SET is not triggered by
-// transactions. If you wish to set a hook that has control over ttHOOK_SET then
-// set bit 1U<<22.
-bool
-hook::canHook(ripple::TxType txType, ripple::uint256 hookOn)
-{
-    // invert ttHOOK_SET bit
-    hookOn ^= UINT256_BIT[ttHOOK_SET];
-
-    // invert entire field
-    hookOn = ~hookOn;
-
-    return (hookOn & UINT256_BIT[txType]) != beast::zero;
-}
-
-bool
-hook::canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit)
-{
-    return hook::canHook(txType, hookCanEmit);
-}
-
 ripple::uint256
 hook::getHookCanEmit(
     ripple::STObject const& hookObj,
@@ -837,7 +810,7 @@ hook::getHookOn(
 }
 
 // Update HookState ledger objects for the hook... only called after accept()
-// assumes the specified acc has already been checked for authoriation (hook
+// assumes the specified acc has already been checked for authorization (hook
 // grants)
 TER
 hook::setHookState(
@@ -1047,8 +1020,9 @@ hook::apply(
              .provisionalMeta = provisionalMeta},
         .emitFailure = isCallback && wasmParam & 1
             ? std::optional<ripple::STObject>(
-                  (*(applyCtx.view().peek(keylet::emittedTxn(
-                       applyCtx.tx.getFieldH256(sfTransactionHash)))))
+                  (*(applyCtx.view().peek(
+                       keylet::emittedTxn(
+                           applyCtx.tx.getFieldH256(sfTransactionHash)))))
                       .downcast<STObject>())
             : std::optional<ripple::STObject>()};
 
