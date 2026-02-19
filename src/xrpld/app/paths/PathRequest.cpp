@@ -198,7 +198,7 @@ PathRequest::isValid(std::shared_ptr<RippleLineCache> const& crCache)
 
     if (!sleDest)
     {
-        jvDestCur.append(Json::Value(systemCurrencyCode()));
+        jvDestCur.append(Json::Value(systemCurrencyCode));
         if (!saDstAmount.native())
         {
             // Only XRP can be send to a non-existent account.

@@ -23,6 +23,7 @@
 #include <xrpl/beast/type_name.h>
 #include <exception>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 namespace ripple {
@@ -42,7 +43,7 @@ LogThrow(std::string_view type, std::string_view what);
     @param args  Arguments forwarded to the constructor of E.
  */
 template <class E, class... Args>
-[[noreturn]] void
+[[noreturn]] constexpr void
 Throw(Args&&... args)
 {
     static_assert(
@@ -50,7 +51,13 @@ Throw(Args&&... args)
         "Exception must derive from std::exception.");
 
     E e{std::forward<Args>(args)...};
-    detail::LogThrow(beast::type_name<E>().c_str(), e.what());
+
+    // This will avoid the logging call when we the call is being evaluated at
+    // compile time and logging would not be possible or helpful. This enables
+    // `Throw` to be called at from constexpr/consteval functions.
+    if (!std::is_constant_evaluated())
+        detail::LogThrow(beast::type_name<E>().c_str(), e.what());
+
     throw e;
 }
 
