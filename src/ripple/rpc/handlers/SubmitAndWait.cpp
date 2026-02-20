@@ -119,7 +119,8 @@ doSubmitAndWait(RPC::JsonContext& context)
         timeout = std::chrono::seconds(t);
     }
 
-    // Set coroutine-local fetch timeout for SHAMap operations
+    // Enable partial sync wait for SHAMap operations
+    setPartialSyncWait(true);
     setCoroFetchTimeout(
         std::chrono::duration_cast<std::chrono::milliseconds>(timeout / 2));
 

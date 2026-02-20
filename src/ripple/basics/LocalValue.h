@@ -36,6 +36,10 @@ struct LocalValues
     bool onCoro = true;
     void* coroPtr = nullptr;  // Pointer to owning JobQueue::Coro (if any)
 
+    // When true, SHAMap::finishFetch() will poll-wait for missing nodes
+    // instead of returning empty. Only set by partial sync code paths.
+    bool partialSyncWait = false;
+
     // Configurable timeout for SHAMap node fetching during partial sync.
     // Zero means use the default (30s). RPC handlers can set this to
     // customize poll-wait behavior.
@@ -143,6 +147,25 @@ getCurrentCoroPtr()
     if (lvs && lvs->onCoro)
         return lvs->coroPtr;
     return nullptr;
+}
+
+// Check if partial sync wait is enabled for the current coroutine context.
+inline bool
+isPartialSyncWaitEnabled()
+{
+    auto lvs = detail::getLocalValues().get();
+    if (lvs && lvs->onCoro)
+        return lvs->partialSyncWait;
+    return false;
+}
+
+// Enable/disable partial sync wait for the current coroutine context.
+inline void
+setPartialSyncWait(bool enabled)
+{
+    auto lvs = detail::getLocalValues().get();
+    if (lvs && lvs->onCoro)
+        lvs->partialSyncWait = enabled;
 }
 
 // Get the configured fetch timeout for current coroutine context.

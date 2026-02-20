@@ -25,6 +25,7 @@
 #include <ripple/app/paths/TrustLine.h>
 #include <ripple/app/rdb/RelationalDatabase.h>
 #include <ripple/app/tx/impl/details/NFTokenUtils.h>
+#include <ripple/basics/LocalValue.h>
 #include <ripple/ledger/View.h>
 #include <ripple/net/RPCErr.h>
 #include <ripple/protocol/AccountID.h>
@@ -695,6 +696,7 @@ getLedger(T& ledger, LedgerShortcut shortcut, Context& context)
 
             if (hash.isNonZero())
             {
+                setPartialSyncWait(true);
                 ledger = context.app.getInboundLedgers().getPartialLedger(hash);
                 // If no InboundLedger exists yet, trigger acquisition and wait
                 if (!ledger)

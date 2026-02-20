@@ -189,63 +189,68 @@ SHAMap::finishFetch(
                 f_.missingNodeAcquireBySeq(ledgerSeq_, hash.as_uint256());
             }
 
-            // If we're in a coroutine context, poll-wait for the node
-            if (auto* coro = static_cast<JobQueue::Coro*>(getCurrentCoroPtr()))
-            {
-                using namespace std::chrono;
-                constexpr auto pollInterval = 50ms;
-                constexpr auto defaultTimeout = 30s;
-                // Use coroutine-local timeout if set, otherwise default
-                auto coroTimeout = getCoroFetchTimeout();
-                auto timeout =
-                    coroTimeout.count() > 0 ? coroTimeout : defaultTimeout;
-                auto const deadline = steady_clock::now() + timeout;
-
-                // Linear backoff for re-requests: 50ms, 100ms, 150ms... up to
-                // 2s
-                auto nextRequestDelay = 50ms;
-                constexpr auto maxRequestDelay = 2000ms;
-                constexpr auto backoffStep = 50ms;
-                auto nextRequestTime = steady_clock::now() + nextRequestDelay;
-
-                JLOG(journal_.debug())
-                    << "finishFetch: waiting for node " << hash;
-
-                while (steady_clock::now() < deadline)
+            // If partial sync wait is enabled, poll-wait for the node
+            if (isPartialSyncWaitEnabled())
+                if (auto* coro =
+                        static_cast<JobQueue::Coro*>(getCurrentCoroPtr()))
                 {
-                    // Sleep for the poll interval (yields coroutine, frees job
-                    // thread)
-                    coro->sleepFor(pollInterval);
+                    using namespace std::chrono;
+                    constexpr auto pollInterval = 50ms;
+                    constexpr auto defaultTimeout = 30s;
+                    // Use coroutine-local timeout if set, otherwise default
+                    auto coroTimeout = getCoroFetchTimeout();
+                    auto timeout =
+                        coroTimeout.count() > 0 ? coroTimeout : defaultTimeout;
+                    auto const deadline = steady_clock::now() + timeout;
 
-                    // Try to fetch from cache/db again
-                    if (auto obj = f_.db().fetchNodeObject(
-                            hash.as_uint256(), ledgerSeq_))
+                    // Linear backoff for re-requests: 50ms, 100ms, 150ms... up
+                    // to 2s
+                    auto nextRequestDelay = 50ms;
+                    constexpr auto maxRequestDelay = 2000ms;
+                    constexpr auto backoffStep = 50ms;
+                    auto nextRequestTime =
+                        steady_clock::now() + nextRequestDelay;
+
+                    JLOG(journal_.debug())
+                        << "finishFetch: waiting for node " << hash;
+
+                    while (steady_clock::now() < deadline)
                     {
-                        JLOG(journal_.debug())
-                            << "finishFetch: got node " << hash;
-                        auto node = SHAMapTreeNode::makeFromPrefix(
-                            makeSlice(obj->getData()), hash);
-                        if (node)
-                            canonicalize(hash, node);
-                        return node;
+                        // Sleep for the poll interval (yields coroutine, frees
+                        // job thread)
+                        coro->sleepFor(pollInterval);
+
+                        // Try to fetch from cache/db again
+                        if (auto obj = f_.db().fetchNodeObject(
+                                hash.as_uint256(), ledgerSeq_))
+                        {
+                            JLOG(journal_.debug())
+                                << "finishFetch: got node " << hash;
+                            auto node = SHAMapTreeNode::makeFromPrefix(
+                                makeSlice(obj->getData()), hash);
+                            if (node)
+                                canonicalize(hash, node);
+                            return node;
+                        }
+
+                        // Re-request with priority using linear backoff
+                        auto now = steady_clock::now();
+                        if (now >= nextRequestTime)
+                        {
+                            f_.missingNodeAcquireBySeq(
+                                ledgerSeq_,
+                                hash.as_uint256(),
+                                true /*prioritize*/);
+                            // Increase delay for next request (linear backoff)
+                            if (nextRequestDelay < maxRequestDelay)
+                                nextRequestDelay += backoffStep;
+                            nextRequestTime = now + nextRequestDelay;
+                        }
                     }
 
-                    // Re-request with priority using linear backoff
-                    auto now = steady_clock::now();
-                    if (now >= nextRequestTime)
-                    {
-                        f_.missingNodeAcquireBySeq(
-                            ledgerSeq_, hash.as_uint256(), true /*prioritize*/);
-                        // Increase delay for next request (linear backoff)
-                        if (nextRequestDelay < maxRequestDelay)
-                            nextRequestDelay += backoffStep;
-                        nextRequestTime = now + nextRequestDelay;
-                    }
+                    JLOG(journal_.warn())
+                        << "finishFetch: timeout waiting for node " << hash;
                 }
-
-                JLOG(journal_.warn())
-                    << "finishFetch: timeout waiting for node " << hash;
-            }
 
             return {};
         }
