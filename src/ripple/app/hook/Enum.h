@@ -15,6 +15,7 @@
 #define uint256 std::string
 #define featureHooksUpdate1 "1"
 #define featureHooksUpdate2 "1"
+#define featureExport "1"
 #define fix20250131 "1"
 namespace hook_api {
 struct Rules
