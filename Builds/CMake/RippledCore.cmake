@@ -47,7 +47,7 @@ target_sources(
           src/ripple/beast/utility/src/beast_Journal.cpp
           src/ripple/beast/utility/src/beast_PropertyStream.cpp
           # Enhanced logging - compiles to empty when BEAST_ENHANCED_LOGGING is not defined
-          src/ripple/beast/utility/src/beast_EnhancedLogging.cpp) origin/dev
+          src/ripple/beast/utility/src/beast_EnhancedLogging.cpp)
 
 #[===============================[
     core sources
