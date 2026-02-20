@@ -472,7 +472,7 @@ ManifestCache::applyManifest(Manifest m)
         auto masterKey = m.masterKey;
         map_.emplace(std::move(masterKey), std::move(m));
 
-        // Something has changed. Keep track of it.
+        // Increment sequence to invalidate cached manifest messages
         seq_++;
 
         return ManifestDisposition::accepted;

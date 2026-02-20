@@ -4,9 +4,16 @@ on:
   push:
     branches: ["dev", "candidate", "release"]
   pull_request:
-    branches: ["dev", "candidate", "release"]
+    branches: ["**"]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
     - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      full_matrix:
+        description: "Force full matrix (6 configs)"
+        required: false
+        default: "false"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -14,7 +21,11 @@ concurrency:
 
 jobs:
   matrix-setup:
-    runs-on: ubuntu-latest
+    if: >
+      github.event_name != 'pull_request' ||
+      contains(fromJson('["dev","candidate","release"]'), github.base_ref) ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci-full-build')
+    runs-on: [self-hosted, generic, 20.04]
     container: python:3-slim
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -111,6 +122,7 @@ jobs:
           base_ref = "${{ github.base_ref }}"  # For PRs, this is the target branch
           event_name = "${{ github.event_name }}"
           pr_title = """${{ steps.escape.outputs.title }}"""
+          pr_labels = """${{ join(github.event.pull_request.labels.*.name, ',') }}"""
           pr_head_sha = "${{ github.event.pull_request.head.sha }}"
 
           # Get commit message - for PRs, fetch via API since head_commit.message is empty
@@ -136,11 +148,24 @@ jobs:
           print(f"Base ref: {base_ref}")
           print(f"PR head SHA: {pr_head_sha}")
           print(f"PR title: {pr_title}")
+          print(f"PR labels: {pr_labels}")
           print(f"Commit message: {commit_message}")
           
-          # Check for override tags in commit message or PR title
-          force_full = "[ci-nix-full-matrix]" in commit_message or "[ci-nix-full-matrix]" in pr_title
+          # Manual trigger input to force full matrix.
+          manual_full = "${{ github.event.inputs.full_matrix || 'false' }}" == "true"
+
+          # Label/manual overrides, while preserving existing title/commit behavior.
+          force_full = (
+              manual_full
+              or "[ci-nix-full-matrix]" in commit_message
+              or "[ci-nix-full-matrix]" in pr_title
+              or ("ci-full-build" in pr_labels and "ci-nix-full-matrix" in pr_labels)
+          )
+          force_min = (
+              "ci-full-build" in pr_labels
+          )
           print(f"Force full matrix: {force_full}")
+          print(f"Force min matrix: {force_min}")
           
           # Check if this is targeting a main branch
           # For PRs: check base_ref (target branch)
@@ -148,8 +173,11 @@ jobs:
           main_branches = ["refs/heads/dev", "refs/heads/release", "refs/heads/candidate"]
           
           if force_full:
-              # Override: always use full matrix if tag is present
+              # Override: always use full matrix if forced by manual input or label.
               use_full = True
+          elif force_min:
+              # Override: always use minimal matrix if ci-full-build label is present.
+              use_full = False
           elif event_name == "pull_request":
               # For PRs, base_ref is just the branch name (e.g., "dev", not "refs/heads/dev")
               # Check if the PR targets release or candidate (more critical branches)
@@ -176,7 +204,15 @@ jobs:
 
   build:
     needs: matrix-setup
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, generic, 20.04]
+    container:
+      image: ubuntu:24.04
+      volumes:
+        - /home/runner/.conan-cache:/.conan-cache
+        - /home/runner/.ccache-cache:/github/home/.ccache-cache
+    defaults:
+      run:
+        shell: bash
     outputs:
       artifact_name: ${{ steps.set-artifact-name.outputs.artifact_name }}
     strategy:
@@ -191,23 +227,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get commit message
-        id: get-commit-message
-        uses: ./.github/actions/xahau-ga-get-commit-message
-        with:
-          event-name: ${{ github.event_name }}
-          head-commit-message: ${{ github.event.head_commit.message }}
-          pr-head-sha: ${{ github.event.pull_request.head.sha }}
-
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
+          apt-get update
+          apt-get install -y software-properties-common
+          add-apt-repository ppa:ubuntu-toolchain-r/test -y
+          apt-get update
+          apt-get install -y python3 python-is-python3 pipx
+          pipx ensurepath
+          apt-get install -y cmake ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
+          apt-get install -y perl # for openssl build
+          apt-get install -y libsqlite3-dev # for xahaud build
 
           # Install the specific GCC version needed for Clang
           if [ -n "${{ matrix.clang_gcc_toolchain }}" ]; then
             echo "=== Installing GCC ${{ matrix.clang_gcc_toolchain }} for Clang ==="
-            sudo apt-get install -y gcc-${{ matrix.clang_gcc_toolchain }} g++-${{ matrix.clang_gcc_toolchain }} libstdc++-${{ matrix.clang_gcc_toolchain }}-dev
+            apt-get install -y gcc-${{ matrix.clang_gcc_toolchain }} g++-${{ matrix.clang_gcc_toolchain }} libstdc++-${{ matrix.clang_gcc_toolchain }}-dev
 
             echo "=== GCC versions available after installation ==="
             ls -la /usr/lib/gcc/x86_64-linux-gnu/ | grep -E "^d"
@@ -238,7 +273,7 @@ jobs:
                   echo "Hiding GCC $version -> renaming to $counter (will be seen as GCC version $counter)"
                   # Safety check: ensure target doesn't already exist
                   if [ ! -e "/usr/lib/gcc/x86_64-linux-gnu/$counter" ]; then
-                    sudo mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
+                    mv "$dir" "/usr/lib/gcc/x86_64-linux-gnu/$counter"
                   else
                     echo "ERROR: Cannot rename GCC $version - /usr/lib/gcc/x86_64-linux-gnu/$counter already exists"
                     exit 1
@@ -262,11 +297,12 @@ jobs:
 
           # Install libc++ dev packages if using libc++ (not needed for libstdc++)
           if [ "${{ matrix.stdlib }}" = "libcxx" ]; then
-            sudo apt-get install -y libc++-${{ matrix.compiler_version }}-dev libc++abi-${{ matrix.compiler_version }}-dev
+            apt-get install -y libc++-${{ matrix.compiler_version }}-dev libc++abi-${{ matrix.compiler_version }}-dev
           fi
 
           # Install Conan 2
-          pip install --upgrade "conan>=2.0,<3"
+          pipx install "conan>=2.0,<3"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Check environment
         run: |
@@ -279,6 +315,14 @@ jobs:
           which ccache && ccache --version || echo "ccache not found"
           echo "---- Full Environment ----"
           env
+
+      - name: Get commit message
+        id: get-commit-message
+        uses: ./.github/actions/xahau-ga-get-commit-message
+        with:
+          event-name: ${{ github.event_name }}
+          head-commit-message: ${{ github.event.head_commit.message }}
+          pr-head-sha: ${{ github.event.pull_request.head.sha }}
 
       - name: Install dependencies
         uses: ./.github/actions/xahau-ga-dependencies
@@ -293,6 +337,7 @@ jobs:
           cc: ${{ matrix.cc }}
           cxx: ${{ matrix.cxx }}
           stdlib: ${{ matrix.stdlib }}
+          gha_cache_enabled: 'false' # Disable caching for self hosted runner
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build
@@ -307,6 +352,7 @@ jobs:
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
           stdlib: ${{ matrix.stdlib }}
           clang_gcc_toolchain: ${{ matrix.clang_gcc_toolchain || '' }}
+          ccache_max_size: '100G'
 
       - name: Set artifact name
         id: set-artifact-name
