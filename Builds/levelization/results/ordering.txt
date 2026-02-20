@@ -77,6 +77,7 @@ ripple.server > ripple.json
 ripple.server > ripple.protocol
 ripple.shamap > ripple.basics
 ripple.shamap > ripple.beast
+ripple.shamap > ripple.core
 ripple.shamap > ripple.crypto
 ripple.shamap > ripple.nodestore
 ripple.shamap > ripple.protocol
