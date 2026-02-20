@@ -349,8 +349,6 @@ ValidatorSite::onRequestTimeout(std::size_t siteIdx, error_code const& ec)
 void
 ValidatorSite::onTimer(std::size_t siteIdx, error_code const& ec)
 {
-    JLOG(j_.warn()) << "ValidatorSite::onTimer() fired for site " << siteIdx
-                    << " ec=" << ec.message();
     if (ec)
     {
         // Restart the timer if any errors are encountered, unless the error
