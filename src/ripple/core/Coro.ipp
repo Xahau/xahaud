@@ -164,14 +164,13 @@ JobQueue::Coro::postAndYield()
     yielding_.store(false, std::memory_order_release);
 
     // Post a job that waits for yield to be ready, then resumes
-    if (!jq_.addJob(
-            type_, name_, [this, sp = shared_from_this()]() {
-                // Spin-wait until yield() is about to happen
-                // yielding_ is set true immediately before (*yield_)() is called
-                while (!yielding_.load(std::memory_order_acquire))
-                    std::this_thread::yield();
-                resume();
-            }))
+    if (!jq_.addJob(type_, name_, [this, sp = shared_from_this()]() {
+            // Spin-wait until yield() is about to happen
+            // yielding_ is set true immediately before (*yield_)() is called
+            while (!yielding_.load(std::memory_order_acquire))
+                std::this_thread::yield();
+            resume();
+        }))
     {
         std::lock_guard lk(mutex_run_);
         running_ = false;
