@@ -152,6 +152,7 @@ invoke_preflight(PreflightContext const& ctx)
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
+        case ttEXPORT:
         case ttCONSENSUS_ENTROPY:
             return invoke_preflight_helper<Change>(ctx);
         case ttHOOK_SET:
@@ -284,6 +285,7 @@ invoke_preclaim(PreclaimContext const& ctx)
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
+        case ttEXPORT:
         case ttCONSENSUS_ENTROPY:
             return invoke_preclaim<Change>(ctx);
         case ttNFTOKEN_MINT:
@@ -376,6 +378,7 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
         case ttEMIT_FAILURE:
+        case ttEXPORT:
         case ttCONSENSUS_ENTROPY:
             return Change::calculateBaseFee(view, tx);
         case ttNFTOKEN_MINT:
@@ -547,6 +550,7 @@ invoke_apply(ApplyContext& ctx)
         case ttFEE:
         case ttUNL_MODIFY:
         case ttUNL_REPORT:
+        case ttEXPORT:
         case ttEMIT_FAILURE:
         case ttCONSENSUS_ENTROPY: {
             Change p(ctx);

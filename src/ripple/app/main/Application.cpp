@@ -38,6 +38,7 @@
 #include <ripple/app/main/Tuning.h>
 #include <ripple/app/misc/AmendmentTable.h>
 #include <ripple/app/misc/DatagramMonitor.h>
+#include <ripple/app/misc/ExportSignatureCollector.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/LoadFeeTrack.h>
 #include <ripple/app/misc/NetworkOPs.h>
@@ -218,6 +219,7 @@ public:
     std::unique_ptr<AmendmentTable> m_amendmentTable;
     std::unique_ptr<LoadFeeTrack> mFeeTrack;
     std::unique_ptr<HashRouter> hashRouter_;
+    std::unique_ptr<ExportSignatureCollector> exportSignatureCollector_;
     RCLValidations mValidations;
     std::unique_ptr<LoadManager> m_loadManager;
     std::unique_ptr<TxQ> txQ_;
@@ -462,6 +464,9 @@ public:
               stopwatch(),
               HashRouter::getDefaultHoldTime()))
 
+        , exportSignatureCollector_(std::make_unique<ExportSignatureCollector>(
+              logs_->journal("ExportSignatureCollector")))
+
         , mValidations(
               ValidationParms(),
               stopwatch(),
@@ -597,6 +602,18 @@ public:
     getValidationPublicKey() const override
     {
         return validatorKeys_.publicKey;
+    }
+
+    SecretKey const&
+    getValidationSecretKey() const override
+    {
+        return validatorKeys_.secretKey;
+    }
+
+    ValidatorKeys const&
+    getValidatorKeys() const override
+    {
+        return validatorKeys_;
     }
 
     NetworkOPs&
@@ -802,6 +819,12 @@ public:
     getHashRouter() override
     {
         return *hashRouter_;
+    }
+
+    ExportSignatureCollector&
+    getExportSignatureCollector() override
+    {
+        return *exportSignatureCollector_;
     }
 
     RCLValidations&

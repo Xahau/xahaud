@@ -22,6 +22,7 @@
 #include <ripple/app/ledger/InboundTransactions.h>
 #include <ripple/app/ledger/LedgerMaster.h>
 #include <ripple/app/ledger/TransactionMaster.h>
+#include <ripple/app/misc/ExportSignatureCollector.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/LoadFeeTrack.h>
 #include <ripple/app/misc/NetworkOPs.h>
@@ -3216,6 +3217,36 @@ PeerImp::checkValidation(
         charge(Resource::feeInvalidSignature);
         return;
     }
+
+    //@@start peer-receive-export-sigs
+    // Extract export signatures from the validation message
+    if (packet->exportsignatures_size() > 0)
+    {
+        auto const validatorPK = val->getSignerPublic();
+        auto const currentSeq = val->getFieldU32(sfLedgerSequence);
+
+        for (int i = 0; i < packet->exportsignatures_size(); ++i)
+        {
+            try
+            {
+                auto const& data = packet->exportsignatures(i);
+                SerialIter sit(makeSlice(data));
+                uint256 txnHash = sit.getBitString<256>();
+                STObject signer(sit, sfSigner);
+
+                // Verify and add - will verify against cached txn data if
+                // available, otherwise adds unverified (verified later)
+                app_.getExportSignatureCollector().verifyAndAddSignature(
+                    txnHash, validatorPK, std::move(signer), currentSeq);
+            }
+            catch (std::exception const& e)
+            {
+                JLOG(p_journal_.warn())
+                    << "Export: failed to parse signature: " << e.what();
+            }
+        }
+    }
+    //@@end peer-receive-export-sigs
 
     // FIXME it should be safe to remove this try/catch. Investigate codepaths.
     try

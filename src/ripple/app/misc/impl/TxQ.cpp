@@ -19,12 +19,15 @@
 
 #include <ripple/app/ledger/OpenLedger.h>
 #include <ripple/app/main/Application.h>
+#include <ripple/app/misc/ExportSignatureCollector.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/LoadFeeTrack.h>
 #include <ripple/app/misc/TxQ.h>
+#include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/tx/apply.h>
 #include <ripple/basics/mulDiv.h>
 #include <ripple/protocol/Feature.h>
+#include <ripple/protocol/Sign.h>
 #include <ripple/protocol/jss.h>
 #include <ripple/protocol/st.h>
 #include <algorithm>
@@ -1444,7 +1447,6 @@ TxQ::accept(Application& app, OpenView& view)
        Stop when the transaction fee level gets lower than the required fee
        level.
     */
-
     auto ledgerChanged = false;
 
     std::lock_guard lock(mutex_);
@@ -1537,6 +1539,191 @@ TxQ::accept(Application& app, OpenView& view)
             view.rawTxInsert(txID, std::move(s), nullptr);
             ledgerChanged = true;
         }
+    }
+
+    // Inject exported transactions/signatures, if any
+    if (view.rules().enabled(featureExport))
+    {
+        do
+        {
+            // if we're not a validator we do nothing here
+            if (app.getValidationPublicKey().empty())
+                break;
+
+            auto const& keys = app.getValidatorKeys();
+
+            if (keys.configInvalid())
+                break;
+
+            // and if we're not on the UNLReport we also do nothing
+            // Use inUNLReport() which has a grace period for seq < 256
+            // (testing)
+            if (!inUNLReport(view, app, keys.masterPublicKey, j_))
+                break;
+
+            // execution to here means we're a validator and on the UNLReport
+
+            Keylet const exportedDirKeylet{keylet::exportedDir()};
+            if (dirIsEmpty(view, exportedDirKeylet))
+                break;
+
+            std::shared_ptr<SLE const> sleDirNode{};
+            unsigned int uDirEntry{0};
+            uint256 dirEntry{beast::zero};
+
+            if (!cdirFirst(
+                    view,
+                    exportedDirKeylet.key,
+                    sleDirNode,
+                    uDirEntry,
+                    dirEntry))
+                break;
+
+            do
+            {
+                Keylet const itemKeylet{ltCHILD, dirEntry};
+                auto sleItem = view.read(itemKeylet);
+                if (!sleItem)
+                {
+                    // Directory node has an invalid index.  Bail out.
+                    JLOG(j_.warn())
+                        << "ExportedTxn processing: directory node in ledger "
+                        << view.seq()
+                        << " has index to object that is missing: "
+                        << to_string(dirEntry);
+
+                    // RH TODO: if this ever happens the entry should be
+                    // gracefully removed (somehow)
+                    continue;
+                }
+
+                LedgerEntryType const nodeType{
+                    safe_cast<LedgerEntryType>((*sleItem)[sfLedgerEntryType])};
+
+                if (nodeType != ltEXPORTED_TXN)
+                {
+                    JLOG(j_.warn()) << "ExportedTxn processing: emitted "
+                                       "directory contained "
+                                       "non ltEMITTED_TXN type";
+                    // RH TODO: if this ever happens the entry should be
+                    // gracefully removed (somehow)
+                    continue;
+                }
+
+                JLOG(j_.trace()) << "Processing exported txn: " << *sleItem;
+
+                auto const& exported =
+                    const_cast<ripple::STLedgerEntry&>(*sleItem)
+                        .getField(sfExportedTxn)
+                        .downcast<STObject>();
+
+                auto const& txnHash = sleItem->getFieldH256(sfTransactionHash);
+
+                auto exportedLgrSeq = sleItem->getFieldU32(sfLedgerSequence);
+
+                auto const seq = view.seq();
+
+                if (exportedLgrSeq == seq)
+                {
+                    // this shouldn't happen, but do nothing
+                    continue;
+                }
+
+                //@@start txq-export-quorum-check
+                // Check if we have quorum for this export using ephemeral
+                // signatures collected via validation messages
+                auto& collector = app.getExportSignatureCollector();
+                bool const hasQuorum = collector.hasQuorum(txnHash, view, app);
+                auto const sigCount = collector.signatureCount(txnHash);
+
+                JLOG(j_.debug())
+                    << "Export: checking quorum for txn=" << txnHash
+                    << " exportedLgrSeq=" << exportedLgrSeq
+                    << " viewSeq=" << seq << " sigCount=" << sigCount
+                    << " hasQuorum=" << hasQuorum;
+
+                if (hasQuorum)
+                {
+                    // Quorum reached - collect signatures from memory and
+                    // create the ttEXPORT transaction
+                    STArray signers = collector.getSignatures(txnHash);
+
+                    auto s = std::make_shared<ripple::Serializer>();
+                    exported.add(*s);
+                    SerialIter sitTrans(s->slice());
+                    try
+                    {
+                        auto stpTrans =
+                            std::make_shared<STTx>(std::ref(sitTrans));
+
+                        if (!stpTrans->isFieldPresent(sfAccount) ||
+                            stpTrans->getAccountID(sfAccount) == beast::zero)
+                        {
+                            // RH TODO: if this ever happens the entry should be
+                            // gracefully removed (somehow)
+                            continue;
+                        }
+
+                        // RH TODO: should we force remove signingpubkey here?
+
+                        stpTrans->setFieldArray(sfSigners, signers);
+
+                        // Serialize the inner transaction and create an
+                        // STObject from it. sfExportedTxn is OBJECT type, not
+                        // VL. Use set() to replace the existing template field,
+                        // not emplace_back which would add a duplicate.
+                        ripple::Serializer exportedSer;
+                        stpTrans->add(exportedSer);
+                        SerialIter exportedSit(exportedSer.slice());
+
+                        // Create ttEXPORT pseudo-transaction
+                        // Note: sfSigners is already on the inner stpTrans
+                        // (sfExportedTxn) ttEXPORT itself must NOT have
+                        // sfSigners at top level (Change::preflight rejects it)
+                        STTx exportTx(ttEXPORT, [&](auto& obj) {
+                            // Pseudo-transaction required fields
+                            // (Change::preflight checks)
+                            obj[sfAccount] = AccountID();
+                            // Export-specific fields
+                            obj.set(std::make_unique<STObject>(
+                                exportedSit, sfExportedTxn));
+                            obj.setFieldU32(sfLedgerSequence, seq);
+                            obj.setFieldH256(sfTransactionHash, txnHash);
+                        });
+
+                        // Record the ttEXPORT transaction (like ttCRON)
+                        // Cleanup happens via Change::applyExport() when
+                        // processed
+                        uint256 txID = exportTx.getTransactionID();
+
+                        JLOG(j_.debug())
+                            << "Export: injecting ttEXPORT txID=" << txID
+                            << " with " << signers.size() << " signatures";
+
+                        auto s = std::make_shared<ripple::Serializer>();
+                        exportTx.add(*s);
+
+                        app.getHashRouter().setFlags(txID, SF_PRIVATE2);
+                        app.getHashRouter().setFlags(txID, SF_EMITTED);
+                        view.rawTxInsert(txID, std::move(s), nullptr);
+                        ledgerChanged = true;
+                        //@@end txq-export-quorum-check
+                    }
+
+                    catch (std::exception& e)
+                    {
+                        JLOG(j_.warn())
+                            << "ExportedTxn Processing: Failure: " << e.what()
+                            << "\n";
+                    }
+
+                    continue;
+                }
+
+            } while (cdirNext(
+                view, exportedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
+
+        } while (0);
     }
 
     // Inject emitted transactions if any
@@ -1816,6 +2003,14 @@ TxQ::accept(Application& app, OpenView& view)
     LedgerHash const& parentHash = view.info().parentHash;
 #if !NDEBUG
     auto const startingSize = byFee_.size();
+    if (parentHash == parentHash_)
+    {
+        JLOG(j_.fatal()) << "TxQ::accept DOUBLE-ACCEPT DETECTED!"
+                         << " seq=" << view.info().seq
+                         << " parentHash=" << parentHash
+                         << " parentHash_=" << parentHash_
+                         << " byFee_.size()=" << byFee_.size();
+    }
     assert(parentHash != parentHash_);
     parentHash_ = parentHash;
 #endif

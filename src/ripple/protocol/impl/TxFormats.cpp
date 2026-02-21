@@ -491,6 +491,17 @@ TxFormats::TxFormats()
         },
         commonFields);
 
+    //@@start tt-export-format
+    add(jss::Export,
+        ttEXPORT,
+        {
+            {sfTransactionHash, soeREQUIRED},
+            {sfExportedTxn, soeREQUIRED},
+            {sfLedgerSequence, soeREQUIRED},
+        },
+        commonFields);
+    //@@end tt-export-format
+
     add(jss::ConsensusEntropy,
         ttCONSENSUS_ENTROPY,
         {

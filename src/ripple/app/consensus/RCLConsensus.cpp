@@ -28,6 +28,7 @@
 #include <ripple/app/ledger/OpenLedger.h>
 #include <ripple/app/misc/AmendmentTable.h>
 #include <ripple/app/misc/CanonicalTXSet.h>
+#include <ripple/app/misc/ExportSignatureCollector.h>
 #include <ripple/app/misc/HashRouter.h>
 #include <ripple/app/misc/LoadFeeTrack.h>
 #include <ripple/app/misc/NegativeUNLVote.h>
@@ -36,6 +37,7 @@
 #include <ripple/app/misc/TxQ.h>
 #include <ripple/app/misc/ValidatorKeys.h>
 #include <ripple/app/misc/ValidatorList.h>
+#include <ripple/app/tx/apply.h>
 #include <ripple/basics/random.h>
 #include <ripple/beast/core/LexicalCast.h>
 #include <ripple/consensus/LedgerTiming.h>
@@ -753,6 +755,10 @@ RCLConsensus::Adaptor::doAccept(
             tapNONE,
             "consensus",
             [&](OpenView& view, beast::Journal j) {
+                // Export signatures are now collected ephemerally via
+                // validation messages (signPendingExports in validate()),
+                // not via ttEXPORT_SIGN transactions. This eliminates the
+                // O(n²) metadata bloat from accumulating signatures on-ledger.
                 return app_.getTxQ().accept(app_, view);
             });
 
@@ -969,9 +975,38 @@ RCLConsensus::Adaptor::validate(
 
     handleNewValidation(app_, v, "local");
 
+    //@@start validate-sign-exports
+    // Sign pending exports and collect signatures for ephemeral broadcasting
+    auto exportSigs = signPendingExports(*ledger.ledger_, app_, j_);
+
+    // Store our own signatures in memory
+    auto const currentSeq = ledger.ledger_->info().seq;
+    for (auto const& [txnHash, signer] : exportSigs)
+    {
+        app_.getExportSignatureCollector().addSignature(
+            txnHash, app_.getValidationPublicKey(), signer, currentSeq);
+    }
+
     // Broadcast to all our peers:
     protocol::TMValidation val;
     val.set_validation(serialized.data(), serialized.size());
+
+    // Add export signatures to the validation message
+    for (auto const& [txnHash, signer] : exportSigs)
+    {
+        Serializer s;
+        s.addBitString(txnHash);
+        signer.add(s);
+        val.add_exportsignatures(s.data(), s.size());
+    }
+
+    if (!exportSigs.empty())
+    {
+        JLOG(j_.debug()) << "Export: broadcasting " << exportSigs.size()
+                         << " signatures with validation for seq="
+                         << ledger.seq();
+    }
+    //@@end validate-sign-exports
     app_.overlay().broadcast(val);
 
     // Publish to all our subscribers:

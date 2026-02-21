@@ -441,8 +441,7 @@ Transactor::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     // Only check fee is sufficient when the ledger is open.
     if (ctx.view.open())
     {
-        auto const feeDue =
-            minimumFee(ctx.app, baseFee, ctx.view.fees(), ctx.flags);
+        auto feeDue = minimumFee(ctx.app, baseFee, ctx.view.fees(), ctx.flags);
 
         if (feePaid < feeDue)
         {
@@ -779,8 +778,7 @@ Transactor::apply()
     // list one, preflight will have already a flagged a failure.
     auto const sle = view().peek(keylet::account(account_));
 
-    // sle must exist except for transactions
-    // that allow zero account. (and ttIMPORT)
+    // sle must exist except for first import (account creation via ttIMPORT)
     assert(
         sle != nullptr || account_ == beast::zero ||
         view().rules().enabled(featureImport) &&
@@ -847,16 +845,18 @@ NotTEC
 Transactor::checkSingleSign(PreclaimContext const& ctx)
 {
     // Check that the value in the signing key slot is a public key.
-    auto const pkSigner = ctx.tx.getSigningPubKey();
-    if (!publicKeyType(makeSlice(pkSigner)))
+    auto const& pkSignerField = ctx.tx.getSigningPubKey();
+    if (!publicKeyType(makeSlice(pkSignerField)))
     {
         JLOG(ctx.j.trace())
             << "checkSingleSign: signing public key type is unknown";
         return tefBAD_AUTH;  // FIXME: should be better error!
     }
 
+    PublicKey pkSigner{makeSlice(pkSignerField)};
+
     // Look up the account.
-    auto const idSigner = calcAccountID(PublicKey(makeSlice(pkSigner)));
+    auto const idSigner = calcAccountID(pkSigner);
     auto const idAccount = ctx.tx.getAccountID(sfAccount);
     auto const sleAccount = ctx.view.read(keylet::account(idAccount));
 

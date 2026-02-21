@@ -103,6 +103,7 @@ CONSTRUCT_TYPED_SFIELD(sfHookEmitCount,         "HookEmitCount",        UINT16, 
 CONSTRUCT_TYPED_SFIELD(sfHookExecutionIndex,    "HookExecutionIndex",   UINT16,    19);
 CONSTRUCT_TYPED_SFIELD(sfHookApiVersion,        "HookApiVersion",       UINT16,    20);
 CONSTRUCT_TYPED_SFIELD(sfHookStateScale,        "HookStateScale",       UINT16,    21);
+CONSTRUCT_TYPED_SFIELD(sfHookExportCount,       "HookExportCount",      UINT16,    22);
 CONSTRUCT_TYPED_SFIELD(sfEntropyCount,          "EntropyCount",         UINT16,    99);
 
 // 32-bit integers (common)
@@ -364,6 +365,7 @@ CONSTRUCT_UNTYPED_SFIELD(sfImportVLKey,         "ImportVLKey",          OBJECT, 
 CONSTRUCT_UNTYPED_SFIELD(sfHookEmission,        "HookEmission",         OBJECT,    93);
 CONSTRUCT_UNTYPED_SFIELD(sfMintURIToken,        "MintURIToken",         OBJECT,    92); 
 CONSTRUCT_UNTYPED_SFIELD(sfAmountEntry,         "AmountEntry",          OBJECT,    91);
+CONSTRUCT_UNTYPED_SFIELD(sfExportedTxn,         "ExportedTxn",          OBJECT,    90);
 
 // array of objects
 //                                                                            ARRAY/1 is reserved for end of array

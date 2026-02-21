@@ -130,7 +130,8 @@ Env::close(
     // Go through the rpc interface unless we need to simulate
     // a specific consensus delay.
     if (consensusDelay)
-        app().getOPs().acceptLedger(consensusDelay);
+        app().getOPs().acceptLedger(
+            consensusDelay, "Env::close(consensusDelay)");
     else
     {
         auto resp = rpc("ledger_accept");

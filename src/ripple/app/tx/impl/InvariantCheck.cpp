@@ -488,6 +488,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltHOOK_DEFINITION:
             case ltHOOK_STATE:
             case ltEMITTED_TXN:
+            case ltEXPORTED_TXN:
             case ltNFTOKEN_PAGE:
             case ltNFTOKEN_OFFER:
             case ltURI_TOKEN:

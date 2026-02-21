@@ -144,6 +144,8 @@ JSS(HookStateData);            // field.
 JSS(HookStateKey);             // field.
 JSS(EmittedTxn);               // ledger type.
 JSS(EmitDetails);              // field.
+JSS(ExportedTxn);              // ledger type.
+JSS(Export);                   // transaction type.
 JSS(SignerList);               // ledger type.
 JSS(SignerListSet);            // transaction type.
 JSS(SigningPubKey);            // field.

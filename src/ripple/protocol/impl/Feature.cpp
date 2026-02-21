@@ -484,6 +484,7 @@ REGISTER_FIX    (fixInvalidTxFlags,             Supported::yes, VoteBehavior::De
 REGISTER_FEATURE(ExtendedHookState,             Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FIX    (fixCronStacking,               Supported::yes, VoteBehavior::DefaultYes);
 REGISTER_FIX    (fixHookAPI20251128,            Supported::yes, VoteBehavior::DefaultYes);
+REGISTER_FEATURE(Export,                        Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FEATURE(HookOnV2,                      Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FEATURE(HooksUpdate2,                  Supported::yes, VoteBehavior::DefaultNo);
 REGISTER_FEATURE(ConsensusEntropy,              Supported::yes, VoteBehavior::DefaultNo);

@@ -23,6 +23,7 @@
 #include <ripple/app/ledger/Ledger.h>
 #include <ripple/app/main/Application.h>
 #include <ripple/app/misc/AmendmentTable.h>
+#include <ripple/app/misc/ExportSignatureCollector.h>
 #include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/app/tx/impl/Change.h>
 #include <ripple/app/tx/impl/SetHook.h>
@@ -98,6 +99,12 @@ Change::preflight(PreflightContext const& ctx)
         }
     }
 
+    if (ctx.tx.getTxnType() == ttEXPORT && !ctx.rules.enabled(featureExport))
+    {
+        JLOG(ctx.j.warn()) << "Change: Export not enabled";
+        return temDISABLED;
+    }
+
     if (ctx.tx.getTxnType() == ttCONSENSUS_ENTROPY)
     {
         if (!ctx.rules.enabled(featureConsensusEntropy))
@@ -171,6 +178,7 @@ Change::preclaim(PreclaimContext const& ctx)
         case ttAMENDMENT:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
+        case ttEXPORT:
         case ttCONSENSUS_ENTROPY:
             return tesSUCCESS;
         case ttUNL_REPORT: {
@@ -227,6 +235,8 @@ Change::doApply()
             return applyEmitFailure();
         case ttUNL_REPORT:
             return applyUNLReport();
+        case ttEXPORT:
+            return applyExport();
         case ttCONSENSUS_ENTROPY:
             return applyConsensusEntropy();
         default:
@@ -1126,6 +1136,49 @@ Change::applyEmitFailure()
         }
 
         view().erase(sle);
+    } while (0);
+    return tesSUCCESS;
+}
+
+TER
+Change::applyExport()
+{
+    uint256 txnID(ctx_.tx.getFieldH256(sfTransactionHash));
+
+    do
+    {
+        JLOG(j_.debug()) << "Export: processing ttEXPORT for " << txnID;
+
+        auto key = keylet::exportedTxn(txnID);
+
+        auto const& sle = view().peek(key);
+
+        if (!sle)
+        {
+            // most likely explanation is that this was somehow a double-up, so
+            // just ignore
+            JLOG(j_.warn())
+                << "Export: ttEXPORT could not find ltEXPORTED_TXN for "
+                << txnID;
+            break;
+        }
+
+        if (!view().dirRemove(
+                keylet::exportedDir(),
+                sle->getFieldU64(sfOwnerNode),
+                key,
+                false))
+        {
+            JLOG(j_.fatal())
+                << "Export: ttEXPORT failed to remove directory entry for "
+                << txnID;
+            return tefBAD_LEDGER;
+        }
+
+        view().erase(sle);
+
+        // Clear ephemeral signatures from memory now that export is processed
+        ctx_.app.getExportSignatureCollector().clearForTxn(txnID);
     } while (0);
     return tesSUCCESS;
 }

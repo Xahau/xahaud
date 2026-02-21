@@ -75,6 +75,9 @@ private:
     applyEmitFailure();
 
     TER
+    applyExport();
+
+    TER
     applyUNLReport();
 
     TER

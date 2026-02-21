@@ -146,6 +146,7 @@ struct HookResult
 
     std::queue<std::shared_ptr<ripple::Transaction>>
         emittedTxn{};  // etx stored here until accept/rollback
+    std::queue<std::shared_ptr<ripple::Transaction>> exportedTxn{};
     HookStateMap& stateMap;
     uint16_t changedStateCount = 0;
     std::map<
@@ -204,6 +205,7 @@ struct HookContext
     uint16_t ledger_nonce_counter{0};
     int64_t expected_etxn_count{-1};  // make this a 64bit int so the uint32
                                       // from the hookapi cant overflow it
+    int64_t expected_export_count{-1};
     std::map<ripple::uint256, bool> nonce_used{};
     uint32_t generation =
         0;  // used for caching, only generated when txn_generation is called
