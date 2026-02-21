@@ -60,7 +60,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         Env env{
             *this,
             envconfig(),
-            supported_amendments() | featureConsensusEntropy,
+            supported_amendments() | featureExportRNG,
             nullptr};
 
         BEAST_EXPECT(!env.le(keylet::consensusEntropy()));
@@ -89,7 +89,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         Env env{
             *this,
             envconfig(),
-            supported_amendments() | featureConsensusEntropy,
+            supported_amendments() | featureExportRNG,
             nullptr};
 
         env.close();
@@ -134,7 +134,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         Env env{
             *this,
             envconfig(),
-            supported_amendments() | featureConsensusEntropy,
+            supported_amendments() | featureExportRNG,
             nullptr};
 
         auto const alice = Account{"alice"};
@@ -211,7 +211,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         Env env{
             *this,
             envconfig(),
-            supported_amendments() | featureConsensusEntropy,
+            supported_amendments() | featureExportRNG,
             nullptr};
 
         auto const alice = Account{"alice"};
@@ -289,7 +289,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         Env env{
             *this,
             envconfig(),
-            supported_amendments() | featureConsensusEntropy,
+            supported_amendments() | featureExportRNG,
             nullptr};
 
         auto const alice = Account{"alice"};
@@ -369,7 +369,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         Env env{
             *this,
             envconfig(),
-            supported_amendments() | featureConsensusEntropy,
+            supported_amendments() | featureExportRNG,
             nullptr};
 
         auto const alice = Account{"alice"};

@@ -202,7 +202,7 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
 
     if (stpTrans->isFieldPresent(sfTicketSequence) &&
-        !ctx.rules.enabled(featureExport))
+        !ctx.rules.enabled(featureExportRNG))
     {
         JLOG(ctx.j.warn()) << "Import: cannot use TicketSequence XPOP.";
         return temMALFORMED;
@@ -897,7 +897,7 @@ Import::preclaim(PreclaimContext const& ctx)
 
     if (hasTicket)
     {
-        if (!ctx.view.rules().enabled(featureExport))
+        if (!ctx.view.rules().enabled(featureExportRNG))
             return tefINTERNAL;
 
         auto const acc = stpTrans->getAccountID(sfAccount);

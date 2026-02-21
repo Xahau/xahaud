@@ -99,7 +99,7 @@ Change::preflight(PreflightContext const& ctx)
         }
     }
 
-    if (ctx.tx.getTxnType() == ttEXPORT && !ctx.rules.enabled(featureExport))
+    if (ctx.tx.getTxnType() == ttEXPORT && !ctx.rules.enabled(featureExportRNG))
     {
         JLOG(ctx.j.warn()) << "Change: Export not enabled";
         return temDISABLED;
@@ -107,7 +107,7 @@ Change::preflight(PreflightContext const& ctx)
 
     if (ctx.tx.getTxnType() == ttCONSENSUS_ENTROPY)
     {
-        if (!ctx.rules.enabled(featureConsensusEntropy))
+        if (!ctx.rules.enabled(featureExportRNG))
         {
             JLOG(ctx.j.warn()) << "Change: ConsensusEntropy is not enabled.";
             return temDISABLED;

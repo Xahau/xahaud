@@ -1542,7 +1542,7 @@ TxQ::accept(Application& app, OpenView& view)
     }
 
     // Inject exported transactions/signatures, if any
-    if (view.rules().enabled(featureExport))
+    if (view.rules().enabled(featureExportRNG))
     {
         do
         {

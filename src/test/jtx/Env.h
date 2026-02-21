@@ -86,7 +86,7 @@ supported_amendments()
         // TODO: ConsensusEntropy injects a pseudo-tx every ledger which
         // breaks existing test transaction count assumptions. Exclude from
         // default test set until dedicated tests are written.
-        return FeatureBitset(feats) - featureConsensusEntropy;
+        return FeatureBitset(feats) - featureExportRNG;
         //@@end rng-test-environment-gating
     }();
     return ids;

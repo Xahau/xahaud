@@ -1712,7 +1712,7 @@ hook::finalizeHookResult(
         meta.setFieldU16(
             sfHookEmitCount,
             emission_txnid.size());  // this will never wrap, hard limit
-        if (applyCtx.view().rules().enabled(featureExport))
+        if (applyCtx.view().rules().enabled(featureExportRNG))
         {
             meta.setFieldU16(sfHookExportCount, exported_txnid.size());
         }
