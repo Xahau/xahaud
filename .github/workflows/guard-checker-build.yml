@@ -20,5 +20,5 @@ jobs:
 
       - name: Build Guard Checker
         run: |
-          cd src/ripple/app/hook
+          cd include/xrpl/hook
           make guard_checker

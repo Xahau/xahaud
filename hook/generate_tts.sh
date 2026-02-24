@@ -4,25 +4,22 @@ set -eu
 SCRIPT_DIR=$(dirname "$0")
 SCRIPT_DIR=$(cd "$SCRIPT_DIR" && pwd)
 
-RIPPLED_ROOT="$SCRIPT_DIR/../src/ripple"
-TX_FORMATS="$RIPPLED_ROOT/protocol/TxFormats.h"
+RIPPLED_ROOT="$SCRIPT_DIR/../include/xrpl"
+TX_FORMATS="$RIPPLED_ROOT/protocol/detail/transactions.macro"
 
 echo '// For documentation please see: https://xrpl-hooks.readme.io/reference/'
 echo '// Generated using generate_tts.sh'
-sed -n '/enum TxType/,/};/p' "$TX_FORMATS" |
+cat "$TX_FORMATS" |
     awk '
         function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
         function rtrim(s) { sub(/[[:space:]]+$/, "", s); return s }
         function trim(s) { return rtrim(ltrim(s)) }
 
-        /^[ \t]*tt[A-Z0-9_]+/ {
+        /^TRANSACTION\(tt/ {
             line = $0
-            deprecated = (line ~ /\[\[deprecated/)
-            gsub(/\[\[deprecated[^]]*\]\]/, "", line)
-            sub(/\/\/.*$/, "", line)
-            gsub(/,[[:space:]]*$/, "", line)
+            sub(/^TRANSACTION\(/, "", line)
 
-            split(line, parts, "=")
+            split(line, parts, ",")
             if (length(parts) < 2)
                 next
 

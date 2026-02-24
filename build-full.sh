@@ -19,9 +19,9 @@ umask 0000;
 cd /io;
 mkdir -p src/certs;
 curl --silent -k https://raw.githubusercontent.com/RichardAH/rippled-release-builder/main/ca-bundle/certbundle.h -o src/certs/certbundle.h;
-if [ "`grep certbundle.h src/ripple/net/impl/RegisterSSLCerts.cpp | wc -l`" -eq "0" ]
+if [ "`grep certbundle.h src/xrpld/net/detail/RegisterSSLCerts.cpp | wc -l`" -eq "0" ]
 then
-    cp src/ripple/net/impl/RegisterSSLCerts.cpp src/ripple/net/impl/RegisterSSLCerts.cpp.old
+    cp src/xrpld/net/detail/RegisterSSLCerts.cpp src/xrpld/net/detail/RegisterSSLCerts.cpp.old
     perl -i -pe "s/^{/{
     #ifdef EMBEDDED_CA_BUNDLE
     BIO *cbio = BIO_new_mem_buf(ca_bundle.data(), ca_bundle.size());
@@ -61,14 +61,14 @@ then
             BIO_free(cbio);
         }
     }
-    #endif/g" src/ripple/net/impl/RegisterSSLCerts.cpp &&
-    sed -i "s/#include <ripple\/net\/RegisterSSLCerts.h>/\0\n#include <certs\/certbundle.h>/g" src/ripple/net/impl/RegisterSSLCerts.cpp
+    #endif/g" src/xrpld/net/detail/RegisterSSLCerts.cpp &&
+    sed -i "s/#include <xrpld\/net\/RegisterSSLCerts.h>/\0\n#include <certs\/certbundle.h>/g" src/xrpld/net/detail/RegisterSSLCerts.cpp
 fi
 # Environment setup moved to Dockerfile in release-builder.sh
 source /opt/rh/gcc-toolset-11/enable
 export PATH=/usr/local/bin:$PATH
-export CC='ccache gcc' &&
-export CXX='ccache g++' &&
+export CC='/usr/lib64/ccache/gcc' &&
+export CXX='/usr/lib64/ccache/g++' &&
 echo "-- Build Rippled --" &&
 pwd &&
 
