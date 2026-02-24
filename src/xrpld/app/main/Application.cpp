@@ -592,7 +592,8 @@ public:
     getValidationSecretKey() const override
     {
         if (!validatorKeys_.keys)
-            LogicError("Accessing validation secret key without validator keys");
+            LogicError(
+                "Accessing validation secret key without validator keys");
 
         return validatorKeys_.keys->secretKey;
     }

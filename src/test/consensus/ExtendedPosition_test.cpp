@@ -18,8 +18,8 @@
 //==============================================================================
 
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
-#include <xrpl/beast/unit_test.h>
 #include <xrpld/consensus/ConsensusProposal.h>
+#include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/digest.h>
 #include <cstring>

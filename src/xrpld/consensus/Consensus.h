@@ -20,14 +20,14 @@
 #ifndef RIPPLE_CONSENSUS_CONSENSUS_H_INCLUDED
 #define RIPPLE_CONSENSUS_CONSENSUS_H_INCLUDED
 
-#include <xrpl/basics/Log.h>
-#include <xrpl/basics/chrono.h>
-#include <xrpl/beast/utility/Journal.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/consensus/ConsensusProposal.h>
 #include <xrpld/consensus/ConsensusTypes.h>
 #include <xrpld/consensus/DisputedTx.h>
 #include <xrpld/consensus/LedgerTiming.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/basics/chrono.h>
+#include <xrpl/beast/utility/Journal.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/digest.h>
 #include <boost/logic/tribool.hpp>
@@ -729,7 +729,7 @@ Consensus<Adaptor>::startRoundInternal(
     // Capture last round's proposer IDs before clearing — this is the
     // best signal for who will propose this round.
     hash_set<NodeID_t> lastProposers;
-    if constexpr (requires(Adaptor & a) {
+    if constexpr (requires(Adaptor& a) {
                       a.setExpectedProposers(hash_set<NodeID_t>{});
                   })
     {
@@ -744,7 +744,7 @@ Consensus<Adaptor>::startRoundInternal(
     deadNodes_.clear();
 
     // Reset RNG state for new round if adaptor supports it
-    if constexpr (requires(Adaptor & a) { a.clearRngState(); })
+    if constexpr (requires(Adaptor& a) { a.clearRngState(); })
     {
         adaptor_.clearRngState();
         // Populate UNL cache for all nodes (including observers).
@@ -857,7 +857,7 @@ Consensus<Adaptor>::peerProposalInternal(
     }
 
     // Harvest RNG data from proposal if adaptor supports it
-    if constexpr (requires(Adaptor & a, PeerPosition_t const& pp) {
+    if constexpr (requires(Adaptor& a, PeerPosition_t const& pp) {
                       a.harvestRngData(
                           pp.proposal().nodeID(),
                           pp.publicKey(),
@@ -895,7 +895,7 @@ Consensus<Adaptor>::peerProposalInternal(
         // one full round before consensus promotes it to proposing.
         // The primary data transport is proposals themselves — the
         // SHAMap sync is belt-and-suspenders, not the critical path.
-        if constexpr (requires(Adaptor & a) {
+        if constexpr (requires(Adaptor& a) {
                           a.fetchRngSetIfNeeded(std::optional<uint256>{});
                       })
         {
@@ -1442,7 +1442,7 @@ Consensus<Adaptor>::phaseEstablish(
     // So we wait for ALL of them, with rngREVEAL_TIMEOUT (measured
     // from ConvergingReveal entry) as the safety valve for nodes that
     // crash between commit and reveal.
-    if constexpr (requires(Adaptor & a) {
+    if constexpr (requires(Adaptor& a) {
                       a.hasQuorumOfCommits();
                       a.buildCommitSet(typename Ledger_t::Seq{});
                       a.generateEntropySecret();

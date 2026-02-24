@@ -21,12 +21,12 @@
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
+#include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/json/to_string.h>
-#include <xrpld/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Import.h>
 #include <xrpl/protocol/Indexes.h>
@@ -1359,8 +1359,8 @@ Import::doApply()
             view().rules().enabled(featureXahauGenesis)
                 ? view().info().parentCloseTime.time_since_epoch().count()
                 : view().rules().enabled(featureDeletableAccounts)
-                    ? view().seq()
-                    : 1};
+                ? view().seq()
+                : 1};
 
         sle = std::make_shared<SLE>(keylet::account(id));
         sle->setAccountID(sfAccount, id);

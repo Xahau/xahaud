@@ -1580,8 +1580,7 @@ TxQ::accept(Application& app, OpenView& view)
 
             // Membership model prefers UNLReport and falls back to local trust
             // when report data is unavailable.
-            if (!isExportValidatorTrusted(
-                    view, app, keys.masterPublicKey, j_))
+            if (!isExportValidatorTrusted(view, app, keys.masterPublicKey, j_))
                 break;
 
             Keylet const exportedDirKeylet{keylet::exportedDir()};
@@ -1631,7 +1630,8 @@ TxQ::accept(Application& app, OpenView& view)
                         .downcast<STObject>();
 
                 auto const txnHash = sleItem->getFieldH256(sfTransactionHash);
-                auto const exportedLgrSeq = sleItem->getFieldU32(sfLedgerSequence);
+                auto const exportedLgrSeq =
+                    sleItem->getFieldU32(sfLedgerSequence);
                 auto const seq = view.seq();
 
                 if (exportedLgrSeq == seq)
@@ -1664,8 +1664,8 @@ TxQ::accept(Application& app, OpenView& view)
 
                     STTx exportTx(ttEXPORT, [&](auto& obj) {
                         obj[sfAccount] = AccountID();
-                        obj.set(
-                            std::make_unique<STObject>(exportedSit, sfExportedTxn));
+                        obj.set(std::make_unique<STObject>(
+                            exportedSit, sfExportedTxn));
                         obj.setFieldU32(sfLedgerSequence, seq);
                         obj.setFieldH256(sfTransactionHash, txnHash);
                     });

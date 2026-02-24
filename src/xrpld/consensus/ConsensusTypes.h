@@ -29,7 +29,12 @@
 
 namespace ripple {
 
-template <class PeerPosition, class NodeID, class LedgerID, class TxSetID, class = void>
+template <
+    class PeerPosition,
+    class NodeID,
+    class LedgerID,
+    class TxSetID,
+    class = void>
 struct ConsensusProposalType
 {
     using type = ConsensusProposal<NodeID, LedgerID, TxSetID>;

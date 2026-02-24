@@ -17,16 +17,16 @@
 */
 //==============================================================================
 
-#include <xrpl/hook/Enum.h>
+#include <test/app/ConsensusEntropy_test_hooks.h>
+#include <test/jtx.h>
+#include <test/jtx/hook.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
-#include <test/app/ConsensusEntropy_test_hooks.h>
-#include <test/jtx.h>
-#include <test/jtx/hook.h>
 
 namespace ripple {
 namespace test {

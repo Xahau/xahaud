@@ -163,16 +163,16 @@ checkConsensusReached(
 
 ConsensusState
 checkConsensus(
-std::size_t prevProposers,
-std::size_t currentProposers,
-std::size_t currentAgree,
-std::size_t currentFinished,
-std::chrono::milliseconds previousAgreeTime,
-std::chrono::milliseconds currentAgreeTime,
-ConsensusParms const& parms,
-bool proposing,
-beast::Journal j,
-std::unique_ptr<std::stringstream> const& clog)
+    std::size_t prevProposers,
+    std::size_t currentProposers,
+    std::size_t currentAgree,
+    std::size_t currentFinished,
+    std::chrono::milliseconds previousAgreeTime,
+    std::chrono::milliseconds currentAgreeTime,
+    ConsensusParms const& parms,
+    bool proposing,
+    beast::Journal j,
+    std::unique_ptr<std::stringstream> const& clog)
 {
     CLOG(clog) << "checkConsensus: prop=" << currentProposers << "/"
                << prevProposers << " agree=" << currentAgree

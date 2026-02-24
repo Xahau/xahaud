@@ -17,8 +17,6 @@
 */
 //==============================================================================
 
-#include <xrpl/hook/Enum.h>
-#include <xrpl/hook/Guard.h>
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/main/Application.h>
@@ -29,9 +27,11 @@
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/app/tx/detail/XahauGenesis.h>
-#include <xrpl/basics/Log.h>
 #include <xrpld/ledger/Sandbox.h>
 #include <xrpld/ledger/View.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/hook/Enum.h>
+#include <xrpl/hook/Guard.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>

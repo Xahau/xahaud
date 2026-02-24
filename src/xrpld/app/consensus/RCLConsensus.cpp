@@ -38,12 +38,12 @@
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/apply.h>
-#include <xrpl/basics/random.h>
-#include <xrpl/beast/core/LexicalCast.h>
 #include <xrpld/consensus/LedgerTiming.h>
-#include <xrpl/crypto/csprng.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/overlay/predicates.h>
+#include <xrpl/basics/random.h>
+#include <xrpl/beast/core/LexicalCast.h>
+#include <xrpl/crypto/csprng.h>
 #include <xrpl/protocol/BuildInfo.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
@@ -246,7 +246,8 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
     {
         auto const ownNodeId = validatorKeys_.nodeID;
         pendingReveals_[ownNodeId] = *proposal.position().myReveal;
-        nodeIdToKey_.insert_or_assign(ownNodeId, validatorKeys_.keys->publicKey);
+        nodeIdToKey_.insert_or_assign(
+            ownNodeId, validatorKeys_.keys->publicKey);
         JLOG(j_.debug()) << "RNG: self-seeded reveal for " << ownNodeId;
     }
 
@@ -475,7 +476,8 @@ RCLConsensus::Adaptor::onClose(
         // toward quorum (harvestRngData only sees peer proposals).
         auto const ownNodeId = validatorKeys_.nodeID;
         pendingCommits_[ownNodeId] = *pos.myCommitment;
-        nodeIdToKey_.insert_or_assign(ownNodeId, validatorKeys_.keys->publicKey);
+        nodeIdToKey_.insert_or_assign(
+            ownNodeId, validatorKeys_.keys->publicKey);
 
         JLOG(j_.info()) << "RNG: onClose bootstrap seq="
                         << (prevLedger->info().seq + 1)

@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <xrpl/protocol/Feature.h>
-#include <xrpl/protocol/Indexes.h>
-#include <xrpl/protocol/jss.h>
 #include <test/app/Export_test_hooks.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/jss.h>
 
 #include <map>
 
