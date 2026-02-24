@@ -703,7 +703,8 @@ Import::preflight(PreflightContext const& ctx)
 
     JLOG(ctx.j.trace()) << "totalValidatorCount: " << totalValidatorCount;
 
-    uint64_t quorum = totalValidatorCount * 0.8;
+    // Quorum is 80% rounded up, matching source-chain export quorum.
+    uint64_t quorum = (totalValidatorCount * 80 + 99) / 100;
 
     if (quorum == 0)
     {

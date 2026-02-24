@@ -3223,26 +3223,40 @@ PeerImp::checkValidation(
     if (packet->exportsignatures_size() > 0)
     {
         auto const validatorPK = val->getSignerPublic();
-        auto const currentSeq = val->getFieldU32(sfLedgerSequence);
+        bool trustedForExport = app_.validators().trusted(validatorPK);
+        if (auto const vl = app_.getLedgerMaster().getValidatedLedger())
+            trustedForExport =
+                isExportValidatorTrusted(*vl, app_, validatorPK, p_journal_);
 
-        for (int i = 0; i < packet->exportsignatures_size(); ++i)
+        if (!trustedForExport)
         {
-            try
-            {
-                auto const& data = packet->exportsignatures(i);
-                SerialIter sit(makeSlice(data));
-                uint256 txnHash = sit.getBitString<256>();
-                STObject signer(sit, sfSigner);
+            JLOG(p_journal_.trace())
+                << "Export: ignoring signatures from untrusted validator "
+                << toBase58(TokenType::NodePublic, validatorPK);
+        }
+        else
+        {
+            auto const currentSeq = val->getFieldU32(sfLedgerSequence);
 
-                // Verify and add - will verify against cached txn data if
-                // available, otherwise adds unverified (verified later)
-                app_.getExportSignatureCollector().verifyAndAddSignature(
-                    txnHash, validatorPK, std::move(signer), currentSeq);
-            }
-            catch (std::exception const& e)
+            for (int i = 0; i < packet->exportsignatures_size(); ++i)
             {
-                JLOG(p_journal_.warn())
-                    << "Export: failed to parse signature: " << e.what();
+                try
+                {
+                    auto const& data = packet->exportsignatures(i);
+                    SerialIter sit(makeSlice(data));
+                    uint256 txnHash = sit.getBitString<256>();
+                    STObject signer(sit, sfSigner);
+
+                    // Verify and add - will verify against cached txn data if
+                    // available, otherwise adds unverified (verified later)
+                    app_.getExportSignatureCollector().verifyAndAddSignature(
+                        txnHash, validatorPK, std::move(signer), currentSeq);
+                }
+                catch (std::exception const& e)
+                {
+                    JLOG(p_journal_.warn())
+                        << "Export: failed to parse signature: " << e.what();
+                }
             }
         }
     }

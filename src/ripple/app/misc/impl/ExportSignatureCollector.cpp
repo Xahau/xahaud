@@ -33,6 +33,59 @@
 
 namespace ripple {
 
+bool
+isExportValidatorTrusted(
+    ReadView const& view,
+    Application& app,
+    PublicKey const& validator,
+    beast::Journal const& j)
+{
+    if (app.config().standalone())
+        return true;
+
+    auto const master = app.validatorManifests().getMasterKey(validator);
+
+    auto const trustedLocal = app.validators().trusted(validator) ||
+        (master != validator && app.validators().trusted(master));
+
+    // Early-ledger fallback: trust local configured UNL.
+    if (view.info().seq < 256)
+        return trustedLocal;
+
+    auto const unlReport = view.read(keylet::UNLReport());
+    if (!unlReport || !unlReport->isFieldPresent(sfActiveValidators))
+    {
+        JLOG(j.debug()) << "Export: UNLReport missing; using local trust set";
+        return trustedLocal;
+    }
+
+    auto const signerId = calcAccountID(validator);
+    auto const masterId = calcAccountID(master);
+    auto const& active = unlReport->getFieldArray(sfActiveValidators);
+    for (auto const& av : active)
+    {
+        auto const id = av.getAccountID(sfAccount);
+        if (id == signerId || id == masterId)
+            return true;
+    }
+
+    return false;
+}
+
+std::size_t
+getExportUNLSize(ReadView const& view, Application& app)
+{
+    if (app.config().standalone())
+        return 1;
+
+    auto const unlReport = view.read(keylet::UNLReport());
+    if (unlReport && unlReport->isFieldPresent(sfActiveValidators))
+        return unlReport->getFieldArray(sfActiveValidators).size();
+
+    auto const localTrusted = app.validators().getTrustedMasterKeys().size();
+    return localTrusted > 0 ? localTrusted : 1;
+}
+
 ExportSignatureCollector::ExportSignatureCollector(beast::Journal journal)
     : j_(journal)
 {
@@ -102,23 +155,7 @@ std::size_t
 ExportSignatureCollector::getUNLSize(ReadView const& view, Application& app)
     const
 {
-    // For first 256 ledgers, UNLReport may not exist
-    // In standalone mode, we're the only validator
-    auto const seq = view.info().seq;
-    if (seq < 256 || app.config().standalone())
-        return 1;
-
-    // Try to get UNL size from UNLReport
-    auto const unlReportKey = keylet::UNLReport();
-    auto const sle = view.read(unlReportKey);
-    if (sle && sle->isFieldPresent(sfActiveValidators))
-    {
-        return sle->getFieldArray(sfActiveValidators).size();
-    }
-
-    // Fallback: use validator list count
-    auto const count = app.validators().count();
-    return count > 0 ? count : 1;
+    return getExportUNLSize(view, app);
 }
 
 bool
@@ -493,7 +530,7 @@ signPendingExports(
     auto const pk = app.validatorManifests().getMasterKey(pkSigning);
 
     // Only continue if we're on the UNLReport
-    if (!inUNLReport(view, app, pk, j))
+    if (!isExportValidatorTrusted(view, app, pk, j))
         return result;
 
     AccountID signingAcc = calcAccountID(pkSigning);

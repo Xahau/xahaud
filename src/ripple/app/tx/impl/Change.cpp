@@ -31,10 +31,13 @@
 #include <ripple/app/tx/impl/XahauGenesis.h>
 #include <ripple/basics/Log.h>
 #include <ripple/ledger/Sandbox.h>
+#include <ripple/ledger/View.h>
 #include <ripple/protocol/AccountID.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
+#include <ripple/protocol/Sign.h>
 #include <ripple/protocol/TxFlags.h>
+#include <set>
 #include <string_view>
 
 namespace ripple {
@@ -1148,6 +1151,92 @@ Change::applyExport()
     do
     {
         JLOG(j_.debug()) << "Export: processing ttEXPORT for " << txnID;
+
+        // Last-line-of-defense safety check:
+        // Require >= 80% (ceil) cryptographically verified signatures from
+        // currently trusted UNL validators before finalizing the export.
+        std::size_t verifiedTrusted = 0;
+        {
+            auto const& exportedObj =
+                ctx_.tx.peekAtField(sfExportedTxn).downcast<STObject>();
+            Serializer s;
+            exportedObj.add(s);
+            SerialIter sit(s.slice());
+
+            STTx exportedTx(std::ref(sit));
+            if (!exportedTx.isFieldPresent(sfSigners))
+            {
+                JLOG(j_.warn()) << "Export: missing sfSigners for " << txnID;
+                return tefBAD_QUORUM;
+            }
+
+            std::set<PublicKey> seen;
+            auto const& signers = exportedTx.getFieldArray(sfSigners);
+            auto& collector = ctx_.app.getExportSignatureCollector();
+
+            for (auto const& signer : signers)
+            {
+                if (!signer.isFieldPresent(sfSigningPubKey) ||
+                    !signer.isFieldPresent(sfTxnSignature) ||
+                    !signer.isFieldPresent(sfAccount))
+                    continue;
+
+                auto const sigPubKey = signer.getFieldVL(sfSigningPubKey);
+                auto const signature = signer.getFieldVL(sfTxnSignature);
+                auto const signingAcc = signer.getAccountID(sfAccount);
+
+                if (sigPubKey.empty() || signature.empty())
+                    continue;
+
+                auto const pkType = publicKeyType(makeSlice(sigPubKey));
+                if (!pkType)
+                    continue;
+
+                PublicKey const validatorPK{makeSlice(sigPubKey)};
+                if (!seen.emplace(validatorPK).second)
+                    continue;
+
+                // Ensure signer account binds to signer pubkey.
+                if (signingAcc != calcAccountID(validatorPK))
+                    continue;
+
+                // Count only currently trusted UNL validators.
+                if (!isExportValidatorTrusted(
+                        view(), ctx_.app, validatorPK, j_))
+                    continue;
+
+                bool verified =
+                    collector.isSignatureVerified(txnID, validatorPK) ||
+                    collector.verifySignature(txnID, validatorPK);
+
+                // If collector cache misses, verify directly from tx payload.
+                if (!verified)
+                {
+                    auto sigData =
+                        buildMultiSigningData(exportedTx, signingAcc);
+                    verified = ripple::verify(
+                        validatorPK,
+                        sigData.slice(),
+                        makeSlice(signature),
+                        true);
+                }
+
+                if (verified)
+                    ++verifiedTrusted;
+            }
+        }
+
+        auto const unlSize = getExportUNLSize(view(), ctx_.app);
+        auto const threshold = (unlSize * 80 + 99) / 100;
+
+        if (verifiedTrusted < threshold)
+        {
+            JLOG(j_.warn())
+                << "Export: insufficient verified trusted quorum "
+                << "for " << txnID << " verifiedTrusted=" << verifiedTrusted
+                << " threshold=" << threshold << " unlSize=" << unlSize;
+            return tefBAD_QUORUM;
+        }
 
         auto key = keylet::exportedTxn(txnID);
 

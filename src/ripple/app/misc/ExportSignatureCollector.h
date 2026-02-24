@@ -41,6 +41,28 @@ class Application;
 class ReadView;
 class ValidatorKeys;
 
+/** Determine whether a validator key is eligible for export quorum.
+
+    Membership model:
+    - Prefer UNLReport ActiveValidators when available.
+    - Fall back to local trusted validator configuration when UNLReport
+      is unavailable (including early ledgers).
+*/
+bool
+isExportValidatorTrusted(
+    ReadView const& view,
+    Application& app,
+    PublicKey const& validator,
+    beast::Journal const& j);
+
+/** Determine export UNL size used for 80% quorum threshold.
+
+    Uses UNLReport ActiveValidators size when present, otherwise falls back
+    to local trusted validator set size (minimum 1).
+*/
+std::size_t
+getExportUNLSize(ReadView const& view, Application& app);
+
 /** Collects validator signatures for pending exports.
 
     Export signatures are collected via validation messages rather than

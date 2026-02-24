@@ -1555,10 +1555,10 @@ TxQ::accept(Application& app, OpenView& view)
             if (keys.configInvalid())
                 break;
 
-            // and if we're not on the UNLReport we also do nothing
-            // Use inUNLReport() which has a grace period for seq < 256
-            // (testing)
-            if (!inUNLReport(view, app, keys.masterPublicKey, j_))
+            // and if we're not in the export trust set we also do nothing.
+            // Membership model prefers UNLReport and falls back to local trust
+            // when report data is unavailable.
+            if (!isExportValidatorTrusted(view, app, keys.masterPublicKey, j_))
                 break;
 
             // execution to here means we're a validator and on the UNLReport
