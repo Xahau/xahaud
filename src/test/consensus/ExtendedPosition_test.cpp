@@ -17,11 +17,11 @@
 */
 //==============================================================================
 
-#include <ripple/app/consensus/RCLCxPeerPos.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/consensus/ConsensusProposal.h>
-#include <ripple/protocol/SecretKey.h>
-#include <ripple/protocol/digest.h>
+#include <xrpld/app/consensus/RCLCxPeerPos.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpld/consensus/ConsensusProposal.h>
+#include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/digest.h>
 #include <cstring>
 
 namespace ripple {

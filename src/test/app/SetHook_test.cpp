@@ -16,17 +16,17 @@
     OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 //==============================================================================
-#include <ripple/app/hook/Enum.h>
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/tx/impl/SetHook.h>
-#include <ripple/json/json_reader.h>
-#include <ripple/json/json_writer.h>
-#include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/app/SetHook_wasm.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/tx/detail/SetHook.h>
+#include <xrpl/hook/Enum.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/json/json_writer.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/jss.h>
 #include <unordered_map>
 
 namespace ripple {
@@ -11722,6 +11722,186 @@ public:
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test sto_validate"), fee(XRP(1)));
+
+        {
+            // test STIs
+            TestHook hook = wasm[R"[test.hook](
+                #include <stdint.h>
+                extern int32_t _g       (uint32_t id, uint32_t maxiter);
+                #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
+                extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+                extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+                extern int64_t sto_validate(uint32_t, uint32_t);
+                extern int64_t otxn_param(uint32_t, uint32_t, uint32_t, uint32_t);
+                #define ASSERT(x)\
+                    if (!(x))\
+                        rollback((uint32_t)#x, sizeof(#x), __LINE__);
+                #define SBUF(x) (uint32_t)(x), sizeof(x)
+
+                uint8_t buf[1000];
+                int64_t hook(uint32_t reserved)
+                {
+                    _g(1,1);
+
+                    int64_t size = otxn_param(SBUF(buf), "V", 1);
+                    int64_t result = sto_validate(buf, size);
+
+                    accept(0,0,result);
+                }
+            )[test.hook]"];
+
+            for (auto feature : {
+                     features - featureHookAPISerializedType240,
+                     features | featureHookAPISerializedType240,
+                 })
+            {
+                Env env{*this, feature};
+
+                env.fund(XRP(10000), alice, bob);
+                env.close();
+
+                auto hasEnabled = env.current()->rules().enabled(
+                    featureHookAPISerializedType240);
+
+                // install the hook on alice
+                env(ripple::test::jtx::hook(
+                        alice, {{hso(hook, overrideFlag)}}, 0),
+                    M("set sto_validate"),
+                    HSFEE);
+                env.close();
+
+                // invoke the hook
+                auto buildTx = [&](std::string value) {
+                    auto payJv = pay(bob, alice, XRP(1));
+
+                    Json::Value params{Json::arrayValue};
+                    auto& param = params[0U][jss::HookParameter];
+                    param[jss::HookParameterName] = strHex(std::string("V"));
+                    param[jss::HookParameterValue] = value;
+                    payJv[jss::HookParameters] = params;
+                    return payJv;
+                };
+
+                auto testSTI = [&](std::string value, bool expectedResult) {
+                    auto tx = buildTx(value);
+                    env(tx, M("test STI"), fee(XRP(1)));
+                    env.close();
+
+                    auto const result = env.meta()
+                                            ->getFieldArray(sfHookExecutions)[0]
+                                            .getFieldU64(sfHookReturnCode);
+                    if (expectedResult)
+                        BEAST_EXPECTS(result == 1, value);
+                    else
+                        BEAST_EXPECTS(result == 0, value);
+                };
+
+                // STI_UINT32
+                testSTI("2200000001", true);
+                // STI_UINT64
+                testSTI("301100000000000003E8", true);
+                // STI_UINT128
+                testSTI("4100000000000000000000000000000000", true);
+                // STI_UINT256
+                testSTI(
+                    "5060000000000000000000000000000000000000000000000000000000"
+                    "0000000000",
+                    true);
+                // STI_AMOUNT
+                testSTI("614000000000000064", true);
+                testSTI(
+                    "61D5038D7EA4C680000000000000000000000000005553440000000000"
+                    "AE123A8556F3CF91154711376AFB0F894F832B3D",
+                    true);
+                // STI_VL
+                testSTI("7504DEADBEEF", true);
+                // STI_ACCOUNT
+                testSTI("8114AE123A8556F3CF91154711376AFB0F894F832B3D", true);
+                // STI_NUMBER
+                // testSTI("000400000000000000000000000000000001", true);
+                // STI_OBJECT
+                testSTI("E05C22000000017504DEADBEEFE1", true);
+                // STI_ARRAY
+                testSTI(
+                    "F05CE05B614000000000000064E1E05B61D5038D7EA4C6800000000000"
+                    "00000000000000005553440000000000AE123A8556F3CF91154711376A"
+                    "FB0F894F832B3DE1F1",
+                    true);
+                // STI_UINT8
+                testSTI("00101003", true);
+                // STI_UINT160
+                testSTI("01110000000000000000000000000000000000000000", true);
+                // STI_PATHSET
+                testSTI(
+                    "0112300000000000000000000000005553440000000000AE123A8556F3"
+                    "CF91154711376AFB0F894F832B3D00",
+                    hasEnabled);
+                testSTI(
+                    "0112310A20B3C85F482532A9578DBB3950B85CA06594D1000000000000"
+                    "00000000000042544300000000000A20B3C85F482532A9578DBB3950B8"
+                    "5CA06594D13000000000000000000000000055534400000000000A20B3"
+                    "C85F482532A9578DBB3950B85CA06594D1FF3157180C769B66D942EE69"
+                    "E6DCC940CA48D82337AD00000000000000000000000042544300000000"
+                    "0057180C769B66D942EE69E6DCC940CA48D82337AD1000000000000000"
+                    "0000000000000000000000000030000000000000000000000000555344"
+                    "00000000000A20B3C85F482532A9578DBB3950B85CA06594D100",
+                    hasEnabled);
+                // STI_VECTOR256
+                testSTI(
+                    "0013634000000000000000000000000000000000000000000000000000"
+                    "0000000000000000000000000000000000000000000000000000000000"
+                    "00000000000000000000",
+                    true);
+                // STI_UINT96
+                // testSTI("000400000000000000000000000000000001", true);
+                // STI_UINT192
+                // testSTI("000400000000000000000000000000000001", true);
+                // STI_UINT384
+                // testSTI("000400000000000000000000000000000001", true);
+                // STI_UINT512
+                // testSTI("000400000000000000000000000000000001", true);
+                // STI_ISSUE
+                testSTI(
+                    "03180000000000000000000000005553440000000000AE123A8556F3CF"
+                    "91154711376AFB0F894F832B3D",
+                    hasEnabled);
+                testSTI(
+                    "03180000000000000000000000000000000000000000", hasEnabled);
+                // STI_XCHAIN_BRIDGE
+                /// Native-Native
+                testSTI(
+                    "011914AE123A8556F3CF91154711376AFB0F894F832B3D000000000000"
+                    "000000000000000000000000000014AE123A8556F3CF91154711376AFB"
+                    "0F894F832B3D0000000000000000000000000000000000000000",
+                    hasEnabled);
+                /// IOU-Native
+                testSTI(
+                    "011914AE123A8556F3CF91154711376AFB0F894F832B3D000000000000"
+                    "0000000000005553440000000000AE123A8556F3CF91154711376AFB0F"
+                    "894F832B3D14AE123A8556F3CF91154711376AFB0F894F832B3D000000"
+                    "0000"
+                    "000000000000000000000000000000",
+                    hasEnabled);
+                /// Native-IOU
+                testSTI(
+                    "011914AE123A8556F3CF91154711376AFB0F894F832B3D000000000000"
+                    "0000000000005553440000000000AE123A8556F3CF91154711376AFB0F"
+                    "894F832B3D14AE123A8556F3CF91154711376AFB0F894F832B3D000000"
+                    "0000000000000000000000000000000000",
+                    hasEnabled);
+                /// IOU-IOU
+                testSTI(
+                    "011914AE123A8556F3CF91154711376AFB0F894F832B3D000000000000"
+                    "0000000000005553440000000000AE123A8556F3CF91154711376AFB0F"
+                    "894F832B3D14AE123A8556F3CF91154711376AFB0F894F832B3D000000"
+                    "0000000000000000005553440000000000AE123A8556F3CF9115471137"
+                    "6AFB0F894F832B3D",
+                    hasEnabled);
+                // STI_CURRENCY
+                testSTI(
+                    "011A0000000000000000000000005553440000000000", hasEnabled);
+            }
+        }
     }
 
     void
@@ -12185,7 +12365,19 @@ public:
             #define KEYLET_PAYCHAN 21
             #define KEYLET_EMITTED_TXN 22
             #define KEYLET_NFT_OFFER 23
+            #define KEYLET_HOOK_DEFINITION 24
+            #define KEYLET_HOOK_STATE_DIR 25
             #define KEYLET_CRON 26
+            #define KEYLET_AMM 27
+            #define KEYLET_BRIDGE 28
+            #define KEYLET_XCHAIN_OWNED_CLAIM_ID 29
+            #define KEYLET_XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID 30
+            #define KEYLET_DID 31
+            #define KEYLET_ORACLE 32
+            #define KEYLET_MPTOKEN_ISSUANCE 33
+            #define KEYLET_MPTOKEN 34
+            #define KEYLET_CREDENTIAL 35
+            #define KEYLET_PERMISSIONED_DOMAIN 36
             #define ASSERT(x)\
                 if (!(x))\
                     rollback((uint32_t)#x, sizeof(#x), __LINE__);
@@ -12230,6 +12422,22 @@ public:
 
             uint8_t b[] = //raKM1bZkGmASBqN5v2swrf2uAPJ32Cd8GV
             {
+                0x3AU,0x51U,0x8AU,0x22U,0x53U,0x81U,0x60U,0x84U,0x1CU,0x14U,0x32U,0xFEU,
+                0x6FU,0x3EU,0x6DU,0x6EU,0x76U,0x29U,0xFBU,0xBAU
+            };
+            
+            uint8_t asset1[] = // USD.rB6v18pQ765Z9DH5RQsTFevoQPFmRtBqhT
+            {
+                0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x00U,0x00U,0x55U,0x53U,0x44U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x75U,0x6EU,0xDEU,0x88U,0xA9U,0x07U,0xD4U,0xCCU,0xF3U,0x8DU,0x6AU,0xDBU,
+                0x9FU,0xC7U,0x94U,0x64U,0x19U,0xF0U,0xC4U,0x1DU
+            };
+            
+            uint8_t asset2[] = // EUR.raKM1bZkGmASBqN5v2swrf2uAPJ32Cd8GV
+            {
+                0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,0x00U,
+                0x00U,0x00U,0x45U,0x48U,0x52U,0x00U,0x00U,0x00U,0x00U,0x00U,
                 0x3AU,0x51U,0x8AU,0x22U,0x53U,0x81U,0x60U,0x84U,0x1CU,0x14U,0x32U,0xFEU,
                 0x6FU,0x3EU,0x6DU,0x6EU,0x76U,0x29U,0xFBU,0xBAU
             };
@@ -12687,9 +12895,74 @@ public:
                     0,0
                 )));
 
-
                 ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_NFT_OFFER,
                     SBUF(a), SBUF(ns),
+                    0,0
+                )));
+                
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_HOOK_DEFINITION,
+                    SBUF(ns),
+                    0,0,
+                    0,0
+                )));
+                
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_HOOK_STATE_DIR,
+                    SBUF(a), SBUF(ns),
+                    0,0
+                )));
+                
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_AMM,
+                    SBUF(asset1), SBUF(asset2),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_BRIDGE,
+                    SBUF(a), SBUF(b),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_XCHAIN_OWNED_CLAIM_ID,
+                    SBUF(a), SBUF(b),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID,
+                    SBUF(a), SBUF(b),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_DID,
+                    SBUF(a),
+                    0,0,
+                    0,0
+                )));
+                
+                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_ORACLE,
+                    SBUF(a), 3,
+                    0,
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_MPTOKEN_ISSUANCE,
+                    SBUF(a),
+                    0,0,
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_MPTOKEN,
+                    SBUF(a),
+                    0,0,
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_CREDENTIAL,
+                    SBUF(a), SBUF(b),
+                    0,0
+                )));
+                
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_PERMISSIONED_DOMAIN,
+                    SBUF(a),
+                    0,0,
                     0,0
                 )));
 

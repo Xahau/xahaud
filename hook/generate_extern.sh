@@ -4,7 +4,7 @@ set -eu
 SCRIPT_DIR=$(dirname "$0")
 SCRIPT_DIR=$(cd "$SCRIPT_DIR" && pwd)
 
-APPLY_HOOK="$SCRIPT_DIR/../src/ripple/app/hook/hook_api.macro"
+APPLY_HOOK="$SCRIPT_DIR/../include/xrpl/hook/hook_api.macro"
 
 {
     echo '// For documentation please see: https://xrpl-hooks.readme.io/reference/'

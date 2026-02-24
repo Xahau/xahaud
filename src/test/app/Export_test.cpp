@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Indexes.h>
-#include <ripple/protocol/jss.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/jss.h>
 #include <test/app/Export_test_hooks.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>

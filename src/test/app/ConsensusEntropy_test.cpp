@@ -17,13 +17,13 @@
 */
 //==============================================================================
 
-#include <ripple/app/hook/Enum.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Indexes.h>
-#include <ripple/protocol/SField.h>
-#include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/jss.h>
+#include <xrpl/hook/Enum.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/SField.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/jss.h>
 #include <test/app/ConsensusEntropy_test_hooks.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
