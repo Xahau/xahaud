@@ -196,6 +196,8 @@ runs:
           ${CMAKE_CXX_FLAGS:+-DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"} \
           -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${TOOLCHAIN_FILE} \
           -DCMAKE_BUILD_TYPE=${{ inputs.configuration }} \
+          -Dtests=TRUE \
+          -Dxrpld=TRUE \
           ${{ inputs.cmake-args }}
 
     - name: Show ccache config before build

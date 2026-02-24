@@ -19,8 +19,8 @@
 
 #ifndef TEST_UNIT_TEST_SUITE_JOURNAL_H
 #define TEST_UNIT_TEST_SUITE_JOURNAL_H
-#include <ripple/beast/unit_test.h>
-#include <ripple/beast/utility/Journal.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/beast/utility/Journal.h>
 #include <mutex>
 
 namespace ripple {
@@ -50,10 +50,24 @@ public:
 
     void
     write(beast::severities::Severity level, std::string const& text) override;
+
+    void
+    writeAlways(beast::severities::Severity level, std::string const& text)
+        override;
 };
 
 inline void
 SuiteJournalSink::write(
+    beast::severities::Severity level,
+    std::string const& text)
+{
+    // Only write the string if the level at least equals the threshold.
+    if (level >= threshold())
+        writeAlways(level, text);
+}
+
+inline void
+SuiteJournalSink::writeAlways(
     beast::severities::Severity level,
     std::string const& text)
 {
@@ -133,9 +147,16 @@ public:
     {
         if (level < threshold())
             return;
+        writeAlways(level, text);
+    }
 
+    inline void
+    writeAlways(beast::severities::Severity level, std::string const& text)
+        override
+    {
         strm_ << text << std::endl;
     }
+
     std::stringstream const&
     messages() const
     {

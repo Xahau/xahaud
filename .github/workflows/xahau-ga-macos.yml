@@ -4,7 +4,8 @@ on:
   push:
     branches: ["dev", "candidate", "release"]
   pull_request:
-    branches: ["dev", "candidate", "release"]
+    branches: ["**"]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
     - cron: '0 0 * * *'
 
@@ -14,6 +15,10 @@ concurrency:
 
 jobs:
   test:
+    if: >
+      github.event_name != 'pull_request' ||
+      contains(fromJson('["dev","candidate","release"]'), github.base_ref) ||
+      contains(join(github.event.pull_request.labels.*.name, ','), 'ci-full-build')
     strategy:
       matrix:
         generator:
@@ -49,7 +54,7 @@ jobs:
           install: true
           mise_toml: |
             [tools]
-            cmake = "3.23.1"
+            cmake = "3.25.3"
             python = "3.12"
             pipx = "latest"
             conan = "2"

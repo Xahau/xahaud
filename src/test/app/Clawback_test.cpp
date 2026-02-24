@@ -17,14 +17,14 @@
 */
 //==============================================================================
 
-#include <ripple/basics/random.h>
-#include <ripple/json/to_string.h>
-#include <ripple/ledger/ApplyViewImpl.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/jss.h>
-#include <initializer_list>
 #include <test/jtx.h>
 #include <test/jtx/trust.h>
+#include <xrpld/ledger/ApplyViewImpl.h>
+#include <xrpl/basics/random.h>
+#include <xrpl/json/to_string.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/jss.h>
+#include <initializer_list>
 
 namespace ripple {
 
@@ -35,16 +35,6 @@ class Clawback_test : public beast::unit_test::suite
     to_string(T const& t)
     {
         return boost::lexical_cast<std::string>(t);
-    }
-
-    // Helper function that returns the owner count of an account root.
-    static std::uint32_t
-    ownerCount(test::jtx::Env const& env, test::jtx::Account const& acct)
-    {
-        std::uint32_t ret{0};
-        if (auto const sleAcct = env.le(acct))
-            ret = sleAcct->at(sfOwnerCount);
-        return ret;
     }
 
     // Helper function that returns the number of tickets held by an account.
@@ -976,7 +966,9 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{supported_amendments() | featureMPTokensV1};
+
+        testWithFeats(all - featureMPTokensV1);
         testWithFeats(all);
     }
 };

@@ -17,13 +17,15 @@
 */
 //==============================================================================
 
-#include <ripple/app/main/Application.h>
-#include <ripple/app/misc/SHAMapStore.h>
-#include <ripple/app/rdb/backend/SQLiteDatabase.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/protocol/jss.h>
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
+#include <xrpld/app/main/Application.h>
+#include <xrpld/app/main/NodeStoreScheduler.h>
+#include <xrpld/app/misc/SHAMapStore.h>
+#include <xrpld/app/rdb/backend/SQLiteDatabase.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 namespace test {
@@ -85,7 +87,8 @@ class SHAMapStore_test : public beast::unit_test::suite
         const std::string outTxHash = to_string(info.txHash);
 
         auto const& ledger = json[jss::result][jss::ledger];
-        return outHash == ledger[jss::hash].asString() && outSeq == seq &&
+        return outHash == ledger[jss::ledger_hash].asString() &&
+            outSeq == seq &&
             outParentHash == ledger[jss::parent_hash].asString() &&
             outDrops == ledger[jss::total_coins].asString() &&
             outCloseTime == ledger[jss::close_time].asUInt() &&
@@ -111,9 +114,9 @@ class SHAMapStore_test : public beast::unit_test::suite
         BEAST_EXPECT(
             json.isMember(jss::result) &&
             json[jss::result].isMember(jss::ledger) &&
-            json[jss::result][jss::ledger].isMember(jss::hash) &&
-            json[jss::result][jss::ledger][jss::hash].isString());
-        return json[jss::result][jss::ledger][jss::hash].asString();
+            json[jss::result][jss::ledger].isMember(jss::ledger_hash) &&
+            json[jss::result][jss::ledger][jss::ledger_hash].isString());
+        return json[jss::result][jss::ledger][jss::ledger_hash].asString();
     }
 
     void
@@ -521,12 +524,137 @@ public:
         lastRotated = ledgerSeq - 1;
     }
 
+    std::unique_ptr<NodeStore::Backend>
+    makeBackendRotating(
+        jtx::Env& env,
+        NodeStoreScheduler& scheduler,
+        std::string path)
+    {
+        Section section{
+            env.app().config().section(ConfigSection::nodeDatabase())};
+        boost::filesystem::path newPath;
+
+        if (!BEAST_EXPECT(path.size()))
+            return {};
+        newPath = path;
+        section.set("path", newPath.string());
+
+        auto backend{NodeStore::Manager::instance().make_Backend(
+            section,
+            megabytes(env.app().config().getValueFor(
+                SizedItem::burstSize, std::nullopt)),
+            scheduler,
+            env.app().logs().journal("NodeStoreTest"))};
+        backend->open();
+        return backend;
+    }
+
+    void
+    testRotate()
+    {
+        // The only purpose of this test is to ensure that if something that
+        // should never happen happens, we don't get a deadlock.
+        testcase("rotate with lock contention");
+
+        using namespace jtx;
+        Env env(*this, envconfig(onlineDelete));
+
+        /////////////////////////////////////////////////////////////
+        // Create the backend. Normally, SHAMapStoreImp handles all these
+        // details
+        auto nscfg = env.app().config().section(ConfigSection::nodeDatabase());
+
+        // Provide default values:
+        if (!nscfg.exists("cache_size"))
+            nscfg.set(
+                "cache_size",
+                std::to_string(env.app().config().getValueFor(
+                    SizedItem::treeCacheSize, std::nullopt)));
+
+        if (!nscfg.exists("cache_age"))
+            nscfg.set(
+                "cache_age",
+                std::to_string(env.app().config().getValueFor(
+                    SizedItem::treeCacheAge, std::nullopt)));
+
+        NodeStoreScheduler scheduler(env.app().getJobQueue());
+
+        std::string const writableDb = "write";
+        std::string const archiveDb = "archive";
+        auto writableBackend = makeBackendRotating(env, scheduler, writableDb);
+        auto archiveBackend = makeBackendRotating(env, scheduler, archiveDb);
+
+        // Create NodeStore with two backends to allow online deletion of
+        // data
+        constexpr int readThreads = 4;
+        auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
+            env.app(),
+            scheduler,
+            readThreads,
+            std::move(writableBackend),
+            std::move(archiveBackend),
+            nscfg,
+            env.app().logs().journal("NodeStoreTest"));
+
+        /////////////////////////////////////////////////////////////
+        // Check basic functionality
+        using namespace std::chrono_literals;
+        std::atomic<int> threadNum = 0;
+
+        {
+            auto newBackend = makeBackendRotating(
+                env, scheduler, std::to_string(++threadNum));
+
+            auto const cb = [&](std::string const& writableName,
+                                std::string const& archiveName) {
+                BEAST_EXPECT(writableName == "1");
+                BEAST_EXPECT(archiveName == "write");
+                // Ensure that dbr functions can be called from within the
+                // callback
+                BEAST_EXPECT(dbr->getName() == "1");
+            };
+
+            dbr->rotate(std::move(newBackend), cb);
+        }
+        BEAST_EXPECT(threadNum == 1);
+        BEAST_EXPECT(dbr->getName() == "1");
+
+        /////////////////////////////////////////////////////////////
+        // Do something stupid. Try to re-enter rotate from inside the callback.
+        {
+            auto const cb = [&](std::string const& writableName,
+                                std::string const& archiveName) {
+                BEAST_EXPECT(writableName == "3");
+                BEAST_EXPECT(archiveName == "2");
+                // Ensure that dbr functions can be called from within the
+                // callback
+                BEAST_EXPECT(dbr->getName() == "3");
+            };
+            auto const cbReentrant = [&](std::string const& writableName,
+                                         std::string const& archiveName) {
+                BEAST_EXPECT(writableName == "2");
+                BEAST_EXPECT(archiveName == "1");
+                auto newBackend = makeBackendRotating(
+                    env, scheduler, std::to_string(++threadNum));
+                // Reminder: doing this is stupid and should never happen
+                dbr->rotate(std::move(newBackend), cb);
+            };
+            auto newBackend = makeBackendRotating(
+                env, scheduler, std::to_string(++threadNum));
+            dbr->rotate(std::move(newBackend), cbReentrant);
+        }
+
+        BEAST_EXPECT(threadNum == 3);
+        BEAST_EXPECT(dbr->getName() == "3");
+    }
+
     void
     run() override
     {
         testClear();
         testAutomatic();
         testCanDelete();
+        testRotate();
     }
 };
 

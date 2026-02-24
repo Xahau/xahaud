@@ -17,15 +17,15 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/jss.h>
 #include <test/jtx.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/jss.h>
 
-#include <ripple/resource/Charge.h>
-#include <ripple/resource/Fees.h>
-#include <ripple/rpc/GRPCHandlers.h>
 #include <test/jtx/WSClient.h>
 #include <test/rpc/GRPCTestClientBase.h>
+#include <xrpld/rpc/GRPCHandlers.h>
+#include <xrpl/resource/Charge.h>
+#include <xrpl/resource/Fees.h>
 
 namespace ripple {
 namespace test {
@@ -36,6 +36,7 @@ public:
     void
     testErrors()
     {
+        testcase("Errors");
         using namespace jtx;
         Env env(*this);
         {
@@ -78,12 +79,53 @@ public:
             BEAST_EXPECT(
                 info[jss::result][jss::error_message] == "Account malformed.");
         }
+        {
+            // Cannot pass a non-string into the `account` param
+
+            auto testInvalidAccountParam = [&](auto const& param) {
+                Json::Value params;
+                params[jss::account] = param;
+                auto jrr = env.rpc(
+                    "json", "account_info", to_string(params))[jss::result];
+                BEAST_EXPECT(jrr[jss::error] == "invalidParams");
+                BEAST_EXPECT(
+                    jrr[jss::error_message] == "Invalid field 'account'.");
+            };
+
+            testInvalidAccountParam(1);
+            testInvalidAccountParam(1.1);
+            testInvalidAccountParam(true);
+            testInvalidAccountParam(Json::Value(Json::nullValue));
+            testInvalidAccountParam(Json::Value(Json::objectValue));
+            testInvalidAccountParam(Json::Value(Json::arrayValue));
+        }
+        {
+            // Cannot pass a non-string into the `ident` param
+
+            auto testInvalidIdentParam = [&](auto const& param) {
+                Json::Value params;
+                params[jss::ident] = param;
+                auto jrr = env.rpc(
+                    "json", "account_info", to_string(params))[jss::result];
+                BEAST_EXPECT(jrr[jss::error] == "invalidParams");
+                BEAST_EXPECT(
+                    jrr[jss::error_message] == "Invalid field 'ident'.");
+            };
+
+            testInvalidIdentParam(1);
+            testInvalidIdentParam(1.1);
+            testInvalidIdentParam(true);
+            testInvalidIdentParam(Json::Value(Json::nullValue));
+            testInvalidIdentParam(Json::Value(Json::objectValue));
+            testInvalidIdentParam(Json::Value(Json::arrayValue));
+        }
     }
 
     // Test the "signer_lists" argument in account_info.
     void
     testSignerLists()
     {
+        testcase("Signer lists");
         using namespace jtx;
         Env env(*this);
         Account const alice{"alice"};
@@ -205,11 +247,9 @@ public:
     void
     testSignerListsApiVersion2()
     {
+        testcase("Signer lists APIv2");
         using namespace jtx;
-        Env env{*this, envconfig([](std::unique_ptr<Config> c) {
-                    c->loadFromString("\n[beta_rpc_api]\n1\n");
-                    return c;
-                })};
+        Env env{*this};
         Account const alice{"alice"};
         env.fund(XRP(1000), alice);
 
@@ -219,6 +259,10 @@ public:
         auto const withSigners = std::string("{ ") +
             "\"api_version\": 2, \"account\": \"" + alice.human() + "\", " +
             "\"signer_lists\": true }";
+
+        auto const withSignersAsString = std::string("{ ") +
+            "\"api_version\": 2, \"account\": \"" + alice.human() + "\", " +
+            "\"signer_lists\": asdfggh }";
 
         // Alice has no SignerList yet.
         {
@@ -265,6 +309,13 @@ public:
             BEAST_EXPECT(signerEntries.size() == 1);
             auto const& entry0 = signerEntries[0u][sfSignerEntry.jsonName];
             BEAST_EXPECT(entry0[sfSignerWeight.jsonName] == 3);
+        }
+        {
+            // account_info with "signer_lists" as not bool should error out
+            auto const info =
+                env.rpc("json", "account_info", withSignersAsString);
+            BEAST_EXPECT(info[jss::status] == "error");
+            BEAST_EXPECT(info[jss::error] == "invalidParams");
         }
 
         // Give alice a big signer list
@@ -318,6 +369,7 @@ public:
     void
     testSignerListsV2()
     {
+        testcase("Signer lists v2");
         using namespace jtx;
         Env env(*this);
         Account const alice{"alice"};
@@ -507,6 +559,7 @@ public:
     void
     testAccountFlags(FeatureBitset const& features)
     {
+        testcase("Account flags");
         using namespace jtx;
 
         Env env(*this, features);
@@ -646,7 +699,7 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(AccountInfo, app, ripple);
+BEAST_DEFINE_TESTSUITE(AccountInfo, rpc, ripple);
 
 }  // namespace test
 }  // namespace ripple

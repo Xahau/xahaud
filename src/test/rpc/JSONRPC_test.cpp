@@ -17,17 +17,17 @@
 */
 //==============================================================================
 
-#include <ripple/app/misc/LoadFeeTrack.h>
-#include <ripple/app/misc/TxQ.h>
-#include <ripple/basics/contract.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/json/json_reader.h>
-#include <ripple/protocol/ErrorCodes.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/rpc/impl/TransactionSign.h>
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
+#include <xrpld/app/misc/LoadFeeTrack.h>
+#include <xrpld/app/misc/TxQ.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpld/rpc/detail/TransactionSign.h>
+#include <xrpl/basics/contract.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Feature.h>
 
 namespace ripple {
 
@@ -69,14 +69,14 @@ struct TxnTestData
 
 static constexpr TxnTestData txnTestArray[] = {
 
-    {"Minimal payment.",
+    {"Minimal payment, no Amount only DeliverMax",
      __LINE__,
      R"({
     "command": "doesnt_matter",
     "secret": "masterpassphrase",
     "tx_json": {
         "Account": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
-        "Amount": "1000000000",
+        "DeliverMax": "1000000000",
         "Destination": "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
         "TransactionType": "Payment"
     }
@@ -86,7 +86,7 @@ static constexpr TxnTestData txnTestArray[] = {
        "Missing field 'account'.",
        "Missing field 'tx_json.Sequence'."}}},
 
-    {"Pass in Fee with minimal payment.",
+    {"Pass in Fee with minimal payment, both Amount and DeliverMax.",
      __LINE__,
      R"({
     "command": "doesnt_matter",
@@ -96,6 +96,7 @@ static constexpr TxnTestData txnTestArray[] = {
         "Fee": 10,
         "Account": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
         "Amount": "1000000000",
+        "DeliverMax": "1000000000",
         "Destination": "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
         "TransactionType": "Payment"
     }
@@ -105,7 +106,7 @@ static constexpr TxnTestData txnTestArray[] = {
        "Missing field 'tx_json.Sequence'.",
        "Missing field 'tx_json.Sequence'."}}},
 
-    {"Pass in Sequence.",
+    {"Pass in Sequence, no Amount only DeliverMax",
      __LINE__,
      R"({
     "command": "doesnt_matter",
@@ -114,7 +115,7 @@ static constexpr TxnTestData txnTestArray[] = {
     "tx_json": {
         "Sequence": 0,
         "Account": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
-        "Amount": "1000000000",
+        "DeliverMax": "1000000000",
         "Destination": "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
         "TransactionType": "Payment"
     }
@@ -124,7 +125,8 @@ static constexpr TxnTestData txnTestArray[] = {
        "Missing field 'tx_json.Fee'.",
        "Missing field 'tx_json.SigningPubKey'."}}},
 
-    {"Pass in Sequence and Fee with minimal payment.",
+    {"Pass in Sequence and Fee with minimal payment, both Amount and "
+     "DeliverMax.",
      __LINE__,
      R"({
     "command": "doesnt_matter",
@@ -135,6 +137,7 @@ static constexpr TxnTestData txnTestArray[] = {
         "Fee": 10,
         "Account": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
         "Amount": "1000000000",
+        "DeliverMax": "1000000000",
         "Destination": "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
         "TransactionType": "Payment"
     }
@@ -1034,6 +1037,26 @@ static constexpr TxnTestData txnTestArray[] = {
        "Missing field 'tx_json.Destination'.",
        "Missing field 'tx_json.Destination'."}}},
 
+    {"Missing 'Destination' in sign_for, use DeliverMax",
+     __LINE__,
+     R"({
+    "command": "doesnt_matter",
+    "account": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+    "secret": "masterpassphrase",
+    "tx_json": {
+        "Account": "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
+        "DeliverMax": "1000000000",
+        "Fee": 50,
+        "Sequence": 0,
+        "SigningPubKey": "",
+        "TransactionType": "Payment"
+    }
+})",
+     {{"Missing field 'tx_json.Destination'.",
+       "Missing field 'tx_json.Destination'.",
+       "Missing field 'tx_json.Destination'.",
+       "Missing field 'tx_json.Destination'."}}},
+
     {"Missing 'Fee' in sign_for.",
      __LINE__,
      R"({
@@ -1313,6 +1336,26 @@ static constexpr TxnTestData txnTestArray[] = {
        "Invalid field 'tx_json', not object.",
        "Invalid field 'tx_json', not object.",
        "Invalid field 'tx_json', not object."}}},
+
+    {"Pass in Fee with minimal payment, both Amount and DeliverMax.",
+     __LINE__,
+     R"({
+    "command": "doesnt_matter",
+    "account": "r9zN9x52FiCFAcicCLMQKbj1nxYhxJbbSy",
+    "secret": "ssgN6zTvtM1q9XV8DvJpWm8LBYWiY",
+    "tx_json": {
+        "Fee": 10,
+        "Account": "r9zN9x52FiCFAcicCLMQKbj1nxYhxJbbSy",
+        "Amount": "1000000000",
+        "DeliverMax": "1000000000",
+        "Destination": "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
+        "TransactionType": "Payment"
+    }
+})",
+     {{"Source account not found.",
+       "Source account not found.",
+       "Missing field 'tx_json.Sequence'.",
+       "Missing field 'tx_json.Sequence'."}}},
 
     {"Minimal submit_multisigned.",
      __LINE__,
@@ -1691,6 +1734,34 @@ static constexpr TxnTestData txnTestArray[] = {
        "Missing field 'account'.",
        "Invalid field 'tx_json.Amount'."}}},
 
+    {"Invalid DeliverMax in submit_multisigned Payment.",
+     __LINE__,
+     R"({
+    "command": "submit_multisigned",
+    "tx_json": {
+        "Account": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+        "DeliverMax": "NotANumber",
+        "Destination": "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
+        "Fee": 50,
+        "Sequence": 0,
+        "Signers": [
+            {
+                "Signer": {
+                    "Account": "rPcNzota6B8YBokhYtcTNqQVCngtbnWfux",
+                    "TxnSignature": "3045022100F9ED357606932697A4FAB2BE7F222C21DD93CA4CFDD90357AADD07465E8457D6022038173193E3DFFFB5D78DD738CC0905395F885DA65B98FDB9793901FE3FD26ECE",
+                    "SigningPubKey": "02FE36A690D6973D55F88553F5D2C4202DE75F2CF8A6D0E17C70AC223F044501F8"
+                }
+            }
+        ],
+        "SigningPubKey": "",
+        "TransactionType": "Payment"
+    }
+})",
+     {{"Missing field 'secret'.",
+       "Missing field 'secret'.",
+       "Missing field 'account'.",
+       "Invalid field 'tx_json.Amount'."}}},
+
     {"No build_path in submit_multisigned.",
      __LINE__,
      R"({
@@ -1904,6 +1975,72 @@ static constexpr TxnTestData txnTestArray[] = {
        "A Signer may not be the transaction's Account "
        "(rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh)."}}},
 
+    {"Empty Signers array in submit_multisigned, use DeliverMax",
+     __LINE__,
+     R"({
+    "command": "submit_multisigned",
+    "tx_json": {
+        "Account": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+        "DeliverMax": "10000000",
+        "Destination": "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
+        "Fee": 50,
+        "Sequence": 0,
+        "Signers": [
+        ],
+        "SigningPubKey": "",
+        "TransactionType": "Payment"
+    }
+})",
+     {{"Missing field 'secret'.",
+       "Missing field 'secret'.",
+       "Missing field 'account'.",
+       "tx_json.Signers array may not be empty."}}},
+
+    {"Empty Signers array in submit_multisigned, use DeliverMax and Amount",
+     __LINE__,
+     R"({
+    "command": "submit_multisigned",
+    "tx_json": {
+        "Account": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+        "Amount": "10000000",
+        "DeliverMax": "10000000",
+        "Destination": "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
+        "Fee": 50,
+        "Sequence": 0,
+        "Signers": [
+        ],
+        "SigningPubKey": "",
+        "TransactionType": "Payment"
+    }
+})",
+     {{"Missing field 'secret'.",
+       "Missing field 'secret'.",
+       "Missing field 'account'.",
+       "tx_json.Signers array may not be empty."}}},
+
+    {"Payment cannot specify different DeliverMax and Amount.",
+     __LINE__,
+     R"({
+    "command": "doesnt_matter",
+    "account": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+    "secret": "masterpassphrase",
+    "debug_signing": 0,
+    "tx_json": {
+        "Account": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+        "Amount": "1000000000",
+        "DeliverMax": "1000000020",
+        "Destination": "rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA",
+        "Fee": 50,
+        "Sequence": 0,
+        "SigningPubKey": "",
+        "TransactionType": "Payment"
+    }
+})",
+     {{"Cannot specify differing 'Amount' and 'DeliverMax'",
+       "Cannot specify differing 'Amount' and 'DeliverMax'",
+       "Cannot specify differing 'Amount' and 'DeliverMax'",
+       "Cannot specify differing 'Amount' and 'DeliverMax'"}}},
+
 };
 
 class JSONRPC_test : public beast::unit_test::suite
@@ -1912,6 +2049,7 @@ public:
     void
     testBadRpcCommand()
     {
+        testcase("bad RPC command");
         test::jtx::Env env(*this);
         Json::Value const result{
             env.rpc("bad_command", R"({"MakingThisUp": 0})")};
@@ -1924,6 +2062,7 @@ public:
     void
     testAutoFillFees()
     {
+        testcase("autofill fees");
         test::jtx::Env env(*this);
         auto ledger = env.current();
         auto const& feeTrack = env.app().getFeeTrack();
@@ -2043,11 +2182,34 @@ public:
             BEAST_EXPECT(RPC::contains_error(result));
             BEAST_EXPECT(!req[jss::tx_json].isMember(jss::Fee));
         }
+
+        {
+            // transaction with a higher base fee
+            Json::Value req;
+            test::jtx::Account const alice("alice");
+            req[jss::tx_json] =
+                test::jtx::acctdelete(env.master.human(), alice.human());
+            Json::Value result = checkFee(
+                req,
+                Role::ADMIN,
+                true,
+                env.app().config(),
+                feeTrack,
+                env.app().getTxQ(),
+                env.app());
+
+            BEAST_EXPECT(result.size() == 0);
+            BEAST_EXPECT(
+                req[jss::tx_json].isMember(jss::Fee) &&
+                req[jss::tx_json][jss::Fee] ==
+                    env.current()->fees().increment.jsonClipped());
+        }
     }
 
     void
     testAutoFillEscalatedFees()
     {
+        testcase("autofill escalated fees");
         using namespace test::jtx;
         Env env{*this, envconfig([](std::unique_ptr<Config> cfg) {
                     cfg->loadFromString("[" SECTION_SIGNING_SUPPORT "]\ntrue");
@@ -2379,6 +2541,32 @@ public:
         }
     }
 
+    void
+    testAutoFillNetworkID()
+    {
+        testcase("autofill NetworkID");
+        using namespace test::jtx;
+        Env env{*this, envconfig([&](std::unique_ptr<Config> cfg) {
+                    cfg->NETWORK_ID = 1025;
+                    return cfg;
+                })};
+
+        {
+            Json::Value toSign;
+            toSign[jss::tx_json] = noop(env.master);
+
+            BEAST_EXPECT(!toSign[jss::tx_json].isMember(jss::NetworkID));
+            toSign[jss::secret] = "masterpassphrase";
+            auto rpcResult = env.rpc("json", "sign", to_string(toSign));
+            auto result = rpcResult[jss::result];
+
+            BEAST_EXPECT(!RPC::contains_error(result));
+            BEAST_EXPECT(
+                result[jss::tx_json].isMember(jss::NetworkID) &&
+                result[jss::tx_json][jss::NetworkID] == 1025);
+        }
+    }
+
     // A function that can be called as though it would process a transaction.
     static void
     fakeProcessTransaction(
@@ -2393,6 +2581,7 @@ public:
     void
     testTransactionRPC()
     {
+        testcase("sign/submit RPCs");
         using namespace std::chrono_literals;
         // Use jtx to set up a ledger so the tests will do the right thing.
         test::jtx::Account const a{"a"};  // rnUy2SHTrB9DubsPmkJZUXTf5FcNDGrYEA
@@ -2421,17 +2610,19 @@ public:
         // A list of all the functions we want to test.
         using signFunc = Json::Value (*)(
             Json::Value params,
+            unsigned int apiVersion,
             NetworkOPs::FailHard failType,
             Role role,
             std::chrono::seconds validatedLedgerAge,
-            Application & app);
+            Application& app);
 
         using submitFunc = Json::Value (*)(
             Json::Value params,
+            unsigned int apiVersion,
             NetworkOPs::FailHard failType,
             Role role,
             std::chrono::seconds validatedLedgerAge,
-            Application & app,
+            Application& app,
             ProcessTransactionFn const& processTransaction);
 
         using TestStuff =
@@ -2470,6 +2661,7 @@ public:
                         assert(get<1>(testFunc) == nullptr);
                         result = signFn(
                             req,
+                            1,
                             NetworkOPs::FailHard::yes,
                             testRole,
                             1s,
@@ -2481,6 +2673,7 @@ public:
                         assert(submitFn != nullptr);
                         result = submitFn(
                             req,
+                            1,
                             NetworkOPs::FailHard::yes,
                             testRole,
                             1s,
@@ -2515,6 +2708,7 @@ public:
         testBadRpcCommand();
         testAutoFillFees();
         testAutoFillEscalatedFees();
+        testAutoFillNetworkID();
         testTransactionRPC();
     }
 };
