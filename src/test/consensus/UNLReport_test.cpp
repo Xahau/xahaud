@@ -17,22 +17,22 @@
 */
 //==============================================================================
 
-#include <ripple/app/consensus/RCLValidations.h>
-#include <ripple/app/ledger/Ledger.h>
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/misc/HashRouter.h>
-#include <ripple/app/misc/NegativeUNLVote.h>
-#include <ripple/app/misc/ValidatorList.h>
-#include <ripple/app/tx/apply.h>
-#include <ripple/basics/Log.h>
-#include <ripple/basics/StringUtilities.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/ledger/View.h>
-#include <ripple/protocol/Feature.h>
-#include <string>
 #include <test/csf.h>
 #include <test/jtx.h>
+#include <xrpld/app/consensus/RCLValidations.h>
+#include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/NegativeUNLVote.h>
+#include <xrpld/app/misc/ValidatorList.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpld/ledger/View.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/basics/StringUtilities.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/Feature.h>
+#include <string>
 #include <vector>
 
 namespace ripple {
@@ -1225,11 +1225,11 @@ applyAndTestUNLRResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
 {
     auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
     if (pass)
-        return res.first == tesSUCCESS;
+        return res.ter == tesSUCCESS;
     else
-        return res.first == tefFAILURE || res.first == temDISABLED ||
-            res.first == temMALFORMED ||
-            res.first == telIMPORT_VL_KEY_NOT_RECOGNISED;
+        return res.ter == tefFAILURE || res.ter == temDISABLED ||
+            res.ter == temMALFORMED ||
+            res.ter == telIMPORT_VL_KEY_NOT_RECOGNISED;
 }
 
 bool

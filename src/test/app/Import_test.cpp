@@ -17,19 +17,19 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/misc/AmendmentTable.h>
-#include <ripple/app/misc/HashRouter.h>
-#include <ripple/app/tx/impl/Import.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/json/json_reader.h>
-#include <ripple/json/json_writer.h>
-#include <ripple/ledger/Directory.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Import.h>
-#include <ripple/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/misc/AmendmentTable.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/tx/detail/Import.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpld/ledger/Dir.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/json/json_writer.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Import.h>
+#include <xrpl/protocol/jss.h>
 
 #define BEAST_REQUIRE(x)     \
     {                        \
@@ -5041,8 +5041,7 @@ class Import_test : public beast::unit_test::suite
         {
             for (std::uint32_t const withFeature : {0, 1, 2})
             {
-                auto const amend = withFeature == 0
-                    ? features
+                auto const amend = withFeature == 0 ? features
                     : withFeature == 1 ? features - featureXahauGenesis
                                        : features - featureDeletableAccounts;
                 test::jtx::Env env{
@@ -5081,8 +5080,9 @@ class Import_test : public beast::unit_test::suite
                 {
                     BEAST_EXPECT((*acctSle)[sfAccountIndex] == 0);
                 }
-                std::uint64_t const seq =
-                    withFeature == 0 ? 12 : withFeature == 1 ? 6 : 12;
+                std::uint64_t const seq = withFeature == 0 ? 12
+                    : withFeature == 1                     ? 6
+                                                           : 12;
                 BEAST_EXPECT((*acctSle)[sfSequence] == seq);
 
                 // confirm account count was set
@@ -5098,8 +5098,7 @@ class Import_test : public beast::unit_test::suite
         {
             for (std::uint32_t const withFeature : {0, 1, 2})
             {
-                auto const amend = withFeature == 0
-                    ? features
+                auto const amend = withFeature == 0 ? features
                     : withFeature == 1 ? features - featureXahauGenesis
                                        : features - featureDeletableAccounts;
                 test::jtx::Env env{
@@ -5119,8 +5118,9 @@ class Import_test : public beast::unit_test::suite
                     std::uint64_t sequence;
                 };
 
-                std::uint64_t const seq =
-                    withFeature == 0 ? 11 : withFeature == 1 ? 5 : 11;
+                std::uint64_t const seq = withFeature == 0 ? 11
+                    : withFeature == 1                     ? 5
+                                                           : 11;
                 std::array<TestAccountData, 3> acctTests = {{
                     {alice, 0, seq},
                     {bob, 1, seq},

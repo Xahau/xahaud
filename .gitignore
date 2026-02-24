@@ -122,3 +122,7 @@ CMakeUserPresets.json
 bld.rippled/
 
 generated
+.vscode
+
+# Suggested in-tree build directory
+/.build/

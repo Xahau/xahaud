@@ -54,7 +54,7 @@ jobs:
           install: true
           mise_toml: |
             [tools]
-            cmake = "3.23.1"
+            cmake = "3.25.3"
             python = "3.12"
             pipx = "latest"
             conan = "2"
