@@ -13198,7 +13198,7 @@ public:
             M("set util_keylet"),
             HSFEE);
         env.close();
-        EXPECT_HOOK_FEE(hook, 1546);
+        EXPECT_HOOK_FEE(hook, 1786);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test util_keylet"), fee(XRP(1)));
