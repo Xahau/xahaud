@@ -584,7 +584,9 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttFEE:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
-        case ttUNL_REPORT: {
+        case ttUNL_REPORT:
+        case ttEXPORT:
+        case ttCONSENSUS_ENTROPY: {
             break;
         }
         default: {
