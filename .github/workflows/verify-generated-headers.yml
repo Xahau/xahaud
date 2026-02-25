@@ -1,0 +1,47 @@
+name: Verify Generated Hook Headers
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify-generated-headers:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: hook/error.h
+            generator: ./hook/generate_error.sh
+          - target: hook/extern.h
+            generator: ./hook/generate_extern.sh
+          - target: hook/sfcodes.h
+            generator: bash ./hook/generate_sfcodes.sh
+          - target: hook/tts.h
+            generator: ./hook/generate_tts.sh
+    runs-on: ubuntu-22.04
+    env:
+      CLANG_VERSION: 10
+    name: ${{ matrix.target }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download and install clang-format
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libtinfo5
+          curl -LO https://github.com/llvm/llvm-project/releases/download/llvmorg-10.0.1/clang+llvm-10.0.1-x86_64-linux-gnu-ubuntu-16.04.tar.xz
+          tar -xf clang+llvm-10.0.1-x86_64-linux-gnu-ubuntu-16.04.tar.xz
+          sudo mv clang+llvm-10.0.1-x86_64-linux-gnu-ubuntu-16.04 /opt/clang-10
+          sudo ln -s /opt/clang-10/bin/clang-format /usr/local/bin/clang-format-10
+
+      - name: Verify ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          chmod +x hook/generate_*.sh || true
+
+          tmp=$(mktemp)
+          trap 'rm -f "$tmp"' EXIT
+
+          ${{ matrix.generator }} > "$tmp"
+          diff -u ${{ matrix.target }} "$tmp"

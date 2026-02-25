@@ -19,6 +19,11 @@
 
 #include <ripple/beast/utility/Journal.h>
 #include <cassert>
+#ifdef BEAST_ENHANCED_LOGGING
+#include <ripple/beast/utility/EnhancedLogging.h>
+#include <cstdlib>
+#include <cstring>
+#endif
 
 namespace beast {
 
@@ -131,9 +136,65 @@ Journal::ScopedStream::ScopedStream(
     m_ostream << manip;
 }
 
+#ifdef BEAST_ENHANCED_LOGGING
+Journal::ScopedStream::ScopedStream(
+    Sink& sink,
+    Severity level,
+    const char* file,
+    int line)
+    : m_sink(sink), m_level(level), file_(file), line_(line)
+{
+    // Modifiers applied from all ctors
+    m_ostream << std::boolalpha << std::showbase;
+}
+#endif
+
 Journal::ScopedStream::~ScopedStream()
 {
-    std::string const& s(m_ostream.str());
+    std::string s(m_ostream.str());
+
+#ifdef BEAST_ENHANCED_LOGGING
+    // Add suffix if location is enabled
+    if (file_ && detail::should_show_location() && !s.empty())
+    {
+        // Single optimized scan from the end
+        size_t const lastNonWhitespace = s.find_last_not_of(" \n\r\t");
+
+        // Skip if message is only whitespace (e.g., just "\n" or "  \n\n")
+        if (lastNonWhitespace != std::string::npos)
+        {
+            // Count only the trailing newlines (tiny range)
+            size_t trailingNewlines = 0;
+            for (size_t i = lastNonWhitespace + 1; i < s.length(); ++i)
+            {
+                if (s[i] == '\n')
+                    ++trailingNewlines;
+            }
+
+            // Build location string once
+            std::ostringstream locStream;
+            detail::log_write_location_string(locStream, file_, line_);
+            std::string const location = locStream.str();
+
+            // Pre-allocate exact size → zero reallocations
+            size_t const finalSize = lastNonWhitespace + 1 + 1 +
+                location.length() + trailingNewlines;
+
+            std::string result;
+            result.reserve(finalSize);
+
+            // Direct string ops (no ostringstream overhead)
+            result.append(s, 0, lastNonWhitespace + 1);
+            result.push_back(' ');
+            result += location;
+            if (trailingNewlines > 0)
+                result.append(trailingNewlines, '\n');
+
+            s = std::move(result);  // Move, no copy
+        }
+    }
+#endif
+
     if (!s.empty())
     {
         if (s == "\n")
@@ -156,5 +217,19 @@ Journal::Stream::operator<<(std::ostream& manip(std::ostream&)) const
 {
     return ScopedStream(*this, manip);
 }
+
+#ifdef BEAST_ENHANCED_LOGGING
+
+// Implementation moved to use new constructor
+Journal::ScopedStream
+Journal::StreamWithLocation::operator<<(
+    std::ostream& manip(std::ostream&)) const
+{
+    // Create a ScopedStream with location info
+    ScopedStream scoped(stream_.sink(), stream_.level(), file_, line_);
+    scoped.ostream() << manip;
+    return scoped;
+}
+#endif
 
 }  // namespace beast

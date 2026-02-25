@@ -139,7 +139,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
             false,  // means the calling test already burned some of the genesis
         bool skipTests = false,
         bool const testFlag = false,
-        bool const badNetID = false)
+        bool const badNetID = false,
+        uint32_t const expectedOwnerCount =
+            10 /** testFlag ? 10 : 14 (default) */)
     {
         using namespace jtx;
 
@@ -247,7 +249,10 @@ struct XahauGenesis_test : public beast::unit_test::suite
         BEAST_EXPECT(
             genesisAccRoot->getFieldAmount(sfBalance) ==
             XahauGenesis::GenesisAmount);
-        BEAST_EXPECT(genesisAccRoot->getFieldU32(sfOwnerCount) == 2);
+        BEAST_EXPECT(
+            genesisAccRoot->getFieldU32(sfOwnerCount) == !testFlag
+                ? expectedOwnerCount
+                : 14);
 
         // ensure the definitions are correctly set
         {
@@ -583,7 +588,14 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 toBase58(t), membersStr);
         }
 
-        activate(__LINE__, env, true, false, true);
+        activate(
+            __LINE__,
+            env,
+            true,
+            false,
+            true,
+            {},
+            3 /* IRR,IRD,IMC */ + members.size() + tables.size());
 
         env.close();
         env.close();
@@ -2235,12 +2247,17 @@ struct XahauGenesis_test : public beast::unit_test::suite
             BEAST_EXPECT(!!hookLE);
             uint256 const ns = beast::zero;
             uint8_t mc = 0;
+            uint8_t paramsCount = 0;
+
             if (hookLE)
             {
                 auto const hooksArray = hookLE->getFieldArray(sfHooks);
                 BEAST_EXPECT(
                     hooksArray.size() == 1 &&
                     hooksArray[0].getFieldH256(sfHookHash) == governHookHash);
+
+                paramsCount =
+                    hooksArray[0].getFieldArray(sfHookParameters).size();
 
                 for (Account const* m : members)
                 {
@@ -2308,7 +2325,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
             BEAST_EXPECT(!!root);
             if (root)
             {
-                BEAST_EXPECT(root->getFieldU32(sfOwnerCount) == mc * 2 + 2);
+                BEAST_EXPECT(
+                    root->getFieldU32(sfOwnerCount) ==
+                    mc * 2 + 2 + paramsCount);
                 BEAST_EXPECT(root->getFieldU32(sfFlags) & lsfDisableMaster);
                 BEAST_EXPECT(root->getAccountID(sfRegularKey) == noAccount());
             }

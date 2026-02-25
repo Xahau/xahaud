@@ -23,6 +23,7 @@
 #include <ripple/nodestore/Types.h>
 #include <atomic>
 #include <cstdint>
+#include <optional>
 
 namespace ripple {
 namespace NodeStore {
@@ -174,6 +175,14 @@ public:
     /** Returns the number of file descriptors the backend expects to need. */
     virtual int
     fdRequired() const = 0;
+
+    /** Get the block size for backends that support it
+     */
+    virtual std::optional<std::size_t>
+    getBlockSize() const
+    {
+        return std::nullopt;
+    }
 
     /** Returns read and write stats.
 

@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <ripple/app/hook/Enum.h>
 #include <ripple/app/hook/Guard.h>
 #include <ripple/app/hook/applyHook.h>
 #include <ripple/app/ledger/Ledger.h>
@@ -24,6 +25,7 @@
 #include <ripple/app/misc/AmendmentTable.h>
 #include <ripple/app/misc/NetworkOPs.h>
 #include <ripple/app/tx/impl/Change.h>
+#include <ripple/app/tx/impl/SetHook.h>
 #include <ripple/app/tx/impl/SetSignerList.h>
 #include <ripple/app/tx/impl/XahauGenesis.h>
 #include <ripple/basics/Log.h>
@@ -94,21 +96,6 @@ Change::preflight(PreflightContext const& ctx)
                                   "of sfImportVLKey, sfActiveValidator";
             return temMALFORMED;
         }
-
-        // if we do specify import_vl_keys in config then we won't approve keys
-        // that aren't on our list
-        if (ctx.tx.isFieldPresent(sfImportVLKey) &&
-            !ctx.app.config().IMPORT_VL_KEYS.empty())
-        {
-            auto const& inner = const_cast<ripple::STTx&>(ctx.tx)
-                                    .getField(sfImportVLKey)
-                                    .downcast<STObject>();
-            auto const pk = inner.getFieldVL(sfPublicKey);
-            std::string const strPk = strHex(makeSlice(pk));
-            if (ctx.app.config().IMPORT_VL_KEYS.find(strPk) ==
-                ctx.app.config().IMPORT_VL_KEYS.end())
-                return telIMPORT_VL_KEY_NOT_RECOGNISED;
-        }
     }
 
     return tesSUCCESS;
@@ -168,9 +155,42 @@ Change::preclaim(PreclaimContext const& ctx)
             return tesSUCCESS;
         case ttAMENDMENT:
         case ttUNL_MODIFY:
-        case ttUNL_REPORT:
         case ttEMIT_FAILURE:
             return tesSUCCESS;
+        case ttUNL_REPORT: {
+            if (!ctx.tx.isFieldPresent(sfImportVLKey) ||
+                ctx.app.config().IMPORT_VL_KEYS.empty())
+                return tesSUCCESS;
+
+            // if we do specify import_vl_keys in config then we won't approve
+            // keys that aren't on our list and/or aren't in the ledger object
+            auto const& inner = const_cast<ripple::STTx&>(ctx.tx)
+                                    .getField(sfImportVLKey)
+                                    .downcast<STObject>();
+            auto const pkBlob = inner.getFieldVL(sfPublicKey);
+            std::string const strPk = strHex(makeSlice(pkBlob));
+            if (ctx.app.config().IMPORT_VL_KEYS.find(strPk) !=
+                ctx.app.config().IMPORT_VL_KEYS.end())
+                return tesSUCCESS;
+
+            auto const pkType = publicKeyType(makeSlice(pkBlob));
+            if (!pkType)
+                return tefINTERNAL;
+
+            PublicKey const pk(makeSlice(pkBlob));
+
+            // check on ledger
+            if (auto const unlRep = ctx.view.read(keylet::UNLReport());
+                unlRep && unlRep->isFieldPresent(sfImportVLKeys))
+            {
+                auto const& vlKeys = unlRep->getFieldArray(sfImportVLKeys);
+                for (auto const& k : vlKeys)
+                    if (PublicKey(k[sfPublicKey]) == pk)
+                        return tesSUCCESS;
+            }
+
+            return telIMPORT_VL_KEY_NOT_RECOGNISED;
+        }
         default:
             return temUNKNOWN;
     }
@@ -565,10 +585,6 @@ Change::activateXahauGenesis()
         SetSignerList::removeFromLedger(ctx_.app, sb, accid, j_);
 
     // Step 4: install genesis hooks
-    sle->setFieldU32(
-        sfOwnerCount, sle->getFieldU32(sfOwnerCount) + genesis_hooks.size());
-    sb.update(sle);
-
     if (sb.exists(keylet::hook(accid)))
     {
         JLOG(j_.warn()) << "featureXahauGenesis genesis account already has "
@@ -579,6 +595,7 @@ Change::activateXahauGenesis()
     {
         ripple::STArray hooks{sfHooks, static_cast<int>(genesis_hooks.size())};
         int hookCount = 0;
+        uint32_t hookReserve = 0;
 
         for (auto const& [hookOn, wasmBytes, params] : genesis_hooks)
         {
@@ -587,8 +604,8 @@ Change::activateXahauGenesis()
                 wasmBytes,  // wasm to verify
                 loggerStream,
                 "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
-                (ctx_.view().rules().enabled(featureHooksUpdate1) ? 1 : 0) +
-                    (ctx_.view().rules().enabled(fix20250131) ? 2 : 0));
+                hook_api::getImportWhitelist(ctx_.view().rules()),
+                hook_api::getGuardRulesVersion(ctx_.view().rules()));
 
             if (!result)
             {
@@ -684,7 +701,13 @@ Change::activateXahauGenesis()
             }
 
             hooks.push_back(hookObj);
+
+            hookReserve += SetHook::computeHookReserve(hookObj);
         }
+
+        sle->setFieldU32(
+            sfOwnerCount, sle->getFieldU32(sfOwnerCount) + hookReserve);
+        sb.update(sle);
 
         auto sle = std::make_shared<SLE>(keylet::hook(accid));
         sle->setFieldArray(sfHooks, hooks);
@@ -726,6 +749,8 @@ Change::activateXahauGenesis()
         ripple::STArray hooks{sfHooks, 1};
         STObject hookObj{sfHook};
         hookObj.setFieldH256(sfHookHash, governHash);
+
+        uint32_t hookReserve = 0;
         // parameters
         {
             std::vector<STObject> vec;
@@ -741,6 +766,7 @@ Change::activateXahauGenesis()
                 sfHookParameters, STArray(vec, sfHookParameters));
         }
 
+        hookReserve += SetHook::computeHookReserve(hookObj);
         hooks.push_back(hookObj);
 
         auto sle = std::make_shared<SLE>(hookKL);
@@ -767,7 +793,8 @@ Change::activateXahauGenesis()
 
             sle->setAccountID(sfRegularKey, noAccount());
             sle->setFieldU32(sfFlags, lsfDisableMaster);
-            sle->setFieldU32(sfOwnerCount, sle->getFieldU32(sfOwnerCount) + 1);
+            sle->setFieldU32(
+                sfOwnerCount, sle->getFieldU32(sfOwnerCount) + hookReserve);
             sb.update(sle);
         }
     }

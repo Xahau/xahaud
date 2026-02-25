@@ -1,3 +1,5 @@
+#define GUARD_CHECKER_BUILD
+#include "Enum.h"
 #include "Guard.h"
 #include <fcntl.h>
 #include <iostream>
@@ -79,7 +81,15 @@ main(int argc, char** argv)
 
     close(fd);
 
-    auto result = validateGuards(hook, std::cout, "", 3);
+    // Dummy rules for guard checker build
+    hook_api::Rules rules;
+
+    auto result = validateGuards(
+        hook,
+        std::cout,
+        "",
+        hook_api::getImportWhitelist(rules),
+        hook_api::getGuardRulesVersion(rules));
 
     if (!result)
     {

@@ -48,7 +48,9 @@ target_sources (xrpl_core PRIVATE
   src/ripple/beast/net/impl/IPAddressV6.cpp
   src/ripple/beast/net/impl/IPEndpoint.cpp
   src/ripple/beast/utility/src/beast_Journal.cpp
-  src/ripple/beast/utility/src/beast_PropertyStream.cpp)
+  src/ripple/beast/utility/src/beast_PropertyStream.cpp
+  # Enhanced logging - compiles to empty when BEAST_ENHANCED_LOGGING is not defined
+  src/ripple/beast/utility/src/beast_EnhancedLogging.cpp)
 
 #[===============================[
     core sources
@@ -156,6 +158,17 @@ target_link_libraries (xrpl_core
     ed25519::ed25519
     date::date
     Ripple::opts)
+
+# date-tz for enhanced logging (always linked, code is #ifdef guarded)
+if(TARGET date::date-tz)
+  target_link_libraries(xrpl_core PUBLIC date::date-tz)
+endif()
+
+# BEAST_ENHANCED_LOGGING: enable for Debug builds OR when explicitly requested
+# Uses generator expression so it works with multi-config generators (Xcode, VS, Ninja Multi-Config)
+target_compile_definitions(xrpl_core PUBLIC
+  $<$<OR:$<CONFIG:Debug>,$<BOOL:${BEAST_ENHANCED_LOGGING}>>:BEAST_ENHANCED_LOGGING=1>
+)
 #[=================================[
    main/core headers installation
 #]=================================]
@@ -445,6 +458,8 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/CreateCheck.cpp
   src/ripple/app/tx/impl/CreateOffer.cpp
   src/ripple/app/tx/impl/CreateTicket.cpp
+  src/ripple/app/tx/impl/Cron.cpp
+  src/ripple/app/tx/impl/CronSet.cpp
   src/ripple/app/tx/impl/DeleteAccount.cpp
   src/ripple/app/tx/impl/DepositPreauth.cpp
   src/ripple/app/tx/impl/Escrow.cpp
@@ -474,6 +489,7 @@ target_sources (rippled PRIVATE
   src/ripple/app/tx/impl/apply.cpp
   src/ripple/app/tx/impl/applySteps.cpp
   src/ripple/app/hook/impl/applyHook.cpp
+  src/ripple/app/hook/impl/HookAPI.cpp
   src/ripple/app/tx/impl/details/NFTokenUtils.cpp
   #[===============================[
      main sources:
@@ -549,7 +565,6 @@ target_sources (rippled PRIVATE
   src/ripple/nodestore/backend/CassandraFactory.cpp
   src/ripple/nodestore/backend/RWDBFactory.cpp
   src/ripple/nodestore/backend/MemoryFactory.cpp
-  src/ripple/nodestore/backend/FlatmapFactory.cpp
   src/ripple/nodestore/backend/NuDBFactory.cpp
   src/ripple/nodestore/backend/NullFactory.cpp
   src/ripple/nodestore/backend/RocksDBFactory.cpp
@@ -723,6 +738,7 @@ if (tests)
     src/test/app/BaseFee_test.cpp
     src/test/app/Check_test.cpp
     src/test/app/ClaimReward_test.cpp
+    src/test/app/Cron_test.cpp
     src/test/app/Clawback_test.cpp
     src/test/app/CrossingLimits_test.cpp
     src/test/app/DeliverMin_test.cpp
@@ -735,6 +751,7 @@ if (tests)
     src/test/app/Freeze_test.cpp
     src/test/app/GenesisMint_test.cpp
     src/test/app/HashRouter_test.cpp
+    src/test/app/HookAPI_test.cpp
     src/test/app/Import_test.cpp
     src/test/app/Invoke_test.cpp
     src/test/app/LedgerHistory_test.cpp
@@ -890,6 +907,7 @@ if (tests)
     src/test/jtx/impl/amount.cpp
     src/test/jtx/impl/balance.cpp
     src/test/jtx/impl/check.cpp
+    src/test/jtx/impl/cron.cpp
     src/test/jtx/impl/delivermin.cpp
     src/test/jtx/impl/deposit.cpp
     src/test/jtx/impl/envconfig.cpp
@@ -953,6 +971,7 @@ if (tests)
     src/test/nodestore/Basics_test.cpp
     src/test/nodestore/DatabaseShard_test.cpp
     src/test/nodestore/Database_test.cpp
+    src/test/nodestore/NuDBFactory_test.cpp
     src/test/nodestore/Timing_test.cpp
     src/test/nodestore/import_test.cpp
     src/test/nodestore/varint_test.cpp
@@ -999,6 +1018,11 @@ if (tests)
          subdir: resource
     #]===============================]
     src/test/resource/Logic_test.cpp
+    #[===============================[
+       test sources:
+         subdir: rdb
+    #]===============================]
+    src/test/rdb/RelationalDatabase_test.cpp
     #[===============================[
        test sources:
          subdir: rpc

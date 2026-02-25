@@ -58,6 +58,12 @@ enum LedgerEntryType : std::uint16_t
      */
     ltACCOUNT_ROOT = 0x0061,
 
+    /** A ledger object representing a scheduled cron execution on an account.
+     
+        \sa keylet::cron
+    */
+    ltCRON = 0x0041,
+
     /** A ledger object which contains a list of object identifiers.
 
         \sa keylet::page, keylet::quality, keylet::book, keylet::next and

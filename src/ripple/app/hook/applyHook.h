@@ -1,6 +1,7 @@
 #ifndef APPLY_HOOK_INCLUDED
 #define APPLY_HOOK_INCLUDED 1
 #include <ripple/app/hook/Enum.h>
+#include <ripple/app/hook/HookAPI.h>
 #include <ripple/app/hook/Macro.h>
 #include <ripple/app/hook/Misc.h>
 #include <ripple/app/misc/Transaction.h>
@@ -38,8 +39,9 @@ isEmittedTxn(ripple::STTx const& tx);
 class HookStateMap : public std::map<
                          ripple::AccountID,  // account that owns the state
                          std::tuple<
-                             int64_t,  // remaining available ownercount
-                             int64_t,  // total namespace count
+                             int64_t,   // remaining available ownercount
+                             int64_t,   // total namespace count
+                             uint16_t,  // hook state scale
                              std::map<
                                  ripple::uint256,  // namespace
                                  std::map<
@@ -68,559 +70,26 @@ namespace hook_api {
     if (HOOK_DBG)   \
     fprintf
 
-DECLARE_WASM_FUNCTION(int32_t, _g, uint32_t guard_id, uint32_t maxiter);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    accept,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    int64_t error_code);
-
-DECLARE_JS_FUNCTION(int64_t, accept, JSValue error_msg, JSValue error_code);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    rollback,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    int64_t error_code);
-
-DECLARE_JS_FUNCTION(int64_t, rollback, JSValue error_msg, JSValue error_code);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    util_raddr,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t read_ptr,
-    uint32_t read_len);
-
-DECLARE_JS_FUNCTION(JSValue, util_raddr, JSValue acc_id);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    util_accid,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t read_ptr,
-    uint32_t read_len);
-
-DECLARE_JS_FUNCTION(JSValue, util_accid, JSValue acc_id);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    util_verify,
-    uint32_t dread_ptr,
-    uint32_t dread_len,
-    uint32_t sread_ptr,
-    uint32_t sread_len,
-    uint32_t kread_ptr,
-    uint32_t kread_len);
-
-DECLARE_JS_FUNCTION(
-    JSValue,
-    util_verify,
-    JSValue data,
-    JSValue sig,
-    JSValue pubkey);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    sto_validate,
-    uint32_t tread_ptr,
-    uint32_t tread_len);
-DECLARE_JS_FUNCTION(JSValue, sto_validate, JSValue sto);
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    sto_subfield,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    uint32_t field_id);
-DECLARE_JS_FUNCTION(JSValue, sto_subfield, JSValue sto, JSValue field_id);
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    sto_subarray,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    uint32_t array_id);
-DECLARE_JS_FUNCTION(JSValue, sto_subarray, JSValue sto, JSValue array_id);
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    sto_emplace,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t sread_ptr,
-    uint32_t sread_len,
-    uint32_t fread_ptr,
-    uint32_t fread_len,
-    uint32_t field_id);
-DECLARE_JS_FUNCTION(
-    JSValue,
-    sto_emplace,
-    JSValue sto,
-    JSValue field_bytes,
-    JSValue field_id);
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    sto_erase,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    uint32_t field_id);
-DECLARE_JS_FUNCTION(JSValue, sto_erase, JSValue sto, JSValue field_id);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    util_sha512h,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t read_ptr,
-    uint32_t read_len);
-
-DECLARE_JS_FUNCTION(JSValue, util_sha512h, JSValue data);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    util_keylet,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t keylet_type,
-    uint32_t a,
-    uint32_t b,
-    uint32_t c,
-    uint32_t d,
-    uint32_t e,
-    uint32_t f);
-
-DECLARE_JS_FUNCTION(
-    JSValue,
-    util_keylet,
-    JSValue keylet_type,
-    JSValue keylet_data);
-
-DECLARE_WASM_FUNCNARG(int64_t, etxn_burden);
-DECLARE_JS_FUNCNARG(JSValue, etxn_burden);
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    etxn_details,
-    uint32_t write_ptr,
-    uint32_t write_len);
-DECLARE_JS_FUNCNARG(JSValue, etxn_details);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    etxn_fee_base,
-    uint32_t read_ptr,
-    uint32_t read_len);
-DECLARE_JS_FUNCTION(JSValue, etxn_fee_base, JSValue txblob);
-
-DECLARE_WASM_FUNCTION(int64_t, etxn_reserve, uint32_t count);
-DECLARE_JS_FUNCTION(JSValue, etxn_reserve, JSValue count);
-
-DECLARE_WASM_FUNCNARG(int64_t, etxn_generation);
-DECLARE_JS_FUNCNARG(JSValue, etxn_generation);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    etxn_nonce,
-    uint32_t write_ptr,
-    uint32_t write_len);
-
-DECLARE_JS_FUNCNARG(JSValue, etxn_nonce);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    emit,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t read_ptr,
-    uint32_t read_len);
-
-DECLARE_JS_FUNCTION(JSValue, emit, JSValue txn);
-
-DECLARE_JS_FUNCTION(JSValue, prepare, JSValue tmpl);
-
-DECLARE_JS_FUNCNARG(JSValue, otxn_json);
-
-DECLARE_JS_FUNCTION(JSValue, slot_json, JSValue slotno);
-
-DECLARE_JS_FUNCTION(JSValue, sto_to_json, JSValue sto_in);
-
-DECLARE_JS_FUNCTION(JSValue, sto_from_json, JSValue json_in);
-
-DECLARE_WASM_FUNCTION(int64_t, float_set, int32_t exponent, int64_t mantissa);
-DECLARE_JS_FUNCTION(JSValue, float_set, JSValue e, JSValue m);
-
-DECLARE_WASM_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2);
-DECLARE_JS_FUNCTION(JSValue, float_multiply, JSValue f1, JSValue f2);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    float_mulratio,
-    int64_t float1,
-    uint32_t round_up,
-    uint32_t numerator,
-    uint32_t denominator);
-DECLARE_JS_FUNCTION(
-    JSValue,
-    float_mulratio,
-    JSValue f1,
-    JSValue round_up,
-    JSValue numerator,
-    JSValue denominator);
-
-DECLARE_WASM_FUNCTION(int64_t, float_negate, int64_t float1);
-DECLARE_JS_FUNCTION(JSValue, float_negate, JSValue f1);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    float_compare,
-    int64_t float1,
-    int64_t float2,
-    uint32_t mode);
-DECLARE_JS_FUNCTION(
-    JSValue,
-    float_compare,
-    JSValue f1,
-    JSValue f2,
-    JSValue mode);
-
-DECLARE_WASM_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2);
-DECLARE_JS_FUNCTION(JSValue, float_sum, JSValue f1, JSValue f2);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    float_sto,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t cread_ptr,
-    uint32_t cread_len,
-    uint32_t iread_ptr,
-    uint32_t iread_len,
-    int64_t float1,
-    uint32_t field_code);
-DECLARE_JS_FUNCTION(
-    JSValue,
-    float_sto,
-    JSValue cur,
-    JSValue isu,
-    JSValue float1,
-    JSValue field_code);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    float_sto_set,
-    uint32_t read_ptr,
-    uint32_t read_len);
-DECLARE_JS_FUNCTION(JSValue, float_sto_set, JSValue buf);
-
-DECLARE_WASM_FUNCTION(int64_t, float_invert, int64_t float1);
-DECLARE_JS_FUNCTION(JSValue, float_invert, JSValue f1);
-DECLARE_WASM_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2);
-DECLARE_JS_FUNCTION(JSValue, float_divide, JSValue f1, JSValue f2);
-DECLARE_WASM_FUNCNARG(int64_t, float_one);
-DECLARE_JS_FUNCNARG(JSValue, float_one);
-DECLARE_WASM_FUNCTION(int64_t, float_mantissa, int64_t float1);
-DECLARE_JS_FUNCTION(JSValue, float_mantissa, JSValue f1);
-DECLARE_WASM_FUNCTION(int64_t, float_sign, int64_t float1);
-DECLARE_JS_FUNCTION(JSValue, float_sign, JSValue f1);
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    float_int,
-    int64_t float1,
-    uint32_t decimal_places,
-    uint32_t abs);
-DECLARE_JS_FUNCTION(
-    JSValue,
-    float_int,
-    JSValue f1,
-    JSValue decimal_places,
-    JSValue abs);
-DECLARE_WASM_FUNCTION(int64_t, float_log, int64_t float1);
-DECLARE_JS_FUNCTION(JSValue, float_log, JSValue float1);
-DECLARE_WASM_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n);
-DECLARE_JS_FUNCTION(JSValue, float_root, JSValue f1, JSValue n);
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    hook_account,
-    uint32_t write_ptr,
-    uint32_t write_len);
-DECLARE_JS_FUNCTION(JSValue, hook_account);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    hook_hash,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    int32_t hook_no);
-DECLARE_JS_FUNCTION(JSValue, hook_hash, JSValue hook_no);
-
-DECLARE_WASM_FUNCNARG(int64_t, fee_base);
-DECLARE_JS_FUNCNARG(JSValue, fee_base);
-DECLARE_WASM_FUNCNARG(int64_t, ledger_seq);
-DECLARE_JS_FUNCNARG(JSvalue, ledger_seq);
-DECLARE_WASM_FUNCNARG(int64_t, ledger_last_time);
-DECLARE_JS_FUNCNARG(JSValue, ledger_last_time);
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    ledger_last_hash,
-    uint32_t write_ptr,
-    uint32_t write_len);
-DECLARE_JS_FUNCNARG(JSValue, ledger_last_hash);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    ledger_nonce,
-    uint32_t write_ptr,
-    uint32_t write_len);
-DECLARE_JS_FUNCNARG(JSValue, ledger_nonce);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    ledger_keylet,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t lread_ptr,
-    uint32_t lread_len,
-    uint32_t hread_ptr,
-    uint32_t hread_len);
-
-DECLARE_JS_FUNCTION(JSValue, ledger_keylet, JSValue low, JSValue high);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    hook_param_set,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    uint32_t kread_ptr,
-    uint32_t kread_len,
-    uint32_t hread_ptr,
-    uint32_t hread_len);
-
-DECLARE_JS_FUNCTION(
-    JSvalue,
-    hook_param_set,
-    JSValue val,
-    JSValue key,
-    JSValue hhash);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    hook_param,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t read_ptr,
-    uint32_t read_len);
-
-DECLARE_JS_FUNCTION(JSValue, hook_param, JSValue key);
-
-DECLARE_WASM_FUNCNARG(int64_t, hook_again);
-DECLARE_JS_FUNCNARG(JSValue, hook_again);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    hook_skip,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    uint32_t flags);
-
-DECLARE_JS_FUNCTION(JSValue, hook_skip, JSValue hhash, JSValue flags);
-
-DECLARE_WASM_FUNCNARG(int64_t, hook_pos);
-
-DECLARE_JS_FUNCNARG(JSValue, hook_pos);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    slot,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t slot);
-DECLARE_JS_FUNCTION(JSValue, slot, JSValue slot_no);
-
-DECLARE_WASM_FUNCTION(int64_t, slot_clear, uint32_t slot);
-DECLARE_JS_FUNCTION(JSValue, slot_clear, JSValue slot_no);
-
-DECLARE_WASM_FUNCTION(int64_t, slot_count, uint32_t slot);
-DECLARE_JS_FUNCTION(JSValue, slot_count, JSValeu slot_no);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    slot_set,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    uint32_t slot);
-DECLARE_JS_FUNCTION(JSValue, slot_set, JSValue kl, JSValue slot_no);
-
-DECLARE_WASM_FUNCTION(int64_t, slot_size, uint32_t slot);
-DECLARE_JS_FUNCTION(JSValue, slot_size, JSValue slot_no);
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    slot_subarray,
-    uint32_t parent_slot,
-    uint32_t array_id,
-    uint32_t new_slot);
-DECLARE_JS_FUNCTION(
-    JSValue,
-    slot_subarray,
-    JSValue parent_slot_no,
-    JSValue array_id,
-    JSValue new_slot_no);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    slot_subfield,
-    uint32_t parent_slot,
-    uint32_t field_id,
-    uint32_t new_slot);
-DECLARE_JS_FUNCTION(
-    JSValue,
-    slot_subfield,
-    JSValue parent_slot_no,
-    JSValue field_id,
-    JSValue new_slot_no);
-
-DECLARE_WASM_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags);
-DECLARE_JS_FUNCTION(JSValue, slot_type, JSValue slot_no, JSValue flags);
-DECLARE_WASM_FUNCTION(int64_t, slot_float, uint32_t slot_no);
-DECLARE_JS_FUNCTION(JSValue, slot_float, JSValue slot_no);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    state_set,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    uint32_t kread_ptr,
-    uint32_t kread_len);
-DECLARE_JS_FUNCTION(JSValue, state_set, JSValue val, JSValue key);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    state_foreign_set,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    uint32_t kread_ptr,
-    uint32_t kread_len,
-    uint32_t nread_ptr,
-    uint32_t nread_len,
-    uint32_t aread_ptr,
-    uint32_t aread_len);
-
-DECLARE_JS_FUNCTION(
-    JSValue,
-    state_foreign_set,
-    JSValue val,
-    JSValue key,
-    JSValue ns,
-    JSValue accid);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    state,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t kread_ptr,
-    uint32_t kread_len);
-DECLARE_JS_FUNCTION(JSValue, state, JSValue key);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    state_foreign,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t kread_ptr,
-    uint32_t kread_len,
-    uint32_t nread_ptr,
-    uint32_t nread_len,
-    uint32_t aread_ptr,
-    uint32_t aread_len);
-DECLARE_JS_FUNCTION(
-    JSValue,
-    state_foreign,
-    JSValue key,
-    JSValue ns,
-    JSValue accid);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    trace,
-    uint32_t mread_ptr,
-    uint32_t mread_len,
-    uint32_t dread_ptr,
-    uint32_t dread_len,
-    uint32_t as_hex);
-
-DECLARE_JS_FUNCTION(JSValue, trace, JSValue msg, JSValue data, JSValue as_hex);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    trace_num,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    int64_t number);
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    trace_float,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    int64_t float1);
-
-DECLARE_WASM_FUNCNARG(int64_t, otxn_burden);
-DECLARE_JS_FUNCNARG(JSValue, otxn_burden);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    otxn_field,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t field_id);
-
-DECLARE_JS_FUNCTION(JSValue, otxn_field, JSValue field_id);
-
-DECLARE_WASM_FUNCNARG(int64_t, otxn_generation);
-DECLARE_JS_FUNCNARG(JSValue, otxn_generation);
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    otxn_id,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t flags);
-
-DECLARE_JS_FUNCTION(JSValue, otxn_id, flags);
-
-DECLARE_WASM_FUNCNARG(int64_t, otxn_type);
-
-DECLARE_JS_FUNCNARG(int64_t, otxn_type);
-
-DECLARE_WASM_FUNCTION(int64_t, otxn_slot, uint32_t slot_no);
-
-DECLARE_JS_FUNCTION(JSValue, otxn_slot, JSValue slot_no);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    otxn_param,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t read_ptr,
-    uint32_t read_len);
-
-DECLARE_JS_FUNCTION(JSValue, otxn_param, JSValue param_key);
-
-DECLARE_WASM_FUNCTION(int64_t, meta_slot, uint32_t slot_no);
-DECLARE_JS_FUNCTION(JSValue, meta_slot, JSValue slot_no);
-
-DECLARE_WASM_FUNCTION(
-    int64_t,
-    xpop_slot,
-    uint32_t slot_no_tx,
-    uint32_t slot_no_meta);
-DECLARE_JS_FUNCTION(
-    JSValue,
-    xpop_slot,
-    JSValue slot_no_tx,
-    JSValue slot_no_meta);
+#pragma push_macro("HOOK_API_DEFINITION")
+#pragma push_macro("JSHOOK_API_DEFINITION")
+#undef HOOK_API_DEFINITION
+#undef JSHOOK_API_DEFINITION
+
+#define HOOK_WRAP_PARAMS(...) __VA_ARGS__
+#define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
+    DECLARE_WASM_FUNCTION(                                                 \
+        RETURN_TYPE, FUNCTION_NAME, HOOK_WRAP_PARAMS PARAMS_TUPLE);
+
+#define JSHOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
+    DECLARE_JS_FUNCTION(JSValue, FUNCTION_NAME, HOOK_WRAP_PARAMS PARAMS_TUPLE);
+
+#include <ripple/app/hook/hook_api.macro>
+
+#undef HOOK_API_DEFINITION
+#undef JSHOOK_API_DEFINITION
+#undef HOOK_WRAP_PARAMS
+#pragma pop_macro("HOOK_API_DEFINITION")
+#pragma pop_macro("JSHOOK_API_DEFINITION")
 
 } /* end namespace hook_api */
 
@@ -634,6 +103,12 @@ canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit);
 
 ripple::uint256
 getHookCanEmit(ripple::STObject const& hookObj, SLE::pointer const& hookDef);
+
+ripple::uint256
+getHookOn(
+    STObject const& obj,
+    std::shared_ptr<SLE const> const& def,
+    SField const& field);
 
 struct HookResult;
 
@@ -670,9 +145,6 @@ apply(
 
 struct HookContext;
 
-uint32_t
-computeHookStateOwnerCount(uint32_t hookStateCount);
-
 int64_t
 computeExecutionFee(uint64_t instructionCount);
 int64_t
@@ -684,7 +156,6 @@ struct HookResult
     ripple::uint256 const hookHash;
     ripple::uint256 const hookCanEmit;
     ripple::Keylet const accountKeylet;
-    ripple::Keylet const ownerDirKeylet;
     ripple::Keylet const hookKeylet;
     ripple::AccountID const account;
     ripple::AccountID const otxnAccount;
@@ -763,6 +234,18 @@ struct HookContext
                       // emitted txn then this optional becomes
                       // populated with the SLE
     const HookExecutorBase* module = 0;
+
+    // Lazy-initialized HookAPI member
+    mutable std::unique_ptr<HookAPI> api_;
+
+    // Access the HookAPI instance (lazy initialization)
+    HookAPI&
+    api() const
+    {
+        if (!api_)
+            api_ = std::make_unique<HookAPI>(const_cast<HookContext&>(*this));
+        return *api_;
+    }
 };
 
 bool
@@ -1046,90 +529,18 @@ public:
 
         WasmEdge_LogSetDebugLevel();
 
-        ADD_WASM_FUNCTION(_g, ctx);
-        ADD_WASM_FUNCTION(accept, ctx);
-        ADD_WASM_FUNCTION(rollback, ctx);
-        ADD_WASM_FUNCTION(util_raddr, ctx);
-        ADD_WASM_FUNCTION(util_accid, ctx);
-        ADD_WASM_FUNCTION(util_verify, ctx);
-        ADD_WASM_FUNCTION(util_sha512h, ctx);
-        ADD_WASM_FUNCTION(sto_validate, ctx);
-        ADD_WASM_FUNCTION(sto_subfield, ctx);
-        ADD_WASM_FUNCTION(sto_subarray, ctx);
-        ADD_WASM_FUNCTION(sto_emplace, ctx);
-        ADD_WASM_FUNCTION(sto_erase, ctx);
-        ADD_WASM_FUNCTION(util_keylet, ctx);
+#pragma push_macro("HOOK_API_DEFINITION")
+#undef HOOK_API_DEFINITION
 
-        ADD_WASM_FUNCTION(emit, ctx);
-        ADD_WASM_FUNCTION(etxn_burden, ctx);
-        ADD_WASM_FUNCTION(etxn_fee_base, ctx);
-        ADD_WASM_FUNCTION(etxn_details, ctx);
-        ADD_WASM_FUNCTION(etxn_reserve, ctx);
-        ADD_WASM_FUNCTION(etxn_generation, ctx);
-        ADD_WASM_FUNCTION(etxn_nonce, ctx);
+#define HOOK_WRAP_PARAMS(...) __VA_ARGS__
+#define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
+    ADD_WASM_FUNCTION(FUNCTION_NAME, ctx);
 
-        ADD_WASM_FUNCTION(float_set, ctx);
-        ADD_WASM_FUNCTION(float_multiply, ctx);
-        ADD_WASM_FUNCTION(float_mulratio, ctx);
-        ADD_WASM_FUNCTION(float_negate, ctx);
-        ADD_WASM_FUNCTION(float_compare, ctx);
-        ADD_WASM_FUNCTION(float_sum, ctx);
-        ADD_WASM_FUNCTION(float_sto, ctx);
-        ADD_WASM_FUNCTION(float_sto_set, ctx);
-        ADD_WASM_FUNCTION(float_invert, ctx);
+#include <ripple/app/hook/hook_api.macro>
 
-        ADD_WASM_FUNCTION(float_divide, ctx);
-        ADD_WASM_FUNCTION(float_one, ctx);
-        ADD_WASM_FUNCTION(float_mantissa, ctx);
-        ADD_WASM_FUNCTION(float_sign, ctx);
-        ADD_WASM_FUNCTION(float_int, ctx);
-        ADD_WASM_FUNCTION(float_log, ctx);
-        ADD_WASM_FUNCTION(float_root, ctx);
-
-        ADD_WASM_FUNCTION(otxn_burden, ctx);
-        ADD_WASM_FUNCTION(otxn_generation, ctx);
-        ADD_WASM_FUNCTION(otxn_field, ctx);
-        ADD_WASM_FUNCTION(otxn_id, ctx);
-        ADD_WASM_FUNCTION(otxn_type, ctx);
-        ADD_WASM_FUNCTION(otxn_slot, ctx);
-        ADD_WASM_FUNCTION(otxn_param, ctx);
-
-        ADD_WASM_FUNCTION(hook_account, ctx);
-        ADD_WASM_FUNCTION(hook_hash, ctx);
-        ADD_WASM_FUNCTION(hook_again, ctx);
-        ADD_WASM_FUNCTION(fee_base, ctx);
-        ADD_WASM_FUNCTION(ledger_seq, ctx);
-        ADD_WASM_FUNCTION(ledger_last_hash, ctx);
-        ADD_WASM_FUNCTION(ledger_last_time, ctx);
-        ADD_WASM_FUNCTION(ledger_nonce, ctx);
-        ADD_WASM_FUNCTION(ledger_keylet, ctx);
-
-        ADD_WASM_FUNCTION(hook_param, ctx);
-        ADD_WASM_FUNCTION(hook_param_set, ctx);
-        ADD_WASM_FUNCTION(hook_skip, ctx);
-        ADD_WASM_FUNCTION(hook_pos, ctx);
-
-        ADD_WASM_FUNCTION(state, ctx);
-        ADD_WASM_FUNCTION(state_foreign, ctx);
-        ADD_WASM_FUNCTION(state_set, ctx);
-        ADD_WASM_FUNCTION(state_foreign_set, ctx);
-
-        ADD_WASM_FUNCTION(slot, ctx);
-        ADD_WASM_FUNCTION(slot_clear, ctx);
-        ADD_WASM_FUNCTION(slot_count, ctx);
-        ADD_WASM_FUNCTION(slot_set, ctx);
-        ADD_WASM_FUNCTION(slot_size, ctx);
-        ADD_WASM_FUNCTION(slot_subarray, ctx);
-        ADD_WASM_FUNCTION(slot_subfield, ctx);
-        ADD_WASM_FUNCTION(slot_type, ctx);
-        ADD_WASM_FUNCTION(slot_float, ctx);
-
-        ADD_WASM_FUNCTION(trace, ctx);
-        ADD_WASM_FUNCTION(trace_num, ctx);
-        ADD_WASM_FUNCTION(trace_float, ctx);
-
-        ADD_WASM_FUNCTION(meta_slot, ctx);
-        ADD_WASM_FUNCTION(xpop_slot, ctx);
+#undef HOOK_API_DEFINITION
+#undef HOOK_WRAP_PARAMS
+#pragma pop_macro("HOOK_API_DEFINITION")
 
         WasmEdge_TableInstanceContext* hostTable =
             WasmEdge_TableInstanceCreate(tableType);
@@ -1175,99 +586,21 @@ public:
 
             JS_SetRuntimeOpaque(rt, hookCtx);
 
-            ADD_JS_FUNCTION(accept, ctx);
-            ADD_JS_FUNCTION(rollback, ctx);
-            ADD_JS_FUNCTION(util_raddr, ctx);
-            ADD_JS_FUNCTION(util_accid, ctx);
-            ADD_JS_FUNCTION(util_verify, ctx);
-            ADD_JS_FUNCTION(util_sha512h, ctx);
-            ADD_JS_FUNCTION(util_keylet, ctx);
+#pragma push_macro("JSHOOK_API_DEFINITION")
+#undef JSHOOK_API_DEFINITION
 
-            ADD_JS_FUNCTION(sto_validate, ctx);
-            ADD_JS_FUNCTION(sto_subfield, ctx);
-            ADD_JS_FUNCTION(sto_subarray, ctx);
-            ADD_JS_FUNCTION(sto_emplace, ctx);
-            ADD_JS_FUNCTION(sto_erase, ctx);
+#define HOOK_WRAP_PARAMS(...) __VA_ARGS__
+#define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
+    {                                                                      \
+    }
+#define JSHOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
+    ADD_JS_FUNCTION(FUNCTION_NAME, ctx);
 
-            ADD_JS_FUNCTION(emit, ctx);
-            ADD_JS_FUNCTION(prepare, ctx);
-            ADD_JS_FUNCTION(otxn_json, ctx);
+#include <ripple/app/hook/hook_api.macro>
 
-            ADD_JS_FUNCTION(slot_json, ctx);
-            ADD_JS_FUNCTION(sto_to_json, ctx);
-            ADD_JS_FUNCTION(sto_from_json, ctx);
-
-            ADD_JS_FUNCTION(etxn_burden, ctx);
-            ADD_JS_FUNCTION(etxn_fee_base, ctx);
-            ADD_JS_FUNCTION(etxn_details, ctx);
-            ADD_JS_FUNCTION(etxn_reserve, ctx);
-            ADD_JS_FUNCTION(etxn_generation, ctx);
-            ADD_JS_FUNCTION(etxn_nonce, ctx);
-
-            ADD_JS_FUNCTION(float_set, ctx);
-            ADD_JS_FUNCTION(float_multiply, ctx);
-            ADD_JS_FUNCTION(float_mulratio, ctx);
-            ADD_JS_FUNCTION(float_negate, ctx);
-            ADD_JS_FUNCTION(float_compare, ctx);
-            ADD_JS_FUNCTION(float_sum, ctx);
-            ADD_JS_FUNCTION(float_sto, ctx);
-            ADD_JS_FUNCTION(float_sto_set, ctx);
-            ADD_JS_FUNCTION(float_invert, ctx);
-
-            ADD_JS_FUNCTION(float_divide, ctx);
-            ADD_JS_FUNCTION(float_one, ctx);
-            ADD_JS_FUNCTION(float_mantissa, ctx);
-            ADD_JS_FUNCTION(float_sign, ctx);
-            ADD_JS_FUNCTION(float_int, ctx);
-            ADD_JS_FUNCTION(float_log, ctx);
-            ADD_JS_FUNCTION(float_root, ctx);
-
-            ADD_JS_FUNCTION(otxn_burden, ctx);
-            ADD_JS_FUNCTION(otxn_generation, ctx);
-            ADD_JS_FUNCTION(otxn_field, ctx);
-            ADD_JS_FUNCTION(otxn_id, ctx);
-            ADD_JS_FUNCTION(otxn_type, ctx);
-            ADD_JS_FUNCTION(otxn_slot, ctx);
-            ADD_JS_FUNCTION(otxn_param, ctx);
-
-            ADD_JS_FUNCTION(hook_account, ctx);
-            ADD_JS_FUNCTION(hook_hash, ctx);
-            ADD_JS_FUNCTION(hook_again, ctx);
-            ADD_JS_FUNCTION(fee_base, ctx);
-            ADD_JS_FUNCTION(ledger_seq, ctx);
-            ADD_JS_FUNCTION(ledger_last_hash, ctx);
-            ADD_JS_FUNCTION(ledger_last_time, ctx);
-            ADD_JS_FUNCTION(ledger_nonce, ctx);
-            ADD_JS_FUNCTION(ledger_keylet, ctx);
-
-            ADD_JS_FUNCTION(hook_param, ctx);
-            ADD_JS_FUNCTION(hook_param_set, ctx);
-            ADD_JS_FUNCTION(hook_skip, ctx);
-            ADD_JS_FUNCTION(hook_pos, ctx);
-
-            ADD_JS_FUNCTION(state, ctx);
-            ADD_JS_FUNCTION(state_foreign, ctx);
-            ADD_JS_FUNCTION(state_set, ctx);
-            ADD_JS_FUNCTION(state_foreign_set, ctx);
-
-            ADD_JS_FUNCTION(slot, ctx);
-            ADD_JS_FUNCTION(slot_clear, ctx);
-            ADD_JS_FUNCTION(slot_count, ctx);
-            ADD_JS_FUNCTION(slot_set, ctx);
-            ADD_JS_FUNCTION(slot_size, ctx);
-            ADD_JS_FUNCTION(slot_subarray, ctx);
-            ADD_JS_FUNCTION(slot_subfield, ctx);
-            ADD_JS_FUNCTION(slot_type, ctx);
-            ADD_JS_FUNCTION(slot_float, ctx);
-
-            ADD_JS_FUNCTION(trace, ctx);
-            /*
-            ADD_JS_FUNCTION(trace_num, ctx);
-            ADD_JS_FUNCTION(trace_float, ctx);
-
-            */
-            ADD_JS_FUNCTION(meta_slot, ctx);
-            ADD_JS_FUNCTION(xpop_slot, ctx);
+#undef HOOK_API_DEFINITION
+#undef HOOK_WRAP_PARAMS
+#pragma pop_macro("JSHOOK_API_DEFINITION")
         }
 
         bool

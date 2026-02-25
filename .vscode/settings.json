@@ -8,6 +8,6 @@
     "editor.semanticHighlighting.enabled": true,
     "editor.tabSize": 4,
     "editor.defaultFormatter": "xaver.clang-format",
-    "editor.formatOnSave": false
+    "editor.formatOnSave": true
   }
 }

@@ -5,6 +5,29 @@
 #include <vector>
 #ifndef HOOKENUM_INCLUDED
 #define HOOKENUM_INCLUDED 1
+
+#ifndef GUARD_CHECKER_BUILD
+#include <ripple/basics/base_uint.h>
+#include <ripple/protocol/Feature.h>
+#include <ripple/protocol/Rules.h>
+#else
+// Override uint256, Feature and Rules for guard checker build
+#define uint256 std::string
+#define featureHooksUpdate1 "1"
+#define featureHooksUpdate2 "1"
+#define fix20250131 "1"
+namespace hook_api {
+struct Rules
+{
+    constexpr bool
+    enabled(const uint256& feature) const
+    {
+        return true;
+    }
+};
+}  // namespace hook_api
+#endif
+
 namespace ripple {
 enum HookSetOperation : int8_t {
     hsoINVALID = -1,
@@ -29,6 +52,8 @@ enum HookEmissionFlags : uint16_t {
 };
 }  // namespace ripple
 
+using namespace ripple;
+
 namespace hook {
 // RH TODO: put these somewhere better, and allow rules to be fed in
 inline uint32_t
@@ -43,10 +68,26 @@ maxHookParameterValueSize(void)
     return 256;
 }
 
-inline uint32_t
-maxHookStateDataSize(void)
+inline uint16_t
+maxHookStateScale(void)
 {
-    return 256U;
+    return 16;
+}
+
+inline uint32_t
+maxHookStateDataSize(uint16_t hookStateScale)
+{
+    if (hookStateScale == 0)
+    {
+        // should not happen, but just in case
+        return 256U;
+    }
+    if (hookStateScale > maxHookStateScale())
+    {
+        // should not happen, but just in case
+        return 256 * maxHookStateScale();
+    }
+    return 256U * hookStateScale;
 }
 
 inline uint32_t
@@ -263,8 +304,7 @@ enum keylet_code : uint32_t {
     NFT_OFFER = 23,
     HOOK_DEFINITION = 24,
     HOOK_STATE_DIR = 25,
-    LAST_KLTYPE_V0 = HOOK_DEFINITION,
-    LAST_KLTYPE_V1 = HOOK_STATE_DIR,
+    CRON = 26
 };
 }
 
@@ -362,90 +402,63 @@ const uint8_t max_emit = 255;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
 
+using APIWhitelist = std::map<std::string, std::vector<uint8_t>>;
+
 // RH NOTE: Find descriptions of api functions in ./impl/applyHook.cpp and
 // hookapi.h (include for hooks) this is a map of the api name to its return
 // code (vec[0] and its parameters vec[>0]) as wasm type codes
-static const std::map<std::string, std::vector<uint8_t>> import_whitelist{
-    {"_g", {0x7FU, 0x7FU, 0x7FU}},
-    {"accept", {0x7EU, 0x7FU, 0x7FU, 0x7EU}},
-    {"rollback", {0x7EU, 0x7FU, 0x7FU, 0x7EU}},
-    {"util_raddr", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"util_accid", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"util_verify", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"util_sha512h", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"util_keylet",
-     {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"sto_validate", {0x7EU, 0x7FU, 0x7FU}},
-    {"sto_subfield", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"sto_subarray", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"sto_emplace", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"sto_erase", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"etxn_burden", {0x7EU}},
-    {"etxn_details", {0x7EU, 0x7FU, 0x7FU}},
-    {"etxn_fee_base", {0x7EU, 0x7FU, 0x7FU}},
-    {"etxn_reserve", {0x7EU, 0x7FU}},
-    {"etxn_generation", {0x7EU}},
-    {"etxn_nonce", {0x7EU, 0x7FU, 0x7FU}},
-    {"emit", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"float_set", {0x7EU, 0x7FU, 0x7EU}},
-    {"float_multiply", {0x7EU, 0x7EU, 0x7EU}},
-    {"float_mulratio", {0x7EU, 0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"float_negate", {0x7EU, 0x7EU}},
-    {"float_compare", {0x7EU, 0x7EU, 0x7EU, 0x7FU}},
-    {"float_sum", {0x7EU, 0x7EU, 0x7EU}},
-    {"float_sto",
-     {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7EU, 0x7FU}},
-    {"float_sto_set", {0x7EU, 0x7FU, 0x7FU}},
-    {"float_invert", {0x7EU, 0x7EU}},
-    {"float_divide", {0x7EU, 0x7EU, 0x7EU}},
-    {"float_one", {0x7EU}},
-    {"float_mantissa", {0x7EU, 0x7EU}},
-    {"float_sign", {0x7EU, 0x7EU}},
-    {"float_int", {0x7EU, 0x7EU, 0x7FU, 0x7FU}},
-    {"float_log", {0x7EU, 0x7EU}},
-    {"float_root", {0x7EU, 0x7EU, 0x7FU}},
-    {"fee_base", {0x7EU}},
-    {"ledger_seq", {0x7EU}},
-    {"ledger_last_time", {0x7EU}},
-    {"ledger_last_hash", {0x7EU, 0x7FU, 0x7FU}},
-    {"ledger_nonce", {0x7EU, 0x7FU, 0x7FU}},
-    {"ledger_keylet", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"hook_account", {0x7EU, 0x7FU, 0x7FU}},
-    {"hook_hash", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"hook_param_set", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"hook_param", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"hook_again", {0x7EU}},
-    {"hook_skip", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"hook_pos", {0x7EU}},
-    {"slot", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"slot_clear", {0x7EU, 0x7FU}},
-    {"slot_count", {0x7EU, 0x7FU}},
-    {"slot_set", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"slot_size", {0x7EU, 0x7FU}},
-    {"slot_subarray", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"slot_subfield", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"slot_type", {0x7EU, 0x7FU, 0x7FU}},
-    {"slot_float", {0x7EU, 0x7FU}},
-    {"state_set", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"state_foreign_set",
-     {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"state", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"state_foreign",
-     {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"trace", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"trace_num", {0x7EU, 0x7FU, 0x7FU, 0x7EU}},
-    {"trace_float", {0x7EU, 0x7FU, 0x7FU, 0x7EU}},
-    {"otxn_burden", {0x7EU}},
-    {"otxn_field", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"otxn_generation", {0x7EU}},
-    {"otxn_id", {0x7EU, 0x7FU, 0x7FU, 0x7FU}},
-    {"otxn_type", {0x7EU}},
-    {"otxn_slot", {0x7EU, 0x7FU}},
-    {"otxn_param", {0x7EU, 0x7FU, 0x7FU, 0x7FU, 0x7FU}},
-    {"meta_slot", {0x7EU, 0x7FU}}};
+inline APIWhitelist
+getImportWhitelist(Rules const& rules)
+{
+    APIWhitelist whitelist;
 
-// featureHooks1
-static const std::map<std::string, std::vector<uint8_t>> import_whitelist_1{
-    {"xpop_slot", {0x7EU, 0x7FU, 0x7FU}}};
+#pragma push_macro("HOOK_API_DEFINITION")
+#undef HOOK_API_DEFINITION
+
+#define int64_t 0x7EU
+#define int32_t 0x7FU
+#define uint32_t 0x7FU
+
+#define HOOK_WRAP_PARAMS(...) __VA_ARGS__
+
+#define HOOK_API_DEFINITION(                                \
+    RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, AMENDMENT)    \
+    if (AMENDMENT == uint256{} || rules.enabled(AMENDMENT)) \
+        whitelist[#FUNCTION_NAME] = {                       \
+            RETURN_TYPE, HOOK_WRAP_PARAMS PARAMS_TUPLE};
+#define JSHOOK_API_DEFINITION(                           \
+    RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, AMENDMENT) \
+    {                                                    \
+    }
+
+#include "hook_api.macro"
+
+#undef HOOK_API_DEFINITION
+#undef HOOK_WRAP_PARAMS
+#undef int64_t
+#undef int32_t
+#undef uint32_t
+#pragma pop_macro("HOOK_API_DEFINITION")
+
+    return whitelist;
+}
+
+#undef HOOK_API_DEFINITION
+#undef I32
+#undef I64
+
+enum GuardRulesVersion : uint64_t {
+    GuardRuleFix20250131 = 0x00000001,
+};
+
+inline uint64_t
+getGuardRulesVersion(Rules const& rules)
+{
+    uint64_t version = 0;
+    if (rules.enabled(fix20250131))
+        version |= GuardRuleFix20250131;
+    return version;
+}
+
 };  // namespace hook_api
 #endif

@@ -506,6 +506,36 @@ doLedgerEntry(RPC::JsonContext& context)
             jvResult[jss::error] = "malformedRequest";
         }
     }
+    else if (context.params.isMember(jss::cron))
+    {
+        expectedType = ltCRON;
+        if (!context.params[jss::cron].isObject())
+        {
+            if (!uNodeIndex.parseHex(context.params[jss::cron].asString()))
+            {
+                uNodeIndex = beast::zero;
+                jvResult[jss::error] = "malformedRequest";
+            }
+        }
+        else if (
+            !context.params[jss::cron].isMember(jss::owner) ||
+            !context.params[jss::cron].isMember(jss::time))
+        {
+            jvResult[jss::error] = "malformedRequest";
+        }
+        else
+        {
+            auto const id = parseBase58<AccountID>(
+                context.params[jss::cron][jss::owner].asString());
+            if (!id)
+                jvResult[jss::error] = "malformedAddress";
+            else
+                uNodeIndex =
+                    keylet::cron(
+                        context.params[jss::cron][jss::time].asUInt(), *id)
+                        .key;
+        }
+    }
     else
     {
         if (context.params.isMember("params") &&

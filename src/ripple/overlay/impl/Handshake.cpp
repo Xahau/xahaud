@@ -239,20 +239,17 @@ verifyHandshake(
             throw std::runtime_error("Invalid server domain");
     }
 
-    if (auto const iter = headers.find("Network-ID"); iter != headers.end())
+    // Check network ID, treating absent/empty as default network 0
     {
-        uint32_t peer_nid = 0;
+        std::uint32_t nid{0};
+
         if (auto const iter = headers.find("Network-ID"); iter != headers.end())
         {
-            if (!beast::lexicalCastChecked(
-                    peer_nid, std::string(iter->value())))
+            if (!beast::lexicalCastChecked(nid, std::string(iter->value())))
                 throw std::runtime_error("Invalid peer network identifier");
         }
 
-        if (!beast::lexicalCastChecked(peer_nid, std::string(iter->value())))
-            throw std::runtime_error("Invalid peer network identifier");
-
-        if (networkID && peer_nid != *networkID)
+        if (networkID.value_or(0) != nid)
             throw std::runtime_error("Peer is on a different network");
     }
 
