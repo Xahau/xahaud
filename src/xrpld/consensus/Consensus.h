@@ -1020,7 +1020,9 @@ Consensus<Adaptor>::gotTxSet(
     {
         // Our position is added to acquired_ as soon as we create it,
         // so this txSet must differ
-        assert(id != result_->position.position());
+        XRPL_ASSERT(
+            id != result_->position.position(),
+            "ripple::Consensus::gotTxSet : updated transaction set");
         bool any = false;
         for (auto const& [nodeId, peerPos] : currPeerPositions_)
         {
@@ -1168,7 +1170,9 @@ Consensus<Adaptor>::handleWrongLedger(
     std::unique_ptr<std::stringstream> const& clog)
 {
     CLOG(clog) << "handleWrongLedger. ";
-    assert(lgrId != prevLedgerID_ || previousLedger_.id() != lgrId);
+    XRPL_ASSERT(
+        lgrId != prevLedgerID_ || previousLedger_.id() != lgrId,
+        "ripple::Consensus::handleWrongLedger : have wrong ledger");
 
     // Stop proposing because we are out of sync
     leaveConsensus(clog);
@@ -1470,7 +1474,7 @@ Consensus<Adaptor>::phaseEstablish(
 {
     CLOG(clog) << "phaseEstablish. ";
     // can only establish consensus if we already took a stance
-    assert(result_);
+    XRPL_ASSERT(result_, "ripple::Consensus::phaseEstablish : result is set");
 
     using namespace std::chrono;
     ConsensusParms const& parms = adaptor_.parms();
@@ -1717,7 +1721,7 @@ void
 Consensus<Adaptor>::closeLedger(std::unique_ptr<std::stringstream> const& clog)
 {
     // We should not be closing if we already have a position
-    assert(!result_);
+    XRPL_ASSERT(!result_, "ripple::Consensus::closeLedger : result is not set");
 
     phase_ = ConsensusPhase::establish;
     estState_ = EstablishState::ConvergingTx;
@@ -1775,7 +1779,8 @@ Consensus<Adaptor>::updateOurPositions(
     std::unique_ptr<std::stringstream> const& clog)
 {
     // We must have a position if we are updating it
-    assert(result_);
+    XRPL_ASSERT(
+        result_, "ripple::Consensus::updateOurPositions : result is set");
     ConsensusParms const& parms = adaptor_.parms();
 
     // Compute a cutoff time
@@ -1983,7 +1988,7 @@ Consensus<Adaptor>::haveConsensus(
     std::unique_ptr<std::stringstream> const& clog)
 {
     // Must have a stance if we are checking for consensus
-    assert(result_);
+    XRPL_ASSERT(result_, "ripple::Consensus::haveConsensus : has result");
 
     // CHECKME: should possibly count unacquired TX sets as disagreeing
     int agree = 0, disagree = 0;
@@ -2069,7 +2074,7 @@ Consensus<Adaptor>::createDisputes(
     std::unique_ptr<std::stringstream> const& clog)
 {
     // Cannot create disputes without our stance
-    assert(result_);
+    XRPL_ASSERT(result_, "ripple::Consensus::createDisputes : result is set");
 
     // Only create disputes if this is a new set
     auto const emplaced = result_->compares.emplace(o.id()).second;
@@ -2097,9 +2102,10 @@ Consensus<Adaptor>::createDisputes(
     {
         ++dc;
         // create disputed transactions (from the ledger that has them)
-        assert(
+        XRPL_ASSERT(
             (inThisSet && result_->txns.find(txId) && !o.find(txId)) ||
-            (!inThisSet && !result_->txns.find(txId) && o.find(txId)));
+                (!inThisSet && !result_->txns.find(txId) && o.find(txId)),
+            "ripple::Consensus::createDisputes : has disputed transactions");
 
         Tx_t tx = inThisSet ? result_->txns.find(txId) : o.find(txId);
         auto txID = tx.id();
@@ -2136,7 +2142,7 @@ void
 Consensus<Adaptor>::updateDisputes(NodeID_t const& node, TxSet_t const& other)
 {
     // Cannot updateDisputes without our stance
-    assert(result_);
+    XRPL_ASSERT(result_, "ripple::Consensus::updateDisputes : result is set");
 
     // Ensure we have created disputes against this set if we haven't seen
     // it before

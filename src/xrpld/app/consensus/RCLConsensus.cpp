@@ -157,8 +157,12 @@ RCLConsensus::Adaptor::acquireLedger(LedgerHash const& hash)
         return std::nullopt;
     }
 
-    assert(!built->open() && built->isImmutable());
-    assert(built->info().hash == hash);
+    XRPL_ASSERT(
+        !built->open() && built->isImmutable(),
+        "ripple::RCLConsensus::Adaptor::acquireLedger : valid ledger state");
+    XRPL_ASSERT(
+        built->info().hash == hash,
+        "ripple::RCLConsensus::Adaptor::acquireLedger : ledger hash match");
 
     // Notify inbound transactions of the new ledger sequence number
     inboundTransactions_.newRound(built->info().seq);
@@ -784,8 +788,12 @@ RCLConsensus::Adaptor::doAccept(
         ledgerMaster_.switchLCL(built.ledger_);
 
         // Do these need to exist?
-        assert(ledgerMaster_.getClosedLedger()->info().hash == built.id());
-        assert(app_.openLedger().current()->info().parentHash == built.id());
+        XRPL_ASSERT(
+            ledgerMaster_.getClosedLedger()->info().hash == built.id(),
+            "ripple::RCLConsensus::Adaptor::doAccept : ledger hash match");
+        XRPL_ASSERT(
+            app_.openLedger().current()->info().parentHash == built.id(),
+            "ripple::RCLConsensus::Adaptor::doAccept : parent hash match");
     }
 
     //-------------------------------------------------------------------------
@@ -881,7 +889,9 @@ RCLConsensus::Adaptor::buildLCL(
     std::shared_ptr<Ledger> built = [&]() {
         if (auto const replayData = ledgerMaster_.releaseReplay())
         {
-            assert(replayData->parent()->info().hash == previousLedger.id());
+            XRPL_ASSERT(
+                replayData->parent()->info().hash == previousLedger.id(),
+                "ripple::RCLConsensus::Adaptor::buildLCL : parent hash match");
             return buildLedger(*replayData, tapNONE, app_, j_);
         }
         return buildLedger(
