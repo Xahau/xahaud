@@ -27,8 +27,8 @@ APPLY_HOOK="$SCRIPT_DIR/../include/xrpl/hook/hook_api.macro"
                 next;
             }
             
-            # Look for comment lines that start with // and contain function signature
-            if (line ~ /^[[:space:]]*\/\/[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(/) {
+            # Look for comment lines that start with // int64_t or // int32_t
+            if (line ~ /^[[:space:]]*\/\/[[:space:]]*(int64_t|int32_t)[[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(/) {
                 # Remove leading // and trim
                 sub(/^[[:space:]]*\/\/[[:space:]]*/, "", line);
                 line = trim(line);
