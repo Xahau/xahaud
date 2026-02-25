@@ -153,8 +153,6 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int64_t dice(uint32_t sides);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
 
-            int64_t cbak(uint32_t r) { return 0; }
-
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
@@ -230,8 +228,6 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int64_t random(uint32_t write_ptr, uint32_t write_len);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
 
-            int64_t cbak(uint32_t r) { return 0; }
-
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
@@ -306,8 +302,6 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t dice(uint32_t sides);
-
-            int64_t cbak(uint32_t r) { return 0; }
 
             int64_t hook(uint32_t r)
             {
@@ -385,8 +379,6 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t dice(uint32_t sides);
-
-            int64_t cbak(uint32_t r) { return 0; }
 
             int64_t hook(uint32_t r)
             {

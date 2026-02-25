@@ -1669,7 +1669,8 @@ Consensus<Adaptor>::phaseEstablish(
             bool timeout = elapsed > parms.rngREVEAL_TIMEOUT;
             bool ready = false;
 
-            if ((haveConsensus(clog) && adaptor_.hasMinimumReveals()) || timeout)
+            if ((haveConsensus(clog) && adaptor_.hasMinimumReveals()) ||
+                timeout)
             {
                 if (timeout && !adaptor_.hasAnyReveals())
                 {

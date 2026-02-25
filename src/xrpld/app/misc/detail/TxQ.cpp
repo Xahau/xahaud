@@ -1562,6 +1562,7 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
+    //@@start txq-export-quorum-check
     // Inject exported transactions/signatures, if any
     if (view.rules().enabled(featureExportRNG))
     {
@@ -1693,6 +1694,7 @@ TxQ::accept(Application& app, OpenView& view)
                 view, exportedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
         } while (0);
     }
+    //@@end txq-export-quorum-check
 
     // Inject emitted transactions if any
     if (view.rules().enabled(featureHooks))
