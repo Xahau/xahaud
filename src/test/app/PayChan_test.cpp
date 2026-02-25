@@ -17,15 +17,15 @@
 */
 //==============================================================================
 
-#include <ripple/basics/chrono.h>
-#include <ripple/ledger/Directory.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Indexes.h>
-#include <ripple/protocol/PayChan.h>
-#include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/jss.h>
 #include <test/jtx.h>
-
+#include <xrpld/ledger/Dir.h>
+#include <xrpld/rpc/detail/RPCHelpers.h>
+#include <xrpl/basics/chrono.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/PayChan.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/jss.h>
 #include <chrono>
 
 namespace ripple {
@@ -33,16 +33,6 @@ namespace test {
 struct PayChan_test : public beast::unit_test::suite
 {
     FeatureBitset const disallowIncoming{featureDisallowIncoming};
-
-    static uint256
-    channel(
-        jtx::Account const& account,
-        jtx::Account const& dst,
-        std::uint32_t seqProxyValue)
-    {
-        auto const k = keylet::payChan(account, dst, seqProxyValue);
-        return k.key;
-    }
 
     static std::pair<uint256, std::shared_ptr<SLE const>>
     channelKeyAndSle(
@@ -84,22 +74,6 @@ struct PayChan_test : public beast::unit_test::suite
             authAmt.getCurrency(),
             authAmt.getIssuer());
         return sign(pk, sk, msg.slice());
-    }
-
-    static STAmount
-    channelBalance(ReadView const& view, uint256 const& chan)
-    {
-        auto const slep = view.read({ltPAYCHAN, chan});
-        if (!slep)
-            return XRPAmount{-1};
-        return (*slep)[sfBalance];
-    }
-
-    static bool
-    channelExists(ReadView const& view, uint256 const& chan)
-    {
-        auto const slep = view.read({ltPAYCHAN, chan});
-        return bool(slep);
     }
 
     static STAmount
@@ -939,6 +913,190 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
+    testDepositAuthCreds(FeatureBitset features)
+    {
+        testcase("Deposit Authorization with Credentials");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        const char credType[] = "abcde";
+
+        Account const alice("alice");
+        Account const bob("bob");
+        Account const carol("carol");
+        Account const dillon("dillon");
+        Account const zelda("zelda");
+
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, carol, dillon, zelda);
+
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, XRP(1000), settleDelay, pk));
+            env.close();
+
+            // alice add funds to the channel
+            env(fund(alice, chan, XRP(1000)));
+            env.close();
+
+            std::string const credBadIdx =
+                "D007AE4B6E1274B4AF872588267B810C2F82716726351D1C7D38D3E5499FC6"
+                "E1";
+
+            auto const delta = XRP(500).value();
+
+            {  // create credentials
+                auto jv = credentials::create(alice, carol, credType);
+                uint32_t const t = env.current()
+                                       ->info()
+                                       .parentCloseTime.time_since_epoch()
+                                       .count() +
+                    100;
+                jv[sfExpiration.jsonName] = t;
+                env(jv);
+                env.close();
+            }
+
+            auto const jv =
+                credentials::ledgerEntry(env, alice, carol, credType);
+            std::string const credIdx = jv[jss::result][jss::index].asString();
+
+            // Bob require preauthorization
+            env(fset(bob, asfDepositAuth));
+            env.close();
+
+            // Fail, credentials not accepted
+            env(claim(alice, chan, delta, delta),
+                credentials::ids({credIdx}),
+                ter(tecBAD_CREDENTIALS));
+            env.close();
+
+            env(credentials::accept(alice, carol, credType));
+            env.close();
+
+            // Fail, no depositPreauth object
+            env(claim(alice, chan, delta, delta),
+                credentials::ids({credIdx}),
+                ter(tecNO_PERMISSION));
+            env.close();
+
+            // Setup deposit authorization
+            env(deposit::authCredentials(bob, {{carol, credType}}));
+            env.close();
+
+            // Fail, credentials doesn’t belong to root account
+            env(claim(dillon, chan, delta, delta),
+                credentials::ids({credIdx}),
+                ter(tecBAD_CREDENTIALS));
+
+            // Fails because bob's lsfDepositAuth flag is set.
+            env(claim(alice, chan, delta, delta), ter(tecNO_PERMISSION));
+
+            // Fail, bad credentials index.
+            env(claim(alice, chan, delta, delta),
+                credentials::ids({credBadIdx}),
+                ter(tecBAD_CREDENTIALS));
+
+            // Fail, empty credentials
+            env(claim(alice, chan, delta, delta),
+                credentials::ids({}),
+                ter(temMALFORMED));
+
+            {
+                // claim fails cause of expired credentials
+
+                // Every cycle +10sec.
+                for (int i = 0; i < 10; ++i)
+                    env.close();
+
+                env(claim(alice, chan, delta, delta),
+                    credentials::ids({credIdx}),
+                    ter(tecEXPIRED));
+                env.close();
+            }
+
+            {  // create credentials once more
+                env(credentials::create(alice, carol, credType));
+                env.close();
+                env(credentials::accept(alice, carol, credType));
+                env.close();
+
+                auto const jv =
+                    credentials::ledgerEntry(env, alice, carol, credType);
+                std::string const credIdx =
+                    jv[jss::result][jss::index].asString();
+
+                // Success
+                env(claim(alice, chan, delta, delta),
+                    credentials::ids({credIdx}));
+            }
+        }
+
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, carol, dillon, zelda);
+
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, XRP(1000), settleDelay, pk));
+            env.close();
+
+            // alice add funds to the channel
+            env(fund(alice, chan, XRP(1000)));
+            env.close();
+
+            auto const delta = XRP(500).value();
+
+            {  // create credentials
+                env(credentials::create(alice, carol, credType));
+                env.close();
+                env(credentials::accept(alice, carol, credType));
+                env.close();
+            }
+
+            auto const jv =
+                credentials::ledgerEntry(env, alice, carol, credType);
+            std::string const credIdx = jv[jss::result][jss::index].asString();
+
+            // Succeed, lsfDepositAuth is not set
+            env(claim(alice, chan, delta, delta), credentials::ids({credIdx}));
+            env.close();
+        }
+
+        {
+            // Credentials amendment not enabled
+            Env env(*this, features - featureCredentials);
+            env.fund(XRP(5000), "alice", "bob");
+            env.close();
+
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            auto const chan = channel(alice, bob, env.seq(alice));
+            env(create(alice, bob, XRP(1000), settleDelay, pk));
+            env.close();
+
+            env(fund(alice, chan, XRP(1000)));
+            env.close();
+            std::string const credIdx =
+                "48004829F915654A81B11C4AB8218D96FED67F209B58328A72314FB6EA288B"
+                "E4";
+
+            // can't claim with old DepositPreauth because rule is not enabled.
+            env(fset(bob, asfDepositAuth));
+            env.close();
+            env(deposit::auth(bob, alice));
+            env.close();
+
+            env(claim(alice, chan, XRP(500).value(), XRP(500).value()),
+                credentials::ids({credIdx}),
+                ter(temDISABLED));
+        }
+    }
+
+    void
     testMultiple(FeatureBitset features)
     {
         // auth amount defaults to balance if not present
@@ -979,6 +1137,25 @@ struct PayChan_test : public beast::unit_test::suite
         auto const chan1Str = to_string(channel(alice, bob, env.seq(alice)));
         env(paychan::create(alice, bob, channelFunds, settleDelay, pk));
         env.close();
+        {
+            // test account non-string
+            auto testInvalidAccountParam = [&](auto const& param) {
+                Json::Value params;
+                params[jss::account] = param;
+                auto jrr = env.rpc(
+                    "json", "account_channels", to_string(params))[jss::result];
+                BEAST_EXPECT(jrr[jss::error] == "invalidParams");
+                BEAST_EXPECT(
+                    jrr[jss::error_message] == "Invalid field 'account'.");
+            };
+
+            testInvalidAccountParam(1);
+            testInvalidAccountParam(1.1);
+            testInvalidAccountParam(true);
+            testInvalidAccountParam(Json::Value(Json::nullValue));
+            testInvalidAccountParam(Json::Value(Json::objectValue));
+            testInvalidAccountParam(Json::Value(Json::arrayValue));
+        }
         {
             auto const r =
                 env.rpc("account_channels", alice.human(), bob.human());
@@ -1168,6 +1345,44 @@ struct PayChan_test : public beast::unit_test::suite
         BEAST_EXPECT(
             r[jss::channels][0u][jss::destination_account].asString() ==
             bob.human());
+    }
+
+    void
+    testAccountChannelAuthorize(FeatureBitset features)
+    {
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        Env env{*this, features};
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const charlie = Account("charlie", KeyType::ed25519);
+        env.fund(XRP(10000), alice, bob, charlie);
+        auto const pk = alice.pk();
+        auto const settleDelay = 3600s;
+        auto const channelFunds = XRP(1000);
+        auto const chan1Str = to_string(channel(alice, bob, env.seq(alice)));
+        env(create(alice, bob, channelFunds, settleDelay, pk));
+        env.close();
+
+        Json::Value args{Json::objectValue};
+        args[jss::channel_id] = chan1Str;
+        args[jss::key_type] = "ed255191";
+        args[jss::seed] = "snHq1rzQoN2qiUkC3XF5RyxBzUtN";
+        args[jss::amount] = 51110000;
+
+        // test for all api versions
+        forAllApiVersions([&, this](unsigned apiVersion) {
+            testcase(
+                "PayChan Channel_Auth RPC Api " + std::to_string(apiVersion));
+            args[jss::api_version] = apiVersion;
+            auto const rs = env.rpc(
+                "json",
+                "channel_authorize",
+                args.toStyledString())[jss::result];
+            auto const error = apiVersion < 2u ? "invalidParams" : "badKeyType";
+            BEAST_EXPECT(rs[jss::error] == error);
+        });
     }
 
     void
@@ -5679,6 +5894,7 @@ struct PayChan_test : public beast::unit_test::suite
         testAccountChannelsRPC(features);
         testAccountChannelsRPCMarkers(features);
         testAccountChannelsRPCSenderOnly(features);
+        testAccountChannelAuthorize(features);
         testAuthVerifyRPC(features);
         testOptionalFields(features);
         testMalformedPK(features);
@@ -5727,7 +5943,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{supported_amendments() | featureCredentials};
         testWithFeats(all - disallowIncoming);
         testWithFeats(
             all - disallowIncoming - featurePaychanAndEscrowForTokens);
@@ -5735,9 +5951,10 @@ public:
         testIOUWithFeats(all - disallowIncoming);
         testIOUWithFeats(all - featureClawback);
         testIOUWithFeats(all);
+        testDepositAuthCreds(all);
     }
 };
 
-BEAST_DEFINE_TESTSUITE(PayChan, app, ripple);
+BEAST_DEFINE_TESTSUITE_PRIO(PayChan, app, ripple, 2);
 }  // namespace test
 }  // namespace ripple

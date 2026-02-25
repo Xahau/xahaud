@@ -124,3 +124,7 @@ bld.rippled/
 # binary
 qjsc
 generated
+.vscode
+
+# Suggested in-tree build directory
+/.build/

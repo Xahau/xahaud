@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/jss.h>
 #include <test/jtx/cron.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 namespace test {

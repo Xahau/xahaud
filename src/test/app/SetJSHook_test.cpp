@@ -17,19 +17,18 @@
 */
 //==============================================================================
 
-#include <ripple/app/hook/Enum.h>
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/tx/impl/SetHook.h>
-#include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/jss.h>
-#include <boost/regex.hpp>
-
-#include "ripple/json/Writer.h"
-#include "ripple/json/json_writer.h"
 #include <test/app/Import_json.h>
 #include <test/app/SetJSHook_wasm.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/tx/detail/SetHook.h>
+#include <xrpl/hook/Enum.h>
+#include <xrpl/json/Writer.h>
+#include <xrpl/json/json_writer.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/jss.h>
+#include <boost/regex.hpp>
 #include <unordered_map>
 
 // DA TODO: Move duplicated functions to jtx

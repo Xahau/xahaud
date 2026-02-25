@@ -4,7 +4,7 @@ set -eu
 SCRIPT_DIR=$(dirname "$0")
 SCRIPT_DIR=$(cd "$SCRIPT_DIR" && pwd)
 
-ENUM_FILE="$SCRIPT_DIR/../src/ripple/app/hook/Enum.h"
+ENUM_FILE="$SCRIPT_DIR/../include/xrpl/hook/Enum.h"
 
 echo '// For documentation please see: https://xrpl-hooks.readme.io/reference/'
 echo '// Generated using generate_error.sh'

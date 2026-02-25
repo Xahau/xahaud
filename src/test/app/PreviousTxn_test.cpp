@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/jss.h>
 #include <test/jtx.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 namespace test {
@@ -157,7 +157,7 @@ public:
             if (node.getFName() == sfModifiedNode &&
                 node.getFieldU16(sfLedgerEntryType) == ltRIPPLE_STATE)
             {
-                auto json = node.getJson({});
+                auto json = node.getJson(Json::objectValue);
                 JLOG(j.trace()) << json;
 
                 // Why we expect PreviousTxnID in ModifiedNode metadata:
