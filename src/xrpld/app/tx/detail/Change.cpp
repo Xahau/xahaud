@@ -1172,6 +1172,18 @@ Change::applyExport()
                 return tefBAD_QUORUM;
             }
 
+            // Exports must be multi-signed only.
+            // SigningPubKey must be present but empty; TxnSignature must
+            // not be present.  (Matches rippled's multi-sign validation
+            // in TransactionSign.cpp.)
+            if (!exportedTx.getFieldVL(sfSigningPubKey).empty() ||
+                exportedTx.isFieldPresent(sfTxnSignature))
+            {
+                JLOG(j_.warn())
+                    << "Export: single-sign fields present for " << txnID;
+                return tefBAD_QUORUM;
+            }
+
             std::set<PublicKey> seen;
             auto const& signers = exportedTx.getFieldArray(sfSigners);
             auto& collector = ctx_.app.getExportSignatureCollector();

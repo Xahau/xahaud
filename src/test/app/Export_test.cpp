@@ -151,11 +151,10 @@ struct Export_test : public beast::unit_test::suite
             buf_out[8] = drops & 0xFFU; \
             buf_out += 9;
 
-        #define ENCODE_SIGNING_PUBKEY_NULL(buf_out) \
+        #define ENCODE_SIGNING_PUBKEY_EMPTY(buf_out) \
             buf_out[0] = 0x73U; \
-            buf_out[1] = 0x21U; \
-            for (int i = 2; i < 35; ++i) buf_out[i] = 0; \
-            buf_out += 35;
+            buf_out[1] = 0x00U; \
+            buf_out += 2;
 
         #define ENCODE_ACCOUNT(buf_out, acc, acc_type) \
             buf_out[0] = 0x80U + acc_type; \
@@ -201,7 +200,7 @@ struct Export_test : public beast::unit_test::suite
             ENCODE_DROPS(buf, drops, amAMOUNT);
             ENCODE_DROPS(buf, 10, amFEE);  // minimal fee for exported txn
 
-            ENCODE_SIGNING_PUBKEY_NULL(buf);
+            ENCODE_SIGNING_PUBKEY_EMPTY(buf);
             ENCODE_ACCOUNT(buf, acc, atACCOUNT);
             ENCODE_ACCOUNT(buf, dst, atDESTINATION);
 
