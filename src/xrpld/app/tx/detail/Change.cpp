@@ -27,6 +27,7 @@
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/app/tx/detail/XahauGenesis.h>
+#include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/ledger/Sandbox.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
@@ -1228,7 +1229,7 @@ Change::applyExport()
         }
 
         auto const unlSize = getExportUNLSize(view(), ctx_.app);
-        auto const threshold = (unlSize * 80 + 99) / 100;
+        auto const threshold = calculateQuorumThreshold(unlSize);
 
         if (verifiedTrusted < threshold)
         {

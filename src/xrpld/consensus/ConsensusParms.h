@@ -163,5 +163,20 @@ struct ConsensusParms
     std::size_t avCT_CONSENSUS_PCT = 75;
 };
 
+/** Calculate the 80% quorum threshold (rounded up) for a given count.
+
+    This is the standard quorum used for consensus validation, matching
+    the formula in ValidatorList::calculateQuorum (std::ceil(n * 0.8f)).
+    Uses integer arithmetic: (count * 80 + 99) / 100 == ceil(count * 0.8).
+
+    @param count The number of validators or proposers
+    @return The minimum number needed for quorum (80%, rounded up)
+*/
+inline std::size_t
+calculateQuorumThreshold(std::size_t count)
+{
+    return (count * 80 + 99) / 100;
+}
+
 }  // namespace ripple
 #endif

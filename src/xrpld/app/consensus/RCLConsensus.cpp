@@ -1228,7 +1228,7 @@ RCLConsensus::Adaptor::quorumThreshold() const
                                                  : expectedProposers_.size();
     if (base == 0)
         return 1;  // safety: need at least one commit
-    return (base * 80 + 99) / 100;
+    return calculateQuorumThreshold(base);
 }
 
 void

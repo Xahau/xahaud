@@ -22,6 +22,7 @@
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
+#include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
@@ -167,8 +168,7 @@ ExportSignatureCollector::hasQuorum(
     auto const sigCount = signatureCount(txnHash);
     auto const unlSize = getUNLSize(view, app);
 
-    // Quorum is 80% of UNL, rounded up
-    auto const threshold = (unlSize * 80 + 99) / 100;
+    auto const threshold = calculateQuorumThreshold(unlSize);
 
     JLOG(j_.trace()) << "Export: hasQuorum check for " << txnHash
                      << " sigCount=" << sigCount << " unlSize=" << unlSize
@@ -186,7 +186,7 @@ ExportSignatureCollector::getExportsWithQuorum(
 
     std::vector<uint256> ready;
     auto const unlSize = getUNLSize(view, app);
-    auto const threshold = (unlSize * 80 + 99) / 100;
+    auto const threshold = calculateQuorumThreshold(unlSize);
 
     for (auto const& [txnHash, signerMap] : signatures_)
     {
