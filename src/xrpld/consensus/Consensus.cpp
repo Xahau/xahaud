@@ -22,10 +22,8 @@
 
 namespace ripple {
 
-namespace {
-
 bool
-shouldCloseLedgerImpl(
+shouldCloseLedger(
     bool anyTransactions,
     std::size_t prevProposers,
     std::size_t proposersClosed,
@@ -238,60 +236,6 @@ checkConsensus(
     JLOG(j.trace()) << "no consensus";
     CLOG(clog) << "No consensus. ";
     return ConsensusState::No;
-}
-
-}  // namespace
-
-bool
-shouldCloseLedger(
-    bool anyTransactions,
-    std::size_t prevProposers,
-    std::size_t proposersClosed,
-    std::size_t proposersValidated,
-    std::chrono::milliseconds prevRoundTime,
-    std::chrono::milliseconds timeSincePrevClose,
-    std::chrono::milliseconds openTime,
-    std::chrono::milliseconds idleInterval,
-    ConsensusParms const& parms,
-    beast::Journal j)
-{
-    return shouldCloseLedgerImpl(
-        anyTransactions,
-        prevProposers,
-        proposersClosed,
-        proposersValidated,
-        prevRoundTime,
-        timeSincePrevClose,
-        openTime,
-        idleInterval,
-        parms,
-        j,
-        nullptr);
-}
-
-ConsensusState
-checkConsensus(
-    std::size_t prevProposers,
-    std::size_t currentProposers,
-    std::size_t currentAgree,
-    std::size_t currentFinished,
-    std::chrono::milliseconds previousAgreeTime,
-    std::chrono::milliseconds currentAgreeTime,
-    ConsensusParms const& parms,
-    bool proposing,
-    beast::Journal j)
-{
-    return checkConsensus(
-        prevProposers,
-        currentProposers,
-        currentAgree,
-        currentFinished,
-        previousAgreeTime,
-        currentAgreeTime,
-        parms,
-        proposing,
-        j,
-        nullptr);
 }
 
 }  // namespace ripple

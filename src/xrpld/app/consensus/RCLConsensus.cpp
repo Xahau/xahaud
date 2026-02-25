@@ -1067,7 +1067,10 @@ RCLConsensus::timerEntry(
     catch (SHAMapMissingNode const& mn)
     {
         // This should never happen
-        JLOG(j_.error()) << "During consensus timerEntry: " << mn.what();
+        std::stringstream ss;
+        ss << "During consensus timerEntry: " << mn.what();
+        JLOG(j_.error()) << ss.str();
+        CLOG(clog) << ss.str();
         Rethrow();
     }
 }
