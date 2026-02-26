@@ -18,8 +18,9 @@
 //==============================================================================
 
 #include <test/jtx/AMM.h>
-
 #include <test/jtx/Env.h>
+
+#include <xrpld/app/misc/AMMHelpers.h>
 #include <xrpld/app/misc/AMMUtils.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpl/protocol/AMMCore.h>
@@ -38,12 +39,10 @@ number(STAmount const& a)
     return a;
 }
 
-static IOUAmount
-initialTokens(STAmount const& asset1, STAmount const& asset2)
+IOUAmount
+AMM::initialTokens()
 {
-    auto const product = number(asset1) * number(asset2);
-    return (IOUAmount)(product.mantissa() >= 0 ? root2(product)
-                                               : root2(-product));
+    return getLPTokensBalance();
 }
 
 AMM::AMM(
@@ -64,7 +63,6 @@ AMM::AMM(
     , asset1_(asset1)
     , asset2_(asset2)
     , ammID_(keylet::amm(asset1_.issue(), asset2_.issue()).key)
-    , initialLPTokens_(initialTokens(asset1, asset2))
     , log_(log)
     , doClose_(close)
     , lastPurchasePrice_(0)
@@ -77,6 +75,7 @@ AMM::AMM(
           asset1_.issue().currency,
           asset2_.issue().currency,
           ammAccount_))
+    , initialLPTokens_(initialTokens())
 {
 }
 
