@@ -25,12 +25,14 @@
 namespace ripple {
 
 JobQueue::JobQueue(
+    boost::asio::io_service& io_service,
     int threadCount,
     beast::insight::Collector::ptr const& collector,
     beast::Journal journal,
     Logs& logs,
     perf::PerfLog& perfLog)
-    : m_journal(journal)
+    : io_service_(io_service)
+    , m_journal(journal)
     , m_lastJob(0)
     , m_invalidJobData(JobTypes::instance().getInvalid(), collector, logs)
     , m_processCount(0)

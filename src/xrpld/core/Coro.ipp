@@ -21,6 +21,7 @@
 #define RIPPLE_CORE_COROINL_H_INCLUDED
 
 #include <xrpl/basics/ByteUtilities.h>
+#include <boost/asio/steady_timer.hpp>
 #include <thread>
 
 namespace ripple {
@@ -197,13 +198,17 @@ JobQueue::Coro::sleepFor(std::chrono::milliseconds delay)
         running_ = true;
     }
 
-    // Create a detached thread that sleeps and then posts resume job
-    // This frees up the job queue thread during the sleep
-    std::thread([sp = shared_from_this(), delay]() {
-        std::this_thread::sleep_for(delay);
-        // Post a job to resume the coroutine
-        sp->post();
-    }).detach();
+    // Use an asio timer on the existing io_service thread pool
+    // instead of spawning a detached thread per sleep call
+    auto timer =
+        std::make_shared<boost::asio::steady_timer>(jq_.io_service_);
+    timer->expires_after(delay);
+    timer->async_wait(
+        [sp = shared_from_this(), timer](
+            boost::system::error_code const& ec) {
+            if (ec != boost::asio::error::operation_aborted)
+                sp->post();
+        });
 
     yield();
     return true;

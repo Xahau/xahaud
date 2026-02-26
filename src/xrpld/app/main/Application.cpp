@@ -299,6 +299,7 @@ public:
               logs_->journal("Collector")))
 
         , m_jobQueue(std::make_unique<JobQueue>(
+              get_io_service(),
               [](std::unique_ptr<Config> const& config) {
                   if (config->standalone() && !config->FORCE_MULTI_THREAD)
                       return 1;

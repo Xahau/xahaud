@@ -516,6 +516,15 @@ public:
                    m_clock.now() - start)
                    .count()
             << "ms";
+
+        // Clear expired TX-priority ranges (anything at or below validated)
+        {
+            std::lock_guard lock(txPriorityMutex_);
+            auto const validSeq = app_.getLedgerMaster().getValidLedgerIndex();
+            if (validSeq > 0 && !txPriorityRange_.empty())
+                txPriorityRange_.erase(
+                    ClosedInterval<std::uint32_t>(0, validSeq));
+        }
     }
 
     void

@@ -158,6 +158,9 @@ doSubmitAndWait(RPC::JsonContext& context)
     std::optional<uint256> foundLedgerHash;
     std::optional<std::uint32_t> foundLedgerSeq;
 
+    // Track last checked seq to avoid rescanning old ledgers
+    auto lastCheckedSeq = startSeq;
+
     // Helper to check if a ledger is validated (has quorum)
     auto isLedgerValidated = [&](uint256 const& ledgerHash) -> bool {
         auto const quorum = context.app.validators().quorum();
@@ -284,10 +287,11 @@ doSubmitAndWait(RPC::JsonContext& context)
             }
 
             // Search LedgerMaster for the tx (synced mode via gossip)
-            // Check validated ledgers from startSeq to current
+            // Only check new ledgers since last iteration
             if (!foundLedgerHash)
             {
-                for (auto seq = startSeq; seq <= currentValidatedSeq; ++seq)
+                for (auto seq = lastCheckedSeq; seq <= currentValidatedSeq;
+                     ++seq)
                 {
                     auto ledger = context.ledgerMaster.getLedgerBySeq(seq);
                     if (ledger)
@@ -308,6 +312,7 @@ doSubmitAndWait(RPC::JsonContext& context)
                         }
                     }
                 }
+                lastCheckedSeq = currentValidatedSeq + 1;
             }
 
             // Check LastLedgerSequence expiry

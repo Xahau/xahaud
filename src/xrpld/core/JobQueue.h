@@ -26,6 +26,7 @@
 #include <xrpld/core/detail/Workers.h>
 #include <xrpl/basics/LocalValue.h>
 #include <xrpl/json/json_value.h>
+#include <boost/asio/io_service.hpp>
 #include <boost/coroutine/all.hpp>
 #include <boost/range/begin.hpp>  // workaround for boost 1.72 bug
 #include <boost/range/end.hpp>    // workaround for boost 1.72 bug
@@ -159,6 +160,7 @@ public:
     using JobFunction = std::function<void()>;
 
     JobQueue(
+        boost::asio::io_service& io_service,
         int threadCount,
         beast::insight::Collector::ptr const& collector,
         beast::Journal journal,
@@ -260,6 +262,7 @@ private:
 
     using JobDataMap = std::map<JobType, JobTypeData>;
 
+    boost::asio::io_service& io_service_;
     beast::Journal m_journal;
     mutable std::mutex m_mutex;
     std::uint64_t m_lastJob;
