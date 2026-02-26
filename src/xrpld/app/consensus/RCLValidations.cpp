@@ -197,12 +197,10 @@ handleNewValidation(
         JLOG(j->warn()) << "handleNewValidation: seq=" << seq
                         << " hash=" << hash << " trusted=" << val->isTrusted()
                         << " outcome="
-                        << (outcome == ValStatus::current
-                                ? "current"
-                                : outcome == ValStatus::stale
-                                    ? "stale"
-                                    : outcome == ValStatus::badSeq ? "badSeq"
-                                                                   : "other");
+                        << (outcome == ValStatus::current      ? "current"
+                                : outcome == ValStatus::stale  ? "stale"
+                                : outcome == ValStatus::badSeq ? "badSeq"
+                                                               : "other");
     }
 
     if (outcome == ValStatus::current)
