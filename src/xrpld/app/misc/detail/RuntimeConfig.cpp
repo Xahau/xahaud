@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <mutex>
 
 namespace ripple {
 
