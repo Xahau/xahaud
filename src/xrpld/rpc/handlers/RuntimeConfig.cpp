@@ -82,14 +82,34 @@ doRuntimeConfig(RPC::JsonContext& context)
             if (v.isMember("send_delay_jitter_ms"))
                 cfg.sendDelayJitterMs = v["send_delay_jitter_ms"].asInt();
             if (v.isMember("send_drop_pct"))
-                cfg.sendDropPctX100 =
-                    static_cast<int>(v["send_drop_pct"].asDouble() * 100);
-            if (v.isMember("message_types") && v["message_types"].isArray())
             {
-                for (auto const& mt : v["message_types"])
+                auto pct = v["send_drop_pct"].asDouble();
+                if (pct < 0.0)
+                    pct = 0.0;
+                else if (pct > 100.0)
+                    pct = 100.0;
+                cfg.sendDropPctX100 = static_cast<int>(pct * 100);
+            }
+            if (v.isMember("message_types"))
+            {
+                auto const& mts = v["message_types"];
+                cfg.messageCategories.emplace();  // set to empty = "all"
+                if (mts.isArray())
                 {
-                    if (auto cat = categoryFromName(mt.asString()))
-                        cfg.messageCategories.insert(*cat);
+                    for (auto const& mt : mts)
+                    {
+                        auto const name = mt.asString();
+                        auto cat = categoryFromName(name);
+                        if (!cat)
+                        {
+                            Json::Value err{Json::objectValue};
+                            err["error"] = "invalidParams";
+                            err["error_message"] =
+                                "Unknown message_type: " + name;
+                            return err;
+                        }
+                        cfg.messageCategories->insert(*cat);
+                    }
                 }
             }
             rc.setConfig(target, cfg);
@@ -123,10 +143,10 @@ doRuntimeConfig(RPC::JsonContext& context)
             entry["send_delay_jitter_ms"] = *cfg.sendDelayJitterMs;
         if (cfg.sendDropPctX100)
             entry["send_drop_pct"] = *cfg.sendDropPctX100 / 100.0;
-        if (!cfg.messageCategories.empty())
+        if (cfg.messageCategories)
         {
             Json::Value types{Json::arrayValue};
-            for (auto cat : cfg.messageCategories)
+            for (auto cat : *cfg.messageCategories)
                 types.append(categoryToName(cat));
             entry["message_types"] = types;
         }

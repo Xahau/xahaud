@@ -39,16 +39,17 @@ struct ConfigVals
     std::optional<int> sendDelayMs;
     std::optional<int> sendDelayJitterMs;
     std::optional<int> sendDropPctX100;  // 0-10000 (pct * 100, avoids float)
-    // If set, only apply to these TrafficCount::category values.
-    // Empty set = no filter (apply to all messages).
-    std::set<std::size_t> messageCategories;
+    // If set (non-nullopt), only apply to these TrafficCount::category values.
+    // nullopt = not specified (inherit from global on merge).
+    // Empty set = explicitly "all categories" (overrides global filter).
+    std::optional<std::set<std::size_t>> messageCategories;
 
     /** Check if this config applies to a given message category. */
     bool
     appliesTo(std::size_t category) const
     {
-        return messageCategories.empty() ||
-            messageCategories.count(category) > 0;
+        return !messageCategories || messageCategories->empty() ||
+            messageCategories->count(category) > 0;
     }
 
     bool
@@ -70,7 +71,7 @@ struct ConfigVals
             result.sendDelayJitterMs = other.sendDelayJitterMs;
         if (other.sendDropPctX100)
             result.sendDropPctX100 = other.sendDropPctX100;
-        if (!other.messageCategories.empty())
+        if (other.messageCategories)
             result.messageCategories = other.messageCategories;
         return result;
     }

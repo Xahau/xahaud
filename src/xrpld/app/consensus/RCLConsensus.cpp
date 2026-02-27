@@ -1168,8 +1168,17 @@ RCLConsensus::Adaptor::preStartRound(
         !nowTrusted.empty())
         nUnlVote_.newValidators(prevLgr.seq() + 1, nowTrusted);
 
+    bool const proposing = validating_ && synced;
+
+    JLOG(j_.info()) << "STARTDIAG: preStartRound"
+                    << " mode=" << app_.getOPs().strOperatingMode()
+                    << " synced=" << (synced ? "yes" : "no")
+                    << " validating=" << (validating_ ? "yes" : "no")
+                    << " proposing=" << (proposing ? "yes" : "no")
+                    << " seq=" << (prevLgr.seq() + 1);
+
     // propose only if we're in sync with the network (and validating)
-    return validating_ && synced;
+    return proposing;
 }
 
 bool
@@ -1208,7 +1217,11 @@ void
 RCLConsensus::Adaptor::updateOperatingMode(std::size_t const positions) const
 {
     if (!positions && app_.getOPs().isFull())
+    {
+        JLOG(j_.warn()) << "STARTDIAG: updateOperatingMode demoting"
+                        << " FULL->CONNECTED positions=" << positions;
         app_.getOPs().setMode(OperatingMode::CONNECTED);
+    }
 }
 
 //------------------------------------------------------------------------------

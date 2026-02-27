@@ -829,8 +829,12 @@ Consensus<Adaptor>::peerProposalInternal(
 
     if (newPeerProp.prevLedger() != prevLedgerID_)
     {
-        JLOG(j_.debug()) << "Got proposal for " << newPeerProp.prevLedger()
-                         << " but we are on " << prevLedgerID_;
+        JLOG(j_.info()) << "STARTDIAG: peerProposal REJECTED prevLedger"
+                        << " peer=" << newPeerProp.nodeID()
+                        << " theirPrev=" << newPeerProp.prevLedger()
+                        << " ourPrev=" << prevLedgerID_
+                        << " phase=" << to_string(phase_)
+                        << " seq=" << newPeerProp.proposeSeq();
         return false;
     }
 
@@ -871,9 +875,18 @@ Consensus<Adaptor>::peerProposalInternal(
         }
 
         if (peerPosIt != currPeerPositions_.end())
+        {
             peerPosIt->second = newPeerPos;
+        }
         else
+        {
             currPeerPositions_.emplace(peerID, newPeerPos);
+            JLOG(j_.info()) << "STARTDIAG: peerProposal ACCEPTED"
+                            << " peer=" << peerID
+                            << " peerPositions=" << currPeerPositions_.size()
+                            << " seq=" << newPeerProp.proposeSeq()
+                            << " phase=" << to_string(phase_);
+        }
     }
 
     // Harvest RNG data from proposal if adaptor supports it
@@ -1698,6 +1711,11 @@ Consensus<Adaptor>::phaseEstablish(
     }
     //@@end rng-phase-establish-substates
 
+    JLOG(j_.info()) << "STARTDIAG: converge cutoff"
+                    << " peerPositions=" << currPeerPositions_.size()
+                    << " roundTime=" << result_->roundTime.read().count()
+                    << "ms"
+                    << " mode=" << to_string(mode_.get());
     JLOG(j_.info()) << "Converge cutoff (" << currPeerPositions_.size()
                     << " participants)";
     CLOG(clog) << "Converge cutoff (" << currPeerPositions_.size()
@@ -2013,8 +2031,14 @@ Consensus<Adaptor>::haveConsensus(
     auto currentFinished =
         adaptor_.proposersFinished(previousLedger_, prevLedgerID_);
 
-    JLOG(j_.debug()) << "Checking for TX consensus: agree=" << agree
-                     << ", disagree=" << disagree;
+    JLOG(j_.info()) << "STARTDIAG: haveConsensus"
+                    << " agree=" << agree << " disagree=" << disagree
+                    << " total=" << (agree + disagree)
+                    << " peerPositions=" << currPeerPositions_.size()
+                    << " prevProposers=" << prevProposers_
+                    << " roundTime=" << result_->roundTime.read().count()
+                    << "ms"
+                    << " mode=" << to_string(mode_.get());
 
     // Determine if we actually have consensus or not
     result_->state = checkConsensus(

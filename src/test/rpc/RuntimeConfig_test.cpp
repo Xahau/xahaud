@@ -285,11 +285,107 @@ class RuntimeConfig_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(cfg.has_value()))
             return;
 
-        BEAST_EXPECT(cfg->messageCategories.empty());
+        BEAST_EXPECT(!cfg->messageCategories.has_value());
         BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::proposal));
         BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::validation));
         BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::transaction));
         BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::base));
+    }
+
+    void
+    testInvalidMessageType()
+    {
+        testcase("Invalid message type returns error");
+        using namespace test::jtx;
+        Env env{*this};
+
+        Json::Value params;
+        params["set"] = Json::objectValue;
+        params["set"]["*"] = Json::objectValue;
+        params["set"]["*"]["send_delay_ms"] = 100;
+        params["set"]["*"]["message_types"] = Json::arrayValue;
+        params["set"]["*"]["message_types"].append("proposals");  // typo
+        auto result = runtimeConfig(env, params);
+
+        BEAST_EXPECT(result.isMember("error"));
+        BEAST_EXPECT(result["error"].asString() == "invalidParams");
+        // Config should NOT have been applied
+        BEAST_EXPECT(!env.app().getRuntimeConfig().active());
+    }
+
+    void
+    testDropPctClamping()
+    {
+        testcase("send_drop_pct clamped to 0-100");
+        using namespace test::jtx;
+        Env env{*this};
+
+        // Over 100
+        {
+            Json::Value params;
+            params["set"] = Json::objectValue;
+            params["set"]["*"] = Json::objectValue;
+            params["set"]["*"]["send_drop_pct"] = 200.0;
+            runtimeConfig(env, params);
+        }
+        auto cfg = env.app().getRuntimeConfig().getConfig("*");
+        BEAST_EXPECT(cfg.has_value());
+        BEAST_EXPECT(cfg->sendDropPctX100 == 10000);  // clamped to 100%
+
+        // Negative
+        {
+            Json::Value params;
+            params["set"] = Json::objectValue;
+            params["set"]["*"] = Json::objectValue;
+            params["set"]["*"]["send_drop_pct"] = -50.0;
+            runtimeConfig(env, params);
+        }
+        cfg = env.app().getRuntimeConfig().getConfig("*");
+        BEAST_EXPECT(cfg.has_value());
+        BEAST_EXPECT(cfg->sendDropPctX100 == 0);  // clamped to 0%
+    }
+
+    void
+    testPerPeerClearInheritedFilter()
+    {
+        testcase("Per-peer can override global filter to all");
+        using namespace test::jtx;
+        Env env{*this};
+
+        // Global: only proposals
+        {
+            Json::Value params;
+            params["set"] = Json::objectValue;
+            params["set"]["*"] = Json::objectValue;
+            params["set"]["*"]["send_delay_ms"] = 100;
+            params["set"]["*"]["message_types"] = Json::arrayValue;
+            params["set"]["*"]["message_types"].append("proposal");
+            runtimeConfig(env, params);
+        }
+
+        // Per-peer: message_types = [] (explicitly all)
+        {
+            Json::Value params;
+            params["set"] = Json::objectValue;
+            params["set"]["10.0.0.2:51235"] = Json::objectValue;
+            params["set"]["10.0.0.2:51235"]["message_types"] = Json::arrayValue;
+            runtimeConfig(env, params);
+        }
+
+        auto& rc = env.app().getRuntimeConfig();
+
+        // Per-peer should apply to all categories (empty set override)
+        auto peerCfg = rc.getConfig("10.0.0.2:51235");
+        BEAST_EXPECT(peerCfg.has_value());
+        BEAST_EXPECT(peerCfg->appliesTo(TrafficCount::category::proposal));
+        BEAST_EXPECT(peerCfg->appliesTo(TrafficCount::category::validation));
+        BEAST_EXPECT(peerCfg->appliesTo(TrafficCount::category::transaction));
+
+        // Other peers still only get proposal filter from global
+        auto otherCfg = rc.getConfig("10.0.0.3:51235");
+        BEAST_EXPECT(otherCfg.has_value());
+        BEAST_EXPECT(otherCfg->appliesTo(TrafficCount::category::proposal));
+        BEAST_EXPECT(!otherCfg->appliesTo(TrafficCount::category::validation));
     }
 
 public:
@@ -304,6 +400,9 @@ public:
         testPerPeerWithoutGlobal();
         testMessageTypeFilter();
         testMessageTypeFilterEmpty();
+        testInvalidMessageType();
+        testDropPctClamping();
+        testPerPeerClearInheritedFilter();
     }
 };
 
