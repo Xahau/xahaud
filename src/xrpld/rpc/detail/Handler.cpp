@@ -159,6 +159,7 @@ Handler const handlerArray[]{
      Role::ADMIN,
      NO_CONDITION},
     {"ripple_path_find", byRef(&doRipplePathFind), Role::USER, NO_CONDITION},
+    {"runtime_config", byRef(&doRuntimeConfig), Role::ADMIN, NO_CONDITION},
     {"server_definitions",
      byRef(&doServerDefinitions),
      Role::USER,

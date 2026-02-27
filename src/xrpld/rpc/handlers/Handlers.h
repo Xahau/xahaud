@@ -119,6 +119,8 @@ doRandom(RPC::JsonContext&);
 Json::Value
 doResume(RPC::JsonContext&);
 Json::Value
+doRuntimeConfig(RPC::JsonContext&);
+Json::Value
 doPeerReservationsAdd(RPC::JsonContext&);
 Json::Value
 doPeerReservationsDel(RPC::JsonContext&);

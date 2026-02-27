@@ -41,6 +41,8 @@
 
 namespace ripple {
 
+// Any namespace whose ASCII representation starts with "RESERVED NAMESPACE "
+// is reserved for protocol use and must not be used by hooks.
 static const uint256 shadowTicketNamespace =
     uint256::fromVoid("RESERVED NAMESPACE SHADOW TICKET");
 

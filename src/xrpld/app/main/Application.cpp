@@ -42,6 +42,7 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/SHAMapStore.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
@@ -216,6 +217,7 @@ public:
     std::unique_ptr<LoadFeeTrack> mFeeTrack;
     std::unique_ptr<HashRouter> hashRouter_;
     std::unique_ptr<ExportSignatureCollector> exportSignatureCollector_;
+    RuntimeConfig runtimeConfig_;
     RCLValidations mValidations;
     std::unique_ptr<LoadManager> m_loadManager;
     std::unique_ptr<TxQ> txQ_;
@@ -757,6 +759,12 @@ public:
     getExportSignatureCollector() override
     {
         return *exportSignatureCollector_;
+    }
+
+    RuntimeConfig&
+    getRuntimeConfig() override
+    {
+        return runtimeConfig_;
     }
 
     RCLValidations&
