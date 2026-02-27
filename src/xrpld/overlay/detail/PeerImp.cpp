@@ -259,7 +259,7 @@ PeerImp::send(std::shared_ptr<Message> const& m)
     if (rc.active())
     {
         auto const cfg = rc.getConfig(remote_address_.to_string());
-        if (cfg && cfg->active())
+        if (cfg && cfg->active() && cfg->appliesTo(m->getCategory()))
         {
             auto const dropPct = cfg->sendDropPctX100.value_or(0);
             auto const delayMs = cfg->sendDelayMs.value_or(0);
@@ -1717,7 +1717,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         return;
     }
 
-    if (!stringIsUint256Sized(set.currenttxhash()) ||
+    if (set.currenttxhash().size() < uint256::size() ||
         !stringIsUint256Sized(set.previousledger()))
     {
         JLOG(p_journal_.warn()) << "Proposal: malformed";

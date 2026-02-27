@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <optional>
+#include <set>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
@@ -38,6 +39,17 @@ struct ConfigVals
     std::optional<int> sendDelayMs;
     std::optional<int> sendDelayJitterMs;
     std::optional<int> sendDropPctX100;  // 0-10000 (pct * 100, avoids float)
+    // If set, only apply to these TrafficCount::category values.
+    // Empty set = no filter (apply to all messages).
+    std::set<std::size_t> messageCategories;
+
+    /** Check if this config applies to a given message category. */
+    bool
+    appliesTo(std::size_t category) const
+    {
+        return messageCategories.empty() ||
+            messageCategories.count(category) > 0;
+    }
 
     bool
     active() const
@@ -58,6 +70,8 @@ struct ConfigVals
             result.sendDelayJitterMs = other.sendDelayJitterMs;
         if (other.sendDropPctX100)
             result.sendDropPctX100 = other.sendDropPctX100;
+        if (!other.messageCategories.empty())
+            result.messageCategories = other.messageCategories;
         return result;
     }
 };

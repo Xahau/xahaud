@@ -19,9 +19,48 @@
 
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
+#include <xrpld/overlay/detail/TrafficCount.h>
 #include <xrpld/rpc/Context.h>
 
 namespace ripple {
+
+namespace {
+// Map user-friendly names to TrafficCount::category values.
+// Only the commonly useful categories are exposed; extend as needed.
+std::optional<std::size_t>
+categoryFromName(std::string const& name)
+{
+    static std::unordered_map<std::string, std::size_t> const map = {
+        {"proposal", TrafficCount::category::proposal},
+        {"validation", TrafficCount::category::validation},
+        {"transaction", TrafficCount::category::transaction},
+        {"manifests", TrafficCount::category::manifests},
+        {"ledger_data", TrafficCount::category::ld_share},
+        {"get_ledger", TrafficCount::category::gl_get},
+    };
+    auto it = map.find(name);
+    if (it != map.end())
+        return it->second;
+    return std::nullopt;
+}
+
+std::string
+categoryToName(std::size_t cat)
+{
+    static std::unordered_map<std::size_t, std::string> const map = {
+        {TrafficCount::category::proposal, "proposal"},
+        {TrafficCount::category::validation, "validation"},
+        {TrafficCount::category::transaction, "transaction"},
+        {TrafficCount::category::manifests, "manifests"},
+        {TrafficCount::category::ld_share, "ledger_data"},
+        {TrafficCount::category::gl_get, "get_ledger"},
+    };
+    auto it = map.find(cat);
+    if (it != map.end())
+        return it->second;
+    return std::to_string(cat);
+}
+}  // namespace
 
 Json::Value
 doRuntimeConfig(RPC::JsonContext& context)
@@ -45,6 +84,14 @@ doRuntimeConfig(RPC::JsonContext& context)
             if (v.isMember("send_drop_pct"))
                 cfg.sendDropPctX100 =
                     static_cast<int>(v["send_drop_pct"].asDouble() * 100);
+            if (v.isMember("message_types") && v["message_types"].isArray())
+            {
+                for (auto const& mt : v["message_types"])
+                {
+                    if (auto cat = categoryFromName(mt.asString()))
+                        cfg.messageCategories.insert(*cat);
+                }
+            }
             rc.setConfig(target, cfg);
         }
     }
@@ -76,6 +123,13 @@ doRuntimeConfig(RPC::JsonContext& context)
             entry["send_delay_jitter_ms"] = *cfg.sendDelayJitterMs;
         if (cfg.sendDropPctX100)
             entry["send_drop_pct"] = *cfg.sendDropPctX100 / 100.0;
+        if (!cfg.messageCategories.empty())
+        {
+            Json::Value types{Json::arrayValue};
+            for (auto cat : cfg.messageCategories)
+                types.append(categoryToName(cat));
+            entry["message_types"] = types;
+        }
         configs[target] = entry;
     }
     result["configs"] = configs;

@@ -19,6 +19,7 @@
 
 #include <test/jtx.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
+#include <xrpld/overlay/detail/TrafficCount.h>
 #include <xrpl/protocol/jss.h>
 
 namespace ripple {
@@ -226,6 +227,71 @@ class RuntimeConfig_test : public beast::unit_test::suite
         BEAST_EXPECT(!rc.getConfig("10.0.0.3:51235").has_value());
     }
 
+    void
+    testMessageTypeFilter()
+    {
+        testcase("Message type filter");
+        using namespace test::jtx;
+        Env env{*this};
+
+        // Set with message_types filter
+        {
+            Json::Value params;
+            params["set"] = Json::objectValue;
+            params["set"]["*"] = Json::objectValue;
+            params["set"]["*"]["send_delay_ms"] = 100;
+            params["set"]["*"]["message_types"] = Json::arrayValue;
+            params["set"]["*"]["message_types"].append("proposal");
+            params["set"]["*"]["message_types"].append("validation");
+            auto result = runtimeConfig(env, params);
+
+            // Verify response includes message_types
+            auto const& global = result["configs"]["*"];
+            BEAST_EXPECT(global.isMember("message_types"));
+            BEAST_EXPECT(global["message_types"].size() == 2);
+        }
+
+        auto& rc = env.app().getRuntimeConfig();
+        auto cfg = rc.getConfig("10.0.0.1:51235");
+        if (!BEAST_EXPECT(cfg.has_value()))
+            return;
+
+        // Applies to proposal and validation categories
+        BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::proposal));
+        BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::validation));
+
+        // Does NOT apply to other categories
+        BEAST_EXPECT(!cfg->appliesTo(TrafficCount::category::transaction));
+        BEAST_EXPECT(!cfg->appliesTo(TrafficCount::category::base));
+    }
+
+    void
+    testMessageTypeFilterEmpty()
+    {
+        testcase("No message type filter means all");
+        using namespace test::jtx;
+        Env env{*this};
+
+        // Set without message_types — applies to all
+        {
+            Json::Value params;
+            params["set"] = Json::objectValue;
+            params["set"]["*"] = Json::objectValue;
+            params["set"]["*"]["send_delay_ms"] = 100;
+            runtimeConfig(env, params);
+        }
+
+        auto cfg = env.app().getRuntimeConfig().getConfig("*");
+        if (!BEAST_EXPECT(cfg.has_value()))
+            return;
+
+        BEAST_EXPECT(cfg->messageCategories.empty());
+        BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::proposal));
+        BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::validation));
+        BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::transaction));
+        BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::base));
+    }
+
 public:
     void
     run() override
@@ -236,6 +302,8 @@ public:
         testClear();
         testClearAll();
         testPerPeerWithoutGlobal();
+        testMessageTypeFilter();
+        testMessageTypeFilterEmpty();
     }
 };
 
