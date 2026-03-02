@@ -244,6 +244,73 @@ class ExportSignatureCollector_test : public beast::unit_test::suite
         BEAST_EXPECT(collector.hasSignatureFrom(txnHash, validator.first));
     }
 
+    void
+    testAddSignatureUpdatesExisting()
+    {
+        testcase("addSignature updates existing");
+
+        beast::Journal journal{beast::Journal::getNullSink()};
+        ExportSignatureCollector collector{journal};
+
+        auto const validator = randomKeyPair(KeyType::secp256k1);
+        auto const validatorAcc = calcAccountID(validator.first);
+        std::string const tag = "add-signature-update";
+        auto const txnHash = sha512Half(makeSlice(tag));
+
+        STObject signerA(sfSigner);
+        signerA.setAccountID(sfAccount, validatorAcc);
+        signerA.setFieldVL(sfSigningPubKey, validator.first.slice());
+        Blob sigA{0xAA};
+        signerA.setFieldVL(sfTxnSignature, sigA);
+
+        STObject signerB(sfSigner);
+        signerB.setAccountID(sfAccount, validatorAcc);
+        signerB.setFieldVL(sfSigningPubKey, validator.first.slice());
+        Blob sigB{0xBB};
+        signerB.setFieldVL(sfTxnSignature, sigB);
+
+        collector.addSignature(txnHash, validator.first, signerA, 10);
+        collector.addSignature(txnHash, validator.first, signerB, 20);
+
+        BEAST_EXPECT(collector.signatureCount(txnHash) == 1);
+        auto const stored =
+            collector.getSignatureFrom(txnHash, validator.first);
+        BEAST_EXPECT(stored);
+        if (stored)
+            BEAST_EXPECT(stored->getFieldVL(sfTxnSignature) == sigB);
+    }
+
+    void
+    testRejectedSignatureDoesNotCreatePendingEntry()
+    {
+        testcase("reject does not create pending entry");
+
+        beast::Journal journal{beast::Journal::getNullSink()};
+        ExportSignatureCollector collector{journal};
+
+        auto const validator = randomKeyPair(KeyType::secp256k1);
+        auto const validatorAcc = calcAccountID(validator.first);
+
+        auto tx = makeUnsignedTx();
+        auto const txnHash = tx.getTransactionID();
+
+        Serializer txData;
+        tx.add(txData);
+        collector.stashTxnData(txnHash, txData);
+
+        Serializer sigData = buildMultiSigningData(tx, validatorAcc);
+        auto const goodSigBuf =
+            sign(validator.first, validator.second, sigData.slice());
+        Blob badSig(goodSigBuf.begin(), goodSigBuf.end());
+        badSig.back() ^= 0x01;
+
+        auto badSigner = makeSigner(validator.first, validatorAcc, badSig);
+        BEAST_EXPECT(!collector.verifyAndAddSignature(
+            txnHash, validator.first, badSigner, 500));
+        BEAST_EXPECT(collector.signatureCount(txnHash) == 0);
+        BEAST_EXPECT(collector.getPendingExports().empty());
+    }
+
 public:
     void
     run() override
@@ -253,6 +320,8 @@ public:
         testRejectsSignerIdentityMismatch();
         testStashPrunesInvalidUnverified();
         testInvalidEarlyDataDoesNotAgeOutValidLater();
+        testAddSignatureUpdatesExisting();
+        testRejectedSignatureDoesNotCreatePendingEntry();
     }
 };
 

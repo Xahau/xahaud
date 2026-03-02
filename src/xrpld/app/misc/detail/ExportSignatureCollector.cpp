@@ -111,11 +111,19 @@ ExportSignatureCollector::addSignature(
 
     // Add or update signature for this validator
     auto& signerMap = signatures_[txnHash];
-    auto [it, inserted] = signerMap.emplace(validator, std::move(signer));
+    auto [it, inserted] =
+        signerMap.insert_or_assign(validator, std::move(signer));
 
     if (inserted)
     {
         JLOG(j_.trace()) << "Export: added signature from "
+                         << toBase58(TokenType::NodePublic, validator)
+                         << " for " << txnHash
+                         << " (total: " << signerMap.size() << ")";
+    }
+    else
+    {
+        JLOG(j_.trace()) << "Export: updated signature from "
                          << toBase58(TokenType::NodePublic, validator)
                          << " for " << txnHash
                          << " (total: " << signerMap.size() << ")";
@@ -455,6 +463,10 @@ ExportSignatureCollector::verifyAndAddSignature(
     }
 
     auto& signerMap = signatures_[txnHash];
+    auto eraseIfEmpty = [&]() {
+        if (signerMap.empty())
+            signatures_.erase(txnHash);
+    };
 
     // Verify if we have stashed tx data. Returns:
     //   true  -> verified
@@ -523,7 +535,10 @@ ExportSignatureCollector::verifyAndAddSignature(
 
         auto const verified = verifyWithStashedData(signer);
         if (verified && !*verified)
+        {
+            eraseIfEmpty();
             return false;  // Reject replacement with invalid signature
+        }
 
         if (!verified)
         {
@@ -547,7 +562,10 @@ ExportSignatureCollector::verifyAndAddSignature(
 
     auto const verified = verifyWithStashedData(signer);
     if (verified && !*verified)
+    {
+        eraseIfEmpty();
         return false;  // Don't add invalid signature
+    }
 
     if (!verified)
     {
