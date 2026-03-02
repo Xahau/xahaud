@@ -47,7 +47,7 @@ Loop: xrpld.net xrpld.rpc
   xrpld.rpc > xrpld.net
 
 Loop: xrpld.overlay xrpld.rpc
-  xrpld.rpc ~= xrpld.overlay
+  xrpld.rpc > xrpld.overlay
 
 Loop: xrpld.perflog xrpld.rpc
   xrpld.rpc ~= xrpld.perflog
