@@ -315,6 +315,93 @@ ExportSignatureCollector::stashTxnData(
     {
         exportedTxnData_.emplace(txnHash, std::move(txnData));
         JLOG(j_.trace()) << "Export: stashed txn data for " << txnHash;
+
+        auto sigIt = signatures_.find(txnHash);
+        if (sigIt == signatures_.end())
+            return;
+
+        std::size_t pruned = 0;
+        try
+        {
+            SerialIter sit(exportedTxnData_.at(txnHash).slice());
+            auto stpTrans = std::make_shared<STTx const>(std::ref(sit));
+
+            auto& signerMap = sigIt->second;
+            auto& verifiedSet = verified_[txnHash];
+            for (auto it = signerMap.begin(); it != signerMap.end();)
+            {
+                auto const& validator = it->first;
+                auto const& signer = it->second;
+
+                bool valid = false;
+                try
+                {
+                    if (signer.isFieldPresent(sfSigningPubKey) &&
+                        signer.isFieldPresent(sfAccount) &&
+                        signer.isFieldPresent(sfTxnSignature))
+                    {
+                        auto const sigPubKey =
+                            signer.getFieldVL(sfSigningPubKey);
+                        auto const signingAcc = signer.getAccountID(sfAccount);
+                        auto const signature =
+                            signer.getFieldVL(sfTxnSignature);
+
+                        if (!sigPubKey.empty() &&
+                            publicKeyType(makeSlice(sigPubKey)))
+                        {
+                            PublicKey const signerPk{makeSlice(sigPubKey)};
+                            if (signerPk == validator &&
+                                signingAcc == calcAccountID(validator))
+                            {
+                                Serializer sigData = buildMultiSigningData(
+                                    *stpTrans, signingAcc);
+                                valid = ripple::verify(
+                                    signerPk,
+                                    sigData.slice(),
+                                    makeSlice(signature),
+                                    true);
+                            }
+                        }
+                    }
+                }
+                catch (std::exception const&)
+                {
+                    valid = false;
+                }
+
+                if (valid)
+                {
+                    verifiedSet.insert(validator);
+                    ++it;
+                }
+                else
+                {
+                    verifiedSet.erase(validator);
+                    it = signerMap.erase(it);
+                    ++pruned;
+                }
+            }
+
+            if (verifiedSet.empty())
+                verified_.erase(txnHash);
+
+            if (signerMap.empty())
+            {
+                signatures_.erase(sigIt);
+                firstSeenLedger_.erase(txnHash);
+            }
+        }
+        catch (std::exception const& e)
+        {
+            JLOG(j_.warn()) << "Export: failed to parse stashed txn data for "
+                            << txnHash << ": " << e.what();
+        }
+
+        if (pruned > 0)
+        {
+            JLOG(j_.warn()) << "Export: pruned " << pruned
+                            << " invalid unverified signatures for " << txnHash;
+        }
     }
 }
 

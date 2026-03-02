@@ -172,6 +172,43 @@ class ExportSignatureCollector_test : public beast::unit_test::suite
         BEAST_EXPECT(!collector.hasSignatureFrom(txnHash, validatorB.first));
     }
 
+    void
+    testStashPrunesInvalidUnverified()
+    {
+        testcase("stash prunes invalid unverified");
+
+        beast::Journal journal{beast::Journal::getNullSink()};
+        ExportSignatureCollector collector{journal};
+
+        auto const validator = randomKeyPair(KeyType::secp256k1);
+        auto const validatorAcc = calcAccountID(validator.first);
+
+        auto tx = makeUnsignedTx();
+        auto const txnHash = tx.getTransactionID();
+
+        Serializer txData;
+        tx.add(txData);
+
+        Serializer sigData = buildMultiSigningData(tx, validatorAcc);
+        auto const goodSigBuf =
+            sign(validator.first, validator.second, sigData.slice());
+
+        Blob badSig(goodSigBuf.begin(), goodSigBuf.end());
+        badSig.back() ^= 0x01;
+
+        auto badSigner = makeSigner(validator.first, validatorAcc, badSig);
+
+        BEAST_EXPECT(collector.verifyAndAddSignature(
+            txnHash, validator.first, badSigner, 400));
+        BEAST_EXPECT(collector.signatureCount(txnHash) == 1);
+
+        collector.stashTxnData(txnHash, txData);
+
+        BEAST_EXPECT(collector.signatureCount(txnHash) == 0);
+        BEAST_EXPECT(!collector.hasSignatureFrom(txnHash, validator.first));
+        BEAST_EXPECT(!collector.isSignatureVerified(txnHash, validator.first));
+    }
+
 public:
     void
     run() override
@@ -179,6 +216,7 @@ public:
         testDuplicateCanReplaceUnverified();
         testVerifiedIsNotReplaced();
         testRejectsSignerIdentityMismatch();
+        testStashPrunesInvalidUnverified();
     }
 };
 
