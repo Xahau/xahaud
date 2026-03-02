@@ -311,6 +311,99 @@ class ExportSignatureCollector_test : public beast::unit_test::suite
         BEAST_EXPECT(collector.getPendingExports().empty());
     }
 
+    void
+    testAddSignatureRejectsIdentityMismatch()
+    {
+        testcase("addSignature rejects identity mismatch");
+
+        beast::Journal journal{beast::Journal::getNullSink()};
+        ExportSignatureCollector collector{journal};
+
+        auto const validatorA = randomKeyPair(KeyType::secp256k1);
+        auto const validatorB = randomKeyPair(KeyType::secp256k1);
+        auto const validatorBAcc = calcAccountID(validatorB.first);
+        std::string const tag = "add-signature-identity-mismatch";
+        auto const txnHash = sha512Half(makeSlice(tag));
+
+        STObject signer(sfSigner);
+        signer.setAccountID(sfAccount, validatorBAcc);
+        signer.setFieldVL(sfSigningPubKey, validatorB.first.slice());
+        signer.setFieldVL(sfTxnSignature, Blob{0x01, 0x02});
+
+        collector.addSignature(txnHash, validatorA.first, signer, 600);
+
+        BEAST_EXPECT(!collector.hasSignatureFrom(txnHash, validatorA.first));
+        BEAST_EXPECT(collector.signatureCount(txnHash) == 0);
+    }
+
+    void
+    testAddSignatureVerifiesWhenTxnDataPresent()
+    {
+        testcase("addSignature verifies when txn data present");
+
+        beast::Journal journal{beast::Journal::getNullSink()};
+        ExportSignatureCollector collector{journal};
+
+        auto const validator = randomKeyPair(KeyType::secp256k1);
+        auto const validatorAcc = calcAccountID(validator.first);
+
+        auto tx = makeUnsignedTx();
+        auto const txnHash = tx.getTransactionID();
+
+        Serializer txData;
+        tx.add(txData);
+        collector.stashTxnData(txnHash, txData);
+
+        Serializer sigData = buildMultiSigningData(tx, validatorAcc);
+        auto const goodSigBuf =
+            sign(validator.first, validator.second, sigData.slice());
+        Blob goodSig(goodSigBuf.begin(), goodSigBuf.end());
+        auto signer = makeSigner(validator.first, validatorAcc, goodSig);
+
+        collector.addSignature(txnHash, validator.first, signer, 601);
+
+        BEAST_EXPECT(collector.hasSignatureFrom(txnHash, validator.first));
+        BEAST_EXPECT(collector.isSignatureVerified(txnHash, validator.first));
+    }
+
+    void
+    testAddSignatureRejectsInvalidReplacementWhenVerified()
+    {
+        testcase("addSignature rejects invalid replacement when verified");
+
+        beast::Journal journal{beast::Journal::getNullSink()};
+        ExportSignatureCollector collector{journal};
+
+        auto const validator = randomKeyPair(KeyType::secp256k1);
+        auto const validatorAcc = calcAccountID(validator.first);
+
+        auto tx = makeUnsignedTx();
+        auto const txnHash = tx.getTransactionID();
+
+        Serializer txData;
+        tx.add(txData);
+        collector.stashTxnData(txnHash, txData);
+
+        Serializer sigData = buildMultiSigningData(tx, validatorAcc);
+        auto const goodSigBuf =
+            sign(validator.first, validator.second, sigData.slice());
+        Blob goodSig(goodSigBuf.begin(), goodSigBuf.end());
+        auto goodSigner = makeSigner(validator.first, validatorAcc, goodSig);
+        collector.addSignature(txnHash, validator.first, goodSigner, 602);
+
+        Blob badSig = goodSig;
+        badSig.back() ^= 0x01;
+        auto badSigner = makeSigner(validator.first, validatorAcc, badSig);
+        collector.addSignature(txnHash, validator.first, badSigner, 603);
+
+        auto const stored =
+            collector.getSignatureFrom(txnHash, validator.first);
+        BEAST_EXPECT(stored);
+        if (stored)
+            BEAST_EXPECT(stored->getFieldVL(sfTxnSignature) == goodSig);
+        BEAST_EXPECT(collector.isSignatureVerified(txnHash, validator.first));
+    }
+
 public:
     void
     run() override
@@ -322,6 +415,9 @@ public:
         testInvalidEarlyDataDoesNotAgeOutValidLater();
         testAddSignatureUpdatesExisting();
         testRejectedSignatureDoesNotCreatePendingEntry();
+        testAddSignatureRejectsIdentityMismatch();
+        testAddSignatureVerifiesWhenTxnDataPresent();
+        testAddSignatureRejectsInvalidReplacementWhenVerified();
     }
 };
 

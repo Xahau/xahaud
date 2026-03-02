@@ -101,33 +101,131 @@ ExportSignatureCollector::addSignature(
 {
     std::lock_guard lock(mutex_);
 
-    // Track first-seen time for cleanup
-    if (firstSeenLedger_.find(txnHash) == firstSeenLedger_.end())
+    // Validate signer payload binds to the validator key.
+    if (!signer.isFieldPresent(sfSigningPubKey) ||
+        !signer.isFieldPresent(sfAccount) ||
+        !signer.isFieldPresent(sfTxnSignature))
     {
-        firstSeenLedger_[txnHash] = currentSeq;
-        JLOG(j_.debug()) << "Export: first signature for " << txnHash
-                         << " at ledger " << currentSeq;
+        JLOG(j_.warn()) << "Export: addSignature rejected malformed signer for "
+                        << txnHash << " from "
+                        << toBase58(TokenType::NodePublic, validator);
+        return;
     }
 
-    // Add or update signature for this validator
+    auto const sigPubKey = signer.getFieldVL(sfSigningPubKey);
+    if (sigPubKey.empty() || !publicKeyType(makeSlice(sigPubKey)))
+    {
+        JLOG(j_.warn()) << "Export: addSignature rejected invalid pubkey for "
+                        << txnHash << " from "
+                        << toBase58(TokenType::NodePublic, validator);
+        return;
+    }
+
+    auto const signingAcc = signer.getAccountID(sfAccount);
+    PublicKey const signerPubKey{makeSlice(sigPubKey)};
+    if (signerPubKey != validator || signingAcc != calcAccountID(validator))
+    {
+        JLOG(j_.warn())
+            << "Export: addSignature rejected identity mismatch for " << txnHash
+            << " from " << toBase58(TokenType::NodePublic, validator);
+        return;
+    }
+
+    // Verify immediately if tx data is available.
+    auto verifyWithStashedData =
+        [&](STObject const& candidate) -> std::optional<bool> {
+        auto txnIt = exportedTxnData_.find(txnHash);
+        if (txnIt == exportedTxnData_.end())
+            return std::nullopt;
+
+        try
+        {
+            SerialIter sit(txnIt->second.slice());
+            auto stpTrans = std::make_shared<STTx const>(std::ref(sit));
+
+            auto const candAcc = candidate.getAccountID(sfAccount);
+            auto const candPub = candidate.getFieldVL(sfSigningPubKey);
+            auto const candSig = candidate.getFieldVL(sfTxnSignature);
+            Serializer sigData = buildMultiSigningData(*stpTrans, candAcc);
+
+            return ripple::verify(
+                PublicKey(makeSlice(candPub)),
+                sigData.slice(),
+                makeSlice(candSig),
+                true);
+        }
+        catch (std::exception const& e)
+        {
+            JLOG(j_.warn())
+                << "Export: addSignature verification exception for " << txnHash
+                << ": " << e.what();
+            return false;
+        }
+    };
+
+    auto const verified = verifyWithStashedData(signer);
+    if (verified && !*verified)
+    {
+        JLOG(j_.warn())
+            << "Export: addSignature rejected invalid signature for " << txnHash
+            << " from " << toBase58(TokenType::NodePublic, validator);
+        return;
+    }
+
+    auto ensureFirstSeen = [&]() {
+        if (firstSeenLedger_.find(txnHash) == firstSeenLedger_.end())
+        {
+            firstSeenLedger_[txnHash] = currentSeq;
+            JLOG(j_.debug()) << "Export: first signature for " << txnHash
+                             << " at ledger " << currentSeq;
+        }
+    };
+
     auto& signerMap = signatures_[txnHash];
-    auto [it, inserted] =
-        signerMap.insert_or_assign(validator, std::move(signer));
+    auto verIt = verified_.find(txnHash);
+    bool const alreadyVerified = verIt != verified_.end() &&
+        verIt->second.find(validator) != verIt->second.end();
 
-    if (inserted)
+    if (auto existing = signerMap.find(validator); existing != signerMap.end())
     {
-        JLOG(j_.trace()) << "Export: added signature from "
-                         << toBase58(TokenType::NodePublic, validator)
-                         << " for " << txnHash
-                         << " (total: " << signerMap.size() << ")";
-    }
-    else
-    {
+        // Never downgrade a verified cached signature to an unverified one.
+        if (!verified && alreadyVerified)
+        {
+            JLOG(j_.trace())
+                << "Export: addSignature ignored unverified duplicate for "
+                << txnHash << " from "
+                << toBase58(TokenType::NodePublic, validator);
+            return;
+        }
+
+        ensureFirstSeen();
+        existing->second = std::move(signer);
+        if (verified && *verified)
+            verified_[txnHash].insert(validator);
+        else if (auto it = verified_.find(txnHash); it != verified_.end())
+        {
+            it->second.erase(validator);
+            if (it->second.empty())
+                verified_.erase(it);
+        }
+
         JLOG(j_.trace()) << "Export: updated signature from "
                          << toBase58(TokenType::NodePublic, validator)
                          << " for " << txnHash
-                         << " (total: " << signerMap.size() << ")";
+                         << " (verified=" << (verified && *verified)
+                         << ", total=" << signerMap.size() << ")";
+        return;
     }
+
+    ensureFirstSeen();
+    signerMap.emplace(validator, std::move(signer));
+    if (verified && *verified)
+        verified_[txnHash].insert(validator);
+
+    JLOG(j_.trace()) << "Export: added signature from "
+                     << toBase58(TokenType::NodePublic, validator) << " for "
+                     << txnHash << " (verified=" << (verified && *verified)
+                     << ", total=" << signerMap.size() << ")";
 }
 
 STArray
