@@ -70,7 +70,8 @@ doDisconnect(RPC::JsonContext& context)
             if (peer && peer->getRemoteAddress() == endpoint)
             {
                 // Explicit cast keeps this RPC local to the existing overlay
-                // implementation while preserving ip:port symmetry with connect.
+                // implementation while preserving ip:port symmetry with
+                // connect.
                 if (auto p = std::dynamic_pointer_cast<PeerImp>(peer))
                 {
                     p->stop();
@@ -81,9 +82,8 @@ doDisconnect(RPC::JsonContext& context)
     }
 
     return RPC::makeObjectValue(
-        "disconnect requested for IP:" + ipStr +
-        " port: " + std::to_string(iPort) +
-        " peers: " + std::to_string(disconnected));
+        "disconnect requested for IP:" + ipStr + " port: " +
+        std::to_string(iPort) + " peers: " + std::to_string(disconnected));
 }
 
 }  // namespace ripple

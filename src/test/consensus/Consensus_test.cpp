@@ -1185,6 +1185,40 @@ public:
     }
 
     void
+    testRngCommitSetConflictForcesFallback()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG commitSet conflict forces fallback");
+
+        ConsensusParms const parms{};
+        Sim sim;
+        PeerGroup peers = sim.createGroup(5);
+
+        for (Peer* peer : peers)
+            peer->enableRngConsensus_ = true;
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        // Keep tx-set convergence intact but force one peer to advertise a
+        // different commitSetHash so we exercise the conflict-only guard.
+        peers[0]->forcedCommitSetHash_ = sha512Half(std::string("forced-csf"));
+
+        sim.run(1);
+
+        if (BEAST_EXPECT(sim.synchronized(peers)))
+        {
+            for (Peer const* peer : peers)
+            {
+                BEAST_EXPECT(peer->lastEntropyWasFallback_);
+                BEAST_EXPECT(peer->lastEntropyDigest_ == uint256{});
+            }
+        }
+    }
+
+    void
     testRngObserverDoesNotExpectSelfCommit()
     {
         using namespace csf;
@@ -1457,6 +1491,7 @@ public:
         testRngCommitRevealConverges();
         testRngImpossibleQuorumFallback();
         testRngTimeoutWithPartialQuorum();
+        testRngCommitSetConflictForcesFallback();
         testRngObserverDoesNotExpectSelfCommit();
         testRngIgnoresNonUNLData();
         testRngRejectsRevealWithoutCommit();

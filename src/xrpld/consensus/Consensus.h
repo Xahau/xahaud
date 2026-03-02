@@ -321,13 +321,12 @@ class Consensus
     using Ledger_t = typename Adaptor::Ledger_t;
     using TxSet_t = typename Adaptor::TxSet_t;
     using NodeID_t = typename Adaptor::NodeID_t;
+    using Position_t = typename Adaptor::Position_t;
     using Tx_t = typename TxSet_t::Tx;
     using PeerPosition_t = typename Adaptor::PeerPosition_t;
     // Use Adaptor::Position_t for RNG support (ExtendedPosition)
-    using Proposal_t = ConsensusProposal<
-        NodeID_t,
-        typename Ledger_t::ID,
-        typename Adaptor::Position_t>;
+    using Proposal_t =
+        ConsensusProposal<NodeID_t, typename Ledger_t::ID, Position_t>;
 
     using Result = ConsensusResult<Adaptor>;
 
@@ -576,6 +575,20 @@ private:
     bool
     haveConsensus(std::unique_ptr<std::stringstream> const& clog);
 
+    /** Detect conflicting non-empty commitSetHash values among tx-converged
+        positions in the current round.
+
+        Rationale:
+        - Base consensus equality intentionally ignores RNG sidecar fields so
+          tx-set convergence remains fast and deadlock-free.
+        - That means ConvergingCommit must do its own conflict detection before
+          moving to reveal.
+        - We only care about *conflicting non-empty* hashes; missing hashes are
+          transitional and are handled by short bounded waiting.
+    */
+    bool
+    hasConflictingCommitSetHashes() const;
+
     // Create disputes between our position and the provided one.
     void
     createDisputes(
@@ -602,6 +615,7 @@ private:
     ConsensusPhase phase_{ConsensusPhase::accepted};
     EstablishState estState_{EstablishState::ConvergingTx};
     std::chrono::steady_clock::time_point revealPhaseStart_{};
+    std::chrono::steady_clock::time_point commitHashConflictStart_{};
     MonitoredMode mode_{ConsensusMode::observing};
     bool firstRound_ = true;
     bool haveCloseTimeConsensus_ = false;
@@ -774,6 +788,7 @@ Consensus<Adaptor>::startRoundInternal(
     // Reset establish sub-state for new round
     estState_ = EstablishState::ConvergingTx;
     revealPhaseStart_ = {};
+    commitHashConflictStart_ = {};
 
     closeResolution_ = getNextLedgerTimeResolution(
         previousLedger_.closeTimeResolution(),
@@ -1581,6 +1596,7 @@ Consensus<Adaptor>::phaseEstablish(
                     adaptor_.propose(result_->position);
 
                 estState_ = EstablishState::ConvergingCommit;
+                commitHashConflictStart_ = {};
                 JLOG(j_.debug()) << "RNG: transitioned to ConvergingCommit"
                                  << " commitSet=" << commitSetHash;
                 return;  // Wait for next tick
@@ -1645,6 +1661,7 @@ Consensus<Adaptor>::phaseEstablish(
                         if (mode_.get() == ConsensusMode::proposing)
                             adaptor_.propose(result_->position);
                         estState_ = EstablishState::ConvergingCommit;
+                        commitHashConflictStart_ = {};
                         JLOG(j_.debug())
                             << "RNG: transitioned to ConvergingCommit"
                             << " commitSet=" << commitSetHash
@@ -1657,7 +1674,67 @@ Consensus<Adaptor>::phaseEstablish(
         }
         else if (estState_ == EstablishState::ConvergingCommit)
         {
-            // haveConsensus() implies agreement on commitSetHash
+            // Fast path: if no commit-set conflicts are observed, do exactly
+            // what we did before (immediate reveal transition).
+            //
+            // Safety path: haveConsensus() only compares tx-set hash, not RNG
+            // sidecar fields. So commitSetHash disagreements can exist
+            // transiently even while tx consensus is true. We only add delay
+            // when we *actually* observe conflicting non-empty commitSetHash
+            // values among tx-converged positions.
+            if (hasConflictingCommitSetHashes())
+            {
+                auto const nowSteady = std::chrono::steady_clock::now();
+                if (commitHashConflictStart_ ==
+                    std::chrono::steady_clock::time_point{})
+                {
+                    // First observed conflict: start a bounded grace window so
+                    // benign ordering/fetch races can settle without forcing a
+                    // fallback on the very first divergent gossip sample.
+                    commitHashConflictStart_ = nowSteady;
+                    JLOG(j_.warn())
+                        << "RNG: conflicting commitSetHash detected; waiting "
+                           "briefly for convergence/fetch";
+                    return;
+                }
+
+                auto const conflictElapsed =
+                    nowSteady - commitHashConflictStart_;
+                if (conflictElapsed <= parms.rngREVEAL_TIMEOUT)
+                {
+                    // We are still inside the grace window, so keep waiting.
+                    // This preserves the fast path when peers converge after a
+                    // short delay while avoiding reveal against mismatched
+                    // commit sets.
+                    JLOG(j_.debug())
+                        << "RNG: commitSetHash still conflicting after "
+                        << std::chrono::duration_cast<
+                               std::chrono::milliseconds>(conflictElapsed)
+                               .count()
+                        << "ms; staying in ConvergingCommit";
+                    return;
+                }
+
+                // If conflict persists past a bounded wait, force deterministic
+                // fallback for this round instead of revealing against
+                // divergent commit sets.
+                adaptor_.setEntropyFailed();
+                estState_ = EstablishState::ConvergingReveal;
+                // Backdate revealPhaseStart_ so the ConvergingReveal timeout
+                // path fires immediately next tick. This routes all peers to
+                // the existing deterministic zero-entropy close path, instead
+                // of introducing another bespoke state transition.
+                revealPhaseStart_ = nowSteady - parms.rngREVEAL_TIMEOUT -
+                    std::chrono::milliseconds{1};
+                commitHashConflictStart_ = {};
+                JLOG(j_.warn())
+                    << "RNG: commitSetHash conflict persisted; forcing "
+                       "zero-entropy fallback";
+                return;
+            }
+
+            commitHashConflictStart_ = {};
+
             auto newPos = result_->position.position();
             newPos.myReveal = adaptor_.getEntropySecret();
 
@@ -1998,6 +2075,63 @@ Consensus<Adaptor>::updateOurPositions(
         if (!result_->position.isBowOut() &&
             (mode_.get() == ConsensusMode::proposing))
             adaptor_.propose(result_->position);
+    }
+}
+
+template <class Adaptor>
+bool
+Consensus<Adaptor>::hasConflictingCommitSetHashes() const
+{
+    // No position means no conflict.
+    if (!result_)
+        return false;
+
+    // This check is only meaningful for position types that carry
+    // commitSetHash sidecar data (RCL ExtendedPosition / CSF RngPosition).
+    if constexpr (!requires(Position_t const& p) { p.commitSetHash; })
+    {
+        return false;
+    }
+    else
+    {
+        auto const ourPos = result_->position.position();
+        std::optional<uint256> observed;
+
+        auto note = [&](Position_t const& pos) -> bool {
+            // Missing commit hash is not a conflict signal; peers may still be
+            // in transit between tx convergence and commit publication.
+            if (!pos.commitSetHash)
+                return false;
+
+            if (!observed)
+            {
+                // First non-empty commit hash becomes the baseline.
+                observed = *pos.commitSetHash;
+                return false;
+            }
+
+            // Any different non-empty hash indicates a true conflict.
+            return *observed != *pos.commitSetHash;
+        };
+
+        // Include our own position first.
+        if (note(ourPos))
+            return true;
+
+        // Only compare peers that are tx-converged with us.
+        // Peers on a different txSet are handled by normal consensus and are
+        // irrelevant for commit-sidecar agreement in this branch.
+        for (auto const& [nodeId, peerPos] : currPeerPositions_)
+        {
+            auto const& peerProposal = peerPos.proposal();
+            auto const& peerPosition = peerProposal.position();
+            if (!(peerPosition == ourPos))
+                continue;
+
+            if (note(peerPosition))
+                return true;
+        }
+        return false;
     }
 }
 

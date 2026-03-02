@@ -297,6 +297,11 @@ struct Peer
     std::uint16_t lastEntropyCount_ = 0;
     bool lastEntropyWasFallback_ = true;
 
+    // Optional test hook: force a specific commit-set hash for this peer.
+    // This is used by consensus tests to model commitSetHash disagreement
+    // without changing tx-set convergence behavior.
+    std::optional<uint256> forcedCommitSetHash_;
+
     //! The collectors to report events to
     CollectorRefs& collectors;
 
@@ -822,6 +827,8 @@ struct Peer
     uint256
     buildCommitSet(Ledger::Seq seq)
     {
+        if (forcedCommitSetHash_)
+            return *forcedCommitSetHash_;
         return hashRngSet(pendingCommits_, seq, "commit");
     }
 
