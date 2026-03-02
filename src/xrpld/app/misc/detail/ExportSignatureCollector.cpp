@@ -412,102 +412,139 @@ ExportSignatureCollector::cleanupStale(
 void
 ExportSignatureCollector::stashTxnData(
     uint256 const& txnHash,
-    Serializer txnData)
+    Serializer txnData,
+    LedgerIndex currentSeq)
 {
     std::lock_guard lock(mutex_);
 
-    // Only stash if we don't already have it
-    if (exportedTxnData_.find(txnHash) == exportedTxnData_.end())
-    {
-        exportedTxnData_.emplace(txnHash, std::move(txnData));
-        JLOG(j_.trace()) << "Export: stashed txn data for " << txnHash;
-
-        auto sigIt = signatures_.find(txnHash);
-        if (sigIt == signatures_.end())
-            return;
-
-        std::size_t pruned = 0;
+    auto parseTx = [](Serializer const& data) -> bool {
         try
         {
-            SerialIter sit(exportedTxnData_.at(txnHash).slice());
-            auto stpTrans = std::make_shared<STTx const>(std::ref(sit));
+            SerialIter sit(data.slice());
+            auto tx = std::make_shared<STTx const>(std::ref(sit));
+            (void)tx;
+            return true;
+        }
+        catch (std::exception const&)
+        {
+            return false;
+        }
+    };
 
-            auto& signerMap = sigIt->second;
-            auto& verifiedSet = verified_[txnHash];
-            for (auto it = signerMap.begin(); it != signerMap.end();)
+    if (!parseTx(txnData))
+    {
+        JLOG(j_.warn()) << "Export: rejected invalid txn data for " << txnHash;
+        return;
+    }
+
+    bool stored = false;
+    if (auto it = exportedTxnData_.find(txnHash); it == exportedTxnData_.end())
+    {
+        exportedTxnData_.emplace(txnHash, std::move(txnData));
+        stored = true;
+        JLOG(j_.trace()) << "Export: stashed txn data for " << txnHash;
+    }
+    else if (!parseTx(it->second))
+    {
+        it->second = std::move(txnData);
+        stored = true;
+        JLOG(j_.warn()) << "Export: replaced invalid cached txn data for "
+                        << txnHash;
+    }
+
+    if (!stored)
+        return;
+
+    if (firstSeenLedger_.find(txnHash) == firstSeenLedger_.end())
+    {
+        firstSeenLedger_[txnHash] = currentSeq;
+        JLOG(j_.trace()) << "Export: first-seen (txn data) for " << txnHash
+                         << " at ledger " << currentSeq;
+    }
+
+    auto sigIt = signatures_.find(txnHash);
+    if (sigIt == signatures_.end())
+        return;
+
+    std::size_t pruned = 0;
+    try
+    {
+        SerialIter sit(exportedTxnData_.at(txnHash).slice());
+        auto stpTrans = std::make_shared<STTx const>(std::ref(sit));
+
+        auto& signerMap = sigIt->second;
+        auto& verifiedSet = verified_[txnHash];
+        for (auto it = signerMap.begin(); it != signerMap.end();)
+        {
+            auto const& validator = it->first;
+            auto const& signer = it->second;
+
+            bool valid = false;
+            try
             {
-                auto const& validator = it->first;
-                auto const& signer = it->second;
-
-                bool valid = false;
-                try
+                if (signer.isFieldPresent(sfSigningPubKey) &&
+                    signer.isFieldPresent(sfAccount) &&
+                    signer.isFieldPresent(sfTxnSignature))
                 {
-                    if (signer.isFieldPresent(sfSigningPubKey) &&
-                        signer.isFieldPresent(sfAccount) &&
-                        signer.isFieldPresent(sfTxnSignature))
-                    {
-                        auto const sigPubKey =
-                            signer.getFieldVL(sfSigningPubKey);
-                        auto const signingAcc = signer.getAccountID(sfAccount);
-                        auto const signature =
-                            signer.getFieldVL(sfTxnSignature);
+                    auto const sigPubKey = signer.getFieldVL(sfSigningPubKey);
+                    auto const signingAcc = signer.getAccountID(sfAccount);
+                    auto const signature = signer.getFieldVL(sfTxnSignature);
 
-                        if (!sigPubKey.empty() &&
-                            publicKeyType(makeSlice(sigPubKey)))
+                    if (!sigPubKey.empty() &&
+                        publicKeyType(makeSlice(sigPubKey)))
+                    {
+                        PublicKey const signerPk{makeSlice(sigPubKey)};
+                        if (signerPk == validator &&
+                            signingAcc == calcAccountID(validator))
                         {
-                            PublicKey const signerPk{makeSlice(sigPubKey)};
-                            if (signerPk == validator &&
-                                signingAcc == calcAccountID(validator))
-                            {
-                                Serializer sigData = buildMultiSigningData(
-                                    *stpTrans, signingAcc);
-                                valid = ripple::verify(
-                                    signerPk,
-                                    sigData.slice(),
-                                    makeSlice(signature),
-                                    true);
-                            }
+                            Serializer sigData =
+                                buildMultiSigningData(*stpTrans, signingAcc);
+                            valid = ripple::verify(
+                                signerPk,
+                                sigData.slice(),
+                                makeSlice(signature),
+                                true);
                         }
                     }
                 }
-                catch (std::exception const&)
-                {
-                    valid = false;
-                }
-
-                if (valid)
-                {
-                    verifiedSet.insert(validator);
-                    ++it;
-                }
-                else
-                {
-                    verifiedSet.erase(validator);
-                    it = signerMap.erase(it);
-                    ++pruned;
-                }
             }
-
-            if (verifiedSet.empty())
-                verified_.erase(txnHash);
-
-            if (signerMap.empty())
+            catch (std::exception const&)
             {
-                signatures_.erase(sigIt);
-                firstSeenLedger_.erase(txnHash);
+                valid = false;
+            }
+
+            if (valid)
+            {
+                verifiedSet.insert(validator);
+                ++it;
+            }
+            else
+            {
+                verifiedSet.erase(validator);
+                it = signerMap.erase(it);
+                ++pruned;
             }
         }
-        catch (std::exception const& e)
-        {
-            JLOG(j_.warn()) << "Export: failed to parse stashed txn data for "
-                            << txnHash << ": " << e.what();
-        }
 
-        if (pruned > 0)
+        if (verifiedSet.empty())
+            verified_.erase(txnHash);
+
+        if (signerMap.empty())
         {
-            JLOG(j_.warn()) << "Export: pruned " << pruned
-                            << " invalid unverified signatures for " << txnHash;
+            signatures_.erase(sigIt);
+            firstSeenLedger_.erase(txnHash);
         }
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j_.warn()) << "Export: failed to parse stashed txn data for "
+                        << txnHash << ": " << e.what();
+    }
+
+    if (pruned > 0)
+    {
+        JLOG(j_.warn()) << "Export: pruned " << pruned
+                        << " invalid unverified signatures for " << txnHash;
     }
 }
 
@@ -873,7 +910,7 @@ signPendingExports(
             // This must happen before checking for cached signature so that
             // peer signatures can be verified against this txn data.
             auto& collector = app.getExportSignatureCollector();
-            collector.stashTxnData(txnHash, *s);
+            collector.stashTxnData(txnHash, *s, seq);
 
             // Check if we already have our signature cached in the collector.
             // This enables continuous broadcasting: we sign once, then keep

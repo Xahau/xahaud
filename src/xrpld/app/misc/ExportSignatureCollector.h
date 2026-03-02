@@ -201,9 +201,13 @@ public:
 
         @param txnHash The hash of the exported transaction
         @param txnData Serialized STTx for building verification data
+        @param currentSeq Current ledger sequence (for stale cleanup aging)
     */
     void
-    stashTxnData(uint256 const& txnHash, Serializer txnData);
+    stashTxnData(
+        uint256 const& txnHash,
+        Serializer txnData,
+        LedgerIndex currentSeq);
 
     /** Verify and add a signature.
 
