@@ -1365,6 +1365,43 @@ public:
     }
 
     void
+    testRngRevealTimeoutAsymmetricDelays()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG reveal timeout under asymmetric delays");
+
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup groupA = sim.createGroup(3);
+        PeerGroup groupB = sim.createGroup(3);
+        PeerGroup network = groupA + groupB;
+
+        for (Peer* peer : network)
+            peer->enableRngConsensus_ = true;
+
+        network.trust(network);
+
+        auto const fast = round<milliseconds>(0.2 * parms.ledgerGRANULARITY);
+        groupA.connect(groupA, fast);
+        groupB.connect(groupB, fast);
+
+        // Cross-group links are intentionally slower than rngREVEAL_TIMEOUT.
+        auto const slow = round<milliseconds>(2.0 * parms.ledgerGRANULARITY);
+        groupA.connect(groupB, slow);
+        groupB.connect(groupA, slow);
+
+        sim.run(1);
+
+        // If this ever forks/splits, reveal-timeout handling is allowing
+        // non-deterministic entropy subsets to close.
+        BEAST_EXPECT(sim.branches(network) == 1);
+        BEAST_EXPECT(sim.synchronized(network));
+    }
+
+    void
     run() override
     {
         testShouldCloseLedger();
@@ -1387,6 +1424,7 @@ public:
         testRngRejectsRevealWithoutCommit();
         testRngRejectsInvalidReveal();
         testRngCommitChangeClearsStaleReveal();
+        testRngRevealTimeoutAsymmetricDelays();
     }
 };
 
