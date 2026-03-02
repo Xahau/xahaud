@@ -59,6 +59,8 @@ doChannelVerify(RPC::JsonContext&);
 Json::Value
 doConnect(RPC::JsonContext&);
 Json::Value
+doDisconnect(RPC::JsonContext&);
+Json::Value
 doConsensusInfo(RPC::JsonContext&);
 Json::Value
 doDepositAuthorized(RPC::JsonContext&);

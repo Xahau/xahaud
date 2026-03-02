@@ -100,6 +100,7 @@ Handler const handlerArray[]{
     {"channel_authorize", byRef(&doChannelAuthorize), Role::USER, NO_CONDITION},
     {"channel_verify", byRef(&doChannelVerify), Role::USER, NO_CONDITION},
     {"connect", byRef(&doConnect), Role::ADMIN, NO_CONDITION},
+    {"disconnect", byRef(&doDisconnect), Role::ADMIN, NO_CONDITION},
     {"consensus_info", byRef(&doConsensusInfo), Role::ADMIN, NO_CONDITION},
     {"deposit_authorized",
      byRef(&doDepositAuthorized),
