@@ -1886,6 +1886,11 @@ RCLConsensus::Adaptor::harvestRngData(
                 << "Validator " << nodeId << " changed commitment from "
                 << it->second << " to " << *position.myCommitment;
             it->second = *position.myCommitment;
+
+            // Any reveal accepted against the prior commitment is now stale.
+            // Drop it so reveal quorum cannot be satisfied by mismatched data.
+            if (pendingReveals_.erase(nodeId) > 0)
+                proposalProofs_.erase(nodeId);
         }
         else if (inserted)
         {

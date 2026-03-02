@@ -261,6 +261,11 @@ struct Peer
     //! Whether to simulate running as validator or a tracking node
     bool runAsValidator = true;
     //! Enable CSF RNG sub-state behavior for this peer.
+    //!
+    //! This stays as a runtime gate on the base Peer type so CSF can keep
+    //! value-like Peer storage and existing PeerGroup APIs unchanged. A
+    //! dedicated RNG subclass would force broader polymorphic container churn
+    //! in Sim/PeerGroup for test-only behavior.
     bool enableRngConsensus_ = false;
 
     // TODO: Consider removing these two, they are only a convenience for tests
@@ -868,7 +873,17 @@ struct Peer
         nodeKeys_.insert_or_assign(nodeId, publicKey);
 
         if (position.myCommitment)
-            pendingCommits_[nodeId] = *position.myCommitment;
+        {
+            auto [it, inserted] =
+                pendingCommits_.emplace(nodeId, *position.myCommitment);
+            if (!inserted && it->second != *position.myCommitment)
+            {
+                it->second = *position.myCommitment;
+                // A changed commitment invalidates any previously accepted
+                // reveal for this node in the current round.
+                pendingReveals_.erase(nodeId);
+            }
+        }
 
         if (!position.myReveal)
             return;

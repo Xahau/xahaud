@@ -1077,6 +1077,8 @@ public:
         peers.trustAndConnect(
             peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
 
+        // Runtime opt-in keeps CSF on a single Peer type, which minimizes
+        // maintenance and upstream sync churn in Sim/PeerGroup infrastructure.
         for (Peer* peer : peers)
             peer->enableRngConsensus_ = true;
 
@@ -1183,6 +1185,186 @@ public:
     }
 
     void
+    testRngIgnoresNonUNLData()
+    {
+        using namespace csf;
+
+        testcase("RNG ignores non-UNL data");
+
+        Sim sim;
+        PeerGroup peers = sim.createGroup(1);
+        Peer* peer = peers[0];
+        peer->enableRngConsensus_ = true;
+        peer->cacheUNLReport();
+
+        ProposalPosition pos;
+        pos.myCommitment = sha512Half(1u);
+        pos.myReveal = sha512Half(2u);
+
+        // NodeID 999 is not in this peer's UNL report (which contains only
+        // self).
+        peer->harvestRngData(
+            PeerID{999},
+            PeerKey{PeerID{999}, 0},
+            pos,
+            0,
+            peer->now(),
+            peer->lastClosedLedger.id(),
+            0);
+
+        BEAST_EXPECT(peer->pendingCommits_.empty());
+        BEAST_EXPECT(peer->pendingReveals_.empty());
+    }
+
+    void
+    testRngRejectsRevealWithoutCommit()
+    {
+        using namespace csf;
+
+        testcase("RNG rejects reveal without commit");
+
+        Sim sim;
+        PeerGroup peers = sim.createGroup(1);
+        Peer* peer = peers[0];
+        peer->enableRngConsensus_ = true;
+        peer->cacheUNLReport();
+
+        ProposalPosition pos;
+        pos.myReveal = sha512Half(3u);
+
+        peer->harvestRngData(
+            peer->id,
+            peer->key,
+            pos,
+            0,
+            peer->now(),
+            peer->lastClosedLedger.id(),
+            0);
+
+        BEAST_EXPECT(peer->pendingCommits_.empty());
+        BEAST_EXPECT(peer->pendingReveals_.empty());
+    }
+
+    void
+    testRngRejectsInvalidReveal()
+    {
+        using namespace csf;
+
+        testcase("RNG rejects invalid reveal");
+
+        Sim sim;
+        PeerGroup peers = sim.createGroup(1);
+        Peer* peer = peers[0];
+        peer->enableRngConsensus_ = true;
+        peer->cacheUNLReport();
+
+        auto const seq =
+            static_cast<std::uint32_t>(peer->lastClosedLedger.seq()) + 1;
+        auto const committedReveal = sha512Half(10u);
+        auto const invalidReveal = sha512Half(11u);
+        auto const commitment = sha512Half(
+            committedReveal,
+            static_cast<std::uint32_t>(peer->id),
+            peer->key.second,
+            seq);
+
+        ProposalPosition commitPos;
+        commitPos.myCommitment = commitment;
+        peer->harvestRngData(
+            peer->id,
+            peer->key,
+            commitPos,
+            0,
+            peer->now(),
+            peer->lastClosedLedger.id(),
+            0);
+
+        ProposalPosition revealPos;
+        revealPos.myReveal = invalidReveal;
+        peer->harvestRngData(
+            peer->id,
+            peer->key,
+            revealPos,
+            0,
+            peer->now(),
+            peer->lastClosedLedger.id(),
+            0);
+
+        BEAST_EXPECT(peer->pendingCommits_.size() == 1);
+        BEAST_EXPECT(peer->pendingReveals_.empty());
+    }
+
+    void
+    testRngCommitChangeClearsStaleReveal()
+    {
+        using namespace csf;
+
+        testcase("RNG commit change clears stale reveal");
+
+        Sim sim;
+        PeerGroup peers = sim.createGroup(1);
+        Peer* peer = peers[0];
+        peer->enableRngConsensus_ = true;
+        peer->cacheUNLReport();
+
+        auto const seq =
+            static_cast<std::uint32_t>(peer->lastClosedLedger.seq()) + 1;
+        auto const revealA = sha512Half(20u);
+        auto const revealB = sha512Half(21u);
+        auto const commitA = sha512Half(
+            revealA,
+            static_cast<std::uint32_t>(peer->id),
+            peer->key.second,
+            seq);
+        auto const commitB = sha512Half(
+            revealB,
+            static_cast<std::uint32_t>(peer->id),
+            peer->key.second,
+            seq);
+
+        ProposalPosition commitPosA;
+        commitPosA.myCommitment = commitA;
+        peer->harvestRngData(
+            peer->id,
+            peer->key,
+            commitPosA,
+            0,
+            peer->now(),
+            peer->lastClosedLedger.id(),
+            0);
+
+        ProposalPosition revealPosA;
+        revealPosA.myReveal = revealA;
+        peer->harvestRngData(
+            peer->id,
+            peer->key,
+            revealPosA,
+            0,
+            peer->now(),
+            peer->lastClosedLedger.id(),
+            0);
+
+        BEAST_EXPECT(peer->pendingReveals_.size() == 1);
+
+        // Commitment changes after reveal was accepted. The old reveal is now
+        // cryptographically stale and must no longer count toward reveal
+        // quorum.
+        ProposalPosition commitPosB;
+        commitPosB.myCommitment = commitB;
+        peer->harvestRngData(
+            peer->id,
+            peer->key,
+            commitPosB,
+            0,
+            peer->now(),
+            peer->lastClosedLedger.id(),
+            0);
+
+        BEAST_EXPECT(peer->pendingCommits_.size() == 1);
+        BEAST_EXPECT(peer->pendingReveals_.empty());
+    }
+
+    void
     run() override
     {
         testShouldCloseLedger();
@@ -1201,6 +1383,10 @@ public:
         testRngCommitRevealConverges();
         testRngImpossibleQuorumFallback();
         testRngTimeoutWithPartialQuorum();
+        testRngIgnoresNonUNLData();
+        testRngRejectsRevealWithoutCommit();
+        testRngRejectsInvalidReveal();
+        testRngCommitChangeClearsStaleReveal();
     }
 };
 
