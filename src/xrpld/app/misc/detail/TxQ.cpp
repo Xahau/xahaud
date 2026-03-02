@@ -1568,6 +1568,9 @@ TxQ::accept(Application& app, OpenView& view)
     {
         do
         {
+            auto& collector = app.getExportSignatureCollector();
+            collector.cleanupStale(view.seq());
+
             // If we're not a validator, do nothing here.
             auto const validationPublicKey = app.getValidationPublicKey();
             if (!validationPublicKey)
@@ -1638,7 +1641,6 @@ TxQ::accept(Application& app, OpenView& view)
                 if (exportedLgrSeq == seq)
                     continue;
 
-                auto& collector = app.getExportSignatureCollector();
                 bool const hasQuorum = collector.hasQuorum(txnHash, view, app);
 
                 if (!hasQuorum)

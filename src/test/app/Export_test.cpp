@@ -20,6 +20,7 @@
 #include <test/app/Export_test_hooks.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
+#include <xrpld/app/misc/ExportSignatureCollector.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/jss.h>
@@ -302,12 +303,45 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testStaleSignatureCleanup(FeatureBitset features)
+    {
+        testcase("Stale Export Signature Cleanup");
+
+        using namespace jtx;
+
+        Env env{*this, envconfig(jtx::validator, ""), features};
+
+        auto const validator = randomKeyPair(KeyType::secp256k1);
+        auto const validatorAcc = calcAccountID(validator.first);
+        std::string const staleTag = "stale-export-signature";
+        auto const txHash = sha512Half(makeSlice(staleTag));
+
+        STObject signer(sfSigner);
+        signer.setAccountID(sfAccount, validatorAcc);
+        signer.setFieldVL(sfSigningPubKey, validator.first.slice());
+        signer.setFieldVL(sfTxnSignature, Blob{0x01, 0x02, 0x03, 0x04});
+
+        auto& collector = env.app().getExportSignatureCollector();
+        collector.addSignature(
+            txHash, validator.first, signer, env.current()->seq());
+        BEAST_EXPECT(collector.signatureCount(txHash) == 1);
+
+        // cleanupStale uses default maxAge=256 and removes when currentSeq is
+        // strictly greater than firstSeen+maxAge.
+        for (int i = 0; i < 260; ++i)
+            env.close();
+
+        BEAST_EXPECT(collector.signatureCount(txHash) == 0);
+    }
+
+    void
     run() override
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments()};
         FeatureBitset const allWithExport{all | featureExportRNG};
         testXportPaymentWithValidator(allWithExport);
+        testStaleSignatureCleanup(allWithExport);
     }
 };
 
