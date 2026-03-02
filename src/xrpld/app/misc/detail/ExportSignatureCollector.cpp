@@ -335,35 +335,60 @@ ExportSignatureCollector::verifyAndAddSignature(
                          << " at ledger " << currentSeq;
     }
 
-    // Check if we already have this signature
-    auto& signerMap = signatures_[txnHash];
-    if (signerMap.find(validator) != signerMap.end())
+    // The signer payload must bind to the validator who carried it in
+    // TMValidation. Otherwise a peer can misattribute signatures.
+    if (!signer.isFieldPresent(sfSigningPubKey) ||
+        !signer.isFieldPresent(sfAccount) ||
+        !signer.isFieldPresent(sfTxnSignature))
     {
-        JLOG(j_.trace()) << "Export: already have signature from "
-                         << toBase58(TokenType::NodePublic, validator)
-                         << " for " << txnHash;
-        return true;  // Already have it
+        JLOG(j_.warn()) << "Export: malformed signer payload for " << txnHash
+                        << " from "
+                        << toBase58(TokenType::NodePublic, validator);
+        return false;
     }
 
-    // Try to verify if we have the txn data
-    bool verified = false;
-    auto txnIt = exportedTxnData_.find(txnHash);
-    if (txnIt != exportedTxnData_.end())
+    auto const sigPubKey = signer.getFieldVL(sfSigningPubKey);
+    if (sigPubKey.empty() || !publicKeyType(makeSlice(sigPubKey)))
     {
+        JLOG(j_.warn()) << "Export: invalid signer pubkey payload for "
+                        << txnHash << " from "
+                        << toBase58(TokenType::NodePublic, validator);
+        return false;
+    }
+
+    auto const signingAcc = signer.getAccountID(sfAccount);
+    PublicKey const signerPubKey{makeSlice(sigPubKey)};
+    if (signerPubKey != validator || signingAcc != calcAccountID(validator))
+    {
+        JLOG(j_.warn()) << "Export: signer identity mismatch for " << txnHash
+                        << " from "
+                        << toBase58(TokenType::NodePublic, validator);
+        return false;
+    }
+
+    auto& signerMap = signatures_[txnHash];
+
+    // Verify if we have stashed tx data. Returns:
+    //   true  -> verified
+    //   false -> verification failed
+    //   nullopt -> cannot verify yet (no tx data)
+    auto verifyWithStashedData =
+        [&](STObject const& candidate) -> std::optional<bool> {
+        auto txnIt = exportedTxnData_.find(txnHash);
+        if (txnIt == exportedTxnData_.end())
+            return std::nullopt;
+
         try
         {
-            // Parse the stashed transaction
             SerialIter sit(txnIt->second.slice());
             auto stpTrans = std::make_shared<STTx const>(std::ref(sit));
 
-            // Get signer account from the signer object
-            auto signingAcc = signer.getAccountID(sfAccount);
-            auto sigPubKey = signer.getFieldVL(sfSigningPubKey);
-            auto signature = signer.getFieldVL(sfTxnSignature);
+            auto signingAcc = candidate.getAccountID(sfAccount);
+            auto sigPubKey = candidate.getFieldVL(sfSigningPubKey);
+            auto signature = candidate.getFieldVL(sfTxnSignature);
 
-            // Build the multisig data and verify
             Serializer sigData = buildMultiSigningData(*stpTrans, signingAcc);
-            verified = ripple::verify(
+            bool const verified = ripple::verify(
                 PublicKey(makeSlice(sigPubKey)),
                 sigData.slice(),
                 makeSlice(signature),
@@ -374,39 +399,83 @@ ExportSignatureCollector::verifyAndAddSignature(
                 JLOG(j_.warn())
                     << "Export: signature verification FAILED for " << txnHash
                     << " from " << toBase58(TokenType::NodePublic, validator);
-                return false;  // Don't add invalid signature
+                return false;
             }
 
             JLOG(j_.trace())
                 << "Export: signature verified for " << txnHash << " from "
                 << toBase58(TokenType::NodePublic, validator);
+            return true;
         }
         catch (std::exception const& e)
         {
             JLOG(j_.warn()) << "Export: signature verification exception for "
                             << txnHash << ": " << e.what();
-            return false;  // Don't add if we can't verify
+            return false;
         }
+    };
+
+    auto verIt = verified_.find(txnHash);
+    bool const alreadyVerified = verIt != verified_.end() &&
+        verIt->second.find(validator) != verIt->second.end();
+
+    // Duplicate from same validator:
+    // - keep existing once cryptographically verified
+    // - allow replacement while unverified so a stale/bad early copy can heal
+    if (auto existing = signerMap.find(validator); existing != signerMap.end())
+    {
+        if (alreadyVerified)
+        {
+            JLOG(j_.trace())
+                << "Export: ignoring duplicate verified signature "
+                << "from " << toBase58(TokenType::NodePublic, validator)
+                << " for " << txnHash;
+            return true;
+        }
+
+        auto const verified = verifyWithStashedData(signer);
+        if (verified && !*verified)
+            return false;  // Reject replacement with invalid signature
+
+        if (!verified)
+        {
+            JLOG(j_.trace())
+                << "Export: replacing unverified signature for " << txnHash
+                << " from " << toBase58(TokenType::NodePublic, validator)
+                << " (no txn data yet)";
+        }
+
+        existing->second = std::move(signer);
+        if (verified && *verified)
+            verified_[txnHash].insert(validator);
+
+        JLOG(j_.trace()) << "Export: replaced signature from "
+                         << toBase58(TokenType::NodePublic, validator)
+                         << " for " << txnHash
+                         << " (verified=" << (verified && *verified) << ")";
+        return true;
     }
-    else
+
+    auto const verified = verifyWithStashedData(signer);
+    if (verified && !*verified)
+        return false;  // Don't add invalid signature
+
+    if (!verified)
     {
         // No txn data yet - add unverified (will verify later or in Transactor)
         JLOG(j_.trace()) << "Export: adding unverified signature for "
                          << txnHash << " (no txn data yet)";
     }
 
-    // Add the signature
     signerMap.emplace(validator, std::move(signer));
 
-    if (verified)
-    {
+    if (verified && *verified)
         verified_[txnHash].insert(validator);
-    }
 
     JLOG(j_.trace()) << "Export: added signature from "
                      << toBase58(TokenType::NodePublic, validator) << " for "
                      << txnHash << " (total: " << signerMap.size()
-                     << ", verified=" << verified << ")";
+                     << ", verified=" << (verified && *verified) << ")";
 
     return true;
 }
