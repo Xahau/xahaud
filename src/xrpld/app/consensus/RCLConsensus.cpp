@@ -1563,21 +1563,38 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
 
     JLOG(j_.debug()) << "RNG: handleAcquiredRngSet hash=" << hash;
 
-    // Determine if this is a commitSet or entropySet by inspecting entries
-    bool isCommitSet = false;
-    bool isEntropySet = false;
+    enum class RngSetKind { commit, reveal };
+    auto const classifyKind =
+        [](std::uint32_t flags) -> std::optional<RngSetKind> {
+        auto const hasCommit = (flags & tfEntropyCommit) != 0;
+        auto const hasReveal = (flags & tfEntropyReveal) != 0;
+        if (hasCommit == hasReveal)
+            return std::nullopt;
+        return hasCommit ? std::optional<RngSetKind>{RngSetKind::commit}
+                         : std::optional<RngSetKind>{RngSetKind::reveal};
+    };
 
+    // Determine whether this is a pure commitSet or entropySet. Mixed sets are
+    // rejected to avoid cross-type contamination of pending state.
+    std::optional<RngSetKind> setKind;
+    bool mixedKinds = false;
     map->visitLeaves([&](boost::intrusive_ptr<SHAMapItem const> const& item) {
         try
         {
-            // Skip prefix (4 bytes) when deserializing
             SerialIter sit(item->slice());
             auto stx = std::make_shared<STTx const>(std::ref(sit));
-            auto flags = stx->getFieldU32(sfFlags);
-            if (flags & tfEntropyCommit)
-                isCommitSet = true;
-            else if (flags & tfEntropyReveal)
-                isEntropySet = true;
+            if (stx->getTxnType() != ttCONSENSUS_ENTROPY ||
+                !stx->isFieldPresent(sfFlags))
+                return;
+
+            auto const entryKind = classifyKind(stx->getFieldU32(sfFlags));
+            if (!entryKind)
+                return;
+
+            if (!setKind)
+                setKind = entryKind;
+            else if (*setKind != *entryKind)
+                mixedKinds = true;
         }
         catch (std::exception const&)
         {
@@ -1585,12 +1602,20 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
         }
     });
 
-    if (!isCommitSet && !isEntropySet)
+    if (!setKind)
     {
         JLOG(j_.warn()) << "RNG: acquired set " << hash
                         << " has no recognizable RNG entries";
         return;
     }
+    if (mixedKinds)
+    {
+        JLOG(j_.warn()) << "RNG: acquired set " << hash
+                        << " mixes commit/reveal entries; rejecting";
+        return;
+    }
+
+    bool const isCommitSet = *setKind == RngSetKind::commit;
 
     // Union-merge: diff against our local set and add any entries we're
     // missing. Unlike normal txSets which use avalanche voting to resolve
@@ -1602,6 +1627,127 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
 
     std::size_t merged = 0;
 
+    auto mergeEntry = [&](Slice const& entry, char const* sourceTag) {
+        try
+        {
+            SerialIter sit(entry);
+            auto stx = std::make_shared<STTx const>(std::ref(sit));
+            if (stx->getTxnType() != ttCONSENSUS_ENTROPY ||
+                !stx->isFieldPresent(sfFlags))
+                return;
+
+            auto const entryKind = classifyKind(stx->getFieldU32(sfFlags));
+            if (!entryKind ||
+                ((*entryKind == RngSetKind::commit) != isCommitSet))
+                return;
+
+            auto const pk = stx->getFieldVL(sfSigningPubKey);
+            PublicKey pubKey(makeSlice(pk));
+            auto const digest = stx->getFieldH256(sfDigest);
+
+            // Recover NodeID from sfAccount (encoded by
+            // buildCommitSet/buildEntropySet) so we can compare against trusted
+            // validator identity.
+            auto const acctId = stx->getAccountID(sfAccount);
+            NodeID nodeId;
+            std::memcpy(nodeId.data(), acctId.data(), nodeId.size());
+
+            if (!isUNLReportMember(nodeId))
+            {
+                JLOG(j_.debug()) << "RNG: rejecting non-UNL entry from "
+                                 << nodeId << " in acquired set";
+                return;
+            }
+
+            // Bind the claimed nodeId to a trusted validator key identity.
+            // This prevents a fetched set from impersonating arbitrary UNL
+            // members via sfAccount.
+            auto const trustedMaster = app_.validators().getTrustedKey(pubKey);
+            if (!trustedMaster)
+            {
+                JLOG(j_.warn())
+                    << "RNG: rejecting untrusted signing key for " << nodeId
+                    << " in acquired set (" << sourceTag << ")";
+                return;
+            }
+            if (calcNodeID(*trustedMaster) != nodeId)
+            {
+                JLOG(j_.warn())
+                    << "RNG: rejecting node/key identity mismatch for "
+                    << nodeId << " in acquired set (" << sourceTag << ")";
+                return;
+            }
+
+            // Verify proposal proof if present.
+            if (stx->isFieldPresent(sfBlob))
+            {
+                auto const proofBlob = stx->getFieldVL(sfBlob);
+                if (!verifyProof(proofBlob, pubKey, digest, isCommitSet))
+                {
+                    JLOG(j_.warn()) << "RNG: invalid proof from " << nodeId
+                                    << " in acquired set (" << sourceTag << ")";
+                    return;
+                }
+            }
+
+            auto const seq = stx->getFieldU32(sfLedgerSequence);
+            auto const closed = ledgerMaster_.getClosedLedger();
+            if (!closed || seq != (closed->info().seq + 1))
+            {
+                JLOG(j_.debug())
+                    << "RNG: rejecting out-of-round entry from " << nodeId
+                    << " in acquired set (" << sourceTag << "), seq=" << seq
+                    << " expected=" << (closed ? (closed->info().seq + 1) : 0);
+                return;
+            }
+
+            if (isCommitSet)
+            {
+                auto const existingCommit = pendingCommits_.find(nodeId);
+                if (existingCommit != pendingCommits_.end() &&
+                    existingCommit->second != digest)
+                {
+                    // A changed commitment invalidates any previously accepted
+                    // reveal for this node in the same round.
+                    pendingReveals_.erase(nodeId);
+                    proposalProofs_.erase(nodeId);
+                }
+            }
+            else
+            {
+                auto const commitIt = pendingCommits_.find(nodeId);
+                if (commitIt == pendingCommits_.end())
+                {
+                    JLOG(j_.debug()) << "RNG: rejecting reveal from " << nodeId
+                                     << " in acquired set (" << sourceTag
+                                     << ") without commitment";
+                    return;
+                }
+                auto const expectedCommit = sha512Half(digest, pubKey, seq);
+                if (expectedCommit != commitIt->second)
+                {
+                    JLOG(j_.warn()) << "RNG: rejecting reveal from " << nodeId
+                                    << " in acquired set (" << sourceTag
+                                    << ") that does not match commitment";
+                    return;
+                }
+            }
+
+            pendingData[nodeId] = digest;
+            nodeIdToKey_.insert_or_assign(nodeId, pubKey);
+            ++merged;
+
+            JLOG(j_.trace())
+                << "RNG: merged " << (isCommitSet ? "commit" : "reveal")
+                << " from " << nodeId;
+        }
+        catch (std::exception const& ex)
+        {
+            JLOG(j_.warn()) << "RNG: failed to parse entry from acquired set ("
+                            << sourceTag << "): " << ex.what();
+        }
+    };
+
     if (localMap)
     {
         SHAMap::Delta delta;
@@ -1609,111 +1755,18 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
 
         for (auto const& [key, pair] : delta)
         {
-            // pair.first = our entry, pair.second = their entry
-            // If we don't have it (pair.first is null), merge it
+            // pair.first = our entry, pair.second = their entry.
+            // If we don't have it (pair.first is null), merge it.
             if (!pair.first && pair.second)
-            {
-                try
-                {
-                    SerialIter sit(pair.second->slice());
-                    auto stx = std::make_shared<STTx const>(std::ref(sit));
-
-                    auto pk = stx->getFieldVL(sfSigningPubKey);
-                    PublicKey pubKey(makeSlice(pk));
-                    auto digest = stx->getFieldH256(sfDigest);
-
-                    // Recover NodeID from sfAccount (encoded by
-                    // buildCommitSet/buildEntropySet) to avoid
-                    // master-vs-signing key mismatch.
-                    auto const acctId = stx->getAccountID(sfAccount);
-                    NodeID nodeId;
-                    std::memcpy(nodeId.data(), acctId.data(), nodeId.size());
-
-                    if (!isUNLReportMember(nodeId))
-                    {
-                        JLOG(j_.debug()) << "RNG: rejecting non-UNL entry from "
-                                         << nodeId << " in acquired set";
-                        continue;
-                    }
-
-                    // Verify proposal proof if present
-                    if (stx->isFieldPresent(sfBlob))
-                    {
-                        auto proofBlob = stx->getFieldVL(sfBlob);
-                        if (!verifyProof(
-                                proofBlob, pubKey, digest, isCommitSet))
-                        {
-                            JLOG(j_.warn())
-                                << "RNG: invalid proof from " << nodeId
-                                << " in acquired set (diff)";
-                            continue;
-                        }
-                    }
-
-                    pendingData[nodeId] = digest;
-                    nodeIdToKey_.insert_or_assign(nodeId, pubKey);
-                    ++merged;
-
-                    JLOG(j_.trace())
-                        << "RNG: merged " << (isCommitSet ? "commit" : "reveal")
-                        << " from " << nodeId;
-                }
-                catch (std::exception const& ex)
-                {
-                    JLOG(j_.warn())
-                        << "RNG: failed to parse entry from acquired set: "
-                        << ex.what();
-                }
-            }
+                mergeEntry(pair.second->slice(), "diff");
         }
     }
     else
     {
-        // We don't have a local set yet — extract all entries
+        // We don't have a local set yet — extract all entries.
         map->visitLeaves(
             [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                try
-                {
-                    SerialIter sit(item->slice());
-                    auto stx = std::make_shared<STTx const>(std::ref(sit));
-
-                    auto pk = stx->getFieldVL(sfSigningPubKey);
-                    PublicKey pubKey(makeSlice(pk));
-                    auto digest = stx->getFieldH256(sfDigest);
-
-                    auto const acctId = stx->getAccountID(sfAccount);
-                    NodeID nodeId;
-                    std::memcpy(nodeId.data(), acctId.data(), nodeId.size());
-
-                    if (!isUNLReportMember(nodeId))
-                    {
-                        JLOG(j_.debug()) << "RNG: rejecting non-UNL entry from "
-                                         << nodeId << " in acquired set";
-                        return;
-                    }
-
-                    // Verify proposal proof if present
-                    if (stx->isFieldPresent(sfBlob))
-                    {
-                        auto proofBlob = stx->getFieldVL(sfBlob);
-                        if (!verifyProof(
-                                proofBlob, pubKey, digest, isCommitSet))
-                        {
-                            JLOG(j_.warn())
-                                << "RNG: invalid proof from " << nodeId
-                                << " in acquired set (visit)";
-                            return;
-                        }
-                    }
-
-                    pendingData[nodeId] = digest;
-                    nodeIdToKey_.insert_or_assign(nodeId, pubKey);
-                    ++merged;
-                }
-                catch (std::exception const&)
-                {
-                    // Skip malformed entries
-                }
+                mergeEntry(item->slice(), "visit");
             });
     }
 
@@ -1886,6 +1939,11 @@ RCLConsensus::Adaptor::harvestRngData(
                 << "Validator " << nodeId << " changed commitment from "
                 << it->second << " to " << *position.myCommitment;
             it->second = *position.myCommitment;
+
+            // commitProofs_ stores seq=0 proofs. If a validator changes its
+            // commitment later in the round, that old proof no longer matches
+            // the new digest and must not be embedded into a fetched commitSet.
+            commitProofs_.erase(nodeId);
 
             // Any reveal accepted against the prior commitment is now stale.
             // Drop it so reveal quorum cannot be satisfied by mismatched data.
