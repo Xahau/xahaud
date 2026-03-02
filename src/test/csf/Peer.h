@@ -20,6 +20,7 @@
 #define RIPPLE_TEST_CSF_PEER_H_INCLUDED
 
 #include <test/csf/CollectorRef.h>
+#include <test/csf/Proposal.h>
 #include <test/csf/Scheduler.h>
 #include <test/csf/TrustGraph.h>
 #include <test/csf/Tx.h>
@@ -28,11 +29,14 @@
 #include <test/csf/ledgers.h>
 #include <xrpld/consensus/Consensus.h>
 #include <xrpld/consensus/Validations.h>
+#include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/utility/WrappedSink.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <boost/container/flat_map.hpp>
 #include <boost/container/flat_set.hpp>
 #include <algorithm>
+#include <string>
+#include <vector>
 
 namespace ripple {
 namespace test {
@@ -61,6 +65,8 @@ struct Peer
     class Position
     {
     public:
+        using Proposal = csf::Proposal;
+
         Position(Proposal const& p) : proposal_(p)
         {
         }
@@ -75,6 +81,18 @@ struct Peer
         getJson() const
         {
             return proposal_.getJson();
+        }
+
+        PeerKey
+        publicKey() const
+        {
+            return {proposal_.nodeID(), 0};
+        }
+
+        std::uint64_t
+        signature() const
+        {
+            return 0;
         }
 
         std::string
@@ -169,8 +187,7 @@ struct Peer
     using NodeKey_t = PeerKey;
     using TxSet_t = TxSet;
     using PeerPosition_t = Position;
-    using Position_t =
-        typename TxSet_t::ID;  // Use TxSet::ID for test framework
+    using Position_t = ProposalPosition;
     using Result = ConsensusResult<Peer>;
     using NodeKey = Validation::NodeKey;
 
@@ -243,6 +260,8 @@ struct Peer
 
     //! Whether to simulate running as validator or a tracking node
     bool runAsValidator = true;
+    //! Enable CSF RNG sub-state behavior for this peer.
+    bool enableRngConsensus_ = false;
 
     // TODO: Consider removing these two, they are only a convenience for tests
     // Number of proposers in the prior round
@@ -258,6 +277,20 @@ struct Peer
 
     // Simulation parameters
     ConsensusParms consensusParms;
+
+    // RNG simulation state (for CSF RNG consensus hooks)
+    hash_set<NodeID_t> unlNodes_;
+    hash_set<NodeID_t> expectedProposers_;
+    hash_map<NodeID_t, uint256> pendingCommits_;
+    hash_map<NodeID_t, uint256> pendingReveals_;
+    hash_map<NodeID_t, NodeKey_t> nodeKeys_;
+    uint256 myEntropySecret_;
+    bool entropyFailed_ = false;
+
+    // Last round summary (available for assertions in tests)
+    uint256 lastEntropyDigest_;
+    std::uint16_t lastEntropyCount_ = 0;
+    bool lastEntropyWasFallback_ = true;
 
     //! The collectors to report events to
     CollectorRefs& collectors;
@@ -512,15 +545,29 @@ struct Peer
     {
         issue(CloseLedger{prevLedger, openTxs});
 
+        Position_t pos{TxSet::calcID(openTxs)};
+        auto const seq = static_cast<std::uint32_t>(prevLedger.seq()) + 1;
+
+        // Bootstrap commit/reveal by including a commitment in our initial
+        // proposal when we are actively proposing this round.
+        if (enableRngConsensus_ && mode == ConsensusMode::proposing &&
+            runAsValidator)
+        {
+            generateEntropySecret();
+            auto const commitment = sha512Half(
+                myEntropySecret_,
+                static_cast<std::uint32_t>(id),
+                key.second,
+                seq);
+            pos.myCommitment = commitment;
+            pendingCommits_[id] = commitment;
+            nodeKeys_.insert_or_assign(id, key);
+        }
+
         return Result(
             TxSet{openTxs},
             Proposal(
-                prevLedger.id(),
-                Proposal::seqJoin,
-                TxSet::calcID(openTxs),
-                closeTime,
-                now(),
-                id));
+                prevLedger.id(), Proposal::seqJoin, pos, closeTime, now(), id));
     }
 
     void
@@ -555,6 +602,9 @@ struct Peer
         schedule(delays.ledgerAccept, [=, this]() {
             const bool proposing = mode == ConsensusMode::proposing;
             const bool consensusFail = result.state == ConsensusState::MovedOn;
+            auto const seq = static_cast<std::uint32_t>(prevLedger.seq()) + 1;
+
+            finalizeRoundEntropy(seq);
 
             TxSet const acceptedTxs = injectTxs(prevLedger, result.txns);
             Ledger const newLedger = oracle.accept(
@@ -655,6 +705,290 @@ struct Peer
     parms() const
     {
         return consensusParms;
+    }
+
+    //--------------------------------------------------------------------------
+    // RNG helpers for generic Consensus RNG sub-state support
+
+    void
+    clearRngState()
+    {
+        pendingCommits_.clear();
+        pendingReveals_.clear();
+        nodeKeys_.clear();
+        expectedProposers_.clear();
+        myEntropySecret_.zero();
+        entropyFailed_ = false;
+    }
+
+    void
+    cacheUNLReport()
+    {
+        unlNodes_.clear();
+        for (auto const* p : trustGraph.trustedPeers(this))
+            unlNodes_.insert(p->id);
+        unlNodes_.insert(id);
+    }
+
+    void
+    setExpectedProposers(hash_set<NodeID_t> proposers)
+    {
+        if (!proposers.empty())
+        {
+            hash_set<NodeID_t> filtered;
+            for (auto const& nid : proposers)
+                if (isUNLReportMember(nid))
+                    filtered.insert(nid);
+            filtered.insert(id);
+            expectedProposers_ = std::move(filtered);
+            return;
+        }
+
+        expectedProposers_.clear();
+        if (!unlNodes_.empty())
+            expectedProposers_ = unlNodes_;
+    }
+
+    std::size_t
+    quorumThreshold() const
+    {
+        if (!enableRngConsensus_)
+            return (std::numeric_limits<std::size_t>::max)() / 4;
+
+        auto const base = expectedProposers_.empty()
+            ? unlNodes_.size()
+            : expectedProposers_.size();
+        return calculateQuorumThreshold(base == 0 ? 1 : base);
+    }
+
+    std::size_t
+    pendingCommitCount() const
+    {
+        return pendingCommits_.size();
+    }
+
+    bool
+    hasQuorumOfCommits() const
+    {
+        if (!enableRngConsensus_)
+            return false;
+
+        if (!expectedProposers_.empty())
+        {
+            for (auto const& nid : expectedProposers_)
+            {
+                if (pendingCommits_.find(nid) == pendingCommits_.end())
+                    return false;
+            }
+            return true;
+        }
+
+        return pendingCommits_.size() >= quorumThreshold();
+    }
+
+    bool
+    hasMinimumReveals() const
+    {
+        if (!enableRngConsensus_)
+            return false;
+        return pendingReveals_.size() >= pendingCommits_.size();
+    }
+
+    bool
+    hasAnyReveals() const
+    {
+        if (!enableRngConsensus_)
+            return false;
+        return !pendingReveals_.empty();
+    }
+
+    uint256
+    buildCommitSet(Ledger::Seq seq)
+    {
+        return hashRngSet(pendingCommits_, seq, "commit");
+    }
+
+    uint256
+    buildEntropySet(Ledger::Seq seq)
+    {
+        return hashRngSet(pendingReveals_, seq, "reveal");
+    }
+
+    void
+    generateEntropySecret()
+    {
+        if (!enableRngConsensus_)
+            return;
+
+        auto const seq = static_cast<std::uint32_t>(lastClosedLedger.seq()) + 1;
+        myEntropySecret_ = sha512Half(
+            std::string("csf-rng-secret"),
+            static_cast<std::uint32_t>(id),
+            key.second,
+            seq,
+            completedLedgers);
+    }
+
+    uint256 const&
+    getEntropySecret() const
+    {
+        return myEntropySecret_;
+    }
+
+    void
+    setEntropyFailed()
+    {
+        if (!enableRngConsensus_)
+            return;
+        entropyFailed_ = true;
+    }
+
+    void
+    fetchRngSetIfNeeded(std::optional<uint256> const&)
+    {
+        // CSF does not model separate SHAMap acquisition for RNG sidecar data.
+    }
+
+    void
+    harvestRngData(
+        NodeID_t const& nodeId,
+        NodeKey_t const& publicKey,
+        Position_t const& position,
+        std::uint32_t,
+        NetClock::time_point,
+        Ledger::ID const& prevLedger,
+        std::uint64_t)
+    {
+        if (!enableRngConsensus_)
+            return;
+
+        if (!isUNLReportMember(nodeId))
+            return;
+
+        nodeKeys_.insert_or_assign(nodeId, publicKey);
+
+        if (position.myCommitment)
+            pendingCommits_[nodeId] = *position.myCommitment;
+
+        if (!position.myReveal)
+            return;
+
+        auto const commitIt = pendingCommits_.find(nodeId);
+        if (commitIt == pendingCommits_.end())
+            return;
+
+        auto const prevIt = ledgers.find(prevLedger);
+        if (prevIt == ledgers.end())
+            return;
+
+        auto const seq = static_cast<std::uint32_t>(prevIt->second.seq()) + 1;
+        auto const expected = sha512Half(
+            *position.myReveal,
+            static_cast<std::uint32_t>(publicKey.first),
+            publicKey.second,
+            seq);
+        if (expected != commitIt->second)
+            return;
+
+        pendingReveals_[nodeId] = *position.myReveal;
+    }
+
+    bool
+    isUNLReportMember(NodeID_t const& nodeId) const
+    {
+        return unlNodes_.count(nodeId) > 0;
+    }
+
+    uint256
+    hashRngSet(
+        hash_map<NodeID_t, uint256> const& entries,
+        Ledger::Seq seq,
+        std::string const& domain) const
+    {
+        std::vector<std::pair<std::uint32_t, uint256>> ordered;
+        ordered.reserve(entries.size());
+        for (auto const& [nodeId, digest] : entries)
+        {
+            if (!isUNLReportMember(nodeId))
+                continue;
+            ordered.emplace_back(static_cast<std::uint32_t>(nodeId), digest);
+        }
+
+        if (ordered.empty())
+            return uint256{};
+
+        std::sort(
+            ordered.begin(), ordered.end(), [](auto const& a, auto const& b) {
+                return a.first < b.first;
+            });
+
+        uint256 out = sha512Half(
+            std::string("csf-rng-set"),
+            domain,
+            static_cast<std::uint32_t>(seq));
+        for (auto const& [nodeId, digest] : ordered)
+            out = sha512Half(out, nodeId, digest);
+        return out;
+    }
+
+    void
+    finalizeRoundEntropy(std::uint32_t seq)
+    {
+        if (!enableRngConsensus_)
+        {
+            lastEntropyDigest_.zero();
+            lastEntropyCount_ = 0;
+            lastEntropyWasFallback_ = true;
+            return;
+        }
+
+        if (entropyFailed_ || pendingReveals_.empty())
+        {
+            lastEntropyDigest_.zero();
+            lastEntropyCount_ = 0;
+            lastEntropyWasFallback_ = true;
+            return;
+        }
+
+        std::vector<std::pair<NodeKey_t, uint256>> ordered;
+        ordered.reserve(pendingReveals_.size());
+        for (auto const& [nodeId, reveal] : pendingReveals_)
+        {
+            auto const it = nodeKeys_.find(nodeId);
+            if (it == nodeKeys_.end())
+                continue;
+            ordered.emplace_back(it->second, reveal);
+        }
+
+        if (ordered.empty())
+        {
+            lastEntropyDigest_.zero();
+            lastEntropyCount_ = 0;
+            lastEntropyWasFallback_ = true;
+            return;
+        }
+
+        std::sort(
+            ordered.begin(), ordered.end(), [](auto const& a, auto const& b) {
+                if (a.first.first != b.first.first)
+                    return a.first.first < b.first.first;
+                return a.first.second < b.first.second;
+            });
+
+        uint256 digest = sha512Half(
+            std::string("csf-rng-entropy"), static_cast<std::uint32_t>(seq));
+        for (auto const& [keyId, reveal] : ordered)
+        {
+            digest = sha512Half(
+                digest,
+                static_cast<std::uint32_t>(keyId.first),
+                keyId.second,
+                reveal);
+        }
+
+        lastEntropyDigest_ = digest;
+        lastEntropyCount_ = static_cast<std::uint16_t>(ordered.size());
+        lastEntropyWasFallback_ = false;
     }
 
     // Not interested in tracking consensus mode changes for now

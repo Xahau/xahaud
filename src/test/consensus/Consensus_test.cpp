@@ -22,6 +22,7 @@
 #include <xrpld/consensus/ConsensusProposal.h>
 #include <xrpl/beast/clock/manual_clock.h>
 #include <xrpl/beast/unit_test.h>
+#include <optional>
 #include <utility>
 
 namespace ripple {
@@ -1062,6 +1063,126 @@ public:
     }
 
     void
+    testRngCommitRevealConverges()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG commit/reveal converges");
+
+        ConsensusParms const parms{};
+        Sim sim;
+        PeerGroup peers = sim.createGroup(5);
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        for (Peer* peer : peers)
+            peer->enableRngConsensus_ = true;
+
+        sim.run(3);
+
+        if (BEAST_EXPECT(sim.synchronized()))
+        {
+            for (Peer const* peer : peers)
+            {
+                BEAST_EXPECT(!peer->lastEntropyWasFallback_);
+                BEAST_EXPECT(peer->lastEntropyCount_ > 0);
+                BEAST_EXPECT(peer->lastEntropyDigest_ != uint256{});
+            }
+        }
+    }
+
+    void
+    testRngImpossibleQuorumFallback()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG impossible quorum fallback");
+
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup majority = sim.createGroup(2);
+        PeerGroup isolated = sim.createGroup(1);
+        PeerGroup network = majority + isolated;
+
+        for (Peer* peer : network)
+            peer->enableRngConsensus_ = true;
+
+        // First run fully connected so expected proposers include all three.
+        network.trust(network);
+        network.connect(
+            network, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+        sim.run(1);
+
+        // Then isolate one node so 80% quorum becomes impossible for majority.
+        majority.disconnect(isolated);
+        isolated.disconnect(majority);
+        majority.connect(
+            majority, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        sim.run(1);
+
+        if (BEAST_EXPECT(sim.synchronized(majority)))
+        {
+            for (Peer const* peer : majority)
+            {
+                BEAST_EXPECT(peer->lastEntropyWasFallback_);
+                BEAST_EXPECT(peer->lastEntropyDigest_ == uint256{});
+                BEAST_EXPECT(peer->lastEntropyCount_ == 0);
+            }
+        }
+    }
+
+    void
+    testRngTimeoutWithPartialQuorum()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG timeout with partial quorum keeps entropy");
+
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup majority = sim.createGroup(4);
+        PeerGroup isolated = sim.createGroup(1);
+        PeerGroup network = majority + isolated;
+
+        for (Peer* peer : network)
+            peer->enableRngConsensus_ = true;
+
+        network.trust(network);
+        network.connect(
+            network, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        // Seed expected proposers from a fully connected round.
+        sim.run(1);
+
+        // Isolate one expected proposer. Majority should still progress after
+        // timeout using available commit quorum instead of zero-entropy
+        // fallback.
+        majority.disconnect(isolated);
+        isolated.disconnect(majority);
+        majority.connect(
+            majority, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        sim.run(1);
+
+        if (BEAST_EXPECT(sim.synchronized(majority)))
+        {
+            for (Peer const* peer : majority)
+            {
+                BEAST_EXPECT(!peer->lastEntropyWasFallback_);
+                BEAST_EXPECT(peer->lastEntropyDigest_ != uint256{});
+                BEAST_EXPECT(peer->lastEntropyCount_ > 0);
+            }
+        }
+    }
+
+    void
     run() override
     {
         testShouldCloseLedger();
@@ -1077,6 +1198,9 @@ public:
         testHubNetwork();
         testPreferredByBranch();
         testPauseForLaggards();
+        testRngCommitRevealConverges();
+        testRngImpossibleQuorumFallback();
+        testRngTimeoutWithPartialQuorum();
     }
 };
 
