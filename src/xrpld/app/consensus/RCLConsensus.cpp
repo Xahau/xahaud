@@ -1247,6 +1247,9 @@ RCLConsensus::Adaptor::quorumThreshold() const
 void
 RCLConsensus::Adaptor::setExpectedProposers(hash_set<NodeID> proposers)
 {
+    bool const includeSelf = mode() == ConsensusMode::proposing &&
+        validatorKeys_.keys && validatorKeys_.nodeID != beast::zero;
+
     if (!proposers.empty())
     {
         // Intersect with active UNL — only expect commits from
@@ -1254,14 +1257,18 @@ RCLConsensus::Adaptor::setExpectedProposers(hash_set<NodeID> proposers)
         hash_set<NodeID> filtered;
         for (auto const& id : proposers)
         {
+            if (!includeSelf && id == validatorKeys_.nodeID)
+                continue;
             if (unlReportNodeIds_.count(id))
                 filtered.insert(id);
         }
-        filtered.insert(validatorKeys_.nodeID);
+        if (includeSelf)
+            filtered.insert(validatorKeys_.nodeID);
         expectedProposers_ = std::move(filtered);
         JLOG(j_.debug()) << "RNG: expectedProposers from recent proposers: "
                          << expectedProposers_.size() << " (filtered from "
-                         << proposers.size() << ")";
+                         << proposers.size() << ", includeSelf=" << includeSelf
+                         << ")";
         return;
     }
 
@@ -1503,6 +1510,8 @@ void
 RCLConsensus::Adaptor::cacheUNLReport()
 {
     unlReportNodeIds_.clear();
+    bool const includeSelf = mode() == ConsensusMode::proposing &&
+        validatorKeys_.keys && validatorKeys_.nodeID != beast::zero;
 
     // Try UNL Report from the validated ledger
     if (auto const prevLedger = ledgerMaster_.getValidatedLedger())
@@ -1533,8 +1542,12 @@ RCLConsensus::Adaptor::cacheUNLReport()
         }
     }
 
-    // Always include ourselves
-    unlReportNodeIds_.insert(validatorKeys_.nodeID);
+    // Only include ourselves when actively proposing. Observers/non-validators
+    // do not emit commitments and must not be expected in commit quorum.
+    if (includeSelf)
+        unlReportNodeIds_.insert(validatorKeys_.nodeID);
+    else
+        unlReportNodeIds_.erase(validatorKeys_.nodeID);
 
     JLOG(j_.debug()) << "RNG: cacheUNLReport size=" << unlReportNodeIds_.size();
 }
@@ -1678,16 +1691,19 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
                 return;
             }
 
-            // Verify proposal proof if present.
-            if (stx->isFieldPresent(sfBlob))
+            if (!stx->isFieldPresent(sfBlob))
             {
-                auto const proofBlob = stx->getFieldVL(sfBlob);
-                if (!verifyProof(proofBlob, pubKey, digest, isCommitSet))
-                {
-                    JLOG(j_.warn()) << "RNG: invalid proof from " << nodeId
-                                    << " in acquired set (" << sourceTag << ")";
-                    return;
-                }
+                JLOG(j_.warn())
+                    << "RNG: rejecting proofless entry from " << nodeId
+                    << " in acquired set (" << sourceTag << ")";
+                return;
+            }
+            auto const proofBlob = stx->getFieldVL(sfBlob);
+            if (!verifyProof(proofBlob, pubKey, digest, isCommitSet))
+            {
+                JLOG(j_.warn()) << "RNG: invalid proof from " << nodeId
+                                << " in acquired set (" << sourceTag << ")";
+                return;
             }
 
             auto const seq = stx->getFieldU32(sfLedgerSequence);

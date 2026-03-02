@@ -1185,6 +1185,43 @@ public:
     }
 
     void
+    testRngObserverDoesNotExpectSelfCommit()
+    {
+        using namespace csf;
+
+        testcase("RNG observer does not expect self commit");
+
+        Sim sim;
+        PeerGroup peers = sim.createGroup(2);
+        Peer* validator = peers[0];
+        Peer* observer = peers[1];
+        PeerGroup validatorGroup{validator};
+        PeerGroup observerGroup{observer};
+
+        for (Peer* peer : peers)
+            peer->enableRngConsensus_ = true;
+        observer->runAsValidator = false;
+
+        validatorGroup.trust(validatorGroup);
+        observerGroup.trust(validatorGroup);
+
+        observer->cacheUNLReport();
+        BEAST_EXPECT(observer->unlNodes_.count(observer->id) == 0);
+        BEAST_EXPECT(observer->unlNodes_.count(validator->id) == 1);
+
+        hash_set<PeerID> proposers;
+        proposers.insert(observer->id);
+        proposers.insert(validator->id);
+        observer->setExpectedProposers(std::move(proposers));
+
+        BEAST_EXPECT(observer->expectedProposers_.count(observer->id) == 0);
+        BEAST_EXPECT(observer->expectedProposers_.count(validator->id) == 1);
+
+        observer->pendingCommits_[validator->id] = sha512Half(42u);
+        BEAST_EXPECT(observer->hasQuorumOfCommits());
+    }
+
+    void
     testRngIgnoresNonUNLData()
     {
         using namespace csf;
@@ -1420,6 +1457,7 @@ public:
         testRngCommitRevealConverges();
         testRngImpossibleQuorumFallback();
         testRngTimeoutWithPartialQuorum();
+        testRngObserverDoesNotExpectSelfCommit();
         testRngIgnoresNonUNLData();
         testRngRejectsRevealWithoutCommit();
         testRngRejectsInvalidReveal();

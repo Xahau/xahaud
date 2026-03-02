@@ -731,20 +731,32 @@ struct Peer
     {
         unlNodes_.clear();
         for (auto const* p : trustGraph.trustedPeers(this))
+        {
+            if (!runAsValidator && p->id == id)
+                continue;
             unlNodes_.insert(p->id);
-        unlNodes_.insert(id);
+        }
+        if (runAsValidator)
+            unlNodes_.insert(id);
     }
 
     void
     setExpectedProposers(hash_set<NodeID_t> proposers)
     {
+        bool const includeSelf = runAsValidator;
+
         if (!proposers.empty())
         {
             hash_set<NodeID_t> filtered;
             for (auto const& nid : proposers)
+            {
+                if (!includeSelf && nid == id)
+                    continue;
                 if (isUNLReportMember(nid))
                     filtered.insert(nid);
-            filtered.insert(id);
+            }
+            if (includeSelf)
+                filtered.insert(id);
             expectedProposers_ = std::move(filtered);
             return;
         }
