@@ -209,6 +209,41 @@ class ExportSignatureCollector_test : public beast::unit_test::suite
         BEAST_EXPECT(!collector.isSignatureVerified(txnHash, validator.first));
     }
 
+    void
+    testInvalidEarlyDataDoesNotAgeOutValidLater()
+    {
+        testcase("invalid early data does not age out valid later");
+
+        beast::Journal journal{beast::Journal::getNullSink()};
+        ExportSignatureCollector collector{journal};
+
+        auto const validator = randomKeyPair(KeyType::secp256k1);
+        auto const validatorAcc = calcAccountID(validator.first);
+        std::string const tag = "first-seen-ageing-bug";
+        auto const txnHash = sha512Half(makeSlice(tag));
+
+        STObject malformed(sfSigner);
+        malformed.setFieldVL(sfSigningPubKey, validator.first.slice());
+        malformed.setFieldVL(sfTxnSignature, Blob{0x01});
+        BEAST_EXPECT(!collector.verifyAndAddSignature(
+            txnHash, validator.first, malformed, 1));
+        BEAST_EXPECT(collector.signatureCount(txnHash) == 0);
+
+        STObject laterValid(sfSigner);
+        laterValid.setAccountID(sfAccount, validatorAcc);
+        laterValid.setFieldVL(sfSigningPubKey, validator.first.slice());
+        laterValid.setFieldVL(sfTxnSignature, Blob{0x02});
+        BEAST_EXPECT(collector.verifyAndAddSignature(
+            txnHash, validator.first, laterValid, 200));
+        BEAST_EXPECT(collector.signatureCount(txnHash) == 1);
+
+        // If firstSeen came from the rejected signature (seq=1), this cleanup
+        // wrongly evicts the valid signature added at seq=200.
+        collector.cleanupStale(260, 256);
+        BEAST_EXPECT(collector.signatureCount(txnHash) == 1);
+        BEAST_EXPECT(collector.hasSignatureFrom(txnHash, validator.first));
+    }
+
 public:
     void
     run() override
@@ -217,6 +252,7 @@ public:
         testVerifiedIsNotReplaced();
         testRejectsSignerIdentityMismatch();
         testStashPrunesInvalidUnverified();
+        testInvalidEarlyDataDoesNotAgeOutValidLater();
     }
 };
 

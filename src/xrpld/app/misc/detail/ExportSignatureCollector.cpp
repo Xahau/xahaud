@@ -414,13 +414,14 @@ ExportSignatureCollector::verifyAndAddSignature(
 {
     std::lock_guard lock(mutex_);
 
-    // Track first-seen time for cleanup
-    if (firstSeenLedger_.find(txnHash) == firstSeenLedger_.end())
-    {
-        firstSeenLedger_[txnHash] = currentSeq;
-        JLOG(j_.debug()) << "Export: first signature for " << txnHash
-                         << " at ledger " << currentSeq;
-    }
+    auto ensureFirstSeen = [&]() {
+        if (firstSeenLedger_.find(txnHash) == firstSeenLedger_.end())
+        {
+            firstSeenLedger_[txnHash] = currentSeq;
+            JLOG(j_.debug()) << "Export: first signature for " << txnHash
+                             << " at ledger " << currentSeq;
+        }
+    };
 
     // The signer payload must bind to the validator who carried it in
     // TMValidation. Otherwise a peer can misattribute signatures.
@@ -532,6 +533,7 @@ ExportSignatureCollector::verifyAndAddSignature(
                 << " (no txn data yet)";
         }
 
+        ensureFirstSeen();
         existing->second = std::move(signer);
         if (verified && *verified)
             verified_[txnHash].insert(validator);
@@ -554,6 +556,7 @@ ExportSignatureCollector::verifyAndAddSignature(
                          << txnHash << " (no txn data yet)";
     }
 
+    ensureFirstSeen();
     signerMap.emplace(validator, std::move(signer));
 
     if (verified && *verified)
