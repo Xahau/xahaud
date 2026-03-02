@@ -3096,18 +3096,10 @@ DEFINE_HOOK_FUNCTION(int64_t, xport_reserve, uint32_t count)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (hookCtx.expected_export_count > -1)
-        return ALREADY_SET;
-
-    if (count < 1)
-        return TOO_SMALL;
-
-    if (count > hook_api::max_export)
-        return TOO_BIG;
-
-    hookCtx.expected_export_count = count;
-
-    return count;
+    auto const result = api.xport_reserve(count);
+    if (!result)
+        return result.error();
+    return result.value();
 
     HOOK_TEARDOWN();
 }
@@ -4196,47 +4188,16 @@ DEFINE_HOOK_FUNCTION(
     if (write_len < 32)
         return TOO_SMALL;
 
-    auto& app = hookCtx.applyCtx.app;
+    // Delegate to decoupled HookAPI for xport logic
+    ripple::Slice txBlob{
+        reinterpret_cast<const void*>(memory + read_ptr), read_len};
 
-    if (hookCtx.expected_export_count < 0)
-        return PREREQUISITE_NOT_MET;
+    auto const res = api.xport(txBlob);
 
-    if (hookCtx.result.exportedTxn.size() >= hookCtx.expected_export_count)
-        return TOO_MANY_EXPORTED_TXN;
+    if (!res)
+        return res.error();
 
-    ripple::Blob blob{memory + read_ptr, memory + read_ptr + read_len};
-
-    std::shared_ptr<STTx const> stpTrans;
-    try
-    {
-        stpTrans = std::make_shared<STTx const>(
-            SerialIter{memory + read_ptr, read_len});
-    }
-    catch (std::exception& e)
-    {
-        JLOG(j.trace()) << "HookExport[" << HC_ACC() << "]: Failed " << e.what()
-                        << "\n";
-        return EXPORT_FAILURE;
-    }
-
-    if (!stpTrans->isFieldPresent(sfAccount) ||
-        stpTrans->getAccountID(sfAccount) != hookCtx.result.account)
-    {
-        JLOG(j.trace()) << "HookExport[" << HC_ACC()
-                        << "]: Attempted to export a txn that's not for this "
-                           "Hook's Account ID.";
-        return EXPORT_FAILURE;
-    }
-
-    std::string reason;
-    auto tpTrans = std::make_shared<Transaction>(stpTrans, reason, app);
-    // RHTODO: is this needed or wise? VVV
-    if (tpTrans->getStatus() != NEW)
-    {
-        JLOG(j.trace()) << "HookExport[" << HC_ACC()
-                        << "]: tpTrans->getStatus() != NEW";
-        return EXPORT_FAILURE;
-    }
+    auto const& tpTrans = *res;
     auto const& txID = tpTrans->getID();
 
     if (txID.size() > write_len)

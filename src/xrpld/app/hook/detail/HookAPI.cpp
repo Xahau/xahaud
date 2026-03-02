@@ -1223,6 +1223,70 @@ HookAPI::etxn_reserve(uint64_t count) const
     return count;
 }
 
+Expected<uint64_t, HookReturnCode>
+HookAPI::xport_reserve(uint64_t count) const
+{
+    if (hookCtx.expected_export_count > -1)
+        return Unexpected(ALREADY_SET);
+
+    if (count < 1)
+        return Unexpected(TOO_SMALL);
+
+    if (count > hook_api::max_export)
+        return Unexpected(TOO_BIG);
+
+    hookCtx.expected_export_count = count;
+
+    return count;
+}
+
+Expected<std::shared_ptr<Transaction>, HookReturnCode>
+HookAPI::xport(Slice const& txBlob) const
+{
+    auto& app = hookCtx.applyCtx.app;
+    auto j = app.journal("View");
+
+    if (hookCtx.expected_export_count < 0)
+        return Unexpected(PREREQUISITE_NOT_MET);
+
+    if (hookCtx.result.exportedTxn.size() >= hookCtx.expected_export_count)
+        return Unexpected(TOO_MANY_EXPORTED_TXN);
+
+    std::shared_ptr<STTx const> stpTrans;
+    try
+    {
+        SerialIter sit(txBlob);
+        stpTrans = std::make_shared<STTx const>(sit);
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j.trace()) << "HookExport[" << HC_ACC() << "]: Failed "
+                        << e.what();
+        return Unexpected(EXPORT_FAILURE);
+    }
+
+    if (!stpTrans->isFieldPresent(sfAccount) ||
+        stpTrans->getAccountID(sfAccount) != hookCtx.result.account)
+    {
+        JLOG(j.trace()) << "HookExport[" << HC_ACC()
+                        << "]: Attempted to export a txn that's not for this "
+                           "Hook's Account ID.";
+        return Unexpected(EXPORT_FAILURE);
+    }
+
+    std::string reason;
+    auto tpTrans = std::make_shared<Transaction>(stpTrans, reason, app);
+    // RHTODO: is this needed or wise? VVV
+    if (tpTrans->getStatus() != NEW)
+    {
+        JLOG(j.trace()) << "HookExport[" << HC_ACC()
+                        << "]: tpTrans->getStatus() != NEW";
+        return Unexpected(EXPORT_FAILURE);
+    }
+
+    return tpTrans;
+}
+
 uint32_t
 HookAPI::etxn_generation() const
 {
