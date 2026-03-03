@@ -23,12 +23,34 @@
 #include <xrpl/json/json_value.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <mutex>
+#include <string>
 
 namespace ripple {
 
 namespace {
+std::optional<bool>
+parseBoolEnv(char const* env)
+{
+    if (!env)
+        return std::nullopt;
+
+    std::string value{env};
+    std::transform(
+        value.begin(), value.end(), value.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+
+    if (value == "1" || value == "true" || value == "yes" || value == "on")
+        return true;
+    if (value == "0" || value == "false" || value == "no" || value == "off")
+        return false;
+
+    return std::nullopt;
+}
+
 ConfigVals
 parseConfigVals(Json::Value const& v)
 {
@@ -43,6 +65,8 @@ parseConfigVals(Json::Value const& v)
     if (v.isMember("rng_claim_drop_pct"))
         cfg.rngClaimDropPctX100 =
             static_cast<int>(v["rng_claim_drop_pct"].asDouble() * 100);
+    if (v.isMember("explicit_final_proposal"))
+        cfg.explicitFinalProposal = v["explicit_final_proposal"].asBool();
     return cfg;
 }
 }  // namespace
@@ -75,6 +99,11 @@ RuntimeConfig::RuntimeConfig()
         global.sendDropPctX100 = static_cast<int>(std::atof(env) * 100);
     if (auto const* env = std::getenv("XAHAU_RNG_CLAIM_DROP_PCT"))
         global.rngClaimDropPctX100 = static_cast<int>(std::atof(env) * 100);
+    // Explicit-final proposal is intentionally opt-in and defaults to
+    // implicit behavior when unset.
+    if (auto parsed =
+            parseBoolEnv(std::getenv("XAHAUD_EXPLICIT_FINAL_PROPOSAL")))
+        global.explicitFinalProposal = *parsed;
 
     if (global.active())
     {

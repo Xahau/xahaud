@@ -1096,6 +1096,42 @@ public:
     }
 
     void
+    testRngCommitRevealConvergesWithTransactions()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG commit/reveal converges with non-empty tx set");
+
+        ConsensusParms const parms{};
+        Sim sim;
+        PeerGroup peers = sim.createGroup(5);
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        for (Peer* peer : peers)
+        {
+            peer->enableRngConsensus_ = true;
+            peer->submit(Tx(static_cast<std::uint32_t>(peer->id)));
+        }
+
+        sim.run(1);
+
+        if (BEAST_EXPECT(sim.synchronized()))
+        {
+            for (Peer const* peer : peers)
+            {
+                auto const& lcl = peer->lastClosedLedger;
+                BEAST_EXPECT(!peer->lastEntropyWasFallback_);
+                BEAST_EXPECT(peer->lastEntropyCount_ > 0);
+                BEAST_EXPECT(peer->lastEntropyDigest_ != uint256{});
+                BEAST_EXPECT(lcl.txs().size() > 0);
+            }
+        }
+    }
+
+    void
     testRngImpossibleQuorumFallback()
     {
         using namespace csf;
@@ -1489,6 +1525,7 @@ public:
         testPreferredByBranch();
         testPauseForLaggards();
         testRngCommitRevealConverges();
+        testRngCommitRevealConvergesWithTransactions();
         testRngImpossibleQuorumFallback();
         testRngTimeoutWithPartialQuorum();
         testRngCommitSetConflictForcesFallback();

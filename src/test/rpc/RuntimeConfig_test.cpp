@@ -414,6 +414,54 @@ class RuntimeConfig_test : public beast::unit_test::suite
     }
 
     void
+    testExplicitFinalProposalToggle()
+    {
+        testcase("explicit_final_proposal round-trips and merges");
+        using namespace test::jtx;
+        Env env{*this};
+
+        // Global default for this node: skip explicit final proposal.
+        {
+            Json::Value params;
+            params["set"] = Json::objectValue;
+            params["set"]["*"] = Json::objectValue;
+            params["set"]["*"]["explicit_final_proposal"] = false;
+            auto result = runtimeConfig(env, params);
+
+            auto const& global = result["configs"]["*"];
+            BEAST_EXPECT(global["explicit_final_proposal"].asBool() == false);
+        }
+
+        auto& rc = env.app().getRuntimeConfig();
+        BEAST_EXPECT(rc.active());
+
+        // Global view is false.
+        auto globalCfg = rc.getConfig("*");
+        BEAST_EXPECT(globalCfg.has_value());
+        BEAST_EXPECT(globalCfg->explicitFinalProposal.has_value());
+        BEAST_EXPECT(*globalCfg->explicitFinalProposal == false);
+
+        // Per-peer override can re-enable.
+        {
+            Json::Value params;
+            params["set"] = Json::objectValue;
+            params["set"]["10.0.0.2:51235"] = Json::objectValue;
+            params["set"]["10.0.0.2:51235"]["explicit_final_proposal"] = true;
+            runtimeConfig(env, params);
+        }
+
+        auto peerCfg = rc.getConfig("10.0.0.2:51235");
+        BEAST_EXPECT(peerCfg.has_value());
+        BEAST_EXPECT(peerCfg->explicitFinalProposal.has_value());
+        BEAST_EXPECT(*peerCfg->explicitFinalProposal == true);
+
+        auto otherCfg = rc.getConfig("10.0.0.3:51235");
+        BEAST_EXPECT(otherCfg.has_value());
+        BEAST_EXPECT(otherCfg->explicitFinalProposal.has_value());
+        BEAST_EXPECT(*otherCfg->explicitFinalProposal == false);
+    }
+
+    void
     testPerPeerClearInheritedFilter()
     {
         testcase("Per-peer can override global filter to all");
@@ -472,6 +520,7 @@ public:
         testDropPctClamping();
         testRngClaimDropPct();
         testRngClaimDropPctClamping();
+        testExplicitFinalProposalToggle();
         testPerPeerClearInheritedFilter();
     }
 };

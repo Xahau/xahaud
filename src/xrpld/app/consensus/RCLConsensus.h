@@ -247,6 +247,14 @@ class RCLConsensus
         std::size_t
         pendingCommitCount() const;
 
+        /** Number of pending reveals (for diagnostics) */
+        std::size_t
+        pendingRevealCount() const;
+
+        /** Number of expected proposers this round (for diagnostics) */
+        std::size_t
+        expectedProposerCount() const;
+
         /** Check if we have quorum of commits */
         bool
         hasQuorumOfCommits() const;
@@ -258,6 +266,18 @@ class RCLConsensus
         /** Check if we have any reveals at all */
         bool
         hasAnyReveals() const;
+
+        /** Whether to send an explicit final proposal (seq=4 style). */
+        bool
+        shouldSendExplicitFinalProposal() const;
+
+        /** Build synthetic tx-set that includes consensus-entropy pseudo-tx.
+
+            Used only for optional explicit-final-proposal experiments. This
+           does not mutate RNG state.
+        */
+        std::optional<RCLTxSet>
+        buildExplicitFinalProposalTxSet(RCLTxSet const& txns, LedgerIndex seq);
 
         /** Build real SHAMap from collected commits, register for fetch.
             @param seq The ledger sequence being built

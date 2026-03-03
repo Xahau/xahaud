@@ -40,6 +40,13 @@ struct ConfigVals
     std::optional<int> sendDelayJitterMs;
     std::optional<int> sendDropPctX100;  // 0-10000 (pct * 100, avoids float)
     std::optional<int> rngClaimDropPctX100;  // 0-10000 (pct * 100)
+    // Controls explicit final proposal broadcast in the RNG reveal phase.
+    // true  = attempt explicit-final proposal (experimental)
+    // false = keep implicit mode (recommended default for production)
+    //
+    // NOTE: This knob is intentionally explicit opt-in. The consensus system
+    // is fully functional without it via accept-time pseudo-tx injection.
+    std::optional<bool> explicitFinalProposal;
     // If set (non-nullopt), only apply to these TrafficCount::category values.
     // nullopt = not specified (inherit from global on merge).
     // Empty set = explicitly "all categories" (overrides global filter).
@@ -59,7 +66,8 @@ struct ConfigVals
         return (sendDelayMs && *sendDelayMs > 0) ||
             (sendDelayJitterMs && *sendDelayJitterMs > 0) ||
             (sendDropPctX100 && *sendDropPctX100 > 0) ||
-            (rngClaimDropPctX100 && *rngClaimDropPctX100 > 0);
+            (rngClaimDropPctX100 && *rngClaimDropPctX100 > 0) ||
+            explicitFinalProposal.has_value();
     }
 
     /** Merge other on top of this — other's set fields override. */
@@ -75,6 +83,8 @@ struct ConfigVals
             result.sendDropPctX100 = other.sendDropPctX100;
         if (other.rngClaimDropPctX100)
             result.rngClaimDropPctX100 = other.rngClaimDropPctX100;
+        if (other.explicitFinalProposal.has_value())
+            result.explicitFinalProposal = other.explicitFinalProposal;
         if (other.messageCategories)
             result.messageCategories = other.messageCategories;
         return result;

@@ -1317,6 +1317,18 @@ RCLConsensus::Adaptor::pendingCommitCount() const
     return pendingCommits_.size();
 }
 
+std::size_t
+RCLConsensus::Adaptor::pendingRevealCount() const
+{
+    return pendingReveals_.size();
+}
+
+std::size_t
+RCLConsensus::Adaptor::expectedProposerCount() const
+{
+    return expectedProposers_.size();
+}
+
 bool
 RCLConsensus::Adaptor::hasQuorumOfCommits() const
 {
@@ -1370,6 +1382,129 @@ bool
 RCLConsensus::Adaptor::hasAnyReveals() const
 {
     return !pendingReveals_.empty();
+}
+
+bool
+RCLConsensus::Adaptor::shouldSendExplicitFinalProposal() const
+{
+    // Explicit-final-proposal policy is node-local and experimental.
+    //
+    // Default behavior is implicit finalization (no extra seq=4 proposal):
+    // entropy pseudo-tx is injected in onAccept/buildLCL.
+    //
+    // We only enable explicit-final when operators intentionally opt in via
+    // runtime config/env for measurement/diagnostics.
+    //
+    // TBD (2026-03-03): Keep collecting tx-bearing network data before
+    // revisiting whether explicit-final can be safely promoted beyond
+    // experimental use.
+    auto const cfg = app_.getRuntimeConfig().getConfig("*");
+    if (cfg && cfg->explicitFinalProposal.has_value())
+        return *cfg->explicitFinalProposal;
+    return false;
+}
+
+std::optional<RCLTxSet>
+RCLConsensus::Adaptor::buildExplicitFinalProposalTxSet(
+    RCLTxSet const& txns,
+    LedgerIndex seq)
+{
+    JLOG(j_.debug()) << "RNGFINAL: build synthetic txset"
+                     << " baseTxSet=" << txns.id() << " seq=" << seq
+                     << " commits=" << pendingCommits_.size()
+                     << " reveals=" << pendingReveals_.size()
+                     << " failed=" << entropyFailed_;
+
+    uint256 finalEntropy;
+    bool hasEntropy = false;
+
+    // Keep this entropy-selection logic aligned with injectEntropyPseudoTx().
+    // If these paths drift, different nodes can derive different synthetic
+    // hashes for the same round, which is especially harmful because this
+    // path mutates proposal tx-set identity late in establish.
+    if (app_.config().standalone())
+    {
+        finalEntropy = sha512Half(std::string("standalone-entropy"), seq);
+        hasEntropy = true;
+    }
+    else if (entropyFailed_ || pendingReveals_.empty())
+    {
+        finalEntropy.zero();
+        hasEntropy = true;
+    }
+    else
+    {
+        std::vector<std::pair<PublicKey, uint256>> sorted;
+        sorted.reserve(pendingReveals_.size());
+
+        for (auto const& [nodeId, reveal] : pendingReveals_)
+        {
+            auto it = nodeIdToKey_.find(nodeId);
+            if (it != nodeIdToKey_.end())
+                sorted.emplace_back(it->second, reveal);
+        }
+
+        if (!sorted.empty())
+        {
+            std::sort(
+                sorted.begin(), sorted.end(), [](auto const& a, auto const& b) {
+                    return a.first.slice() < b.first.slice();
+                });
+
+            Serializer s;
+            for (auto const& [key, reveal] : sorted)
+            {
+                s.addVL(key.slice());
+                s.addBitString(reveal);
+            }
+            finalEntropy = sha512Half(s.slice());
+            hasEntropy = true;
+        }
+    }
+
+    if (!hasEntropy)
+    {
+        JLOG(j_.debug()) << "RNGFINAL: no entropy available for synthetic txset"
+                         << " baseTxSet=" << txns.id() << " seq=" << seq;
+        return std::nullopt;
+    }
+
+    auto const entropyCount = static_cast<std::uint16_t>(
+        app_.config().standalone() ? 20
+                                   : (entropyFailed_ || pendingReveals_.empty()
+                                          ? 0
+                                          : pendingReveals_.size()));
+
+    STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
+        obj.setFieldU32(sfLedgerSequence, seq);
+        obj.setAccountID(sfAccount, AccountID{});
+        obj.setFieldU32(sfSequence, 0);
+        obj.setFieldAmount(sfFee, STAmount{});
+        obj.setFieldH256(sfDigest, finalEntropy);
+        obj.setFieldU16(sfEntropyCount, entropyCount);
+    });
+
+    auto const txID = tx.getTransactionID();
+    if (txns.exists(txID))
+    {
+        JLOG(j_.debug()) << "RNGFINAL: pseudo-tx already in base set"
+                         << " txid=" << txID << " txSet=" << txns.id();
+        return txns;
+    }
+
+    RCLTxSet::MutableTxSet mutableTxSet{txns};
+    Serializer ser(512);
+    tx.add(ser);
+    mutableTxSet.insert(RCLCxTx{make_shamapitem(txID, ser.slice())});
+    auto syntheticSet = RCLTxSet{mutableTxSet};
+    auto const hash = syntheticSet.id();
+    inboundTransactions_.giveSet(hash, syntheticSet.map_, false);
+
+    JLOG(j_.debug()) << "RNGFINAL: built synthetic txset"
+                     << " hash=" << hash << " baseTxSet=" << txns.id()
+                     << " txid=" << txID << " entropyCount=" << entropyCount;
+
+    return syntheticSet;
 }
 
 uint256
@@ -1470,9 +1605,14 @@ RCLConsensus::Adaptor::buildEntropySet(LedgerIndex seq)
             obj.setFieldAmount(sfFee, STAmount{});
             obj.setFieldH256(sfDigest, reveal);
             obj.setFieldVL(sfSigningPubKey, kit->second.slice());
-            auto proofIt = proposalProofs_.find(nid);
-            if (proofIt != proposalProofs_.end())
-                obj.setFieldVL(sfBlob, serializeProof(proofIt->second));
+            // Intentionally omit sfBlob for reveal-set entries.
+            //
+            // Reveal proofs are timing-dependent (seq/closeTime/signature can
+            // differ while the reveal digest is identical), which makes the
+            // entropy-set hash non-deterministic across nodes under packet
+            // loss/reordering.  We only need deterministic reveal material
+            // (validator identity + digest) for fetch/merge and entropy
+            // calculation.
         });
 
         Serializer s(2048);
@@ -1726,25 +1866,32 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
                 return;
             }
 
-            if (!stx->isFieldPresent(sfBlob))
+            std::optional<ProposalProof> parsedProof;
+            if (stx->isFieldPresent(sfBlob))
             {
-                JLOG(j_.warn())
-                    << "RNG: rejecting proofless entry from " << nodeId
-                    << " in acquired set (" << sourceTag << ")";
-                return;
+                auto const proofBlob = stx->getFieldVL(sfBlob);
+                if (!verifyProof(proofBlob, pubKey, digest, isCommitSet))
+                {
+                    JLOG(j_.warn()) << "RNG: invalid proof from " << nodeId
+                                    << " in acquired set (" << sourceTag << ")";
+                    return;
+                }
+                parsedProof = deserializeProof(proofBlob);
+                if (!parsedProof)
+                {
+                    JLOG(j_.warn())
+                        << "RNG: rejecting malformed proof from " << nodeId
+                        << " in acquired set (" << sourceTag << ")";
+                    return;
+                }
             }
-            auto const proofBlob = stx->getFieldVL(sfBlob);
-            if (!verifyProof(proofBlob, pubKey, digest, isCommitSet))
+            else if (isCommitSet)
             {
-                JLOG(j_.warn()) << "RNG: invalid proof from " << nodeId
-                                << " in acquired set (" << sourceTag << ")";
-                return;
-            }
-            auto parsedProof = deserializeProof(proofBlob);
-            if (!parsedProof)
-            {
+                // Commit entries must carry a verifiable proposal proof.
+                // Without this, an attacker could inject arbitrary digests
+                // for trusted node IDs via fetched sets.
                 JLOG(j_.warn())
-                    << "RNG: rejecting malformed proof from " << nodeId
+                    << "RNG: rejecting proofless commit entry from " << nodeId
                     << " in acquired set (" << sourceTag << ")";
                 return;
             }
@@ -1805,15 +1952,15 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
             // byte-identical SHAMap leaves for these entries.
             if (isCommitSet)
             {
-                if (parsedProof->proposeSeq == 0)
+                if (parsedProof && parsedProof->proposeSeq == 0)
                     commitProofs_.insert_or_assign(nodeId, *parsedProof);
-                else
+                else if (parsedProof)
                     JLOG(j_.debug()) << "RNG: commit proof from " << nodeId
                                      << " has non-zero proposeSeq="
                                      << parsedProof->proposeSeq
                                      << "; not caching for commitSet rebuild";
             }
-            else
+            else if (parsedProof)
             {
                 proposalProofs_.insert_or_assign(nodeId, *parsedProof);
             }
@@ -2012,7 +2159,21 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
             obj.setFieldU16(sfEntropyCount, entropyCount);
         });
 
-        retriableTxs.insert(std::make_shared<STTx>(std::move(tx)));
+        auto const txID = tx.getTransactionID();
+        auto alreadyPresent = std::any_of(
+            retriableTxs.begin(), retriableTxs.end(), [&](auto const& entry) {
+                return entry.first.getTXID() == txID;
+            });
+        if (alreadyPresent)
+        {
+            JLOG(j_.debug())
+                << "RNG: entropy pseudo-tx already present, skip duplicate "
+                << txID;
+        }
+        else
+        {
+            retriableTxs.insert(std::make_shared<STTx>(std::move(tx)));
+        }
     }
     //@@end rng-inject-pseudotx
 
