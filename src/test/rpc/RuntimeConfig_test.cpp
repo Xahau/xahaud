@@ -346,6 +346,74 @@ class RuntimeConfig_test : public beast::unit_test::suite
     }
 
     void
+    testRngClaimDropPct()
+    {
+        testcase("rng_claim_drop_pct round-trips");
+        using namespace test::jtx;
+        Env env{*this};
+
+        // Set rng_claim_drop_pct
+        {
+            Json::Value params;
+            params["set"] = Json::objectValue;
+            params["set"]["*"] = Json::objectValue;
+            params["set"]["*"]["rng_claim_drop_pct"] = 50.0;
+            auto result = runtimeConfig(env, params);
+
+            auto const& global = result["configs"]["*"];
+            BEAST_EXPECT(global["rng_claim_drop_pct"].asDouble() == 50.0);
+        }
+
+        BEAST_EXPECT(env.app().getRuntimeConfig().active());
+
+        // Verify via getConfig
+        auto cfg = env.app().getRuntimeConfig().getConfig("*");
+        BEAST_EXPECT(cfg.has_value());
+        BEAST_EXPECT(cfg->rngClaimDropPctX100 == 5000);
+
+        // Clear and verify removal
+        {
+            Json::Value params;
+            params["clear_all"] = true;
+            auto result = runtimeConfig(env, params);
+            BEAST_EXPECT(result["configs"].size() == 0);
+        }
+        BEAST_EXPECT(!env.app().getRuntimeConfig().active());
+    }
+
+    void
+    testRngClaimDropPctClamping()
+    {
+        testcase("rng_claim_drop_pct clamped to 0-100");
+        using namespace test::jtx;
+        Env env{*this};
+
+        // Over 100
+        {
+            Json::Value params;
+            params["set"] = Json::objectValue;
+            params["set"]["*"] = Json::objectValue;
+            params["set"]["*"]["rng_claim_drop_pct"] = 150.0;
+            runtimeConfig(env, params);
+        }
+        auto cfg = env.app().getRuntimeConfig().getConfig("*");
+        BEAST_EXPECT(cfg.has_value());
+        BEAST_EXPECT(cfg->rngClaimDropPctX100 == 10000);  // clamped to 100%
+
+        // Negative
+        {
+            Json::Value params;
+            params["set"] = Json::objectValue;
+            params["set"]["*"] = Json::objectValue;
+            params["set"]["*"]["rng_claim_drop_pct"] = -10.0;
+            runtimeConfig(env, params);
+        }
+        cfg = env.app().getRuntimeConfig().getConfig("*");
+        BEAST_EXPECT(cfg.has_value());
+        BEAST_EXPECT(cfg->rngClaimDropPctX100 == 0);  // clamped to 0%
+    }
+
+    void
     testPerPeerClearInheritedFilter()
     {
         testcase("Per-peer can override global filter to all");
@@ -402,6 +470,8 @@ public:
         testMessageTypeFilterEmpty();
         testInvalidMessageType();
         testDropPctClamping();
+        testRngClaimDropPct();
+        testRngClaimDropPctClamping();
         testPerPeerClearInheritedFilter();
     }
 };

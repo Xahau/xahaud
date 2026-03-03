@@ -90,6 +90,15 @@ doRuntimeConfig(RPC::JsonContext& context)
                     pct = 100.0;
                 cfg.sendDropPctX100 = static_cast<int>(pct * 100);
             }
+            if (v.isMember("rng_claim_drop_pct"))
+            {
+                auto pct = v["rng_claim_drop_pct"].asDouble();
+                if (pct < 0.0)
+                    pct = 0.0;
+                else if (pct > 100.0)
+                    pct = 100.0;
+                cfg.rngClaimDropPctX100 = static_cast<int>(pct * 100);
+            }
             if (v.isMember("message_types"))
             {
                 auto const& mts = v["message_types"];
@@ -143,6 +152,8 @@ doRuntimeConfig(RPC::JsonContext& context)
             entry["send_delay_jitter_ms"] = *cfg.sendDelayJitterMs;
         if (cfg.sendDropPctX100)
             entry["send_drop_pct"] = *cfg.sendDropPctX100 / 100.0;
+        if (cfg.rngClaimDropPctX100)
+            entry["rng_claim_drop_pct"] = *cfg.rngClaimDropPctX100 / 100.0;
         if (cfg.messageCategories)
         {
             Json::Value types{Json::arrayValue};

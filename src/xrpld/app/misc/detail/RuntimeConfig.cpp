@@ -40,6 +40,9 @@ parseConfigVals(Json::Value const& v)
     if (v.isMember("send_drop_pct"))
         cfg.sendDropPctX100 =
             static_cast<int>(v["send_drop_pct"].asDouble() * 100);
+    if (v.isMember("rng_claim_drop_pct"))
+        cfg.rngClaimDropPctX100 =
+            static_cast<int>(v["rng_claim_drop_pct"].asDouble() * 100);
     return cfg;
 }
 }  // namespace
@@ -70,6 +73,8 @@ RuntimeConfig::RuntimeConfig()
         global.sendDelayJitterMs = std::atoi(env);
     if (auto const* env = std::getenv("XAHAU_SEND_DROP_PCT"))
         global.sendDropPctX100 = static_cast<int>(std::atof(env) * 100);
+    if (auto const* env = std::getenv("XAHAU_RNG_CLAIM_DROP_PCT"))
+        global.rngClaimDropPctX100 = static_cast<int>(std::atof(env) * 100);
 
     if (global.active())
     {

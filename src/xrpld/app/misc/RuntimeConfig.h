@@ -39,6 +39,7 @@ struct ConfigVals
     std::optional<int> sendDelayMs;
     std::optional<int> sendDelayJitterMs;
     std::optional<int> sendDropPctX100;  // 0-10000 (pct * 100, avoids float)
+    std::optional<int> rngClaimDropPctX100;  // 0-10000 (pct * 100)
     // If set (non-nullopt), only apply to these TrafficCount::category values.
     // nullopt = not specified (inherit from global on merge).
     // Empty set = explicitly "all categories" (overrides global filter).
@@ -57,7 +58,8 @@ struct ConfigVals
     {
         return (sendDelayMs && *sendDelayMs > 0) ||
             (sendDelayJitterMs && *sendDelayJitterMs > 0) ||
-            (sendDropPctX100 && *sendDropPctX100 > 0);
+            (sendDropPctX100 && *sendDropPctX100 > 0) ||
+            (rngClaimDropPctX100 && *rngClaimDropPctX100 > 0);
     }
 
     /** Merge other on top of this — other's set fields override. */
@@ -71,6 +73,8 @@ struct ConfigVals
             result.sendDelayJitterMs = other.sendDelayJitterMs;
         if (other.sendDropPctX100)
             result.sendDropPctX100 = other.sendDropPctX100;
+        if (other.rngClaimDropPctX100)
+            result.rngClaimDropPctX100 = other.rngClaimDropPctX100;
         if (other.messageCategories)
             result.messageCategories = other.messageCategories;
         return result;
