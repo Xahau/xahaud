@@ -20,7 +20,6 @@
 #ifndef RIPPLE_APP_MISC_NETWORKOPS_H_INCLUDED
 #define RIPPLE_APP_MISC_NETWORKOPS_H_INCLUDED
 
-#include <xrpld/app/consensus/RCLConsensus.h>
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/misc/StateAccounting.h>
@@ -41,6 +40,7 @@ namespace ripple {
 
 class Peer;
 class LedgerMaster;
+class RCLConsensus;
 class Transaction;
 class ValidatorKeys;
 

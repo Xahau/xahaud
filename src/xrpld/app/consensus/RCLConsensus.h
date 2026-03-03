@@ -26,16 +26,19 @@
 #include <xrpld/app/consensus/RCLCxTx.h>
 #include <xrpld/app/misc/FeeVote.h>
 #include <xrpld/app/misc/NegativeUNLVote.h>
-#include <xrpld/consensus/Consensus.h>
+#include <xrpld/consensus/ConsensusParms.h>
+#include <xrpld/consensus/ConsensusTypes.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/overlay/Message.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/CountedObject.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/beast/clock/abstract_clock.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/RippleLedgerHash.h>
 #include <xrpl/protocol/STValidation.h>
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -49,6 +52,8 @@ class InboundTransactions;
 class LocalTxs;
 class LedgerMaster;
 class ValidatorKeys;
+template <class Adaptor>
+class Consensus;
 
 /** Manages the generic consensus algorithm for use by the RCL.
  */
@@ -594,6 +599,8 @@ class RCLConsensus
     };
 
 public:
+    using clock_type = beast::abstract_clock<std::chrono::steady_clock>;
+
     //! Constructor
     RCLConsensus(
         Application& app,
@@ -601,9 +608,11 @@ public:
         LedgerMaster& ledgerMaster,
         LocalTxs& localTxs,
         InboundTransactions& inboundTransactions,
-        Consensus<Adaptor>::clock_type const& clock,
+        clock_type const& clock,
         ValidatorKeys const& validatorKeys,
         beast::Journal journal);
+
+    ~RCLConsensus();
 
     RCLConsensus(RCLConsensus const&) = delete;
 
@@ -646,17 +655,11 @@ public:
     }
 
     ConsensusPhase
-    phase() const
-    {
-        return consensus_.phase();
-    }
+    phase() const;
 
     //! @see Consensus::inRngSubState
     bool
-    inRngSubState() const
-    {
-        return consensus_.inRngSubState();
-    }
+    inRngSubState() const;
 
     //! Check if a hash is a known RNG set (commitSet or entropySet)
     bool
@@ -702,11 +705,7 @@ public:
 
     // @see Consensus::prevLedgerID
     RCLCxLedger::ID
-    prevLedgerID() const
-    {
-        std::lock_guard _{mutex_};
-        return consensus_.prevLedgerID();
-    }
+    prevLedgerID() const;
 
     //! @see Consensus::simulate
     void
@@ -733,7 +732,7 @@ private:
     mutable std::recursive_mutex mutex_;
 
     Adaptor adaptor_;
-    Consensus<Adaptor> consensus_;
+    std::unique_ptr<Consensus<Adaptor>> consensus_;
     beast::Journal const j_;
 };
 

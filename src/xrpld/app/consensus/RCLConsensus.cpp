@@ -39,6 +39,7 @@
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/consensus/Consensus.h>
 #include <xrpld/consensus/LedgerTiming.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/overlay/predicates.h>
@@ -66,7 +67,7 @@ RCLConsensus::RCLConsensus(
     LedgerMaster& ledgerMaster,
     LocalTxs& localTxs,
     InboundTransactions& inboundTransactions,
-    Consensus<Adaptor>::clock_type const& clock,
+    clock_type const& clock,
     ValidatorKeys const& validatorKeys,
     beast::Journal journal)
     : adaptor_(
@@ -77,10 +78,12 @@ RCLConsensus::RCLConsensus(
           inboundTransactions,
           validatorKeys,
           journal)
-    , consensus_(clock, adaptor_, journal)
+    , consensus_(std::make_unique<Consensus<Adaptor>>(clock, adaptor_, journal))
     , j_(journal)
 {
 }
+
+RCLConsensus::~RCLConsensus() = default;
 
 RCLConsensus::Adaptor::Adaptor(
     Application& app,
@@ -1054,13 +1057,32 @@ RCLConsensus::Adaptor::onModeChange(ConsensusMode before, ConsensusMode after)
     mode_ = after;
 }
 
+ConsensusPhase
+RCLConsensus::phase() const
+{
+    return consensus_->phase();
+}
+
+bool
+RCLConsensus::inRngSubState() const
+{
+    return consensus_->inRngSubState();
+}
+
+RCLCxLedger::ID
+RCLConsensus::prevLedgerID() const
+{
+    std::lock_guard _{mutex_};
+    return consensus_->prevLedgerID();
+}
+
 Json::Value
 RCLConsensus::getJson(bool full) const
 {
     Json::Value ret;
     {
         std::lock_guard _{mutex_};
-        ret = consensus_.getJson(full);
+        ret = consensus_->getJson(full);
     }
     ret["validating"] = adaptor_.validating();
     return ret;
@@ -1074,7 +1096,7 @@ RCLConsensus::timerEntry(
     try
     {
         std::lock_guard _{mutex_};
-        consensus_.timerEntry(now, clog);
+        consensus_->timerEntry(now, clog);
     }
     catch (SHAMapMissingNode const& mn)
     {
@@ -1093,7 +1115,7 @@ RCLConsensus::gotTxSet(NetClock::time_point const& now, RCLTxSet const& txSet)
     try
     {
         std::lock_guard _{mutex_};
-        consensus_.gotTxSet(now, txSet);
+        consensus_->gotTxSet(now, txSet);
     }
     catch (SHAMapMissingNode const& mn)
     {
@@ -1111,7 +1133,7 @@ RCLConsensus::simulate(
     std::optional<std::chrono::milliseconds> consensusDelay)
 {
     std::lock_guard _{mutex_};
-    consensus_.simulate(now, consensusDelay);
+    consensus_->simulate(now, consensusDelay);
 }
 
 bool
@@ -1120,7 +1142,7 @@ RCLConsensus::peerProposal(
     RCLCxPeerPos const& newProposal)
 {
     std::lock_guard _{mutex_};
-    return consensus_.peerProposal(now, newProposal);
+    return consensus_->peerProposal(now, newProposal);
 }
 
 bool
@@ -2251,7 +2273,7 @@ RCLConsensus::startRound(
     std::unique_ptr<std::stringstream> const& clog)
 {
     std::lock_guard _{mutex_};
-    consensus_.startRound(
+    consensus_->startRound(
         now,
         prevLgrId,
         prevLgr,

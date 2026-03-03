@@ -1607,6 +1607,28 @@ Consensus<Adaptor>::phaseEstablish(
                   })
     {
         auto const buildSeq = previousLedger_.seq() + typename Ledger_t::Seq{1};
+        auto publishEntropySet = [&]() {
+            auto entropySetHash = adaptor_.buildEntropySet(buildSeq);
+            auto newPos = result_->position.position();
+            newPos.entropySetHash = entropySetHash;
+
+            result_->position.changePosition(
+                newPos, asCloseTime(result_->position.closeTime()), now_);
+
+            // Publish entropySetHash before accepting so lagging peers
+            // can fetch/merge reveal sets in ConvergingReveal.
+            //
+            // Experiment note:
+            // We tested single-broadcaster seq=3 fanout reduction and
+            // observed frequent syncing/mismatch loops under stressed
+            // packet drops (e.g. 25% dropped RNG claim traffic). Keep
+            // full proposer broadcast here for robustness; the extra
+            // proposal chatter is the explicit cost we pay.
+            if (mode_.get() == ConsensusMode::proposing)
+                adaptor_.propose(result_->position);
+
+            JLOG(j_.debug()) << "RNG: built entropySet";
+        };
 
         JLOG(j_.debug()) << "RNG: phaseEstablish estState="
                          << static_cast<int>(estState_);
@@ -1827,7 +1849,22 @@ Consensus<Adaptor>::phaseEstablish(
             revealPhaseStart_ = std::chrono::steady_clock::now();
             JLOG(j_.debug()) << "RNG: transitioned to ConvergingReveal"
                              << " reveal=" << adaptor_.getEntropySecret();
-            return;  // Wait for next tick
+
+            // Fast path:
+            // If all required reveals are already present at transition time,
+            // publish entropySet immediately and finish in this timer pass.
+            // This is state-based (reveal completeness), not tied to any
+            // particular proposal sequence number.
+            if (adaptor_.hasMinimumReveals())
+            {
+                publishEntropySet();
+                JLOG(j_.debug())
+                    << "RNG: fast-path published entropySet in same tick";
+            }
+            else
+            {
+                return;  // Wait for next tick
+            }
         }
         else if (estState_ == EstablishState::ConvergingReveal)
         {
@@ -1848,28 +1885,7 @@ Consensus<Adaptor>::phaseEstablish(
                 }
                 else
                 {
-                    auto entropySetHash = adaptor_.buildEntropySet(buildSeq);
-                    auto newPos = result_->position.position();
-                    newPos.entropySetHash = entropySetHash;
-
-                    result_->position.changePosition(
-                        newPos,
-                        asCloseTime(result_->position.closeTime()),
-                        now_);
-
-                    // Publish entropySetHash before accepting so lagging peers
-                    // can fetch/merge reveal sets in ConvergingReveal.
-                    //
-                    // Experiment note:
-                    // We tested single-broadcaster seq=3 fanout reduction and
-                    // observed frequent syncing/mismatch loops under stressed
-                    // packet drops (e.g. 25% dropped RNG claim traffic). Keep
-                    // full proposer broadcast here for robustness; the extra
-                    // proposal chatter is the explicit cost we pay.
-                    if (mode_.get() == ConsensusMode::proposing)
-                        adaptor_.propose(result_->position);
-
-                    JLOG(j_.debug()) << "RNG: built entropySet";
+                    publishEntropySet();
                 }
                 ready = true;
             }
