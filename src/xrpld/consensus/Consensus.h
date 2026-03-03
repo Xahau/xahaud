@@ -935,14 +935,18 @@ Consensus<Adaptor>::peerProposalInternal(
         // before we have our own just generates unnecessary traffic.
         //
         // IMPORTANT: SHAMap fetch/diff/merge is a safety net for the
-        // rare case where active proposers have slightly different
-        // commit/reveal sets due to dropped proposals.  It does NOT
-        // help late-joining nodes: a node that restarts mid-round
-        // enters as proposing=false and cannot generate commitments
-        // (onClose gates on proposing).  It must observe for at least
-        // one full round before consensus promotes it to proposing.
-        // The primary data transport is proposals themselves — the
-        // SHAMap sync is belt-and-suspenders, not the critical path.
+        // case where active proposers have slightly different commit/reveal
+        // sets due to dropped proposals.  It does NOT help late-joining nodes:
+        // a node that restarts mid-round enters as proposing=false and cannot
+        // generate commitments (onClose gates on proposing). It must observe
+        // for at least one full round before consensus promotes it to
+        // proposing.
+        //
+        // The primary data transport is proposals themselves; SHAMap sync is
+        // belt-and-suspenders. If we ever choose to optimize by reducing
+        // entropySet proposal fanout and just tolerate occasional sync churn,
+        // reassess whether this SHAMap side-channel complexity is still worth
+        // carrying.
         if constexpr (requires(Adaptor& a) {
                           a.fetchRngSetIfNeeded(std::optional<uint256>{});
                       })
@@ -1856,35 +1860,13 @@ Consensus<Adaptor>::phaseEstablish(
                     // Publish entropySetHash before accepting so lagging peers
                     // can fetch/merge reveal sets in ConvergingReveal.
                     //
-                    // Optimization:
-                    // Avoid every proposer sending this final position update.
-                    // Elect one deterministic broadcaster per tx-converged
-                    // group (lowest NodeID among self + tx-converged peers).
-                    // This keeps the recovery path while reducing steady-state
-                    // proposal traffic in quiet rounds.
-                    bool publishEntropySet = true;
+                    // Experiment note:
+                    // We tested single-broadcaster seq=3 fanout reduction and
+                    // observed frequent syncing/mismatch loops under stressed
+                    // packet drops (e.g. 25% dropped RNG claim traffic). Keep
+                    // full proposer broadcast here for robustness; the extra
+                    // proposal chatter is the explicit cost we pay.
                     if (mode_.get() == ConsensusMode::proposing)
-                    {
-                        auto const ourPos = result_->position.position();
-                        auto const selfNode = result_->position.nodeID();
-                        auto electedNode = selfNode;
-                        for (auto const& [nodeId, peerPos] : currPeerPositions_)
-                        {
-                            if (!(peerPos.proposal().position() == ourPos))
-                                continue;
-                            if (nodeId < electedNode)
-                                electedNode = nodeId;
-                        }
-                        publishEntropySet = (selfNode == electedNode);
-                        JLOG(j_.debug())
-                            << "RNG: entropySet broadcaster election self="
-                            << selfNode << " elected=" << electedNode
-                            << " publish="
-                            << (publishEntropySet ? "yes" : "no");
-                    }
-
-                    if (mode_.get() == ConsensusMode::proposing &&
-                        publishEntropySet)
                         adaptor_.propose(result_->position);
 
                     JLOG(j_.debug()) << "RNG: built entropySet";
