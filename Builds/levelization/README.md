@@ -59,6 +59,10 @@ the rippled source. The only caveat is that it runs much slower
 under Windows than in Linux. It hasn't yet been tested under MacOS.
 It generates many files of [results](results):
 
+For local iteration speed there is also
+[levelization.py](levelization.py), which generates the same artifact set much
+faster. The shell script remains canonical for CI/auditing.
+
 * `rawincludes.txt`: The raw dump of the `#includes`
 * `paths.txt`: A second dump grouping the source module
   to the destination module, deduped, and with frequency counts.
@@ -109,6 +113,9 @@ prevent false alarms and merging issues, and because it's easy to
 get those details locally.
 
 1. Run `levelization.sh`
+   * Faster local loop: `python3 Builds/levelization/levelization.py`
+   * Optional parity check against canonical shell output:
+     `python3 Builds/levelization/levelization.py --results-dir /tmp/levelization-py-results --compare-to Builds/levelization/results`
 2. Grep the modules in `paths.txt`.
    * For example, if a cycle is found `A ~= B`, simply `grep -w
      A Builds/levelization/results/paths.txt | grep -w B`

@@ -11,6 +11,11 @@ jobs:
     - uses: actions/checkout@v3
     - name: Check levelization
       run: Builds/levelization/levelization.sh
+    - name: Verify Python Generator Matches Canonical Script
+      run: |
+        python3 Builds/levelization/levelization.py \
+          --results-dir /tmp/levelization-py-results \
+          --compare-to Builds/levelization/results
     - name: Check for differences
       id: assert
       run: |

@@ -7,7 +7,7 @@
 
 pushd $( dirname $0 )
 
-if [ -v PS1 ]
+if [[ -n "${PS1-}" ]]
 then
   # if the shell is interactive, clean up any flotsam before analyzing
   git clean -ix
