@@ -2143,6 +2143,22 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
     // Synthesize and inject the pseudo-transaction
     if (hasEntropy)
     {
+        // Design note: this is the canonical/implicit path that materializes
+        // the synthetic entropy-bearing tx-set in production.
+        //
+        // Why here (onAccept/buildLCL) instead of mutating proposals earlier?
+        // - Consensus agreement is keyed by proposal txSetHash during
+        //   establish. Late mutation of txSetHash in establish can fragment
+        //   votes under loss/reordering (base hash vs synthetic hash).
+        // - Injecting at accept preserves robust convergence semantics: peers
+        //   agree on the base transaction set first, then deterministically
+        //   derive/apply the entropy pseudo-tx for ledger construction.
+        //
+        // Explicit-final (seq=4 synthetic proposal) remains an optional
+        // experiment for observability/perf testing and is default-off.
+        // TBD (2026-03-03): revisit only with stronger evidence that explicit
+        // publication can be made stable under tx-bearing, lossy networks.
+
         // Account Zero convention for pseudo-transactions (same as ttFEE, etc)
         auto const entropyCount = static_cast<std::uint16_t>(
             app_.config().standalone()
