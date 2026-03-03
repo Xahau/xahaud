@@ -1731,6 +1731,12 @@ Consensus<Adaptor>::phaseEstablish(
 
             // Publish entropySetHash before accepting so lagging peers
             // can fetch/merge reveal sets in ConvergingReveal.
+            //
+            // This can look redundant in healthy rounds because txSetHash may
+            // be unchanged versus the prior proposal (for example, seq=2 and
+            // seq=3 showing the same tx summary in monitors). We still publish
+            // to create an additional delivery window for entropySetHash and
+            // to trigger fetch/merge on peers that missed earlier packets.
             if (mode_.get() == ConsensusMode::proposing)
                 adaptor_.propose(result_->position);
 
