@@ -1853,22 +1853,38 @@ Consensus<Adaptor>::phaseEstablish(
                         asCloseTime(result_->position.closeTime()),
                         now_);
 
-                    // Publish entropySetHash before accepting so peers (and
-                    // observers recovering from dropped reveal proposals) can
-                    // fetch/merge entropy sets in ConvergingReveal.
+                    // Publish entropySetHash before accepting so lagging peers
+                    // can fetch/merge reveal sets in ConvergingReveal.
                     //
-                    // Tradeoff:
-                    // - Adds one extra proposal broadcast in rounds that make
-                    //   it to ConvergingReveal (often a 4th proposal in quiet
-                    //   rounds: seq0, commitSet, reveal, entropySet).
-                    // - In return, lagging nodes can deterministically recover
-                    //   reveal sets instead of building a divergent entropy
-                    //   transaction and falling into sync/jump loops.
-                    //
-                    // We intentionally bias toward consensus safety/liveness
-                    // under packet loss or drop-injection, accepting small
-                    // bandwidth/CPU overhead.
+                    // Optimization:
+                    // Avoid every proposer sending this final position update.
+                    // Elect one deterministic broadcaster per tx-converged
+                    // group (lowest NodeID among self + tx-converged peers).
+                    // This keeps the recovery path while reducing steady-state
+                    // proposal traffic in quiet rounds.
+                    bool publishEntropySet = true;
                     if (mode_.get() == ConsensusMode::proposing)
+                    {
+                        auto const ourPos = result_->position.position();
+                        auto const selfNode = result_->position.nodeID();
+                        auto electedNode = selfNode;
+                        for (auto const& [nodeId, peerPos] : currPeerPositions_)
+                        {
+                            if (!(peerPos.proposal().position() == ourPos))
+                                continue;
+                            if (nodeId < electedNode)
+                                electedNode = nodeId;
+                        }
+                        publishEntropySet = (selfNode == electedNode);
+                        JLOG(j_.debug())
+                            << "RNG: entropySet broadcaster election self="
+                            << selfNode << " elected=" << electedNode
+                            << " publish="
+                            << (publishEntropySet ? "yes" : "no");
+                    }
+
+                    if (mode_.get() == ConsensusMode::proposing &&
+                        publishEntropySet)
                         adaptor_.propose(result_->position);
 
                     JLOG(j_.debug()) << "RNG: built entropySet";
