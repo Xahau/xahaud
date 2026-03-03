@@ -104,6 +104,7 @@ class RCLConsensus
         // Real SHAMaps for the current round (unbacked, ephemeral)
         std::shared_ptr<SHAMap> commitSetMap_;
         std::shared_ptr<SHAMap> entropySetMap_;
+        std::optional<LedgerIndex> rngRoundSeq_;
 
         // Track pending RNG set hashes we've triggered fetches for
         hash_set<uint256> pendingRngFetches_;
@@ -340,6 +341,11 @@ class RCLConsensus
         /** Serialize a ProposalProof into a blob for sfBlob */
         static Blob
         serializeProof(ProposalProof const& proof);
+
+        /** Deserialize a ProposalProof blob from sfBlob.
+            @return Parsed proof or std::nullopt if malformed. */
+        static std::optional<ProposalProof>
+        deserializeProof(Blob const& proofBlob);
 
         /** Verify a proof blob against the entry's public key and digest.
             @return true if the proof is valid */

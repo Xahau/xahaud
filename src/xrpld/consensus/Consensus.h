@@ -948,11 +948,43 @@ Consensus<Adaptor>::peerProposalInternal(
                       })
         {
             if (estState_ != EstablishState::ConvergingTx)
+            {
+                if (newPeerProp.position().commitSetHash)
+                {
+                    JLOG(j_.debug())
+                        << "RNGFETCH: consider commitSet hash="
+                        << *newPeerProp.position().commitSetHash << " state="
+                        << (estState_ == EstablishState::ConvergingCommit
+                                ? "ConvergingCommit"
+                                : "ConvergingReveal");
+                }
                 adaptor_.fetchRngSetIfNeeded(
                     newPeerProp.position().commitSetHash);
+            }
+            else if (newPeerProp.position().commitSetHash)
+            {
+                JLOG(j_.debug()) << "RNGFETCH: defer commitSet hash="
+                                 << *newPeerProp.position().commitSetHash
+                                 << " reason=state ConvergingTx";
+            }
+
             if (estState_ == EstablishState::ConvergingReveal)
+            {
+                if (newPeerProp.position().entropySetHash)
+                {
+                    JLOG(j_.debug()) << "RNGFETCH: consider entropySet hash="
+                                     << *newPeerProp.position().entropySetHash
+                                     << " state=ConvergingReveal";
+                }
                 adaptor_.fetchRngSetIfNeeded(
                     newPeerProp.position().entropySetHash);
+            }
+            else if (newPeerProp.position().entropySetHash)
+            {
+                JLOG(j_.debug()) << "RNGFETCH: defer entropySet hash="
+                                 << *newPeerProp.position().entropySetHash
+                                 << " reason=state not ConvergingReveal";
+            }
         }
     }
 
@@ -1674,6 +1706,30 @@ Consensus<Adaptor>::phaseEstablish(
         }
         else if (estState_ == EstablishState::ConvergingCommit)
         {
+            // If commit hashes diverge, we may not receive any additional
+            // tx-converged proposals in this state (peers can move to the next
+            // ledger quickly, causing prevLedger rejects). In that case, hashes
+            // observed during ConvergingTx would never be fetched because fetch
+            // is intentionally deferred there.
+            //
+            // Sweep currently tx-converged peer positions each tick so deferred
+            // commitSet hashes still get fetched/merged even without new
+            // accepted proposals in ConvergingCommit.
+            if constexpr (
+                requires(Adaptor& a) {
+                    a.fetchRngSetIfNeeded(std::optional<uint256>{});
+                } && requires(Position_t const& p) { p.commitSetHash; })
+            {
+                auto const ourPos = result_->position.position();
+                for (auto const& [nodeId, peerPos] : currPeerPositions_)
+                {
+                    auto const& peerPosition = peerPos.proposal().position();
+                    if (!(peerPosition == ourPos))
+                        continue;
+                    adaptor_.fetchRngSetIfNeeded(peerPosition.commitSetHash);
+                }
+            }
+
             // Fast path: if no commit-set conflicts are observed, do exactly
             // what we did before (immediate reveal transition).
             //
@@ -1684,53 +1740,72 @@ Consensus<Adaptor>::phaseEstablish(
             // values among tx-converged positions.
             if (hasConflictingCommitSetHashes())
             {
-                auto const nowSteady = std::chrono::steady_clock::now();
-                if (commitHashConflictStart_ ==
-                    std::chrono::steady_clock::time_point{})
+                // Fetch/merge may have added missing commits since we last
+                // published our commitSetHash. Rebuild and re-publish so peers
+                // can converge on one deterministic hash instead of timing out.
+                auto pos = result_->position.position();
+                auto const previousHash = pos.commitSetHash;
+                auto const refreshedHash = adaptor_.buildCommitSet(buildSeq);
+                if (!previousHash || *previousHash != refreshedHash)
                 {
-                    // First observed conflict: start a bounded grace window so
-                    // benign ordering/fetch races can settle without forcing a
-                    // fallback on the very first divergent gossip sample.
-                    commitHashConflictStart_ = nowSteady;
-                    JLOG(j_.warn())
-                        << "RNG: conflicting commitSetHash detected; waiting "
-                           "briefly for convergence/fetch";
-                    return;
-                }
+                    pos.commitSetHash = refreshedHash;
+                    result_->position.changePosition(
+                        pos, asCloseTime(result_->position.closeTime()), now_);
 
-                auto const conflictElapsed =
-                    nowSteady - commitHashConflictStart_;
-                if (conflictElapsed <= parms.rngREVEAL_TIMEOUT)
-                {
-                    // We are still inside the grace window, so keep waiting.
-                    // This preserves the fast path when peers converge after a
-                    // short delay while avoiding reveal against mismatched
-                    // commit sets.
+                    if (mode_.get() == ConsensusMode::proposing)
+                        adaptor_.propose(result_->position);
+
                     JLOG(j_.debug())
-                        << "RNG: commitSetHash still conflicting after "
-                        << std::chrono::duration_cast<
-                               std::chrono::milliseconds>(conflictElapsed)
-                               .count()
-                        << "ms; staying in ConvergingCommit";
-                    return;
+                        << "RNG: refreshed commitSetHash after merge to "
+                        << refreshedHash;
                 }
 
-                // If conflict persists past a bounded wait, force deterministic
-                // fallback for this round instead of revealing against
-                // divergent commit sets.
-                adaptor_.setEntropyFailed();
-                estState_ = EstablishState::ConvergingReveal;
-                // Backdate revealPhaseStart_ so the ConvergingReveal timeout
-                // path fires immediately next tick. This routes all peers to
-                // the existing deterministic zero-entropy close path, instead
-                // of introducing another bespoke state transition.
-                revealPhaseStart_ = nowSteady - parms.rngREVEAL_TIMEOUT -
-                    std::chrono::milliseconds{1};
-                commitHashConflictStart_ = {};
-                JLOG(j_.warn())
-                    << "RNG: commitSetHash conflict persisted; forcing "
-                       "zero-entropy fallback";
-                return;
+                // Re-check after refreshing our own hash.
+                if (hasConflictingCommitSetHashes())
+                {
+                    auto const nowSteady = std::chrono::steady_clock::now();
+                    if (commitHashConflictStart_ ==
+                        std::chrono::steady_clock::time_point{})
+                    {
+                        // First observed conflict: start a bounded grace window
+                        // so benign ordering/fetch races can settle.
+                        commitHashConflictStart_ = nowSteady;
+                        JLOG(j_.warn())
+                            << "RNG: conflicting commitSetHash detected; "
+                               "waiting briefly for convergence/fetch";
+                        return;
+                    }
+
+                    auto const conflictElapsed =
+                        nowSteady - commitHashConflictStart_;
+                    if (conflictElapsed <= parms.rngREVEAL_TIMEOUT)
+                    {
+                        // We are still inside the grace window, so keep
+                        // waiting. This preserves the fast path when peers
+                        // converge after a short delay.
+                        JLOG(j_.debug())
+                            << "RNG: commitSetHash still conflicting after "
+                            << std::chrono::duration_cast<
+                                   std::chrono::milliseconds>(conflictElapsed)
+                                   .count()
+                            << "ms; staying in ConvergingCommit";
+                        return;
+                    }
+
+                    // If conflict persists past a bounded wait, force
+                    // deterministic fallback for this round.
+                    adaptor_.setEntropyFailed();
+                    estState_ = EstablishState::ConvergingReveal;
+                    // Backdate revealPhaseStart_ so the ConvergingReveal
+                    // timeout path fires immediately next tick.
+                    revealPhaseStart_ = nowSteady - parms.rngREVEAL_TIMEOUT -
+                        std::chrono::milliseconds{1};
+                    commitHashConflictStart_ = {};
+                    JLOG(j_.warn())
+                        << "RNG: commitSetHash conflict persisted; forcing "
+                           "zero-entropy fallback";
+                    return;
+                }
             }
 
             commitHashConflictStart_ = {};
@@ -1777,6 +1852,25 @@ Consensus<Adaptor>::phaseEstablish(
                         newPos,
                         asCloseTime(result_->position.closeTime()),
                         now_);
+
+                    // Publish entropySetHash before accepting so peers (and
+                    // observers recovering from dropped reveal proposals) can
+                    // fetch/merge entropy sets in ConvergingReveal.
+                    //
+                    // Tradeoff:
+                    // - Adds one extra proposal broadcast in rounds that make
+                    //   it to ConvergingReveal (often a 4th proposal in quiet
+                    //   rounds: seq0, commitSet, reveal, entropySet).
+                    // - In return, lagging nodes can deterministically recover
+                    //   reveal sets instead of building a divergent entropy
+                    //   transaction and falling into sync/jump loops.
+                    //
+                    // We intentionally bias toward consensus safety/liveness
+                    // under packet loss or drop-injection, accepting small
+                    // bandwidth/CPU overhead.
+                    if (mode_.get() == ConsensusMode::proposing)
+                        adaptor_.propose(result_->position);
+
                     JLOG(j_.debug()) << "RNG: built entropySet";
                 }
                 ready = true;

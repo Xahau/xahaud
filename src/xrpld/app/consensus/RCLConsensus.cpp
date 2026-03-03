@@ -33,6 +33,7 @@
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
@@ -55,6 +56,7 @@
 #include <algorithm>
 #include <cstring>
 #include <mutex>
+#include <random>
 
 namespace ripple {
 
@@ -1352,6 +1354,11 @@ uint256
 RCLConsensus::Adaptor::buildCommitSet(LedgerIndex seq)
 {
     //@@start rng-build-commit-set
+    // Track the active RNG round explicitly. Nodes in observing/switching
+    // mode can have a closed ledger index behind the consensus round while
+    // still needing to fetch/merge that round's RNG sets.
+    rngRoundSeq_ = seq;
+
     auto map =
         std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
     map->setUnbacked();
@@ -1411,6 +1418,8 @@ uint256
 RCLConsensus::Adaptor::buildEntropySet(LedgerIndex seq)
 {
     //@@start rng-build-entropy-set
+    rngRoundSeq_ = seq;
+
     auto map =
         std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
     map->setUnbacked();
@@ -1499,6 +1508,7 @@ RCLConsensus::Adaptor::clearRngState()
     entropyFailed_ = false;
     commitSetMap_.reset();
     entropySetMap_.reset();
+    rngRoundSeq_.reset();
     pendingRngFetches_.clear();
     unlReportNodeIds_.clear();
     expectedProposers_.clear();
@@ -1574,7 +1584,8 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
     auto const hash = map->getHash().as_uint256();
     pendingRngFetches_.erase(hash);
 
-    JLOG(j_.debug()) << "RNG: handleAcquiredRngSet hash=" << hash;
+    JLOG(j_.debug()) << "RNGFETCH: handle acquired hash=" << hash
+                     << " pending-after-erase=" << pendingRngFetches_.size();
 
     enum class RngSetKind { commit, reveal };
     auto const classifyKind =
@@ -1617,18 +1628,20 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
 
     if (!setKind)
     {
-        JLOG(j_.warn()) << "RNG: acquired set " << hash
+        JLOG(j_.warn()) << "RNGFETCH: acquired set " << hash
                         << " has no recognizable RNG entries";
         return;
     }
     if (mixedKinds)
     {
-        JLOG(j_.warn()) << "RNG: acquired set " << hash
+        JLOG(j_.warn()) << "RNGFETCH: acquired set " << hash
                         << " mixes commit/reveal entries; rejecting";
         return;
     }
 
     bool const isCommitSet = *setKind == RngSetKind::commit;
+    JLOG(j_.debug()) << "RNGFETCH: classified hash=" << hash
+                     << " kind=" << (isCommitSet ? "commitSet" : "entropySet");
 
     // Union-merge: diff against our local set and add any entries we're
     // missing. Unlike normal txSets which use avalanche voting to resolve
@@ -1705,15 +1718,30 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
                                 << " in acquired set (" << sourceTag << ")";
                 return;
             }
+            auto parsedProof = deserializeProof(proofBlob);
+            if (!parsedProof)
+            {
+                JLOG(j_.warn())
+                    << "RNG: rejecting malformed proof from " << nodeId
+                    << " in acquired set (" << sourceTag << ")";
+                return;
+            }
 
             auto const seq = stx->getFieldU32(sfLedgerSequence);
-            auto const closed = ledgerMaster_.getClosedLedger();
-            if (!closed || seq != (closed->info().seq + 1))
+            auto const expectedSeq = [&]() -> std::optional<LedgerIndex> {
+                if (rngRoundSeq_)
+                    return rngRoundSeq_;
+                if (auto const closed = ledgerMaster_.getClosedLedger())
+                    return closed->info().seq + 1;
+                return std::nullopt;
+            }();
+            if (expectedSeq && seq != *expectedSeq)
             {
                 JLOG(j_.debug())
                     << "RNG: rejecting out-of-round entry from " << nodeId
                     << " in acquired set (" << sourceTag << "), seq=" << seq
-                    << " expected=" << (closed ? (closed->info().seq + 1) : 0);
+                    << " expected=" << *expectedSeq
+                    << (rngRoundSeq_ ? " (active-round)" : " (closed+1)");
                 return;
             }
 
@@ -1751,6 +1779,22 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
 
             pendingData[nodeId] = digest;
             nodeIdToKey_.insert_or_assign(nodeId, pubKey);
+            // Preserve fetched proofs so any subsequent local rebuild emits
+            // byte-identical SHAMap leaves for these entries.
+            if (isCommitSet)
+            {
+                if (parsedProof->proposeSeq == 0)
+                    commitProofs_.insert_or_assign(nodeId, *parsedProof);
+                else
+                    JLOG(j_.debug()) << "RNG: commit proof from " << nodeId
+                                     << " has non-zero proposeSeq="
+                                     << parsedProof->proposeSeq
+                                     << "; not caching for commitSet rebuild";
+            }
+            else
+            {
+                proposalProofs_.insert_or_assign(nodeId, *parsedProof);
+            }
             ++merged;
 
             JLOG(j_.trace())
@@ -1786,7 +1830,7 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
             });
     }
 
-    JLOG(j_.info()) << "RNG: merged " << merged << " entries from "
+    JLOG(j_.info()) << "RNGFETCH: merged " << merged << " entries from "
                     << (isCommitSet ? "commitSet" : "entropySet")
                     << " hash=" << hash;
 }
@@ -1794,30 +1838,66 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
 void
 RCLConsensus::Adaptor::fetchRngSetIfNeeded(std::optional<uint256> const& hash)
 {
-    if (!hash || *hash == uint256{})
+    if (!hash)
+    {
+        JLOG(j_.trace()) << "RNGFETCH: skip reason=no-hash";
         return;
+    }
+    if (*hash == uint256{})
+    {
+        JLOG(j_.trace()) << "RNGFETCH: skip reason=zero-hash";
+        return;
+    }
 
     // Check if we already have this set
     if (commitSetMap_ && commitSetMap_->getHash().as_uint256() == *hash)
+    {
+        JLOG(j_.debug()) << "RNGFETCH: skip reason=already-local-commit hash="
+                         << *hash;
         return;
+    }
     if (entropySetMap_ && entropySetMap_->getHash().as_uint256() == *hash)
+    {
+        JLOG(j_.debug()) << "RNGFETCH: skip reason=already-local-entropy hash="
+                         << *hash;
         return;
+    }
 
     // Check if already fetching
     if (pendingRngFetches_.count(*hash))
+    {
+        // Keep polling InboundTransactions while pending, so we can merge as
+        // soon as the asynchronous fetch completes.
+        if (auto existing = inboundTransactions_.getSet(*hash, false))
+        {
+            JLOG(j_.debug())
+                << "RNGFETCH: pending fetch completed, merging hash=" << *hash;
+            handleAcquiredRngSet(existing);
+        }
+        else
+        {
+            JLOG(j_.debug()) << "RNGFETCH: still pending hash=" << *hash;
+        }
         return;
+    }
 
     // Check if InboundTransactions already has it
     if (auto existing = inboundTransactions_.getSet(*hash, false))
     {
+        JLOG(j_.debug()) << "RNGFETCH: local cache hit, merging hash=" << *hash;
         handleAcquiredRngSet(existing);
         return;
     }
 
     // Trigger network fetch
-    JLOG(j_.debug()) << "RNG: triggering fetch for set " << *hash;
+    JLOG(j_.debug()) << "RNGFETCH: triggering network fetch hash=" << *hash;
     pendingRngFetches_.insert(*hash);
-    inboundTransactions_.getSet(*hash, true);
+    if (auto immediate = inboundTransactions_.getSet(*hash, true))
+    {
+        JLOG(j_.debug()) << "RNGFETCH: immediate fetch hit, merging hash="
+                         << *hash;
+        handleAcquiredRngSet(immediate);
+    }
 }
 
 void
@@ -1941,6 +2021,26 @@ RCLConsensus::Adaptor::harvestRngData(
         return;
     }
 
+    // RuntimeConfig: randomly drop RNG claims for testing
+    auto& rc = app_.getRuntimeConfig();
+    if (rc.active())
+    {
+        if (auto cfg = rc.getConfig("*"))
+        {
+            if (cfg->rngClaimDropPctX100 && *cfg->rngClaimDropPctX100 > 0)
+            {
+                static thread_local std::mt19937 rng{std::random_device{}()};
+                if (std::uniform_int_distribution<int>{0, 9999}(rng) <
+                    *cfg->rngClaimDropPctX100)
+                {
+                    JLOG(j_.warn())
+                        << "RNG: TESTING dropping claim from " << nodeId;
+                    return;
+                }
+            }
+        }
+    }
+
     // Store nodeId -> publicKey mapping for deterministic ordering
     nodeIdToKey_.insert_or_assign(nodeId, publicKey);
 
@@ -2058,6 +2158,35 @@ RCLConsensus::Adaptor::serializeProof(ProposalProof const& proof)
     s.addVL(proof.positionData.slice());
     s.addVL(Slice(proof.signature.data(), proof.signature.size()));
     return s.getData();
+}
+
+std::optional<RCLConsensus::Adaptor::ProposalProof>
+RCLConsensus::Adaptor::deserializeProof(Blob const& proofBlob)
+{
+    try
+    {
+        SerialIter sit(makeSlice(proofBlob));
+
+        ProposalProof proof;
+        proof.proposeSeq = sit.get32();
+        proof.closeTime = sit.get32();
+        proof.prevLedger = sit.get256();
+
+        auto const positionData = sit.getVL();
+        auto const signature = sit.getVL();
+
+        if (!sit.empty())
+            return std::nullopt;
+
+        proof.positionData =
+            Serializer(positionData.data(), positionData.size());
+        proof.signature = Buffer(signature.data(), signature.size());
+        return proof;
+    }
+    catch (std::exception const&)
+    {
+        return std::nullopt;
+    }
 }
 
 bool
