@@ -2730,26 +2730,23 @@ DEFINE_HOOK_FUNCTION(
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
+            // These keylet types are not yet implemented. Their
+            // corresponding amendments are not yet supported on the
+            // network. Each case needs a full implementation (see
+            // above cases for reference) before its amendment can be
+            // enabled.
+            // featureXChainBridge
             case keylet_code::BRIDGE:
             case keylet_code::XCHAIN_OWNED_CLAIM_ID:
-            case keylet_code::XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID: {
-                if (!applyCtx.view().rules().enabled(featureXChainBridge))
-                    return INVALID_ARGUMENT;
-            }
+            case keylet_code::XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID:
+            // featureMPTokensV1
             case keylet_code::MPTOKEN_ISSUANCE:
-            case keylet_code::MPTOKEN: {
-                if (!applyCtx.view().rules().enabled(featureMPTokensV1))
-                    return INVALID_ARGUMENT;
-            }
-            case keylet_code::CREDENTIAL: {
-                if (!applyCtx.view().rules().enabled(featureCredentials))
-                    return INVALID_ARGUMENT;
-            }
-            case keylet_code::PERMISSIONED_DOMAIN: {
-                if (!applyCtx.view().rules().enabled(
-                        featurePermissionedDomains))
-                    return INVALID_ARGUMENT;
-            }
+            case keylet_code::MPTOKEN:
+            // featureCredentials
+            case keylet_code::CREDENTIAL:
+            // featurePermissionedDomains
+            case keylet_code::PERMISSIONED_DOMAIN:
+                return INVALID_ARGUMENT;
         }
     }
     catch (std::exception& e)
