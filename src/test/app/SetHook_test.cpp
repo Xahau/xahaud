@@ -3854,6 +3854,227 @@ public:
                 txcount++;
             BEAST_EXPECT(txcount == 0);
         }
+
+        {
+            // Test batch transactions
+            /*
+            {
+            "TransactionType": "Batch",
+            "Account": "rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn",
+            "Flags": 65536,
+            "RawTransactions": [
+                {
+                    "RawTransaction": {
+                        "TransactionType": "AccountSet",
+                        "Flags": 1073741824,
+                        "Account": "rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn",
+                        "Sequence": 0,
+                        "Fee": "0",
+                        "SigningPubKey": ""
+                    }
+                },
+                {
+                    "RawTransaction": {
+                        "TransactionType": "Payment",
+                        "Flags": 1073741824,
+                        "Account": "rG1QQv2nh2gr7RCZ1P8YYcBUKCCN633jCn",
+                        "Destination": "rhLkGGNZdjSpnHJw4XAFw1Jy7PD8TqxoET",
+                        "Amount": "100000000",
+                        "Sequence": 0,
+                        "Fee": "0",
+                        "SigningPubKey": ""
+                    }
+                }
+            ]
+            }
+            */
+            TestHook hook = wasm[R"[test.hook](
+                #include <stdint.h>
+                extern int32_t _g(uint32_t, uint32_t);
+                extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+                extern int64_t rollback(uint32_t read_ptr, uint32_t read_len,
+                                        int64_t error_code);
+                extern int64_t emit(uint32_t, uint32_t, uint32_t, uint32_t);
+                extern int64_t etxn_reserve(uint32_t);
+                extern int64_t hook_account(uint32_t, uint32_t);
+                extern int64_t ledger_seq(void);
+                extern int64_t etxn_details(uint32_t, uint32_t);
+                extern int64_t etxn_fee_base(uint32_t, uint32_t);
+                extern int64_t trace(uint32_t mread_ptr, uint32_t mread_len, uint32_t dread_ptr,
+                                    uint32_t dread_len, uint32_t as_hex);
+
+                #define SBUF(x) (uint32_t) x, sizeof(x)
+                #define TRACEHEX(v)                                                            \
+                trace((uint32_t)(#v), (uint32_t)(sizeof(#v) - 1), (uint32_t)(v),               \
+                        (uint32_t)(sizeof(v)), 1);
+
+                // clang-format off
+                uint8_t txn[339] =
+                {
+                /* size, upto, field name               */
+                /*    3,    0, tt = Batch               */   0x12U, 0x00U, 0x50U,
+                /*    5,    3, flags                    */   0x22U, 0x00U, 0x01U, 0x00U, 0x00U,
+                /*    5,    8, sequence                 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    6,   13, firstledgersequence      */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    6,   19, lastledgersequence       */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    9,   25, fee                      */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   35,   34, signingpubkey            */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*   22,   69, account                  */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*    2,   91, rawtransactions          */   0xF0U, 0x1EU,
+                /*    2,   93,   .rawtransaction        */   0xE0U, 0x22U,
+                /*    3,   95,     .tt = AccountSet     */   0x12U, 0x00U, 0x03U,
+                /*    5,   98,     .flags               */   0x22U, 0x40U, 0x00U, 0x00U, 0x00U,
+                /*   22,  103,     .account             */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*    5,  125,     .sequence            */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    9,  130,     .fee                 */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    2,  139,     .signingpubkey       */   0x73U, 0x00U,
+                /*    3,  141,   .rawtransaction.end    */   0xE1U,
+                /*    2,  142,   .rawtransaction        */   0xE0U, 0x22U,
+                /*    3,  144,     .tt = Payment        */   0x12U, 0x00U, 0x00U,
+                /*    5,  147,     .flags               */   0x22U, 0x40U, 0x00U, 0x00U, 0x00U,
+                /*   22,  152,     .account             */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*   22,  174,     .destination         */   0x83U, 0x14U, 0x24U, 0xA4U, 0x65U, 0x17U, 0x16U, 0xD2U, 0x6EU, 0x97U, 0xDFU, 0xCCU, 0x3BU, 0x18U, 0xF3U, 0xEEU, 0xB0U, 0xC1U, 0x54U, 0x56U, 0x64U, 0x2EU,
+                /*    9,  196,     .amount              */   0x61U, 0x40U, 0x00U, 0x00U, 0x00U, 0x05U, 0xF5U, 0xE1U, 0x00U,
+                /*    5,  205,     .sequence            */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    9,  210,     .fee                 */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    2,  219,     .signingpubkey       */   0x73U, 0x00U,
+                /*    3,  221,   .rawtransaction.end    */   0xE1U,
+                /*    3,  222, .rawtransactions.end     */   0xF1U,
+                /*  116,  223, emit details             */ 
+                /*    0,  339,                          */ 
+                };
+                // clang-format on
+
+                // TX BUILDER
+                #define FLAGS_OUT (txn + 4U)
+                #define FLS_OUT (txn + 15U)
+                #define LLS_OUT (txn + 21U)
+                #define FEE_OUT (txn + 26U)
+                #define ACCOUNT_OUT (txn + 71U)
+                #define RAWTXS_0_RAWTX_FLAGS_OUT (txn + 99U)
+                #define RAWTXS_0_RAWTX_ACCOUNT_OUT (txn + 105U)
+                #define RAWTXS_0_RAWTX_SEQ_OUT (txn + 126U)
+                #define RAWTXS_0_RAWTX_FEE_OUT (txn + 131U)
+                #define RAWTXS_1_RAWTX_FLAGS_OUT (txn + 148U)
+                #define RAWTXS_1_RAWTX_ACCOUNT_OUT (txn + 154U)
+                #define RAWTXS_1_RAWTX_DEST_OUT (txn + 176U)
+                #define RAWTXS_1_RAWTX_AMOUNT_OUT (txn + 197U)
+                #define RAWTXS_1_RAWTX_SEQ_OUT (txn + 206U)
+                #define RAWTXS_1_RAWTX_FEE_OUT (txn + 211U)
+                #define EMIT_OUT (txn + 223U)
+
+                #define FLIP_ENDIAN_32(value)                                                  \
+                  (uint32_t)(((value & 0xFFU) << 24) | ((value & 0xFF00U) << 8) |              \
+                              ((value & 0xFF0000U) >> 8) | ((value & 0xFF000000U) >> 24))
+
+                #define SET_UINT32(ptr, value) *((uint32_t *)(ptr)) = FLIP_ENDIAN_32(value);
+
+                #define SET_NATIVE_AMOUNT(ptr, amount)                                         \
+                  do {                                                                         \
+                    uint8_t *b = (ptr);                                                        \
+                    *b++ = 0b01000000 + ((amount >> 56) & 0b00111111);                         \
+                    *b++ = (amount >> 48) & 0xFFU;                                             \
+                    *b++ = (amount >> 40) & 0xFFU;                                             \
+                    *b++ = (amount >> 32) & 0xFFU;                                             \
+                    *b++ = (amount >> 24) & 0xFFU;                                             \
+                    *b++ = (amount >> 16) & 0xFFU;                                             \
+                    *b++ = (amount >> 8) & 0xFFU;                                              \
+                    *b++ = (amount >> 0) & 0xFFU;                                              \
+                  } while (0)
+
+                #define SET_ACCOUNT(ptr_to, ptr_from)                                          \
+                  {                                                                            \
+                    unsigned char *buf_to = (unsigned char *)ptr_to;                           \
+                    unsigned char *buf_from = (unsigned char *)ptr_from;                       \
+                    *(uint64_t *)(buf_to + 0) = *(uint64_t *)(buf_from + 0);                   \
+                    *(uint64_t *)(buf_to + 8) = *(uint64_t *)(buf_from + 8);                   \
+                    *(uint32_t *)(buf_to + 16) = *(uint32_t *)(buf_from + 16);                 \
+                  }
+
+                #define PREPARE_TXN()                                                          \
+                  do {                                                                         \
+                    etxn_reserve(1);                                                           \
+                    uint32_t fls = (uint32_t)ledger_seq() + 1;                                 \
+                    SET_UINT32(FLS_OUT, fls);                                                  \
+                    SET_UINT32(LLS_OUT, fls + 4);                                              \
+                    hook_account(ACCOUNT_OUT, 20);                                             \
+                    etxn_details(EMIT_OUT, 116U);                                              \
+                    int64_t fee = etxn_fee_base(SBUF(txn));                                    \
+                    SET_NATIVE_AMOUNT(FEE_OUT, fee);                                           \
+                    TRACEHEX(txn);                                                             \
+                  } while (0)
+
+                /*
+                SET_UINT32(RAWTXS_0_RAWTX_FLAGS_OUT, 0);
+                SET_UINT32(RAWTXS_1_RAWTX_FLAGS_OUT, 0);
+                SET_NATIVE_AMOUNT(RAWTXS_0_RAWTX_FEE_OUT, 100);
+                SET_NATIVE_AMOUNT(RAWTXS_1_RAWTX_AMOUNT_OUT, 100);
+                SET_NATIVE_AMOUNT(RAWTXS_1_RAWTX_FEE_OUT, 100);
+                uint8_t account_buffer[20];
+                SET_ACCOUNT(RAWTXS_0_RAWTX_ACCOUNT_OUT, account_buffer);
+                SET_ACCOUNT(RAWTXS_1_RAWTX_ACCOUNT_OUT, account_buffer);
+                SET_ACCOUNT(RAWTXS_1_RAWTX_DEST_OUT, account_buffer);
+                PREPARE_TXN();
+                uint8_t emithash[32];
+                int64_t emit_result = emit(SBUF(emithash), SBUF(txn));
+                */
+                int64_t hook(uint32_t reserved) {
+                    _g(1, 1);
+                    etxn_reserve(1);
+                    hook_account(RAWTXS_0_RAWTX_ACCOUNT_OUT, 20);
+                    hook_account(RAWTXS_1_RAWTX_ACCOUNT_OUT, 20);
+                    SET_NATIVE_AMOUNT(RAWTXS_1_RAWTX_AMOUNT_OUT, 1000000000);
+                    PREPARE_TXN();
+                    uint8_t emithash[32];
+                    int64_t emit_result = emit(emithash, 32, txn, sizeof(txn));
+                    if (emit_result == 32) {
+                        return accept(0, 0, 0);
+                    } else {
+                        return rollback(0, 0, emit_result);
+                    }
+                }
+            )[test.hook]"];
+
+            /**
+                TODO:
+                For EmittedTxn, the Sequence must be 0, but for InnerTxn within
+               a Batch, the Sequence must be non-zero.
+
+                If we go with the former, we need to ensure that things like
+               Escrow use the TxID instead of the Sequence to determine the
+               object ID.
+
+                If we go with the latter, we should investigate what kind of
+               issues might arise.
+            */
+            // Env env{
+            //     *this,
+            //     envconfig(),
+            //     features,
+            //     nullptr,
+            //     beast::severities::kTrace};
+            // env.fund(XRP(10000), alice, bob);
+            // env.close();
+
+            // env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}},
+            // 0),
+            //     M("set emit batch"),
+            //     HSFEE);
+            // env.close();
+
+            // // invoke the hook
+            // env(pay(bob, alice, XRP(1)), M("test emit batch"), fee(XRP(1)));
+            // env.close();
+
+            // env.close();
+            // auto txnItr = env.closed()->txs;
+            // int txnCount = 0;
+            // for (auto& i : txnItr)
+            // {
+            //     txnCount++;
+            // }
+            // BEAST_EXPECT(txnCount == 3);  // 1 Outer + 2 Inner
+        }
     }
 
     void
