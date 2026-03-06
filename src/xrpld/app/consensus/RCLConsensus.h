@@ -105,6 +105,7 @@ class RCLConsensus
         // Ephemeral entropy secret (in-memory only, crash = non-revealer)
         uint256 myEntropySecret_;
         bool entropyFailed_ = false;
+        bool rngEnabledThisRound_ = false;
 
         // Real SHAMaps for the current round (unbacked, ephemeral)
         std::shared_ptr<SHAMap> commitSetMap_;
@@ -266,6 +267,15 @@ class RCLConsensus
         /** Check if we have any reveals at all */
         bool
         hasAnyReveals() const;
+
+        /** Whether ConsensusEntropy is enabled for the current round.
+
+            Latched from the previous ledger's rules at round start so the
+            generic consensus engine can skip RNG-specific waiting paths when
+            the amendment is inactive.
+        */
+        bool
+        rngEnabled() const;
 
         /** Whether to send an explicit final proposal (seq=4 style). */
         bool

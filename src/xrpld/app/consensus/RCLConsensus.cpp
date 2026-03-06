@@ -1150,6 +1150,12 @@ RCLConsensus::Adaptor::preStartRound(
     RCLCxLedger const& prevLgr,
     hash_set<NodeID> const& nowTrusted)
 {
+    rngEnabledThisRound_ =
+        prevLgr.ledger_->rules().enabled(featureConsensusEntropy);
+
+    JLOG(j_.debug()) << "RNGGATE: preStartRound prevSeq=" << prevLgr.seq()
+                     << " rulesEnabled=" << rngEnabledThisRound_;
+
     // We have a key, we do not want out of sync validations after a restart
     // and are not amendment blocked.
     validating_ = validatorKeys_.keys &&
@@ -1382,6 +1388,12 @@ bool
 RCLConsensus::Adaptor::hasAnyReveals() const
 {
     return !pendingReveals_.empty();
+}
+
+bool
+RCLConsensus::Adaptor::rngEnabled() const
+{
+    return rngEnabledThisRound_;
 }
 
 bool
@@ -1676,6 +1688,11 @@ RCLConsensus::Adaptor::clearRngState()
     expectedProposers_.clear();
     commitProofs_.clear();
     proposalProofs_.clear();
+    // Keep the round-level enable latch intact here. Consensus::startRound()
+    // calls preStartRound() first to snapshot whether RNG is enabled for the
+    // upcoming round, then immediately clears per-round working state.
+    // Resetting rngEnabledThisRound_ here would wipe that snapshot before
+    // phaseEstablish() can consult it.
 }
 
 void
