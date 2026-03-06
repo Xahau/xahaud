@@ -285,7 +285,7 @@ struct Peer
 
     // RNG simulation state (for CSF RNG consensus hooks)
     hash_set<NodeID_t> unlNodes_;
-    hash_set<NodeID_t> expectedProposers_;
+    hash_set<NodeID_t> likelyParticipants_;
     hash_map<NodeID_t, uint256> pendingCommits_;
     hash_map<NodeID_t, uint256> pendingReveals_;
     hash_map<NodeID_t, NodeKey_t> nodeKeys_;
@@ -726,7 +726,7 @@ struct Peer
         pendingCommits_.clear();
         pendingReveals_.clear();
         nodeKeys_.clear();
-        expectedProposers_.clear();
+        likelyParticipants_.clear();
         myEntropySecret_.zero();
         entropyFailed_ = false;
     }
@@ -752,6 +752,8 @@ struct Peer
 
         if (!proposers.empty())
         {
+            // Recent proposers are only a liveness hint. Entropy quorum stays
+            // fixed to 80% of the active trusted set for the round.
             hash_set<NodeID_t> filtered;
             for (auto const& nid : proposers)
             {
@@ -762,13 +764,13 @@ struct Peer
             }
             if (includeSelf)
                 filtered.insert(id);
-            expectedProposers_ = std::move(filtered);
+            likelyParticipants_ = std::move(filtered);
             return;
         }
 
-        expectedProposers_.clear();
+        likelyParticipants_.clear();
         if (!unlNodes_.empty())
-            expectedProposers_ = unlNodes_;
+            likelyParticipants_ = unlNodes_;
     }
 
     std::size_t
@@ -777,9 +779,7 @@ struct Peer
         if (!enableRngConsensus_)
             return (std::numeric_limits<std::size_t>::max)() / 4;
 
-        auto const base = expectedProposers_.empty()
-            ? unlNodes_.size()
-            : expectedProposers_.size();
+        auto const base = unlNodes_.size();
         return calculateQuorumThreshold(base == 0 ? 1 : base);
     }
 
@@ -794,16 +794,6 @@ struct Peer
     {
         if (!enableRngConsensus_)
             return false;
-
-        if (!expectedProposers_.empty())
-        {
-            for (auto const& nid : expectedProposers_)
-            {
-                if (pendingCommits_.find(nid) == pendingCommits_.end())
-                    return false;
-            }
-            return true;
-        }
 
         return pendingCommits_.size() >= quorumThreshold();
     }

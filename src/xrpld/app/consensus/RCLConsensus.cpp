@@ -243,11 +243,11 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
     auto const posSlice = positionData.slice();
     prop.set_currenttxhash(posSlice.data(), posSlice.size());
 
-    JLOG(j_.info()) << "RNG: propose seq=" << proposal.proposeSeq()
-                    << " wireBytes=" << posSlice.size() << " commit="
-                    << (proposal.position().myCommitment ? "yes" : "no")
-                    << " reveal="
-                    << (proposal.position().myReveal ? "yes" : "no");
+    JLOG(j_.debug()) << "RNG: propose seq=" << proposal.proposeSeq()
+                     << " wireBytes=" << posSlice.size() << " commit="
+                     << (proposal.position().myCommitment ? "yes" : "no")
+                     << " reveal="
+                     << (proposal.position().myReveal ? "yes" : "no");
 
     // Self-seed our own reveal so we count toward reveal quorum
     // (harvestRngData only sees peer proposals, not our own).
@@ -257,7 +257,7 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
         pendingReveals_[ownNodeId] = *proposal.position().myReveal;
         nodeIdToKey_.insert_or_assign(
             ownNodeId, validatorKeys_.keys->publicKey);
-        JLOG(j_.debug()) << "RNG: self-seeded reveal for " << ownNodeId;
+        JLOG(j_.trace()) << "RNG: self-seeded reveal for " << ownNodeId;
     }
 
     prop.set_previousledger(
@@ -1153,7 +1153,7 @@ RCLConsensus::Adaptor::preStartRound(
     rngEnabledThisRound_ =
         prevLgr.ledger_->rules().enabled(featureConsensusEntropy);
 
-    JLOG(j_.debug()) << "RNGGATE: preStartRound prevSeq=" << prevLgr.seq()
+    JLOG(j_.trace()) << "RNGGATE: preStartRound prevSeq=" << prevLgr.seq()
                      << " rulesEnabled=" << rngEnabledThisRound_;
 
     // We have a key, we do not want out of sync validations after a restart
@@ -1260,15 +1260,10 @@ RCLConsensus::Adaptor::updateOperatingMode(std::size_t const positions) const
 std::size_t
 RCLConsensus::Adaptor::quorumThreshold() const
 {
-    // Prefer expected proposers (recent proposers ∩ UNL) — this
-    // adapts to actual network conditions rather than relying on
-    // the potentially stale UNL Report.  Falls back to full
-    // UNL Report for cold boot (first round).
-    //
-    // Round 1: threshold based on full UNL (conservative)
-    // Round 2+: threshold based on who actually proposed last round
-    auto const base = expectedProposers_.empty() ? unlReportNodeIds_.size()
-                                                 : expectedProposers_.size();
+    // Non-zero entropy is only allowed once a fixed 80% quorum of the active
+    // UNL snapshot has committed. Recent proposers are useful for liveness
+    // heuristics, but they do not lower this floor.
+    auto const base = unlReportNodeIds_.size();
     if (base == 0)
         return 1;  // safety: need at least one commit
     return calculateQuorumThreshold(base);
@@ -1282,8 +1277,9 @@ RCLConsensus::Adaptor::setExpectedProposers(hash_set<NodeID> proposers)
 
     if (!proposers.empty())
     {
-        // Intersect with active UNL — only expect commits from
-        // validators we trust.  Non-UNL proposers are ignored.
+        // Intersect recent proposers with the active UNL. This set is used as
+        // a liveness hint only; commit quorum itself remains fixed to the
+        // active UNL snapshot for the round.
         hash_set<NodeID> filtered;
         for (auto const& id : proposers)
         {
@@ -1294,27 +1290,27 @@ RCLConsensus::Adaptor::setExpectedProposers(hash_set<NodeID> proposers)
         }
         if (includeSelf)
             filtered.insert(validatorKeys_.nodeID);
-        expectedProposers_ = std::move(filtered);
-        JLOG(j_.debug()) << "RNG: expectedProposers from recent proposers: "
-                         << expectedProposers_.size() << " (filtered from "
+        likelyParticipants_ = std::move(filtered);
+        JLOG(j_.trace()) << "RNG: likelyParticipants from recent proposers: "
+                         << likelyParticipants_.size() << " (filtered from "
                          << proposers.size() << ", includeSelf=" << includeSelf
                          << ")";
         return;
     }
 
-    // First round (no previous proposers): fall back to UNL Report.
-    // cacheUNLReport() was called just before this, so it's populated.
+    // First round (or no recent data): fall back to the active UNL snapshot as
+    // our best guess for who may still contribute before timeout.
     if (!unlReportNodeIds_.empty())
     {
-        expectedProposers_ = unlReportNodeIds_;
-        JLOG(j_.debug()) << "RNG: expectedProposers from UNL Report: "
-                         << expectedProposers_.size();
+        likelyParticipants_ = unlReportNodeIds_;
+        JLOG(j_.trace()) << "RNG: likelyParticipants from active UNL: "
+                         << likelyParticipants_.size();
         return;
     }
 
     // No data at all (shouldn't happen — cacheUNLReport falls back to
-    // trusted keys).  Leave empty → hasQuorumOfCommits uses 80% fallback.
-    JLOG(j_.warn()) << "RNG: no expectedProposers available";
+    // trusted keys). Leave empty; diagnostics will show no liveness hint.
+    JLOG(j_.warn()) << "RNG: no likelyParticipants available";
 }
 
 std::size_t
@@ -1332,39 +1328,19 @@ RCLConsensus::Adaptor::pendingRevealCount() const
 std::size_t
 RCLConsensus::Adaptor::expectedProposerCount() const
 {
-    return expectedProposers_.size();
+    return likelyParticipants_.size();
 }
 
 bool
 RCLConsensus::Adaptor::hasQuorumOfCommits() const
 {
-    if (!expectedProposers_.empty())
-    {
-        // Wait for commits from all expected proposers.
-        // rngPIPELINE_TIMEOUT is the safety valve for dead nodes.
-        for (auto const& id : expectedProposers_)
-        {
-            if (pendingCommits_.find(id) == pendingCommits_.end())
-            {
-                JLOG(j_.debug())
-                    << "RNG: hasQuorumOfCommits? " << pendingCommits_.size()
-                    << "/" << expectedProposers_.size() << " -> no";
-                return false;
-            }
-        }
-        JLOG(j_.debug()) << "RNG: hasQuorumOfCommits? "
-                         << pendingCommits_.size() << "/"
-                         << expectedProposers_.size()
-                         << " -> YES (all expected)";
-        return true;
-    }
-
-    // Fallback: 80% of active UNL (cold boot, no expected set)
     auto threshold = quorumThreshold();
     bool result = pendingCommits_.size() >= threshold;
-    JLOG(j_.debug()) << "RNG: hasQuorumOfCommits? " << pendingCommits_.size()
+    JLOG(j_.trace()) << "RNG: hasQuorumOfCommits? " << pendingCommits_.size()
                      << "/" << threshold << " -> " << (result ? "YES" : "no")
-                     << " (80% fallback)";
+                     << " (activeUNL=" << unlReportNodeIds_.size()
+                     << ", likelyParticipants=" << likelyParticipants_.size()
+                     << ")";
     return result;
 }
 
@@ -1379,7 +1355,7 @@ RCLConsensus::Adaptor::hasMinimumReveals() const
     // between commit and reveal.
     auto const expected = pendingCommits_.size();
     bool result = pendingReveals_.size() >= expected;
-    JLOG(j_.debug()) << "RNG: hasMinimumReveals? " << pendingReveals_.size()
+    JLOG(j_.trace()) << "RNG: hasMinimumReveals? " << pendingReveals_.size()
                      << "/" << expected << " -> " << (result ? "YES" : "no");
     return result;
 }
@@ -1685,7 +1661,7 @@ RCLConsensus::Adaptor::clearRngState()
     rngRoundSeq_.reset();
     pendingRngFetches_.clear();
     unlReportNodeIds_.clear();
-    expectedProposers_.clear();
+    likelyParticipants_.clear();
     commitProofs_.clear();
     proposalProofs_.clear();
     // Keep the round-level enable latch intact here. Consensus::startRound()
@@ -1738,7 +1714,7 @@ RCLConsensus::Adaptor::cacheUNLReport()
     else
         unlReportNodeIds_.erase(validatorKeys_.nodeID);
 
-    JLOG(j_.debug()) << "RNG: cacheUNLReport size=" << unlReportNodeIds_.size();
+    JLOG(j_.trace()) << "RNG: cacheUNLReport size=" << unlReportNodeIds_.size();
 }
 
 bool
@@ -2038,13 +2014,13 @@ RCLConsensus::Adaptor::fetchRngSetIfNeeded(std::optional<uint256> const& hash)
     // Check if we already have this set
     if (commitSetMap_ && commitSetMap_->getHash().as_uint256() == *hash)
     {
-        JLOG(j_.debug()) << "RNGFETCH: skip reason=already-local-commit hash="
+        JLOG(j_.trace()) << "RNGFETCH: skip reason=already-local-commit hash="
                          << *hash;
         return;
     }
     if (entropySetMap_ && entropySetMap_->getHash().as_uint256() == *hash)
     {
-        JLOG(j_.debug()) << "RNGFETCH: skip reason=already-local-entropy hash="
+        JLOG(j_.trace()) << "RNGFETCH: skip reason=already-local-entropy hash="
                          << *hash;
         return;
     }
@@ -2224,7 +2200,7 @@ RCLConsensus::Adaptor::harvestRngData(
     uint256 const& prevLedger,
     Slice const& signature)
 {
-    JLOG(j_.debug()) << "RNG: harvestRngData from " << nodeId
+    JLOG(j_.trace()) << "RNG: harvestRngData from " << nodeId
                      << " commit=" << (position.myCommitment ? "yes" : "no")
                      << " reveal=" << (position.myReveal ? "yes" : "no");
 
@@ -2232,7 +2208,7 @@ RCLConsensus::Adaptor::harvestRngData(
     // Reject data from validators not in the active UNL
     if (!isUNLReportMember(nodeId))
     {
-        JLOG(j_.debug()) << "RNG: rejecting data from non-UNL validator "
+        JLOG(j_.trace()) << "RNG: rejecting data from non-UNL validator "
                          << nodeId;
         return;
     }

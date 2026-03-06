@@ -1175,6 +1175,52 @@ public:
     }
 
     void
+    testRngPersistentLossDoesNotShrinkQuorum()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG persistent loss does not shrink quorum");
+
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup majority = sim.createGroup(2);
+        PeerGroup isolated = sim.createGroup(1);
+        PeerGroup network = majority + isolated;
+
+        for (Peer* peer : network)
+            peer->enableRngConsensus_ = true;
+
+        network.trust(network);
+        network.connect(
+            network, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        // Seed recent-proposer hints from a fully connected round.
+        sim.run(1);
+
+        // Then isolate one validator and run multiple degraded rounds. Commit
+        // quorum must remain fixed to the active trusted set (3 -> threshold 3)
+        // rather than silently shrinking to the 2 surviving peers.
+        majority.disconnect(isolated);
+        isolated.disconnect(majority);
+        majority.connect(
+            majority, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        sim.run(2);
+
+        if (BEAST_EXPECT(sim.synchronized(majority)))
+        {
+            for (Peer const* peer : majority)
+            {
+                BEAST_EXPECT(peer->lastEntropyWasFallback_);
+                BEAST_EXPECT(peer->lastEntropyDigest_ == uint256{});
+                BEAST_EXPECT(peer->lastEntropyCount_ == 0);
+            }
+        }
+    }
+
+    void
     testRngTimeoutWithPartialQuorum()
     {
         using namespace csf;
@@ -1284,8 +1330,8 @@ public:
         proposers.insert(validator->id);
         observer->setExpectedProposers(std::move(proposers));
 
-        BEAST_EXPECT(observer->expectedProposers_.count(observer->id) == 0);
-        BEAST_EXPECT(observer->expectedProposers_.count(validator->id) == 1);
+        BEAST_EXPECT(observer->likelyParticipants_.count(observer->id) == 0);
+        BEAST_EXPECT(observer->likelyParticipants_.count(validator->id) == 1);
 
         observer->pendingCommits_[validator->id] = sha512Half(42u);
         BEAST_EXPECT(observer->hasQuorumOfCommits());
@@ -1527,6 +1573,7 @@ public:
         testRngCommitRevealConverges();
         testRngCommitRevealConvergesWithTransactions();
         testRngImpossibleQuorumFallback();
+        testRngPersistentLossDoesNotShrinkQuorum();
         testRngTimeoutWithPartialQuorum();
         testRngCommitSetConflictForcesFallback();
         testRngObserverDoesNotExpectSelfCommit();

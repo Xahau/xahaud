@@ -118,9 +118,11 @@ class RCLConsensus
         // Cached set of NodeIDs from UNL Report (or fallback UNL)
         hash_set<NodeID> unlReportNodeIds_;
 
-        // Expected proposers for commit quorum — derived from last round's
-        // actual proposers (best signal), falling back to UNL Report.
-        hash_set<NodeID> expectedProposers_;
+        // Recent proposers from the prior round, intersected with the active
+        // UNL. This is a liveness hint only: it helps diagnostics and bounded
+        // waiting decisions, but it must not redefine the fixed entropy quorum
+        // for the round.
+        hash_set<NodeID> likelyParticipants_;
 
         /** Proof data from a proposal signature, for embedding in SHAMap
             entries. Contains everything needed to independently verify
@@ -234,12 +236,20 @@ class RCLConsensus
 
         // --- RNG Helper Methods ---
 
-        /** Get the quorum threshold (80% of trusted validators) */
+        /** Fixed commit quorum for non-zero entropy.
+
+            This is always 80% of the active UNL snapshot for the round
+            (rounded up). Recent proposers do not change this threshold.
+        */
         std::size_t
         quorumThreshold() const;
 
-        /** Set expected proposers for this round's commit quorum.
-            Cascade: recent proposers > UNL Report > (empty = 80% fallback).
+        /** Cache likely participants for this round's wait heuristics.
+
+            Recent proposers are the best hint for who is actually online, so
+            we retain them for diagnostics and "is it worth waiting longer?"
+            decisions. This set does not change the quorum required for
+            non-zero entropy.
         */
         void
         setExpectedProposers(hash_set<NodeID> proposers);
@@ -252,11 +262,11 @@ class RCLConsensus
         std::size_t
         pendingRevealCount() const;
 
-        /** Number of expected proposers this round (for diagnostics) */
+        /** Number of likely participants this round (diagnostics only) */
         std::size_t
         expectedProposerCount() const;
 
-        /** Check if we have quorum of commits */
+        /** Check if fixed commit quorum has been reached */
         bool
         hasQuorumOfCommits() const;
 

@@ -782,7 +782,9 @@ Consensus<Adaptor>::startRoundInternal(
         // onClose only caches for proposing validators, so observers
         // would otherwise have an empty set and reject all RNG data.
         adaptor_.cacheUNLReport();
-        // Set expected proposers: recent proposers > UNL Report > 80% fallback
+        // Cache likely participants for liveness diagnostics and bounded
+        // waiting. This must not change the fixed entropy quorum for the
+        // round, which stays tied to the active UNL snapshot.
         adaptor_.setExpectedProposers(std::move(lastProposers));
     }
 
@@ -918,7 +920,7 @@ Consensus<Adaptor>::peerProposalInternal(
                           pp.signature());
                   })
     {
-        JLOG(j_.debug()) << "RNG: peerProposal from " << peerID << " commit="
+        JLOG(j_.trace()) << "RNG: peerProposal from " << peerID << " commit="
                          << (newPeerProp.position().myCommitment ? "yes" : "no")
                          << " reveal="
                          << (newPeerProp.position().myReveal ? "yes" : "no");
@@ -957,7 +959,7 @@ Consensus<Adaptor>::peerProposalInternal(
             {
                 if (newPeerProp.position().commitSetHash)
                 {
-                    JLOG(j_.debug())
+                    JLOG(j_.trace())
                         << "RNGFETCH: consider commitSet hash="
                         << *newPeerProp.position().commitSetHash << " state="
                         << (estState_ == EstablishState::ConvergingCommit
@@ -969,7 +971,7 @@ Consensus<Adaptor>::peerProposalInternal(
             }
             else if (newPeerProp.position().commitSetHash)
             {
-                JLOG(j_.debug()) << "RNGFETCH: defer commitSet hash="
+                JLOG(j_.trace()) << "RNGFETCH: defer commitSet hash="
                                  << *newPeerProp.position().commitSetHash
                                  << " reason=state ConvergingTx";
             }
@@ -978,7 +980,7 @@ Consensus<Adaptor>::peerProposalInternal(
             {
                 if (newPeerProp.position().entropySetHash)
                 {
-                    JLOG(j_.debug()) << "RNGFETCH: consider entropySet hash="
+                    JLOG(j_.trace()) << "RNGFETCH: consider entropySet hash="
                                      << *newPeerProp.position().entropySetHash
                                      << " state=ConvergingReveal";
                 }
@@ -987,7 +989,7 @@ Consensus<Adaptor>::peerProposalInternal(
             }
             else if (newPeerProp.position().entropySetHash)
             {
-                JLOG(j_.debug()) << "RNGFETCH: defer entropySet hash="
+                JLOG(j_.trace()) << "RNGFETCH: defer entropySet hash="
                                  << *newPeerProp.position().entropySetHash
                                  << " reason=state not ConvergingReveal";
             }
@@ -1563,7 +1565,7 @@ Consensus<Adaptor>::phaseEstablish(
     {
         CLOG(clog) << "ledgerMIN_CONSENSUS not reached: "
                    << parms.ledgerMIN_CONSENSUS.count() << "ms. ";
-        JLOG(j_.debug()) << "STALLDIAG: establish wait ledgerMIN_CONSENSUS"
+        JLOG(j_.trace()) << "STALLDIAG: establish wait ledgerMIN_CONSENSUS"
                          << " roundMs=" << result_->roundTime.read().count()
                          << " minMs=" << parms.ledgerMIN_CONSENSUS.count()
                          << " peerPositions=" << currPeerPositions_.size()
@@ -1637,7 +1639,7 @@ Consensus<Adaptor>::phaseEstablish(
         if constexpr (requires(Adaptor& a) { a.rngEnabled(); })
             rngEnabled = adaptor_.rngEnabled();
 
-        JLOG(j_.debug()) << "RNGGATE: phaseEstablish prevSeq="
+        JLOG(j_.trace()) << "RNGGATE: phaseEstablish prevSeq="
                          << previousLedger_.seq()
                          << " rngEnabled=" << (rngEnabled ? "yes" : "no")
                          << " estState=" << static_cast<int>(estState_)
@@ -1664,7 +1666,7 @@ Consensus<Adaptor>::phaseEstablish(
             auto logRngDiag = [&](char const* reason) {
                 auto const ourPos = result_->position.position();
                 auto const participants = currPeerPositions_.size() + 1;
-                JLOG(j_.info())
+                JLOG(j_.debug())
                     << "STALLDIAG: " << reason << " state=" << estStateName()
                     << " phase=" << to_string(phase_)
                     << " mode=" << to_string(mode_.get())
@@ -1683,7 +1685,7 @@ Consensus<Adaptor>::phaseEstablish(
                                   p.commitSetHash;
                               })
                 {
-                    JLOG(j_.info())
+                    JLOG(j_.debug())
                         << "STALLDIAG: sidecar"
                         << " commitSetHash="
                         << (ourPos.commitSetHash
@@ -1712,7 +1714,7 @@ Consensus<Adaptor>::phaseEstablish(
                     auto const minReveals = adaptor_.hasMinimumReveals();
                     auto const anyReveals = adaptor_.hasAnyReveals();
                     std::optional<std::size_t> reveals;
-                    std::optional<std::size_t> expected;
+                    std::optional<std::size_t> likelyParticipants;
                     if constexpr (requires(Adaptor& a) {
                                       a.pendingRevealCount();
                                   })
@@ -1720,9 +1722,9 @@ Consensus<Adaptor>::phaseEstablish(
                     if constexpr (requires(Adaptor& a) {
                                       a.expectedProposerCount();
                                   })
-                        expected = adaptor_.expectedProposerCount();
+                        likelyParticipants = adaptor_.expectedProposerCount();
 
-                    JLOG(j_.info())
+                    JLOG(j_.debug())
                         << "STALLDIAG: rng-counters"
                         << " commits=" << commits << " quorum=" << quorum
                         << " commitQuorum=" << (commitQuorum ? "yes" : "no")
@@ -1731,9 +1733,10 @@ Consensus<Adaptor>::phaseEstablish(
                                     : std::string{"n/a"})
                         << " minReveals=" << (minReveals ? "yes" : "no")
                         << " anyReveals=" << (anyReveals ? "yes" : "no")
-                        << " expectedProposers="
-                        << (expected ? std::to_string(*expected)
-                                     : std::string{"n/a"});
+                        << " likelyParticipants="
+                        << (likelyParticipants
+                                ? std::to_string(*likelyParticipants)
+                                : std::string{"n/a"});
                 }
             };
             auto publishEntropySet = [&]() {
@@ -1768,13 +1771,16 @@ Consensus<Adaptor>::phaseEstablish(
                 JLOG(j_.debug()) << "RNG: built entropySet";
             };
 
-            JLOG(j_.debug()) << "RNG: phaseEstablish estState="
+            JLOG(j_.trace()) << "RNG: phaseEstablish estState="
                              << static_cast<int>(estState_);
 
             if (estState_ == EstablishState::ConvergingTx)
             {
-                if (adaptor_.hasQuorumOfCommits())  // all expected proposers
-                                                    // (80% fallback)
+                // Commit quorum is fixed to 80% of the active UNL snapshot for
+                // the round. We move immediately once that floor is met;
+                // recent-proposer tracking is only for deciding whether more
+                // waiting is worthwhile.
+                if (adaptor_.hasQuorumOfCommits())
                 {
                     auto commitSetHash = adaptor_.buildCommitSet(buildSeq);
 
@@ -1808,9 +1814,10 @@ Consensus<Adaptor>::phaseEstablish(
                 //
                 // However, if we've already converged on the txSet (which we
                 // have — haveConsensus() passed above) and there aren't enough
-                // participants to ever reach quorum, skip immediately.  With
-                // 3 nodes and quorum=3, losing one node means 2/3 commits
-                // forever — waiting 3s per round just delays recovery.
+                // currently participating validators to ever reach the fixed
+                // UNL quorum, skip immediately. With 3 active UNL validators
+                // and quorum=3, losing one node means 2/3 commits forever —
+                // waiting 3s per round just delays recovery.
                 //
                 // NOTE: Late-joining nodes (e.g. restarting after a crash)
                 // cannot help here.  They enter the round as proposing=false
@@ -1842,10 +1849,10 @@ Consensus<Adaptor>::phaseEstablish(
                             return;  // Wait for more commits
                         }
 
-                        // Timeout waiting for all expected proposers.
-                        // If we still have quorum (80% of UNL), proceed
-                        // with what we have — the SHAMap merge handles
-                        // any fuzziness for this transition round.
+                        // Timeout waiting for additional likely participants.
+                        // If we already have the fixed UNL quorum, proceed
+                        // with what we have — the SHAMap merge handles any
+                        // remaining straggler fuzz for this transition round.
                         auto const commits = adaptor_.pendingCommitCount();
                         auto const quorum = adaptor_.quorumThreshold();
                         if (commits >= quorum)
@@ -2040,7 +2047,7 @@ Consensus<Adaptor>::phaseEstablish(
 
                 if (revealConsensus || timeout)
                 {
-                    JLOG(j_.info()) << "STALLDIAG: rng-reveal-gate-open"
+                    JLOG(j_.debug()) << "STALLDIAG: rng-reveal-gate-open"
                                     << " revealConsensus="
                                     << (revealConsensus ? "yes" : "no")
                                     << " timeout=" << (timeout ? "yes" : "no")
@@ -2064,7 +2071,7 @@ Consensus<Adaptor>::phaseEstablish(
 
                 if (!ready)
                 {
-                    JLOG(j_.info()) << "STALLDIAG: rng-reveal-gate-blocked"
+                    JLOG(j_.debug()) << "STALLDIAG: rng-reveal-gate-blocked"
                                     << " revealConsensus="
                                     << (revealConsensus ? "yes" : "no")
                                     << " timeout=" << (timeout ? "yes" : "no")
@@ -2271,7 +2278,7 @@ Consensus<Adaptor>::phaseEstablish(
                             reason = "participant-gap";
                         else if (!entropyAligned)
                             reason = "entropy-not-aligned";
-                        JLOG(j_.info())
+                        JLOG(j_.debug())
                             << "STALLDIAG: rng-explicit-final-skipped"
                             << " reason=" << reason
                             << " mode=" << to_string(mode_.get()) << " sent="
@@ -2290,7 +2297,7 @@ Consensus<Adaptor>::phaseEstablish(
     }
     //@@end rng-phase-establish-substates
 
-    JLOG(j_.info()) << "STALLDIAG: establish-ready-to-accept"
+    JLOG(j_.debug()) << "STALLDIAG: establish-ready-to-accept"
                     << " phase=" << to_string(phase_)
                     << " mode=" << to_string(mode_.get())
                     << " roundMs=" << result_->roundTime.read().count()
@@ -2307,7 +2314,7 @@ Consensus<Adaptor>::phaseEstablish(
                   })
     {
         auto const pos = result_->position.position();
-        JLOG(j_.info()) << "STALLDIAG: establish-ready-sidecar"
+        JLOG(j_.debug()) << "STALLDIAG: establish-ready-sidecar"
                         << " txSet=" << pos << " commitSetHash="
                         << (pos.commitSetHash ? to_string(*pos.commitSetHash)
                                               : std::string{"none"})
@@ -2704,7 +2711,7 @@ Consensus<Adaptor>::haveConsensus(
                     << " roundTime=" << result_->roundTime.read().count()
                     << "ms"
                     << " mode=" << to_string(mode_.get());
-    JLOG(j_.info()) << "STALLDIAG: haveConsensus-self"
+    JLOG(j_.trace()) << "STALLDIAG: haveConsensus-self"
                     << " position=" << ourPosition << " closeTime="
                     << result_->position.closeTime().time_since_epoch().count()
                     << " haveCloseTimeConsensus="
@@ -2717,7 +2724,7 @@ Consensus<Adaptor>::haveConsensus(
                       p.myReveal;
                   })
     {
-        JLOG(j_.info()) << "STALLDIAG: haveConsensus-sidecar"
+        JLOG(j_.trace()) << "STALLDIAG: haveConsensus-sidecar"
                         << " commitSetHash="
                         << (ourPosition.commitSetHash
                                 ? to_string(*ourPosition.commitSetHash)
@@ -2747,7 +2754,7 @@ Consensus<Adaptor>::haveConsensus(
 
     if (result_->state == ConsensusState::No)
     {
-        JLOG(j_.info()) << "STALLDIAG: haveConsensus-result"
+        JLOG(j_.debug()) << "STALLDIAG: haveConsensus-result"
                         << " state=No"
                         << " agree=" << agree << " disagree=" << disagree
                         << " total=" << (agree + disagree)
