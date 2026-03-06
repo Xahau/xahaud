@@ -2048,13 +2048,13 @@ Consensus<Adaptor>::phaseEstablish(
                 if (revealConsensus || timeout)
                 {
                     JLOG(j_.debug()) << "STALLDIAG: rng-reveal-gate-open"
-                                    << " revealConsensus="
-                                    << (revealConsensus ? "yes" : "no")
-                                    << " timeout=" << (timeout ? "yes" : "no")
-                                    << " elapsedMs="
-                                    << std::chrono::duration_cast<
-                                           std::chrono::milliseconds>(elapsed)
-                                           .count();
+                                     << " revealConsensus="
+                                     << (revealConsensus ? "yes" : "no")
+                                     << " timeout=" << (timeout ? "yes" : "no")
+                                     << " elapsedMs="
+                                     << std::chrono::duration_cast<
+                                            std::chrono::milliseconds>(elapsed)
+                                            .count();
                     if (timeout && !adaptor_.hasAnyReveals())
                     {
                         adaptor_.setEntropyFailed();
@@ -2072,13 +2072,13 @@ Consensus<Adaptor>::phaseEstablish(
                 if (!ready)
                 {
                     JLOG(j_.debug()) << "STALLDIAG: rng-reveal-gate-blocked"
-                                    << " revealConsensus="
-                                    << (revealConsensus ? "yes" : "no")
-                                    << " timeout=" << (timeout ? "yes" : "no")
-                                    << " elapsedMs="
-                                    << std::chrono::duration_cast<
-                                           std::chrono::milliseconds>(elapsed)
-                                           .count();
+                                     << " revealConsensus="
+                                     << (revealConsensus ? "yes" : "no")
+                                     << " timeout=" << (timeout ? "yes" : "no")
+                                     << " elapsedMs="
+                                     << std::chrono::duration_cast<
+                                            std::chrono::milliseconds>(elapsed)
+                                            .count();
                     logRngDiag("rng-reveal-wait");
                     return;
                 }
@@ -2298,14 +2298,14 @@ Consensus<Adaptor>::phaseEstablish(
     //@@end rng-phase-establish-substates
 
     JLOG(j_.debug()) << "STALLDIAG: establish-ready-to-accept"
-                    << " phase=" << to_string(phase_)
-                    << " mode=" << to_string(mode_.get())
-                    << " roundMs=" << result_->roundTime.read().count()
-                    << " convergePct=" << convergePercent_
-                    << " peerPositions=" << currPeerPositions_.size()
-                    << " prevProposers=" << prevProposers_
-                    << " explicitFinalSent="
-                    << (explicitFinalProposalSent_ ? "yes" : "no");
+                     << " phase=" << to_string(phase_)
+                     << " mode=" << to_string(mode_.get())
+                     << " roundMs=" << result_->roundTime.read().count()
+                     << " convergePct=" << convergePercent_
+                     << " peerPositions=" << currPeerPositions_.size()
+                     << " prevProposers=" << prevProposers_
+                     << " explicitFinalSent="
+                     << (explicitFinalProposalSent_ ? "yes" : "no");
     if constexpr (requires(Position_t const& p) {
                       p.commitSetHash;
                       p.entropySetHash;
@@ -2315,14 +2315,15 @@ Consensus<Adaptor>::phaseEstablish(
     {
         auto const pos = result_->position.position();
         JLOG(j_.debug()) << "STALLDIAG: establish-ready-sidecar"
-                        << " txSet=" << pos << " commitSetHash="
-                        << (pos.commitSetHash ? to_string(*pos.commitSetHash)
-                                              : std::string{"none"})
-                        << " entropySetHash="
-                        << (pos.entropySetHash ? to_string(*pos.entropySetHash)
+                         << " txSet=" << pos << " commitSetHash="
+                         << (pos.commitSetHash ? to_string(*pos.commitSetHash)
                                                : std::string{"none"})
-                        << " myCommitment=" << (pos.myCommitment ? "yes" : "no")
-                        << " myReveal=" << (pos.myReveal ? "yes" : "no");
+                         << " entropySetHash="
+                         << (pos.entropySetHash ? to_string(*pos.entropySetHash)
+                                                : std::string{"none"})
+                         << " myCommitment="
+                         << (pos.myCommitment ? "yes" : "no")
+                         << " myReveal=" << (pos.myReveal ? "yes" : "no");
     }
 
     JLOG(j_.info()) << "STARTDIAG: converge cutoff"
@@ -2712,11 +2713,11 @@ Consensus<Adaptor>::haveConsensus(
                     << "ms"
                     << " mode=" << to_string(mode_.get());
     JLOG(j_.trace()) << "STALLDIAG: haveConsensus-self"
-                    << " position=" << ourPosition << " closeTime="
-                    << result_->position.closeTime().time_since_epoch().count()
-                    << " haveCloseTimeConsensus="
-                    << (haveCloseTimeConsensus_ ? "yes" : "no")
-                    << " phase=" << to_string(phase_);
+                     << " position=" << ourPosition << " closeTime="
+                     << result_->position.closeTime().time_since_epoch().count()
+                     << " haveCloseTimeConsensus="
+                     << (haveCloseTimeConsensus_ ? "yes" : "no")
+                     << " phase=" << to_string(phase_);
     if constexpr (requires(Position_t const& p) {
                       p.commitSetHash;
                       p.entropySetHash;
@@ -2725,18 +2726,18 @@ Consensus<Adaptor>::haveConsensus(
                   })
     {
         JLOG(j_.trace()) << "STALLDIAG: haveConsensus-sidecar"
-                        << " commitSetHash="
-                        << (ourPosition.commitSetHash
-                                ? to_string(*ourPosition.commitSetHash)
-                                : std::string{"none"})
-                        << " entropySetHash="
-                        << (ourPosition.entropySetHash
-                                ? to_string(*ourPosition.entropySetHash)
-                                : std::string{"none"})
-                        << " myCommitment="
-                        << (ourPosition.myCommitment ? "yes" : "no")
-                        << " myReveal="
-                        << (ourPosition.myReveal ? "yes" : "no");
+                         << " commitSetHash="
+                         << (ourPosition.commitSetHash
+                                 ? to_string(*ourPosition.commitSetHash)
+                                 : std::string{"none"})
+                         << " entropySetHash="
+                         << (ourPosition.entropySetHash
+                                 ? to_string(*ourPosition.entropySetHash)
+                                 : std::string{"none"})
+                         << " myCommitment="
+                         << (ourPosition.myCommitment ? "yes" : "no")
+                         << " myReveal="
+                         << (ourPosition.myReveal ? "yes" : "no");
     }
 
     // Determine if we actually have consensus or not
@@ -2755,10 +2756,10 @@ Consensus<Adaptor>::haveConsensus(
     if (result_->state == ConsensusState::No)
     {
         JLOG(j_.debug()) << "STALLDIAG: haveConsensus-result"
-                        << " state=No"
-                        << " agree=" << agree << " disagree=" << disagree
-                        << " total=" << (agree + disagree)
-                        << " finished=" << currentFinished;
+                         << " state=No"
+                         << " agree=" << agree << " disagree=" << disagree
+                         << " total=" << (agree + disagree)
+                         << " finished=" << currentFinished;
         CLOG(clog) << "No consensus. ";
         return false;
     }

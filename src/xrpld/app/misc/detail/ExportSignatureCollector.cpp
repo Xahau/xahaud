@@ -289,9 +289,8 @@ ExportSignatureCollector::hasQuorum(
     auto const threshold = calculateQuorumThreshold(unlSize);
 
     JLOG(j_.trace()) << "Export: hasQuorum check for " << txnHash
-                     << " verified=" << verifiedCount
-                     << " total=" << totalCount << " unlSize=" << unlSize
-                     << " threshold=" << threshold;
+                     << " verified=" << verifiedCount << " total=" << totalCount
+                     << " unlSize=" << unlSize << " threshold=" << threshold;
 
     return verifiedCount >= threshold;
 }
@@ -316,9 +315,9 @@ ExportSignatureCollector::getExportsWithQuorum(
         {
             ready.push_back(txnHash);
             JLOG(j_.info())
-                << "Export: quorum reached for " << txnHash << " (verified="
-                << verifiedCount << " total=" << signerMap.size() << "/"
-                << unlSize << ")";
+                << "Export: quorum reached for " << txnHash
+                << " (verified=" << verifiedCount
+                << " total=" << signerMap.size() << "/" << unlSize << ")";
         }
     }
 
