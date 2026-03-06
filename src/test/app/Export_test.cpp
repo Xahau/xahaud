@@ -76,7 +76,7 @@ public:
 struct Export_test : public beast::unit_test::suite
 {
     // Hook that exports a payment using xport (for cross-chain export)
-    // xport APIs are gated by featureExportRNG amendment, not sfHookApiVersion
+    // xport APIs are gated by featureExport amendment, not sfHookApiVersion
     TestHook xport_wasm = export_test_wasm[R"[test.hook](
         #include <stdint.h>
         extern int32_t _g(uint32_t id, uint32_t maxiter);
@@ -339,7 +339,7 @@ struct Export_test : public beast::unit_test::suite
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments()};
-        FeatureBitset const allWithExport{all | featureExportRNG};
+        FeatureBitset const allWithExport{all | featureExport};
         testXportPaymentWithValidator(allWithExport);
         testStaleSignatureCleanup(allWithExport);
     }

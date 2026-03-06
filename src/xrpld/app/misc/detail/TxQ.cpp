@@ -1564,7 +1564,7 @@ TxQ::accept(Application& app, OpenView& view)
 
     //@@start txq-export-quorum-check
     // Inject exported transactions/signatures, if any
-    if (view.rules().enabled(featureExportRNG))
+    if (view.rules().enabled(featureExport))
     {
         do
         {

@@ -145,6 +145,15 @@ struct ExtendedPosition
     //@@end rng-extended-position-equality
 
     // CRITICAL: Include ALL fields for signing (prevents stripping attacks)
+    //
+    // Compatibility note:
+    // - New code accepts both legacy 32-byte tx-set hashes and the extended
+    //   payload with RNG sidecars.
+    // - Older binaries that only understand a raw uint256 proposal position
+    //   will reject extended payloads as malformed.
+    // - Therefore ConsensusEntropy requires an all-upgraded validator set
+    //   before activation; this format is backward-compatible, not
+    //   forward-compatible.
     //@@start rng-extended-position-serialize
     void
     add(Serializer& s) const

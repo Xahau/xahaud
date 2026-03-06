@@ -822,7 +822,7 @@ signPendingExports(
 {
     std::vector<std::pair<uint256, STObject>> result;
 
-    if (!view.rules().enabled(featureExportRNG))
+    if (!view.rules().enabled(featureExport))
         return result;
 
     JLOG(j.trace()) << "signPendingExports: started";

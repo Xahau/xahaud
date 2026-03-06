@@ -472,7 +472,7 @@ RCLConsensus::Adaptor::onClose(
     // all: no commitment, no reveal, no SHAMap entries.  The surviving
     // proposers will close those rounds with fewer commits (possibly
     // falling back to ZERO entropy) until the rejoiner starts proposing.
-    if (proposing && prevLedger->rules().enabled(featureExportRNG))
+    if (proposing && prevLedger->rules().enabled(featureConsensusEntropy))
     {
         cacheUNLReport();
         generateEntropySecret();
@@ -496,7 +496,7 @@ RCLConsensus::Adaptor::onClose(
     {
         JLOG(j_.debug()) << "RNG: onClose skipped (proposing=" << proposing
                          << " amendment="
-                         << prevLedger->rules().enabled(featureExportRNG)
+                         << prevLedger->rules().enabled(featureConsensusEntropy)
                          << ")";
     }
 
@@ -631,7 +631,7 @@ RCLConsensus::Adaptor::doAccept(
 
     // Inject consensus entropy pseudo-transaction (if amendment enabled)
     // This must happen before buildLCL so the entropy tx is in the ledger
-    if (prevLedger.ledger_->rules().enabled(featureExportRNG))
+    if (prevLedger.ledger_->rules().enabled(featureConsensusEntropy))
         injectEntropyPseudoTx(retriableTxs, prevLedger.seq() + 1);
     else
         clearRngState();
