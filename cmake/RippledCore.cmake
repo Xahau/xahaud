@@ -68,6 +68,13 @@ target_link_libraries(xrpl.imports.main
     $<$<BOOL:${voidstar}>:antithesis-sdk-cpp>
 )
 
+# Enhanced logging can use date::make_zoned/current_zone when location-rich log
+# formatting is compiled in. Link date-tz when available so Debug builds and
+# explicit -DBEAST_ENHANCED_LOGGING=ON builds resolve those symbols.
+if(TARGET date::date-tz)
+  target_link_libraries(xrpl.imports.main INTERFACE date::date-tz)
+endif()
+
 include(add_module)
 include(target_link_modules)
 

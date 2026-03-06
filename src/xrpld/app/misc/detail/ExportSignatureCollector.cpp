@@ -259,6 +259,17 @@ ExportSignatureCollector::signatureCount(uint256 const& txnHash) const
 }
 
 std::size_t
+ExportSignatureCollector::verifiedSignatureCount(uint256 const& txnHash) const
+{
+    std::lock_guard lock(mutex_);
+
+    auto it = verified_.find(txnHash);
+    if (it != verified_.end())
+        return it->second.size();
+    return 0;
+}
+
+std::size_t
 ExportSignatureCollector::getUNLSize(ReadView const& view, Application& app)
     const
 {
@@ -271,16 +282,18 @@ ExportSignatureCollector::hasQuorum(
     ReadView const& view,
     Application& app) const
 {
-    auto const sigCount = signatureCount(txnHash);
+    auto const verifiedCount = verifiedSignatureCount(txnHash);
+    auto const totalCount = signatureCount(txnHash);
     auto const unlSize = getUNLSize(view, app);
 
     auto const threshold = calculateQuorumThreshold(unlSize);
 
     JLOG(j_.trace()) << "Export: hasQuorum check for " << txnHash
-                     << " sigCount=" << sigCount << " unlSize=" << unlSize
+                     << " verified=" << verifiedCount
+                     << " total=" << totalCount << " unlSize=" << unlSize
                      << " threshold=" << threshold;
 
-    return sigCount >= threshold;
+    return verifiedCount >= threshold;
 }
 
 std::vector<uint256>
@@ -296,12 +309,16 @@ ExportSignatureCollector::getExportsWithQuorum(
 
     for (auto const& [txnHash, signerMap] : signatures_)
     {
-        if (signerMap.size() >= threshold)
+        auto verIt = verified_.find(txnHash);
+        auto const verifiedCount =
+            verIt != verified_.end() ? verIt->second.size() : 0u;
+        if (verifiedCount >= threshold)
         {
             ready.push_back(txnHash);
             JLOG(j_.info())
-                << "Export: quorum reached for " << txnHash << " ("
-                << signerMap.size() << "/" << unlSize << " signatures)";
+                << "Export: quorum reached for " << txnHash << " (verified="
+                << verifiedCount << " total=" << signerMap.size() << "/"
+                << unlSize << ")";
         }
     }
 

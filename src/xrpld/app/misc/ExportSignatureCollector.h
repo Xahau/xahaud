@@ -124,6 +124,14 @@ public:
     std::size_t
     signatureCount(uint256 const& txnHash) const;
 
+    /** Get the number of cryptographically verified signatures.
+
+        @param txnHash The hash of the exported transaction
+        @return Number of verified validator signatures
+    */
+    std::size_t
+    verifiedSignatureCount(uint256 const& txnHash) const;
+
     /** Check if an export has reached quorum.
 
         Quorum is 80% of the UNL (rounded up).
