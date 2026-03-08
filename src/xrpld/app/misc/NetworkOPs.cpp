@@ -1634,9 +1634,10 @@ NetworkOPsImp::setAmendmentBlocked()
 {
     amendmentBlocked_ = true;
     setMode(OperatingMode::CONNECTED);
-    app_.signalStop(
-        "One or more unsupported amendments activated. "
-        "Server must be upgraded to remain compatible with the network.");
+    if (!app_.config().standalone())
+        app_.signalStop(
+            "One or more unsupported amendments activated. "
+            "Server must be upgraded to remain compatible with the network.");
 }
 
 inline bool
