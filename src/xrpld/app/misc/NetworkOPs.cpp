@@ -1800,7 +1800,7 @@ NetworkOPsImp::switchLastClosedLedger(
     {
         app_.getTxQ().processClosedLedger(app_, *newLCL, true);
     }
-    catch (std::exception const& e)
+    catch (std::runtime_error const& e)
     {
         JLOG(m_journal.error())
             << "Failed to process closed ledger: " << e.what();
