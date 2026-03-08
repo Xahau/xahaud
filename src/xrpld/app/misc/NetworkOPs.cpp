@@ -1802,6 +1802,8 @@ NetworkOPsImp::switchLastClosedLedger(
     }
     catch (std::runtime_error const& e)
     {
+        if (!amendmentBlocked_)
+            throw;
         JLOG(m_journal.error())
             << "Failed to process closed ledger: " << e.what();
         return;
