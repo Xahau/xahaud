@@ -311,12 +311,28 @@ LedgerMaster::setValidLedger(std::shared_ptr<Ledger const> const& l)
             if (auto const first =
                     app_.getAmendmentTable().firstUnsupportedExpected())
             {
-                JLOG(m_journal.error()) << "One or more unsupported amendments "
-                                           "reached majority. Upgrade before "
-                                        << to_string(*first)
-                                        << " to prevent your server from "
-                                           "becoming amendment blocked.";
-                app_.getOPs().setAmendmentWarned();
+                using namespace std::chrono_literals;
+                auto const now = app_.timeKeeper().closeTime();
+                if (*first > now && (*first - now) <= 1min)
+                {
+                    // Shut down just before the amendment activates to
+                    // avoid processing ledgers with unknown fields.
+                    JLOG(m_journal.error())
+                        << "Unsupported amendment activating imminently "
+                           "at "
+                        << to_string(*first) << ". Shutting down.";
+                    app_.getOPs().setAmendmentBlocked();
+                }
+                else
+                {
+                    JLOG(m_journal.error())
+                        << "One or more unsupported amendments "
+                           "reached majority. Upgrade before "
+                        << to_string(*first)
+                        << " to prevent your server from "
+                           "becoming amendment blocked.";
+                    app_.getOPs().setAmendmentWarned();
+                }
             }
             else
                 app_.getOPs().clearAmendmentWarned();

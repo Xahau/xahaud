@@ -1634,6 +1634,9 @@ NetworkOPsImp::setAmendmentBlocked()
 {
     amendmentBlocked_ = true;
     setMode(OperatingMode::CONNECTED);
+    app_.signalStop(
+        "One or more unsupported amendments activated. "
+        "Server must be upgraded to remain compatible with the network.");
 }
 
 inline bool
@@ -1789,8 +1792,19 @@ NetworkOPsImp::switchLastClosedLedger(
 
     clearNeedNetworkLedger();
 
-    // Update fee computations.
-    app_.getTxQ().processClosedLedger(app_, *newLCL, true);
+    // Update fee computations. May throw if the ledger contains
+    // transactions with fields unknown to this binary (e.g. after an
+    // unsupported amendment activates). Catch to allow graceful shutdown.
+    try
+    {
+        app_.getTxQ().processClosedLedger(app_, *newLCL, true);
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(m_journal.error())
+            << "Failed to process closed ledger: " << e.what();
+        return;
+    }
 
     // Caller must own master lock
     {
@@ -2449,7 +2463,7 @@ NetworkOPsImp::getServerInfo(bool human, bool admin, bool counters)
                 "may be incorrectly configured or some [validator_list_sites] "
                 "may be unreachable.";
         }
-        if (admin && isAmendmentWarned())
+        if (isAmendmentWarned())
         {
             Json::Value& w = warnings.append(Json::objectValue);
             w[jss::id] = warnRPC_UNSUPPORTED_MAJORITY;
