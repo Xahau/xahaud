@@ -1225,6 +1225,64 @@ Consensus<Adaptor>::getJson(bool full) const
             }
             ret["dead_nodes"] = std::move(dnj);
         }
+
+        // RNG state (when adaptor supports it)
+        if constexpr (requires(Adaptor& a) {
+                          a.hasQuorumOfCommits();
+                          a.buildCommitSet(typename Ledger_t::Seq{});
+                          a.generateEntropySecret();
+                      })
+        {
+            Json::Value rng(Json::objectValue);
+
+            bool rngEnabled = true;
+            if constexpr (requires(Adaptor& a) { a.rngEnabled(); })
+                rngEnabled = adaptor_.rngEnabled();
+
+            rng["enabled"] = rngEnabled;
+
+            auto estStateName = [&]() -> char const* {
+                switch (estState_)
+                {
+                    case EstablishState::ConvergingTx:
+                        return "ConvergingTx";
+                    case EstablishState::ConvergingCommit:
+                        return "ConvergingCommit";
+                    case EstablishState::ConvergingReveal:
+                        return "ConvergingReveal";
+                }
+                return "Unknown";
+            };
+            rng["est_state"] = estStateName();
+
+            if constexpr (requires(Adaptor& a) {
+                              a.pendingCommitCount();
+                              a.quorumThreshold();
+                              a.hasQuorumOfCommits();
+                              a.hasMinimumReveals();
+                              a.hasAnyReveals();
+                          })
+            {
+                rng["commits"] =
+                    static_cast<Int>(adaptor_.pendingCommitCount());
+                rng["quorum"] = static_cast<Int>(adaptor_.quorumThreshold());
+                rng["commit_quorum"] = adaptor_.hasQuorumOfCommits();
+                rng["min_reveals"] = adaptor_.hasMinimumReveals();
+                rng["any_reveals"] = adaptor_.hasAnyReveals();
+
+                if constexpr (requires(Adaptor& a) { a.pendingRevealCount(); })
+                    rng["reveals"] =
+                        static_cast<Int>(adaptor_.pendingRevealCount());
+
+                if constexpr (requires(Adaptor& a) {
+                                  a.expectedProposerCount();
+                              })
+                    rng["likely_participants"] =
+                        static_cast<Int>(adaptor_.expectedProposerCount());
+            }
+
+            ret["rng"] = std::move(rng);
+        }
     }
 
     return ret;
