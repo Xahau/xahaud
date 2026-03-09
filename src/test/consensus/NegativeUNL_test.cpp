@@ -17,15 +17,15 @@
 */
 //==============================================================================
 
-#include <ripple/app/consensus/RCLValidations.h>
-#include <ripple/app/ledger/Ledger.h>
-#include <ripple/app/misc/NegativeUNLVote.h>
-#include <ripple/app/misc/ValidatorList.h>
-#include <ripple/app/tx/apply.h>
-#include <ripple/basics/Log.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/ledger/View.h>
 #include <test/jtx.h>
+#include <xrpld/app/consensus/RCLValidations.h>
+#include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/misc/NegativeUNLVote.h>
+#include <xrpld/app/misc/ValidatorList.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpld/ledger/View.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/beast/unit_test.h>
 
 namespace ripple {
 namespace test {
@@ -745,8 +745,10 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
         // one add, one remove
         auto txSet = std::make_shared<SHAMap>(
             SHAMapType::TRANSACTION, env.app().getNodeFamily());
-        PublicKey toDisableKey;
-        PublicKey toReEnableKey;
+        PublicKey toDisableKey(
+            derivePublicKey(KeyType::ed25519, randomSecretKey()));
+        PublicKey toReEnableKey(
+            derivePublicKey(KeyType::ed25519, randomSecretKey()));
         LedgerIndex seq(1234);
         BEAST_EXPECT(unl::countTx(txSet) == 0);
         vote.addTx(seq, toDisableKey, NegativeUNLVote::ToDisable, txSet);
@@ -1878,6 +1880,33 @@ BEAST_DEFINE_TESTSUITE(NegativeUNLVoteFilterValidations, consensus, ripple);
 ///////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////
+
+bool
+negUnlSizeTest(
+    std::shared_ptr<Ledger const> const& l,
+    size_t size,
+    bool hasToDisable,
+    bool hasToReEnable)
+{
+    bool sameSize = l->negativeUNL().size() == size;
+    bool sameToDisable =
+        (l->validatorToDisable() != std::nullopt) == hasToDisable;
+    bool sameToReEnable =
+        (l->validatorToReEnable() != std::nullopt) == hasToReEnable;
+
+    return sameSize && sameToDisable && sameToReEnable;
+}
+
+bool
+applyAndTestResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
+{
+    auto const res =
+        apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
+    if (pass)
+        return res.ter == tesSUCCESS;
+    else
+        return res.ter == tefFAILURE || res.ter == temDISABLED;
+}
 
 bool
 VerifyPubKeyAndSeq(

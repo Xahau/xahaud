@@ -11,11 +11,11 @@ platforms: Linux, macOS, or Windows.
 Package ecosystems vary across Linux distributions,
 so there is no one set of instructions that will work for every Linux user.
 These instructions are written for Ubuntu 22.04.
-They are largely copied from the [script][1] used to configure our Docker
+They are largely copied from the [script][1] used to configure a Docker
 container for continuous integration.
 That script handles many more responsibilities.
 These instructions are just the bare minimum to build one configuration of
-rippled.
+xahaud.
 You can check that codebase for other Linux distributions and versions.
 If you cannot find yours there,
 then we hope that these instructions can at least guide you in the right
@@ -23,7 +23,7 @@ direction.
 
 ```
 apt update
-apt install --yes curl git libssl-dev python3.10-dev python3-pip make g++-11
+apt install --yes curl git libssl-dev python3.10-dev python3-pip make g++-11 libprotobuf-dev protobuf-compiler
 
 curl --location --remote-name \
   "https://github.com/Kitware/CMake/releases/download/v3.25.1/cmake-3.25.1.tar.gz"

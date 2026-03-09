@@ -20,9 +20,9 @@
 #ifndef RIPPLE_TEST_JTX_HOOKGAS_H_INCLUDED
 #define RIPPLE_TEST_JTX_HOOKGAS_H_INCLUDED
 
-#include <ripple/basics/contract.h>
 #include <test/jtx/Env.h>
 #include <test/jtx/tags.h>
+#include <xrpl/basics/contract.h>
 
 namespace ripple {
 namespace test {

@@ -82,6 +82,7 @@ RUN /hbb_exe/activate-exec bash -c "dnf install -y epel-release && \
         python3 python3-pip \
         ccache \
         ninja-build \
+        mold \
         patch \
         glibc-devel glibc-static \
         libxml2-devel \
@@ -94,7 +95,7 @@ RUN /hbb_exe/activate-exec bash -c "dnf install -y epel-release && \
 
 # Install Conan 2 and CMake
 RUN /hbb_exe/activate-exec pip3 install "conan>=2.0,<3.0" && \
-    /hbb_exe/activate-exec wget -q https://github.com/Kitware/CMake/releases/download/v3.23.1/cmake-3.23.1-linux-x86_64.tar.gz -O cmake.tar.gz && \
+    /hbb_exe/activate-exec wget -q https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-linux-x86_64.tar.gz -O cmake.tar.gz && \
     mkdir cmake && \
     tar -xzf cmake.tar.gz --strip-components=1 -C cmake && \
     rm cmake.tar.gz
@@ -211,7 +212,9 @@ RUN /hbb_exe/activate-exec bash -c "ccache -M 100G && \
     echo '' >> ~/.conan2/profiles/default && \
     echo '[conf]' >> ~/.conan2/profiles/default && \
     echo '# Force building from source for packages with binary compatibility issues' >> ~/.conan2/profiles/default && \
-    echo '*:tools.system.package_manager:mode=build' >> ~/.conan2/profiles/default"
+    echo '*:tools.system.package_manager:mode=build' >> ~/.conan2/profiles/default && \
+    ln -s ../../bin/ccache /usr/lib64/ccache/g++ && \
+    ln -s ../../bin/ccache /usr/lib64/ccache/c++"
 
 DOCKERFILE_EOF
 )

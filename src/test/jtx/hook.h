@@ -20,9 +20,13 @@
 #ifndef RIPPLE_TEST_JTX_HOOK_H_INCLUDED
 #define RIPPLE_TEST_JTX_HOOK_H_INCLUDED
 
-#include <ripple/json/json_value.h>
-#include <optional>
 #include <test/jtx/Account.h>
+#include <xrpld/app/hook/applyHook.h>
+#include <xrpl/json/json_value.h>
+#include <cstdint>
+#include <map>
+#include <optional>
+#include <vector>
 
 namespace ripple {
 namespace test {
@@ -42,6 +46,75 @@ hso(std::string const& wasmHex, void (*f)(Json::Value& jv) = 0);
 
 Json::Value
 hso_delete(void (*f)(Json::Value& jv) = 0);
+
+struct StubHookResult
+{
+    ripple::uint256 const hookSetTxnID = ripple::uint256();
+    ripple::uint256 const hookHash = ripple::uint256();
+    ripple::uint256 const hookCanEmit = ripple::uint256();
+    ripple::uint256 const hookNamespace = ripple::uint256();
+
+    std::queue<std::shared_ptr<ripple::Transaction>> emittedTxn{};
+    std::optional<hook::HookStateMap> stateMap = std::nullopt;
+    uint16_t changedStateCount = 0;
+    std::map<
+        ripple::uint256,  // hook hash
+        std::map<
+            std::vector<uint8_t>,  // hook param name
+            std::vector<uint8_t>   // hook param value
+            >>
+        hookParamOverrides = {};
+
+    std::optional<std::map<std::vector<uint8_t>, std::vector<uint8_t>>>
+        hookParams = std::nullopt;
+    std::set<ripple::uint256> hookSkips = {};
+    hook_api::ExitType exitType = hook_api::ExitType::ROLLBACK;
+    std::string exitReason{""};
+    int64_t exitCode{-1};
+    uint64_t instructionCount{0};
+    bool hasCallback = false;
+    bool isCallback = false;
+    bool isStrong = false;
+    uint32_t wasmParam = 0;
+    uint32_t overrideCount = 0;
+    uint8_t hookChainPosition = 0;
+    bool foreignStateSetDisabled = false;
+    bool executeAgainAsWeak = false;
+    std::shared_ptr<STObject const> provisionalMeta = nullptr;
+};
+
+struct StubHookContext
+{
+    std::map<uint32_t, hook::SlotEntry> slot{};
+    std::queue<uint32_t> slot_free{};
+    uint32_t slot_counter{0};
+    uint16_t emit_nonce_counter{0};
+    uint16_t ledger_nonce_counter{0};
+    int64_t expected_etxn_count{-1};
+    std::map<ripple::uint256, bool> nonce_used{};
+    uint32_t generation = 0;
+    uint64_t burden = 0;
+    std::map<uint32_t, uint32_t> guard_map{};
+    StubHookResult result = {};
+    std::optional<ripple::STObject> emitFailure = std::nullopt;
+    const hook::HookExecutor* module = 0;
+};
+
+// Overload that takes external stateMap to avoid dangling reference
+hook::HookContext
+makeStubHookContext(
+    ripple::ApplyContext& applyCtx,
+    ripple::AccountID const& hookAccount,
+    ripple::AccountID const& otxnAccount,
+    StubHookContext const& stubHookContext,
+    hook::HookStateMap& stateMap);
+
+hook::HookContext
+makeStubHookContext(
+    ripple::ApplyContext& applyCtx,
+    ripple::AccountID const& hookAccount,
+    ripple::AccountID const& otxnAccount,
+    StubHookContext const& stubHookContext);
 
 }  // namespace jtx
 }  // namespace test
