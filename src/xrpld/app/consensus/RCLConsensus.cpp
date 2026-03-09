@@ -1415,7 +1415,9 @@ RCLConsensus::Adaptor::buildExplicitFinalProposalTxSet(
         finalEntropy = sha512Half(std::string("standalone-entropy"), seq);
         hasEntropy = true;
     }
-    else if (entropyFailed_ || pendingReveals_.empty())
+    else if (
+        entropyFailed_ || pendingReveals_.empty() ||
+        pendingReveals_.size() < quorumThreshold())
     {
         finalEntropy.zero();
         hasEntropy = true;
@@ -2086,14 +2088,19 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
         JLOG(j_.info()) << "RNG: Standalone synthetic entropy " << finalEntropy
                         << " for ledger " << seq;
     }
-    else if (entropyFailed_ || pendingReveals_.empty())
+    else if (
+        entropyFailed_ || pendingReveals_.empty() ||
+        pendingReveals_.size() < quorumThreshold())
     {
         // Liveness fallback: inject zero entropy.
         // Hooks MUST check for zero to know entropy is unavailable.
+        // Require quorum-many reveals — sub-quorum entropy is too
+        // easily influenced by a minority of validators.
         finalEntropy.zero();
         hasEntropy = true;
         JLOG(j_.warn()) << "RNG: Injecting ZERO entropy (fallback) for ledger "
-                        << seq;
+                        << seq << " (reveals=" << pendingReveals_.size()
+                        << " threshold=" << quorumThreshold() << ")";
     }
     else
     {
