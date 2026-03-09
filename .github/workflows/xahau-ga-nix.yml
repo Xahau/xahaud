@@ -382,7 +382,8 @@ jobs:
 
       - name: Upload server definitions
         if: matrix.compiler_id == 'gcc-13-libstdcxx'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: server-definitions
           path: server_definitions.json
+          archive: false
