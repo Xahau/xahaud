@@ -1832,7 +1832,30 @@ Consensus<Adaptor>::phaseEstablish(
             JLOG(j_.trace()) << "RNG: phaseEstablish estState="
                              << static_cast<int>(estState_);
 
-            if (estState_ == EstablishState::ConvergingTx)
+            // Bootstrap fast-path: if the previous round didn't have
+            // enough proposers for RNG to have succeeded, the network
+            // is still converging.  Skip the entire commit/reveal
+            // pipeline — it can only produce zero entropy anyway, but
+            // each substate transition and timeout (PIPELINE_TIMEOUT,
+            // REVEAL_TIMEOUT, conflict-wait) adds seconds of latency
+            // per round that compound across staggered startup.
+            //
+            // Once prevProposers reaches quorum the pipeline engages
+            // normally with all its coordination delays intact.
+            bool rngBootstrapSkip = false;
+            if constexpr (requires(Adaptor& a) { a.quorumThreshold(); })
+            {
+                auto const threshold = adaptor_.quorumThreshold();
+                if (prevProposers_ < threshold)
+                {
+                    JLOG(j_.debug()) << "RNG: bootstrap skip (prevProposers="
+                                     << prevProposers_
+                                     << " < threshold=" << threshold << ")";
+                    rngBootstrapSkip = true;
+                }
+            }
+
+            if (!rngBootstrapSkip && estState_ == EstablishState::ConvergingTx)
             {
                 // Commit quorum is fixed to 80% of the active UNL snapshot for
                 // the round. We move immediately once that floor is met;
@@ -1943,7 +1966,9 @@ Consensus<Adaptor>::phaseEstablish(
                     }
                 }
             }
-            else if (estState_ == EstablishState::ConvergingCommit)
+            else if (
+                !rngBootstrapSkip &&
+                estState_ == EstablishState::ConvergingCommit)
             {
                 // If commit hashes diverge, we may not receive any additional
                 // tx-converged proposals in this state (peers can move to the
@@ -2091,7 +2116,9 @@ Consensus<Adaptor>::phaseEstablish(
                     return;  // Wait for next tick
                 }
             }
-            else if (estState_ == EstablishState::ConvergingReveal)
+            else if (
+                !rngBootstrapSkip &&
+                estState_ == EstablishState::ConvergingReveal)
             {
                 // Wait for ALL committers to reveal (not just 80%).
                 // Timeout measured from ConvergingReveal entry, not round

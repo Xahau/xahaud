@@ -1082,6 +1082,11 @@ public:
         for (Peer* peer : peers)
             peer->enableRngConsensus_ = true;
 
+        // Warmup: run 1 round so prevProposers_ is populated (bootstrap
+        // skip bypasses the RNG pipeline when prevProposers < quorum).
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized());
+
         sim.run(3);
 
         if (BEAST_EXPECT(sim.synchronized()))
@@ -1111,10 +1116,16 @@ public:
             peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
 
         for (Peer* peer : peers)
-        {
             peer->enableRngConsensus_ = true;
+
+        // Warmup: run 1 round so prevProposers_ is populated (bootstrap
+        // skip bypasses the RNG pipeline when prevProposers < quorum).
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized());
+
+        // Submit transactions for the real test round.
+        for (Peer* peer : peers)
             peer->submit(Tx(static_cast<std::uint32_t>(peer->id)));
-        }
 
         sim.run(1);
 
