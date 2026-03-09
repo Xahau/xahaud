@@ -1635,9 +1635,15 @@ NetworkOPsImp::setAmendmentBlocked()
     amendmentBlocked_ = true;
     setMode(OperatingMode::CONNECTED);
     if (!app_.config().standalone())
+    {
+        JLOG(m_journal.fatal())
+            << "One or more unsupported amendments activated. "
+               "Shutting down. Upgrade the server to remain "
+               "compatible with the network.";
         app_.signalStop(
             "One or more unsupported amendments activated. "
             "Server must be upgraded to remain compatible with the network.");
+    }
 }
 
 inline bool
@@ -1796,6 +1802,7 @@ NetworkOPsImp::switchLastClosedLedger(
     // Update fee computations. May throw if the ledger contains
     // transactions with fields unknown to this binary (e.g. after an
     // unsupported amendment activates). Catch to allow graceful shutdown.
+    //@@start process-closed-ledger-catch
     try
     {
         app_.getTxQ().processClosedLedger(app_, *newLCL, true);
@@ -1808,6 +1815,7 @@ NetworkOPsImp::switchLastClosedLedger(
             << "Failed to process closed ledger: " << e.what();
         return;
     }
+    //@@end process-closed-ledger-catch
 
     // Caller must own master lock
     {
@@ -2910,6 +2918,7 @@ NetworkOPsImp::pubLedger(std::shared_ptr<ReadView const> const& lpAccepted)
     // Ledgers are published only when they acquire sufficient validations
     // Holes are filled across connection loss or other catastrophe
 
+    //@@start pubLedger-accepted-ledger-construction
     std::shared_ptr<AcceptedLedger> alpAccepted =
         app_.getAcceptedLedgerCache().fetch(lpAccepted->info().hash);
     if (!alpAccepted)
@@ -2918,6 +2927,7 @@ NetworkOPsImp::pubLedger(std::shared_ptr<ReadView const> const& lpAccepted)
         app_.getAcceptedLedgerCache().canonicalize_replace_client(
             lpAccepted->info().hash, alpAccepted);
     }
+    //@@end pubLedger-accepted-ledger-construction
 
     XRPL_ASSERT(
         alpAccepted->getLedger().get() == lpAccepted.get(),
