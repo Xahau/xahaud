@@ -377,7 +377,6 @@ jobs:
           fi
 
       - name: Export server definitions
-        if: matrix.compiler_id == 'gcc-13-libstdcxx'
         run: |
           ${{ env.build_dir }}/rippled --definitions | python3 -m json.tool > server_definitions.json
 
