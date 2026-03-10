@@ -19,6 +19,7 @@
 
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
+#include <test/jtx/AMM.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/HashRouter.h>
@@ -2633,6 +2634,77 @@ class Import_test : public beast::unit_test::suite
             env(import::import(
                     alice, import::loadXpop(ImportTCAccountSet::w_seed)),
                 ter(temDISABLED));
+        }
+
+        // tecNO_ISSUER, tecNO_PERMISSION
+        // issuer not found, issuer is an AMM account
+        {
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const issuer = Account("issuer");
+            auto const USD = issuer["USD"];
+
+            for (bool const withFixImportIssuer : {true, false})
+            {
+                auto const amend =
+                    withFixImportIssuer ? features : features - fixImportIssuer;
+                test::jtx::Env env{
+                    *this, network::makeNetworkVLConfig(21337, keys), amend};
+                env.fund(XRP(1000), alice, issuer);
+                env.close();
+
+                // burn 10'000 xrp
+                auto const master = Account("masterpassphrase");
+                env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+                env.close();
+
+                env(import::import(
+                        alice, import::loadXpop(ImportTCAccountSet::w_seed)),
+                    import::issuer(bob),
+                    fee(100'000'000),
+                    withFixImportIssuer ? ter(tecNO_ISSUER) : ter(tesSUCCESS));
+                env.close();
+            }
+            for (bool const withFixImportIssuer : {true, false})
+            {
+                auto const amend =
+                    withFixImportIssuer ? features : features - fixImportIssuer;
+                test::jtx::Env env{
+                    *this, network::makeNetworkVLConfig(21337, keys), amend};
+                env.fund(XRP(1000), alice, issuer);
+                env.close();
+
+                // burn 10'000 xrp
+                auto const master = Account("masterpassphrase");
+                env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+                env.close();
+
+                AMM amm(env, issuer, XRP(100), USD(100));
+                BEAST_EXPECT(amm.ammExists());
+
+                env(import::import(
+                        alice, import::loadXpop(ImportTCAccountSet::w_seed)),
+                    import::issuer(amm.ammAccount()),
+                    fee(100'000'000),
+                    withFixImportIssuer ? ter(tecNO_PERMISSION)
+                                        : ter(tesSUCCESS));
+                env.close();
+            }
+
+            //     env.enableFeature(fixImportIssuer);
+            //     env.close();
+
+            //     env(import::import(
+            //             carol, import::loadXpop(ImportTCAccountSet::w_seed)),
+            //         import::issuer(bob),
+            //         ter(tecNO_ISSUER));
+            //     env.close();
+            //     env(import::import(
+            //             dave, import::loadXpop(ImportTCAccountSet::w_seed)),
+            //         import::issuer(amm.ammAccount()),
+            //         // fee(100'000'000),
+            //         ter(tecNO_PERMISSION));
+            //     env.close();
         }
 
         // tefINTERNAL

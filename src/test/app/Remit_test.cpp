@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <test/jtx/AMM.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/ledger/Dir.h>
 #include <xrpl/basics/chrono.h>
@@ -407,6 +408,21 @@ struct Remit_test : public beast::unit_test::suite
             auto tx = remit::remit(alice, bob);
             tx[sfInform.jsonName] = carol.human();
             env(tx, alice, ter(tecNO_TARGET));
+            env.close();
+        }
+
+        // tecNO_PERMISSION - inform account is an AMM
+        {
+            Env env{*this, features};
+            env.fund(XRP(1000), gw, alice, bob);
+            env.close();
+
+            AMM amm(env, gw, XRP(100), USD(100));
+            BEAST_EXPECT(amm.ammExists());
+
+            auto tx = remit::remit(alice, bob);
+            tx[sfInform.jsonName] = to_string(amm.ammAccount());
+            env(tx, alice, ter(tecNO_PERMISSION));
             env.close();
         }
 

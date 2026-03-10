@@ -870,6 +870,17 @@ Import::preclaim(PreclaimContext const& ctx)
     if (!ctx.tx.isFieldPresent(sfBlob))
         return tefINTERNAL;
 
+    if (ctx.tx.isFieldPresent(sfIssuer) &&
+        ctx.view.rules().enabled(fixImportIssuer))
+    {
+        auto const sleIssuer = ctx.view.read(keylet::account(ctx.tx[sfIssuer]));
+        if (!sleIssuer)
+            return tecNO_ISSUER;
+
+        if (sleIssuer->isFieldPresent(sfAMMID))
+            return tecNO_PERMISSION;
+    }
+
     // parse blob as json
     auto const xpop = syntaxCheckXPOP(ctx.tx.getFieldVL(sfBlob), ctx.j);
 
