@@ -1367,6 +1367,13 @@ RCLConsensus::Adaptor::hasAnyReveals() const
 }
 
 bool
+RCLConsensus::Adaptor::shouldZeroEntropy() const
+{
+    return entropyFailed_ || pendingReveals_.empty() ||
+        pendingReveals_.size() < quorumThreshold();
+}
+
+bool
 RCLConsensus::Adaptor::rngEnabled() const
 {
     return rngEnabledThisRound_;
@@ -1415,9 +1422,7 @@ RCLConsensus::Adaptor::buildExplicitFinalProposalTxSet(
         finalEntropy = sha512Half(std::string("standalone-entropy"), seq);
         hasEntropy = true;
     }
-    else if (
-        entropyFailed_ || pendingReveals_.empty() ||
-        pendingReveals_.size() < quorumThreshold())
+    else if (shouldZeroEntropy())
     {
         finalEntropy.zero();
         hasEntropy = true;
@@ -1460,10 +1465,9 @@ RCLConsensus::Adaptor::buildExplicitFinalProposalTxSet(
     }
 
     auto const entropyCount = static_cast<std::uint16_t>(
-        app_.config().standalone() ? 20
-                                   : (entropyFailed_ || pendingReveals_.empty()
-                                          ? 0
-                                          : pendingReveals_.size()));
+        app_.config().standalone()
+            ? 20
+            : (shouldZeroEntropy() ? 0 : pendingReveals_.size()));
 
     STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
         obj.setFieldU32(sfLedgerSequence, seq);
@@ -2088,14 +2092,12 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
         JLOG(j_.info()) << "RNG: Standalone synthetic entropy " << finalEntropy
                         << " for ledger " << seq;
     }
-    else if (
-        entropyFailed_ || pendingReveals_.empty() ||
-        pendingReveals_.size() < quorumThreshold())
+    else if (shouldZeroEntropy())
     {
         // Liveness fallback: inject zero entropy.
         // Hooks MUST check for zero to know entropy is unavailable.
-        // Require quorum-many reveals — sub-quorum entropy is too
-        // easily influenced by a minority of validators.
+        // shouldZeroEntropy() covers: pipeline failure, no reveals,
+        // or sub-quorum reveals (too easily influenced by a minority).
         finalEntropy.zero();
         hasEntropy = true;
         JLOG(j_.warn()) << "RNG: Injecting ZERO entropy (fallback) for ledger "
@@ -2163,9 +2165,7 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
         auto const entropyCount = static_cast<std::uint16_t>(
             app_.config().standalone()
                 ? 20  // synthetic: high enough for Hook APIs (need >= 5)
-                : (entropyFailed_ || pendingReveals_.empty()
-                       ? 0
-                       : pendingReveals_.size()));
+                : (shouldZeroEntropy() ? 0 : pendingReveals_.size()));
         STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
             obj.setFieldU32(sfLedgerSequence, seq);
             obj.setAccountID(sfAccount, AccountID{});

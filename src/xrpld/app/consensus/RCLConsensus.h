@@ -278,6 +278,13 @@ class RCLConsensus
         bool
         hasAnyReveals() const;
 
+        /** True when entropy should fall back to zero.
+         *
+         *  Covers: pipeline failure, no reveals, or sub-quorum reveals.
+         */
+        bool
+        shouldZeroEntropy() const;
+
         /** Whether ConsensusEntropy is enabled for the current round.
 
             Latched from the previous ledger's rules at round start so the
