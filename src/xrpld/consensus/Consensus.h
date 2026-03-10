@@ -2940,12 +2940,16 @@ Consensus<Adaptor>::haveConsensus(
                          << (ourPosition.myReveal ? "yes" : "no");
     }
 
-    // During bootstrap fast start, halve ledgerMAX_CONSENSUS so the
-    // "alone with zero peers" establish path exits faster.  All nodes
-    // share the same bootstrap config, so they advance in lockstep.
+    // During bootstrap fast start, cap ledgerMAX_CONSENSUS at 5s so the
+    // "alone with zero peers" establish path exits faster.  5s is the
+    // sweet spot: long enough for peers to exchange proposals and agree
+    // naturally, short enough to not waste time waiting.  Shorter values
+    // (e.g. 3.75s) cause nodes to hit reachedMax before peers converge,
+    // leading to disagreement that cascades into slower subsequent rounds.
+    // All nodes share the same bootstrap config, so they advance in lockstep.
     auto effectiveParms = adaptor_.parms();
     if (bootstrapFastStart_)
-        effectiveParms.ledgerMAX_CONSENSUS /= 2;
+        effectiveParms.ledgerMAX_CONSENSUS = std::chrono::seconds{5};
 
     // Determine if we actually have consensus or not
     result_->state = checkConsensus(
