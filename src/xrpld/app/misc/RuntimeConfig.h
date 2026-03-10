@@ -47,6 +47,9 @@ struct ConfigVals
     // NOTE: This knob is intentionally explicit opt-in. The consensus system
     // is fully functional without it via accept-time pseudo-tx injection.
     std::optional<bool> explicitFinalProposal;
+    // Bootstrap fast start: seed prevRoundTime_ to 3s instead of 15s on first
+    // round, auto-disables after stable quorum is observed.
+    std::optional<bool> bootstrapFastStart;
     // If set (non-nullopt), only apply to these TrafficCount::category values.
     // nullopt = not specified (inherit from global on merge).
     // Empty set = explicitly "all categories" (overrides global filter).
@@ -67,7 +70,7 @@ struct ConfigVals
             (sendDelayJitterMs && *sendDelayJitterMs > 0) ||
             (sendDropPctX100 && *sendDropPctX100 > 0) ||
             (rngClaimDropPctX100 && *rngClaimDropPctX100 > 0) ||
-            explicitFinalProposal.has_value();
+            explicitFinalProposal.has_value() || bootstrapFastStart.has_value();
     }
 
     /** Merge other on top of this — other's set fields override. */
@@ -85,6 +88,8 @@ struct ConfigVals
             result.rngClaimDropPctX100 = other.rngClaimDropPctX100;
         if (other.explicitFinalProposal.has_value())
             result.explicitFinalProposal = other.explicitFinalProposal;
+        if (other.bootstrapFastStart.has_value())
+            result.bootstrapFastStart = other.bootstrapFastStart;
         if (other.messageCategories)
             result.messageCategories = other.messageCategories;
         return result;

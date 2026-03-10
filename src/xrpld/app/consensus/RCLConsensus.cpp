@@ -1380,6 +1380,15 @@ RCLConsensus::Adaptor::rngEnabled() const
 }
 
 bool
+RCLConsensus::Adaptor::bootstrapFastStartEnabled() const
+{
+    auto const cfg = app_.getRuntimeConfig().getConfig("*");
+    if (cfg && cfg->bootstrapFastStart.has_value())
+        return *cfg->bootstrapFastStart;
+    return false;
+}
+
+bool
 RCLConsensus::Adaptor::shouldSendExplicitFinalProposal() const
 {
     // Explicit-final-proposal policy is node-local and experimental.

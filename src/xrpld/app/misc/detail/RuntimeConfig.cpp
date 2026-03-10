@@ -67,6 +67,8 @@ parseConfigVals(Json::Value const& v)
             static_cast<int>(v["rng_claim_drop_pct"].asDouble() * 100);
     if (v.isMember("explicit_final_proposal"))
         cfg.explicitFinalProposal = v["explicit_final_proposal"].asBool();
+    if (v.isMember("bootstrap_fast_start"))
+        cfg.bootstrapFastStart = v["bootstrap_fast_start"].asBool();
     return cfg;
 }
 }  // namespace
@@ -104,6 +106,8 @@ RuntimeConfig::RuntimeConfig()
     if (auto parsed =
             parseBoolEnv(std::getenv("XAHAUD_EXPLICIT_FINAL_PROPOSAL")))
         global.explicitFinalProposal = *parsed;
+    if (auto parsed = parseBoolEnv(std::getenv("XAHAUD_BOOTSTRAP_FAST_START")))
+        global.bootstrapFastStart = *parsed;
 
     if (global.active())
     {

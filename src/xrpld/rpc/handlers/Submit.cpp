@@ -185,6 +185,7 @@ doSubmit(RPC::JsonContext& context)
         return jvResult;
     }
 
+    //@@start submit-response-fields
     try
     {
         jvResult[jss::tx_json] = transaction->getJson(JsonOptions::none);
@@ -228,6 +229,7 @@ doSubmit(RPC::JsonContext& context)
 
         return jvResult;
     }
+    //@@end submit-response-fields
     catch (std::exception& e)
     {
         jvResult[jss::error] = "internalJson";

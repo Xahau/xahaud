@@ -294,6 +294,10 @@ class RCLConsensus
         bool
         rngEnabled() const;
 
+        /** Whether bootstrap fast start is enabled via runtime config/env. */
+        bool
+        bootstrapFastStartEnabled() const;
+
         /** Whether to send an explicit final proposal (seq=4 style). */
         bool
         shouldSendExplicitFinalProposal() const;

@@ -1435,6 +1435,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
 
             bool addLocal = e.local;
 
+            //@@start txn-result-status-mapping
             if (isTesSuccess(e.result))
             {
                 JLOG(m_journal.debug())
@@ -1490,10 +1491,12 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     << "Status other than success " << e.result;
                 e.transaction->setStatus(INVALID);
             }
+            //@@end txn-result-status-mapping
 
             auto const enforceFailHard =
                 e.failType == FailHard::yes && !isTesSuccess(e.result);
 
+            //@@start txn-local-retry
             if (addLocal && !enforceFailHard)
             {
                 m_localTX->push_back(
@@ -1501,7 +1504,9 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     e.transaction->getSTransaction());
                 e.transaction->setKept();
             }
+            //@@end txn-local-retry
 
+            //@@start txn-relay-condition
             if ((e.applied ||
                  ((mMode != OperatingMode::FULL) &&
                   (e.failType != FailHard::yes) && e.local) ||
@@ -1530,6 +1535,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     e.transaction->setBroadcast();
                 }
             }
+            //@@end txn-relay-condition
 
             if (validatedLedgerIndex)
             {

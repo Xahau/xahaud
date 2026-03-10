@@ -161,6 +161,18 @@ struct ConsensusParms
 
     //! Percentage of nodes required to reach agreement on ledger close time
     std::size_t avCT_CONSENSUS_PCT = 75;
+
+    /** Seed value for prevRoundTime_ on first round when bootstrap fast start
+     *  is active.  Instead of the full ledgerIDLE_INTERVAL (15s), this much
+     *  shorter seed lets the close-speed governor (openTime >= prevRoundTime/2)
+     *  allow closing within ~1.5s, cutting ~12s per early round.
+     */
+    std::chrono::milliseconds bootstrapRoundTimeSeed = std::chrono::seconds{3};
+
+    /** Number of consecutive rounds with quorum participation required before
+     *  bootstrap fast start auto-disables.
+     */
+    std::size_t bootstrapStableRoundsRequired = 3;
 };
 
 /** Calculate the 80% quorum threshold (rounded up) for a given count.

@@ -412,6 +412,7 @@ TxQ::canBeHeld(
     std::optional<TxQAccount::TxMap::iterator> const& replacementIter,
     std::lock_guard<std::mutex> const& lock)
 {
+    //@@start txq-can-not-queue-checks
     // PreviousTxnID is deprecated and should never be used.
     // AccountTxnID is not supported by the transaction
     // queue yet, but should be added in the future.
@@ -429,6 +430,7 @@ TxQ::canBeHeld(
             *lastValid < view.info().seq + setup_.minimumLastLedgerBuffer)
             return telCAN_NOT_QUEUE;
     }
+    //@@end txq-can-not-queue-checks
 
     // Allow if the account is not in the queue at all.
     if (accountIter == byAccount_.end())
@@ -443,6 +445,7 @@ TxQ::canBeHeld(
     if (txQAcct.getTxnCount() < setup_.maximumTxnPerAccount)
         return tesSUCCESS;
 
+    //@@start txq-per-account-full
     // If we get here the queue limit is exceeded.  Only allow if this
     // transaction fills the _first_ sequence hole for the account.
     auto const txSeqProx = tx.getSeqProxy();
@@ -466,6 +469,7 @@ TxQ::canBeHeld(
         return tesSUCCESS;
 
     return telCAN_NOT_QUEUE_FULL;
+    //@@end txq-per-account-full
 }
 
 auto
@@ -783,6 +787,7 @@ TxQ::apply(
     Keylet const accountKey{keylet::account(account)};
     auto const sleAccount = view.read(accountKey);
 
+    //@@start txq-no-account-check
     if (!sleAccount)
     {
         if (tx->getTxnType() == ttIMPORT)
@@ -790,6 +795,7 @@ TxQ::apply(
 
         return {terNO_ACCOUNT, false};
     }
+    //@@end txq-no-account-check
 
     // If the transaction needs a Ticket is that Ticket in the ledger?
     SeqProxy const acctSeqProx = SeqProxy::sequence((*sleAccount)[sfSequence]);
@@ -857,6 +863,7 @@ TxQ::apply(
     auto const acctTxCount{
         !txIter ? 0 : std::distance(txIter->first, txIter->end)};
 
+    //@@start txq-blocker-checks
     // Is tx a blocker?  If so there are very limited conditions when it
     // is allowed in the TxQ:
     //  1. If the account's queue is empty or
@@ -882,6 +889,7 @@ TxQ::apply(
             return {telCAN_NOT_QUEUE_BLOCKS, false};
         }
     }
+    //@@end txq-blocker-checks
 
     // If the transaction is intending to replace a transaction in the queue
     // identify the one that might be replaced.
@@ -904,6 +912,7 @@ TxQ::apply(
     auto const requiredFeeLevel =
         getRequiredFeeLevel(view, flags, metricsSnapshot, lock);
 
+    //@@start txq-existing-blocker-check
     // Is there a blocker already in the account's queue?  If so, don't
     // allow additional transactions in the queue.
     if (acctTxCount > 0)
@@ -919,7 +928,9 @@ TxQ::apply(
         {
             return {telCAN_NOT_QUEUE_BLOCKED, false};
         }
+        //@@end txq-existing-blocker-check
 
+        //@@start txq-replacement-fee-check
         // Is there a transaction for the same account with the same
         // SeqProxy already in the queue?  If so we may replace the
         // existing entry with this new transaction.
@@ -956,6 +967,7 @@ TxQ::apply(
                 return {telCAN_NOT_QUEUE_FEE, false};
             }
         }
+        //@@end txq-replacement-fee-check
     }
 
     struct MultiTxn
@@ -1056,6 +1068,7 @@ TxQ::apply(
                         return {terPRE_SEQ, false};
                 }
             }
+            //@@start txq-sequence-gap-check
             else if (!replacedTxIter)
             {
                 // The current transaction is not replacing a transaction
@@ -1067,6 +1080,7 @@ TxQ::apply(
                     nextQueuableSeqImpl(sleAccount, lock) != txSeqProx)
                     return {telCAN_NOT_QUEUE, false};
             }
+            //@@end txq-sequence-gap-check
 
             // Sum fees and spending for all of the queued transactions
             // so we know how much to remove from the account balance
@@ -1094,6 +1108,7 @@ TxQ::apply(
                 }
             }
 
+            //@@start txq-balance-check
             /* Check if the total fees in flight are greater
                 than the account's current balance, or the
                 minimum reserve. If it is, then there's a risk
@@ -1151,6 +1166,7 @@ TxQ::apply(
                                  << ". Total fees in flight too high.";
                 return {telCAN_NOT_QUEUE_BALANCE, false};
             }
+            //@@end txq-balance-check
 
             // Create the test view from the current view.
             multiTxn.emplace(view, flags);
@@ -1265,6 +1281,7 @@ TxQ::apply(
         }
     }
 
+    //@@start txq-full-eviction
     // If the queue is full, decide whether to drop the current
     // transaction or the last transaction for the account with
     // the lowest fee.
@@ -1341,6 +1358,7 @@ TxQ::apply(
             return {telCAN_NOT_QUEUE_FULL, false};
         }
     }
+    //@@end txq-full-eviction
 
     // Hold the transaction in the queue.
     if (replacedTxIter)
@@ -1849,6 +1867,7 @@ TxQ::accept(Application& app, OpenView& view)
 
         } while (0);
 
+    //@@start txq-accept-drain-loop
     for (auto candidateIter = byFee_.begin(); candidateIter != byFee_.end();)
     {
         auto& account = byAccount_.at(candidateIter->account);
@@ -1967,6 +1986,7 @@ TxQ::accept(Application& app, OpenView& view)
             break;
         }
     }
+    //@@end txq-accept-drain-loop
 
     // All transactions that can be moved out of the queue into the open
     // ledger have been. Rebuild the queue using the open ledger's
