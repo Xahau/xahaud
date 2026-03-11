@@ -139,6 +139,7 @@ RCLValidationsAdaptor::acquire(LedgerHash const& hash)
 
     if (!ledger)
     {
+        // MERGE NOTE (upstream 86ef16dbeb): promoted from debug to warn.
         JLOG(j_.warn())
             << "Need validated ledger for preferred ledger analysis " << hash;
 

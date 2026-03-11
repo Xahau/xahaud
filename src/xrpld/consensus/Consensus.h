@@ -110,6 +110,8 @@ shouldCloseLedger(
                              last ledger
     @param currentAgreeTime how long, in milliseconds, we've been trying to
                             agree
+    // MERGE NOTE (upstream 86ef16dbeb): "should be rare" wording is from the
+    // bugfix. Upstream sync-2.5.0 has "will cause" instead. Keep ours.
     @param stalled the network appears to be stalled, where
            neither we nor our peers have changed their vote on any disputes in a
            while. This is undesirable, and should be rare, and will cause us to
@@ -2976,6 +2978,10 @@ Consensus<Adaptor>::haveConsensus(
         effectiveParms.ledgerMAX_CONSENSUS = std::chrono::seconds{5};
 
     ConsensusParms const& parms = adaptor_.parms();
+    // MERGE NOTE (upstream 86ef16dbeb): the !result_->disputes.empty() guard,
+    // j_/clog capture in the lambda, and the stalled-logging block below are
+    // all from the bugfix. Upstream sync-2.5.0 does NOT have them yet.
+    // When 86ef16dbeb arrives, keep our version — it's already applied.
     // Stalling is BAD. It means that we have a consensus on the close time, so
     // peers are talking, but we have disputed transactions that peers are
     // unable or unwilling to come to agreement on one way or the other.

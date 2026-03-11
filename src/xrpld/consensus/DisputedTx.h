@@ -175,6 +175,8 @@ public:
         @return bool Whether the peer changed its vote. (A new vote counts as a
        change.)
     */
+    // MERGE NOTE (sync-2.5.0): upstream changes return type from void to
+    // [[nodiscard]] bool. We already have this. Keep ours.
     [[nodiscard]]
     bool
     setVote(NodeID_t const& peer, bool votesYes);

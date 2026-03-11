@@ -1131,6 +1131,10 @@ public:
     // MERGE NOTE (sync-2.5.0): upstream adds testDisputes() method and its
     // run() entry here. Keep both all RNG tests below and testDisputes.
     // The stalled() calls in testDisputes need j/clog params (from 86ef16dbeb).
+    // WARNING: upstream testDisputes() body may auto-merge WITHOUT conflict
+    // markers, creating a duplicate alongside our version (which already has
+    // j/clog params). Delete the auto-merged duplicate — keep only the version
+    // with j/clog params and expectStalled() lambda.
     void
     testRngCommitRevealConverges()
     {
