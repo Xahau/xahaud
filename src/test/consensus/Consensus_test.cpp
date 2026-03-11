@@ -1649,6 +1649,10 @@ public:
         ConsensusParms p;
         std::size_t peersUnchanged = 0;
 
+        auto logs = std::make_unique<Logs>(beast::severities::kError);
+        auto j = logs->journal("Test");
+        auto clog = std::make_unique<std::stringstream>();
+
         // Three cases:
         // 1 proposing, initial vote yes
         // 2 proposing, initial vote no
@@ -1685,10 +1689,15 @@ public:
             BEAST_EXPECT(proposingFalse.getOurVote() == false);
             BEAST_EXPECT(followingTrue.getOurVote() == true);
             BEAST_EXPECT(followingFalse.getOurVote() == false);
-            BEAST_EXPECT(!proposingTrue.stalled(p, true, peersUnchanged));
-            BEAST_EXPECT(!proposingFalse.stalled(p, true, peersUnchanged));
-            BEAST_EXPECT(!followingTrue.stalled(p, false, peersUnchanged));
-            BEAST_EXPECT(!followingFalse.stalled(p, false, peersUnchanged));
+            BEAST_EXPECT(
+                !proposingTrue.stalled(p, true, peersUnchanged, j, clog));
+            BEAST_EXPECT(
+                !proposingFalse.stalled(p, true, peersUnchanged, j, clog));
+            BEAST_EXPECT(
+                !followingTrue.stalled(p, false, peersUnchanged, j, clog));
+            BEAST_EXPECT(
+                !followingFalse.stalled(p, false, peersUnchanged, j, clog));
+            BEAST_EXPECT(clog->str() == "");
 
             // I'm in the majority, my vote should not change
             BEAST_EXPECT(!proposingTrue.updateVote(5, true, p));
@@ -1702,10 +1711,15 @@ public:
             BEAST_EXPECT(!followingFalse.updateVote(10, false, p));
 
             peersUnchanged = 2;
-            BEAST_EXPECT(!proposingTrue.stalled(p, true, peersUnchanged));
-            BEAST_EXPECT(!proposingFalse.stalled(p, true, peersUnchanged));
-            BEAST_EXPECT(!followingTrue.stalled(p, false, peersUnchanged));
-            BEAST_EXPECT(!followingFalse.stalled(p, false, peersUnchanged));
+            BEAST_EXPECT(
+                !proposingTrue.stalled(p, true, peersUnchanged, j, clog));
+            BEAST_EXPECT(
+                !proposingFalse.stalled(p, true, peersUnchanged, j, clog));
+            BEAST_EXPECT(
+                !followingTrue.stalled(p, false, peersUnchanged, j, clog));
+            BEAST_EXPECT(
+                !followingFalse.stalled(p, false, peersUnchanged, j, clog));
+            BEAST_EXPECT(clog->str() == "");
 
             // Right now, the vote is 51%. The requirement is about to jump to
             // 65%
@@ -1795,10 +1809,15 @@ public:
             BEAST_EXPECT(followingFalse.getOurVote() == false);
 
             peersUnchanged = 3;
-            BEAST_EXPECT(!proposingTrue.stalled(p, true, peersUnchanged));
-            BEAST_EXPECT(!proposingFalse.stalled(p, true, peersUnchanged));
-            BEAST_EXPECT(!followingTrue.stalled(p, false, peersUnchanged));
-            BEAST_EXPECT(!followingFalse.stalled(p, false, peersUnchanged));
+            BEAST_EXPECT(
+                !proposingTrue.stalled(p, true, peersUnchanged, j, clog));
+            BEAST_EXPECT(
+                !proposingFalse.stalled(p, true, peersUnchanged, j, clog));
+            BEAST_EXPECT(
+                !followingTrue.stalled(p, false, peersUnchanged, j, clog));
+            BEAST_EXPECT(
+                !followingFalse.stalled(p, false, peersUnchanged, j, clog));
+            BEAST_EXPECT(clog->str() == "");
 
             // Threshold jumps to 95%
             BEAST_EXPECT(proposingTrue.updateVote(220, true, p));
@@ -1835,11 +1854,59 @@ public:
 
             for (peersUnchanged = 0; peersUnchanged < 6; ++peersUnchanged)
             {
-                BEAST_EXPECT(!proposingTrue.stalled(p, true, peersUnchanged));
-                BEAST_EXPECT(!proposingFalse.stalled(p, true, peersUnchanged));
-                BEAST_EXPECT(!followingTrue.stalled(p, false, peersUnchanged));
-                BEAST_EXPECT(!followingFalse.stalled(p, false, peersUnchanged));
+                BEAST_EXPECT(
+                    !proposingTrue.stalled(p, true, peersUnchanged, j, clog));
+                BEAST_EXPECT(
+                    !proposingFalse.stalled(p, true, peersUnchanged, j, clog));
+                BEAST_EXPECT(
+                    !followingTrue.stalled(p, false, peersUnchanged, j, clog));
+                BEAST_EXPECT(
+                    !followingFalse.stalled(p, false, peersUnchanged, j, clog));
+                BEAST_EXPECT(clog->str() == "");
             }
+
+            auto expectStalled = [this, &clog](
+                                     int txid,
+                                     bool ourVote,
+                                     int ourTime,
+                                     int peerTime,
+                                     int support,
+                                     std::uint32_t line) {
+                using namespace std::string_literals;
+
+                auto const s = clog->str();
+                expect(s.find("stalled"), s, __FILE__, line);
+                expect(
+                    s.starts_with("Transaction "s + std::to_string(txid)),
+                    s,
+                    __FILE__,
+                    line);
+                expect(
+                    s.find("voting "s + (ourVote ? "YES" : "NO")) != s.npos,
+                    s,
+                    __FILE__,
+                    line);
+                expect(
+                    s.find("for "s + std::to_string(ourTime) + " rounds."s) !=
+                        s.npos,
+                    s,
+                    __FILE__,
+                    line);
+                expect(
+                    s.find(
+                        "votes in "s + std::to_string(peerTime) + " rounds.") !=
+                        s.npos,
+                    s,
+                    __FILE__,
+                    line);
+                expect(
+                    s.ends_with(
+                        "has "s + std::to_string(support) + "% support. "s),
+                    s,
+                    __FILE__,
+                    line);
+                clog = std::make_unique<std::stringstream>();
+            };
 
             for (int i = 0; i < 1; ++i)
             {
@@ -1855,22 +1922,34 @@ public:
                 BEAST_EXPECT(followingFalse.getOurVote() == false);
 
                 // true vote has changed recently, so not stalled
-                BEAST_EXPECT(!proposingTrue.stalled(p, true, 0));
+                BEAST_EXPECT(!proposingTrue.stalled(p, true, 0, j, clog));
+                BEAST_EXPECT(clog->str() == "");
                 // remaining votes have been unchanged in so long that we only
                 // need to hit the second round at 95% to be stalled, regardless
                 // of peers
-                BEAST_EXPECT(proposingFalse.stalled(p, true, 0));
-                BEAST_EXPECT(followingTrue.stalled(p, false, 0));
-                BEAST_EXPECT(followingFalse.stalled(p, false, 0));
+                BEAST_EXPECT(proposingFalse.stalled(p, true, 0, j, clog));
+                expectStalled(98, false, 11, 0, 2, __LINE__);
+                BEAST_EXPECT(followingTrue.stalled(p, false, 0, j, clog));
+                expectStalled(97, true, 11, 0, 97, __LINE__);
+                BEAST_EXPECT(followingFalse.stalled(p, false, 0, j, clog));
+                expectStalled(96, false, 11, 0, 3, __LINE__);
 
                 // true vote has changed recently, so not stalled
-                BEAST_EXPECT(!proposingTrue.stalled(p, true, peersUnchanged));
+                BEAST_EXPECT(
+                    !proposingTrue.stalled(p, true, peersUnchanged, j, clog));
+                BEAST_EXPECTS(clog->str() == "", clog->str());
                 // remaining votes have been unchanged in so long that we only
                 // need to hit the second round at 95% to be stalled, regardless
                 // of peers
-                BEAST_EXPECT(proposingFalse.stalled(p, true, peersUnchanged));
-                BEAST_EXPECT(followingTrue.stalled(p, false, peersUnchanged));
-                BEAST_EXPECT(followingFalse.stalled(p, false, peersUnchanged));
+                BEAST_EXPECT(
+                    proposingFalse.stalled(p, true, peersUnchanged, j, clog));
+                expectStalled(98, false, 11, 6, 2, __LINE__);
+                BEAST_EXPECT(
+                    followingTrue.stalled(p, false, peersUnchanged, j, clog));
+                expectStalled(97, true, 11, 6, 97, __LINE__);
+                BEAST_EXPECT(
+                    followingFalse.stalled(p, false, peersUnchanged, j, clog));
+                expectStalled(96, false, 11, 6, 3, __LINE__);
             }
             for (int i = 1; i < 3; ++i)
             {
@@ -1887,19 +1966,31 @@ public:
 
                 // true vote changed 2 rounds ago, and peers are changing, so
                 // not stalled
-                BEAST_EXPECT(!proposingTrue.stalled(p, true, 0));
+                BEAST_EXPECT(!proposingTrue.stalled(p, true, 0, j, clog));
+                BEAST_EXPECTS(clog->str() == "", clog->str());
                 // still stalled
-                BEAST_EXPECT(proposingFalse.stalled(p, true, 0));
-                BEAST_EXPECT(followingTrue.stalled(p, false, 0));
-                BEAST_EXPECT(followingFalse.stalled(p, false, 0));
+                BEAST_EXPECT(proposingFalse.stalled(p, true, 0, j, clog));
+                expectStalled(98, false, 11 + i, 0, 2, __LINE__);
+                BEAST_EXPECT(followingTrue.stalled(p, false, 0, j, clog));
+                expectStalled(97, true, 11 + i, 0, 97, __LINE__);
+                BEAST_EXPECT(followingFalse.stalled(p, false, 0, j, clog));
+                expectStalled(96, false, 11 + i, 0, 3, __LINE__);
 
                 // true vote changed 2 rounds ago, and peers are NOT changing,
                 // so stalled
-                BEAST_EXPECT(proposingTrue.stalled(p, true, peersUnchanged));
+                BEAST_EXPECT(
+                    proposingTrue.stalled(p, true, peersUnchanged, j, clog));
+                expectStalled(99, true, 1 + i, 6, 97, __LINE__);
                 // still stalled
-                BEAST_EXPECT(proposingFalse.stalled(p, true, peersUnchanged));
-                BEAST_EXPECT(followingTrue.stalled(p, false, peersUnchanged));
-                BEAST_EXPECT(followingFalse.stalled(p, false, peersUnchanged));
+                BEAST_EXPECT(
+                    proposingFalse.stalled(p, true, peersUnchanged, j, clog));
+                expectStalled(98, false, 11 + i, 6, 2, __LINE__);
+                BEAST_EXPECT(
+                    followingTrue.stalled(p, false, peersUnchanged, j, clog));
+                expectStalled(97, true, 11 + i, 6, 97, __LINE__);
+                BEAST_EXPECT(
+                    followingFalse.stalled(p, false, peersUnchanged, j, clog));
+                expectStalled(96, false, 11 + i, 6, 3, __LINE__);
             }
             for (int i = 3; i < 5; ++i)
             {
@@ -1914,15 +2005,27 @@ public:
                 BEAST_EXPECT(followingTrue.getOurVote() == true);
                 BEAST_EXPECT(followingFalse.getOurVote() == false);
 
-                BEAST_EXPECT(proposingTrue.stalled(p, true, 0));
-                BEAST_EXPECT(proposingFalse.stalled(p, true, 0));
-                BEAST_EXPECT(followingTrue.stalled(p, false, 0));
-                BEAST_EXPECT(followingFalse.stalled(p, false, 0));
+                BEAST_EXPECT(proposingTrue.stalled(p, true, 0, j, clog));
+                expectStalled(99, true, 1 + i, 0, 97, __LINE__);
+                BEAST_EXPECT(proposingFalse.stalled(p, true, 0, j, clog));
+                expectStalled(98, false, 11 + i, 0, 2, __LINE__);
+                BEAST_EXPECT(followingTrue.stalled(p, false, 0, j, clog));
+                expectStalled(97, true, 11 + i, 0, 97, __LINE__);
+                BEAST_EXPECT(followingFalse.stalled(p, false, 0, j, clog));
+                expectStalled(96, false, 11 + i, 0, 3, __LINE__);
 
-                BEAST_EXPECT(proposingTrue.stalled(p, true, peersUnchanged));
-                BEAST_EXPECT(proposingFalse.stalled(p, true, peersUnchanged));
-                BEAST_EXPECT(followingTrue.stalled(p, false, peersUnchanged));
-                BEAST_EXPECT(followingFalse.stalled(p, false, peersUnchanged));
+                BEAST_EXPECT(
+                    proposingTrue.stalled(p, true, peersUnchanged, j, clog));
+                expectStalled(99, true, 1 + i, 6, 97, __LINE__);
+                BEAST_EXPECT(
+                    proposingFalse.stalled(p, true, peersUnchanged, j, clog));
+                expectStalled(98, false, 11 + i, 6, 2, __LINE__);
+                BEAST_EXPECT(
+                    followingTrue.stalled(p, false, peersUnchanged, j, clog));
+                expectStalled(97, true, 11 + i, 6, 97, __LINE__);
+                BEAST_EXPECT(
+                    followingFalse.stalled(p, false, peersUnchanged, j, clog));
+                expectStalled(96, false, 11 + i, 6, 3, __LINE__);
             }
         }
     }
