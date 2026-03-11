@@ -2958,6 +2958,12 @@ Consensus<Adaptor>::haveConsensus(
                          << (ourPosition.myReveal ? "yes" : "no");
     }
 
+    // MERGE NOTE (sync-2.5.0): upstream replaces adaptor_.parms() with a local
+    // `parms` ref and adds `stalled` bool + peerUnchangedCounter_ tracking.
+    // We already have all of that below. Keep effectiveParms for bootstrap
+    // override AND the stalled/parms logic. Pass both stalled and
+    // effectiveParms to checkConsensus.
+    //
     // During bootstrap fast start, cap ledgerMAX_CONSENSUS at 5s so the
     // "alone with zero peers" establish path exits faster.  5s is the
     // sweet spot: long enough for peers to exchange proposals and agree

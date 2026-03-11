@@ -138,6 +138,9 @@ checkConsensusReached(
         return false;
     }
 
+    // MERGE NOTE (sync-2.5.0): upstream has the older wording here ("every
+    // disputed transaction" instead of "there are disputed transactions and all
+    // of them"). Keep our updated wording from bugfix 86ef16dbeb.
     // We only get stalled when there are disputed transactions and all of them
     // unequivocally have 80% (minConsensusPct) agreement, either for or
     // against. That is: either under 20% or over 80% consensus (repectively

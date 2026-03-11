@@ -84,6 +84,9 @@ public:
         return ourVote_;
     }
 
+    // MERGE NOTE (sync-2.5.0): upstream adds this same stalled() method but
+    // without the j/clog diagnostic params (added by bugfix 86ef16dbeb).
+    // Keep our version with j/clog params.
     //! Are we and our peers "stalled" where we probably won't change
     //! our vote?
     bool

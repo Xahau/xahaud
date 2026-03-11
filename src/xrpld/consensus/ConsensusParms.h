@@ -93,6 +93,8 @@ struct ConsensusParms
      *  laggards.
      */
     // Non-const: bootstrap fast start overrides this to 5s during early rounds.
+    // MERGE NOTE (sync-2.5.0): upstream makes this const. Keep non-const for
+    // bootstrap override in Consensus.h haveConsensus().
     std::chrono::milliseconds ledgerMAX_CONSENSUS = std::chrono::seconds{15};
 
     /** Maximum time to wait for RNG commit/reveal quorum before giving up.
@@ -194,6 +196,8 @@ struct ConsensusParms
     //! because voting stalled
     std::size_t const avSTALLED_ROUNDS = 4;
 
+    // MERGE NOTE (sync-2.5.0): upstream adds avMIN_ROUNDS and avSTALLED_ROUNDS
+    // above this point. Keep both upstream params and bootstrap params below.
     /** Seed value for prevRoundTime_ on first round when bootstrap fast start
      *  is active.  Instead of the full ledgerIDLE_INTERVAL (15s), this much
      *  shorter seed lets the close-speed governor (openTime >= prevRoundTime/2)
@@ -208,6 +212,8 @@ struct ConsensusParms
     std::size_t const bootstrapStableRoundsRequired = 3;
 };
 
+// MERGE NOTE (sync-2.5.0): upstream adds getNeededWeight() after this
+// function. Keep both calculateQuorumThreshold and getNeededWeight.
 /** Calculate the 80% quorum threshold (rounded up) for a given count.
 
     This is the standard quorum used for consensus validation, matching

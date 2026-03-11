@@ -1128,6 +1128,9 @@ public:
         BEAST_EXPECT(sim.synchronized());
     }
 
+    // MERGE NOTE (sync-2.5.0): upstream adds testDisputes() method and its
+    // run() entry here. Keep both all RNG tests below and testDisputes.
+    // The stalled() calls in testDisputes need j/clog params (from 86ef16dbeb).
     void
     testRngCommitRevealConverges()
     {
