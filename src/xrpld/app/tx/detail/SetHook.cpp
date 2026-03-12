@@ -231,7 +231,9 @@ SetHook::inferOperation(STObject const& hookSetObj)
            hookSetObj.isFieldPresent(sfHookOnIncoming))) &&
         !hookSetObj.isFieldPresent(sfHookCanEmit) &&
         !hookSetObj.isFieldPresent(sfHookApiVersion) &&
-        !hookSetObj.isFieldPresent(sfFlags))
+        !hookSetObj.isFieldPresent(sfFlags) &&
+        !hookSetObj.isFieldPresent(sfHookCallbackGas) &&
+        !hookSetObj.isFieldPresent(sfHookWeakGas))
         return hsoNOOP;
 
     uint32_t flags = hookSetObj.isFieldPresent(sfFlags)
@@ -268,6 +270,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 hookSetObj.isFieldPresent(sfHookOnIncoming) ||
                 hookSetObj.isFieldPresent(sfHookCanEmit) ||
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
+                hookSetObj.isFieldPresent(sfHookCallbackGas) ||
+                hookSetObj.isFieldPresent(sfHookWeakGas) ||
                 !hookSetObj.isFieldPresent(sfFlags) ||
                 !hookSetObj.isFieldPresent(sfHookNamespace))
             {
@@ -301,6 +305,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 hookSetObj.isFieldPresent(sfHookCanEmit) ||
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
                 hookSetObj.isFieldPresent(sfHookNamespace) ||
+                hookSetObj.isFieldPresent(sfHookCallbackGas) ||
+                hookSetObj.isFieldPresent(sfHookWeakGas) ||
                 !hookSetObj.isFieldPresent(sfFlags))
             {
                 JLOG(ctx.j.trace())
@@ -403,6 +409,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             // namespace may be valid, if the user so chooses
             // hookon may be present if the user so chooses
             // flags may be present if the user so chooses
+            // hookweakgas may be present if the user so chooses
+            // hookcallbackgas may be present if the user so chooses
 
             return true;
         }
@@ -1415,9 +1423,21 @@ validateGasHook(
             return tecHOOK_INVALID;
 
         auto const flags = hook.getFlags();
-        if (((flags & hsfCOLLECT) && !hook.isFieldPresent(sfHookWeakGas)) ||
-            (!(flags & hsfCOLLECT) && hook.isFieldPresent(sfHookWeakGas)))
-            return tecHOOK_INVALID;
+        auto const hasCollectFlag = flags & hsfCOLLECT;
+
+        if (hasCollectFlag)
+        {
+            // ltHook or ltHookDefinition must have sfHookWeakGas
+            if (!hook.isFieldPresent(sfHookWeakGas) &&
+                !defSLE->isFieldPresent(sfHookWeakGas))
+                return tecHOOK_INVALID;
+        }
+        else
+        {
+            // ltHook must not have sfHookWeakGas
+            if (hook.isFieldPresent(sfHookWeakGas))
+                return tecHOOK_INVALID;
+        }
     }
     else
     {
@@ -1652,6 +1672,13 @@ SetHook::setHook()
                 newNamespace = hookSetObj->get().getFieldH256(sfHookNamespace);
                 newDirKeylet = keylet::hookStateDir(account_, *newNamespace);
             }
+
+            if (hookSetObj->get().isFieldPresent(sfHookCallbackGas))
+                newHookCallbackGas =
+                    hookSetObj->get().getFieldU32(sfHookCallbackGas);
+
+            if (hookSetObj->get().isFieldPresent(sfHookWeakGas))
+                newHookWeakGas = hookSetObj->get().getFieldU32(sfHookWeakGas);
         }
 
         // users may destroy a namespace in any operation except NOOP and
@@ -1836,6 +1863,15 @@ SetHook::setHook()
                     else
                         newHook.setFieldH256(sfHookCanEmit, *newHookCanEmit);
                 }
+
+                auto const defVersion =
+                    newDefSLE->getFieldU16(sfHookApiVersion);
+
+                if (defVersion == 0 && (newHookCallbackGas || newHookWeakGas))
+                    return tecHOOK_INVALID;
+
+                if (!defHookCallbackGas.has_value() && newHookCallbackGas)
+                    return tecHOOK_INVALID;
 
                 if (newHookWeakGas)
                 {
@@ -2224,10 +2260,22 @@ SetHook::setHook()
                       *defHookCanEmit == *newHookCanEmit))
                     newHook.setFieldH256(sfHookCanEmit, *newHookCanEmit);
 
+                auto const defVersion =
+                    newDefSLE->getFieldU16(sfHookApiVersion);
+
+                if (defVersion == 0 && (newHookCallbackGas || newHookWeakGas))
+                    return tecHOOK_INVALID;
+
+                if (!defHookCallbackGas.has_value() && newHookCallbackGas)
+                    return tecHOOK_INVALID;
+
                 if (newHookCallbackGas &&
                     !(defHookCallbackGas.has_value() &&
                       *defHookCallbackGas == *newHookCallbackGas))
                     newHook.setFieldU32(sfHookCallbackGas, *newHookCallbackGas);
+
+                if ((!flags || !(*flags & hsfCOLLECT)) && newHookWeakGas)
+                    return tecHOOK_INVALID;
 
                 if (newHookWeakGas &&
                     !(defHookWeakGas.has_value() &&
@@ -2287,7 +2335,8 @@ SetHook::setHook()
         // sfParameters: 1 reserve PER entry
         // sfGrants are: 1 reserve PER entry
         // sfHookHash, sfHookNamespace, sfHookOn, sfHookOnOutgoing,
-        // sfHookOnIncoming, sfHookCanEmit sfHookApiVersion, sfFlags: free
+        // sfHookOnIncoming, sfHookCanEmit, sfHookApiVersion, sfHookCallbackGas,
+        // sfHookWeakGas, sfFlags: free
 
         // sfHookDefinition is not reserved because it is an unowned object,
         // rather the uploader is billed via fee according to the following:

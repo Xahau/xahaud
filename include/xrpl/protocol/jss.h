@@ -87,6 +87,8 @@ JSS(HookParameterName);   // field
 JSS(HookParameterValue);  // field
 JSS(HookParameter);       // field
 JSS(HookGrant);           // field
+JSS(HookCallbackGas);     // field
+JSS(HookWeakGas);         // field
 JSS(isSerialized);        // out: RPC server_definitions
                           // matches definitions.json format
 JSS(isSigningField);      // out: RPC server_definitions

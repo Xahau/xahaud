@@ -722,7 +722,8 @@ public:
         }
 
         // grants, parameters, hookon, hookonincoming, hookonoutgoing,
-        // hookcanemit, hookapiversion, hooknamespace keys must be absent
+        // hookcanemit, hookapiversion, hooknamespace, callbackgas, weakgas keys
+        // must be absent
         for (auto const& [key, value] : JSSMap{
                  {jss::HookGrants, Json::arrayValue},
                  {jss::HookParameters, Json::arrayValue},
@@ -739,7 +740,10 @@ public:
                   "000000000000000000000000000000000000000000000000000000000000"
                   "0000"},
                  {jss::HookApiVersion, "0"},
-                 {jss::HookNamespace, to_string(uint256{beast::zero})}})
+                 {jss::HookNamespace, to_string(uint256{beast::zero})},
+                 {jss::HookCallbackGas, 1000000},
+                 {jss::HookWeakGas, 1000000},
+             })
         {
             if (!hasHookCanEmit && key == jss::HookCanEmit)
                 continue;
@@ -751,7 +755,7 @@ public:
             env(jv,
                 M("Hook DELETE operation cannot include: grants, params, "
                   "hookon, HookOnIncoming, HookOnOutgoing, hookcanemit, "
-                  "apiversion, namespace"),
+                  "apiversion, namespace, callbackgas, weakgas"),
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
@@ -922,6 +926,8 @@ public:
                   "000000000000000000000000000000000000000000000000000000000000"
                   "0000"},
                  {jss::HookApiVersion, "0"},
+                 {jss::HookCallbackGas, 1000000},
+                 {jss::HookWeakGas, 1000000},
              })
         {
             if (!hasHookCanEmit && key == jss::HookCanEmit)
@@ -935,7 +941,7 @@ public:
             env(jv,
                 M("Hook NSDELETE operation cannot include: grants, params, "
                   "hookon, hookonincoming, hookonoutgoing, hookcanemit, "
-                  "apiversion"),
+                  "apiversion, callbackgas, weakgas"),
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
@@ -15244,7 +15250,7 @@ public:
         jvh[jss::HookApiVersion] = 0;
 
         env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
-            M("test gas type hook installation"),
+            M("test gas type hook disabled"),
             HSFEE,
             ter(temMALFORMED));
 
@@ -15252,23 +15258,23 @@ public:
         jvh[jss::HookApiVersion] = 1;
 
         env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
-            M("test gas type hook installation"),
+            M("test gas type hook disabled"),
             HSFEE,
             ter(temMALFORMED));
 
         // HookGas field
         env(invoke::invoke(alice),
             hookgas(1000000),
-            M("test gas type hook invocation"),
+            M("test gas type hook disabled"),
             fee(XRP(1)),
             ter(temMALFORMED));
         env.close();
     }
 
     void
-    testGasTypeHookInstallation(FeatureBitset features)
+    testGasTypeHookCreation(FeatureBitset features)
     {
-        testcase("Test Gas-type Hook installation");
+        testcase("Test Gas-type Hook creation");
         using namespace jtx;
 
         Env env{*this, features};
@@ -15283,7 +15289,7 @@ public:
             jvh[jss::HookApiVersion] = 1;
             jvh[sfHookCallbackGas.jsonName] = 1000000;
             env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
-                M("test gas type hook installation"),
+                M("test gas type hook creation"),
                 HSFEE,
                 ter(temMALFORMED));
         }
@@ -15293,7 +15299,7 @@ public:
             Json::Value jvh = hso(gas_accept_with_cbak_wasm, overrideFlag);
             jvh[jss::HookApiVersion] = 1;
             env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
-                M("test gas type hook installation"),
+                M("test gas type hook creation"),
                 HSFEE,
                 ter(temMALFORMED));
         }
@@ -15304,7 +15310,7 @@ public:
             jvh[jss::HookApiVersion] = 1;
             jvh[sfHookWeakGas.jsonName] = 1000000;
             env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
-                M("test gas type hook installation"),
+                M("test gas type hook creation"),
                 HSFEE,
                 ter(temMALFORMED));
         }
@@ -15314,7 +15320,7 @@ public:
             Json::Value jvh = hso(gas_accept_wasm, collectFlag);
             jvh[jss::HookApiVersion] = 1;
             env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
-                M("test gas type hook installation"),
+                M("test gas type hook creation"),
                 HSFEE,
                 ter(temMALFORMED));
         }
@@ -15324,7 +15330,7 @@ public:
         jvh[jss::HookApiVersion] = 1;
 
         env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
-            M("test gas type hook installation"),
+            M("test gas type hook creation"),
             HSFEE);
         env.close();
 
@@ -15350,6 +15356,382 @@ public:
         // HookGas field for Gas-type hook
         env(invoke::invoke(alice), hookgas(expectedGas), fee(expectedFee));
         env.close();
+    }
+
+    void
+    testGasTypeHookInstallation(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook installation");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        auto const carol = Account{"carol"};
+        auto const dave = Account{"dave"};
+
+        {
+            // Invalid installation for version=0 hook
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            // create a guard hook
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(accept_wasm, overrideFlag)}}, 0),
+                M("test gas type hook installation: version=0 hook"),
+                HSFEE);
+            env.close();
+
+            // sfHookWeakGas or sfHookCallbackGas is present
+            for (auto const fieldJsonName :
+                 {sfHookWeakGas.jsonName, sfHookCallbackGas.jsonName})
+            {
+                auto jvh = hso(accept_hash, overrideFlag);
+                jvh[fieldJsonName] = 1000000;
+                env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
+                    M("test gas type hook installation: version=0 hook, " +
+                      std::string(fieldJsonName.c_str())),
+                    HSFEE,
+                    ter(tecHOOK_INVALID));
+                env.close();
+            }
+        }
+
+        {
+            // Invalid installation for version=1 hook (non-cbak, non-weak)
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            // create a non-cbak, non-weak hook
+            auto jvh0 = hso(gas_accept_wasm, overrideFlag);
+            jvh0[jss::HookApiVersion] = 1;
+            env(ripple::test::jtx::hook(alice, {{jvh0}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "non-weak)"),
+                HSFEE);
+            env.close();
+
+            // sfHookWeakGas or sfHookCallbackGas is present
+            for (auto const fieldJsonName :
+                 {sfHookWeakGas.jsonName, sfHookCallbackGas.jsonName})
+            {
+                auto jvh = hso(gas_accept_hash, overrideFlag);
+                jvh[fieldJsonName] = 1000000;
+                env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
+                    M("test gas type hook installation: version=1 "
+                      "hook(non-cbak, non-weak), " +
+                      std::string(fieldJsonName.c_str())),
+                    HSFEE,
+                    ter(tecHOOK_INVALID));
+                env.close();
+            }
+
+            // with collect flag but no weak gas
+            auto jvh = hso(gas_accept_hash, collectFlag);
+            env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "non-weak), with collect flag but no weak gas"),
+                HSFEE,
+                ter(tecHOOK_INVALID));
+            env.close();
+
+            // Valid Installation
+            // with collect flag and weak gas
+            auto jvh2 = hso(gas_accept_hash, collectFlag);
+            jvh2[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(bob, {{jvh2}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "non-weak), with collect flag and weak gas"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        {
+            // Invalid installation for version=1 hook (with-cbak, non-weak)
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, carol);
+            env.close();
+
+            // create a with-cbak, non-weak hook
+            auto jvh0 = hso(gas_accept_with_cbak_wasm, overrideFlag);
+            jvh0[jss::HookApiVersion] = 1;
+            jvh0[sfHookCallbackGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh0}}, 0),
+                M("test gas type hook installation: version=1 hook(with-cbak, "
+                  "non-weak)"),
+                HSFEE);
+            env.close();
+
+            // sfHookWeakGas is present
+            auto jvh = hso(gas_accept_with_cbak_hash, overrideFlag);
+            jvh[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
+                M("test gas type hook installation: version=1 hook(with-cbak, "
+                  "non-weak), sfHookWeakGas is present"),
+                HSFEE,
+                ter(tecHOOK_INVALID));
+            env.close();
+
+            // sfHookCallbackGas is present
+            auto jvh2 = hso(gas_accept_with_cbak_hash, overrideFlag);
+            jvh2[sfHookCallbackGas.jsonName] = 1000001;
+            env(ripple::test::jtx::hook(bob, {{jvh2}}, 0),
+                M("test gas type hook installation: version=1 hook(with-cbak, "
+                  "non-weak), sfHookCallbackGas is present"),
+                HSFEE,
+                ter(tecHOOK_INVALID));
+            env.close();
+
+            // Valid Installation
+            // sfHookCallbackGas is not present
+            auto jvh3 = hso(gas_accept_with_cbak_hash, overrideFlag);
+            env(ripple::test::jtx::hook(carol, {{jvh3}}, 0),
+                M("test gas type hook installation: version=1 hook(with-cbak, "
+                  "non-weak), sfHookCallbackGas is not present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        {
+            // Invalid installation for version=1 hook (non-cbak, with-weak)
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, carol, dave);
+            env.close();
+
+            // create a non-cbak, with-weak hook
+            auto jvh0 = hso(gas_accept_wasm, collectFlag);
+            jvh0[jss::HookApiVersion] = 1;
+            jvh0[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh0}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "with-weak)"),
+                HSFEE);
+            env.close();
+
+            // Valid Installation
+            // without collect flag
+            auto jvh = hso(gas_accept_hash, overrideFlag);
+            env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "with-weak), without collect flag"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // sfHookWeakGas is not present
+            auto jvh2 = hso(gas_accept_hash, collectFlag);
+            env(ripple::test::jtx::hook(carol, {{jvh2}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "with-weak), sfHookWeakGas is not present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // sfHookWeakGas is present
+            auto jvh3 = hso(gas_accept_hash, collectFlag);
+            jvh3[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(dave, {{jvh3}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "with-weak), sfHookWeakGas is present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+    }
+
+    void
+    testGasTypeHookUpdate(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook update");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        auto const carol = Account{"carol"};
+
+        {
+            // Invalid update for version=0 hook
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            // create a guard hook
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(accept_wasm, overrideFlag)}}, 0),
+                M("test gas type hook update: version=0 hook"),
+                HSFEE);
+            env.close();
+
+            // sfHookWeakGas or sfHookCallbackGas is present
+            for (auto const fieldJsonName :
+                 {sfHookWeakGas.jsonName, sfHookCallbackGas.jsonName})
+            {
+                auto jvh = Json::Value(Json::objectValue);
+                jvh[fieldJsonName] = 1000000;
+                env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                    M("test gas type hook update: version=0 hook, " +
+                      std::string(fieldJsonName.c_str())),
+                    HSFEE,
+                    ter(tecHOOK_INVALID));
+                env.close();
+            }
+        }
+
+        {
+            // Invalid update for version=1 hook (non-cbak, non-weak)
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            // create a non-cbak, non-weak hook
+            auto jvh0 = hso(gas_accept_wasm, overrideFlag);
+            jvh0[jss::HookApiVersion] = 1;
+            env(ripple::test::jtx::hook(alice, {{jvh0}}, 0),
+                M("test gas type hook update: version=1 hook(non-cbak, "
+                  "non-weak)"),
+                HSFEE);
+            env.close();
+
+            // sfHookWeakGas or sfHookCallbackGas is present
+            for (auto const fieldJsonName :
+                 {sfHookWeakGas.jsonName, sfHookCallbackGas.jsonName})
+            {
+                auto jvh = Json::Value(Json::objectValue);
+                jvh[fieldJsonName] = 1000000;
+                env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                    M("test gas type hook update: version=1 "
+                      "hook(non-cbak, non-weak), " +
+                      std::string(fieldJsonName.c_str())),
+                    HSFEE,
+                    ter(tecHOOK_INVALID));
+                env.close();
+            }
+
+            // with collect flag but no weak gas
+            auto jvh = Json::Value(Json::objectValue);
+            jvh[jss::Flags] = hsfCOLLECT;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook update: version=1 hook(non-cbak, "
+                  "non-weak), with collect flag but no weak gas"),
+                HSFEE,
+                ter(tecHOOK_INVALID));
+            env.close();
+
+            // Valid update
+            // with collect flag and weak gas
+            auto jvh2 = Json::Value(Json::objectValue);
+            jvh2[jss::Flags] = hsfCOLLECT;
+            jvh2[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh2}}, 0),
+                M("test gas type hook update: version=1 hook(non-cbak, "
+                  "non-weak), with collect flag and weak gas"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        {
+            // Invalid update for version=1 hook (with-cbak, non-weak)
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            // create a with-cbak, non-weak hook
+            auto jvh0 = hso(gas_accept_with_cbak_wasm, overrideFlag);
+            jvh0[jss::HookApiVersion] = 1;
+            jvh0[sfHookCallbackGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh0}}, 0),
+                M("test gas type hook update: version=1 hook(with-cbak, "
+                  "non-weak)"),
+                HSFEE);
+            env.close();
+
+            // sfHookWeakGas is present
+            auto jvh = Json::Value(Json::objectValue);
+            jvh[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook update: version=1 hook(with-cbak, "
+                  "non-weak), sfHookWeakGas is present"),
+                HSFEE,
+                ter(tecHOOK_INVALID));
+            env.close();
+
+            // Valid update
+            // sfHookCallbackGas is present
+            auto jvh2 = Json::Value(Json::objectValue);
+            jvh2[sfHookCallbackGas.jsonName] = 1000001;
+            env(ripple::test::jtx::hook(alice, {{jvh2}}, 0),
+                M("test gas type hook update: version=1 hook(with-cbak, "
+                  "non-weak), sfHookCallbackGas is present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // Valid update
+            // sfHookCallbackGas is not present
+            auto jvh3 = Json::Value(Json::objectValue);
+            env(ripple::test::jtx::hook(alice, {{jvh3}}, 0),
+                M("test gas type hook update: version=1 hook(with-cbak, "
+                  "non-weak), sfHookCallbackGas is not present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        {
+            // Invalid update for version=1 hook (non-cbak, with-weak)
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, carol);
+            env.close();
+
+            // create a non-cbak, with-weak hook
+            for (Account const& acc : {alice, bob, carol})
+            {
+                auto jvh0 = hso(gas_accept_wasm, collectFlag);
+                jvh0[jss::HookApiVersion] = 1;
+                jvh0[sfHookWeakGas.jsonName] = 1000000;
+                env(ripple::test::jtx::hook(acc, {{jvh0}}, 0),
+                    M("test gas type hook update: version=1 "
+                      "hook(non-cbak, "
+                      "with-weak)"),
+                    HSFEE);
+                env.close();
+            }
+
+            // Valid update
+            // without collect flag
+            auto jvh = Json::Value(Json::objectValue);
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook update: version=1 hook(non-cbak, "
+                  "with-weak), without collect flag"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // sfHookWeakGas is not present
+            auto jvh2 = Json::Value(Json::objectValue);
+            jvh[jss::Flags] = jvh[jss::Flags].asUInt() | hsfOVERRIDE;
+            env(ripple::test::jtx::hook(bob, {{jvh2}}, 0),
+                M("test gas type hook update: version=1 hook(non-cbak, "
+                  "with-weak), sfHookWeakGas is not present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // sfHookWeakGas is present
+            auto jvh3 = Json::Value(Json::objectValue);
+            jvh3[jss::Flags] = hsfCOLLECT;
+            jvh3[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(carol, {{jvh3}}, 0),
+                M("test gas type hook update: version=1 hook(non-cbak, "
+                  "with-weak), sfHookWeakGas is present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
     }
 
     void
@@ -15981,7 +16363,9 @@ public:
 
         // Gas-type Hook tests
         testGasTypeHookDisabled(features);
+        testGasTypeHookCreation(features);
         testGasTypeHookInstallation(features);
+        testGasTypeHookUpdate(features);
         testGasTypeHookWeakGas(features);
         testGasTypeHookCbakGas(features);
         testGasTypeHookRejects_gFunction(features);
