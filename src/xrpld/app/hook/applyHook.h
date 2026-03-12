@@ -490,9 +490,12 @@ public:
                 JLOG(j.trace()) << "HookError[" << HC_ACC()
                                 << "]: Gas limit exceeded. Limit was "
                                 << hookCtx.result.hookGas;
+                hookCtx.result.exitType = hook_api::ExitType::GAS_INSUFFICIENT;
             }
-
-            hookCtx.result.exitType = hook_api::ExitType::GAS_INSUFFICIENT;
+            else
+            {
+                hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+            }
             return;
         }
 

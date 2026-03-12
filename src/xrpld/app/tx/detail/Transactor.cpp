@@ -415,6 +415,10 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
                 {
                     if (hookObj.isFieldPresent(sfHookHash))
                     {
+                        if (hookObj.getFieldH256(sfHookHash) !=
+                            callbackHookHash)
+                            continue;
+
                         uint32_t callbackGas = 0;
 
                         // Priority 1: Check HookObject
@@ -2005,9 +2009,14 @@ Transactor::doAgainAsWeak(
         uint16_t hookApiVersion = hookDef->getFieldU16(sfHookApiVersion);
 
         // Extract HookGas for Gas-type hooks
-        uint32_t hookGas = 0;
-        if (hookApiVersion == 1 && ctx_.tx.isFieldPresent(sfHookGas))
-            hookGas = ctx_.tx.getFieldU32(sfHookGas);
+        uint32_t hookGasWeak = 0;
+        if (hookApiVersion == 1)
+        {
+            if (hookObj.isFieldPresent(sfHookWeakGas))
+                hookGasWeak = hookObj.getFieldU32(sfHookWeakGas);
+            else if (hookDef->isFieldPresent(sfHookWeakGas))
+                hookGasWeak = hookDef->getFieldU32(sfHookWeakGas);
+        }
 
         try
         {
@@ -2030,7 +2039,7 @@ Transactor::doAgainAsWeak(
                 hook_no - 1,
                 provisionalMeta,
                 hookApiVersion,
-                hookGas);
+                hookGasWeak);
 
             executedHookCount_++;
 

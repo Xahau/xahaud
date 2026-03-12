@@ -1865,7 +1865,7 @@ SetHook::setHook()
                 }
 
                 auto const defVersion =
-                    newDefSLE->getFieldU16(sfHookApiVersion);
+                    oldDefSLE->getFieldU16(sfHookApiVersion);
 
                 if (defVersion == 0 && (newHookCallbackGas || newHookWeakGas))
                     return tecHOOK_INVALID;
@@ -2326,6 +2326,8 @@ SetHook::setHook()
         }
     }
 
+    JLOG(ctx.j.warn()) << "HookSet: setHook after for loops";
+
     int reserveDelta = 0;
     {
         // compute owner counts before modifying anything on ledger
@@ -2483,6 +2485,7 @@ SetHook::setHook()
         view().update(accountSLE);
     }
 
+    JLOG(ctx.j.warn()) << "HookSet: setHook end";
     return nsDeleteResult;
 }  // namespace ripple
 

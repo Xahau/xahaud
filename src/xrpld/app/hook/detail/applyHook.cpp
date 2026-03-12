@@ -1247,10 +1247,14 @@ hook::apply(
     executor.executeWasm(
         wasm.data(), (size_t)wasm.size(), isCallback, wasmParam, j);
 
-    JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: "
-                    << (hookCtx.result.exitType == hook_api::ExitType::ROLLBACK
-                            ? "ROLLBACK"
-                            : "ACCEPT")
+    auto const& exitType = hookCtx.result.exitType;
+    auto const& exitTypeStr = exitType == ExitType::ROLLBACK ? "ROLLBACK"
+        : exitType == ExitType::ACCEPT                       ? "ACCEPT"
+        : exitType == ExitType::GAS_INSUFFICIENT ? "GAS_INSUFFICIENT"
+        : exitType == ExitType::WASM_ERROR       ? "WASM_ERROR"
+                                                 : "UNSET";
+
+    JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: " << exitTypeStr
                     << " RS: '" << hookCtx.result.exitReason.c_str()
                     << "' RC: " << hookCtx.result.exitCode;
 
