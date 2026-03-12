@@ -52,9 +52,54 @@ validateExportSection(
     // Check each export
     for (uint32_t i = 0; i < actualExportCount; i++)
     {
-        // Only check function exports
         WasmEdge_ExternalType const type =
             WasmEdge_ExportTypeGetExternalType(exports[i]);
+
+        // Validate memory exports for page limits
+        if (type == WasmEdge_ExternalType_Memory)
+        {
+            const WasmEdge_MemoryTypeContext* memType =
+                WasmEdge_ExportTypeGetMemoryType(astModule, exports[i]);
+
+            if (!memType)
+            {
+                JLOG(j.trace()) << "HookSet(" << hook::log::MEMORY_PAGE_LIMIT
+                                << "): Exported memory has no type definition";
+                return Unexpected("Exported memory has no type definition");
+            }
+
+            WasmEdge_Limit limit = WasmEdge_MemoryTypeGetLimit(memType);
+
+            constexpr uint32_t kMaxMemoryPages = hook_api::max_memory_pages;
+
+            if (limit.Min > kMaxMemoryPages)
+            {
+                JLOG(j.trace())
+                    << "HookSet(" << hook::log::MEMORY_PAGE_LIMIT
+                    << "): Gas-type hook exported memory minimum "
+                       "pages ("
+                    << limit.Min << ") exceeds limit of " << kMaxMemoryPages;
+                return Unexpected(
+                    "Gas-type hook exported memory minimum pages "
+                    "exceed limit of 8");
+            }
+
+            if (limit.HasMax && limit.Max > kMaxMemoryPages)
+            {
+                JLOG(j.trace())
+                    << "HookSet(" << hook::log::MEMORY_PAGE_LIMIT
+                    << "): Gas-type hook exported memory maximum "
+                       "pages ("
+                    << limit.Max << ") exceeds limit of " << kMaxMemoryPages;
+                return Unexpected(
+                    "Gas-type hook exported memory maximum pages "
+                    "exceed limit of 8");
+            }
+
+            continue;
+        }
+
+        // Only check function exports
         if (type != WasmEdge_ExternalType_Function)
             continue;
 

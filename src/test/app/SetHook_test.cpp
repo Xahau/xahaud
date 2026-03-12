@@ -16195,6 +16195,126 @@ public:
     }
 
     void
+    testGasTypeHookExportedMemoryPageLimit(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook exported memory page limit validation");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const& rules = env.current()->rules();
+        auto const& j = env.journal;
+
+        // Test 1: Valid exported memory (min=2, max=8) should succeed
+        {
+            TestHook gas_exported_memory_valid_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (memory (;0;) 2 8)
+                    (export "memory" (memory 0))
+                    (func (;1;) (type 1) (param i32) (result i64)
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0)
+                    (export "hook" (func 1)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_exported_memory_valid);
+
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_exported_memory_valid_wasm, rules, j);
+            BEAST_EXPECT(result.has_value());  // No error
+        }
+
+        // Test 2: Invalid exported memory (min=1, max=9) should fail
+        {
+            TestHook gas_exported_memory_max9_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (memory (;0;) 1 9)
+                    (export "memory" (memory 0))
+                    (func (;1;) (type 1) (param i32) (result i64)
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0)
+                    (export "hook" (func 1)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_exported_memory_max9);
+
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_exported_memory_max9_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());  // Has error
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("maximum pages exceed limit") !=
+                    std::string::npos);
+        }
+
+        // Test 3: Exported memory (min=9) should fail
+        {
+            TestHook gas_exported_memory_min9_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (memory (;0;) 9)
+                    (export "memory" (memory 0))
+                    (func (;1;) (type 1) (param i32) (result i64)
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0)
+                    (export "hook" (func 1)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_exported_memory_min9);
+
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_exported_memory_min9_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());  // Has error
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("minimum pages exceed limit") !=
+                    std::string::npos);
+        }
+
+        // Test 4: Exported memory (min=9, no max) should succeed
+        {
+            TestHook gas_exported_memory_no_max_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (memory (;0;) 8)
+                    (export "memory" (memory 0))
+                    (func (;1;) (type 1) (param i32) (result i64)
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0)
+                    (export "hook" (func 1)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_exported_memory_no_max);
+
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_exported_memory_no_max_wasm, rules, j);
+            BEAST_EXPECT(
+                result.has_value());  // No error - runtime enforces max
+        }
+    }
+
+    void
     testMultipleGasHooksSharedPool(FeatureBitset features)
     {
         testcase("Test multiple Gas-type hooks share gas pool");
@@ -16375,6 +16495,7 @@ public:
         testGasTypeHookExportErrors(features);
         testGasTypeHookImportErrors(features);
         testGasTypeHookMemoryValidation(features);
+        testGasTypeHookExportedMemoryPageLimit(features);
     }
 
 public:

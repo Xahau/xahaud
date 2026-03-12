@@ -339,8 +339,8 @@ public:
             if (hookApiVersion == 1)
             {
                 WasmEdge_ConfigureStatisticsSetCostMeasuring(conf, true);
-                uint32_t maxMemoryPage = 8;
-                WasmEdge_ConfigureSetMaxMemoryPage(conf, maxMemoryPage);
+                WasmEdge_ConfigureSetMaxMemoryPage(
+                    conf, hook_api::max_memory_pages);
             }
             ctx = WasmEdge_VMCreate(conf, NULL);
         }
