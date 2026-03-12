@@ -14665,6 +14665,16 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_no_exports);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_no_exports_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find(
+                        "WASM must export at least hook API functions") !=
+                    std::string::npos);
+        }
 
         // Test 5: Export Section Error - Export function named
         // "unauthorized_fn"
@@ -14686,6 +14696,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_unauthorized_export);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_unauthorized_export_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("Unauthorized export function") !=
+                    std::string::npos);
+        }
 
         // Test 6: Export Section Error - Only export cbak, not hook
         TestHook test_gas_validation_missing_hook_export_wasm = wasm[
@@ -14705,6 +14724,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_missing_hook_export);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_missing_hook_export_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("Required function 'hook' not found") !=
+                    std::string::npos);
+        }
 
         // Test 7: Export Section Error - hook() with signature () -> i64
         TestHook test_gas_validation_hook_no_params_wasm = wasm[
@@ -14724,6 +14752,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_hook_no_params);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_no_params_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("must have exactly 1 parameter") !=
+                    std::string::npos);
+        }
 
         // Test 8: Export Section Error - hook() with signature (i32, i32) ->
         // i64
@@ -14744,6 +14781,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_hook_too_many_params);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_too_many_params_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("must have exactly 1 parameter") !=
+                    std::string::npos);
+        }
 
         // Test 9: Export Section Error - hook() with signature (i64) -> i64
         TestHook test_gas_validation_hook_wrong_param_type_wasm = wasm[
@@ -14763,6 +14809,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_hook_wrong_param_type);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_wrong_param_type_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("parameter must be uint32_t") !=
+                    std::string::npos);
+        }
 
         // Test 10: Export Section Error - hook() with signature (i32) (no
         // return)
@@ -14784,6 +14839,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_hook_no_return);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_no_return_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("must return exactly 1 value") !=
+                    std::string::npos);
+        }
 
         // Test 11: Export Section Error - hook() with signature (i32) -> i32
         TestHook test_gas_validation_hook_wrong_return_type_wasm = wasm[
@@ -14805,6 +14869,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_hook_wrong_return_type);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_wrong_return_type_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("return type must be uint64_t") !=
+                    std::string::npos);
+        }
 
         // Test 12: Export Section Error - cbak() with signature () -> i64
         TestHook test_gas_validation_cbak_wrong_params_wasm = wasm[
@@ -14831,6 +14904,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_cbak_wrong_params);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_cbak_wrong_params_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("must have exactly 1 parameter") !=
+                    std::string::npos);
+        }
 
         // Test 13: Export Section Error - cbak() with signature (i64) -> i64
         TestHook test_gas_validation_cbak_wrong_param_type_wasm = wasm[
@@ -14857,6 +14939,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_cbak_wrong_param_type);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_cbak_wrong_param_type_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("parameter must be uint32_t") !=
+                    std::string::npos);
+        }
 
         // Test 14: Export Section Error - cbak() with signature (i32) -> i32
         TestHook test_gas_validation_cbak_wrong_return_type_wasm = wasm[
@@ -14885,109 +14976,6 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_cbak_wrong_return_type);
-
-        // Execute export section error tests
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_no_exports_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find(
-                        "WASM must export at least hook API functions") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_unauthorized_export_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("Unauthorized export function") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_missing_hook_export_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("Required function 'hook' not found") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_hook_no_params_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("must have exactly 1 parameter") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_hook_too_many_params_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("must have exactly 1 parameter") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_hook_wrong_param_type_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("parameter must be uint32_t") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_hook_no_return_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("must return exactly 1 value") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_hook_wrong_return_type_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("return type must be uint64_t") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_cbak_wrong_params_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("must have exactly 1 parameter") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_cbak_wrong_param_type_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("parameter must be uint32_t") !=
-                    std::string::npos);
-        }
-
         {
             auto result = hook::validateWasmHostFunctionsForGas(
                 test_gas_validation_cbak_wrong_return_type_wasm, rules, j);
@@ -15022,6 +15010,16 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_no_imports);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_no_imports_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find(
+                        "WASM must import at least hook API functions") !=
+                    std::string::npos);
+        }
 
         // Test: Import from wrong module (should fail)
         TestHook test_gas_validation_wrong_import_module_wasm = wasm[
@@ -15041,6 +15039,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_wrong_import_module);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_wrong_import_module_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("Import module must be 'env'") !=
+                    std::string::npos);
+        }
 
         // Test: Import not in whitelist (should fail)
         TestHook test_gas_validation_import_not_whitelisted_wasm = wasm[
@@ -15057,6 +15064,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_import_not_whitelisted);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_not_whitelisted_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("Import not in whitelist") !=
+                    std::string::npos);
+        }
 
         // Test: Import with no return value (should fail)
         TestHook test_gas_validation_import_no_return_wasm = wasm[
@@ -15073,6 +15089,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_import_no_return);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_no_return_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("must return exactly 1 value") !=
+                    std::string::npos);
+        }
 
         // Test: Import with wrong return type (should fail)
         TestHook test_gas_validation_import_wrong_return_type_wasm = wasm[
@@ -15089,6 +15114,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_import_wrong_return_type);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_wrong_return_type_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("has incorrect return type") !=
+                    std::string::npos);
+        }
 
         // Test: Import with too few parameters (should fail)
         TestHook test_gas_validation_import_too_few_params_wasm = wasm[
@@ -15106,6 +15140,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_import_too_few_params);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_too_few_params_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("has incorrect parameter count") !=
+                    std::string::npos);
+        }
 
         // Test: Import with too many parameters (should fail)
         TestHook test_gas_validation_import_too_many_params_wasm = wasm[
@@ -15122,6 +15165,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_import_too_many_params);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_too_many_params_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("has incorrect parameter count") !=
+                    std::string::npos);
+        }
 
         // Test: Import with wrong parameter type (should fail)
         TestHook test_gas_validation_import_wrong_param_type_wasm = wasm[
@@ -15138,6 +15190,15 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_import_wrong_param_type);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_wrong_param_type_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("has incorrect parameter types") !=
+                    std::string::npos);
+        }
 
         // Test: Import with multiple wrong parameter types (should fail)
         TestHook test_gas_validation_import_multiple_wrong_params_wasm = wasm[
@@ -15154,90 +15215,6 @@ public:
         )[test.hook.gas]"];
 
         HASH_WASM(test_gas_validation_import_multiple_wrong_params);
-
-        // ========================================
-        // Execute import error test cases
-        // ========================================
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_no_imports_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find(
-                        "WASM must import at least hook API functions") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_wrong_import_module_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("Import module must be 'env'") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_import_not_whitelisted_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("Import not in whitelist") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_import_no_return_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("must return exactly 1 value") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_import_wrong_return_type_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("has incorrect return type") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_import_too_few_params_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("has incorrect parameter count") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_import_too_many_params_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("has incorrect parameter count") !=
-                    std::string::npos);
-        }
-
-        {
-            auto result = hook::validateWasmHostFunctionsForGas(
-                test_gas_validation_import_wrong_param_type_wasm, rules, j);
-            BEAST_EXPECT(!result.has_value());
-            if (!result.has_value())
-                BEAST_EXPECT(
-                    result.error().find("has incorrect parameter types") !=
-                    std::string::npos);
-        }
 
         {
             auto result = hook::validateWasmHostFunctionsForGas(
