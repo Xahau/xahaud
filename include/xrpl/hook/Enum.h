@@ -402,7 +402,7 @@ const uint16_t max_state_modifications = 256;
 const uint8_t max_slots = 255;
 const uint8_t max_nonce = 255;
 const uint8_t max_emit = 255;
-const uint8_t max_export = 4;
+const uint8_t max_export = 2;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
 

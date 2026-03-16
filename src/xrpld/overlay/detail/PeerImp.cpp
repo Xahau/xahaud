@@ -39,6 +39,7 @@
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/core/LexicalCast.h>
+#include <xrpl/hook/ExportLimits.h>
 #include <xrpl/protocol/digest.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -3065,7 +3066,19 @@ PeerImp::checkValidation(
         {
             auto const currentSeq = val->getFieldU32(sfLedgerSequence);
 
-            for (int i = 0; i < packet->exportsignatures_size(); ++i)
+            // Clamp inbound export signatures to the directory cap.
+            // A legitimate validator can only have maxPendingExports
+            // pending, so anything beyond that is either a bug or abuse.
+            auto const sigCount = std::min(
+                packet->exportsignatures_size(),
+                static_cast<int>(ExportLimits::maxPendingExports));
+            if (sigCount < packet->exportsignatures_size())
+            {
+                JLOG(p_journal_.warn())
+                    << "Export: clamping " << packet->exportsignatures_size()
+                    << " signatures to cap " << sigCount;
+            }
+            for (int i = 0; i < sigCount; ++i)
             {
                 try
                 {

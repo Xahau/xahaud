@@ -7,8 +7,10 @@
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
+#include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
+#include <xrpl/hook/ExportLimits.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
@@ -1735,6 +1737,43 @@ hook::finalizeHookResult(
 
             if (!sleExported)
             {
+                // Enforce maxPendingExports on the exported directory.
+                // Each pending export costs validator signing + broadcast
+                // work every round, so this is the root DoS constraint.
+                {
+                    Keylet const expDirKey{keylet::exportedDir()};
+                    std::size_t dirSize = 0;
+                    std::shared_ptr<SLE const> sleDirNode;
+                    unsigned int uDirEntry{0};
+                    uint256 dirEntry{beast::zero};
+                    if (cdirFirst(
+                            applyCtx.view(),
+                            expDirKey.key,
+                            sleDirNode,
+                            uDirEntry,
+                            dirEntry))
+                    {
+                        do
+                        {
+                            ++dirSize;
+                        } while (cdirNext(
+                            applyCtx.view(),
+                            expDirKey.key,
+                            sleDirNode,
+                            uDirEntry,
+                            dirEntry));
+                    }
+
+                    if (dirSize >= ExportLimits::maxPendingExports)
+                    {
+                        JLOG(j.warn()) << "HookError[" << HR_ACC() << "]: "
+                                       << "Export directory at cap ("
+                                       << ExportLimits::maxPendingExports
+                                       << "), rejecting export " << id;
+                        return tecDIR_FULL;
+                    }
+                }
+
                 exported_txnid.emplace_back(id);
 
                 sleExported = std::make_shared<SLE>(exportedId);
