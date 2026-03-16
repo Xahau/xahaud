@@ -124,5 +124,8 @@ bld.rippled/
 generated
 .vscode
 
+# AI docs (local working documents)
+.ai-docs/
+
 # Suggested in-tree build directory
 /.build/

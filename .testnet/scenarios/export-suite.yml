@@ -1,0 +1,24 @@
+defaults:
+  network:
+    node_count: 5
+    launcher: tmux
+    slave_delay: 0.2
+    features:
+      - ConsensusEntropy
+      - Export
+    track_features:
+      - ConsensusEntropy
+      - Export
+    log_levels:
+      TxQ: info
+      Protocol: debug
+      Peer: debug
+      LedgerConsensus: debug
+      NetworkOPs: info
+    env:
+      XAHAU_RESOURCE_PER_PORT: "1"
+      XAHAU_RNG_POLL_MS: "333"
+
+tests:
+  - name: steady_state_export
+    script: .testnet/scenarios/export/steady_state_export.py

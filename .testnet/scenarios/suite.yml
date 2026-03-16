@@ -1,0 +1,40 @@
+defaults:
+  network:
+    node_count: 5
+    launcher: tmux
+    slave_delay: 0.2
+    features:
+      - ConsensusEntropy
+    track_features:
+      - ConsensusEntropy
+    log_levels:
+      TxQ: info
+      Protocol: debug
+      Peer: debug
+      LedgerConsensus: debug
+      NetworkOPs: info
+    env:
+      XAHAU_RESOURCE_PER_PORT: "1"
+      XAHAU_RNG_POLL_MS: "333"
+
+tests:
+  - name: steady_state_entropy
+    script: .testnet/scenarios/entropy/steady_state_entropy.py
+
+  - name: steady_state_entropy_fast_start
+    script: .testnet/scenarios/entropy/steady_state_entropy.py
+    network:
+      env:
+        XAHAUD_BOOTSTRAP_FAST_START: "1"
+
+  - name: entropy_with_transactions
+    script: .testnet/scenarios/entropy/entropy_with_transactions.py
+
+  - name: quorum_recovery_smoke
+    script: .testnet/scenarios/entropy/quorum_recovery_smoke.py
+
+  - name: quorum_degradation_smoke
+    script: .testnet/scenarios/entropy/quorum_degradation_smoke.py
+    network:
+      log_levels:
+        LedgerConsensus: trace
