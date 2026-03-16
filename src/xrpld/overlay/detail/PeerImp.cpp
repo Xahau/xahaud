@@ -39,7 +39,7 @@
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/core/LexicalCast.h>
-#include <xrpl/hook/ExportLimits.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/digest.h>
 
 #include <boost/algorithm/string/predicate.hpp>

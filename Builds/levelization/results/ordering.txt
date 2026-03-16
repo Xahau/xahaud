@@ -184,7 +184,6 @@ xrpld.overlay > xrpl.basics
 xrpld.overlay > xrpld.core
 xrpld.overlay > xrpld.peerfinder
 xrpld.overlay > xrpld.perflog
-xrpld.overlay > xrpl.hook
 xrpld.overlay > xrpl.json
 xrpld.overlay > xrpl.protocol
 xrpld.overlay > xrpl.resource
