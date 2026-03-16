@@ -1274,6 +1274,17 @@ HookAPI::xport(Slice const& txBlob) const
         return Unexpected(EXPORT_FAILURE);
     }
 
+    // Reject exports targeting the local network — an exported txn
+    // re-executing on its origin chain could cause exploits/logic issues.
+    if (stpTrans->isFieldPresent(sfNetworkID) &&
+        stpTrans->getFieldU32(sfNetworkID) == app.config().NETWORK_ID)
+    {
+        JLOG(j.trace()) << "HookExport[" << HC_ACC()
+                        << "]: Rejected export with local NetworkID ("
+                        << app.config().NETWORK_ID << ").";
+        return Unexpected(EXPORT_FAILURE);
+    }
+
     std::string reason;
     auto tpTrans = std::make_shared<Transaction>(stpTrans, reason, app);
     // RHTODO: is this needed or wise? VVV
