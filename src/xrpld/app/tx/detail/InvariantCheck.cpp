@@ -604,6 +604,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltUNL_REPORT:
             case ltCONSENSUS_ENTROPY:
             case ltEXPORTED_TXN:
+            case ltSHADOW_TICKET:
             case ltAMM:
             case ltBRIDGE:
             case ltXCHAIN_OWNED_CLAIM_ID:

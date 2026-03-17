@@ -69,6 +69,9 @@ Keylet
 exportedTxn(uint256 const& id) noexcept;
 
 Keylet
+shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept;
+
+Keylet
 hookDefinition(uint256 const& hash) noexcept;
 
 Keylet

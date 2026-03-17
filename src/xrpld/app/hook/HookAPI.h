@@ -89,6 +89,9 @@ public:
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
     xport(Slice const& txBlob) const;
 
+    Expected<uint64_t, HookReturnCode>
+    xport_cancel(uint32_t ticketSeq) const;
+
     /// float APIs
     Expected<uint64_t, HookReturnCode>
     float_set(int32_t exponent, int64_t mantissa) const;

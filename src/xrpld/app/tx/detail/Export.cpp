@@ -71,8 +71,15 @@ Export::doApply()
     STTx exportedTx(std::ref(sit));
     uint256 const txnId = exportedTx.getTransactionID();
 
-    return ExportLedgerOps::createExportedTxn(
+    auto const account = ctx_.tx.getAccountID(sfAccount);
+
+    TER ter = ExportLedgerOps::createExportedTxn(
         view(), ctx_.app, exportedTx, txnId, j_);
+    if (!isTesSuccess(ter))
+        return ter;
+
+    return ExportLedgerOps::createShadowTicket(
+        view(), account, exportedTx, txnId, j_);
 }
 
 }  // namespace ripple

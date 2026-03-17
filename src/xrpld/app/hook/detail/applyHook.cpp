@@ -1730,8 +1730,14 @@ hook::finalizeHookResult(
             std::shared_ptr<const ripple::STTx> ptr =
                 tpTrans->getSTransaction();
 
-            TER const ter = ExportLedgerOps::createExportedTxn(
+            TER ter = ExportLedgerOps::createExportedTxn(
                 applyCtx.view(), applyCtx.app, *ptr, id, j);
+
+            if (!isTesSuccess(ter))
+                return ter;
+
+            ter = ExportLedgerOps::createShadowTicket(
+                applyCtx.view(), hookResult.account, *ptr, id, j);
 
             if (!isTesSuccess(ter))
                 return ter;
@@ -3065,6 +3071,18 @@ DEFINE_HOOK_FUNCTION(int64_t, xport_reserve, uint32_t count)
                    // hookCtx on current stack
 
     auto const result = api.xport_reserve(count);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, xport_cancel, uint32_t ticket_seq)
+{
+    HOOK_SETUP();
+
+    auto const result = api.xport_cancel(ticket_seq);
     if (!result)
         return result.error();
     return result.value();

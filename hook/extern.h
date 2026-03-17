@@ -347,6 +347,9 @@ xport(
     uint32_t read_len);
 
 extern int64_t
+xport_cancel(uint32_t ticket_seq);
+
+extern int64_t
 dice(uint32_t sides);
 
 extern int64_t

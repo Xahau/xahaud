@@ -594,6 +594,57 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testShadowTicketLifecycle(FeatureBitset features)
+    {
+        testcase("Shadow ticket create and cancel via ttEXPORT");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto const seq = env.current()->seq();
+
+        // Build exported payment with TicketSequence
+        auto innerObj =
+            buildExportedPayment(alice.id(), carol.id(), seq + 1, seq + 5);
+        innerObj.setFieldU32(sfTicketSequence, 42);
+
+        // Submit ttEXPORT — should create both ltEXPORTED_TXN and
+        // ltSHADOW_TICKET
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::Export;
+        jv[jss::Account] = alice.human();
+        jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+
+        auto const ownerCountBefore = env.le(alice)->getFieldU32(sfOwnerCount);
+
+        env(jv, fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+
+        // Verify ltEXPORTED_TXN was created
+        BEAST_EXPECT(!dirIsEmpty(*env.current(), keylet::exportedDir()));
+
+        // Verify shadow ticket exists
+        auto const stKey = keylet::shadowTicket(alice.id(), 42);
+        BEAST_EXPECT(env.current()->exists(stKey));
+
+        // Verify owner count bumped (reserve charged)
+        auto const ownerCountAfter = env.le(alice)->getFieldU32(sfOwnerCount);
+        BEAST_EXPECT(ownerCountAfter == ownerCountBefore + 1);
+
+        // Verify shadow ticket fields
+        auto const stSle = env.current()->read(stKey);
+        BEAST_EXPECT(stSle->getAccountID(sfAccount) == alice.id());
+        BEAST_EXPECT(stSle->getFieldU32(sfTicketSequence) == 42);
+    }
+
+    void
     testStaleSignatureCleanup(FeatureBitset features)
     {
         testcase("Stale Export Signature Cleanup");
@@ -635,6 +686,7 @@ struct Export_test : public beast::unit_test::suite
         testXportRejectsLocalNetworkID(allWithExport);
         testXportRejectsUnconfiguredNetworkID(allWithExport);
         testExportTxn(allWithExport);
+        testShadowTicketLifecycle(allWithExport);
         testStaleSignatureCleanup(allWithExport);
     }
 };

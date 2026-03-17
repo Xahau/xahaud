@@ -1289,6 +1289,21 @@ HookAPI::xport(Slice const& txBlob) const
     return tpTrans;
 }
 
+Expected<uint64_t, HookReturnCode>
+HookAPI::xport_cancel(uint32_t ticketSeq) const
+{
+    auto& app = hookCtx.applyCtx.app;
+    auto j = app.journal("View");
+
+    TER const ter = ExportLedgerOps::cancelShadowTicket(
+        hookCtx.applyCtx.view(), hookCtx.result.account, ticketSeq, j);
+
+    if (!isTesSuccess(ter))
+        return Unexpected(DOESNT_EXIST);
+
+    return ticketSeq;
+}
+
 uint32_t
 HookAPI::etxn_generation() const
 {

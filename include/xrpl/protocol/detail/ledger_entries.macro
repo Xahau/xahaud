@@ -615,5 +615,20 @@ LEDGER_ENTRY(ltEXPORTED_TXN, 0x4578, ExportedTxn, exported_txn, ({
     {sfTransactionHash,      soeREQUIRED},
 }))
 
+/** A shadow ticket for export replay protection.
+
+    Created when a transaction is exported. Consumed when
+    proof-of-execution is imported back. Account-owned (pays reserve).
+
+    \sa keylet::shadowTicket
+ */
+LEDGER_ENTRY(ltSHADOW_TICKET, 0x5374, ShadowTicket, shadow_ticket, ({
+    {sfAccount,              soeREQUIRED},
+    {sfTicketSequence,       soeREQUIRED},
+    {sfTransactionHash,      soeREQUIRED},
+    {sfLedgerSequence,       soeREQUIRED},
+    {sfOwnerNode,            soeREQUIRED},
+}))
+
 #undef EXPAND
 #undef LEDGER_ENTRY_DUPLICATE

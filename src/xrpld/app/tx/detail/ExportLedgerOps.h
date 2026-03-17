@@ -159,6 +159,124 @@ createExportedTxn(
     return tecDIR_FULL;
 }
 
+/// Create an ltSHADOW_TICKET in the account's owner directory.
+/// Only created if the exported transaction has sfTicketSequence.
+///
+/// @param view       The apply view to modify
+/// @param account    The exporting account (pays reserve)
+/// @param stx        The exported transaction (checked for sfTicketSequence)
+/// @param txnId      Hash of the exported transaction
+/// @param j          Journal for logging
+/// @return tesSUCCESS, tecDIR_FULL, or tefINTERNAL
+inline TER
+createShadowTicket(
+    ApplyView& view,
+    AccountID const& account,
+    STTx const& stx,
+    uint256 const& txnId,
+    beast::Journal j)
+{
+    if (!stx.isFieldPresent(sfTicketSequence))
+        return tesSUCCESS;  // No ticket sequence → no shadow ticket needed.
+
+    auto const ticketSeq = stx.getFieldU32(sfTicketSequence);
+    auto const key = keylet::shadowTicket(account, ticketSeq);
+
+    if (view.exists(key))
+    {
+        JLOG(j.warn()) << "ExportLedgerOps: shadow ticket already exists for "
+                       << account << " seq=" << ticketSeq;
+        return tefINTERNAL;
+    }
+
+    auto sle = std::make_shared<SLE>(key);
+    sle->setAccountID(sfAccount, account);
+    sle->setFieldU32(sfTicketSequence, ticketSeq);
+    sle->setFieldH256(sfTransactionHash, txnId);
+    sle->setFieldU32(sfLedgerSequence, view.info().seq);
+
+    auto page = view.dirInsert(
+        keylet::ownerDir(account), key, describeOwnerDir(account));
+
+    if (!page)
+    {
+        JLOG(j.warn())
+            << "ExportLedgerOps: owner dir full for shadow ticket, account="
+            << account;
+        return tecDIR_FULL;
+    }
+
+    sle->setFieldU64(sfOwnerNode, *page);
+    view.insert(sle);
+
+    // Bump owner count for reserve.
+    auto sleAccount = view.peek(keylet::account(account));
+    if (sleAccount)
+        adjustOwnerCount(view, sleAccount, 1, j);
+
+    JLOG(j.debug()) << "ExportLedgerOps: created shadow ticket for " << account
+                    << " seq=" << ticketSeq << " tx=" << txnId;
+
+    return tesSUCCESS;
+}
+
+/// Cancel (delete) an ltSHADOW_TICKET. Frees the owner reserve.
+/// The account must own the shadow ticket.
+///
+/// @param view       The apply view to modify
+/// @param account    The owning account
+/// @param ticketSeq  The ticket sequence to cancel
+/// @param j          Journal for logging
+/// @return tesSUCCESS or tecNO_ENTRY
+inline TER
+cancelShadowTicket(
+    ApplyView& view,
+    AccountID const& account,
+    std::uint32_t ticketSeq,
+    beast::Journal j)
+{
+    auto const key = keylet::shadowTicket(account, ticketSeq);
+    auto sle = view.peek(key);
+
+    if (!sle)
+    {
+        JLOG(j.warn()) << "ExportLedgerOps: no shadow ticket to cancel for "
+                       << account << " seq=" << ticketSeq;
+        return tecNO_ENTRY;
+    }
+
+    // Verify ownership.
+    if (sle->getAccountID(sfAccount) != account)
+    {
+        JLOG(j.warn()) << "ExportLedgerOps: shadow ticket ownership mismatch";
+        return tecNO_PERMISSION;
+    }
+
+    // Remove from owner directory.
+    if (!view.dirRemove(
+            keylet::ownerDir(account),
+            sle->getFieldU64(sfOwnerNode),
+            key,
+            false))
+    {
+        JLOG(j.warn())
+            << "ExportLedgerOps: failed to remove shadow ticket from owner dir";
+        return tefBAD_LEDGER;
+    }
+
+    view.erase(sle);
+
+    // Decrement owner count to free reserve.
+    auto sleAccount = view.peek(keylet::account(account));
+    if (sleAccount)
+        adjustOwnerCount(view, sleAccount, -1, j);
+
+    JLOG(j.debug()) << "ExportLedgerOps: cancelled shadow ticket for "
+                    << account << " seq=" << ticketSeq;
+
+    return tesSUCCESS;
+}
+
 }  // namespace ExportLedgerOps
 }  // namespace ripple
 
