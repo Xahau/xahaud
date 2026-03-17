@@ -1276,6 +1276,10 @@ HookAPI::xport(Slice const& txBlob) const
         !isTesSuccess(ter))
         return Unexpected(EXPORT_FAILURE);
 
+    if (auto ter = ExportLedgerOps::validateTicketSequence(*stpTrans, j);
+        !isTesSuccess(ter))
+        return Unexpected(EXPORT_FAILURE);
+
     std::string reason;
     auto tpTrans = std::make_shared<Transaction>(stpTrans, reason, app);
     // RHTODO: is this needed or wise? VVV

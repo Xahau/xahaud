@@ -72,6 +72,29 @@ validateExportAccount(
     return tesSUCCESS;
 }
 
+/// Validate that the exported transaction uses TicketSequence
+/// (Sequence must be 0). Exports must use tickets because a bounced
+/// tx on the destination chain would jam sequential sequence numbers.
+inline TER
+validateTicketSequence(STTx const& stx, beast::Journal j)
+{
+    if (!stx.isFieldPresent(sfTicketSequence))
+    {
+        JLOG(j.warn())
+            << "ExportLedgerOps: exported tx must have sfTicketSequence";
+        return temMALFORMED;
+    }
+
+    if (stx.getFieldU32(sfSequence) != 0)
+    {
+        JLOG(j.warn()) << "ExportLedgerOps: exported tx Sequence must be 0 "
+                          "when using TicketSequence";
+        return temMALFORMED;
+    }
+
+    return tesSUCCESS;
+}
+
 /// Create an ltEXPORTED_TXN entry in the global exportedDir().
 /// Enforces maxPendingExports directory cap.
 /// Marks the txn hash as SF_BAD in the hash router so it cannot

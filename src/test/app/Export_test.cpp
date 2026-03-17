@@ -204,6 +204,10 @@ struct Export_test : public beast::unit_test::suite
             ENCODE_SEQUENCE(buf, 0);
             ENCODE_FLS(buf, cls + 1);
             ENCODE_LLS(buf, cls + 5);
+            // sfTicketSequence = UINT32 field 41 = 0x20 0x29
+            buf[0] = 0x20U; buf[1] = 0x29U;
+            buf[2] = 0; buf[3] = 0; buf[4] = 0; buf[5] = 1;
+            buf += 6;
 
             uint64_t drops = 1000000;  // 1 XRP
             ENCODE_DROPS(buf, drops, amAMOUNT);
@@ -544,12 +548,15 @@ struct Export_test : public beast::unit_test::suite
         AccountID const& src,
         AccountID const& dst,
         std::uint32_t fls,
-        std::uint32_t lls)
+        std::uint32_t lls,
+        std::optional<std::uint32_t> ticketSeq = 1)
     {
         STObject obj(sfExportedTxn);
         obj.setFieldU16(sfTransactionType, ttPAYMENT);
         obj.setFieldU32(sfFlags, tfFullyCanonicalSig);
         obj.setFieldU32(sfSequence, 0);
+        if (ticketSeq)
+            obj.setFieldU32(sfTicketSequence, *ticketSeq);
         obj.setFieldU32(sfFirstLedgerSequence, fls);
         obj.setFieldU32(sfLastLedgerSequence, lls);
         obj.setFieldAmount(sfAmount, XRPAmount{1000000});
@@ -645,6 +652,38 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportRejectsNoTicketSequence(FeatureBitset features)
+    {
+        testcase("ttEXPORT rejects export without TicketSequence");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto const seq = env.current()->seq();
+        // Build payment WITHOUT TicketSequence (pass std::nullopt)
+        auto innerObj = buildExportedPayment(
+            alice.id(), carol.id(), seq + 1, seq + 5, std::nullopt);
+
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::Export;
+        jv[jss::Account] = alice.human();
+        jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+
+        env(jv, fee(XRP(1)), ter(temMALFORMED));
+        env.close();
+
+        // Verify no ltEXPORTED_TXN was created
+        BEAST_EXPECT(dirIsEmpty(*env.current(), keylet::exportedDir()));
+    }
+
+    void
     testStaleSignatureCleanup(FeatureBitset features)
     {
         testcase("Stale Export Signature Cleanup");
@@ -687,6 +726,7 @@ struct Export_test : public beast::unit_test::suite
         testXportRejectsUnconfiguredNetworkID(allWithExport);
         testExportTxn(allWithExport);
         testShadowTicketLifecycle(allWithExport);
+        testExportRejectsNoTicketSequence(allWithExport);
         testStaleSignatureCleanup(allWithExport);
     }
 };

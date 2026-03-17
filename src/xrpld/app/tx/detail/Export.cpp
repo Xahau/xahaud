@@ -55,6 +55,11 @@ Export::preclaim(PreclaimContext const& ctx)
         !isTesSuccess(ter))
         return ter;
 
+    // Shared validation: TicketSequence required.
+    if (auto ter = ExportLedgerOps::validateTicketSequence(*stpTrans, ctx.j);
+        !isTesSuccess(ter))
+        return ter;
+
     return tesSUCCESS;
 }
 
