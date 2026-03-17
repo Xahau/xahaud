@@ -19,6 +19,7 @@
 
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/ledger/View.h>
@@ -40,11 +41,6 @@
 #include <vector>
 
 namespace ripple {
-
-// Any namespace whose ASCII representation starts with "RESERVED NAMESPACE "
-// is reserved for protocol use and must not be used by hooks.
-static const uint256 shadowTicketNamespace =
-    uint256::fromVoid("RESERVED NAMESPACE SHADOW TICKET");
 
 TxConsequences
 Import::makeTxConsequences(PreflightContext const& ctx)
@@ -919,19 +915,15 @@ Import::preclaim(PreclaimContext const& ctx)
             return tefINTERNAL;
 
         auto const acc = stpTrans->getAccountID(sfAccount);
-        uint256 const seq = uint256(stpTrans->getFieldU32(sfTicketSequence));
+        auto const ticketSeq = stpTrans->getFieldU32(sfTicketSequence);
 
         // check if there is a shadow ticket, and if not we won't allow
         // the txn to pass into consensus
-
-        if (!ctx.view.exists(
-                keylet::hookState(acc, seq, shadowTicketNamespace)))
+        if (!ctx.view.exists(keylet::shadowTicket(acc, ticketSeq)))
         {
             JLOG(ctx.j.warn())
                 << "Import: attempted to import a txn without shadow ticket.";
-            return telSHADOW_TICKET_REQUIRED;  // tel code to avoid
-                                               // consensus/forward without
-                                               // SF_BAD
+            return telSHADOW_TICKET_REQUIRED;
         }
     }
 
@@ -1292,20 +1284,40 @@ Import::doApply()
     auto const id = ctx_.tx[sfAccount];
     auto sle = view().peek(keylet::account(id));
 
-    std::optional<uint256> ticket;
+    // ---------------------------------------------------------------
+    // Export callback path: ticket-based import consumes the shadow
+    // ticket and fires hooks — no B2M crediting, no account creation.
+    // The hook inspects the result via xpop_slot().
+    // ---------------------------------------------------------------
     if (stpTrans->isFieldPresent(sfTicketSequence))
-        ticket = uint256(stpTrans->getFieldU32(sfTicketSequence));
-
-    if (sle && !ticket.has_value() &&
-        sle->getFieldU32(sfImportSequence) >= importSequence)
     {
-        // make double sure import seq hasn't passed
+        if (!sle)
+        {
+            JLOG(ctx_.journal.warn())
+                << "Import: export callback requires existing account";
+            return tefINTERNAL;
+        }
+
+        auto const ticketSeq = stpTrans->getFieldU32(sfTicketSequence);
+        TER const ter = ExportLedgerOps::cancelShadowTicket(
+            view(), id, ticketSeq, ctx_.journal);
+        if (!isTesSuccess(ter))
+            return ter;
+
+        return tesSUCCESS;
+    }
+
+    // ---------------------------------------------------------------
+    // Burn-to-mint path: original Import flow for XRPL → Xahau
+    // account bootstrapping. Credits XAH based on burned XRP.
+    // ---------------------------------------------------------------
+
+    if (sle && sle->getFieldU32(sfImportSequence) >= importSequence)
+    {
         JLOG(ctx_.journal.warn()) << "Import: ImportSequence passed";
         return tefINTERNAL;
     }
 
-    // get xahau genesis start ledger, or just assume the current ledger is the
-    // start seq if it's not set.
     uint32_t curLgrSeq = view().info().seq;
     uint32_t startLgrSeq = curLgrSeq;
     auto sleFees = view().peek(keylet::fees());
@@ -1324,17 +1336,14 @@ Import::doApply()
 
     if (view().rules().enabled(featureZeroB2M))
     {
-        // B2M xrp is disabled by amendment
         creditDrops = 0;
     }
     else if (elapsed < 2'000'000)
     {
-        // first 2MM ledgers
-        // the ratio is 1:1
+        // first 2MM ledgers: 1:1 ratio
     }
     else if (elapsed < 30'000'000)
     {
-        // there is a linear decline over 28MM ledgers
         double x = elapsed - 2000000.0;
         double y = 1.0 - x / 28000000.0;
         y = std::clamp(y, 0.0, 1.0);
@@ -1342,8 +1351,6 @@ Import::doApply()
     }
     else
     {
-        // thereafter
-        // B2M xrp is disabled
         creditDrops = 0;
     }
 
@@ -1357,7 +1364,6 @@ Import::doApply()
 
     if (create)
     {
-        // Create the account.
         std::uint32_t const seqno{
             view().rules().enabled(featureXahauGenesis)
                 ? view().info().parentCloseTime.time_since_epoch().count()
@@ -1383,32 +1389,14 @@ Import::doApply()
             calcAccountID(PublicKey(makeSlice(ctx_.tx.getSigningPubKey()))) !=
                 id)
         {
-            // disable master unless the first Import is signed with master
             sle->setFieldU32(sfFlags, lsfDisableMaster);
             JLOG(ctx_.journal.warn())
                 << "Import: acc " << id << " created with disabled master key.";
         }
     }
 
-    if (!ticket.has_value())
-        sle->setFieldU32(sfImportSequence, importSequence);
-
+    sle->setFieldU32(sfImportSequence, importSequence);
     sle->setFieldAmount(sfBalance, finalBal);
-
-    if (ticket.has_value())
-    {
-        auto sleTicket =
-            view().peek(keylet::hookState(id, *ticket, shadowTicketNamespace));
-        if (!sleTicket)
-            return tefINTERNAL;
-
-        TER result =
-            hook::setHookState(ctx_, id, shadowTicketNamespace, *ticket, {});
-        if (result != tesSUCCESS)
-            return result;
-
-        // RHUPTO: ticketseq billing?
-    }
 
     if (create)
     {
@@ -1419,10 +1407,6 @@ Import::doApply()
     else
         view().update(sle);
 
-    //
-    // Handle any key imports, but only if a tes code
-    // these functions update the sle on their own
-    //
     if (isTesSuccess(meta->getFieldU8(sfTransactionResult)))
     {
         auto const tt = stpTrans->getTxnType();
