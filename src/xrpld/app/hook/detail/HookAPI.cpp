@@ -1274,14 +1274,31 @@ HookAPI::xport(Slice const& txBlob) const
         return Unexpected(EXPORT_FAILURE);
     }
 
-    // Reject exports targeting the local network — an exported txn
-    // re-executing on its origin chain could cause exploits/logic issues.
+    // Reject exports that could target the local network.
+    // An exported txn re-executing on its origin chain could cause exploits.
+    //
+    // Per XRPL rules (Transactor.cpp):
+    //   - Networks <= 1024: sfNetworkID must NOT be present
+    //   - Networks > 1024:  sfNetworkID is REQUIRED and must match
+    //
+    // So: if the exported tx has sfNetworkID matching local → self-target.
+    //     if local NETWORK_ID is 0 (unconfigured) → can't safely distinguish
+    //     self-targeting from cross-chain, reject unless tx has an explicit
+    //     non-zero NetworkID.
     if (stpTrans->isFieldPresent(sfNetworkID) &&
         stpTrans->getFieldU32(sfNetworkID) == app.config().NETWORK_ID)
     {
         JLOG(j.warn()) << "HookExport[" << HC_ACC()
                        << "]: Rejected export with local NetworkID ("
                        << app.config().NETWORK_ID << ").";
+        return Unexpected(EXPORT_FAILURE);
+    }
+
+    if (app.config().NETWORK_ID == 0 && !stpTrans->isFieldPresent(sfNetworkID))
+    {
+        JLOG(j.warn()) << "HookExport[" << HC_ACC()
+                       << "]: Rejected export with unconfigured NETWORK_ID. "
+                          "Node must have a non-zero NETWORK_ID to export.";
         return Unexpected(EXPORT_FAILURE);
     }
 

@@ -75,6 +75,14 @@ public:
 
 struct Export_test : public beast::unit_test::suite
 {
+    static std::unique_ptr<Config>
+    exportTestConfig()
+    {
+        auto cfg = jtx::envconfig(jtx::validator, "");
+        cfg->NETWORK_ID = 21337;
+        return cfg;
+    }
+
     // Hook that exports a payment using xport (for cross-chain export)
     // xport APIs are gated by featureExport amendment, not sfHookApiVersion
     TestHook xport_wasm = export_test_wasm[R"[test.hook](
@@ -296,10 +304,7 @@ struct Export_test : public beast::unit_test::suite
         // N: xport creates entry
         // N+1: validator signs
         // N+2: ttEXPORT cleans up
-        runXportTest(
-            features,
-            []() { return jtx::envconfig(jtx::validator, ""); },
-            true);
+        runXportTest(features, exportTestConfig, true);
     }
 
     // Hook that exports a payment WITH sfNetworkID matching the local network.
@@ -452,10 +457,7 @@ struct Export_test : public beast::unit_test::suite
 
         using namespace jtx;
 
-        // NETWORK_ID must be >1024 so transactions carry sfNetworkID
-        auto cfg = envconfig(jtx::validator, "");
-        cfg->NETWORK_ID = 21337;
-        Env env{*this, std::move(cfg), features};
+        Env env{*this, exportTestConfig(), features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -472,6 +474,51 @@ struct Export_test : public beast::unit_test::suite
 
         // Trigger: xport() should reject because exported tx's NetworkID
         // matches the local network → EXPORT_FAILURE → hook rollback
+        Json::Value params(Json::arrayValue);
+        Json::Value param;
+        param[jss::HookParameter] = Json::Value(Json::objectValue);
+        param[jss::HookParameter][jss::HookParameterName] =
+            strHex(std::string("DST"));
+        param[jss::HookParameter][jss::HookParameterValue] = strHex(carol.id());
+        params.append(param);
+
+        env(pay(bob, alice, XRP(100)),
+            fee(XRP(1)),
+            json(jss::HookParameters, params),
+            ter(tecHOOK_REJECTED));
+        env.close();
+
+        // Verify no ltEXPORTED_TXN was created
+        auto const exportedDirKey = keylet::exportedDir();
+        BEAST_EXPECT(dirIsEmpty(*env.current(), exportedDirKey));
+    }
+
+    void
+    testXportRejectsUnconfiguredNetworkID(FeatureBitset features)
+    {
+        testcase("Xport rejects export when NETWORK_ID is unconfigured");
+
+        using namespace jtx;
+
+        // Default NETWORK_ID=0: node can't safely distinguish self from
+        // cross-chain, so exports without sfNetworkID must be rejected.
+        Env env{*this, envconfig(jtx::validator, ""), features};
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, bob, carol);
+        env.close();
+
+        // Install the normal xport hook (no NetworkID in exported tx)
+        env(ripple::test::jtx::hook(alice, {{hso(xport_wasm)}}, 0),
+            HSFEE,
+            ter(tesSUCCESS));
+        env.close();
+
+        // Trigger: xport() should reject because NETWORK_ID=0 and the
+        // exported tx has no sfNetworkID → can't verify it's cross-chain
         Json::Value params(Json::arrayValue);
         Json::Value param;
         param[jss::HookParameter] = Json::Value(Json::objectValue);
@@ -531,6 +578,7 @@ struct Export_test : public beast::unit_test::suite
         FeatureBitset const allWithExport{all | featureExport};
         testXportPaymentWithValidator(allWithExport);
         testXportRejectsLocalNetworkID(allWithExport);
+        testXportRejectsUnconfiguredNetworkID(allWithExport);
         testStaleSignatureCleanup(allWithExport);
     }
 };
