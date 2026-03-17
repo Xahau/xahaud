@@ -15,7 +15,11 @@ Export::preflight(PreflightContext const& ctx)
     if (!isTesSuccess(ret))
         return ret;
 
-    if (!ctx.tx.isFieldPresent(sfExportedTxn))
+    // At least one operation must be present.
+    bool const hasExport = ctx.tx.isFieldPresent(sfExportedTxn);
+    bool const hasCancel = ctx.tx.isFieldPresent(sfCancelTicketSequence);
+
+    if (!hasExport && !hasCancel)
         return temMALFORMED;
 
     return preflight2(ctx);
@@ -24,7 +28,10 @@ Export::preflight(PreflightContext const& ctx)
 TER
 Export::preclaim(PreclaimContext const& ctx)
 {
-    // Parse the inner exported transaction.
+    if (!ctx.tx.isFieldPresent(sfExportedTxn))
+        return tesSUCCESS;
+
+    // Validate the inner exported transaction.
     auto const& exportedObj = const_cast<STTx&>(ctx.tx)
                                   .peekAtField(sfExportedTxn)
                                   .downcast<STObject>();
@@ -43,19 +50,16 @@ Export::preclaim(PreclaimContext const& ctx)
         return temMALFORMED;
     }
 
-    // Shared validation: account must match submitter.
     if (auto ter = ExportLedgerOps::validateExportAccount(
             *stpTrans, ctx.tx.getAccountID(sfAccount), ctx.j);
         !isTesSuccess(ter))
         return ter;
 
-    // Shared validation: NetworkID self-target guard.
     if (auto ter = ExportLedgerOps::validateNetworkID(
             *stpTrans, ctx.app.config().NETWORK_ID, ctx.j);
         !isTesSuccess(ter))
         return ter;
 
-    // Shared validation: TicketSequence required.
     if (auto ter = ExportLedgerOps::validateTicketSequence(*stpTrans, ctx.j);
         !isTesSuccess(ter))
         return ter;
@@ -66,25 +70,44 @@ Export::preclaim(PreclaimContext const& ctx)
 TER
 Export::doApply()
 {
-    auto const& exportedObj =
-        ctx_.tx.peekAtField(sfExportedTxn).downcast<STObject>();
-
-    Serializer s;
-    exportedObj.add(s);
-    SerialIter sit(s.slice());
-
-    STTx exportedTx(std::ref(sit));
-    uint256 const txnId = exportedTx.getTransactionID();
-
     auto const account = ctx_.tx.getAccountID(sfAccount);
 
-    TER ter = ExportLedgerOps::createExportedTxn(
-        view(), ctx_.app, exportedTx, txnId, j_);
-    if (!isTesSuccess(ter))
-        return ter;
+    // Export operation: create ltEXPORTED_TXN + ltSHADOW_TICKET.
+    if (ctx_.tx.isFieldPresent(sfExportedTxn))
+    {
+        auto const& exportedObj =
+            ctx_.tx.peekAtField(sfExportedTxn).downcast<STObject>();
 
-    return ExportLedgerOps::createShadowTicket(
-        view(), account, exportedTx, txnId, j_);
+        Serializer s;
+        exportedObj.add(s);
+        SerialIter sit(s.slice());
+
+        STTx exportedTx(std::ref(sit));
+        uint256 const txnId = exportedTx.getTransactionID();
+
+        TER ter = ExportLedgerOps::createExportedTxn(
+            view(), ctx_.app, exportedTx, txnId, j_);
+        if (!isTesSuccess(ter))
+            return ter;
+
+        ter = ExportLedgerOps::createShadowTicket(
+            view(), account, exportedTx, txnId, j_);
+        if (!isTesSuccess(ter))
+            return ter;
+    }
+
+    // Cancel operation: delete an existing shadow ticket.
+    if (ctx_.tx.isFieldPresent(sfCancelTicketSequence))
+    {
+        auto const ticketSeq = ctx_.tx.getFieldU32(sfCancelTicketSequence);
+
+        TER ter =
+            ExportLedgerOps::cancelShadowTicket(view(), account, ticketSeq, j_);
+        if (!isTesSuccess(ter))
+            return ter;
+    }
+
+    return tesSUCCESS;
 }
 
 }  // namespace ripple

@@ -652,6 +652,59 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testCancelShadowTicketViaTxn(FeatureBitset features)
+    {
+        testcase("ttEXPORT cancels shadow ticket via sfCancelTicketSequence");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto const seq = env.current()->seq();
+
+        // First: export with TicketSequence=42 to create a shadow ticket
+        auto innerObj =
+            buildExportedPayment(alice.id(), carol.id(), seq + 1, seq + 5, 42);
+
+        Json::Value jvExport;
+        jvExport[jss::TransactionType] = jss::Export;
+        jvExport[jss::Account] = alice.human();
+        jvExport[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+
+        env(jvExport, fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+
+        // Verify shadow ticket exists
+        auto const stKey = keylet::shadowTicket(alice.id(), 42);
+        BEAST_EXPECT(env.current()->exists(stKey));
+        auto const ownerCountWithTicket =
+            env.le(alice)->getFieldU32(sfOwnerCount);
+
+        // Now cancel it via sfCancelTicketSequence
+        Json::Value jvCancel;
+        jvCancel[jss::TransactionType] = jss::Export;
+        jvCancel[jss::Account] = alice.human();
+        jvCancel[sfCancelTicketSequence.jsonName] = 42;
+
+        env(jvCancel, fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+
+        // Verify shadow ticket is gone
+        BEAST_EXPECT(!env.current()->exists(stKey));
+
+        // Verify owner count decremented (reserve freed)
+        auto const ownerCountAfterCancel =
+            env.le(alice)->getFieldU32(sfOwnerCount);
+        BEAST_EXPECT(ownerCountAfterCancel == ownerCountWithTicket - 1);
+    }
+
+    void
     testExportRejectsNoTicketSequence(FeatureBitset features)
     {
         testcase("ttEXPORT rejects export without TicketSequence");
@@ -726,6 +779,7 @@ struct Export_test : public beast::unit_test::suite
         testXportRejectsUnconfiguredNetworkID(allWithExport);
         testExportTxn(allWithExport);
         testShadowTicketLifecycle(allWithExport);
+        testCancelShadowTicketViaTxn(allWithExport);
         testExportRejectsNoTicketSequence(allWithExport);
         testStaleSignatureCleanup(allWithExport);
     }

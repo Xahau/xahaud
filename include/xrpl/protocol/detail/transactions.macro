@@ -506,9 +506,12 @@ TRANSACTION(ttEXPORT_FINALIZE, 90, ExportFinalize, ({
     {sfLedgerSequence, soeREQUIRED},
 }))
 
-/* User-submittable export: create ltEXPORTED_TXN for validator signing */
+/* User-submittable export: create ltEXPORTED_TXN for validator signing,
+   or cancel a shadow ticket, or both. At least one of sfExportedTxn or
+   sfCancelTicketSequence must be present. */
 TRANSACTION(ttEXPORT, 91, Export, ({
-    {sfExportedTxn, soeREQUIRED},
+    {sfExportedTxn, soeOPTIONAL},
+    {sfCancelTicketSequence, soeOPTIONAL},
 }))
 
 /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
