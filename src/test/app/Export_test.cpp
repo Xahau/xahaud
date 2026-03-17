@@ -302,6 +302,195 @@ struct Export_test : public beast::unit_test::suite
             true);
     }
 
+    // Hook that exports a payment WITH sfNetworkID matching the local network.
+    // Should be rejected by the NetworkID self-target guard.
+    TestHook xport_self_target_wasm = export_test_wasm[R"[test.hook](
+        #include <stdint.h>
+        extern int32_t _g(uint32_t id, uint32_t maxiter);
+        extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+        extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+        extern int64_t xport(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+        extern int64_t xport_reserve(uint32_t count);
+        extern int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
+        extern int64_t otxn_param(uint32_t write_ptr, uint32_t write_len, uint32_t name_ptr, uint32_t name_len);
+        extern int64_t otxn_type(void);
+        extern int64_t ledger_seq(void);
+
+        #define SBUF(x) (uint32_t)(x), sizeof(x)
+        #define ASSERT(x) if (!(x)) rollback((uint32_t)#x, sizeof(#x), __LINE__)
+
+        #define ttPAYMENT 0
+        #define tfCANONICAL 0x80000000UL
+
+        #define amAMOUNT 1
+        #define amFEE 8
+        #define atACCOUNT 1
+        #define atDESTINATION 3
+
+        #define ENCODE_TT(buf_out, tt) \
+            buf_out[0] = 0x12U; \
+            buf_out[1] = (tt >> 8) & 0xFFU; \
+            buf_out[2] = tt & 0xFFU; \
+            buf_out += 3;
+
+        #define ENCODE_FLAGS(buf_out, flags) \
+            buf_out[0] = 0x22U; \
+            buf_out[1] = (flags >> 24) & 0xFFU; \
+            buf_out[2] = (flags >> 16) & 0xFFU; \
+            buf_out[3] = (flags >> 8) & 0xFFU; \
+            buf_out[4] = flags & 0xFFU; \
+            buf_out += 5;
+
+        #define ENCODE_SEQUENCE(buf_out, seq) \
+            buf_out[0] = 0x24U; \
+            buf_out[1] = (seq >> 24) & 0xFFU; \
+            buf_out[2] = (seq >> 16) & 0xFFU; \
+            buf_out[3] = (seq >> 8) & 0xFFU; \
+            buf_out[4] = seq & 0xFFU; \
+            buf_out += 5;
+
+        // sfNetworkID = UINT32 field 1 = 0x21
+        #define ENCODE_NETWORK_ID(buf_out, id) \
+            buf_out[0] = 0x21U; \
+            buf_out[1] = (id >> 24) & 0xFFU; \
+            buf_out[2] = (id >> 16) & 0xFFU; \
+            buf_out[3] = (id >> 8) & 0xFFU; \
+            buf_out[4] = id & 0xFFU; \
+            buf_out += 5;
+
+        #define ENCODE_FLS(buf_out, fls) \
+            buf_out[0] = 0x20U; \
+            buf_out[1] = 0x1AU; \
+            buf_out[2] = (fls >> 24) & 0xFFU; \
+            buf_out[3] = (fls >> 16) & 0xFFU; \
+            buf_out[4] = (fls >> 8) & 0xFFU; \
+            buf_out[5] = fls & 0xFFU; \
+            buf_out += 6;
+
+        #define ENCODE_LLS(buf_out, lls) \
+            buf_out[0] = 0x20U; \
+            buf_out[1] = 0x1BU; \
+            buf_out[2] = (lls >> 24) & 0xFFU; \
+            buf_out[3] = (lls >> 16) & 0xFFU; \
+            buf_out[4] = (lls >> 8) & 0xFFU; \
+            buf_out[5] = lls & 0xFFU; \
+            buf_out += 6;
+
+        #define ENCODE_DROPS(buf_out, drops, amt_type) \
+            buf_out[0] = 0x60U + amt_type; \
+            buf_out[1] = 0x40U + ((drops >> 56) & 0x3FU); \
+            buf_out[2] = (drops >> 48) & 0xFFU; \
+            buf_out[3] = (drops >> 40) & 0xFFU; \
+            buf_out[4] = (drops >> 32) & 0xFFU; \
+            buf_out[5] = (drops >> 24) & 0xFFU; \
+            buf_out[6] = (drops >> 16) & 0xFFU; \
+            buf_out[7] = (drops >> 8) & 0xFFU; \
+            buf_out[8] = drops & 0xFFU; \
+            buf_out += 9;
+
+        #define ENCODE_SIGNING_PUBKEY_EMPTY(buf_out) \
+            buf_out[0] = 0x73U; \
+            buf_out[1] = 0x00U; \
+            buf_out += 2;
+
+        #define ENCODE_ACCOUNT(buf_out, acc, acc_type) \
+            buf_out[0] = 0x80U + acc_type; \
+            buf_out[1] = 0x14U; \
+            for (int i = 0; i < 20; ++i) buf_out[2+i] = acc[i]; \
+            buf_out += 22;
+
+        #define PREPARE_PAYMENT_SIMPLE_SIZE 270U
+
+        int64_t hook(uint32_t reserved) {
+            _g(1, 1);
+
+            if (otxn_type() != ttPAYMENT)
+                return accept(0, 0, 0);
+
+            ASSERT(xport_reserve(1) == 1);
+
+            uint8_t dst[20];
+            int64_t dst_len = otxn_param(SBUF(dst), "DST", 3);
+            ASSERT(dst_len == 20);
+
+            uint8_t acc[20];
+            ASSERT(hook_account(SBUF(acc)) == 20);
+
+            uint32_t cls = (uint32_t)ledger_seq();
+
+            uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
+            uint8_t* buf = tx;
+
+            ENCODE_TT(buf, ttPAYMENT);
+            ENCODE_NETWORK_ID(buf, 21337);  // must precede Sequence (canonical order)
+            ENCODE_FLAGS(buf, tfCANONICAL);
+            ENCODE_SEQUENCE(buf, 0);
+            ENCODE_FLS(buf, cls + 1);
+            ENCODE_LLS(buf, cls + 5);
+
+            uint64_t drops = 1000000;
+            ENCODE_DROPS(buf, drops, amAMOUNT);
+            ENCODE_DROPS(buf, 10, amFEE);
+
+            ENCODE_SIGNING_PUBKEY_EMPTY(buf);
+            ENCODE_ACCOUNT(buf, acc, atACCOUNT);
+            ENCODE_ACCOUNT(buf, dst, atDESTINATION);
+
+            uint8_t hash[32];
+            int64_t xport_result = xport(SBUF(hash), (uint32_t)tx, buf - tx);
+            // xport should return EXPORT_FAILURE (-46), ASSERT will rollback
+            ASSERT(xport_result == 32);
+
+            return accept(0, 0, 0);
+        }
+    )[test.hook]"];
+
+    void
+    testXportRejectsLocalNetworkID(FeatureBitset features)
+    {
+        testcase("Xport rejects export targeting local NetworkID");
+
+        using namespace jtx;
+
+        // NETWORK_ID must be >1024 so transactions carry sfNetworkID
+        auto cfg = envconfig(jtx::validator, "");
+        cfg->NETWORK_ID = 21337;
+        Env env{*this, std::move(cfg), features};
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, bob, carol);
+        env.close();
+
+        // Install hook that exports a tx with NetworkID=21337
+        env(ripple::test::jtx::hook(alice, {{hso(xport_self_target_wasm)}}, 0),
+            HSFEE,
+            ter(tesSUCCESS));
+        env.close();
+
+        // Trigger: xport() should reject because exported tx's NetworkID
+        // matches the local network → EXPORT_FAILURE → hook rollback
+        Json::Value params(Json::arrayValue);
+        Json::Value param;
+        param[jss::HookParameter] = Json::Value(Json::objectValue);
+        param[jss::HookParameter][jss::HookParameterName] =
+            strHex(std::string("DST"));
+        param[jss::HookParameter][jss::HookParameterValue] = strHex(carol.id());
+        params.append(param);
+
+        env(pay(bob, alice, XRP(100)),
+            fee(XRP(1)),
+            json(jss::HookParameters, params),
+            ter(tecHOOK_REJECTED));
+        env.close();
+
+        // Verify no ltEXPORTED_TXN was created
+        auto const exportedDirKey = keylet::exportedDir();
+        BEAST_EXPECT(dirIsEmpty(*env.current(), exportedDirKey));
+    }
+
     void
     testStaleSignatureCleanup(FeatureBitset features)
     {
@@ -341,6 +530,7 @@ struct Export_test : public beast::unit_test::suite
         FeatureBitset const all{supported_amendments()};
         FeatureBitset const allWithExport{all | featureExport};
         testXportPaymentWithValidator(allWithExport);
+        testXportRejectsLocalNetworkID(allWithExport);
         testStaleSignatureCleanup(allWithExport);
     }
 };

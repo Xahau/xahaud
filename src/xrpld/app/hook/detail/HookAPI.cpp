@@ -1279,9 +1279,9 @@ HookAPI::xport(Slice const& txBlob) const
     if (stpTrans->isFieldPresent(sfNetworkID) &&
         stpTrans->getFieldU32(sfNetworkID) == app.config().NETWORK_ID)
     {
-        JLOG(j.trace()) << "HookExport[" << HC_ACC()
-                        << "]: Rejected export with local NetworkID ("
-                        << app.config().NETWORK_ID << ").";
+        JLOG(j.warn()) << "HookExport[" << HC_ACC()
+                       << "]: Rejected export with local NetworkID ("
+                       << app.config().NETWORK_ID << ").";
         return Unexpected(EXPORT_FAILURE);
     }
 
