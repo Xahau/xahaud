@@ -103,7 +103,8 @@ Change::preflight(PreflightContext const& ctx)
         }
     }
 
-    if (ctx.tx.getTxnType() == ttEXPORT && !ctx.rules.enabled(featureExport))
+    if (ctx.tx.getTxnType() == ttEXPORT_FINALIZE &&
+        !ctx.rules.enabled(featureExport))
     {
         JLOG(ctx.j.warn()) << "Change: Export not enabled";
         return temDISABLED;
@@ -182,7 +183,7 @@ Change::preclaim(PreclaimContext const& ctx)
         case ttAMENDMENT:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
-        case ttEXPORT:
+        case ttEXPORT_FINALIZE:
         case ttCONSENSUS_ENTROPY:
             return tesSUCCESS;
         case ttUNL_REPORT: {
@@ -239,8 +240,8 @@ Change::doApply()
             return applyEmitFailure();
         case ttUNL_REPORT:
             return applyUNLReport();
-        case ttEXPORT:
-            return applyExport();
+        case ttEXPORT_FINALIZE:
+            return applyExportFinalize();
         case ttCONSENSUS_ENTROPY:
             return applyConsensusEntropy();
         default:
@@ -1146,13 +1147,14 @@ Change::applyEmitFailure()
 }
 
 TER
-Change::applyExport()
+Change::applyExportFinalize()
 {
     uint256 txnID(ctx_.tx.getFieldH256(sfTransactionHash));
 
     do
     {
-        JLOG(j_.debug()) << "Export: processing ttEXPORT for " << txnID;
+        JLOG(j_.debug()) << "Export: processing ttEXPORT_FINALIZE for "
+                         << txnID;
 
         // Last-line-of-defense safety check:
         // Require >= 80% (ceil) cryptographically verified signatures from
@@ -1260,9 +1262,9 @@ Change::applyExport()
         {
             // most likely explanation is that this was somehow a double-up, so
             // just ignore
-            JLOG(j_.warn())
-                << "Export: ttEXPORT could not find ltEXPORTED_TXN for "
-                << txnID;
+            JLOG(j_.warn()) << "Export: ttEXPORT_FINALIZE could not find "
+                               "ltEXPORTED_TXN for "
+                            << txnID;
             break;
         }
 
@@ -1272,9 +1274,9 @@ Change::applyExport()
                 key,
                 false))
         {
-            JLOG(j_.fatal())
-                << "Export: ttEXPORT failed to remove directory entry for "
-                << txnID;
+            JLOG(j_.fatal()) << "Export: ttEXPORT_FINALIZE failed to remove "
+                                "directory entry for "
+                             << txnID;
             return tefBAD_LEDGER;
         }
 

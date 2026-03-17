@@ -70,7 +70,8 @@ getExportUNLSize(ReadView const& view, Application& app);
     occurs when accumulating signatures in ledger entries.
 
     The collector stores signatures in memory until quorum (80% UNL) is reached,
-    at which point a ttEXPORT transaction can be created with all signatures.
+    at which point a ttEXPORT_FINALIZE transaction can be created with all
+   signatures.
 
     Continuous broadcasting:
     ========================
@@ -84,8 +85,9 @@ getExportUNLSize(ReadView const& view, Application& app);
     - Node restarts recover (re-sign from ledger state, ltEXPORTED_TXN exists)
 
     The ltEXPORTED_TXN in the ledger is the gatekeeper - once deleted (after
-    ttEXPORT processed or export expired), signatures naturally stop being
-    broadcast. The collector clears its cache when ttEXPORT is applied.
+    ttEXPORT_FINALIZE processed or export expired), signatures naturally stop
+   being broadcast. The collector clears its cache when ttEXPORT_FINALIZE is
+   applied.
 
     Thread safety: All public methods are thread-safe.
 */
@@ -183,7 +185,7 @@ public:
 
     /** Clear signatures for a completed export.
 
-        Called after ttEXPORT is applied to clean up memory.
+        Called after ttEXPORT_FINALIZE is applied to clean up memory.
 
         @param txnHash The hash of the completed export
     */

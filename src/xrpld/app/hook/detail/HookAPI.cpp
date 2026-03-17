@@ -3,6 +3,7 @@
 #include <xrpld/app/hook/HookAPI.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpl/protocol/STParsedJSON.h>
 #include <cfenv>
@@ -1265,42 +1266,15 @@ HookAPI::xport(Slice const& txBlob) const
         return Unexpected(EXPORT_FAILURE);
     }
 
-    if (!stpTrans->isFieldPresent(sfAccount) ||
-        stpTrans->getAccountID(sfAccount) != hookCtx.result.account)
-    {
-        JLOG(j.trace()) << "HookExport[" << HC_ACC()
-                        << "]: Attempted to export a txn that's not for this "
-                           "Hook's Account ID.";
+    if (auto ter = ExportLedgerOps::validateExportAccount(
+            *stpTrans, hookCtx.result.account, j);
+        !isTesSuccess(ter))
         return Unexpected(EXPORT_FAILURE);
-    }
 
-    // Reject exports that could target the local network.
-    // An exported txn re-executing on its origin chain could cause exploits.
-    //
-    // Per XRPL rules (Transactor.cpp):
-    //   - Networks <= 1024: sfNetworkID must NOT be present
-    //   - Networks > 1024:  sfNetworkID is REQUIRED and must match
-    //
-    // So: if the exported tx has sfNetworkID matching local → self-target.
-    //     if local NETWORK_ID is 0 (unconfigured) → can't safely distinguish
-    //     self-targeting from cross-chain, reject unless tx has an explicit
-    //     non-zero NetworkID.
-    if (stpTrans->isFieldPresent(sfNetworkID) &&
-        stpTrans->getFieldU32(sfNetworkID) == app.config().NETWORK_ID)
-    {
-        JLOG(j.warn()) << "HookExport[" << HC_ACC()
-                       << "]: Rejected export with local NetworkID ("
-                       << app.config().NETWORK_ID << ").";
+    if (auto ter = ExportLedgerOps::validateNetworkID(
+            *stpTrans, app.config().NETWORK_ID, j);
+        !isTesSuccess(ter))
         return Unexpected(EXPORT_FAILURE);
-    }
-
-    if (app.config().NETWORK_ID == 0 && !stpTrans->isFieldPresent(sfNetworkID))
-    {
-        JLOG(j.warn()) << "HookExport[" << HC_ACC()
-                       << "]: Rejected export with unconfigured NETWORK_ID. "
-                          "Node must have a non-zero NETWORK_ID to export.";
-        return Unexpected(EXPORT_FAILURE);
-    }
 
     std::string reason;
     auto tpTrans = std::make_shared<Transaction>(stpTrans, reason, app);

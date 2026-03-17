@@ -1,10 +1,10 @@
-""":descr: install xport hook, trigger export, verify ttEXPORT lifecycle completes
+""":descr: install xport hook, trigger export, verify ttEXPORT_FINALIZE lifecycle completes
 
 Mirrors the C++ Export_test.cpp::testXportPaymentWithValidator flow:
   1. Fund alice (hook holder), bob (trigger), carol (export destination)
   2. Install xport hook on alice
   3. bob pays alice with DST=carol → hook calls xport()
-  4. Wait for validator signature collection + ttEXPORT application
+  4. Wait for validator signature collection + ttEXPORT_FINALIZE application
   5. Verify Export transaction appears in a subsequent ledger
 """
 

@@ -1683,7 +1683,7 @@ TxQ::accept(Application& app, OpenView& view)
                     stpTrans->add(exportedSer);
                     SerialIter exportedSit(exportedSer.slice());
 
-                    STTx exportTx(ttEXPORT, [&](auto& obj) {
+                    STTx exportTx(ttEXPORT_FINALIZE, [&](auto& obj) {
                         obj[sfAccount] = AccountID();
                         obj.set(std::make_unique<STObject>(
                             exportedSit, sfExportedTxn));
@@ -1694,7 +1694,7 @@ TxQ::accept(Application& app, OpenView& view)
                     uint256 txID = exportTx.getTransactionID();
 
                     JLOG(j_.debug())
-                        << "Export: injecting ttEXPORT txID=" << txID
+                        << "Export: injecting ttEXPORT_FINALIZE txID=" << txID
                         << " with " << signers.size() << " signatures";
 
                     auto txBlob = std::make_shared<ripple::Serializer>();

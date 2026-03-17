@@ -75,7 +75,7 @@ private:
     applyEmitFailure();
 
     TER
-    applyExport();
+    applyExportFinalize();
 
     TER
     applyUNLReport();
@@ -89,7 +89,7 @@ using SetFee = Change;
 using UNLModify = Change;
 using EmitFailure = Change;
 using UNLReport = Change;
-using Export = Change;
+using ExportFinalize = Change;
 using ConsensusEntropy = Change;
 
 }  // namespace ripple

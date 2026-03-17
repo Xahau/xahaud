@@ -500,10 +500,15 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
 
-TRANSACTION(ttEXPORT, 90, Export, ({
+TRANSACTION(ttEXPORT_FINALIZE, 90, ExportFinalize, ({
     {sfTransactionHash, soeREQUIRED},
     {sfExportedTxn, soeREQUIRED},
     {sfLedgerSequence, soeREQUIRED},
+}))
+
+/* User-submittable export: create ltEXPORTED_TXN for validator signing */
+TRANSACTION(ttEXPORT, 91, Export, ({
+    {sfExportedTxn, soeREQUIRED},
 }))
 
 /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */

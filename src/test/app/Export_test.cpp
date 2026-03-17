@@ -224,7 +224,7 @@ struct Export_test : public beast::unit_test::suite
 
     // Helper: run xport test with given config
     // Returns true if the exported directory is empty after the flow
-    // (meaning ttEXPORT cleaned up the entry)
+    // (meaning ttEXPORT_FINALIZE cleaned up the entry)
     void
     runXportTest(
         FeatureBitset features,
@@ -282,8 +282,8 @@ struct Export_test : public beast::unit_test::suite
 
         // Close additional ledgers for signing flow
         env.close();  // N+1: validators sign via TMValidation
-        env.close();  // N+2: ttEXPORT created (rawTxInsert)
-        env.close();  // N+3: does ttEXPORT get applied here?
+        env.close();  // N+2: ttEXPORT_FINALIZE created (rawTxInsert)
+        env.close();  // N+3: does ttEXPORT_FINALIZE get applied here?
 
         // Check if cleanup happened
         {
@@ -303,7 +303,7 @@ struct Export_test : public beast::unit_test::suite
         // With validator config, full flow should work:
         // N: xport creates entry
         // N+1: validator signs
-        // N+2: ttEXPORT cleans up
+        // N+2: ttEXPORT_FINALIZE cleans up
         runXportTest(features, exportTestConfig, true);
     }
 
@@ -538,6 +538,61 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(dirIsEmpty(*env.current(), exportedDirKey));
     }
 
+    // Build a minimal unsigned Payment STObject suitable for sfExportedTxn.
+    static STObject
+    buildExportedPayment(
+        AccountID const& src,
+        AccountID const& dst,
+        std::uint32_t fls,
+        std::uint32_t lls)
+    {
+        STObject obj(sfExportedTxn);
+        obj.setFieldU16(sfTransactionType, ttPAYMENT);
+        obj.setFieldU32(sfFlags, tfFullyCanonicalSig);
+        obj.setFieldU32(sfSequence, 0);
+        obj.setFieldU32(sfFirstLedgerSequence, fls);
+        obj.setFieldU32(sfLastLedgerSequence, lls);
+        obj.setFieldAmount(sfAmount, XRPAmount{1000000});
+        obj.setFieldAmount(sfFee, XRPAmount{10});
+        obj.setFieldVL(sfSigningPubKey, Blob{});
+        obj.setAccountID(sfAccount, src);
+        obj.setAccountID(sfDestination, dst);
+        return obj;
+    }
+
+    void
+    testExportTxn(FeatureBitset features)
+    {
+        testcase("ttEXPORT_USER creates ltEXPORTED_TXN");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto const seq = env.current()->seq();
+        auto innerObj =
+            buildExportedPayment(alice.id(), carol.id(), seq + 1, seq + 5);
+
+        // Submit ttEXPORT_USER with inner payment as STObject
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::Export;
+        jv[jss::Account] = alice.human();
+        jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+
+        env(jv, fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+
+        // Verify ltEXPORTED_TXN was created
+        auto const exportedDirKey = keylet::exportedDir();
+        BEAST_EXPECT(!dirIsEmpty(*env.current(), exportedDirKey));
+    }
+
     void
     testStaleSignatureCleanup(FeatureBitset features)
     {
@@ -579,6 +634,7 @@ struct Export_test : public beast::unit_test::suite
         testXportPaymentWithValidator(allWithExport);
         testXportRejectsLocalNetworkID(allWithExport);
         testXportRejectsUnconfiguredNetworkID(allWithExport);
+        testExportTxn(allWithExport);
         testStaleSignatureCleanup(allWithExport);
     }
 };

@@ -5,6 +5,7 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/ledger/View.h>
@@ -587,6 +588,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
         case ttUNL_REPORT:
+        case ttEXPORT_FINALIZE:
         case ttEXPORT:
         case ttCONSENSUS_ENTROPY: {
             break;
@@ -1725,89 +1727,16 @@ hook::finalizeHookResult(
             auto& id = tpTrans->getID();
             JLOG(j.trace()) << "HookExport[" << HR_ACC() << "]: " << id;
 
-            // exported txns must be marked bad by the hash router to ensure
-            // under no circumstances they will enter consensus on *this* chain.
-            applyCtx.app.getHashRouter().setFlags(id, SF_BAD);
-
             std::shared_ptr<const ripple::STTx> ptr =
                 tpTrans->getSTransaction();
 
-            auto exportedId = keylet::exportedTxn(id);
-            auto sleExported = applyCtx.view().peek(exportedId);
+            TER const ter = ExportLedgerOps::createExportedTxn(
+                applyCtx.view(), applyCtx.app, *ptr, id, j);
 
-            if (!sleExported)
-            {
-                // Enforce maxPendingExports on the exported directory.
-                // Each pending export costs validator signing + broadcast
-                // work every round, so this is the root DoS constraint.
-                {
-                    Keylet const expDirKey{keylet::exportedDir()};
-                    std::size_t dirSize = 0;
-                    std::shared_ptr<SLE const> sleDirNode;
-                    unsigned int uDirEntry{0};
-                    uint256 dirEntry{beast::zero};
-                    if (cdirFirst(
-                            applyCtx.view(),
-                            expDirKey.key,
-                            sleDirNode,
-                            uDirEntry,
-                            dirEntry))
-                    {
-                        do
-                        {
-                            ++dirSize;
-                        } while (cdirNext(
-                            applyCtx.view(),
-                            expDirKey.key,
-                            sleDirNode,
-                            uDirEntry,
-                            dirEntry));
-                    }
+            if (!isTesSuccess(ter))
+                return ter;
 
-                    if (dirSize >= ExportLimits::maxPendingExports)
-                    {
-                        JLOG(j.warn()) << "HookError[" << HR_ACC() << "]: "
-                                       << "Export directory at cap ("
-                                       << ExportLimits::maxPendingExports
-                                       << "), rejecting export " << id;
-                        return tecDIR_FULL;
-                    }
-                }
-
-                exported_txnid.emplace_back(id);
-
-                sleExported = std::make_shared<SLE>(exportedId);
-
-                // RH TODO: add a new constructor to STObject to avoid this
-                // serder thing
-                ripple::Serializer s;
-                ptr->add(s);
-                SerialIter sit(s.slice());
-
-                sleExported->emplace_back(ripple::STObject(sit, sfExportedTxn));
-                auto page = applyCtx.view().dirInsert(
-                    keylet::exportedDir(), exportedId, [&](SLE::ref sle) {
-                        (*sle)[sfFlags] = lsfEmittedDir;
-                    });
-
-                if (page)
-                {
-                    (*sleExported)[sfOwnerNode] = *page;
-                    (*sleExported)[sfLedgerSequence] =
-                        applyCtx.view().info().seq;
-                    (*sleExported)[sfTransactionHash] = id;
-                    applyCtx.view().insert(sleExported);
-                    JLOG(j.debug())
-                        << "Export: created ltEXPORTED_TXN for " << id;
-                }
-                else
-                {
-                    JLOG(j.warn())
-                        << "HookError[" << HR_ACC() << "]: "
-                        << "Export Directory full when trying to insert " << id;
-                    return tecDIR_FULL;
-                }
-            }
+            exported_txnid.emplace_back(id);
         }
     }
 
