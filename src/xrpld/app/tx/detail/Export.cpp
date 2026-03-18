@@ -2,6 +2,7 @@
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
+#include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
@@ -114,9 +115,16 @@ Export::doApply()
         else
             unlSize = ctx_.app.validators().getTrustedMasterKeys().size();
     }
-    // Quorum is 80% (ceil).
-    auto const threshold =
-        unlSize == 0 ? 1 : static_cast<std::size_t>((unlSize * 80 + 99) / 100);
+    // Standalone / unit tests: no real UNL, just require 1 sig.
+    // With CE: 80% quorum (SHAMap convergence ensures deterministic agreement).
+    // Without CE: unanimity (avoids non-deterministic quorum disagreement).
+    std::size_t threshold;
+    if (unlSize == 0 || ctx_.app.config().standalone())
+        threshold = 1;
+    else if (view().rules().enabled(featureConsensusEntropy))
+        threshold = calculateQuorumThreshold(unlSize);
+    else
+        threshold = unlSize;
     auto const sigCount = exportSigCollector().signatureCount(txId);
 
     if (sigCount < threshold)
