@@ -919,11 +919,24 @@ Import::preclaim(PreclaimContext const& ctx)
 
         // check if there is a shadow ticket, and if not we won't allow
         // the txn to pass into consensus
-        if (!ctx.view.exists(keylet::shadowTicket(acc, ticketSeq)))
+        auto const stKey = keylet::shadowTicket(acc, ticketSeq);
+        auto const stSle = ctx.view.read(stKey);
+        if (!stSle)
         {
             JLOG(ctx.j.warn())
                 << "Import: attempted to import a txn without shadow ticket.";
             return telSHADOW_TICKET_REQUIRED;
+        }
+
+        // Verify the imported XPOP matches the export that created
+        // this shadow ticket (prevents using a different XPOP with
+        // the same TicketSequence).
+        auto const expectedHash = stSle->getFieldH256(sfTransactionHash);
+        if (expectedHash != stpTrans->getTransactionID())
+        {
+            JLOG(ctx.j.warn())
+                << "Import: XPOP tx hash does not match shadow ticket.";
+            return temMALFORMED;
         }
     }
 
