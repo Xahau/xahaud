@@ -1304,64 +1304,27 @@ HookAPI::xport(Slice const& txBlob) const
     Serializer innerSer;
     innerTx->add(innerSer);
 
-    // Pre-compute the emit fee so we can set it during STTx
-    // construction.  Mutating the fee after construction via
-    // const_cast leaves a stale cached getTransactionID(), which
-    // breaks the tefNONDIR_EMIT check in Transactor::preclaim
-    // after the emitted tx is serialised and deserialised through
-    // the emitted directory round-trip.
+    // Build the ttEXPORT wrapper as an STObject first so we can
+    // compute the fee, set it, then construct the STTx from the
+    // final serialised bytes.  This avoids mutating the STTx after
+    // construction (which would leave a stale cached txid — see
+    // the tefNONDIR_EMIT check in Transactor::preclaim).
     //
-    // We build a throwaway STTx with fee=0 just for the size
-    // calculation, then construct the real one with the correct fee.
-    uint64_t emitFee = 0;
+    // The fee field is a fixed 9 bytes regardless of value, so
+    // patching it on the STObject doesn't change the serialised size.
+    STObject exportObj(sfGeneric);
     {
-        STTx tmp(ttEXPORT, [&](auto& obj) {
-            obj[sfAccount] = hookCtx.result.account;
-            obj[sfSequence] = 0u;
-            obj.setFieldVL(sfSigningPubKey, Blob{});
-            obj[sfFirstLedgerSequence] = ledgerSeq + 1;
-            obj[sfLastLedgerSequence] = ledgerSeq + 5;
-            obj[sfFee] = STAmount{0};
-            SerialIter sit(innerSer.slice());
-            obj.set(std::make_unique<STObject>(sit, sfExportedTxn));
-            STObject ed(sfEmitDetails);
-            ed.setFieldU32(
-                sfEmitGeneration, static_cast<uint32_t>(etxn_generation()));
-            {
-                auto const b = etxn_burden();
-                ed.setFieldU64(sfEmitBurden, b ? uint64_t(*b) : 1ULL);
-            }
-            ed.setFieldH256(sfEmitParentTxnID, applyCtx.tx.getTransactionID());
-            ed.setFieldH256(sfEmitNonce, *nonce);
-            ed.setFieldH256(sfEmitHookHash, hookCtx.result.hookHash);
-            if (hookCtx.result.hasCallback)
-                ed.setAccountID(sfEmitCallback, hookCtx.result.account);
-            obj.set(std::move(ed));
-        });
-        Serializer feeSer;
-        tmp.add(feeSer);
-        auto feeResult = etxn_fee_base(feeSer.slice());
-        if (!feeResult)
-        {
-            JLOG(j.trace()) << "HookExport[" << HC_ACC()
-                            << "]: Fee calculation failed for ttEXPORT wrapper";
-            return Unexpected(EXPORT_FAILURE);
-        }
-        emitFee = static_cast<uint64_t>(*feeResult);
-    }
-
-    // Build the ttEXPORT wrapper with the correct fee.
-    STTx exportStx(ttEXPORT, [&](auto& obj) {
-        obj[sfAccount] = hookCtx.result.account;
-        obj[sfSequence] = 0u;
-        obj.setFieldVL(sfSigningPubKey, Blob{});
-        obj[sfFirstLedgerSequence] = ledgerSeq + 1;
-        obj[sfLastLedgerSequence] = ledgerSeq + 5;
-        obj[sfFee] = STAmount{emitFee};
+        exportObj.setFieldU16(sfTransactionType, ttEXPORT);
+        exportObj[sfAccount] = hookCtx.result.account;
+        exportObj[sfSequence] = 0u;
+        exportObj.setFieldVL(sfSigningPubKey, Blob{});
+        exportObj[sfFirstLedgerSequence] = ledgerSeq + 1;
+        exportObj[sfLastLedgerSequence] = ledgerSeq + 5;
+        exportObj[sfFee] = STAmount{0};
 
         // sfExportedTxn inner object
         SerialIter sit(innerSer.slice());
-        obj.set(std::make_unique<STObject>(sit, sfExportedTxn));
+        exportObj.set(std::make_unique<STObject>(sit, sfExportedTxn));
 
         // sfEmitDetails
         STObject emitDetails(sfEmitDetails);
@@ -1379,8 +1342,25 @@ HookAPI::xport(Slice const& txBlob) const
         emitDetails.setFieldH256(sfEmitHookHash, hookCtx.result.hookHash);
         if (hookCtx.result.hasCallback)
             emitDetails.setAccountID(sfEmitCallback, hookCtx.result.account);
-        obj.set(std::move(emitDetails));
-    });
+        exportObj.set(std::move(emitDetails));
+
+        // Compute fee from serialised size and patch it in.
+        Serializer feeSer;
+        exportObj.add(feeSer);
+        auto feeResult = etxn_fee_base(feeSer.slice());
+        if (!feeResult)
+        {
+            JLOG(j.trace()) << "HookExport[" << HC_ACC()
+                            << "]: Fee calculation failed for ttEXPORT wrapper";
+            return Unexpected(EXPORT_FAILURE);
+        }
+        exportObj[sfFee] = STAmount{static_cast<uint64_t>(*feeResult)};
+    }
+
+    // Construct the STTx from the finalised STObject bytes.
+    Serializer exportSer;
+    exportObj.add(exportSer);
+    STTx exportStx(SerialIter{exportSer.slice()});
 
     // Preflight the wrapper.
     auto preflightResult = ripple::preflight(
