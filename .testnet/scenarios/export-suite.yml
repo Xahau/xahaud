@@ -20,5 +20,52 @@ defaults:
       XAHAU_RNG_POLL_MS: "333"
 
 tests:
-  - name: steady_state_export
+  # --- CE + Export (80% quorum, SHAMap convergence) ---
+  - name: steady_state_export_ce
     script: .testnet/scenarios/export/steady_state_export.py
+
+  - name: retriable_export_ce
+    script: .testnet/scenarios/export/retriable_export.py
+
+  - name: export_degradation_ce
+    script: .testnet/scenarios/export/export_degradation.py
+    network:
+      node_env:
+        3:
+          XAHAUD_NO_EXPORT_SIG: "1"
+        4:
+          XAHAUD_NO_EXPORT_SIG: "1"
+
+  # CE + Export: 1 node suppressed, 4/5 = 80% quorum, should succeed
+  - name: export_ce_one_node_down
+    script: .testnet/scenarios/export/export_unanimity.py
+    params:
+      expect_success: true
+    network:
+      node_env:
+        4:
+          XAHAUD_NO_EXPORT_SIG: "1"
+
+  # --- Export only, no CE (100% quorum, unanimity) ---
+  - name: export_unanimity_all_up
+    script: .testnet/scenarios/export/export_unanimity.py
+    params:
+      expect_success: true
+    network:
+      features:
+        - Export
+      track_features:
+        - Export
+
+  - name: export_unanimity_node_down
+    script: .testnet/scenarios/export/export_unanimity.py
+    params:
+      expect_success: false
+    network:
+      features:
+        - Export
+      track_features:
+        - Export
+      node_env:
+        4:
+          XAHAUD_NO_EXPORT_SIG: "1"
