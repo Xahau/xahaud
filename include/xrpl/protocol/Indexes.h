@@ -59,14 +59,8 @@ namespace keylet {
 Keylet const&
 emittedDir() noexcept;
 
-Keylet const&
-exportedDir() noexcept;
-
 Keylet
 emittedTxn(uint256 const& id) noexcept;
-
-Keylet
-exportedTxn(uint256 const& id) noexcept;
 
 Keylet
 shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept;

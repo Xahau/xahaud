@@ -38,3 +38,27 @@ tests:
     network:
       log_levels:
         LedgerConsensus: trace
+
+  # --- Export scenarios ---
+  - name: steady_state_export
+    script: .testnet/scenarios/export/steady_state_export.py
+    network:
+      features:
+        - Export
+
+  - name: retriable_export
+    script: .testnet/scenarios/export/retriable_export.py
+    network:
+      features:
+        - Export
+
+  - name: export_degradation
+    script: .testnet/scenarios/export/export_degradation.py
+    network:
+      features:
+        - Export
+      node_env:
+        3:
+          XAHAUD_NO_EXPORT_SIG: "1"
+        4:
+          XAHAUD_NO_EXPORT_SIG: "1"

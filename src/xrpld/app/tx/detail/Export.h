@@ -5,10 +5,13 @@
 
 namespace ripple {
 
-/// User-submittable export transaction.
-/// Creates an ltEXPORTED_TXN entry for validator signing.
-/// This is the transaction-based entry point for non-hook users;
-/// hooks use the xport() API which creates the same ledger state inline.
+/// Retriable export transaction.
+/// On open ledger: returns tesSUCCESS (provisional, consumes sequence/fee).
+/// On closed ledger: checks ExportSigCollector for validator quorum.
+///   - Quorum met → tesSUCCESS with sfExportResult in metadata.
+///   - Not enough sigs → terRETRY_EXPORT (retained for next ledger).
+///   - LLS expired → tecEXPORT_EXPIRED (sequence consumed, export failed).
+/// Also supports shadow ticket cancellation via sfCancelTicketSequence.
 class Export : public Transactor
 {
 public:

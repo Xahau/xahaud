@@ -86,7 +86,7 @@ public:
     Expected<uint64_t, HookReturnCode>
     xport_reserve(uint64_t count) const;
 
-    Expected<std::shared_ptr<Transaction>, HookReturnCode>
+    Expected<uint256, HookReturnCode>
     xport(Slice const& txBlob) const;
 
     Expected<uint64_t, HookReturnCode>

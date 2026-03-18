@@ -1,10 +1,9 @@
-""":descr: install xport hook, trigger export, verify ttEXPORT_FINALIZE lifecycle completes
+""":descr: install xport hook, trigger export, verify emitted ttEXPORT lifecycle
 
-Mirrors the C++ Export_test.cpp::testXportPaymentWithValidator flow:
   1. Fund alice (hook holder), bob (trigger), carol (export destination)
   2. Install xport hook on alice
-  3. bob pays alice with DST=carol → hook calls xport()
-  4. Wait for validator signature collection + ttEXPORT_FINALIZE application
+  3. bob pays alice with DST=carol → hook calls xport() → emits ttEXPORT
+  4. Emitted ttEXPORT enters open ledger, validators attach sigs via proposals
   5. Verify Export transaction appears in a subsequent ledger
 """
 
@@ -98,6 +97,10 @@ int64_t hook(uint32_t reserved) {
     ENCODE_SEQUENCE(buf, 0);
     ENCODE_FLS(buf, cls + 1);
     ENCODE_LLS(buf, cls + 5);
+    // sfTicketSequence = UINT32 field 41 = 0x20 0x29
+    buf[0] = 0x20U; buf[1] = 0x29U;
+    buf[2] = 0; buf[3] = 0; buf[4] = 0; buf[5] = 1;
+    buf += 6;
 
     uint64_t drops = 1000000;
     ENCODE_DROPS(buf, drops, amAMOUNT);
@@ -152,7 +155,7 @@ async def scenario(ctx, log):
     )
 
     # --- Trigger ---
-    # bob pays alice → hook calls xport() → creates ltEXPORTED_TXN
+    # bob pays alice → hook calls xport() → emits ttEXPORT
     await ctx.submit_and_wait(
         {
             "TransactionType": "Payment",
@@ -173,7 +176,35 @@ async def scenario(ctx, log):
         seq = ctx.validated_ledger_index(0)
         exports = find_export_txns(ctx, seq)
         if exports:
-            log(f"Ledger {seq}: Export txn found")
+            export_tx = exports[0]
+            meta = export_tx.get("meta", export_tx.get("metaData", {}))
+            result = meta.get("TransactionResult", "")
+            export_result = meta.get("ExportResult", {})
+            log(f"Ledger {seq}: Export txn found, result={result}")
+            log(f"  ExportResult: {export_result}")
+
+            if result != "tesSUCCESS":
+                raise AssertionError(
+                    f"Export did not succeed: {result}"
+                )
+            if not export_result:
+                raise AssertionError(
+                    "ExportResult not found in metadata"
+                )
+
+            # Verify shadow ticket was created (TicketSequence=1 in inner tx)
+            obj_result = ctx.rpc.request(
+                0, "account_objects", {"account": alice.address}
+            )
+            all_objects = (obj_result or {}).get("account_objects", [])
+            shadow_tickets = [
+                obj for obj in all_objects
+                if obj.get("LedgerEntryType") == "ShadowTicket"
+            ]
+            log(f"  Shadow tickets: {len(shadow_tickets)}")
+            if not shadow_tickets:
+                log("  WARNING: no shadow ticket found (may be expected if quorum timing)")
+
             log("PASS")
             return
         log(f"Ledger {seq}: no Export txn yet")

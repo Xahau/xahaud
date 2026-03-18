@@ -38,7 +38,6 @@
 #include <xrpld/app/main/Tuning.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/DatagramMonitor.h>
-#include <xrpld/app/misc/ExportSignatureCollector.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NetworkOPs.h>
@@ -216,7 +215,6 @@ public:
     std::unique_ptr<AmendmentTable> m_amendmentTable;
     std::unique_ptr<LoadFeeTrack> mFeeTrack;
     std::unique_ptr<HashRouter> hashRouter_;
-    std::unique_ptr<ExportSignatureCollector> exportSignatureCollector_;
     RuntimeConfig runtimeConfig_;
     RCLValidations mValidations;
     std::unique_ptr<LoadManager> m_loadManager;
@@ -453,9 +451,6 @@ public:
         , hashRouter_(std::make_unique<HashRouter>(
               stopwatch(),
               HashRouter::getDefaultHoldTime()))
-
-        , exportSignatureCollector_(std::make_unique<ExportSignatureCollector>(
-              logs_->journal("ExportSignatureCollector")))
 
         , mValidations(
               ValidationParms(),
@@ -753,12 +748,6 @@ public:
     getHashRouter() override
     {
         return *hashRouter_;
-    }
-
-    ExportSignatureCollector&
-    getExportSignatureCollector() override
-    {
-        return *exportSignatureCollector_;
     }
 
     RuntimeConfig&

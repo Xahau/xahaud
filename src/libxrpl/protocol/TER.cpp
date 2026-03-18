@@ -124,6 +124,7 @@ transResults()
         MAKE_ERROR(tecARRAY_TOO_LARGE,               "Array is too large."),
         MAKE_ERROR(tecLOCKED,                        "Fund is locked."),
         MAKE_ERROR(tecBAD_CREDENTIALS,               "Bad credentials."),
+        MAKE_ERROR(tecEXPORT_EXPIRED,                "Export expired without reaching signature quorum."),
 
         MAKE_ERROR(tefALREADY,                     "The exact transaction was already in this ledger."),
         MAKE_ERROR(tefBAD_ADD_AUTH,                "Not authorized to add account."),
@@ -239,6 +240,7 @@ transResults()
         MAKE_ERROR(terPRE_TICKET,             "Ticket is not yet in ledger."),
         MAKE_ERROR(terNO_HOOK,                "No hook with that hash exists on the ledger."),
         MAKE_ERROR(terNO_AMM,                 "AMM doesn't exist for the asset pair."),
+        MAKE_ERROR(terRETRY_EXPORT,          "Export awaiting validator signatures."),
 
         MAKE_ERROR(tesSUCCESS,                "The transaction was applied. Only final in a validated ledger."),
         MAKE_ERROR(tesPARTIAL,                "The transaction was applied but should be submitted again until returning tesSUCCESS."),

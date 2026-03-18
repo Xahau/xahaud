@@ -588,7 +588,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
         case ttUNL_REPORT:
-        case ttEXPORT_FINALIZE:
         case ttEXPORT:
         case ttCONSENSUS_ENTROPY: {
             break;
@@ -1720,30 +1719,9 @@ hook::finalizeHookResult(
             }
         }
 
-        DBG_PRINTF("exported txn count: %d\n", hookResult.exportedTxn.size());
-        for (; hookResult.exportedTxn.size() > 0; hookResult.exportedTxn.pop())
-        {
-            auto& tpTrans = hookResult.exportedTxn.front();
-            auto& id = tpTrans->getID();
-            JLOG(j.trace()) << "HookExport[" << HR_ACC() << "]: " << id;
-
-            std::shared_ptr<const ripple::STTx> ptr =
-                tpTrans->getSTransaction();
-
-            TER ter = ExportLedgerOps::createExportedTxn(
-                applyCtx.view(), applyCtx.app, *ptr, id, j);
-
-            if (!isTesSuccess(ter))
-                return ter;
-
-            ter = ExportLedgerOps::createShadowTicket(
-                applyCtx.view(), hookResult.account, *ptr, id, j);
-
-            if (!isTesSuccess(ter))
-                return ter;
-
-            exported_txnid.emplace_back(id);
-        }
+        // Exported txns now flow through the emitted txn path above
+        // (xport() pushes a ttEXPORT wrapper onto emittedTxn).
+        // No separate processing needed here.
     }
 
     bool const fixV2 = applyCtx.view().rules().enabled(fixXahauV2);
@@ -4183,31 +4161,21 @@ DEFINE_HOOK_FUNCTION(
     if (!res)
         return res.error();
 
-    auto const& tpTrans = *res;
-    auto const& txID = tpTrans->getID();
+    auto const& innerTxHash = *res;
 
-    if (txID.size() > write_len)
+    if (innerTxHash.size() > write_len)
         return TOO_SMALL;
 
-    if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
+    if (NOT_IN_BOUNDS(write_ptr, innerTxHash.size(), memory_length))
         return OUT_OF_BOUNDS;
 
-    auto const write_txid = [&]() -> int64_t {
-        WRITE_WASM_MEMORY_AND_RETURN(
-            write_ptr,
-            txID.size(),
-            txID.data(),
-            txID.size(),
-            memory,
-            memory_length);
-    };
-
-    int64_t result = write_txid();
-
-    if (result == 32)
-        hookCtx.result.exportedTxn.push(tpTrans);
-
-    return result;
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        innerTxHash.size(),
+        innerTxHash.data(),
+        innerTxHash.size(),
+        memory,
+        memory_length);
     HOOK_TEARDOWN();
 }
 //@@end xport-impl

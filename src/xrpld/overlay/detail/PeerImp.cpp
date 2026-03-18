@@ -22,7 +22,7 @@
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
-#include <xrpld/app/misc/ExportSignatureCollector.h>
+#include <xrpld/app/misc/ExportSigCollector.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NetworkOPs.h>
@@ -39,7 +39,6 @@
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/core/LexicalCast.h>
-#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/digest.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -1794,6 +1793,27 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     JLOG(p_journal_.trace())
         << "Proposal: " << (isTrusted ? "trusted" : "untrusted");
 
+    // Harvest export signatures from the proposal.
+    if (isTrusted && set.exportsignatures_size() > 0)
+    {
+        for (int i = 0; i < set.exportsignatures_size(); ++i)
+        {
+            auto const& blob = set.exportsignatures(i);
+            // Each entry: txnHash (32 bytes) + validator pubkey (33 bytes)
+            if (blob.size() >= 65)
+            {
+                uint256 txHash;
+                std::memcpy(txHash.data(), blob.data(), 32);
+                auto const pkSlice = makeSlice(blob).substr(32);
+                if (auto const pkType = publicKeyType(pkSlice))
+                {
+                    PublicKey const valPK{pkSlice};
+                    exportSigCollector().addSignature(txHash, valPK);
+                }
+            }
+        }
+    }
+
     auto proposal = RCLCxPeerPos(
         publicKey,
         sig,
@@ -3045,60 +3065,6 @@ PeerImp::checkValidation(
         JLOG(p_journal_.debug()) << desc;
         charge(Resource::feeInvalidSignature, desc);
         return;
-    }
-
-    // Extract export signatures from the validation message
-    if (packet->exportsignatures_size() > 0)
-    {
-        auto const validatorPK = val->getSignerPublic();
-        bool trustedForExport = app_.validators().trusted(validatorPK);
-        if (auto const vl = app_.getLedgerMaster().getValidatedLedger())
-            trustedForExport =
-                isExportValidatorTrusted(*vl, app_, validatorPK, p_journal_);
-
-        if (!trustedForExport)
-        {
-            JLOG(p_journal_.trace())
-                << "Export: ignoring signatures from untrusted validator "
-                << toBase58(TokenType::NodePublic, validatorPK);
-        }
-        else
-        {
-            auto const currentSeq = val->getFieldU32(sfLedgerSequence);
-
-            // Clamp inbound export signatures to the directory cap.
-            // A legitimate validator can only have maxPendingExports
-            // pending, so anything beyond that is either a bug or abuse.
-            auto const sigCount = std::min(
-                packet->exportsignatures_size(),
-                static_cast<int>(ExportLimits::maxPendingExports));
-            if (sigCount < packet->exportsignatures_size())
-            {
-                JLOG(p_journal_.warn())
-                    << "Export: clamping " << packet->exportsignatures_size()
-                    << " signatures to cap " << sigCount;
-            }
-            for (int i = 0; i < sigCount; ++i)
-            {
-                try
-                {
-                    auto const& data = packet->exportsignatures(i);
-                    SerialIter sit(makeSlice(data));
-                    uint256 txnHash = sit.getBitString<256>();
-                    STObject signer(sit, sfSigner);
-
-                    // Verify and add - verifies against cached txn data if
-                    // available, otherwise adds unverified (verified later).
-                    app_.getExportSignatureCollector().verifyAndAddSignature(
-                        txnHash, validatorPK, std::move(signer), currentSeq);
-                }
-                catch (std::exception const& e)
-                {
-                    JLOG(p_journal_.warn())
-                        << "Export: failed to parse signature: " << e.what();
-                }
-            }
-        }
     }
 
     // FIXME it should be safe to remove this try/catch. Investigate codepaths.

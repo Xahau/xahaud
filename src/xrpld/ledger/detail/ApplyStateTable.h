@@ -86,6 +86,7 @@ public:
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
+        std::optional<STObject> const& exportResult,
         beast::Journal j,
         bool isProvisional = false);
 
@@ -97,6 +98,7 @@ public:
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
+        std::optional<STObject> const& exportResult,
         bool isDryRun,
         beast::Journal j);
 

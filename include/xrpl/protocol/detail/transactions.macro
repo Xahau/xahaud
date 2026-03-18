@@ -500,19 +500,16 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
 
-TRANSACTION(ttEXPORT_FINALIZE, 90, ExportFinalize, ({
-    {sfTransactionHash, soeREQUIRED},
-    {sfExportedTxn, soeREQUIRED},
-    {sfLedgerSequence, soeREQUIRED},
-}))
-
-/* User-submittable export: create ltEXPORTED_TXN for validator signing,
-   or cancel a shadow ticket, or both. At least one of sfExportedTxn or
-   sfCancelTicketSequence must be present. */
+//@@start export-transaction-types
+/* User-submittable export: creates a cross-chain transaction for
+   validator signing. Retries via terRETRY_EXPORT until quorum.
+   Also supports shadow ticket cancellation via sfCancelTicketSequence.
+   At least one of sfExportedTxn or sfCancelTicketSequence must be present. */
 TRANSACTION(ttEXPORT, 91, Export, ({
     {sfExportedTxn, soeOPTIONAL},
     {sfCancelTicketSequence, soeOPTIONAL},
 }))
+//@@end export-transaction-types
 
 /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
 TRANSACTION(ttCRON, 92, Cron, ({

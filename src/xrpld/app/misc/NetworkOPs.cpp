@@ -1519,7 +1519,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
             if ((e.applied ||
                  ((mMode != OperatingMode::FULL) &&
                   (e.failType != FailHard::yes) && e.local) ||
-                 (e.result == terQUEUED)) &&
+                 (e.result == terQUEUED) || (e.result == terRETRY_EXPORT)) &&
                 !enforceFailHard)
             {
                 auto const toSkip =
@@ -1538,7 +1538,8 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     tx.set_status(protocol::tsCURRENT);
                     tx.set_receivetimestamp(
                         app_.timeKeeper().now().time_since_epoch().count());
-                    tx.set_deferred(e.result == terQUEUED);
+                    tx.set_deferred(
+                        e.result == terQUEUED || e.result == terRETRY_EXPORT);
                     // FIXME: This should be when we received it
                     app_.overlay().relay(e.transaction->getID(), tx, *toSkip);
                     e.transaction->setBroadcast();

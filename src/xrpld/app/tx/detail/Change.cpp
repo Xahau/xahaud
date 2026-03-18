@@ -21,7 +21,6 @@
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
-#include <xrpld/app/misc/ExportSignatureCollector.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/detail/Change.h>
 #include <xrpld/app/tx/detail/SetHook.h>
@@ -103,13 +102,6 @@ Change::preflight(PreflightContext const& ctx)
         }
     }
 
-    if (ctx.tx.getTxnType() == ttEXPORT_FINALIZE &&
-        !ctx.rules.enabled(featureExport))
-    {
-        JLOG(ctx.j.warn()) << "Change: Export not enabled";
-        return temDISABLED;
-    }
-
     if (ctx.tx.getTxnType() == ttCONSENSUS_ENTROPY)
     {
         if (!ctx.rules.enabled(featureConsensusEntropy))
@@ -183,7 +175,6 @@ Change::preclaim(PreclaimContext const& ctx)
         case ttAMENDMENT:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
-        case ttEXPORT_FINALIZE:
         case ttCONSENSUS_ENTROPY:
             return tesSUCCESS;
         case ttUNL_REPORT: {
@@ -240,8 +231,6 @@ Change::doApply()
             return applyEmitFailure();
         case ttUNL_REPORT:
             return applyUNLReport();
-        case ttEXPORT_FINALIZE:
-            return applyExportFinalize();
         case ttCONSENSUS_ENTROPY:
             return applyConsensusEntropy();
         default:
@@ -1142,148 +1131,6 @@ Change::applyEmitFailure()
         }
 
         view().erase(sle);
-    } while (0);
-    return tesSUCCESS;
-}
-
-TER
-Change::applyExportFinalize()
-{
-    uint256 txnID(ctx_.tx.getFieldH256(sfTransactionHash));
-
-    do
-    {
-        JLOG(j_.debug()) << "Export: processing ttEXPORT_FINALIZE for "
-                         << txnID;
-
-        // Last-line-of-defense safety check:
-        // Require >= 80% (ceil) cryptographically verified signatures from
-        // currently trusted UNL validators before finalizing the export.
-        std::size_t verifiedTrusted = 0;
-        {
-            auto const& exportedObj =
-                ctx_.tx.peekAtField(sfExportedTxn).downcast<STObject>();
-            Serializer s;
-            exportedObj.add(s);
-            SerialIter sit(s.slice());
-
-            STTx exportedTx(std::ref(sit));
-            if (!exportedTx.isFieldPresent(sfSigners))
-            {
-                JLOG(j_.warn()) << "Export: missing sfSigners for " << txnID;
-                return tefBAD_QUORUM;
-            }
-
-            // Exports must be multi-signed only.
-            // SigningPubKey must be present but empty; TxnSignature must
-            // not be present.  (Matches rippled's multi-sign validation
-            // in TransactionSign.cpp.)
-            if (!exportedTx.getFieldVL(sfSigningPubKey).empty() ||
-                exportedTx.isFieldPresent(sfTxnSignature))
-            {
-                JLOG(j_.warn())
-                    << "Export: single-sign fields present for " << txnID;
-                return tefBAD_QUORUM;
-            }
-
-            std::set<PublicKey> seen;
-            auto const& signers = exportedTx.getFieldArray(sfSigners);
-            auto& collector = ctx_.app.getExportSignatureCollector();
-
-            for (auto const& signer : signers)
-            {
-                if (!signer.isFieldPresent(sfSigningPubKey) ||
-                    !signer.isFieldPresent(sfTxnSignature) ||
-                    !signer.isFieldPresent(sfAccount))
-                    continue;
-
-                auto const sigPubKey = signer.getFieldVL(sfSigningPubKey);
-                auto const signature = signer.getFieldVL(sfTxnSignature);
-                auto const signingAcc = signer.getAccountID(sfAccount);
-
-                if (sigPubKey.empty() || signature.empty())
-                    continue;
-
-                auto const pkType = publicKeyType(makeSlice(sigPubKey));
-                if (!pkType)
-                    continue;
-
-                PublicKey const validatorPK{makeSlice(sigPubKey)};
-                if (!seen.emplace(validatorPK).second)
-                    continue;
-
-                // Ensure signer account binds to signer pubkey.
-                if (signingAcc != calcAccountID(validatorPK))
-                    continue;
-
-                // Count only currently trusted UNL validators.
-                if (!isExportValidatorTrusted(
-                        view(), ctx_.app, validatorPK, j_))
-                    continue;
-
-                bool verified =
-                    collector.isSignatureVerified(txnID, validatorPK) ||
-                    collector.verifySignature(txnID, validatorPK);
-
-                // If collector cache misses, verify directly from tx payload.
-                if (!verified)
-                {
-                    auto sigData =
-                        buildMultiSigningData(exportedTx, signingAcc);
-                    verified = ripple::verify(
-                        validatorPK,
-                        sigData.slice(),
-                        makeSlice(signature),
-                        true);
-                }
-
-                if (verified)
-                    ++verifiedTrusted;
-            }
-        }
-
-        auto const unlSize = getExportUNLSize(view(), ctx_.app);
-        auto const threshold = calculateQuorumThreshold(unlSize);
-
-        if (verifiedTrusted < threshold)
-        {
-            JLOG(j_.warn())
-                << "Export: insufficient verified trusted quorum "
-                << "for " << txnID << " verifiedTrusted=" << verifiedTrusted
-                << " threshold=" << threshold << " unlSize=" << unlSize;
-            return tefBAD_QUORUM;
-        }
-
-        auto key = keylet::exportedTxn(txnID);
-
-        auto const& sle = view().peek(key);
-
-        if (!sle)
-        {
-            // most likely explanation is that this was somehow a double-up, so
-            // just ignore
-            JLOG(j_.warn()) << "Export: ttEXPORT_FINALIZE could not find "
-                               "ltEXPORTED_TXN for "
-                            << txnID;
-            break;
-        }
-
-        if (!view().dirRemove(
-                keylet::exportedDir(),
-                sle->getFieldU64(sfOwnerNode),
-                key,
-                false))
-        {
-            JLOG(j_.fatal()) << "Export: ttEXPORT_FINALIZE failed to remove "
-                                "directory entry for "
-                             << txnID;
-            return tefBAD_LEDGER;
-        }
-
-        view().erase(sle);
-
-        // Clear ephemeral signatures from memory now that export is processed
-        ctx_.app.getExportSignatureCollector().clearForTxn(txnID);
     } while (0);
     return tesSUCCESS;
 }

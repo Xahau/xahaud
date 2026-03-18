@@ -145,8 +145,7 @@ struct HookResult
     ripple::uint256 const hookNamespace;
 
     std::queue<std::shared_ptr<ripple::Transaction>>
-        emittedTxn{};  // etx stored here until accept/rollback
-    std::queue<std::shared_ptr<ripple::Transaction>> exportedTxn{};
+        emittedTxn{};  // etx stored here until accept/rollback (includes xport)
     HookStateMap& stateMap;
     uint16_t changedStateCount = 0;
     std::map<
@@ -206,6 +205,7 @@ struct HookContext
     int64_t expected_etxn_count{-1};  // make this a 64bit int so the uint32
                                       // from the hookapi cant overflow it
     int64_t expected_export_count{-1};
+    int64_t export_count{0};  // how many xport() calls succeeded
     std::map<ripple::uint256, bool> nonce_used{};
     uint32_t generation =
         0;  // used for caching, only generated when txn_generation is called

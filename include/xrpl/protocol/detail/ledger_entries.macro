@@ -604,17 +604,7 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
-/** A ledger object containing an exported transaction ticket.
-
-    \sa keylet::exportedTxn
- */
-LEDGER_ENTRY(ltEXPORTED_TXN, 0x4578, ExportedTxn, exported_txn, ({
-    {sfExportedTxn,          soeOPTIONAL},
-    {sfOwnerNode,            soeREQUIRED},
-    {sfLedgerSequence,       soeREQUIRED},
-    {sfTransactionHash,      soeREQUIRED},
-}))
-
+//@@start shadow-ticket-ledger-entry
 /** A shadow ticket for export replay protection.
 
     Created when a transaction is exported. Consumed when
@@ -629,6 +619,7 @@ LEDGER_ENTRY(ltSHADOW_TICKET, 0x5374, ShadowTicket, shadow_ticket, ({
     {sfLedgerSequence,       soeREQUIRED},
     {sfOwnerNode,            soeREQUIRED},
 }))
+//@@end shadow-ticket-ledger-entry
 
 #undef EXPAND
 #undef LEDGER_ENTRY_DUPLICATE
