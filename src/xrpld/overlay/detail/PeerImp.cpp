@@ -1800,18 +1800,32 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         for (int i = 0; i < set.exportsignatures_size(); ++i)
         {
             auto const& blob = set.exportsignatures(i);
-            // Each entry: txnHash (32 bytes) + validator pubkey (33 bytes)
+            // Each entry: txnHash (32) + validator pubkey (33) + sig (var)
             if (blob.size() >= 65)
             {
                 uint256 txHash;
                 std::memcpy(txHash.data(), blob.data(), 32);
-                auto const pkSlice = makeSlice(blob).substr(32);
+                auto const fullSlice = makeSlice(blob);
+                auto const pkSlice = fullSlice.substr(32, 33);
                 if (auto const pkType = publicKeyType(pkSlice))
                 {
                     PublicKey const valPK{pkSlice};
                     // Verify the claimed pubkey is a trusted validator.
                     if (app_.validators().trusted(valPK))
-                        exportSigCollector().addSignature(txHash, valPK);
+                    {
+                        if (blob.size() > 65)
+                        {
+                            // Has a real multisign signature attached.
+                            auto const sigSlice = fullSlice.substr(65);
+                            Buffer sigBuf(sigSlice.data(), sigSlice.size());
+                            exportSigCollector().addSignature(
+                                txHash, valPK, sigBuf);
+                        }
+                        else
+                        {
+                            exportSigCollector().addSignature(txHash, valPK);
+                        }
+                    }
                 }
             }
         }

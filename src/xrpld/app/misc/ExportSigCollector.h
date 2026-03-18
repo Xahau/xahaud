@@ -1,7 +1,9 @@
 #ifndef RIPPLE_APP_MISC_EXPORTSIGCOLLECTOR_H_INCLUDED
 #define RIPPLE_APP_MISC_EXPORTSIGCOLLECTOR_H_INCLUDED
 
+#include <xrpl/basics/Buffer.h>
 #include <xrpl/protocol/PublicKey.h>
+#include <map>
 #include <mutex>
 #include <set>
 #include <unordered_map>
@@ -20,6 +22,9 @@ class ExportSigCollector
     struct SigEntry
     {
         std::set<PublicKey> validators;
+        /// Actual multisign signatures keyed by validator pubkey.
+        /// Empty buffers mean pubkey-only (quorum counting without real sigs).
+        std::map<PublicKey, Buffer> signatures;
         std::uint32_t firstSeenSeq{0};
     };
 
@@ -29,6 +34,8 @@ class ExportSigCollector
     static constexpr std::uint32_t maxStaleLedgers = 256;
 
 public:
+    /// Add a pubkey-only entry (no real signature). Used in standalone/tests
+    /// where quorum counting is sufficient.
     void
     addSignature(
         uint256 const& txnHash,
@@ -38,6 +45,24 @@ public:
         std::lock_guard lock(mutex_);
         auto& entry = sigs_[txnHash];
         entry.validators.insert(validator);
+        if (entry.signatures.find(validator) == entry.signatures.end())
+            entry.signatures[validator] = Buffer{};
+        if (entry.firstSeenSeq == 0 && currentSeq > 0)
+            entry.firstSeenSeq = currentSeq;
+    }
+
+    /// Add a pubkey + real multisign signature entry.
+    void
+    addSignature(
+        uint256 const& txnHash,
+        PublicKey const& validator,
+        Buffer const& signature,
+        std::uint32_t currentSeq = 0)
+    {
+        std::lock_guard lock(mutex_);
+        auto& entry = sigs_[txnHash];
+        entry.validators.insert(validator);
+        entry.signatures[validator] = signature;
         if (entry.firstSeenSeq == 0 && currentSeq > 0)
             entry.firstSeenSeq = currentSeq;
     }
@@ -65,7 +90,7 @@ public:
         sigs_.erase(txnHash);
     }
 
-    /// Get a snapshot of all sigs for building the SHAMap.
+    /// Get a snapshot of all sigs (pubkeys only) for building the SHAMap.
     std::unordered_map<uint256, std::set<PublicKey>>
     snapshot() const
     {
@@ -73,6 +98,19 @@ public:
         std::unordered_map<uint256, std::set<PublicKey>> result;
         for (auto const& [hash, entry] : sigs_)
             result[hash] = entry.validators;
+        return result;
+    }
+
+    /// Get a snapshot including actual multisign signatures.
+    /// Returns: txHash -> map of (validatorPK -> signature buffer).
+    /// Empty buffers mean no real signature was collected for that validator.
+    std::unordered_map<uint256, std::map<PublicKey, Buffer>>
+    snapshotWithSigs() const
+    {
+        std::lock_guard lock(mutex_);
+        std::unordered_map<uint256, std::map<PublicKey, Buffer>> result;
+        for (auto const& [hash, entry] : sigs_)
+            result[hash] = entry.signatures;
         return result;
     }
 

@@ -164,10 +164,16 @@ Import::preflight(PreflightContext const& ctx)
     }
 
     // parse blob as json
-    auto const xpop = syntaxCheckXPOP(tx.getFieldVL(sfBlob), ctx.j);
+    auto const blobVL = tx.getFieldVL(sfBlob);
+    JLOG(ctx.j.trace()) << "Import: blob size = " << blobVL.size();
+    auto const xpop = syntaxCheckXPOP(blobVL, ctx.j);
 
     if (!xpop)
+    {
+        JLOG(ctx.j.trace()) << "Import: syntaxCheckXPOP FAILED";
         return temMALFORMED;
+    }
+    JLOG(ctx.j.trace()) << "Import: syntaxCheckXPOP passed";
 
     // we will check if we recognise the vl key in preclaim because it may be
     // from on-ledger object
@@ -197,7 +203,17 @@ Import::preflight(PreflightContext const& ctx)
     auto const [stpTrans, meta] = getInnerTxn(tx, ctx.j, &(*xpop));
 
     if (!stpTrans || !meta)
+    {
+        JLOG(ctx.j.trace()) << "Import: stpTrans or meta is null";
         return temMALFORMED;
+    }
+    JLOG(ctx.j.trace()) << "Import: getInnerTxn OK, hasTicket="
+                        << stpTrans->isFieldPresent(sfTicketSequence)
+                        << " hasEmitDetails="
+                        << stpTrans->isFieldPresent(sfEmitDetails)
+                        << " isPseudo=" << isPseudoTx(*stpTrans)
+                        << " hasResult="
+                        << meta->isFieldPresent(sfTransactionResult);
 
     if (stpTrans->isFieldPresent(sfTicketSequence) &&
         !ctx.rules.enabled(featureExport))
@@ -263,26 +279,39 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    // ensure inner txn is destined for the network we're on, this is according
-    // to OperationLimit field
-    if (!stpTrans->isFieldPresent(sfOperationLimit))
+    // For the B2M (burn-to-mint) path, OperationLimit proves the inner
+    // tx was destined for this network.  For the export callback path
+    // (sfTicketSequence present), the shadow ticket already establishes
+    // the relationship, so OperationLimit is not required.
+    if (!stpTrans->isFieldPresent(sfTicketSequence))
     {
-        JLOG(ctx.j.warn()) << "Import: OperationLimit missing from inner xpop "
-                              "txn. outer txid: "
-                           << tx.getTransactionID();
-        return temMALFORMED;
-    }
+        if (!stpTrans->isFieldPresent(sfOperationLimit))
+        {
+            JLOG(ctx.j.warn())
+                << "Import: OperationLimit missing from inner xpop "
+                   "txn. outer txid: "
+                << tx.getTransactionID();
+            return temMALFORMED;
+        }
 
-    if (stpTrans->getFieldU32(sfOperationLimit) != ctx.app.config().NETWORK_ID)
-    {
-        JLOG(ctx.j.warn()) << "Import: Wrong network ID for OperationLimit in "
-                              "inner txn. outer txid: "
-                           << tx.getTransactionID();
-        return telWRONG_NETWORK;
+        if (stpTrans->getFieldU32(sfOperationLimit) !=
+            ctx.app.config().NETWORK_ID)
+        {
+            JLOG(ctx.j.warn())
+                << "Import: Wrong network ID for OperationLimit in "
+                   "inner txn. outer txid: "
+                << tx.getTransactionID();
+            return telWRONG_NETWORK;
+        }
     }
 
     // check if the inner transaction is signed using the same keying as the
-    // outer txn
+    // outer txn.
+    // Exception: when the inner tx has sfTicketSequence, it came through the
+    // export callback path and is validator-multisigned (not alice-signed).
+    // The shadow ticket already proves the relationship, so skip the
+    // signing key match check.
+    if (!stpTrans->isFieldPresent(sfTicketSequence))
     {
         auto outer = tx.getSigningPubKey();
         auto inner = stpTrans->getSigningPubKey();
@@ -334,6 +363,9 @@ Import::preflight(PreflightContext const& ctx)
         }
     }
 
+    JLOG(ctx.j.trace()) << "Import: passed OperationLimit + signing key checks"
+                       ;
+
     // check inner txns signature
     // we do this with a custom ruleset which should be kept up to date with
     // network 0's signing rules
@@ -344,8 +376,16 @@ Import::preflight(PreflightContext const& ctx)
     {
         JLOG(ctx.j.warn()) << "Import: inner txn signature verify failed "
                            << tx.getTransactionID();
+        // DEBUG: identify which check fails
+        JLOG(ctx.j.trace())
+            << "Import: checkSign FAILED for " << tx.getTransactionID()
+            << " innerHasSigners=" << stpTrans->isFieldPresent(sfSigners)
+            << " innerSigningPubKey=" << strHex(stpTrans->getSigningPubKey())
+           ;
         return temMALFORMED;
     }
+
+    JLOG(ctx.j.trace()) << "Import: checkSign passed";
 
     // execution to here means that:
     // 1. the proof is for the same account that submitted the proof
@@ -598,6 +638,8 @@ Import::preflight(PreflightContext const& ctx)
     })((*xpop)[jss::transaction][jss::proof]);
 
     auto const& lgr = (*xpop)[jss::ledger];
+    JLOG(ctx.j.trace()) << "Import: computedTxRoot=" << strHex(computedTxRoot)
+                        << " expected=" << lgr[jss::txroot].asString();
     if (strHex(computedTxRoot) != lgr[jss::txroot])
     {
         JLOG(ctx.j.warn()) << "Import: computed txroot does not match xpop "
@@ -835,8 +877,9 @@ Import::preflight(PreflightContext const& ctx)
         }
     }
 
-    JLOG(ctx.j.trace()) << "quorum: " << quorum
-                        << " validation count: " << validationCount;
+    JLOG(ctx.j.trace()) << "Import: quorum=" << quorum
+                        << " validationCount=" << validationCount
+                        << " totalValidatorCount=" << totalValidatorCount;
 
     // check if the validation count is adequate
     auto hasInsufficientQuorum =
@@ -868,6 +911,10 @@ Import::preflight(PreflightContext const& ctx)
                            << tx.getTransactionID();
         return temMALFORMED;
     }
+
+    JLOG(ctx.j.trace())
+        << "Import: passed seq/fee/quorum checks, about to return preflight2"
+       ;
 
     if (stpTrans->getFieldAmount(sfFee) < beast::zero)
     {
@@ -932,6 +979,11 @@ Import::preclaim(PreclaimContext const& ctx)
         // this shadow ticket (prevents using a different XPOP with
         // the same TicketSequence).
         auto const expectedHash = stSle->getFieldH256(sfTransactionHash);
+        JLOG(ctx.j.trace())
+            << "Import preclaim: shadowTicket hash=" << expectedHash
+            << " xpopTxHash=" << stpTrans->getTransactionID()
+            << " match=" << (expectedHash == stpTrans->getTransactionID())
+           ;
         if (expectedHash != stpTrans->getTransactionID())
         {
             JLOG(ctx.j.warn())

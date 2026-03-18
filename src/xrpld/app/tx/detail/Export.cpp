@@ -1,13 +1,21 @@
 #include <xrpld/app/misc/ExportSigCollector.h>
+#include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/STArray.h>
+#include <xrpl/protocol/STObject.h>
+#include <xrpl/protocol/STTx.h>
+#include <xrpl/protocol/Serializer.h>
+#include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
+#include <algorithm>
 
 namespace ripple {
 
@@ -110,54 +118,142 @@ Export::doApply()
         else
             unlSize = ctx_.app.validators().getTrustedMasterKeys().size();
     }
-    // Standalone / unit tests: no real UNL, just require 1 sig.
-    // With CE: 80% quorum (SHAMap convergence ensures deterministic agreement).
-    // Without CE: unanimity (avoids non-deterministic quorum disagreement).
-    std::size_t threshold;
-    if (unlSize == 0 || ctx_.app.config().standalone())
-        threshold = 1;
-    else if (view().rules().enabled(featureConsensusEntropy))
-        threshold = calculateQuorumThreshold(unlSize);
-    else
-        threshold = unlSize;
-    auto const sigCount = exportSigCollector().signatureCount(txId);
-
-    if (sigCount < threshold)
+    // Standalone mode: no consensus running, so we skip the quorum
+    // check and sign directly with our validator keys in the blob
+    // assembly step below.
+    //
+    // Network mode:
+    //   With CE: 80% quorum (SHAMap convergence ensures agreement).
+    //   Without CE: unanimity (avoids non-deterministic disagreement).
+    if (!ctx_.app.config().standalone())
     {
-        // If we're at or past LLS, give up with tecEXPORT_EXPIRED so the
-        // sequence is consumed and subsequent txns aren't blocked forever.
-        if (ctx_.tx.isFieldPresent(sfLastLedgerSequence))
-        {
-            auto const lls = ctx_.tx.getFieldU32(sfLastLedgerSequence);
-            if (currentSeq >= lls)
-            {
-                exportSigCollector().clear(txId);
-                JLOG(j_.info()) << "Export: LLS expired at ledger "
-                                << currentSeq << " sigs=" << sigCount << "/"
-                                << threshold << " -> tecEXPORT_EXPIRED";
-                return tecEXPORT_EXPIRED;
-            }
-        }
+        std::size_t threshold;
+        if (unlSize == 0)
+            threshold = 1;
+        else if (view().rules().enabled(featureConsensusEntropy))
+            threshold = calculateQuorumThreshold(unlSize);
+        else
+            threshold = unlSize;
+        auto const sigCount = exportSigCollector().signatureCount(txId);
 
-        JLOG(j_.info()) << "Export: not enough sigs at ledger " << currentSeq
-                        << " sigs=" << sigCount << " threshold=" << threshold
-                        << " unlSize=" << unlSize << " -> terRETRY_EXPORT";
-        return terRETRY_EXPORT;
+        if (sigCount < threshold)
+        {
+            if (ctx_.tx.isFieldPresent(sfLastLedgerSequence))
+            {
+                auto const lls = ctx_.tx.getFieldU32(sfLastLedgerSequence);
+                if (currentSeq >= lls)
+                {
+                    exportSigCollector().clear(txId);
+                    JLOG(j_.info()) << "Export: LLS expired at ledger "
+                                    << currentSeq << " sigs=" << sigCount << "/"
+                                    << threshold << " -> tecEXPORT_EXPIRED";
+                    return tecEXPORT_EXPIRED;
+                }
+            }
+
+            JLOG(j_.info())
+                << "Export: not enough sigs at ledger " << currentSeq
+                << " sigs=" << sigCount << " threshold=" << threshold
+                << " unlSize=" << unlSize << " -> terRETRY_EXPORT";
+            return terRETRY_EXPORT;
+        }
     }
 
-    // Quorum met — create shadow ticket from inner tx.
+    // Build the multisigned transaction blob FIRST, then use its
+    // hash for the shadow ticket.  getTransactionID() includes ALL
+    // fields (including Signers), so the shadow ticket must store
+    // the hash of the final signed blob — not the unsigned inner tx.
+
+    auto const& exportedObj =
+        ctx_.tx.peekAtField(sfExportedTxn).downcast<STObject>();
+
+    Serializer innerSer;
+    exportedObj.add(innerSer);
+    SerialIter sit(innerSer.slice());
+
+    STTx innerTx(std::ref(sit));
+
+    STArray signers(sfSigners);
+
+    if (ctx_.app.config().standalone())
     {
-        auto const& exportedObj =
-            ctx_.tx.peekAtField(sfExportedTxn).downcast<STObject>();
+        // Standalone mode: no consensus proposals, so we sign
+        // the inner tx directly with our own validator keys.
+        auto const& valKeys = ctx_.app.getValidatorKeys();
+        if (valKeys.keys)
+        {
+            auto const& pk = valKeys.keys->publicKey;
+            auto const& sk = valKeys.keys->secretKey;
+            auto const signerAcctID = calcAccountID(pk);
 
-        Serializer s;
-        exportedObj.add(s);
-        SerialIter sit(s.slice());
+            auto const sigData = buildMultiSigningData(innerTx, signerAcctID);
+            auto const sig = ripple::sign(pk, sk, sigData.slice());
 
-        STTx exportedTx(std::ref(sit));
+            STObject signer(sfSigner);
+            signer.setAccountID(sfAccount, signerAcctID);
+            signer.setFieldVL(sfSigningPubKey, pk.slice());
+            signer.setFieldVL(sfTxnSignature, sig);
+            signers.push_back(std::move(signer));
+        }
+    }
+    else
+    {
+        // Network mode: collect real signatures from peers
+        // via ExportSigCollector (populated from proposals).
+        auto const allSigs = exportSigCollector().snapshotWithSigs();
+        auto it = allSigs.find(txId);
 
+        if (it != allSigs.end())
+        {
+            for (auto const& [valPK, sigBuf] : it->second)
+            {
+                if (sigBuf.size() == 0)
+                    continue;  // pubkey-only, no real signature
+
+                STObject signer(sfSigner);
+                signer.setAccountID(sfAccount, calcAccountID(valPK));
+                signer.setFieldVL(sfSigningPubKey, valPK.slice());
+                signer.setFieldVL(
+                    sfTxnSignature, Slice(sigBuf.data(), sigBuf.size()));
+                signers.push_back(std::move(signer));
+            }
+        }
+    }
+
+    // Sort signers by AccountID (required by XRPL multisign).
+    std::sort(
+        signers.begin(),
+        signers.end(),
+        [](STObject const& a, STObject const& b) {
+            return a.getAccountID(sfAccount) < b.getAccountID(sfAccount);
+        });
+
+    // Build the multisigned STTx: inner tx + empty SigningPubKey
+    // + Signers array.
+    STObject multiSigned(innerTx);
+
+    if (multiSigned.isFieldPresent(sfTxnSignature))
+        multiSigned.makeFieldAbsent(sfTxnSignature);
+
+    multiSigned.setFieldVL(sfSigningPubKey, Slice{});
+
+    if (signers.size() > 0)
+        multiSigned.setFieldArray(sfSigners, signers);
+
+    // Serialize to get the blob, then deserialize as STTx to
+    // compute the correct transaction ID (includes Signers).
+    Serializer outSer;
+    multiSigned.add(outSer);
+    Blob multisignedBlob = outSer.peekData();
+
+    SerialIter finalSit(outSer.slice());
+    STTx const signedTx(std::ref(finalSit));
+    auto const signedTxHash = signedTx.getTransactionID();
+
+    // Now create the shadow ticket with the signed tx hash.
+    {
         TER ter = ExportLedgerOps::createShadowTicket(
-            view(), account, exportedTx, exportedTx.getTransactionID(), j_);
+            view(), account, innerTx, signedTxHash, j_);
         if (!isTesSuccess(ter))
             return ter;
     }
@@ -166,6 +262,8 @@ Export::doApply()
     STObject exportResult(sfExportResult);
     exportResult.setFieldU32(sfLedgerSequence, currentSeq);
     exportResult.setFieldH256(sfTransactionHash, txId);
+    if (!multisignedBlob.empty())
+        exportResult.setFieldVL(sfBlob, multisignedBlob);
 
     auto* avi = dynamic_cast<ApplyViewImpl*>(&view());
     if (!avi)
@@ -179,8 +277,9 @@ Export::doApply()
     // Clean up the collector.
     exportSigCollector().clear(txId);
 
-    JLOG(j_.info()) << "Export: quorum met at ledger " << currentSeq
-                    << " sigs=" << sigCount << "/" << threshold
+    JLOG(j_.info()) << "Export: success at ledger " << currentSeq
+                    << (ctx_.app.config().standalone() ? " (standalone)"
+                                                       : " (quorum met)")
                     << " -> tesSUCCESS";
 
     return tesSUCCESS;

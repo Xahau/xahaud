@@ -46,9 +46,12 @@
 #include <xrpl/basics/random.h>
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/crypto/csprng.h>
+#include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/BuildInfo.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/digest.h>
@@ -312,7 +315,8 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
 
     //@@start export-sig-attachment
     // Attach export signatures for any ttEXPORT txns in the current set.
-    // Each "signature" is: txnHash (32 bytes) + validator pubkey (33 bytes).
+    // Each entry: txnHash (32 bytes) + validator pubkey (33 bytes)
+    //   + multisign signature (variable length).
     // Only attach once per export per round (markSent deduplicates).
     // Gated on featureExport amendment.
     // XAHAUD_NO_EXPORT_SIG=1 disables sig attachment (for testing sub-quorum).
@@ -326,6 +330,10 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
         auto const openLedger = app_.openLedger().current();
         if (openLedger && openLedger->rules().enabled(featureExport))
         {
+            auto const& valPK = validatorKeys_.keys->publicKey;
+            auto const& valSK = validatorKeys_.keys->secretKey;
+            auto const signerAcctID = calcAccountID(valPK);
+
             for (auto const& [stx, meta] : openLedger->txs)
             {
                 if (stx && stx->getTxnType() == ttEXPORT)
@@ -336,17 +344,49 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
                     if (!exportSigCollector().markSent(txHash))
                         continue;
 
+                    // Extract the inner tx (sfExportedTxn) and compute
+                    // the actual multisign signature over it.
+                    Buffer sigBuf;
+                    if (stx->isFieldPresent(sfExportedTxn))
+                    {
+                        auto const& exportedObj =
+                            const_cast<STTx&>(*stx)
+                                .peekAtField(sfExportedTxn)
+                                .downcast<STObject>();
+
+                        Serializer innerSer;
+                        exportedObj.add(innerSer);
+                        SerialIter sit(innerSer.slice());
+
+                        try
+                        {
+                            STTx innerTx(std::ref(sit));
+                            auto sigData =
+                                buildMultiSigningData(innerTx, signerAcctID);
+                            sigBuf = sign(valPK, valSK, sigData.slice());
+                        }
+                        catch (std::exception const& e)
+                        {
+                            JLOG(j_.warn())
+                                << "Export: failed to sign inner tx " << txHash
+                                << ": " << e.what();
+                        }
+                    }
+
+                    // Wire format: txHash(32) + pubkey(33) + signature(var)
                     Serializer s;
                     s.addBitString(txHash);
-                    s.addRaw(validatorKeys_.keys->publicKey.slice());
+                    s.addRaw(valPK.slice());
+                    if (sigBuf.size() > 0)
+                        s.addRaw(Slice(sigBuf.data(), sigBuf.size()));
                     prop.add_exportsignatures(
                         s.peekData().data(), s.peekData().size());
 
-                    exportSigCollector().addSignature(
-                        txHash, validatorKeys_.keys->publicKey);
+                    exportSigCollector().addSignature(txHash, valPK, sigBuf);
 
-                    JLOG(j_.debug()) << "Export: attached sig for " << txHash
-                                     << " to proposal";
+                    JLOG(j_.debug())
+                        << "Export: attached sig for " << txHash
+                        << " to proposal (sigLen=" << sigBuf.size() << ")";
                 }
             }
         }
@@ -1653,17 +1693,19 @@ RCLConsensus::Adaptor::buildExportSigSet(LedgerIndex seq)
         std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
     map->setUnbacked();
 
-    auto const allSigs = exportSigCollector().snapshot();
+    auto const allSigs = exportSigCollector().snapshotWithSigs();
     std::size_t entryCount = 0;
 
-    for (auto const& [txHash, validators] : allSigs)
+    for (auto const& [txHash, valSigs] : allSigs)
     {
-        for (auto const& valPK : validators)
+        for (auto const& [valPK, sigBuf] : valSigs)
         {
-            // Each entry: txHash + validatorPK, keyed by their hash.
+            // Each entry: txHash + validatorPK + signature (if available).
             Serializer s;
             s.addBitString(txHash);
             s.addRaw(valPK.slice());
+            if (sigBuf.size() > 0)
+                s.addRaw(Slice(sigBuf.data(), sigBuf.size()));
 
             auto const itemHash = sha512Half(txHash, valPK);
             map->addItem(
@@ -1829,11 +1871,17 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
         bool isExportSet = false;
         map->visitLeaves(
             [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                // Export sig entries are exactly 65 bytes (32 hash + 33
-                // pubkey). RNG entries are serialized STTx objects, always
-                // larger.
-                if (!isExportSet && item->size() == 65)
-                    isExportSet = true;
+                // Export sig entries are >= 65 bytes (32 hash + 33 pubkey
+                // + optional variable-length signature). RNG entries are
+                // serialized STTx objects with different structure.
+                // Detect by checking the first 65 bytes contain a valid
+                // pubkey at offset 32.
+                if (!isExportSet && item->size() >= 65)
+                {
+                    auto const pkSlice = item->slice().substr(32, 33);
+                    if (publicKeyType(pkSlice))
+                        isExportSet = true;
+                }
             });
 
         if (isExportSet)
@@ -1841,19 +1889,30 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
             std::size_t merged = 0;
             map->visitLeaves(
                 [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                    if (item->size() != 65)
+                    if (item->size() < 65)
                         return;
                     auto const data = item->slice();
                     uint256 txHash;
                     std::memcpy(txHash.data(), data.data(), 32);
-                    auto const pkSlice = data.substr(32);
+                    auto const pkSlice = data.substr(32, 33);
                     if (auto const pkType = publicKeyType(pkSlice))
                     {
                         PublicKey const valPK{pkSlice};
                         // Only accept sigs from trusted validators.
                         if (app_.validators().trusted(valPK))
                         {
-                            exportSigCollector().addSignature(txHash, valPK);
+                            if (item->size() > 65)
+                            {
+                                auto const sigSlice = data.substr(65);
+                                Buffer sigBuf(sigSlice.data(), sigSlice.size());
+                                exportSigCollector().addSignature(
+                                    txHash, valPK, sigBuf);
+                            }
+                            else
+                            {
+                                exportSigCollector().addSignature(
+                                    txHash, valPK);
+                            }
                             ++merged;
                         }
                     }
