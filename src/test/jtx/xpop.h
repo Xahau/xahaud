@@ -100,7 +100,8 @@ struct TestVLPublisher
     buildVLData(
         std::vector<TestValidator> const& validators,
         std::uint32_t sequence = 1,
-        std::uint32_t expiration = 0xFFFFFFFF) const
+        std::uint32_t expiration =
+            767784645) const  // ~2024, matches Import_test
     {
         // Build the JSON blob
         std::string data = "{\"sequence\":" + std::to_string(sequence) +
@@ -126,30 +127,72 @@ struct TestVLPublisher
     }
 };
 
+/// Everything needed to build and import XPOPs in tests.
+struct TestXPOPContext
+{
+    std::vector<TestValidator> validators;
+    TestVLPublisher publisher;
+    proof::VLData vlData;
+
+    static TestXPOPContext
+    create(int validatorCount = 5)
+    {
+        auto pub = TestVLPublisher::create();
+        std::vector<TestValidator> vals;
+        for (int i = 0; i < validatorCount; ++i)
+            vals.push_back(TestValidator::create());
+        auto vl = pub.buildVLData(vals);
+        return {std::move(vals), std::move(pub), std::move(vl)};
+    }
+
+    /// Get the VL master public key hex for IMPORT_VL_KEYS config.
+    std::string
+    vlKeyHex() const
+    {
+        return strHex(publisher.masterPublic);
+    }
+
+    /// Build an Env config with NETWORK_ID and IMPORT_VL_KEYS set.
+    std::unique_ptr<Config>
+    makeEnvConfig(std::uint32_t networkID = 21337) const
+    {
+        auto cfg = envconfig(jtx::validator, "");
+        cfg->NETWORK_ID = networkID;
+        auto const keyHex = vlKeyHex();
+        auto const pkHex = strUnHex(keyHex);
+        if (pkHex)
+            cfg->IMPORT_VL_KEYS.emplace(keyHex, makeSlice(*pkHex));
+        return cfg;
+    }
+
+    /// Build XPOP from a closed ledger for a specific tx.
+    Json::Value
+    buildXPOP(Ledger const& ledger, uint256 const& txHash) const
+    {
+        std::vector<proof::ValidatorKeys> valKeys;
+        for (auto const& v : validators)
+            valKeys.push_back(v.toValidatorKeys());
+        return proof::buildXPOPv1(ledger, txHash, valKeys, vlData);
+    }
+
+    /// Build XPOP from an Env's last closed ledger.
+    Json::Value
+    buildXPOP(Env& env, uint256 const& txHash) const
+    {
+        auto const lcl = env.app().getLedgerMaster().getClosedLedger();
+        if (!lcl)
+            return {};
+        return buildXPOP(*lcl, txHash);
+    }
+};
+
 /// Build a complete XPOP v1 JSON from an Env's last closed ledger.
 /// Creates fresh validator keys and VL publisher for each call.
 inline Json::Value
 buildTestXPOP(Env& env, uint256 const& txHash, int validatorCount = 5)
 {
-    // Create validators
-    std::vector<TestValidator> validators;
-    std::vector<proof::ValidatorKeys> valKeys;
-    for (int i = 0; i < validatorCount; ++i)
-    {
-        validators.push_back(TestValidator::create());
-        valKeys.push_back(validators.back().toValidatorKeys());
-    }
-
-    // Create VL publisher
-    auto const publisher = TestVLPublisher::create();
-    auto const vlData = publisher.buildVLData(validators);
-
-    // Build XPOP from the last closed ledger
-    auto const lcl = env.app().getLedgerMaster().getClosedLedger();
-    if (!lcl)
-        return {};
-
-    return proof::buildXPOPv1(*lcl, txHash, valKeys, vlData);
+    auto ctx = TestXPOPContext::create(validatorCount);
+    return ctx.buildXPOP(env, txHash);
 }
 
 /// Get the hex-encoded XPOP blob suitable for sfBlob in ttIMPORT.

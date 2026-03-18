@@ -18,11 +18,13 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <test/jtx/import.h>
 #include <test/jtx/xpop.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/proof/LedgerProof.h>
 #include <xrpld/app/proof/ProofBuilder.h>
 #include <xrpld/app/proof/XPOPv1.h>
+#include <xrpl/protocol/Import.h>
 #include <xrpl/protocol/jss.h>
 
 namespace ripple {
@@ -221,11 +223,75 @@ struct XPOP_test : public beast::unit_test::suite
     }
 
     void
+    testImportWithGeneratedXPOP()
+    {
+        testcase("Import accepts dynamically generated XPOP");
+
+        using namespace jtx;
+
+        // Create XPOP context (VL publisher + validators).
+        auto const xpopCtx = xpop::TestXPOPContext::create(3);
+
+        // --- Source "network": generate a payment and build XPOP ---
+        Env srcEnv{*this};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+
+        srcEnv.fund(XRP(10000), alice, bob);
+        srcEnv.close();
+
+        // Import requires: no sfNetworkID + sfOperationLimit = dest NETWORK_ID.
+        Json::Value payTx;
+        payTx[jss::TransactionType] = jss::Payment;
+        payTx[jss::Account] = alice.human();
+        payTx[jss::Destination] = bob.human();
+        payTx[jss::Amount] = "100000000";
+        payTx[sfOperationLimit.jsonName] = 21337;
+        srcEnv(payTx, fee(XRP(1)));
+        srcEnv.close();
+
+        // Find the tx hash and build the XPOP.
+        auto const srcLcl = srcEnv.app().getLedgerMaster().getClosedLedger();
+        BEAST_EXPECT(srcLcl);
+
+        uint256 paymentHash;
+        srcLcl->txMap().visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                paymentHash = item->key();
+            });
+
+        auto const xpopJson = xpopCtx.buildXPOP(*srcLcl, paymentHash);
+        BEAST_EXPECT(!xpopJson.isNull());
+
+        // --- Destination "network": import the XPOP ---
+        Env dstEnv{*this, xpopCtx.makeEnvConfig(21337)};
+
+        // Burn some XRP so B2M can credit.
+        auto const master = Account("masterpassphrase");
+        dstEnv(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+        dstEnv.close();
+
+        Account const importAlice{"alice"};
+        dstEnv.fund(XRP(1000), importAlice);
+        dstEnv.close();
+
+        auto const feeDrops = dstEnv.current()->fees().base;
+
+        // Submit the import — should succeed (B2M path).
+        dstEnv(
+            import::import(importAlice, xpopJson),
+            fee(feeDrops * 10),
+            ter(tesSUCCESS));
+        dstEnv.close();
+    }
+
+    void
     run() override
     {
         testBuildLedgerProof();
         testBuildXPOPv1();
         testMerkleProofVerification();
+        testImportWithGeneratedXPOP();
     }
 };
 
