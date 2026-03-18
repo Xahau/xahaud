@@ -9,13 +9,13 @@ Flow:
   1. Fund alice and bob
   2. alice submits ttEXPORT with tight LLS
   3. Export retries (only 3/5 sigs available, need 4)
-  4. Verify export expires or fails gracefully
+  4. Verify export expires with tecEXPORT_EXPIRED
   5. Verify subsequent payment still works (sequence not permanently blocked)
 """
 
 from __future__ import annotations
 
-from export_helpers import require_export
+from export_helpers import require_export, assert_shadow_ticket
 
 
 async def scenario(ctx, log):
@@ -32,7 +32,7 @@ async def scenario(ctx, log):
     log(f"Current ledger: {current_seq}")
     log("Nodes 3,4 have XAHAUD_NO_EXPORT_SIG=1 (3/5 sigs, need 4)")
 
-    # --- Submit ttEXPORT (should retry then expire — only 3/5 sigs) ---
+    # --- Submit ttEXPORT (should retry then expire -- only 3/5 sigs) ---
     result = await ctx.submit_and_wait(
         {
             "TransactionType": "Export",
@@ -60,13 +60,21 @@ async def scenario(ctx, log):
     engine_result = result.get("engine_result", "")
     log(f"Export completed at ledger {final_seq}, result: {engine_result}")
 
+    # With only 3/5 sigs and 80% quorum (4 required), export MUST fail
     if engine_result == "tesSUCCESS":
-        meta = result.get("meta", {})
-        export_meta = meta.get("ExportResult", {})
-        log(f"Unexpectedly succeeded! ExportResult: {export_meta}")
-        log("This means sigs were collected despite suppression — check config")
-    else:
-        log(f"Export did NOT succeed ({engine_result}) — as expected with 3/5 sigs")
+        raise AssertionError(
+            "Export should NOT have succeeded with only 3/5 sigs "
+            "(need 4 for 80% quorum) -- check XAHAUD_NO_EXPORT_SIG config"
+        )
+
+    # Should be tecEXPORT_EXPIRED (LLS reached without quorum)
+    if engine_result != "tecEXPORT_EXPIRED":
+        log(f"WARNING: expected tecEXPORT_EXPIRED, got {engine_result}")
+
+    log(f"Export failed as expected ({engine_result})")
+
+    # No shadow ticket should exist (export never reached quorum)
+    assert_shadow_ticket(ctx, alice.address, log, expect_exists=False)
 
     # --- Verify subsequent payment works regardless ---
     log("Submitting payment from alice to bob...")
@@ -85,9 +93,10 @@ async def scenario(ctx, log):
     log(f"Payment result: {pay_engine}")
 
     if pay_engine != "tesSUCCESS":
-        log(f"Payment failed: {pay_result}")
-        log("WARNING: sequence may be blocked by pending export")
-    else:
-        log("Payment succeeded — account not permanently blocked")
+        raise AssertionError(
+            f"Payment failed after expired export: {pay_engine} "
+            f"-- sequence may be blocked"
+        )
 
+    log("Payment succeeded -- account not permanently blocked")
     log("PASS")

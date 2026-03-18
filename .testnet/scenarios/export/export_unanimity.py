@@ -8,12 +8,17 @@ Flow:
   1. Fund alice and bob
   2. alice submits ttEXPORT
   3. Verify result matches expectation (tesSUCCESS or tecEXPORT_EXPIRED)
-  4. Verify subsequent payment works regardless
+  4. Verify ExportResult + shadow ticket on success, absence on failure
+  5. Verify subsequent payment works regardless
 """
 
 from __future__ import annotations
 
-from export_helpers import require_export
+from export_helpers import (
+    require_export,
+    assert_export_result,
+    assert_shadow_ticket,
+)
 
 
 async def scenario(ctx, log, expect_success=True):
@@ -57,19 +62,21 @@ async def scenario(ctx, log, expect_success=True):
     final_seq = ctx.validated_ledger_index(0)
     engine_result = result.get("engine_result", "")
     meta = result.get("meta", {})
-    export_result = meta.get("ExportResult", {})
 
     log(f"Export at ledger {final_seq}, result: {engine_result}")
-    if export_result:
-        log(f"  ExportResult: {export_result}")
 
     if expect_success:
         if engine_result != "tesSUCCESS":
             raise AssertionError(
                 f"Expected tesSUCCESS, got {engine_result}"
             )
-        if not export_result:
-            raise AssertionError("ExportResult not found in metadata")
+
+        # Assert ExportResult is well-formed with signers
+        assert_export_result(meta, log, require_signers=True)
+
+        # Assert shadow ticket was created
+        assert_shadow_ticket(ctx, alice.address, log, expect_exists=True)
+
         log("Export succeeded as expected (all validators signed)")
     else:
         if engine_result == "tesSUCCESS":
@@ -77,6 +84,9 @@ async def scenario(ctx, log, expect_success=True):
                 "Export should NOT have succeeded with sub-unanimity"
             )
         log(f"Export failed as expected ({engine_result})")
+
+        # No shadow ticket should exist
+        assert_shadow_ticket(ctx, alice.address, log, expect_exists=False)
 
     # --- Verify subsequent payment works ---
     log("Submitting payment from alice to bob...")
@@ -97,5 +107,5 @@ async def scenario(ctx, log, expect_success=True):
     if pay_engine != "tesSUCCESS":
         raise AssertionError(f"Payment failed: {pay_engine}")
 
-    log("Payment succeeded — account not blocked")
+    log("Payment succeeded -- account not blocked")
     log("PASS")

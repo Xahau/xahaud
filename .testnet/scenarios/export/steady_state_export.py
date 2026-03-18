@@ -9,7 +9,14 @@
 
 from __future__ import annotations
 
-from export_helpers import require_export, find_export_txns, dst_param
+from export_helpers import (
+    require_export,
+    find_export_txns,
+    dst_param,
+    assert_hook_accepted,
+    assert_export_result,
+    assert_shadow_ticket,
+)
 
 # C source for the xport hook — verbatim from src/test/app/Export_test_hooks.h
 # On Payment to the hook account, exports a 1 XAH payment to the DST param.
@@ -151,12 +158,13 @@ async def scenario(ctx, log):
         alice.wallet,
     )
     log(
-        f"Hook installed on alice ({alice.address[:12]}...) ledger {ctx.validated_ledger_index(0)}"
+        f"Hook installed on alice ({alice.address[:12]}...) "
+        f"ledger {ctx.validated_ledger_index(0)}"
     )
 
     # --- Trigger ---
     # bob pays alice → hook calls xport() → emits ttEXPORT
-    await ctx.submit_and_wait(
+    trigger_result = await ctx.submit_and_wait(
         {
             "TransactionType": "Payment",
             "Destination": alice.address,
@@ -169,6 +177,10 @@ async def scenario(ctx, log):
     trigger_seq = ctx.validated_ledger_index(0)
     log(f"Export triggered at ledger {trigger_seq}")
 
+    # Assert hook fired with ACCEPT and emitted 1 tx
+    trigger_meta = trigger_result.get("meta", {})
+    assert_hook_accepted(trigger_meta, log, expected_emits=1)
+
     # --- Verify: check each ledger close for the Export transaction ---
     max_ledgers = 10
     for i in range(max_ledgers):
@@ -179,31 +191,16 @@ async def scenario(ctx, log):
             export_tx = exports[0]
             meta = export_tx.get("meta", export_tx.get("metaData", {}))
             result = meta.get("TransactionResult", "")
-            export_result = meta.get("ExportResult", {})
             log(f"Ledger {seq}: Export txn found, result={result}")
-            log(f"  ExportResult: {export_result}")
 
             if result != "tesSUCCESS":
-                raise AssertionError(
-                    f"Export did not succeed: {result}"
-                )
-            if not export_result:
-                raise AssertionError(
-                    "ExportResult not found in metadata"
-                )
+                raise AssertionError(f"Export did not succeed: {result}")
 
-            # Verify shadow ticket was created (TicketSequence=1 in inner tx)
-            obj_result = ctx.rpc.request(
-                0, "account_objects", {"account": alice.address}
-            )
-            all_objects = (obj_result or {}).get("account_objects", [])
-            shadow_tickets = [
-                obj for obj in all_objects
-                if obj.get("LedgerEntryType") == "ShadowTicket"
-            ]
-            log(f"  Shadow tickets: {len(shadow_tickets)}")
-            if not shadow_tickets:
-                log("  WARNING: no shadow ticket found (may be expected if quorum timing)")
+            # Assert ExportResult is well-formed with signers and inner tx
+            assert_export_result(meta, log, require_signers=True)
+
+            # Assert shadow ticket was created
+            assert_shadow_ticket(ctx, alice.address, log, expect_exists=True)
 
             log("PASS")
             return

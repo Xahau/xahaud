@@ -4,14 +4,14 @@ to verify sequence handling doesn't block subsequent transactions.
 
 Flow:
   1. Fund alice and bob
-  2. alice submits ttEXPORT with inner payment → tesSUCCESS (provisional)
-  3. Validators attach sigs via proposals → quorum → ExportResult in metadata
-  4. alice submits a Payment to bob → should succeed (sequence not blocked)
+  2. alice submits ttEXPORT with inner payment -> tesSUCCESS (provisional)
+  3. Validators attach sigs via proposals -> quorum -> ExportResult in metadata
+  4. alice submits a Payment to bob -> should succeed (sequence not blocked)
 """
 
 from __future__ import annotations
 
-from export_helpers import require_export, find_export_txns
+from export_helpers import require_export, assert_export_result, assert_shadow_ticket
 
 
 async def scenario(ctx, log):
@@ -28,7 +28,6 @@ async def scenario(ctx, log):
     log(f"Current ledger: {current_seq}")
 
     # --- 1. Submit ttEXPORT ---
-    # Build a minimal inner payment for cross-chain export
     result = await ctx.submit_and_wait(
         {
             "TransactionType": "Export",
@@ -53,21 +52,20 @@ async def scenario(ctx, log):
     )
 
     export_seq = ctx.validated_ledger_index(0)
-    export_engine = result.get("engine_result", "")
-    log(f"Export completed at ledger {export_seq}, result: {export_engine}")
+    engine_result = result.get("engine_result", "")
+    log(f"Export completed at ledger {export_seq}, result: {engine_result}")
 
-    if export_engine != "tesSUCCESS":
+    if engine_result != "tesSUCCESS":
         raise AssertionError(
-            f"Expected tesSUCCESS for export, got {export_engine}"
+            f"Expected tesSUCCESS for export, got {engine_result}"
         )
 
-    # Check for ExportResult in metadata
+    # Assert ExportResult is well-formed with signers
     meta = result.get("meta", {})
-    export_meta = meta.get("ExportResult", {})
-    log(f"ExportResult: {export_meta}")
+    assert_export_result(meta, log, require_signers=True)
 
-    if not export_meta:
-        log("WARNING: ExportResult not found in metadata (may need more ledgers)")
+    # Assert shadow ticket was created
+    assert_shadow_ticket(ctx, alice.address, log, expect_exists=True)
 
     # --- 2. Submit Payment from same account ---
     log("Submitting payment from alice to bob...")
@@ -82,18 +80,15 @@ async def scenario(ctx, log):
         timeout=30,
     )
 
-    pay_seq = ctx.validated_ledger_index(0)
     pay_engine = pay_result.get("engine_result", "")
-    log(f"Payment completed at ledger {pay_seq}, result: {pay_engine}")
+    log(f"Payment result: {pay_engine}")
 
     if pay_engine != "tesSUCCESS":
-        raise AssertionError(
-            f"Expected tesSUCCESS for payment, got {pay_engine}"
-        )
+        raise AssertionError(f"Payment failed: {pay_engine}")
 
     log(
         f"Both transactions succeeded: "
-        f"Export at ledger {export_seq}, Payment at ledger {pay_seq}"
+        f"Export at ledger {export_seq}, Payment at ledger {ctx.validated_ledger_index(0)}"
     )
-    log("Sequence handling OK — export didn't block subsequent txns")
+    log("Sequence handling OK - export didn't block subsequent txns")
     log("PASS")
