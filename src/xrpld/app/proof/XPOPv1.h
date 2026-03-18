@@ -52,11 +52,11 @@ buildXPOPv1(
     std::vector<ValidatorKeys> const& validators,
     VLData const& vl);
 
-/// Convenience: build XPOP from a ReadView + tx hash + validator keys.
+/// Convenience: build XPOP from a Ledger + tx hash + validator keys.
 /// Combines buildLedgerProof + buildXPOPv1.
 Json::Value
 buildXPOPv1(
-    ReadView const& ledger,
+    Ledger const& ledger,
     uint256 const& txHash,
     std::vector<ValidatorKeys> const& validators,
     VLData const& vl);
