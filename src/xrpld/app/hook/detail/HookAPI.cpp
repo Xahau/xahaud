@@ -1331,8 +1331,7 @@ HookAPI::xport(Slice const& txBlob) const
                 auto const b = etxn_burden();
                 ed.setFieldU64(sfEmitBurden, b ? uint64_t(*b) : 1ULL);
             }
-            ed.setFieldH256(
-                sfEmitParentTxnID, applyCtx.tx.getTransactionID());
+            ed.setFieldH256(sfEmitParentTxnID, applyCtx.tx.getTransactionID());
             ed.setFieldH256(sfEmitNonce, *nonce);
             ed.setFieldH256(sfEmitHookHash, hookCtx.result.hookHash);
             if (hookCtx.result.hasCallback)

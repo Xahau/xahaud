@@ -56,18 +56,15 @@ public:
     }
 
     void
-    write(
-        beast::severities::Severity level,
-        std::string const& text) override
+    write(beast::severities::Severity level, std::string const& text) override
     {
         if (level >= threshold())
             writeAlways(level, text);
     }
 
     void
-    writeAlways(
-        beast::severities::Severity level,
-        std::string const& text) override
+    writeAlways(beast::severities::Severity level, std::string const& text)
+        override
     {
         static std::mutex mtx;
         std::lock_guard lock(mtx);

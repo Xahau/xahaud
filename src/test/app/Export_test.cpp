@@ -415,8 +415,7 @@ struct Export_test : public beast::unit_test::suite
             BEAST_EXPECT(m->getFieldArray(sfHookEmissions).size() == 1);
 
             // The emitted dir should NOT be empty (ttEXPORT is in it).
-            BEAST_EXPECT(
-                !dirIsEmpty(*env.current(), keylet::emittedDir()));
+            BEAST_EXPECT(!dirIsEmpty(*env.current(), keylet::emittedDir()));
 
             // Find the emitted ttEXPORT in AffectedNodes.
             bool foundEmitted = false;
