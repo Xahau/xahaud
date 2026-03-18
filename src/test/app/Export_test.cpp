@@ -395,12 +395,60 @@ struct Export_test : public beast::unit_test::suite
             fee(XRP(1)),
             json(jss::HookParameters, params),
             ter(tesSUCCESS));
+
+        // Verify hook fired successfully with exactly 1 emission.
+        {
+            auto const m = env.meta();
+            BEAST_EXPECT(m);
+            BEAST_EXPECT(m->isFieldPresent(sfHookExecutions));
+
+            auto const& execs = m->getFieldArray(sfHookExecutions);
+            BEAST_EXPECT(execs.size() == 1);
+
+            // result=3 is ExitType::ACCEPT
+            BEAST_EXPECT(execs[0].getFieldU8(sfHookResult) == 3);
+            BEAST_EXPECT(execs[0].getFieldU16(sfHookEmitCount) == 1);
+            BEAST_EXPECT(execs[0].getFieldU64(sfHookReturnCode) == 0);
+
+            // Emissions metadata should be present.
+            BEAST_EXPECT(m->isFieldPresent(sfHookEmissions));
+            BEAST_EXPECT(m->getFieldArray(sfHookEmissions).size() == 1);
+
+            // The emitted dir should NOT be empty (ttEXPORT is in it).
+            BEAST_EXPECT(
+                !dirIsEmpty(*env.current(), keylet::emittedDir()));
+
+            // Find the emitted ttEXPORT in AffectedNodes.
+            bool foundEmitted = false;
+            for (auto const& node : m->getFieldArray(sfAffectedNodes))
+            {
+                if (node.getFName() == sfCreatedNode &&
+                    node.getFieldU16(sfLedgerEntryType) == ltEMITTED_TXN)
+                {
+                    foundEmitted = true;
+                    break;
+                }
+            }
+            BEAST_EXPECT(foundEmitted);
+        }
+
+        // env.meta() above did an implicit close (hook fires, emitted dir
+        // populated, TxQ rawTxInserts into open ledger).  One more close
+        // applies the emitted ttEXPORT through the transactor.
         env.close();
 
-        // xport() now emits a ttEXPORT via the emitted txn path.
-        // Verify the emitted directory has an entry.
-        auto const emittedDirKey = keylet::emittedDir();
-        BEAST_EXPECT(!dirIsEmpty(*env.current(), emittedDirKey));
+        // The emitted ttEXPORT should now appear in the closed ledger.
+        {
+            auto const ledger = env.closed();
+            int txcount = 0;
+            for (auto const& [stx, meta] : ledger->txs)
+            {
+                BEAST_EXPECT(stx->getTxnType() == ttEXPORT);
+                BEAST_EXPECT(stx->isFieldPresent(sfEmitDetails));
+                txcount++;
+            }
+            BEAST_EXPECT(txcount == 1);
+        }
     }
 
     void
@@ -846,12 +894,26 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(!xahau.current()->exists(stKey));
     }
 
+    // Override focused_test() to run a specific test in isolation.
+    // Set FOCUSED_TEST=1 to skip the full suite and run only this.
+    void
+    focused_test(FeatureBitset const& features)
+    {
+        testXportPayment(features);
+    }
+
     void
     run() override
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments()};
         FeatureBitset const allWithExport{all | featureExport};
+
+        if (std::getenv("FOCUSED_TEST"))
+        {
+            focused_test(allWithExport);
+            return;
+        }
 
         // Hook-based xport tests
         testXportPayment(allWithExport);
