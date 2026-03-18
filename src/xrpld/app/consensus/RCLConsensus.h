@@ -110,6 +110,7 @@ class RCLConsensus
         // Real SHAMaps for the current round (unbacked, ephemeral)
         std::shared_ptr<SHAMap> commitSetMap_;
         std::shared_ptr<SHAMap> entropySetMap_;
+        std::shared_ptr<SHAMap> exportSigSetMap_;
         std::optional<LedgerIndex> rngRoundSeq_;
 
         // Track pending RNG set hashes we've triggered fetches for
@@ -323,6 +324,19 @@ class RCLConsensus
         */
         uint256
         buildEntropySet(LedgerIndex seq);
+
+        /** Build SHAMap from collected export sigs, register for fetch.
+            Only called when both featureConsensusEntropy and featureExport
+            are enabled.
+            @param seq The ledger sequence being built
+            @return The SHAMap root hash (exportSigSetHash)
+        */
+        uint256
+        buildExportSigSet(LedgerIndex seq);
+
+        /** Check if there are pending export sigs that need convergence. */
+        bool
+        hasPendingExportSigs() const;
 
         /** Check if a hash is a known RNG set (commitSet or entropySet) */
         bool

@@ -53,9 +53,10 @@ struct ExtendedPosition
     // === Core Convergence Target ===
     uint256 txSetHash;
 
-    // === RNG Set Hashes (sub-state quorum, not in operator==) ===
+    // === Set Hashes (sub-state quorum, not in operator==) ===
     std::optional<uint256> commitSetHash;
     std::optional<uint256> entropySetHash;
+    std::optional<uint256> exportSigSetHash;
 
     // === Per-Validator Leaves (unique per proposer) ===
     std::optional<uint256> myCommitment;
@@ -162,7 +163,8 @@ struct ExtendedPosition
 
         // Wire compatibility: if no extensions, emit exactly 32 bytes
         // so legacy nodes that expect a plain uint256 work unchanged.
-        if (!commitSetHash && !entropySetHash && !myCommitment && !myReveal)
+        if (!commitSetHash && !entropySetHash && !exportSigSetHash &&
+            !myCommitment && !myReveal)
             return;
 
         std::uint8_t flags = 0;
@@ -174,6 +176,8 @@ struct ExtendedPosition
             flags |= 0x04;
         if (myReveal)
             flags |= 0x08;
+        if (exportSigSetHash)
+            flags |= 0x10;
         s.add8(flags);
 
         if (commitSetHash)
@@ -184,6 +188,8 @@ struct ExtendedPosition
             s.addBitString(*myCommitment);
         if (myReveal)
             s.addBitString(*myReveal);
+        if (exportSigSetHash)
+            s.addBitString(*exportSigSetHash);
     }
     //@@end rng-extended-position-serialize
 
@@ -196,6 +202,8 @@ struct ExtendedPosition
             ret["commit_set"] = to_string(*commitSetHash);
         if (entropySetHash)
             ret["entropy_set"] = to_string(*entropySetHash);
+        if (exportSigSetHash)
+            ret["export_sig_set"] = to_string(*exportSigSetHash);
         return ret;
     }
 
@@ -225,13 +233,13 @@ struct ExtendedPosition
         std::uint8_t flags = sit.get8();
 
         // Reject unknown flag bits (reduces wire malleability)
-        if (flags & 0xF0)
+        if (flags & 0xE0)
             return std::nullopt;
 
         // Validate exact byte count for the flagged fields.
         // Each flag bit indicates a 32-byte uint256.
         int fieldCount = 0;
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < 5; ++i)
             if (flags & (1 << i))
                 ++fieldCount;
 
@@ -246,6 +254,8 @@ struct ExtendedPosition
             pos.myCommitment = sit.get256();
         if (flags & 0x08)
             pos.myReveal = sit.get256();
+        if (flags & 0x10)
+            pos.exportSigSetHash = sit.get256();
 
         return pos;
     }

@@ -2458,6 +2458,99 @@ Consensus<Adaptor>::phaseEstablish(
     }
     //@@end rng-phase-establish-substates
 
+    //@@start export-sig-convergence-gate
+    // Export sig convergence gate: runs after RNG sub-states, only when
+    // both CE and Export are enabled. Builds/publishes exportSigSetHash
+    // and waits for peer agreement before accepting.
+    if constexpr (requires(Adaptor& a) {
+                      a.buildExportSigSet(typename Ledger_t::Seq{});
+                      a.hasPendingExportSigs();
+                  })
+    {
+        bool rngEnabled = false;
+        if constexpr (requires(Adaptor& a) { a.rngEnabled(); })
+            rngEnabled = adaptor_.rngEnabled();
+
+        // Only run when CE is active (provides ExtendedPosition infra)
+        // and there are export sigs to converge.
+        if (rngEnabled)
+        {
+            if (adaptor_.hasPendingExportSigs())
+            {
+                auto const buildSeqExport =
+                    previousLedger_.seq() + typename Ledger_t::Seq{1};
+                auto const exportHash =
+                    adaptor_.buildExportSigSet(buildSeqExport);
+
+                auto currentPos = result_->position.position();
+                if (!currentPos.exportSigSetHash ||
+                    *currentPos.exportSigSetHash != exportHash)
+                {
+                    currentPos.exportSigSetHash = exportHash;
+                    result_->position.changePosition(
+                        currentPos,
+                        asCloseTime(result_->position.closeTime()),
+                        now_);
+
+                    if (mode_.get() == ConsensusMode::proposing)
+                        adaptor_.propose(result_->position);
+
+                    JLOG(j_.debug())
+                        << "Export: published exportSigSetHash=" << exportHash;
+                }
+
+                // Check peer agreement on exportSigSetHash.
+                // If any tx-converged peer has a different non-empty hash,
+                // wait briefly for fetch/merge to resolve it.
+                if constexpr (requires(Position_t const& p) {
+                                  p.exportSigSetHash;
+                              })
+                {
+                    bool conflict = false;
+                    for (auto const& [_, peerPos] : currPeerPositions_)
+                    {
+                        auto const& pp = peerPos.proposal().position();
+                        if (!pp.exportSigSetHash)
+                            continue;
+                        if (*pp.exportSigSetHash != exportHash)
+                        {
+                            conflict = true;
+
+                            // Trigger fetch for the differing set
+                            if constexpr (requires(Adaptor& a) {
+                                              a.fetchRngSetIfNeeded(
+                                                  std::optional<uint256>{});
+                                          })
+                            {
+                                adaptor_.fetchRngSetIfNeeded(
+                                    pp.exportSigSetHash);
+                            }
+                            break;
+                        }
+                    }
+
+                    if (conflict)
+                    {
+                        // Don't block indefinitely — use the same pipeline
+                        // timeout as RNG.
+                        bool const timeout = result_->roundTime.read() >
+                            parms.rngPIPELINE_TIMEOUT;
+                        if (!timeout)
+                        {
+                            JLOG(j_.debug())
+                                << "Export: exportSigSetHash conflict, waiting";
+                            return;
+                        }
+                        JLOG(j_.info())
+                            << "Export: exportSigSetHash conflict timed out, "
+                               "proceeding (exports will retry next round)";
+                    }
+                }
+            }
+        }
+    }
+    //@@end export-sig-convergence-gate
+
     JLOG(j_.debug()) << "STALLDIAG: establish-ready-to-accept"
                      << " phase=" << to_string(phase_)
                      << " mode=" << to_string(mode_.get())

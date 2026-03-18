@@ -1645,6 +1645,51 @@ RCLConsensus::Adaptor::buildEntropySet(LedgerIndex seq)
     //@@end rng-build-entropy-set
 }
 
+uint256
+RCLConsensus::Adaptor::buildExportSigSet(LedgerIndex seq)
+{
+    auto map =
+        std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
+    map->setUnbacked();
+
+    auto const allSigs = exportSigCollector().snapshot();
+    std::size_t entryCount = 0;
+
+    for (auto const& [txHash, validators] : allSigs)
+    {
+        for (auto const& valPK : validators)
+        {
+            // Each entry: txHash + validatorPK, keyed by their hash.
+            Serializer s;
+            s.addBitString(txHash);
+            s.addRaw(valPK.slice());
+
+            auto const itemHash = sha512Half(txHash, valPK);
+            map->addItem(
+                SHAMapNodeType::tnTRANSACTION_NM,
+                make_shamapitem(itemHash, s.slice()));
+            ++entryCount;
+        }
+    }
+
+    map = map->snapShot(false);
+    exportSigSetMap_ = map;
+
+    auto const hash = map->getHash().as_uint256();
+    inboundTransactions_.giveSet(hash, map, false);
+
+    JLOG(j_.debug()) << "Export: built exportSigSet SHAMap hash=" << hash
+                     << " entries=" << entryCount;
+    return hash;
+}
+
+bool
+RCLConsensus::Adaptor::hasPendingExportSigs() const
+{
+    auto const allSigs = exportSigCollector().snapshot();
+    return !allSigs.empty();
+}
+
 void
 RCLConsensus::Adaptor::generateEntropySecret()
 {
@@ -1682,6 +1727,7 @@ RCLConsensus::Adaptor::clearRngState()
     entropyFailed_ = false;
     commitSetMap_.reset();
     entropySetMap_.reset();
+    exportSigSetMap_.reset();
     rngRoundSeq_.reset();
     pendingRngFetches_.clear();
     unlReportNodeIds_.clear();
@@ -1754,6 +1800,8 @@ RCLConsensus::Adaptor::isRngSet(uint256 const& hash) const
         return true;
     if (entropySetMap_ && entropySetMap_->getHash().as_uint256() == hash)
         return true;
+    if (exportSigSetMap_ && exportSigSetMap_->getHash().as_uint256() == hash)
+        return true;
     return pendingRngFetches_.count(hash) > 0;
 }
 
@@ -1765,6 +1813,53 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
 
     JLOG(j_.debug()) << "RNGFETCH: handle acquired hash=" << hash
                      << " pending-after-erase=" << pendingRngFetches_.size();
+
+    // Check if this is an export sig set (not an RNG set).
+    // Export sig entries are raw blobs (65 bytes: txHash + pubkey),
+    // not STTx objects. Merge missing entries into our collector.
+    if (exportSigSetMap_)
+    {
+        // If hash doesn't match ours, it's a peer's set — union-merge.
+        if (exportSigSetMap_->getHash().as_uint256() != hash)
+        {
+            // Check first entry to see if it looks like an export sig
+            bool isExportSet = false;
+            map->visitLeaves(
+                [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                    if (item->size() == 65)
+                        isExportSet = true;
+                });
+
+            if (isExportSet)
+            {
+                std::size_t merged = 0;
+                map->visitLeaves(
+                    [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                        if (item->size() != 65)
+                            return;
+                        auto const data = item->slice();
+                        uint256 txHash;
+                        std::memcpy(txHash.data(), data.data(), 32);
+                        auto const pkSlice = data.substr(32);
+                        if (auto const pkType = publicKeyType(pkSlice))
+                        {
+                            PublicKey const valPK{pkSlice};
+                            exportSigCollector().addSignature(txHash, valPK);
+                            ++merged;
+                        }
+                    });
+                JLOG(j_.info())
+                    << "Export: merged " << merged
+                    << " entries from peer exportSigSet hash=" << hash;
+                return;
+            }
+        }
+        else
+        {
+            // Same hash — nothing to merge.
+            return;
+        }
+    }
 
     enum class RngSetKind { commit, reveal };
     auto const classifyKind =

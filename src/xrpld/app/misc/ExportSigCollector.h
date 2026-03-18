@@ -50,6 +50,14 @@ public:
         sigs_.erase(txnHash);
     }
 
+    /// Get a snapshot of all sigs for building the SHAMap.
+    std::unordered_map<uint256, std::set<PublicKey>>
+    snapshot() const
+    {
+        std::lock_guard lock(mutex_);
+        return sigs_;
+    }
+
     /// Returns true if we haven't sent our sig for this tx yet this round.
     /// Marks it as sent on first call.
     bool
