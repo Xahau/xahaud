@@ -310,6 +310,7 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
 
     app_.getHashRouter().addSuppression(suppression);
 
+    //@@start export-sig-attachment
     // Attach export signatures for any ttEXPORT txns in the current set.
     // Each "signature" is: txnHash (32 bytes) + validator pubkey (33 bytes).
     // XAHAUD_NO_EXPORT_SIG=1 disables sig attachment (for testing sub-quorum).
@@ -343,6 +344,7 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
             }
         }
     }
+    //@@end export-sig-attachment
 
     app_.overlay().broadcast(prop);
 }
