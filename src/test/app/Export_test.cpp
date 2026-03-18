@@ -699,8 +699,9 @@ struct Export_test : public beast::unit_test::suite
             {
                 // Serialize the nested object to get the raw blob
                 // for submission to XRPL.
-                auto const& expTxn = const_cast<STObject&>(result)
-                                         .peekFieldObject(sfExportedTxn);
+                auto const& expTxn =
+                    const_cast<STObject&>(result).peekFieldObject(
+                        sfExportedTxn);
                 Serializer s;
                 expTxn.add(s);
                 multisignedBlob = s.peekData();

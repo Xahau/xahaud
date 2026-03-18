@@ -250,8 +250,7 @@ Export::doApply()
     // Compute the signed tx hash for the shadow ticket.
     // getHash(transactionID) includes ALL fields (Signers etc.),
     // matching what STTx::getTransactionID() produces.
-    auto const signedTxHash =
-        multiSigned.getHash(HashPrefix::transactionID);
+    auto const signedTxHash = multiSigned.getHash(HashPrefix::transactionID);
 
     // Create the shadow ticket with the signed tx hash.
     {

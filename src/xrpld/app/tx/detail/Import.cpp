@@ -363,8 +363,7 @@ Import::preflight(PreflightContext const& ctx)
         }
     }
 
-    JLOG(ctx.j.trace()) << "Import: passed OperationLimit + signing key checks"
-                       ;
+    JLOG(ctx.j.trace()) << "Import: passed OperationLimit + signing key checks";
 
     // check inner txns signature
     // we do this with a custom ruleset which should be kept up to date with
@@ -380,8 +379,7 @@ Import::preflight(PreflightContext const& ctx)
         JLOG(ctx.j.trace())
             << "Import: checkSign FAILED for " << tx.getTransactionID()
             << " innerHasSigners=" << stpTrans->isFieldPresent(sfSigners)
-            << " innerSigningPubKey=" << strHex(stpTrans->getSigningPubKey())
-           ;
+            << " innerSigningPubKey=" << strHex(stpTrans->getSigningPubKey());
         return temMALFORMED;
     }
 
@@ -913,8 +911,7 @@ Import::preflight(PreflightContext const& ctx)
     }
 
     JLOG(ctx.j.trace())
-        << "Import: passed seq/fee/quorum checks, about to return preflight2"
-       ;
+        << "Import: passed seq/fee/quorum checks, about to return preflight2";
 
     if (stpTrans->getFieldAmount(sfFee) < beast::zero)
     {
@@ -982,8 +979,7 @@ Import::preclaim(PreclaimContext const& ctx)
         JLOG(ctx.j.trace())
             << "Import preclaim: shadowTicket hash=" << expectedHash
             << " xpopTxHash=" << stpTrans->getTransactionID()
-            << " match=" << (expectedHash == stpTrans->getTransactionID())
-           ;
+            << " match=" << (expectedHash == stpTrans->getTransactionID());
         if (expectedHash != stpTrans->getTransactionID())
         {
             JLOG(ctx.j.warn())
