@@ -139,6 +139,21 @@ Export::doApply()
 
         if (sigCount < threshold)
         {
+            // LLS semantics for retriable exports:
+            //
+            // Transactor::preclaim rejects with tefMAX_LEDGER when
+            // seq > LLS, so this tx can never run past ledger LLS.
+            // Within that window the export has three possible outcomes
+            // each ledger:
+            //
+            //   ledger < LLS:  tesSUCCESS (quorum) or terRETRY_EXPORT
+            //   ledger == LLS: tesSUCCESS (quorum) or tecEXPORT_EXPIRED
+            //   ledger > LLS:  tefMAX_LEDGER (never reaches doApply)
+            //
+            // The >= check here only fires in the no-quorum branch, so
+            // if quorum IS met on the LLS ledger it still succeeds.
+            // tecEXPORT_EXPIRED consumes the sequence cleanly rather
+            // than letting tefMAX_LEDGER silently drop the tx.
             if (ctx_.tx.isFieldPresent(sfLastLedgerSequence))
             {
                 auto const lls = ctx_.tx.getFieldU32(sfLastLedgerSequence);
