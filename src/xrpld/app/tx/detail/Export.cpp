@@ -21,11 +21,11 @@ Export::preflight(PreflightContext const& ctx)
     if (!isTesSuccess(ret))
         return ret;
 
-    // At least one operation must be present.
+    // Exactly one operation: export OR cancel, not both.
     bool const hasExport = ctx.tx.isFieldPresent(sfExportedTxn);
     bool const hasCancel = ctx.tx.isFieldPresent(sfCancelTicketSequence);
 
-    if (!hasExport && !hasCancel)
+    if (hasExport == hasCancel)  // neither or both
         return temMALFORMED;
 
     return preflight2(ctx);
@@ -78,20 +78,15 @@ Export::doApply()
 {
     auto const account = ctx_.tx.getAccountID(sfAccount);
 
-    // --- Shadow ticket cancel path ---
+    // --- Shadow ticket cancel path (mutually exclusive with export) ---
     if (ctx_.tx.isFieldPresent(sfCancelTicketSequence))
     {
         auto const ticketSeq = ctx_.tx.getFieldU32(sfCancelTicketSequence);
-
-        TER ter =
-            ExportLedgerOps::cancelShadowTicket(view(), account, ticketSeq, j_);
-        if (!isTesSuccess(ter))
-            return ter;
+        return ExportLedgerOps::cancelShadowTicket(
+            view(), account, ticketSeq, j_);
     }
 
     // --- Export path ---
-    if (!ctx_.tx.isFieldPresent(sfExportedTxn))
-        return tesSUCCESS;
 
     auto const txId = ctx_.tx.getTransactionID();
     auto const currentSeq = view().info().seq;
@@ -173,8 +168,13 @@ Export::doApply()
     exportResult.setFieldH256(sfTransactionHash, txId);
 
     auto* avi = dynamic_cast<ApplyViewImpl*>(&view());
-    if (avi)
-        avi->setExportResultMetaData(std::move(exportResult));
+    if (!avi)
+    {
+        JLOG(j_.fatal()) << "Export: cannot write ExportResult metadata "
+                         << "(view is not ApplyViewImpl)";
+        return tefINTERNAL;
+    }
+    avi->setExportResultMetaData(std::move(exportResult));
 
     // Clean up the collector.
     exportSigCollector().clear(txId);

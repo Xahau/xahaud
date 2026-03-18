@@ -16,15 +16,30 @@ namespace ripple {
 class ExportSigCollector
 {
     mutable std::mutex mutex_;
-    std::unordered_map<uint256, std::set<PublicKey>> sigs_;
+
+    struct SigEntry
+    {
+        std::set<PublicKey> validators;
+        std::uint32_t firstSeenSeq{0};
+    };
+
+    std::unordered_map<uint256, SigEntry> sigs_;
     std::set<uint256> sentThisRound_;
+
+    static constexpr std::uint32_t maxStaleLedgers = 256;
 
 public:
     void
-    addSignature(uint256 const& txnHash, PublicKey const& validator)
+    addSignature(
+        uint256 const& txnHash,
+        PublicKey const& validator,
+        std::uint32_t currentSeq = 0)
     {
         std::lock_guard lock(mutex_);
-        sigs_[txnHash].insert(validator);
+        auto& entry = sigs_[txnHash];
+        entry.validators.insert(validator);
+        if (entry.firstSeenSeq == 0 && currentSeq > 0)
+            entry.firstSeenSeq = currentSeq;
     }
 
     std::size_t
@@ -34,7 +49,7 @@ public:
         auto it = sigs_.find(txnHash);
         if (it == sigs_.end())
             return 0;
-        return it->second.size();
+        return it->second.validators.size();
     }
 
     bool
@@ -55,7 +70,25 @@ public:
     snapshot() const
     {
         std::lock_guard lock(mutex_);
-        return sigs_;
+        std::unordered_map<uint256, std::set<PublicKey>> result;
+        for (auto const& [hash, entry] : sigs_)
+            result[hash] = entry.validators;
+        return result;
+    }
+
+    /// Remove entries older than maxStaleLedgers.
+    void
+    cleanupStale(std::uint32_t currentSeq)
+    {
+        std::lock_guard lock(mutex_);
+        for (auto it = sigs_.begin(); it != sigs_.end();)
+        {
+            if (it->second.firstSeenSeq > 0 &&
+                currentSeq > it->second.firstSeenSeq + maxStaleLedgers)
+                it = sigs_.erase(it);
+            else
+                ++it;
+        }
     }
 
     /// Returns true if we haven't sent our sig for this tx yet this round.

@@ -1794,6 +1794,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         << "Proposal: " << (isTrusted ? "trusted" : "untrusted");
 
     // Harvest export signatures from the proposal.
+    // Only accept sigs from validators we trust (UNL membership check).
     if (isTrusted && set.exportsignatures_size() > 0)
     {
         for (int i = 0; i < set.exportsignatures_size(); ++i)
@@ -1808,7 +1809,9 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
                 if (auto const pkType = publicKeyType(pkSlice))
                 {
                     PublicKey const valPK{pkSlice};
-                    exportSigCollector().addSignature(txHash, valPK);
+                    // Verify the claimed pubkey is a trusted validator.
+                    if (app_.validators().trusted(valPK))
+                        exportSigCollector().addSignature(txHash, valPK);
                 }
             }
         }

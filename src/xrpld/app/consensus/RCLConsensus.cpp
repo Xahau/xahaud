@@ -314,6 +314,7 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
     // Attach export signatures for any ttEXPORT txns in the current set.
     // Each "signature" is: txnHash (32 bytes) + validator pubkey (33 bytes).
     // Only attach once per export per round (markSent deduplicates).
+    // Gated on featureExport amendment.
     // XAHAUD_NO_EXPORT_SIG=1 disables sig attachment (for testing sub-quorum).
     if (auto const* noSig = std::getenv("XAHAUD_NO_EXPORT_SIG");
         noSig && std::string(noSig) == "1")
@@ -323,7 +324,7 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
     else
     {
         auto const openLedger = app_.openLedger().current();
-        if (openLedger)
+        if (openLedger && openLedger->rules().enabled(featureExport))
         {
             for (auto const& [stx, meta] : openLedger->txs)
             {
@@ -1720,6 +1721,8 @@ void
 RCLConsensus::Adaptor::clearRngState()
 {
     exportSigCollector().clearRound();
+    if (auto const closed = ledgerMaster_.getClosedLedger())
+        exportSigCollector().cleanupStale(closed->info().seq);
     pendingCommits_.clear();
     pendingReveals_.clear();
     nodeIdToKey_.clear();
@@ -1816,47 +1819,47 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
 
     // Check if this is an export sig set (not an RNG set).
     // Export sig entries are raw blobs (65 bytes: txHash + pubkey),
-    // not STTx objects. Merge missing entries into our collector.
-    if (exportSigSetMap_)
+    // not STTx objects. Detect by inspecting the first leaf.
     {
-        // If hash doesn't match ours, it's a peer's set — union-merge.
-        if (exportSigSetMap_->getHash().as_uint256() != hash)
+        // If we already have this exact export sig set, skip.
+        if (exportSigSetMap_ &&
+            exportSigSetMap_->getHash().as_uint256() == hash)
+            return;
+
+        bool isExportSet = false;
+        map->visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                // Export sig entries are exactly 65 bytes (32 hash + 33
+                // pubkey). RNG entries are serialized STTx objects, always
+                // larger.
+                if (!isExportSet && item->size() == 65)
+                    isExportSet = true;
+            });
+
+        if (isExportSet)
         {
-            // Check first entry to see if it looks like an export sig
-            bool isExportSet = false;
+            std::size_t merged = 0;
             map->visitLeaves(
                 [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                    if (item->size() == 65)
-                        isExportSet = true;
-                });
-
-            if (isExportSet)
-            {
-                std::size_t merged = 0;
-                map->visitLeaves(
-                    [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                        if (item->size() != 65)
-                            return;
-                        auto const data = item->slice();
-                        uint256 txHash;
-                        std::memcpy(txHash.data(), data.data(), 32);
-                        auto const pkSlice = data.substr(32);
-                        if (auto const pkType = publicKeyType(pkSlice))
+                    if (item->size() != 65)
+                        return;
+                    auto const data = item->slice();
+                    uint256 txHash;
+                    std::memcpy(txHash.data(), data.data(), 32);
+                    auto const pkSlice = data.substr(32);
+                    if (auto const pkType = publicKeyType(pkSlice))
+                    {
+                        PublicKey const valPK{pkSlice};
+                        // Only accept sigs from trusted validators.
+                        if (app_.validators().trusted(valPK))
                         {
-                            PublicKey const valPK{pkSlice};
                             exportSigCollector().addSignature(txHash, valPK);
                             ++merged;
                         }
-                    });
-                JLOG(j_.info())
-                    << "Export: merged " << merged
-                    << " entries from peer exportSigSet hash=" << hash;
-                return;
-            }
-        }
-        else
-        {
-            // Same hash — nothing to merge.
+                    }
+                });
+            JLOG(j_.info()) << "Export: merged " << merged
+                            << " entries from peer exportSigSet hash=" << hash;
             return;
         }
     }
