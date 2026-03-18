@@ -695,8 +695,20 @@ struct Export_test : public beast::unit_test::suite
         {
             auto const& result =
                 exportMeta->peekAtField(sfExportResult).downcast<STObject>();
-            if (result.isFieldPresent(sfBlob))
-                multisignedBlob = result.getFieldVL(sfBlob);
+            if (result.isFieldPresent(sfExportedTxn))
+            {
+                // Serialize the nested object to get the raw blob
+                // for submission to XRPL.
+                auto const& expTxn = const_cast<STObject&>(result)
+                                         .peekFieldObject(sfExportedTxn);
+                Serializer s;
+                expTxn.add(s);
+                multisignedBlob = s.peekData();
+
+                log << "Xahau: ExportResult.ExportedTxn = "
+                    << expTxn.getJson(JsonOptions::none).toStyledString()
+                    << std::endl;
+            }
         }
         log << "Xahau: multisigned blob size = " << multisignedBlob.size()
             << std::endl;

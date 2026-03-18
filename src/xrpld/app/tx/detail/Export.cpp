@@ -8,6 +8,7 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/STObject.h>
@@ -228,29 +229,31 @@ Export::doApply()
             return a.getAccountID(sfAccount) < b.getAccountID(sfAccount);
         });
 
-    // Build the multisigned STTx: inner tx + empty SigningPubKey
-    // + Signers array.
-    STObject multiSigned(innerTx);
+    // Build the multisigned tx.  Use sfExportedTxn as the field type
+    // so it nests properly in ExportResult metadata as readable JSON.
+    STObject multiSigned(sfExportedTxn);
+    {
+        // Copy all non-signing fields from innerTx, then we'll add
+        // signing fields (empty SigningPubKey + Signers) below.
+        Serializer s;
+        innerTx.addWithoutSigningFields(s);
+        SerialIter sit(s.slice());
+        multiSigned.set(sit);
+    }
 
-    if (multiSigned.isFieldPresent(sfTxnSignature))
-        multiSigned.makeFieldAbsent(sfTxnSignature);
-
+    // Set empty SigningPubKey (indicates multisigned).
     multiSigned.setFieldVL(sfSigningPubKey, Slice{});
 
     if (signers.size() > 0)
         multiSigned.setFieldArray(sfSigners, signers);
 
-    // Serialize to get the blob, then deserialize as STTx to
-    // compute the correct transaction ID (includes Signers).
-    Serializer outSer;
-    multiSigned.add(outSer);
-    Blob multisignedBlob = outSer.peekData();
+    // Compute the signed tx hash for the shadow ticket.
+    // getHash(transactionID) includes ALL fields (Signers etc.),
+    // matching what STTx::getTransactionID() produces.
+    auto const signedTxHash =
+        multiSigned.getHash(HashPrefix::transactionID);
 
-    SerialIter finalSit(outSer.slice());
-    STTx const signedTx(std::ref(finalSit));
-    auto const signedTxHash = signedTx.getTransactionID();
-
-    // Now create the shadow ticket with the signed tx hash.
+    // Create the shadow ticket with the signed tx hash.
     {
         TER ter = ExportLedgerOps::createShadowTicket(
             view(), account, innerTx, signedTxHash, j_);
@@ -258,12 +261,13 @@ Export::doApply()
             return ter;
     }
 
-    // Write the export result to metadata.
+    // Write the export result to metadata.  The multisigned tx is
+    // stored as sfExportedTxn (OBJECT) so it renders as readable
+    // JSON in metadata, not an opaque hex blob.
     STObject exportResult(sfExportResult);
     exportResult.setFieldU32(sfLedgerSequence, currentSeq);
     exportResult.setFieldH256(sfTransactionHash, txId);
-    if (!multisignedBlob.empty())
-        exportResult.setFieldVL(sfBlob, multisignedBlob);
+    exportResult.set(std::move(multiSigned));
 
     auto* avi = dynamic_cast<ApplyViewImpl*>(&view());
     if (!avi)
