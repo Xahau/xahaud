@@ -8,13 +8,16 @@
 
 namespace ripple {
 
-/// Minimal export signature collector for the retriable export approach.
-/// Tracks which validators have "signed" each pending export.
+/// Export signature collector for the retriable export approach.
+/// Tracks which validators have "signed" each pending export, and
+/// which exports we've already attached our own sig to (so we don't
+/// redundantly re-send on every proposal).
 /// Thread-safe.
 class ExportSigCollector
 {
     mutable std::mutex mutex_;
     std::unordered_map<uint256, std::set<PublicKey>> sigs_;
+    std::set<uint256> sentThisRound_;
 
 public:
     void
@@ -46,10 +49,26 @@ public:
         std::lock_guard lock(mutex_);
         sigs_.erase(txnHash);
     }
+
+    /// Returns true if we haven't sent our sig for this tx yet this round.
+    /// Marks it as sent on first call.
+    bool
+    markSent(uint256 const& txnHash)
+    {
+        std::lock_guard lock(mutex_);
+        return sentThisRound_.insert(txnHash).second;
+    }
+
+    /// Clear per-round state. Call at the start of each consensus round.
+    void
+    clearRound()
+    {
+        std::lock_guard lock(mutex_);
+        sentThisRound_.clear();
+    }
 };
 
-/// Global instance for the prototype.
-/// In production this would be owned by Application.
+/// Global instance. In production this would be owned by Application.
 inline ExportSigCollector&
 exportSigCollector()
 {

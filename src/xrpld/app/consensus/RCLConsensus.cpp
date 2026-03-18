@@ -313,6 +313,7 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
     //@@start export-sig-attachment
     // Attach export signatures for any ttEXPORT txns in the current set.
     // Each "signature" is: txnHash (32 bytes) + validator pubkey (33 bytes).
+    // Only attach once per export per round (markSent deduplicates).
     // XAHAUD_NO_EXPORT_SIG=1 disables sig attachment (for testing sub-quorum).
     if (auto const* noSig = std::getenv("XAHAUD_NO_EXPORT_SIG");
         noSig && std::string(noSig) == "1")
@@ -329,6 +330,11 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
                 if (stx && stx->getTxnType() == ttEXPORT)
                 {
                     auto const txHash = stx->getTransactionID();
+
+                    // Only attach our sig on the first proposal this round.
+                    if (!exportSigCollector().markSent(txHash))
+                        continue;
+
                     Serializer s;
                     s.addBitString(txHash);
                     s.addRaw(validatorKeys_.keys->publicKey.slice());
@@ -1668,6 +1674,7 @@ RCLConsensus::Adaptor::validatorKey() const
 void
 RCLConsensus::Adaptor::clearRngState()
 {
+    exportSigCollector().clearRound();
     pendingCommits_.clear();
     pendingReveals_.clear();
     nodeIdToKey_.clear();
