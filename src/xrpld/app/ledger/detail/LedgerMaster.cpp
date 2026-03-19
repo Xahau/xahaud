@@ -1564,7 +1564,9 @@ LedgerMaster::newPFWork(
     const char* name,
     std::unique_lock<std::recursive_mutex>&)
 {
-    if (!app_.isStopping() && mPathFindThread < 2 &&
+    auto const maxPathFindThreads = std::max(1, app_.config().PATH_WORKERS);
+
+    if (!app_.isStopping() && mPathFindThread < maxPathFindThreads &&
         app_.getPathRequests().requestsPending())
     {
         JLOG(m_journal.debug())

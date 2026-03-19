@@ -142,6 +142,7 @@ public:
 
     JobQueue(
         int threadCount,
+        int updatePathsJobLimit,
         beast::insight::Collector::ptr const& collector,
         beast::Journal journal,
         Logs& logs,
@@ -257,6 +258,8 @@ private:
 
     // The number of suspended coroutines
     int nSuspend_ = 0;
+
+    int updatePathsJobLimit_;
 
     Workers m_workers;
 
