@@ -344,6 +344,7 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
                     if (!exportSigCollector().markSent(txHash))
                         continue;
 
+                    //@@start export-compute-proposal-sig
                     // Extract the inner tx (sfExportedTxn) and compute
                     // the actual multisign signature over it.
                     Buffer sigBuf;
@@ -372,7 +373,9 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
                                 << ": " << e.what();
                         }
                     }
+                    //@@end export-compute-proposal-sig
 
+                    //@@start export-attach-wire-sigs
                     // Wire format: txHash(32) + pubkey(33) + signature(var)
                     Serializer s;
                     s.addBitString(txHash);
@@ -381,6 +384,7 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
                         s.addRaw(Slice(sigBuf.data(), sigBuf.size()));
                     prop.add_exportsignatures(
                         s.peekData().data(), s.peekData().size());
+                    //@@end export-attach-wire-sigs
 
                     exportSigCollector().addSignature(txHash, valPK, sigBuf);
 
@@ -545,6 +549,7 @@ RCLConsensus::Adaptor::onClose(
 
     ExtendedPosition pos{setHash};
 
+    //@@start rng-position-decoration
     // Bootstrap commit-reveal: generate entropy and include commitment
     // in our very first proposal so peers can collect it during consensus.
     //
@@ -555,6 +560,7 @@ RCLConsensus::Adaptor::onClose(
     // all: no commitment, no reveal, no SHAMap entries.  The surviving
     // proposers will close those rounds with fewer commits (possibly
     // falling back to ZERO entropy) until the rejoiner starts proposing.
+    //@@start rng-bootstrap-commitment
     if (proposing && prevLedger->rules().enabled(featureConsensusEntropy))
     {
         cacheUNLReport();
@@ -575,6 +581,7 @@ RCLConsensus::Adaptor::onClose(
                         << (prevLedger->info().seq + 1)
                         << " commitment=" << *pos.myCommitment;
     }
+    //@@end rng-bootstrap-commitment
     else
     {
         JLOG(j_.debug()) << "RNG: onClose skipped (proposing=" << proposing
@@ -582,6 +589,7 @@ RCLConsensus::Adaptor::onClose(
                          << prevLedger->rules().enabled(featureConsensusEntropy)
                          << ")";
     }
+    //@@end rng-position-decoration
 
     return Result{
         std::move(initialSet),
@@ -626,11 +634,13 @@ RCLConsensus::Adaptor::onAccept(
         jtACCEPT,
         "acceptLedger",
         [=, this, cj = std::move(consensusJson)]() mutable {
+            //@@start do-accept-freeze-contract
             // Note that no lock is held or acquired during this job.
             // This is because generic Consensus guarantees that once a ledger
             // is accepted, the consensus results and capture by reference state
             // will not change until startRound is called (which happens via
             // endConsensus).
+            //@@end do-accept-freeze-contract
             RclConsensusLogger clog("onAccept", validating, j_);
             this->doAccept(
                 result,
@@ -712,12 +722,15 @@ RCLConsensus::Adaptor::doAccept(
         }
     }
 
+    //@@start auxiliary-pre-build-injection
     // Inject consensus entropy pseudo-transaction (if amendment enabled)
     // This must happen before buildLCL so the entropy tx is in the ledger
+    //@@start accept-time-cleanup-disabled
     if (prevLedger.ledger_->rules().enabled(featureConsensusEntropy))
         injectEntropyPseudoTx(retriableTxs, prevLedger.seq() + 1);
     else
-        clearRngState();
+        clearRngState();  // CE disabled — clear extension state now
+    //@@end accept-time-cleanup-disabled
 
     auto built = buildLCL(
         prevLedger,
@@ -727,6 +740,7 @@ RCLConsensus::Adaptor::doAccept(
         closeResolution,
         result.roundTime.read(),
         failed);
+    //@@end auxiliary-pre-build-injection
 
     auto const newLCLHash = built.id();
     JLOG(j_.debug()) << "Built ledger #" << built.seq() << ": " << newLCLHash;
@@ -1194,13 +1208,16 @@ RCLConsensus::peerProposal(
     return consensus_->peerProposal(now, newProposal);
 }
 
+//@@start pre-start-round
 bool
 RCLConsensus::Adaptor::preStartRound(
     RCLCxLedger const& prevLgr,
     hash_set<NodeID> const& nowTrusted)
 {
+    //@@start round-start-rng-latch
     rngEnabledThisRound_ =
         prevLgr.ledger_->rules().enabled(featureConsensusEntropy);
+    //@@end round-start-rng-latch
 
     JLOG(j_.trace()) << "RNGGATE: preStartRound prevSeq=" << prevLgr.seq()
                      << " rulesEnabled=" << rngEnabledThisRound_;
@@ -1259,6 +1276,7 @@ RCLConsensus::Adaptor::preStartRound(
     // propose only if we're in sync with the network (and validating)
     return proposing;
 }
+//@@end pre-start-round
 
 bool
 RCLConsensus::Adaptor::haveValidated() const
@@ -1759,12 +1777,16 @@ RCLConsensus::Adaptor::validatorKey() const
     return validatorKeys_.keys->publicKey;
 }
 
+//@@start clear-rng-state
 void
 RCLConsensus::Adaptor::clearRngState()
 {
+    //@@start round-stop-export-reset
     exportSigCollector().clearRound();
     if (auto const closed = ledgerMaster_.getClosedLedger())
         exportSigCollector().cleanupStale(closed->info().seq);
+    //@@end round-stop-export-reset
+    //@@start round-stop-rng-reset
     pendingCommits_.clear();
     pendingReveals_.clear();
     nodeIdToKey_.clear();
@@ -1779,12 +1801,14 @@ RCLConsensus::Adaptor::clearRngState()
     likelyParticipants_.clear();
     commitProofs_.clear();
     proposalProofs_.clear();
+    //@@end round-stop-rng-reset
     // Keep the round-level enable latch intact here. Consensus::startRound()
     // calls preStartRound() first to snapshot whether RNG is enabled for the
     // upcoming round, then immediately clears per-round working state.
     // Resetting rngEnabledThisRound_ here would wipe that snapshot before
     // phaseEstablish() can consult it.
 }
+//@@end clear-rng-state
 
 void
 RCLConsensus::Adaptor::cacheUNLReport()
@@ -1838,6 +1862,7 @@ RCLConsensus::Adaptor::isUNLReportMember(NodeID const& nodeId) const
     return unlReportNodeIds_.count(nodeId) > 0;
 }
 
+//@@start is-sidecar-set
 bool
 RCLConsensus::Adaptor::isRngSet(uint256 const& hash) const
 {
@@ -1849,12 +1874,16 @@ RCLConsensus::Adaptor::isRngSet(uint256 const& hash) const
         return true;
     return pendingRngFetches_.count(hash) > 0;
 }
+//@@end is-sidecar-set
 
+//@@start handle-acquired-sidecar
+//@@start handle-acquired-sidecar-entry
 void
 RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
 {
     auto const hash = map->getHash().as_uint256();
     pendingRngFetches_.erase(hash);
+    //@@end handle-acquired-sidecar-entry
 
     JLOG(j_.debug()) << "RNGFETCH: handle acquired hash=" << hash
                      << " pending-after-erase=" << pendingRngFetches_.size();
@@ -2177,6 +2206,7 @@ RCLConsensus::Adaptor::handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map)
                     << (isCommitSet ? "commitSet" : "entropySet")
                     << " hash=" << hash;
 }
+//@@end handle-acquired-sidecar
 
 void
 RCLConsensus::Adaptor::fetchRngSetIfNeeded(std::optional<uint256> const& hash)
@@ -2336,6 +2366,7 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
         // TBD (2026-03-03): revisit only with stronger evidence that explicit
         // publication can be made stable under tx-bearing, lossy networks.
 
+        //@@start rng-inject-pseudotx-core
         // Account Zero convention for pseudo-transactions (same as ttFEE, etc)
         auto const entropyCount = static_cast<std::uint16_t>(
             app_.config().standalone()
@@ -2365,11 +2396,14 @@ RCLConsensus::Adaptor::injectEntropyPseudoTx(
         {
             retriableTxs.insert(std::make_shared<STTx>(std::move(tx)));
         }
+        //@@end rng-inject-pseudotx-core
     }
     //@@end rng-inject-pseudotx
 
+    //@@start accept-time-cleanup-success
     // Reset RNG state for next round
     clearRngState();
+    //@@end accept-time-cleanup-success
 }
 
 void
@@ -2418,6 +2452,7 @@ RCLConsensus::Adaptor::harvestRngData(
     // Store nodeId -> publicKey mapping for deterministic ordering
     nodeIdToKey_.insert_or_assign(nodeId, publicKey);
 
+    //@@start rng-harvest-commit
     // Harvest commitment if present
     if (position.myCommitment)
     {
@@ -2446,7 +2481,9 @@ RCLConsensus::Adaptor::harvestRngData(
                              << *position.myCommitment;
         }
     }
+    //@@end rng-harvest-commit
 
+    //@@start rng-harvest-reveal-verification
     // Harvest reveal if present — verify it matches the stored commitment
     if (position.myReveal)
     {
@@ -2493,6 +2530,7 @@ RCLConsensus::Adaptor::harvestRngData(
                              << *position.myReveal;
         }
     }
+    //@@end rng-harvest-reveal-verification
     //@@end rng-harvest-trust-and-reveal-verification
 
     // Store proposal proofs for embedding in SHAMap entries.

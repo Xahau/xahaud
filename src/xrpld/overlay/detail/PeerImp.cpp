@@ -1793,6 +1793,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     JLOG(p_journal_.trace())
         << "Proposal: " << (isTrusted ? "trusted" : "untrusted");
 
+    //@@start peer-harvest-export-sigs
     // Harvest export signatures from the proposal.
     // Only accept sigs from validators we trust (UNL membership check).
     if (isTrusted && set.exportsignatures_size() > 0)
@@ -1830,6 +1831,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
             }
         }
     }
+    //@@end peer-harvest-export-sigs
 
     auto proposal = RCLCxPeerPos(
         publicKey,

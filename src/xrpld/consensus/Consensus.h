@@ -2161,6 +2161,7 @@ Consensus<Adaptor>::phaseEstablish(
 
                 commitHashConflictStart_ = {};
 
+                //@@start rng-reveal-transition
                 auto newPos = result_->position.position();
                 newPos.myReveal = adaptor_.getEntropySecret();
 
@@ -2171,6 +2172,7 @@ Consensus<Adaptor>::phaseEstablish(
                     adaptor_.propose(result_->position);
 
                 estState_ = EstablishState::ConvergingReveal;
+                //@@end rng-reveal-transition
                 revealPhaseStart_ = std::chrono::steady_clock::now();
                 JLOG(j_.debug()) << "RNG: transitioned to ConvergingReveal"
                                  << " reveal=" << adaptor_.getEntropySecret();
@@ -2477,6 +2479,7 @@ Consensus<Adaptor>::phaseEstablish(
         {
             if (adaptor_.hasPendingExportSigs())
             {
+                //@@start export-publish-sigset-hash
                 auto const buildSeqExport =
                     previousLedger_.seq() + typename Ledger_t::Seq{1};
                 auto const exportHash =
@@ -2498,7 +2501,9 @@ Consensus<Adaptor>::phaseEstablish(
                     JLOG(j_.debug())
                         << "Export: published exportSigSetHash=" << exportHash;
                 }
+                //@@end export-publish-sigset-hash
 
+                //@@start export-sigset-conflict-wait
                 // Check peer agreement on exportSigSetHash.
                 // If any tx-converged peer has a different non-empty hash,
                 // wait briefly for fetch/merge to resolve it.
@@ -2546,6 +2551,7 @@ Consensus<Adaptor>::phaseEstablish(
                                "proceeding (exports will retry next round)";
                     }
                 }
+                //@@end export-sigset-conflict-wait
             }
         }
     }
@@ -2651,6 +2657,7 @@ Consensus<Adaptor>::phaseEstablish(
         }
     }
 
+    //@@start consensus-accept-handoff
     prevProposers_ = currPeerPositions_.size();
     prevRoundTime_ = result_->roundTime.read();
     phase_ = ConsensusPhase::accepted;
@@ -2663,6 +2670,7 @@ Consensus<Adaptor>::phaseEstablish(
         mode_.get(),
         getJson(true),
         adaptor_.validating());
+    //@@end consensus-accept-handoff
 }
 
 template <class Adaptor>

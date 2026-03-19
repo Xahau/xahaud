@@ -14,10 +14,12 @@ namespace ripple {
 /// Tracks which validators have "signed" each pending export, and
 /// which exports we've already attached our own sig to (so we don't
 /// redundantly re-send on every proposal).
+//@@start export-sig-collector-mutex
 /// Thread-safe.
 class ExportSigCollector
 {
     mutable std::mutex mutex_;
+    //@@end export-sig-collector-mutex
 
     struct SigEntry
     {
