@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
+#include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/consensus/RCLValidations.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
-#include <xrpld/app/misc/ExportSigCollector.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NetworkOPs.h>
@@ -1794,43 +1794,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         << "Proposal: " << (isTrusted ? "trusted" : "untrusted");
 
     //@@start peer-harvest-export-sigs
-    // Harvest export signatures from the proposal.
-    // Only accept sigs from validators we trust (UNL membership check).
-    if (isTrusted && set.exportsignatures_size() > 0)
-    {
-        for (int i = 0; i < set.exportsignatures_size(); ++i)
-        {
-            auto const& blob = set.exportsignatures(i);
-            // Each entry: txnHash (32) + validator pubkey (33) + sig (var)
-            if (blob.size() >= 65)
-            {
-                uint256 txHash;
-                std::memcpy(txHash.data(), blob.data(), 32);
-                auto const fullSlice = makeSlice(blob);
-                auto const pkSlice = fullSlice.substr(32, 33);
-                if (auto const pkType = publicKeyType(pkSlice))
-                {
-                    PublicKey const valPK{pkSlice};
-                    // Verify the claimed pubkey is a trusted validator.
-                    if (app_.validators().trusted(valPK))
-                    {
-                        if (blob.size() > 65)
-                        {
-                            // Has a real multisign signature attached.
-                            auto const sigSlice = fullSlice.substr(65);
-                            Buffer sigBuf(sigSlice.data(), sigSlice.size());
-                            exportSigCollector().addSignature(
-                                txHash, valPK, sigBuf);
-                        }
-                        else
-                        {
-                            exportSigCollector().addSignature(txHash, valPK);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    if (isTrusted)
+        app_.getConsensusExtensions().onTrustedPeerMessage(set);
     //@@end peer-harvest-export-sigs
 
     auto proposal = RCLCxPeerPos(

@@ -149,14 +149,6 @@ public:
     }
 };
 
-/// Global instance. In production this would be owned by Application.
-inline ExportSigCollector&
-exportSigCollector()
-{
-    static ExportSigCollector instance;
-    return instance;
-}
-
 }  // namespace ripple
 
 #endif

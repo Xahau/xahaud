@@ -62,6 +62,7 @@ using SLE = STLedgerEntry;
 using CachedSLEs = TaggedCache<uint256, SLE const>;
 
 class CollectorManager;
+class ConsensusExtensions;
 class Family;
 class RuntimeConfig;
 class HashRouter;
@@ -218,6 +219,8 @@ public:
     getLedgerCleaner() = 0;
     virtual LedgerReplayer&
     getLedgerReplayer() = 0;
+    virtual ConsensusExtensions&
+    getConsensusExtensions() = 0;
     virtual NetworkOPs&
     getOPs() = 0;
     virtual OrderBookDB&

@@ -20,6 +20,7 @@
 #ifndef RIPPLE_APP_CONSENSUS_RCLCONSENSUS_H_INCLUDED
 #define RIPPLE_APP_CONSENSUS_RCLCONSENSUS_H_INCLUDED
 
+#include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/consensus/RCLCensorshipDetector.h>
 #include <xrpld/app/consensus/RCLCxLedger.h>
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
@@ -97,51 +98,8 @@ class RCLConsensus
         RCLCensorshipDetector<TxID, LedgerIndex> censorshipDetector_;
         NegativeUNLVote nUnlVote_;
 
-        // --- RNG Pipelined Storage ---
-        hash_map<NodeID, uint256> pendingCommits_;
-        hash_map<NodeID, uint256> pendingReveals_;
-        hash_map<NodeID, PublicKey> nodeIdToKey_;
-
-        // Ephemeral entropy secret (in-memory only, crash = non-revealer)
-        uint256 myEntropySecret_;
-        bool entropyFailed_ = false;
-        bool rngEnabledThisRound_ = false;
-
-        // Real SHAMaps for the current round (unbacked, ephemeral)
-        std::shared_ptr<SHAMap> commitSetMap_;
-        std::shared_ptr<SHAMap> entropySetMap_;
-        std::shared_ptr<SHAMap> exportSigSetMap_;
-        std::optional<LedgerIndex> rngRoundSeq_;
-
-        // Track pending RNG set hashes we've triggered fetches for
-        hash_set<uint256> pendingRngFetches_;
-
-        // Cached set of NodeIDs from UNL Report (or fallback UNL)
-        hash_set<NodeID> unlReportNodeIds_;
-
-        // Recent proposers from the prior round, intersected with the active
-        // UNL. This is a liveness hint only: it helps diagnostics and bounded
-        // waiting decisions, but it must not redefine the fixed entropy quorum
-        // for the round.
-        hash_set<NodeID> likelyParticipants_;
-
-        /** Proof data from a proposal signature, for embedding in SHAMap
-            entries. Contains everything needed to independently verify
-            that a validator committed/revealed a specific value. */
-        struct ProposalProof
-        {
-            std::uint32_t proposeSeq;
-            std::uint32_t closeTime;
-            uint256 prevLedger;
-            Serializer positionData;  // serialized ExtendedPosition
-            Buffer signature;
-        };
-
-        // Proposal proofs keyed by NodeID.
-        // commitProofs_: only seq=0 proofs (deterministic across all nodes).
-        // proposalProofs_: latest proof with reveal (for entropySet).
-        hash_map<NodeID, ProposalProof> commitProofs_;
-        hash_map<NodeID, ProposalProof> proposalProofs_;
+        // RNG/Export state has moved to ConsensusExtensions
+        // (owned by Application, accessible via app_.getConsensusExtensions())
 
     public:
         using Ledger_t = RCLCxLedger;
@@ -235,196 +193,13 @@ class RCLConsensus
             return parms_;
         }
 
-        // --- RNG Helper Methods ---
+        // --- ConsensusExtensions access ---
 
-        /** Fixed commit quorum for non-zero entropy.
+        ConsensusExtensions&
+        ce();
 
-            This is always 80% of the active UNL snapshot for the round
-            (rounded up). Recent proposers do not change this threshold.
-        */
-        std::size_t
-        quorumThreshold() const;
-
-        /** Cache likely participants for this round's wait heuristics.
-
-            Recent proposers are the best hint for who is actually online, so
-            we retain them for diagnostics and "is it worth waiting longer?"
-            decisions. This set does not change the quorum required for
-            non-zero entropy.
-        */
-        void
-        setExpectedProposers(hash_set<NodeID> proposers);
-
-        /** Number of pending commits (for timeout fallback check) */
-        std::size_t
-        pendingCommitCount() const;
-
-        /** Number of pending reveals (for diagnostics) */
-        std::size_t
-        pendingRevealCount() const;
-
-        /** Number of likely participants this round (diagnostics only) */
-        std::size_t
-        expectedProposerCount() const;
-
-        /** Check if fixed commit quorum has been reached */
-        bool
-        hasQuorumOfCommits() const;
-
-        /** Check if we have minimum reveals for consensus */
-        bool
-        hasMinimumReveals() const;
-
-        /** Check if we have any reveals at all */
-        bool
-        hasAnyReveals() const;
-
-        /** True when entropy should fall back to zero.
-         *
-         *  Covers: pipeline failure, no reveals, or sub-quorum reveals.
-         */
-        bool
-        shouldZeroEntropy() const;
-
-        /** Whether ConsensusEntropy is enabled for the current round.
-
-            Latched from the previous ledger's rules at round start so the
-            generic consensus engine can skip RNG-specific waiting paths when
-            the amendment is inactive.
-        */
-        bool
-        rngEnabled() const;
-
-        /** Whether bootstrap fast start is enabled via runtime config/env. */
-        bool
-        bootstrapFastStartEnabled() const;
-
-        /** Whether to send an explicit final proposal (seq=4 style). */
-        bool
-        shouldSendExplicitFinalProposal() const;
-
-        /** Build synthetic tx-set that includes consensus-entropy pseudo-tx.
-
-            Used only for optional explicit-final-proposal experiments. This
-           does not mutate RNG state.
-        */
-        std::optional<RCLTxSet>
-        buildExplicitFinalProposalTxSet(RCLTxSet const& txns, LedgerIndex seq);
-
-        /** Build real SHAMap from collected commits, register for fetch.
-            @param seq The ledger sequence being built
-            @return The SHAMap root hash (commitSetHash)
-        */
-        uint256
-        buildCommitSet(LedgerIndex seq);
-
-        /** Build real SHAMap from collected reveals, register for fetch.
-            @param seq The ledger sequence being built
-            @return The SHAMap root hash (entropySetHash)
-        */
-        uint256
-        buildEntropySet(LedgerIndex seq);
-
-        /** Build SHAMap from collected export sigs, register for fetch.
-            Only called when both featureConsensusEntropy and featureExport
-            are enabled.
-            @param seq The ledger sequence being built
-            @return The SHAMap root hash (exportSigSetHash)
-        */
-        uint256
-        buildExportSigSet(LedgerIndex seq);
-
-        /** Check if there are pending export sigs that need convergence. */
-        bool
-        hasPendingExportSigs() const;
-
-        /** Check if a hash is a known RNG set (commitSet or entropySet) */
-        bool
-        isRngSet(uint256 const& hash) const;
-
-        /** Handle an acquired RNG set — diff, merge missing entries */
-        void
-        handleAcquiredRngSet(std::shared_ptr<SHAMap> const& map);
-
-        /** Trigger fetch for a peer's unknown RNG set hash */
-        void
-        fetchRngSetIfNeeded(std::optional<uint256> const& hash);
-
-        /** Cache the active UNL NodeIDs for this round.
-            Reads from UNL Report (in-ledger), falls back to normal UNL.
-        */
-        void
-        cacheUNLReport();
-
-        /** Check if a NodeID is in the active UNL for this round */
-        bool
-        isUNLReportMember(NodeID const& nodeId) const;
-
-        /** Generate new entropy secret for this round */
-        void
-        generateEntropySecret();
-
-        /** Get the current entropy secret */
-        uint256
-        getEntropySecret() const;
-
-        /** Mark entropy as failed for this round */
-        void
-        setEntropyFailed();
-
-        /** Get our validator public key */
-        PublicKey const&
-        validatorKey() const;
-
-        /** Clear RNG state for new round */
-        void
-        clearRngState();
-
-        /** Inject consensus entropy pseudo-transaction into the tx set.
-
-            Creates a ttCONSENSUS_ENTROPY pseudo-transaction from collected
-            reveals and injects it into the transaction set. This must be
-            called before buildLCL so the entropy is written to the ledger.
-
-            @param retriableTxs The canonical transaction set to inject into
-            @param seq The ledger sequence being built
-        */
-        void
-        injectEntropyPseudoTx(CanonicalTXSet& retriableTxs, LedgerIndex seq);
-
-        /** Harvest RNG data from a peer proposal.
-
-            Extracts commits and reveals from the proposal's ExtendedPosition
-            and stores them in pending collections for later processing.
-            Also captures a ProposalProof for embedding in SHAMap entries.
-        */
-        void
-        harvestRngData(
-            NodeID const& nodeId,
-            PublicKey const& publicKey,
-            ExtendedPosition const& position,
-            std::uint32_t proposeSeq,
-            NetClock::time_point closeTime,
-            uint256 const& prevLedger,
-            Slice const& signature);
-
-        /** Serialize a ProposalProof into a blob for sfBlob */
-        static Blob
-        serializeProof(ProposalProof const& proof);
-
-        /** Deserialize a ProposalProof blob from sfBlob.
-            @return Parsed proof or std::nullopt if malformed. */
-        static std::optional<ProposalProof>
-        deserializeProof(Blob const& proofBlob);
-
-        /** Verify a proof blob against the entry's public key and digest.
-            @return true if the proof is valid */
-        static bool
-        verifyProof(
-            Blob const& proofBlob,
-            PublicKey const& publicKey,
-            uint256 const& expectedDigest,
-            bool isCommit);
+        ConsensusExtensions const&
+        ce() const;
 
     private:
         //---------------------------------------------------------------------
@@ -722,24 +497,24 @@ public:
     ConsensusPhase
     phase() const;
 
-    //! @see Consensus::inRngSubState
+    //! Whether extensions have pending sub-state work in establish
     bool
-    inRngSubState() const;
+    extensionsBusy() const;
 
-    //! Check if a hash is a known RNG set (commitSet or entropySet)
+    //! Check if hash is a known extension sidecar set (under mutex)
     bool
-    isRngSet(uint256 const& hash) const
+    isExtensionSet(uint256 const& hash) const
     {
         std::lock_guard _{mutex_};
-        return adaptor_.isRngSet(hash);
+        return adaptor_.ce().isSidecarSet(hash);
     }
 
-    //! Handle an acquired RNG set from InboundTransactions
+    //! Route acquired extension sidecar set (under mutex)
     void
-    gotRngSet(std::shared_ptr<SHAMap> const& map)
+    gotExtensionSet(std::shared_ptr<SHAMap> const& map)
     {
         std::lock_guard _{mutex_};
-        adaptor_.handleAcquiredRngSet(map);
+        adaptor_.ce().onAcquiredSidecarSet(map);
     }
 
     //! @see Consensus::getJson

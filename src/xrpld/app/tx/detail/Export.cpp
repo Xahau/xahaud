@@ -1,4 +1,4 @@
-#include <xrpld/app/misc/ExportSigCollector.h>
+#include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/detail/Export.h>
@@ -135,7 +135,9 @@ Export::doApply()
             threshold = calculateQuorumThreshold(unlSize);
         else
             threshold = unlSize;
-        auto const sigCount = exportSigCollector().signatureCount(txId);
+        auto const sigCount = ctx_.app.getConsensusExtensions()
+                                  .exportSigCollector()
+                                  .signatureCount(txId);
 
         if (sigCount < threshold)
         {
@@ -159,7 +161,9 @@ Export::doApply()
                 auto const lls = ctx_.tx.getFieldU32(sfLastLedgerSequence);
                 if (currentSeq >= lls)
                 {
-                    exportSigCollector().clear(txId);
+                    ctx_.app.getConsensusExtensions()
+                        .exportSigCollector()
+                        .clear(txId);
                     JLOG(j_.info()) << "Export: LLS expired at ledger "
                                     << currentSeq << " sigs=" << sigCount << "/"
                                     << threshold << " -> tecEXPORT_EXPIRED";
@@ -216,7 +220,9 @@ Export::doApply()
     {
         // Network mode: collect real signatures from peers
         // via ExportSigCollector (populated from proposals).
-        auto const allSigs = exportSigCollector().snapshotWithSigs();
+        auto const allSigs = ctx_.app.getConsensusExtensions()
+                                 .exportSigCollector()
+                                 .snapshotWithSigs();
         auto it = allSigs.find(txId);
 
         if (it != allSigs.end())
@@ -293,7 +299,7 @@ Export::doApply()
     avi->setExportResultMetaData(std::move(exportResult));
 
     // Clean up the collector.
-    exportSigCollector().clear(txId);
+    ctx_.app.getConsensusExtensions().exportSigCollector().clear(txId);
 
     JLOG(j_.info()) << "Export: success at ledger " << currentSeq
                     << (ctx_.app.config().standalone() ? " (standalone)"

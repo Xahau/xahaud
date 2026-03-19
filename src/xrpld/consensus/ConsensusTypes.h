@@ -20,14 +20,45 @@
 #ifndef RIPPLE_CONSENSUS_CONSENSUS_TYPES_H_INCLUDED
 #define RIPPLE_CONSENSUS_CONSENSUS_TYPES_H_INCLUDED
 
+#include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/consensus/ConsensusProposal.h>
 #include <xrpld/consensus/DisputedTx.h>
 #include <xrpl/basics/chrono.h>
+#include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/Protocol.h>
 #include <chrono>
+#include <functional>
 #include <map>
 #include <type_traits>
 
 namespace ripple {
+
+/** Sub-states for pipelined consensus with RNG entropy support.
+
+    The establish phase is divided into sub-states to support commit-reveal
+    for consensus-derived randomness while maintaining low latency through
+    pipelining.
+
+    @note Data collection (commits, reveals) happens continuously via proposal
+          leaves. Sub-states are checkpoints, not serial waits.
+
+    @note Convergence model: commitSet and entropySet use UNION convergence,
+          not avalanche voting. This is sufficient because:
+          - Each validator contributes exactly one deterministic entry
+          - Entries are piggybacked on proposals (already reliably propagated)
+          - There is no disagreement about inclusion — every valid entry belongs
+          - The only source of difference between nodes is timing
+          - Union is monotonic (sets only grow) and bounded (one per UNL member)
+          - SHAMap fetch/diff/merge handles late arrivals as a safety net
+          Avalanche is needed when nodes disagree about what to include/exclude
+          (e.g. disputed user transactions). For RNG sets, all honest nodes
+          want the same thing — include everything — so union suffices.
+*/
+enum class EstablishState {
+    ConvergingTx,      ///< Normal txset convergence + harvesting commits
+    ConvergingCommit,  ///< Confirming commitSet agreement (near-instant)
+    ConvergingReveal   ///< Collecting reveals + confirming entropySet
+};
 
 template <
     class PeerPosition,
@@ -267,6 +298,43 @@ struct ConsensusResult
     // The number of peers proposing during the round
     std::size_t proposers = 0;
 };
+/// Result returned by extension tick to communicate side effects.
+struct ExtensionTickResult
+{
+    bool readyForAccept = false;
+};
+
+/// Snapshot of consensus state passed to extension tick handlers.
+/// Templated on the concrete position/peer/txset types so it can
+/// live in the generic consensus layer.
+template <
+    class Position,
+    class PeerPosition,
+    class TxSet,
+    class NodeID_t = NodeID,
+    class Seq_t = LedgerIndex>
+struct ConsensusTick
+{
+    Seq_t buildSeq;
+    NetClock::time_point now;
+    std::chrono::steady_clock::time_point nowSteady;
+    std::chrono::milliseconds roundTime;
+    ConsensusMode mode;
+    std::size_t prevProposers;
+    hash_map<NodeID_t, PeerPosition> const& peerPositions;
+    ConsensusParms const& parms;
+    bool haveCloseTimeConsensus;
+    int convergePercent;
+    beast::Journal j;
+
+    std::function<Position const&()> getPosition;
+    std::function<void(Position const&)> updatePosition;
+    std::function<void()> propose;
+    std::function<bool()> haveConsensus;
+    std::function<void(TxSet const&)> cacheAndShareTxSet;
+    std::function<TxSet const&()> getTxns;
+};
+
 }  // namespace ripple
 
 #endif

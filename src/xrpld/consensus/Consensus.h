@@ -40,33 +40,6 @@
 
 namespace ripple {
 
-/** Sub-states for pipelined consensus with RNG entropy support.
-
-    The establish phase is divided into sub-states to support commit-reveal
-    for consensus-derived randomness while maintaining low latency through
-    pipelining.
-
-    @note Data collection (commits, reveals) happens continuously via proposal
-          leaves. Sub-states are checkpoints, not serial waits.
-
-    @note Convergence model: commitSet and entropySet use UNION convergence,
-          not avalanche voting. This is sufficient because:
-          - Each validator contributes exactly one deterministic entry
-          - Entries are piggybacked on proposals (already reliably propagated)
-          - There is no disagreement about inclusion — every valid entry belongs
-          - The only source of difference between nodes is timing
-          - Union is monotonic (sets only grow) and bounded (one per UNL member)
-          - SHAMap fetch/diff/merge handles late arrivals as a safety net
-          Avalanche is needed when nodes disagree about what to include/exclude
-          (e.g. disputed user transactions). For RNG sets, all honest nodes
-          want the same thing — include everything — so union suffices.
-*/
-enum class EstablishState {
-    ConvergingTx,      ///< Normal txset convergence + harvesting commits
-    ConvergingCommit,  ///< Confirming commitSet agreement (near-instant)
-    ConvergingReveal   ///< Collecting reveals + confirming entropySet
-};
-
 /** Determines whether the current ledger should close at this time.
 
     This function should be called when a ledger is open and there is no close
@@ -332,7 +305,7 @@ class Consensus
     using Position_t = typename Adaptor::Position_t;
     using Tx_t = typename TxSet_t::Tx;
     using PeerPosition_t = typename Adaptor::PeerPosition_t;
-    // Use Adaptor::Position_t for RNG support (ExtendedPosition)
+    // Use Adaptor::Position_t (may carry extension sidecar fields)
     using Proposal_t =
         ConsensusProposal<NodeID_t, typename Ledger_t::ID, Position_t>;
 
@@ -421,16 +394,15 @@ public:
         NetClock::time_point const& now,
         std::unique_ptr<std::stringstream> const& clog = {});
 
-    /** Whether the RNG sub-state machine wants faster polling.
-
-        Returns true during ConvergingCommit and ConvergingReveal so the
-        heartbeat timer can use a shorter interval (e.g. 250ms) instead
-        of the normal ledgerGRANULARITY (1s).
+    /** Whether extensions have pending sub-state work that benefits
+        from faster polling (e.g. 250ms instead of ledgerGRANULARITY).
     */
     bool
-    inRngSubState() const
+    extensionsBusy() const
     {
-        return estState_ != EstablishState::ConvergingTx;
+        if constexpr (requires(Adaptor const& a) { a.ce(); })
+            return adaptor_.ce().extensionsBusy();
+        return false;
     }
 
     /** Process a transaction set acquired from the network
@@ -583,20 +555,6 @@ private:
     bool
     haveConsensus(std::unique_ptr<std::stringstream> const& clog);
 
-    /** Detect conflicting non-empty commitSetHash values among tx-converged
-        positions in the current round.
-
-        Rationale:
-        - Base consensus equality intentionally ignores RNG sidecar fields so
-          tx-set convergence remains fast and deadlock-free.
-        - That means ConvergingCommit must do its own conflict detection before
-          moving to reveal.
-        - We only care about *conflicting non-empty* hashes; missing hashes are
-          transitional and are handled by short bounded waiting.
-    */
-    bool
-    hasConflictingCommitSetHashes() const;
-
     // Create disputes between our position and the provided one.
     void
     createDisputes(
@@ -621,12 +579,13 @@ private:
     Adaptor& adaptor_;
 
     ConsensusPhase phase_{ConsensusPhase::accepted};
-    EstablishState estState_{EstablishState::ConvergingTx};
-    std::chrono::steady_clock::time_point revealPhaseStart_{};
-    std::chrono::steady_clock::time_point commitHashConflictStart_{};
-    bool explicitFinalProposalSent_{false};
+    // Extension sub-state members owned by ConsensusExtensions
     MonitoredMode mode_{ConsensusMode::observing};
     bool firstRound_ = true;
+    // Bootstrap fast-start is a separate Xahau feature that accelerates
+    // initial round timing. It lives here (not in ConsensusExtensions)
+    // because it modifies generic consensus timing parameters (prevRoundTime,
+    // idleInterval, ledgerMAX_CONSENSUS) rather than extension-specific state.
     bool bootstrapFastStart_ = false;
     std::size_t consecutiveStableRounds_ = 0;
     bool haveCloseTimeConsensus_ = false;
@@ -721,13 +680,9 @@ Consensus<Adaptor>::startRound(
     {
         // Check bootstrap fast start on first round entry.  This reads the
         // adaptor once (startup config / env var), not on every round.
-        if constexpr (requires(Adaptor const& a) {
-                          {
-                              a.bootstrapFastStartEnabled()
-                          } -> std::same_as<bool>;
-                      })
+        if constexpr (requires(Adaptor const& a) { a.ce(); })
         {
-            bootstrapFastStart_ = adaptor_.bootstrapFastStartEnabled();
+            bootstrapFastStart_ = adaptor_.ce().bootstrapFastStartEnabled();
         }
 
         // take our initial view of closeTime_ from the seed ledger
@@ -801,9 +756,7 @@ Consensus<Adaptor>::startRoundInternal(
     // Capture last round's proposer IDs before clearing — this is the
     // best signal for who will propose this round.
     hash_set<NodeID_t> lastProposers;
-    if constexpr (requires(Adaptor& a) {
-                      a.setExpectedProposers(hash_set<NodeID_t>{});
-                  })
+    if constexpr (requires(Adaptor& a) { a.ce(); })
     {
         for (auto const& [id, pos] : currPeerPositions_)
             lastProposers.insert(id);
@@ -815,25 +768,9 @@ Consensus<Adaptor>::startRoundInternal(
     rawCloseTimes_.self = {};
     deadNodes_.clear();
 
-    // Reset RNG state for new round if adaptor supports it
-    if constexpr (requires(Adaptor& a) { a.clearRngState(); })
-    {
-        adaptor_.clearRngState();
-        // Populate UNL cache for all nodes (including observers).
-        // onClose only caches for proposing validators, so observers
-        // would otherwise have an empty set and reject all RNG data.
-        adaptor_.cacheUNLReport();
-        // Cache likely participants for liveness diagnostics and bounded
-        // waiting. This must not change the fixed entropy quorum for the
-        // round, which stays tied to the active UNL snapshot.
-        adaptor_.setExpectedProposers(std::move(lastProposers));
-    }
-
-    // Reset establish sub-state for new round
-    estState_ = EstablishState::ConvergingTx;
-    revealPhaseStart_ = {};
-    commitHashConflictStart_ = {};
-    explicitFinalProposalSent_ = false;
+    // Reset extension state for new round
+    if constexpr (requires(Adaptor& a) { a.ce(); })
+        adaptor_.ce().onRoundStart(previousLedger_, std::move(lastProposers));
 
     closeResolution_ = getNextLedgerTimeResolution(
         previousLedger_.closeTimeResolution(),
@@ -949,23 +886,11 @@ Consensus<Adaptor>::peerProposalInternal(
         }
     }
 
-    // Harvest RNG data from proposal if adaptor supports it
-    if constexpr (requires(Adaptor& a, PeerPosition_t const& pp) {
-                      a.harvestRngData(
-                          pp.proposal().nodeID(),
-                          pp.publicKey(),
-                          pp.proposal().position(),
-                          pp.proposal().proposeSeq(),
-                          pp.proposal().closeTime(),
-                          pp.proposal().prevLedger(),
-                          pp.signature());
-                  })
+    // Notify extensions of the new peer proposal
+    if constexpr (requires(Adaptor& a) { a.ce(); })
     {
-        JLOG(j_.trace()) << "RNG: peerProposal from " << peerID << " commit="
-                         << (newPeerProp.position().myCommitment ? "yes" : "no")
-                         << " reveal="
-                         << (newPeerProp.position().myReveal ? "yes" : "no");
-        adaptor_.harvestRngData(
+        auto& ce = adaptor_.ce();
+        ce.onTrustedPeerProposal(
             peerID,
             newPeerPos.publicKey(),
             newPeerProp.position(),
@@ -974,67 +899,8 @@ Consensus<Adaptor>::peerProposalInternal(
             newPeerProp.prevLedger(),
             newPeerPos.signature());
 
-        // Trigger fetch for unknown RNG set hashes, but only once we've
-        // built our own local set for diffing.  During ConvergingTx all
-        // data arrives via proposal leaves — fetching a peer's commitSet
-        // before we have our own just generates unnecessary traffic.
-        //
-        // IMPORTANT: SHAMap fetch/diff/merge is a safety net for the
-        // case where active proposers have slightly different commit/reveal
-        // sets due to dropped proposals.  It does NOT help late-joining nodes:
-        // a node that restarts mid-round enters as proposing=false and cannot
-        // generate commitments (onClose gates on proposing). It must observe
-        // for at least one full round before consensus promotes it to
-        // proposing.
-        //
-        // The primary data transport is proposals themselves; SHAMap sync is
-        // belt-and-suspenders. If we ever choose to optimize by reducing
-        // entropySet proposal fanout and just tolerate occasional sync churn,
-        // reassess whether this SHAMap side-channel complexity is still worth
-        // carrying.
-        if constexpr (requires(Adaptor& a) {
-                          a.fetchRngSetIfNeeded(std::optional<uint256>{});
-                      })
-        {
-            if (estState_ != EstablishState::ConvergingTx)
-            {
-                if (newPeerProp.position().commitSetHash)
-                {
-                    JLOG(j_.trace())
-                        << "RNGFETCH: consider commitSet hash="
-                        << *newPeerProp.position().commitSetHash << " state="
-                        << (estState_ == EstablishState::ConvergingCommit
-                                ? "ConvergingCommit"
-                                : "ConvergingReveal");
-                }
-                adaptor_.fetchRngSetIfNeeded(
-                    newPeerProp.position().commitSetHash);
-            }
-            else if (newPeerProp.position().commitSetHash)
-            {
-                JLOG(j_.trace()) << "RNGFETCH: defer commitSet hash="
-                                 << *newPeerProp.position().commitSetHash
-                                 << " reason=state ConvergingTx";
-            }
-
-            if (estState_ == EstablishState::ConvergingReveal)
-            {
-                if (newPeerProp.position().entropySetHash)
-                {
-                    JLOG(j_.trace()) << "RNGFETCH: consider entropySet hash="
-                                     << *newPeerProp.position().entropySetHash
-                                     << " state=ConvergingReveal";
-                }
-                adaptor_.fetchRngSetIfNeeded(
-                    newPeerProp.position().entropySetHash);
-            }
-            else if (newPeerProp.position().entropySetHash)
-            {
-                JLOG(j_.trace()) << "RNGFETCH: defer entropySet hash="
-                                 << *newPeerProp.position().entropySetHash
-                                 << " reason=state not ConvergingReveal";
-            }
-        }
+        if (ce.extensionsBusy())
+            ce.fetchSidecarsIfNeeded(newPeerProp.position());
     }
 
     if (newPeerProp.isInitial())
@@ -1273,63 +1139,9 @@ Consensus<Adaptor>::getJson(bool full) const
             ret["dead_nodes"] = std::move(dnj);
         }
 
-        // RNG state (when adaptor supports it)
-        if constexpr (requires(Adaptor& a) {
-                          a.hasQuorumOfCommits();
-                          a.buildCommitSet(typename Ledger_t::Seq{});
-                          a.generateEntropySecret();
-                      })
-        {
-            Json::Value rng(Json::objectValue);
-
-            bool rngEnabled = true;
-            if constexpr (requires(Adaptor& a) { a.rngEnabled(); })
-                rngEnabled = adaptor_.rngEnabled();
-
-            rng["enabled"] = rngEnabled;
-
-            auto estStateName = [&]() -> char const* {
-                switch (estState_)
-                {
-                    case EstablishState::ConvergingTx:
-                        return "ConvergingTx";
-                    case EstablishState::ConvergingCommit:
-                        return "ConvergingCommit";
-                    case EstablishState::ConvergingReveal:
-                        return "ConvergingReveal";
-                }
-                return "Unknown";
-            };
-            rng["est_state"] = estStateName();
-
-            if constexpr (requires(Adaptor& a) {
-                              a.pendingCommitCount();
-                              a.quorumThreshold();
-                              a.hasQuorumOfCommits();
-                              a.hasMinimumReveals();
-                              a.hasAnyReveals();
-                          })
-            {
-                rng["commits"] =
-                    static_cast<Int>(adaptor_.pendingCommitCount());
-                rng["quorum"] = static_cast<Int>(adaptor_.quorumThreshold());
-                rng["commit_quorum"] = adaptor_.hasQuorumOfCommits();
-                rng["min_reveals"] = adaptor_.hasMinimumReveals();
-                rng["any_reveals"] = adaptor_.hasAnyReveals();
-
-                if constexpr (requires(Adaptor& a) { a.pendingRevealCount(); })
-                    rng["reveals"] =
-                        static_cast<Int>(adaptor_.pendingRevealCount());
-
-                if constexpr (requires(Adaptor& a) {
-                                  a.expectedProposerCount();
-                              })
-                    rng["likely_participants"] =
-                        static_cast<Int>(adaptor_.expectedProposerCount());
-            }
-
-            ret["rng"] = std::move(rng);
-        }
+        // Extension diagnostics
+        if constexpr (requires(Adaptor& a) { a.ce(); })
+            adaptor_.ce().appendJson(ret);
     }
 
     return ret;
@@ -1740,850 +1552,51 @@ Consensus<Adaptor>::phaseEstablish(
         return;
     }
 
-    //@@start rng-phase-establish-substates
-    // --- RNG Sub-state Checkpoints (if adaptor supports RNG) ---
-    // These sub-states use union convergence (not avalanche).
-    // Commits and reveals arrive piggybacked on proposals, so by the time
-    // we reach these checkpoints most data is already collected. The
-    // SHAMap fetch/diff/merge in handleAcquiredRngSet is a safety net
-    // for stragglers, not a voting mechanism.
-    //
-    // Why 80% for commits but 100% for reveals?
-    //
-    // COMMITS: quorum is based on the active UNL, but we don't know
-    // which UNL members are actually online until they propose — and
-    // commitments ride on those same proposals.  Chicken-and-egg: we
-    // learn who's active by receiving their commits.  80% of the UNL
-    // says "we've heard from enough validators, let's go."  The
-    // impossible-quorum early-exit handles the case where too few
-    // participants exist to ever reach 80%.
-    //
-    // REVEALS: the commit set is now locked and we know *exactly* who
-    // committed.  Every committer broadcasts their reveal immediately.
-    // So we wait for ALL of them, with rngREVEAL_TIMEOUT (measured
-    // from ConvergingReveal entry) as the safety valve for nodes that
-    // crash between commit and reveal.
-    if constexpr (requires(Adaptor& a) {
-                      a.hasQuorumOfCommits();
-                      a.buildCommitSet(typename Ledger_t::Seq{});
-                      a.generateEntropySecret();
-                  })
+    // --- Extension tick ---
+    // Delegates to ConsensusExtensions::onTick() via the adaptor.
+    if constexpr (requires(Adaptor& a) { a.ce(); })
     {
-        bool rngEnabled = true;
-        if constexpr (requires(Adaptor& a) { a.rngEnabled(); })
-            rngEnabled = adaptor_.rngEnabled();
-
-        JLOG(j_.trace()) << "RNGGATE: phaseEstablish prevSeq="
-                         << previousLedger_.seq()
-                         << " rngEnabled=" << (rngEnabled ? "yes" : "no")
-                         << " estState=" << static_cast<int>(estState_)
-                         << " phase=" << to_string(phase_)
-                         << " mode=" << to_string(mode_.get())
-                         << " roundMs=" << result_->roundTime.read().count();
-
-        if (rngEnabled)
-        {
-            auto const buildSeq =
-                previousLedger_.seq() + typename Ledger_t::Seq{1};
-            auto const estStateName = [&]() -> char const* {
-                switch (estState_)
-                {
-                    case EstablishState::ConvergingTx:
-                        return "ConvergingTx";
-                    case EstablishState::ConvergingCommit:
-                        return "ConvergingCommit";
-                    case EstablishState::ConvergingReveal:
-                        return "ConvergingReveal";
-                }
-                return "Unknown";
-            };
-            auto logRngDiag = [&](char const* reason) {
-                auto const ourPos = result_->position.position();
-                auto const participants = currPeerPositions_.size() + 1;
-                JLOG(j_.debug())
-                    << "STALLDIAG: " << reason << " state=" << estStateName()
-                    << " phase=" << to_string(phase_)
-                    << " mode=" << to_string(mode_.get())
-                    << " roundMs=" << result_->roundTime.read().count()
-                    << " convergePct=" << convergePercent_
-                    << " participants=" << participants
-                    << " peerPositions=" << currPeerPositions_.size()
-                    << " prevProposers=" << prevProposers_
-                    << " explicitFinalSent="
-                    << (explicitFinalProposalSent_ ? "yes" : "no")
-                    << " closeTimeConsensus="
-                    << (haveCloseTimeConsensus_ ? "yes" : "no")
-                    << " txSet=" << ourPos;
-
-                if constexpr (requires(Position_t const& p) {
-                                  p.commitSetHash;
-                              })
-                {
-                    JLOG(j_.debug())
-                        << "STALLDIAG: sidecar"
-                        << " commitSetHash="
-                        << (ourPos.commitSetHash
-                                ? to_string(*ourPos.commitSetHash)
-                                : std::string{"none"})
-                        << " entropySetHash="
-                        << (ourPos.entropySetHash
-                                ? to_string(*ourPos.entropySetHash)
-                                : std::string{"none"})
-                        << " myCommitment="
-                        << (ourPos.myCommitment ? "yes" : "no")
-                        << " myReveal=" << (ourPos.myReveal ? "yes" : "no");
-                }
-
-                if constexpr (requires(Adaptor& a) {
-                                  a.pendingCommitCount();
-                                  a.quorumThreshold();
-                                  a.hasQuorumOfCommits();
-                                  a.hasMinimumReveals();
-                                  a.hasAnyReveals();
-                              })
-                {
-                    auto const commits = adaptor_.pendingCommitCount();
-                    auto const quorum = adaptor_.quorumThreshold();
-                    auto const commitQuorum = adaptor_.hasQuorumOfCommits();
-                    auto const minReveals = adaptor_.hasMinimumReveals();
-                    auto const anyReveals = adaptor_.hasAnyReveals();
-                    std::optional<std::size_t> reveals;
-                    std::optional<std::size_t> likelyParticipants;
-                    if constexpr (requires(Adaptor& a) {
-                                      a.pendingRevealCount();
-                                  })
-                        reveals = adaptor_.pendingRevealCount();
-                    if constexpr (requires(Adaptor& a) {
-                                      a.expectedProposerCount();
-                                  })
-                        likelyParticipants = adaptor_.expectedProposerCount();
-
-                    JLOG(j_.debug())
-                        << "STALLDIAG: rng-counters"
-                        << " commits=" << commits << " quorum=" << quorum
-                        << " commitQuorum=" << (commitQuorum ? "yes" : "no")
-                        << " reveals="
-                        << (reveals ? std::to_string(*reveals)
-                                    : std::string{"n/a"})
-                        << " minReveals=" << (minReveals ? "yes" : "no")
-                        << " anyReveals=" << (anyReveals ? "yes" : "no")
-                        << " likelyParticipants="
-                        << (likelyParticipants
-                                ? std::to_string(*likelyParticipants)
-                                : std::string{"n/a"});
-                }
-            };
-            auto publishEntropySet = [&]() {
-                auto entropySetHash = adaptor_.buildEntropySet(buildSeq);
-                auto newPos = result_->position.position();
-                if (newPos.entropySetHash &&
-                    *newPos.entropySetHash == entropySetHash)
-                {
-                    JLOG(j_.debug())
-                        << "RNG: entropySet already published hash="
-                        << entropySetHash;
-                    return;
-                }
-
-                newPos.entropySetHash = entropySetHash;
-
-                result_->position.changePosition(
-                    newPos, asCloseTime(result_->position.closeTime()), now_);
-
-                // Publish entropySetHash before accepting so lagging peers
-                // can fetch/merge reveal sets in ConvergingReveal.
-                //
-                // This can look redundant in healthy rounds because txSetHash
-                // may be unchanged versus the prior proposal (for example,
-                // seq=2 and seq=3 showing the same tx summary in monitors). We
-                // still publish to create an additional delivery window for
-                // entropySetHash and to trigger fetch/merge on peers that
-                // missed earlier packets.
-                if (mode_.get() == ConsensusMode::proposing)
-                    adaptor_.propose(result_->position);
-
-                JLOG(j_.debug()) << "RNG: built entropySet";
-            };
-
-            JLOG(j_.trace()) << "RNG: phaseEstablish estState="
-                             << static_cast<int>(estState_);
-
-            // Bootstrap fast-path: if the previous round didn't have
-            // enough proposers for RNG to have succeeded, the network
-            // is still converging.  Skip the entire commit/reveal
-            // pipeline — it can only produce zero entropy anyway, but
-            // each substate transition and timeout (PIPELINE_TIMEOUT,
-            // REVEAL_TIMEOUT, conflict-wait) adds seconds of latency
-            // per round that compound across staggered startup.
-            //
-            // Once prevProposers reaches quorum the pipeline engages
-            // normally with all its coordination delays intact.
-            bool rngBootstrapSkip = false;
-            if constexpr (requires(Adaptor& a) { a.quorumThreshold(); })
-            {
-                auto const threshold = adaptor_.quorumThreshold();
-                if (prevProposers_ < threshold)
-                {
-                    JLOG(j_.debug()) << "RNG: bootstrap skip (prevProposers="
-                                     << prevProposers_
-                                     << " < threshold=" << threshold << ")";
-                    rngBootstrapSkip = true;
-                }
-            }
-
-            if (!rngBootstrapSkip && estState_ == EstablishState::ConvergingTx)
-            {
-                // Commit quorum is fixed to 80% of the active UNL snapshot for
-                // the round. We move immediately once that floor is met;
-                // recent-proposer tracking is only for deciding whether more
-                // waiting is worthwhile.
-                if (adaptor_.hasQuorumOfCommits())
-                {
-                    auto commitSetHash = adaptor_.buildCommitSet(buildSeq);
-
-                    // Keep the same entropy secret from onClose() — do NOT
-                    // regenerate.  The commitment in the commitSet was built
-                    // from that original secret; regenerating would make the
-                    // later reveal fail verification.
-                    auto newPos = result_->position.position();
-                    newPos.commitSetHash = commitSetHash;
-
-                    result_->position.changePosition(
-                        newPos,
-                        asCloseTime(result_->position.closeTime()),
-                        now_);
-
-                    if (mode_.get() == ConsensusMode::proposing)
-                        adaptor_.propose(result_->position);
-
-                    estState_ = EstablishState::ConvergingCommit;
-                    commitHashConflictStart_ = {};
-                    JLOG(j_.debug()) << "RNG: transitioned to ConvergingCommit"
-                                     << " commitSet=" << commitSetHash;
-                    return;  // Wait for next tick
-                }
-
-                // Don't let the round close while waiting for commit quorum.
-                // Without this gate, execution falls through to the normal
-                // consensus close logic and nodes inject partial/zero entropy
-                // while others are still collecting — causing ledger
-                // mismatches.
-                //
-                // However, if we've already converged on the txSet (which we
-                // have — haveConsensus() passed above) and there aren't enough
-                // currently participating validators to ever reach the fixed
-                // UNL quorum, skip immediately. With 3 active UNL validators
-                // and quorum=3, losing one node means 2/3 commits forever —
-                // waiting 3s per round just delays recovery.
-                //
-                // NOTE: Late-joining nodes (e.g. restarting after a crash)
-                // cannot help here.  They enter the round as proposing=false
-                // and onClose() skips commitment generation for non-proposers.
-                // It takes at least one full round of observing before
-                // consensus promotes them to proposing.
-                {
-                    // participants = peers + ourselves
-                    auto const participants = currPeerPositions_.size() + 1;
-                    auto const threshold = adaptor_.quorumThreshold();
-                    bool const impossible = participants < threshold;
-
-                    if (impossible)
-                    {
-                        JLOG(j_.debug())
-                            << "RNG: skipping commit wait (participants="
-                            << participants << " < threshold=" << threshold
-                            << ")";
-                        logRngDiag("rng-commit-wait-impossible-quorum");
-                        // Fall through to close with zero entropy
-                    }
-                    else
-                    {
-                        bool timeout = result_->roundTime.read() >
-                            parms.rngPIPELINE_TIMEOUT;
-                        if (!timeout)
-                        {
-                            logRngDiag("rng-commit-wait");
-                            return;  // Wait for more commits
-                        }
-
-                        // Timeout waiting for additional likely participants.
-                        // If we already have the fixed UNL quorum, proceed
-                        // with what we have — the SHAMap merge handles any
-                        // remaining straggler fuzz for this transition round.
-                        auto const commits = adaptor_.pendingCommitCount();
-                        auto const quorum = adaptor_.quorumThreshold();
-                        if (commits >= quorum)
-                        {
-                            JLOG(j_.info())
-                                << "RNG: commit timeout but have quorum ("
-                                << commits << "/" << quorum
-                                << "), proceeding with partial set";
-                            // Jump to the same path as hasQuorumOfCommits
-                            auto commitSetHash =
-                                adaptor_.buildCommitSet(buildSeq);
-                            auto newPos = result_->position.position();
-                            newPos.commitSetHash = commitSetHash;
-                            result_->position.changePosition(
-                                newPos,
-                                asCloseTime(result_->position.closeTime()),
-                                now_);
-                            if (mode_.get() == ConsensusMode::proposing)
-                                adaptor_.propose(result_->position);
-                            estState_ = EstablishState::ConvergingCommit;
-                            commitHashConflictStart_ = {};
-                            JLOG(j_.debug())
-                                << "RNG: transitioned to ConvergingCommit"
-                                << " commitSet=" << commitSetHash
-                                << " (timeout fallback)";
-                            return;
-                        }
-                        logRngDiag("rng-commit-timeout-below-quorum");
-                        // Truly below quorum: fall through to zero entropy
-                    }
-                }
-            }
-            else if (
-                !rngBootstrapSkip &&
-                estState_ == EstablishState::ConvergingCommit)
-            {
-                // If commit hashes diverge, we may not receive any additional
-                // tx-converged proposals in this state (peers can move to the
-                // next ledger quickly, causing prevLedger rejects). In that
-                // case, hashes observed during ConvergingTx would never be
-                // fetched because fetch is intentionally deferred there.
-                //
-                // Sweep currently tx-converged peer positions each tick so
-                // deferred commitSet hashes still get fetched/merged even
-                // without new accepted proposals in ConvergingCommit.
-                if constexpr (
-                    requires(Adaptor& a) {
-                        a.fetchRngSetIfNeeded(std::optional<uint256>{});
-                    } && requires(Position_t const& p) { p.commitSetHash; })
-                {
-                    auto const ourPos = result_->position.position();
-                    for (auto const& [nodeId, peerPos] : currPeerPositions_)
-                    {
-                        auto const& peerPosition =
-                            peerPos.proposal().position();
-                        if (!(peerPosition == ourPos))
-                            continue;
-                        adaptor_.fetchRngSetIfNeeded(
-                            peerPosition.commitSetHash);
-                    }
-                }
-
-                // Fast path: if no commit-set conflicts are observed, do
-                // exactly what we did before (immediate reveal transition).
-                //
-                // Safety path: haveConsensus() only compares tx-set hash, not
-                // RNG sidecar fields. So commitSetHash disagreements can exist
-                // transiently even while tx consensus is true. We only add
-                // delay when we *actually* observe conflicting non-empty
-                // commitSetHash values among tx-converged positions.
-                if (hasConflictingCommitSetHashes())
-                {
-                    // Fetch/merge may have added missing commits since we last
-                    // published our commitSetHash. Rebuild and re-publish so
-                    // peers can converge on one deterministic hash instead of
-                    // timing out.
-                    auto pos = result_->position.position();
-                    auto const previousHash = pos.commitSetHash;
-                    auto const refreshedHash =
-                        adaptor_.buildCommitSet(buildSeq);
-                    if (!previousHash || *previousHash != refreshedHash)
-                    {
-                        pos.commitSetHash = refreshedHash;
+        auto const buildSeq = previousLedger_.seq() + typename Ledger_t::Seq{1};
+        ConsensusTick<
+            Position_t,
+            PeerPosition_t,
+            TxSet_t,
+            NodeID_t,
+            typename Ledger_t::Seq>
+            ctx{
+                .buildSeq = buildSeq,
+                .now = now_,
+                .nowSteady = std::chrono::steady_clock::now(),
+                .roundTime = result_->roundTime.read(),
+                .mode = mode_.get(),
+                .prevProposers = prevProposers_,
+                .peerPositions = currPeerPositions_,
+                .parms = adaptor_.parms(),
+                .haveCloseTimeConsensus = haveCloseTimeConsensus_,
+                .convergePercent = convergePercent_,
+                .j = j_,
+                .getPosition = [&]() -> Position_t const& {
+                    return result_->position.position();
+                },
+                .updatePosition =
+                    [&](Position_t const& newPos) {
                         result_->position.changePosition(
-                            pos,
+                            newPos,
                             asCloseTime(result_->position.closeTime()),
                             now_);
-
-                        if (mode_.get() == ConsensusMode::proposing)
-                            adaptor_.propose(result_->position);
-
-                        JLOG(j_.debug())
-                            << "RNG: refreshed commitSetHash after merge to "
-                            << refreshedHash;
-                    }
-
-                    // Re-check after refreshing our own hash.
-                    if (hasConflictingCommitSetHashes())
-                    {
-                        auto const nowSteady = std::chrono::steady_clock::now();
-                        if (commitHashConflictStart_ ==
-                            std::chrono::steady_clock::time_point{})
-                        {
-                            // First observed conflict: start a bounded grace
-                            // window so benign ordering/fetch races can settle.
-                            commitHashConflictStart_ = nowSteady;
-                            JLOG(j_.warn())
-                                << "RNG: conflicting commitSetHash detected; "
-                                   "waiting briefly for convergence/fetch";
-                            logRngDiag("rng-commit-conflict-start");
-                            return;
-                        }
-
-                        auto const conflictElapsed =
-                            nowSteady - commitHashConflictStart_;
-                        if (conflictElapsed <= parms.rngREVEAL_TIMEOUT)
-                        {
-                            // We are still inside the grace window, so keep
-                            // waiting. This preserves the fast path when peers
-                            // converge after a short delay.
-                            JLOG(j_.debug())
-                                << "RNG: commitSetHash still conflicting after "
-                                << std::chrono::duration_cast<
-                                       std::chrono::milliseconds>(
-                                       conflictElapsed)
-                                       .count()
-                                << "ms; staying in ConvergingCommit";
-                            logRngDiag("rng-commit-conflict-wait");
-                            return;
-                        }
-
-                        // If conflict persists past a bounded wait, force
-                        // deterministic fallback for this round.
-                        adaptor_.setEntropyFailed();
-                        estState_ = EstablishState::ConvergingReveal;
-                        // Backdate revealPhaseStart_ so the ConvergingReveal
-                        // timeout path fires immediately next tick.
-                        revealPhaseStart_ = nowSteady -
-                            parms.rngREVEAL_TIMEOUT -
-                            std::chrono::milliseconds{1};
-                        commitHashConflictStart_ = {};
-                        JLOG(j_.warn())
-                            << "RNG: commitSetHash conflict persisted; forcing "
-                               "zero-entropy fallback";
-                        logRngDiag("rng-commit-conflict-timeout-fallback");
-                        return;
-                    }
-                }
-
-                commitHashConflictStart_ = {};
-
-                //@@start rng-reveal-transition
-                auto newPos = result_->position.position();
-                newPos.myReveal = adaptor_.getEntropySecret();
-
-                result_->position.changePosition(
-                    newPos, asCloseTime(result_->position.closeTime()), now_);
-
-                if (mode_.get() == ConsensusMode::proposing)
-                    adaptor_.propose(result_->position);
-
-                estState_ = EstablishState::ConvergingReveal;
-                //@@end rng-reveal-transition
-                revealPhaseStart_ = std::chrono::steady_clock::now();
-                JLOG(j_.debug()) << "RNG: transitioned to ConvergingReveal"
-                                 << " reveal=" << adaptor_.getEntropySecret();
-
-                // Fast path:
-                // If all required reveals are already present at transition
-                // time, publish entropySet immediately and finish in this timer
-                // pass. This is state-based (reveal completeness), not tied to
-                // any particular proposal sequence number.
-                if (adaptor_.hasMinimumReveals())
-                {
-                    publishEntropySet();
-                    JLOG(j_.debug())
-                        << "RNG: fast-path published entropySet in same tick";
-                }
-                else
-                {
-                    logRngDiag("rng-reveal-wait-after-transition");
-                    return;  // Wait for next tick
-                }
-            }
-            else if (
-                !rngBootstrapSkip &&
-                estState_ == EstablishState::ConvergingReveal)
-            {
-                // Wait for ALL committers to reveal (not just 80%).
-                // Timeout measured from ConvergingReveal entry, not round
-                // start.
-                auto const elapsed =
-                    std::chrono::steady_clock::now() - revealPhaseStart_;
-                bool timeout = elapsed > parms.rngREVEAL_TIMEOUT;
-                bool ready = false;
-                bool const revealConsensus =
-                    haveConsensus(clog) && adaptor_.hasMinimumReveals();
-
-                if (revealConsensus || timeout)
-                {
-                    JLOG(j_.debug()) << "STALLDIAG: rng-reveal-gate-open"
-                                     << " revealConsensus="
-                                     << (revealConsensus ? "yes" : "no")
-                                     << " timeout=" << (timeout ? "yes" : "no")
-                                     << " elapsedMs="
-                                     << std::chrono::duration_cast<
-                                            std::chrono::milliseconds>(elapsed)
-                                            .count();
-                    if (timeout && !adaptor_.hasAnyReveals())
-                    {
-                        adaptor_.setEntropyFailed();
-                        JLOG(j_.warn()) << "RNG: entropy failed (no reveals)";
-                        logRngDiag("rng-reveal-timeout-no-reveals");
-                    }
-                    else
-                    {
-                        publishEntropySet();
-                        logRngDiag("rng-reveal-published-entropy-set");
-                    }
-                    ready = true;
-                }
-
-                if (!ready)
-                {
-                    JLOG(j_.debug()) << "STALLDIAG: rng-reveal-gate-blocked"
-                                     << " revealConsensus="
-                                     << (revealConsensus ? "yes" : "no")
-                                     << " timeout=" << (timeout ? "yes" : "no")
-                                     << " elapsedMs="
-                                     << std::chrono::duration_cast<
-                                            std::chrono::milliseconds>(elapsed)
-                                            .count();
-                    logRngDiag("rng-reveal-wait");
-                    return;
-                }
-
-                // Optional explicit final proposal (seq=4 style):
-                // publish a synthetic tx-set hash that includes the
-                // consensus-entropy pseudo-tx just before accept.
-                //
-                // IMPORTANT DESIGN NOTE (read before editing this block):
-                //
-                // This path is intentionally OPTIONAL and default-off. It
-                // exists for diagnostics/perf experiments (for example, making
-                // monitor visibility of the final pseudo-tx set more direct),
-                // NOT as a required step for consensus correctness.
-                //
-                // Why so conservative?
-                // - The main consensus engine still keys agreement on tx-set
-                // hash.
-                // - Updating our tx-set hash here creates a "late identity
-                //   change" in establish.
-                // - Under lossy/reordered networks, peers can be slightly out
-                // of
-                //   phase: some nodes may have switched to the synthetic hash
-                //   while others are still on the base hash.
-                // - That can fragment agreement during a critical window (two
-                //   hashes in flight for one ledger), increase proposal
-                //   chatter, and trigger sync churn.
-                //
-                // Therefore this logic must remain best-effort only:
-                // - Never required for liveness/safety.
-                // - No extra wait tick is introduced.
-                // - If gates are not met, we skip and continue to accept via
-                // the
-                //   normal implicit path (accept-time pseudo-tx injection).
-                //
-                // TBD (2026-03-03): We did not find a robust timing model that
-                // folds this into a guaranteed-safe explicit final proposal
-                // across lossy/reordered links without increasing churn. Keep
-                // this path as opt-in for future evaluation.
-                if constexpr (requires(
-                                  Adaptor& a,
-                                  TxSet_t const& txns,
-                                  typename Ledger_t::Seq seq) {
-                                  a.shouldSendExplicitFinalProposal();
-                                  a.hasQuorumOfCommits();
-                                  a.buildExplicitFinalProposalTxSet(txns, seq);
-                              })
-                {
-                    bool fullParticipantCoverage = false;
-                    bool entropyAligned = false;
-                    if constexpr (requires(Position_t const& p) {
-                                      p.entropySetHash;
-                                  })
-                    {
-                        // Guard against "early switch" churn:
-                        // require at least as many participants as the previous
-                        // round before attempting the explicit-final mutation.
-                        //
-                        // This is a heuristic to reduce risk, not a proof of
-                        // safety. We still keep the feature
-                        // optional/default-off.
-                        auto const participants = currPeerPositions_.size() + 1;
-                        auto const expectedParticipants = prevProposers_ + 1;
-                        fullParticipantCoverage =
-                            participants >= expectedParticipants;
-                        // Require a majority aligned on entropySetHash before
-                        // mutating tx-set hash. If this threshold is loosened,
-                        // the probability of hash fragmentation rises quickly.
-                        auto const requiredEntropyAligned =
-                            (expectedParticipants / 2) + 1;
-                        auto const ourPos = result_->position.position();
-                        if (ourPos.entropySetHash)
-                        {
-                            auto const expectedEntropy = *ourPos.entropySetHash;
-                            std::size_t alignedPeers = 0;
-                            bool conflict = false;
-                            for (auto const& [_, peerPos] : currPeerPositions_)
-                            {
-                                auto const& peerPosition =
-                                    peerPos.proposal().position();
-                                if (!peerPosition.entropySetHash)
-                                    continue;
-                                if (*peerPosition.entropySetHash ==
-                                    expectedEntropy)
-                                {
-                                    ++alignedPeers;
-                                    continue;
-                                }
-                                conflict = true;
-                                break;
-                            }
-
-                            auto const alignedParticipants = alignedPeers + 1;
-                            entropyAligned = !conflict &&
-                                alignedParticipants >= requiredEntropyAligned;
-                            if (!entropyAligned)
-                            {
-                                JLOG(j_.debug())
-                                    << "RNG: explicit-final entropy alignment "
-                                       "insufficient"
-                                    << " alignedParticipants="
-                                    << alignedParticipants
-                                    << " required=" << requiredEntropyAligned
-                                    << " conflict="
-                                    << (conflict ? "yes" : "no");
-                            }
-                        }
-                        else
-                        {
-                            JLOG(j_.debug())
-                                << "RNG: explicit-final waiting on local "
-                                   "entropySetHash";
-                        }
-                    }
-
-                    if (mode_.get() == ConsensusMode::proposing &&
-                        !explicitFinalProposalSent_ &&
-                        adaptor_.hasQuorumOfCommits() && revealConsensus &&
-                        fullParticipantCoverage && entropyAligned &&
-                        adaptor_.shouldSendExplicitFinalProposal())
-                    {
-                        // One-shot per round. This avoids repeated mutations/
-                        // broadcasts from timer ticks, which can amplify
-                        // network chatter in the exact conditions
-                        // (loss/reordering) where this path is already fragile.
-                        auto const synthSet =
-                            adaptor_.buildExplicitFinalProposalTxSet(
-                                result_->txns, buildSeq);
-                        explicitFinalProposalSent_ = true;
-
-                        if (synthSet)
-                        {
-                            auto const synthHash = synthSet->id();
-                            auto currentPos = result_->position.position();
-                            auto newPos = currentPos;
-                            if constexpr (requires(
-                                              typename Adaptor::Position_t p) {
-                                              p.updateTxSet(synthHash);
-                                          })
-                                newPos.updateTxSet(synthHash);
-                            else
-                                newPos = synthHash;
-
-                            if (!(newPos == currentPos))
-                            {
-                                // WARNING:
-                                // This changes proposal tx-set identity late in
-                                // establish. Keep this path tightly gated and
-                                // optional. The canonical ledger path remains
-                                // the implicit accept-time injection logic.
-
-                                // Maintain the invariant that our active
-                                // position's tx-set hash is present in
-                                // acquired_, otherwise gotTxSet can assert if
-                                // this set arrives back from the network.
-                                auto const [_, inserted] =
-                                    acquired_.emplace(synthHash, *synthSet);
-                                JLOG(j_.debug())
-                                    << "RNG: cached explicit-final txSet="
-                                    << synthHash << " inserted=" << inserted;
-                                if (inserted)
-                                {
-                                    // Make the synthetic set discoverable by
-                                    // peers immediately; otherwise they can
-                                    // request this hash and hit transient
-                                    // "getTxSet: Failed to find TX set" on
-                                    // random peers.
-                                    adaptor_.share(*synthSet);
-                                    JLOG(j_.debug())
-                                        << "RNG: shared explicit-final txSet="
-                                        << synthHash;
-                                }
-                                result_->position.changePosition(
-                                    newPos,
-                                    asCloseTime(result_->position.closeTime()),
-                                    now_);
-                                adaptor_.propose(result_->position);
-                                JLOG(j_.debug())
-                                    << "RNG: explicit final proposal txSet="
-                                    << synthHash;
-                                logRngDiag("rng-explicit-final-proposed");
-                            }
-                        }
-                    }
-                    else
-                    {
-                        char const* reason = "disabled";
-                        if (mode_.get() != ConsensusMode::proposing)
-                            reason = "not-proposing";
-                        else if (explicitFinalProposalSent_)
-                            reason = "already-sent";
-                        else if (!adaptor_.hasQuorumOfCommits())
-                            reason = "no-commit-quorum";
-                        else if (!revealConsensus)
-                            reason = "reveal-timeout";
-                        else if (!fullParticipantCoverage)
-                            reason = "participant-gap";
-                        else if (!entropyAligned)
-                            reason = "entropy-not-aligned";
-                        JLOG(j_.debug())
-                            << "STALLDIAG: rng-explicit-final-skipped"
-                            << " reason=" << reason
-                            << " mode=" << to_string(mode_.get()) << " sent="
-                            << (explicitFinalProposalSent_ ? "yes" : "no");
-                    }
-                }
-            }
-        }
-        else
-        {
-            JLOG(j_.debug()) << "RNGGATE: skipping RNG substates"
-                             << " prevSeq=" << previousLedger_.seq()
-                             << " phase=" << to_string(phase_)
-                             << " mode=" << to_string(mode_.get());
-        }
-    }
-    //@@end rng-phase-establish-substates
-
-    //@@start export-sig-convergence-gate
-    // Export sig convergence gate: runs after RNG sub-states, only when
-    // both CE and Export are enabled. Builds/publishes exportSigSetHash
-    // and waits for peer agreement before accepting.
-    if constexpr (requires(Adaptor& a) {
-                      a.buildExportSigSet(typename Ledger_t::Seq{});
-                      a.hasPendingExportSigs();
-                  })
-    {
-        bool rngEnabled = false;
-        if constexpr (requires(Adaptor& a) { a.rngEnabled(); })
-            rngEnabled = adaptor_.rngEnabled();
-
-        // Only run when CE is active (provides ExtendedPosition infra)
-        // and there are export sigs to converge.
-        if (rngEnabled)
-        {
-            if (adaptor_.hasPendingExportSigs())
-            {
-                //@@start export-publish-sigset-hash
-                auto const buildSeqExport =
-                    previousLedger_.seq() + typename Ledger_t::Seq{1};
-                auto const exportHash =
-                    adaptor_.buildExportSigSet(buildSeqExport);
-
-                auto currentPos = result_->position.position();
-                if (!currentPos.exportSigSetHash ||
-                    *currentPos.exportSigSetHash != exportHash)
-                {
-                    currentPos.exportSigSetHash = exportHash;
-                    result_->position.changePosition(
-                        currentPos,
-                        asCloseTime(result_->position.closeTime()),
-                        now_);
-
-                    if (mode_.get() == ConsensusMode::proposing)
-                        adaptor_.propose(result_->position);
-
-                    JLOG(j_.debug())
-                        << "Export: published exportSigSetHash=" << exportHash;
-                }
-                //@@end export-publish-sigset-hash
-
-                //@@start export-sigset-conflict-wait
-                // Check peer agreement on exportSigSetHash.
-                // If any tx-converged peer has a different non-empty hash,
-                // wait briefly for fetch/merge to resolve it.
-                if constexpr (requires(Position_t const& p) {
-                                  p.exportSigSetHash;
-                              })
-                {
-                    bool conflict = false;
-                    for (auto const& [_, peerPos] : currPeerPositions_)
-                    {
-                        auto const& pp = peerPos.proposal().position();
-                        if (!pp.exportSigSetHash)
-                            continue;
-                        if (*pp.exportSigSetHash != exportHash)
-                        {
-                            conflict = true;
-
-                            // Trigger fetch for the differing set
-                            if constexpr (requires(Adaptor& a) {
-                                              a.fetchRngSetIfNeeded(
-                                                  std::optional<uint256>{});
-                                          })
-                            {
-                                adaptor_.fetchRngSetIfNeeded(
-                                    pp.exportSigSetHash);
-                            }
-                            break;
-                        }
-                    }
-
-                    if (conflict)
-                    {
-                        // Don't block indefinitely — use the same pipeline
-                        // timeout as RNG.
-                        bool const timeout = result_->roundTime.read() >
-                            parms.rngPIPELINE_TIMEOUT;
-                        if (!timeout)
-                        {
-                            JLOG(j_.debug())
-                                << "Export: exportSigSetHash conflict, waiting";
-                            return;
-                        }
-                        JLOG(j_.info())
-                            << "Export: exportSigSetHash conflict timed out, "
-                               "proceeding (exports will retry next round)";
-                    }
-                }
-                //@@end export-sigset-conflict-wait
-            }
-        }
-    }
-    //@@end export-sig-convergence-gate
-
-    JLOG(j_.debug()) << "STALLDIAG: establish-ready-to-accept"
-                     << " phase=" << to_string(phase_)
-                     << " mode=" << to_string(mode_.get())
-                     << " roundMs=" << result_->roundTime.read().count()
-                     << " convergePct=" << convergePercent_
-                     << " peerPositions=" << currPeerPositions_.size()
-                     << " prevProposers=" << prevProposers_
-                     << " explicitFinalSent="
-                     << (explicitFinalProposalSent_ ? "yes" : "no");
-    if constexpr (requires(Position_t const& p) {
-                      p.commitSetHash;
-                      p.entropySetHash;
-                      p.myCommitment;
-                      p.myReveal;
-                  })
-    {
-        auto const pos = result_->position.position();
-        JLOG(j_.debug()) << "STALLDIAG: establish-ready-sidecar"
-                         << " txSet=" << pos << " commitSetHash="
-                         << (pos.commitSetHash ? to_string(*pos.commitSetHash)
-                                               : std::string{"none"})
-                         << " entropySetHash="
-                         << (pos.entropySetHash ? to_string(*pos.entropySetHash)
-                                                : std::string{"none"})
-                         << " myCommitment="
-                         << (pos.myCommitment ? "yes" : "no")
-                         << " myReveal=" << (pos.myReveal ? "yes" : "no");
+                    },
+                .propose = [&]() { adaptor_.propose(result_->position); },
+                .haveConsensus = [&]() { return haveConsensus(clog); },
+                .cacheAndShareTxSet =
+                    [&](TxSet_t const& txSet) {
+                        acquired_.emplace(txSet.id(), txSet);
+                        adaptor_.share(txSet);
+                    },
+                .getTxns = [&]() -> TxSet_t const& { return result_->txns; },
+            };
+        auto tickResult = adaptor_.ce().onTick(ctx);
+        if (!tickResult.readyForAccept)
+            return;
     }
 
     JLOG(j_.info()) << "STARTDIAG: converge cutoff"
@@ -2681,8 +1694,8 @@ Consensus<Adaptor>::closeLedger(std::unique_ptr<std::stringstream> const& clog)
     XRPL_ASSERT(!result_, "ripple::Consensus::closeLedger : result is not set");
 
     phase_ = ConsensusPhase::establish;
-    estState_ = EstablishState::ConvergingTx;
-    explicitFinalProposalSent_ = false;
+    if constexpr (requires(Adaptor& a) { a.ce(); })
+        adaptor_.ce().resetSubState();
     JLOG(j_.debug()) << "transitioned to ConsensusPhase::establish";
     rawCloseTimes_.self = now_;
     peerUnchangedCounter_ = 0;
@@ -2899,8 +1912,8 @@ Consensus<Adaptor>::updateOurPositions(
         JLOG(j_.info()) << ss.str();
         CLOG(clog) << ss.str();
 
-        // Preserve sidecar data (RNG fields), only update txSetHash
-        // Use type traits to conditionally handle ExtendedPosition vs simple ID
+        // Preserve sidecar data when updating txSetHash
+        // Position may carry sidecar fields; update only the txSet portion
         if constexpr (requires(typename Adaptor::Position_t p) {
                           p.updateTxSet(newID);
                       })
@@ -2934,63 +1947,6 @@ Consensus<Adaptor>::updateOurPositions(
         if (!result_->position.isBowOut() &&
             (mode_.get() == ConsensusMode::proposing))
             adaptor_.propose(result_->position);
-    }
-}
-
-template <class Adaptor>
-bool
-Consensus<Adaptor>::hasConflictingCommitSetHashes() const
-{
-    // No position means no conflict.
-    if (!result_)
-        return false;
-
-    // This check is only meaningful for position types that carry
-    // commitSetHash sidecar data (RCL ExtendedPosition / CSF RngPosition).
-    if constexpr (!requires(Position_t const& p) { p.commitSetHash; })
-    {
-        return false;
-    }
-    else
-    {
-        auto const ourPos = result_->position.position();
-        std::optional<uint256> observed;
-
-        auto note = [&](Position_t const& pos) -> bool {
-            // Missing commit hash is not a conflict signal; peers may still be
-            // in transit between tx convergence and commit publication.
-            if (!pos.commitSetHash)
-                return false;
-
-            if (!observed)
-            {
-                // First non-empty commit hash becomes the baseline.
-                observed = *pos.commitSetHash;
-                return false;
-            }
-
-            // Any different non-empty hash indicates a true conflict.
-            return *observed != *pos.commitSetHash;
-        };
-
-        // Include our own position first.
-        if (note(ourPos))
-            return true;
-
-        // Only compare peers that are tx-converged with us.
-        // Peers on a different txSet are handled by normal consensus and are
-        // irrelevant for commit-sidecar agreement in this branch.
-        for (auto const& [nodeId, peerPos] : currPeerPositions_)
-        {
-            auto const& peerProposal = peerPos.proposal();
-            auto const& peerPosition = peerProposal.position();
-            if (!(peerPosition == ourPos))
-                continue;
-
-            if (note(peerPosition))
-                return true;
-        }
-        return false;
     }
 }
 
@@ -3039,27 +1995,8 @@ Consensus<Adaptor>::haveConsensus(
                      << " haveCloseTimeConsensus="
                      << (haveCloseTimeConsensus_ ? "yes" : "no")
                      << " phase=" << to_string(phase_);
-    if constexpr (requires(Position_t const& p) {
-                      p.commitSetHash;
-                      p.entropySetHash;
-                      p.myCommitment;
-                      p.myReveal;
-                  })
-    {
-        JLOG(j_.trace()) << "STALLDIAG: haveConsensus-sidecar"
-                         << " commitSetHash="
-                         << (ourPosition.commitSetHash
-                                 ? to_string(*ourPosition.commitSetHash)
-                                 : std::string{"none"})
-                         << " entropySetHash="
-                         << (ourPosition.entropySetHash
-                                 ? to_string(*ourPosition.entropySetHash)
-                                 : std::string{"none"})
-                         << " myCommitment="
-                         << (ourPosition.myCommitment ? "yes" : "no")
-                         << " myReveal="
-                         << (ourPosition.myReveal ? "yes" : "no");
-    }
+    if constexpr (requires(Adaptor& a) { a.ce(); })
+        adaptor_.ce().logPosition(ourPosition, j_);
 
     // MERGE NOTE (sync-2.5.0): upstream replaces adaptor_.parms() with a local
     // `parms` ref and adds `stalled` bool + peerUnchangedCounter_ tracking.

@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/consensus/RCLValidations.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
@@ -219,6 +220,7 @@ public:
     RCLValidations mValidations;
     std::unique_ptr<LoadManager> m_loadManager;
     std::unique_ptr<TxQ> txQ_;
+    std::unique_ptr<ConsensusExtensions> consensusExtensions_;
     ClosureCounter<void, boost::system::error_code const&> waitHandlerCounter_;
     boost::asio::steady_timer sweepTimer_;
     boost::asio::steady_timer entropyTimer_;
@@ -462,6 +464,10 @@ public:
 
         , txQ_(
               std::make_unique<TxQ>(setup_TxQ(*config_), logs_->journal("TxQ")))
+
+        , consensusExtensions_(std::make_unique<ConsensusExtensions>(
+              *this,
+              logs_->journal("ConsensusExtensions")))
 
         , sweepTimer_(get_io_service())
 
@@ -837,6 +843,15 @@ public:
             txQ_,
             "ripple::ApplicationImp::getTxQ : non-null transaction queue");
         return *txQ_;
+    }
+
+    ConsensusExtensions&
+    getConsensusExtensions() override
+    {
+        XRPL_ASSERT(
+            consensusExtensions_,
+            "ripple::ApplicationImp::getConsensusExtensions : non-null");
+        return *consensusExtensions_;
     }
 
     RelationalDatabase&

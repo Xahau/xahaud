@@ -1031,7 +1031,7 @@ NetworkOPsImp::processHeartbeatTimer()
     // Use faster polling during RNG sub-state transitions
     // to reduce latency of commit-reveal rounds.
     // Tunable via XAHAU_RNG_POLL_MS env var (default 250ms).
-    if (mConsensus.inRngSubState())
+    if (mConsensus.extensionsBusy())
     {
         static auto const rngPollMs = []() -> std::chrono::milliseconds {
             if (auto const* env = std::getenv("XAHAU_RNG_POLL_MS"))
@@ -1985,11 +1985,12 @@ NetworkOPsImp::mapComplete(std::shared_ptr<SHAMap> const& map, bool fromAcquire)
     if (fromAcquire)
     {
         auto const hash = map->getHash().as_uint256();
-        if (mConsensus.isRngSet(hash))
+        if (mConsensus.isExtensionSet(hash))
         {
-            // RNG set (commitSet or entropySet) — route to adaptor
-            // for diff/merge, not into txSet consensus machinery.
-            mConsensus.gotRngSet(map);
+            // Extension sidecar set (commitSet, entropySet, or
+            // exportSigSet) — route through RCLConsensus to acquire
+            // consensus mutex before merging into extension state.
+            mConsensus.gotExtensionSet(map);
             return;
         }
         mConsensus.gotTxSet(app_.timeKeeper().closeTime(), RCLTxSet{map});
