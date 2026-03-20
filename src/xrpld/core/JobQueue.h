@@ -202,6 +202,12 @@ public:
     int
     getJobCountGE(JobType t) const;
 
+    int
+    getUpdatePathsJobLimit() const
+    {
+        return updatePathsJobLimit_;
+    }
+
     /** Return a scoped LoadEvent.
      */
     std::unique_ptr<LoadEvent>

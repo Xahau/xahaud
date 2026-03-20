@@ -1568,7 +1568,7 @@ LedgerMaster::newPFWork(
         1,
         std::min(
             app_.config().PATH_WORKERS,
-            app_.getJobQueue().getJobLimit(jtUPDATE_PF)));
+            app_.getJobQueue().getUpdatePathsJobLimit()));
 
     if (!app_.isStopping() && mPathFindThread < maxPathFindThreads &&
         app_.getPathRequests().requestsPending())
