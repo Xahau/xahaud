@@ -704,6 +704,32 @@ Config::loadFromString(std::string const& fileContents)
                                       ": must be between 10 and 600 inclusive");
     }
 
+    auto const effectiveWorkers = [&]() {
+        if (WORKERS)
+            return WORKERS;
+
+        if (standalone() && !FORCE_MULTI_THREAD)
+            return 1;
+
+        auto count = static_cast<int>(std::thread::hardware_concurrency());
+
+        if (NODE_SIZE >= 4 && count >= 16)
+            count = 6 + std::min(count, 8);
+        else if (NODE_SIZE >= 3 && count >= 8)
+            count = 4 + std::min(count, 6);
+        else
+            count = 2 + std::min(count, 4);
+
+        return count;
+    }();
+
+    auto const maxUpdatePfLimit = std::max(2, (effectiveWorkers * 3) / 4);
+    if (PATH_WORKERS > maxUpdatePfLimit)
+        Throw<std::runtime_error>(
+            "Invalid " SECTION_PATH_WORKERS
+            ": must be less than or equal to 3/4 of effective job queue "
+            "workers (minimum maximum of 2).");
+
     if (getSingleSection(secConfig, SECTION_WORKERS, strTemp, j_))
     {
         WORKERS = beast::lexicalCastThrow<int>(strTemp);
@@ -712,13 +738,6 @@ Config::loadFromString(std::string const& fileContents)
             Throw<std::runtime_error>(
                 "Invalid " SECTION_WORKERS
                 ": must be between 1 and 1024 inclusive.");
-
-        auto const maxUpdatePfLimit = std::max(2, (WORKERS * 3) / 4);
-        if (PATH_WORKERS > maxUpdatePfLimit)
-            Throw<std::runtime_error>(
-                "Invalid " SECTION_PATH_WORKERS
-                ": must be less than or equal to 3/4 of " SECTION_WORKERS
-                " (minimum maximum of 2).");
     }
 
     if (getSingleSection(secConfig, SECTION_IO_WORKERS, strTemp, j_))
