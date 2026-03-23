@@ -318,7 +318,7 @@ public:
             observer->ce().likelyParticipants_.count(validator->id) == 1);
 
         observer->ce().pendingCommits_[validator->id] = sha512Half(42u);
-        BEAST_EXPECT(observer->hasQuorumOfCommits());
+        BEAST_EXPECT(observer->ce().hasQuorumOfCommits());
     }
 
     void

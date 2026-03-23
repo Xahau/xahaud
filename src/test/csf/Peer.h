@@ -1071,7 +1071,7 @@ struct Peer
             const bool consensusFail = result.state == ConsensusState::MovedOn;
             auto const seq = static_cast<std::uint32_t>(prevLedger.seq()) + 1;
 
-            finalizeRoundEntropy(seq);
+            ce().finalizeRoundEntropy(seq);
 
             TxSet const acceptedTxs = injectTxs(prevLedger, result.txns);
             Ledger const newLedger = oracle.accept(
@@ -1172,20 +1172,6 @@ struct Peer
     parms() const
     {
         return consensusParms;
-    }
-
-    // --- RNG: forwarded to ce() for test access ---
-
-    void
-    finalizeRoundEntropy(std::uint32_t seq)
-    {
-        ce().finalizeRoundEntropy(seq);
-    }
-
-    bool
-    hasQuorumOfCommits() const
-    {
-        return ce().hasQuorumOfCommits();
     }
 
     // Not interested in tracking consensus mode changes for now
