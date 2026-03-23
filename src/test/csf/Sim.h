@@ -25,6 +25,7 @@
 #include <test/csf/Digraph.h>
 #include <test/csf/Peer.h>
 #include <test/csf/PeerGroup.h>
+#include <test/csf/PeerTick.h>
 #include <test/csf/Scheduler.h>
 #include <test/csf/SimTime.h>
 #include <test/csf/TrustGraph.h>

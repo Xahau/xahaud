@@ -27,7 +27,6 @@
 #include <test/csf/Validation.h>
 #include <test/csf/events.h>
 #include <test/csf/ledgers.h>
-#include <xrpld/app/consensus/ConsensusExtensionsTick.h>
 #include <xrpld/consensus/Consensus.h>
 #include <xrpld/consensus/Validations.h>
 #include <xrpl/basics/base_uint.h>
@@ -723,12 +722,11 @@ struct Peer
             explicitFinalProposalSent_ = false;
         }
 
+        /// Defined in test/csf/PeerTick.h (keeps xrpld/app dependency
+        /// out of this header).
         template <class Ctx>
         ExtensionTickResult
-        onTick(Ctx const& ctx)
-        {
-            return extensionsTick(*this, ctx);
-        }
+        onTick(Ctx const& ctx);
 
     private:
         uint256

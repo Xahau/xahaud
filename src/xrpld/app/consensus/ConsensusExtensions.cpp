@@ -18,7 +18,6 @@
 //==============================================================================
 
 #include <xrpld/app/consensus/ConsensusExtensions.h>
-#include <xrpld/app/consensus/ConsensusExtensionsTick.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
@@ -30,6 +29,7 @@
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/consensus/Consensus.h>
+#include <xrpld/consensus/ConsensusExtensionsTick.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/random.h>

@@ -295,6 +295,49 @@ def generate(results_dir: Path, repo_root: Path, workers: int) -> None:
     print((results_dir / "loops.txt").read_text(encoding="utf-8"), end="")
 
 
+def explain_edge(src_level: str, dst_level: str, repo_root: Path, workers: int) -> None:
+    """Show every source file and #include line that creates a dependency edge."""
+    files = iter_source_files(repo_root)
+
+    matches: list[tuple[str, str]] = []  # (source_file, include_line)
+
+    def check_file(path: Path) -> list[tuple[str, str]]:
+        rel = path.relative_to(repo_root).as_posix()
+        sl = source_level(rel)
+        if sl != src_level:
+            return []
+        hits: list[tuple[str, str]] = []
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                if "boost" in line:
+                    continue
+                if not INCLUDE_PATTERN.match(line):
+                    continue
+                line = line.rstrip("\n")
+                dl = include_level(line)
+                if dl == dst_level:
+                    hits.append((rel, line.strip()))
+        return hits
+
+    if workers <= 1:
+        for file in files:
+            matches.extend(check_file(file))
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            for result in pool.map(check_file, files):
+                matches.extend(result)
+
+    if not matches:
+        print(f"No includes found from {src_level} -> {dst_level}")
+        return
+
+    print(f"{src_level} > {dst_level}  ({len(matches)} include(s)):\n")
+    for source_file, include_line in matches:
+        print(f"  {source_file}")
+        print(f"    {include_line}")
+    print()
+
+
 def main() -> int:
     script_dir = Path(__file__).resolve().parent
     repo_root = script_dir.parents[1]
@@ -327,7 +370,21 @@ def main() -> int:
             "on mismatch (semantic comparison for rawincludes/paths/includes)."
         ),
     )
+    parser.add_argument(
+        "--explain",
+        nargs=2,
+        metavar=("SRC", "DST"),
+        default=None,
+        help=(
+            "Show which source files cause a dependency edge. "
+            "Example: --explain test.csf xrpld.app"
+        ),
+    )
     args = parser.parse_args()
+
+    if args.explain is not None:
+        explain_edge(args.explain[0], args.explain[1], args.repo_root.resolve(), max(1, args.workers))
+        return 0
 
     generated_dir = args.results_dir.resolve()
     generate(
