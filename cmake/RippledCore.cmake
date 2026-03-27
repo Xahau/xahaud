@@ -167,7 +167,67 @@ if(xrpld)
     file(GLOB_RECURSE sources CONFIGURE_DEPENDS
       "${CMAKE_CURRENT_SOURCE_DIR}/src/test/*.cpp"
     )
+    if(HOOKS_TEST_ONLY OR DEFINED ENV{HOOKS_TEST_ONLY})
+      # Keep test infra but drop the individual *_test.cpp files
+      list(FILTER sources EXCLUDE REGEX "_test\\.cpp$")
+      message(STATUS "HOOKS_TEST_ONLY: excluded *_test.cpp from src/test/")
+    endif()
     target_sources(rippled PRIVATE ${sources})
+
+    # Optional: include external hook test sources from another directory.
+    # Set via -DHOOKS_TEST_DIR=/path/to/tests or env HOOKS_TEST_DIR.
+    # Optionally set HOOKS_C_DIR to pass --hooks-c-dir args to the compiler
+    # (e.g. "tipbot=/path/to/hooks" — multiple values separated by ";").
+    #
+    # x-build-test-hooks must be on PATH. It auto-compiles hooks referenced
+    # in each *_test.cpp and generates *_test_hooks.h next to the test file.
+    if(NOT HOOKS_TEST_DIR AND DEFINED ENV{HOOKS_TEST_DIR})
+      set(HOOKS_TEST_DIR $ENV{HOOKS_TEST_DIR})
+    endif()
+    if(NOT HOOKS_C_DIR AND DEFINED ENV{HOOKS_C_DIR})
+      set(HOOKS_C_DIR $ENV{HOOKS_C_DIR})
+    endif()
+    if(HOOKS_TEST_DIR AND EXISTS "${HOOKS_TEST_DIR}")
+      file(GLOB EXTERNAL_HOOK_TESTS CONFIGURE_DEPENDS
+        "${HOOKS_TEST_DIR}/*_test.cpp"
+      )
+      if(EXTERNAL_HOOK_TESTS)
+        # Build extra args for x-build-test-hooks
+        set(_hooks_extra_args "")
+        if(HOOKS_C_DIR)
+          foreach(_dir ${HOOKS_C_DIR})
+            list(APPEND _hooks_extra_args "--hooks-c-dir" "${_dir}")
+          endforeach()
+        endif()
+        if(HOOKS_COVERAGE OR DEFINED ENV{HOOKS_COVERAGE})
+          list(APPEND _hooks_extra_args "--hook-coverage")
+          message(STATUS "Hook coverage enabled: compiling hooks with sancov")
+        endif()
+
+        # Run x-build-test-hooks on each test file before compilation
+        foreach(_test_file ${EXTERNAL_HOOK_TESTS})
+          get_filename_component(_stem ${_test_file} NAME_WE)
+          set(_hooks_header "${HOOKS_TEST_DIR}/${_stem}_hooks.h")
+          add_custom_command(
+            OUTPUT "${_hooks_header}"
+            COMMAND x-build-test-hooks "${_test_file}" ${_hooks_extra_args}
+            DEPENDS "${_test_file}"
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            COMMENT "Compiling hooks for ${_stem}"
+            VERBATIM
+          )
+          list(APPEND EXTERNAL_HOOK_HEADERS "${_hooks_header}")
+        endforeach()
+
+        # Ensure headers are generated before rippled compiles
+        add_custom_target(compile_external_hooks DEPENDS ${EXTERNAL_HOOK_HEADERS})
+        add_dependencies(rippled compile_external_hooks)
+
+        target_sources(rippled PRIVATE ${EXTERNAL_HOOK_TESTS})
+        target_include_directories(rippled PRIVATE "${HOOKS_TEST_DIR}")
+        message(STATUS "Including external hook tests from: ${HOOKS_TEST_DIR}")
+      endif()
+    endif()
   endif()
 
   target_link_libraries(rippled

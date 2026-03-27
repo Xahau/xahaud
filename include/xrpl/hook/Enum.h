@@ -416,6 +416,7 @@ getImportWhitelist(Rules const& rules)
 #define int64_t 0x7EU
 #define int32_t 0x7FU
 #define uint32_t 0x7FU
+#define void_t 0x00U
 
 #define HOOK_WRAP_PARAMS(...) __VA_ARGS__
 
@@ -427,11 +428,18 @@ getImportWhitelist(Rules const& rules)
 
 #include "hook_api.macro"
 
+    // SanitizerCoverage callbacks for hook coverage testing.
+    // void __sanitizer_cov_trace_pc_guard(uint32_t* guard)
+    whitelist["__sanitizer_cov_trace_pc_guard"] = {void_t, uint32_t};
+    // void __sanitizer_cov_trace_pc_guard_init(uint32_t* start, uint32_t* stop)
+    whitelist["__sanitizer_cov_trace_pc_guard_init"] = {void_t, uint32_t, uint32_t};
+
 #undef HOOK_API_DEFINITION
 #undef HOOK_WRAP_PARAMS
 #undef int64_t
 #undef int32_t
 #undef uint32_t
+#undef void_t
 #pragma pop_macro("HOOK_API_DEFINITION")
 
     return whitelist;
