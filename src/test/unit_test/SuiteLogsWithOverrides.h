@@ -69,6 +69,7 @@ public:
         static std::mutex mtx;
         std::lock_guard lock(mtx);
         std::cerr << partition_ << ":" << text << std::endl;
+        std::cout << "stdout: " << partition_ << ":" << text << std::endl;
     }
 };
 
