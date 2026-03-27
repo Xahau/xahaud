@@ -196,9 +196,10 @@ Logs::write(
     std::string const& text,
     bool console)
 {
-    std::string s;
-    format(s, text, level, partition);
     std::lock_guard lock(mutex_);
+    std::string const& transformed = transform_ ? transform_(text) : text;
+    std::string s;
+    format(s, transformed, level, partition);
     file_.writeln(s);
     if (!silent_)
         std::cerr << s << '\n';

@@ -27,6 +27,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <functional>
 #include <mutex>
 #include <utility>
 
@@ -165,6 +166,7 @@ private:
     beast::severities::Severity thresh_;
     File file_;
     bool silent_ = false;
+    std::function<std::string(std::string const&)> transform_;
 
 public:
     Logs(beast::severities::Severity level);
@@ -202,6 +204,17 @@ public:
         std::string const& partition,
         std::string const& text,
         bool console);
+
+    /** Set a transform applied to every log message before output.
+     *  Useful in tests to replace raw account IDs with human-readable names.
+     *  Pass nullptr to clear.
+     */
+    void
+    setTransform(std::function<std::string(std::string const&)> fn)
+    {
+        std::lock_guard lock(mutex_);
+        transform_ = std::move(fn);
+    }
 
     std::string
     rotate();
