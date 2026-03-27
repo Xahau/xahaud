@@ -205,10 +205,24 @@ if(xrpld)
       if(EXTERNAL_HOOK_TESTS)
         # Build extra args for x-build-test-hooks
         set(_hooks_extra_args "")
+        set(_hooks_source_deps "")
         if(HOOKS_C_DIR)
           foreach(_dir ${HOOKS_C_DIR})
             list(APPEND _hooks_extra_args "--hooks-c-dir" "${_dir}")
+
+            string(REGEX REPLACE "^[^=]+=" "" _hook_dir "${_dir}")
+            if(EXISTS "${_hook_dir}")
+              file(GLOB_RECURSE _hook_dir_deps CONFIGURE_DEPENDS
+                "${_hook_dir}/*.c"
+                "${_hook_dir}/*.h"
+              )
+              if(HOOKS_TEST_DIR)
+                list(FILTER _hook_dir_deps EXCLUDE REGEX "^${HOOKS_TEST_DIR}/")
+              endif()
+              list(APPEND _hooks_source_deps ${_hook_dir_deps})
+            endif()
           endforeach()
+          list(REMOVE_DUPLICATES _hooks_source_deps)
         endif()
         if(HOOKS_COVERAGE OR DEFINED ENV{HOOKS_COVERAGE})
           list(APPEND _hooks_extra_args "--hook-coverage")
@@ -222,7 +236,7 @@ if(xrpld)
           add_custom_command(
             OUTPUT "${_hooks_header}"
             COMMAND x-build-test-hooks "${_test_file}" ${_hooks_extra_args}
-            DEPENDS "${_test_file}"
+            DEPENDS "${_test_file}" ${_hooks_source_deps}
             WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
             COMMENT "Compiling hooks for ${_stem}"
             VERBATIM
