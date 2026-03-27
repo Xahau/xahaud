@@ -40,13 +40,29 @@ namespace test {
 class StderrJournalSink : public beast::Journal::Sink
 {
     std::string partition_;
+    beast::severities::Severity pinnedThreshold_;
 
 public:
     StderrJournalSink(
         std::string const& partition,
         beast::severities::Severity threshold)
-        : Sink(threshold, false), partition_(partition)
+        : Sink(threshold, false)
+        , partition_(partition)
+        , pinnedThreshold_(threshold)
     {
+    }
+
+    beast::severities::Severity
+    threshold() const override
+    {
+        return pinnedThreshold_;
+    }
+
+    void
+    threshold(beast::severities::Severity threshold) override
+    {
+        (void)threshold;
+        Sink::threshold(pinnedThreshold_);
     }
 
     bool
@@ -69,7 +85,6 @@ public:
         static std::mutex mtx;
         std::lock_guard lock(mtx);
         std::cerr << partition_ << ":" << text << std::endl;
-        std::cout << "stdout: " << partition_ << ":" << text << std::endl;
     }
 };
 
