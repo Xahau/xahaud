@@ -34,6 +34,7 @@
 #include <boost/regex.hpp>
 #include <boost/system/error_code.hpp>
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <iterator>
@@ -1142,6 +1143,11 @@ setup_FeeVote(Section const& section)
             setup.account_reserve = temp;
         if (set(temp, "owner_reserve", section))
             setup.owner_reserve = temp;
+    }
+    {
+        std::int64_t temp;
+        if (set(temp, "hook_gas_price", section))
+            setup.hook_gas_price = temp;
     }
     return setup;
 }

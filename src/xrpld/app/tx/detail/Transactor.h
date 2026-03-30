@@ -175,6 +175,9 @@ public:
     // Hooks
 
     static XRPAmount
+    calculateHookGas(uint32_t gasCount, Fees const& fees);
+
+    static XRPAmount
     calculateHookChainFee(
         ReadView const& view,
         STTx const& tx,

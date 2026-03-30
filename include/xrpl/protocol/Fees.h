@@ -34,6 +34,8 @@ struct Fees
     XRPAmount base{0};       // Reference tx cost (drops)
     XRPAmount reserve{0};    // Reserve base (drops)
     XRPAmount increment{0};  // Reserve increment (drops)
+    std::uint64_t hookGasPrice{
+        0};  // Gas price for gas-type hooks (micro-drops per gas unit)
 
     explicit Fees() = default;
     Fees(Fees const&) = default;

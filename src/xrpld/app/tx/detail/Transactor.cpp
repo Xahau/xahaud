@@ -239,10 +239,16 @@ Transactor::Transactor(ApplyContext& ctx)
 {
 }
 
+static constexpr uint64_t GAS_PRICE_MICRO_DROPS = 1'000'000;
+
 XRPAmount
-calculateHookGas(uint32_t gas)
+Transactor::calculateHookGas(uint32_t gasCount, Fees const& fees)
 {
-    return XRPAmount{gas};
+    uint64_t const gasPrice =
+        fees.hookGasPrice > 0 ? fees.hookGasPrice : GAS_PRICE_MICRO_DROPS;
+    // TODO: overflow check
+    return XRPAmount{static_cast<XRPAmount::value_type>(
+        (static_cast<uint64_t>(gasCount) * gasPrice) / GAS_PRICE_MICRO_DROPS)};
 }
 
 // RH NOTE: this only computes one chain at a time, so if there is a receiving
@@ -324,7 +330,8 @@ Transactor::calculateHookChainFee(
                     auto const weakFee = hookObj.isFieldPresent(sfHookWeakGas)
                         ? hookObj.getFieldU32(sfHookWeakGas)
                         : hookDef->getFieldU32(sfHookWeakGas);
-                    XRPAmount const toAdd = calculateHookGas(weakFee);
+                    XRPAmount const toAdd =
+                        calculateHookGas(weakFee, view.fees());
                     if (fee + toAdd < fee)
                         fee = XRPAmount{INITIAL_XRP.drops()};
                     else
@@ -440,7 +447,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
                         if (callbackGas > 0)
                         {
                             XRPAmount const toAdd =
-                                calculateHookGas(callbackGas);
+                                calculateHookGas(callbackGas, view.fees());
                             if (hookExecutionFee + toAdd < hookExecutionFee)
                                 hookExecutionFee =
                                     XRPAmount{INITIAL_XRP.drops()};
@@ -474,7 +481,8 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 
         if (view.rules().enabled(featureHookGas) &&
             tx.isFieldPresent(sfHookGas))
-            hookExecutionFee += calculateHookGas(tx.getFieldU32(sfHookGas));
+            hookExecutionFee +=
+                calculateHookGas(tx.getFieldU32(sfHookGas), view.fees());
     }
 
     XRPAmount accumulator = baseFee;
