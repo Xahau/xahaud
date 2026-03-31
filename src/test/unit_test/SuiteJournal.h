@@ -19,6 +19,7 @@
 
 #ifndef TEST_UNIT_TEST_SUITE_JOURNAL_H
 #define TEST_UNIT_TEST_SUITE_JOURNAL_H
+#include <xrpl/basics/Log.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <mutex>
@@ -31,13 +32,18 @@ class SuiteJournalSink : public beast::Journal::Sink
 {
     std::string partition_;
     beast::unit_test::suite& suite_;
+    Logs* logs_ = nullptr;
 
 public:
     SuiteJournalSink(
         std::string const& partition,
         beast::severities::Severity threshold,
-        beast::unit_test::suite& suite)
-        : Sink(threshold, false), partition_(partition + " "), suite_(suite)
+        beast::unit_test::suite& suite,
+        Logs* logs = nullptr)
+        : Sink(threshold, false)
+        , partition_(partition + " ")
+        , suite_(suite)
+        , logs_(logs)
     {
     }
 
@@ -97,11 +103,12 @@ SuiteJournalSink::writeAlways(
     // Only write the string if the level at least equals the threshold.
     if (level >= threshold())
     {
+        std::string const& output = logs_ ? logs_->applyTransform(text) : text;
         // std::endl flushes → sync() → str()/str("") race in shared buffer →
         // crashes
         static std::mutex log_mutex;
         std::lock_guard lock(log_mutex);
-        suite_.log << s << partition_ << text << std::endl;
+        suite_.log << s << partition_ << output << std::endl;
     }
 }
 

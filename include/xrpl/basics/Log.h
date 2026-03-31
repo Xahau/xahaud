@@ -208,12 +208,28 @@ public:
     /** Set a transform applied to every log message before output.
      *  Useful in tests to replace raw account IDs with human-readable names.
      *  Pass nullptr to clear.
+     *
+     *  TODO: This is test-only infrastructure (used by TestEnv). Consider
+     *  moving to SuiteLogs or a test-specific subclass if the Logs interface
+     *  needs to stay clean for production.
      */
     void
     setTransform(std::function<std::string(std::string const&)> fn)
     {
         std::lock_guard lock(mutex_);
         transform_ = std::move(fn);
+    }
+
+    /** Apply the current transform to text (or return as-is if none set). */
+    std::string const&
+    applyTransform(std::string const& text) const
+    {
+        if (!transform_)
+            return text;
+        // Store in thread_local to return a const ref
+        thread_local std::string buf;
+        buf = transform_(text);
+        return buf;
     }
 
     std::string

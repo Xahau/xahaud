@@ -7,8 +7,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
-#include <string>
 #include <sstream>
+#include <string>
 
 namespace ripple {
 namespace test {
@@ -35,11 +35,10 @@ namespace jtx {
 class TestEnv : public Env
 {
     std::map<std::string, Account> accounts_;
+    std::string prefix_;
 
 public:
-    TestEnv(
-        beast::unit_test::suite& suite,
-        FeatureBitset features)
+    TestEnv(beast::unit_test::suite& suite, FeatureBitset features)
         : Env(suite, features)
     {
         installTransform();
@@ -72,16 +71,31 @@ public:
         return it->second;
     }
 
+    /// Set a prefix that appears at the start of every log line.
+    /// Useful for visually separating test phases in trace output.
+    /// Pass empty string to clear.
+    void
+    setPrefix(std::string const& prefix)
+    {
+        prefix_ = prefix.empty() ? "" : "[" + prefix + "] ";
+    }
+
 private:
     static beast::severities::Severity
     parseSeverity(std::string const& s)
     {
-        if (s == "trace")   return beast::severities::kTrace;
-        if (s == "debug")   return beast::severities::kDebug;
-        if (s == "info")    return beast::severities::kInfo;
-        if (s == "warning") return beast::severities::kWarning;
-        if (s == "error")   return beast::severities::kError;
-        if (s == "fatal")   return beast::severities::kFatal;
+        if (s == "trace")
+            return beast::severities::kTrace;
+        if (s == "debug")
+            return beast::severities::kDebug;
+        if (s == "info")
+            return beast::severities::kInfo;
+        if (s == "warning")
+            return beast::severities::kWarning;
+        if (s == "error")
+            return beast::severities::kError;
+        if (s == "fatal")
+            return beast::severities::kFatal;
         return beast::severities::kError;
     }
 
@@ -110,7 +124,7 @@ private:
     installTransform()
     {
         app().logs().setTransform([this](std::string const& text) {
-            std::string out = text;
+            std::string out = prefix_ + text;
             for (auto const& [name, acc] : accounts_)
             {
                 auto raddr = toBase58(acc.id());
