@@ -228,6 +228,10 @@ if(xrpld)
           list(APPEND _hooks_extra_args "--hook-coverage")
           message(STATUS "Hook coverage enabled: compiling hooks with sancov")
         endif()
+        if(DEFINED ENV{HOOKS_COMPILER})
+          list(APPEND _hooks_extra_args "--hooks-compiler" "$ENV{HOOKS_COMPILER}")
+          message(STATUS "Hook compiler: $ENV{HOOKS_COMPILER}")
+        endif()
 
         # Run x-build-test-hooks on each test file before compilation
         foreach(_test_file ${EXTERNAL_HOOK_TESTS})
