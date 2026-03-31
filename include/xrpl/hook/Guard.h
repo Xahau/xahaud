@@ -1374,21 +1374,52 @@ validateGuards(
                 int result_count = parseLeb128(wasm, i, &i);
                 CHECK_SHORT_HOOK();
 
-                // this needs a reliable hook cleaner otherwise it will catch
-                // most compilers out
-                if (result_count != 1)
+                if (j == hook_type_idx)
                 {
-                    GUARDLOG(hook::log::FUNC_RETURN_COUNT)
-                        << "Malformed transaction. "
-                        << "Hook declares a function type that returns fewer "
-                           "or more than one value. "
-                        << "\n";
-                    return {};
+                    // hook/cbak must return exactly one value (i64)
+                    if (result_count != 1)
+                    {
+                        GUARDLOG(hook::log::FUNC_RETURN_COUNT)
+                            << "Malformed transaction. "
+                            << "hook/cbak function type must return exactly "
+                               "one value. "
+                            << "\n";
+                        return {};
+                    }
+                }
+                else if (first_signature)
+                {
+                    // For whitelisted imports, check expected return count.
+                    // void_t (0x00) means 0 return values.
+                    uint8_t expected_return =
+                        (*first_signature).get()[0];
+                    int expected_result_count =
+                        (expected_return == 0x00U) ? 0 : 1;
+                    if (result_count != expected_result_count)
+                    {
+                        GUARDLOG(hook::log::FUNC_RETURN_COUNT)
+                            << "Malformed transaction. "
+                            << "Hook API: " << *first_name
+                            << " has wrong return count "
+                            << "(expected " << expected_result_count
+                            << ", got " << result_count << ")."
+                            << "\n";
+                        return {};
+                    }
+                }
+                else
+                {
+                    if (result_count != 1)
+                    {
+                        GUARDLOG(hook::log::FUNC_RETURN_COUNT)
+                            << "Malformed transaction. "
+                            << "Hook declares a function type that returns "
+                               "fewer or more than one value. "
+                            << "\n";
+                        return {};
+                    }
                 }
 
-                // this can only ever be 1 in production, but in testing it may
-                // also be 0 or >1 so for completeness this loop is here but can
-                // be taken out in prod
                 for (int k = 0; k < result_count; ++k)
                 {
                     int result_type = parseLeb128(wasm, i, &i);

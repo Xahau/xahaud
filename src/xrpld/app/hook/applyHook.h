@@ -304,23 +304,21 @@ static WasmEdge_String hookFunctionName =
 // see: lib/system/allocator.cpp
 #define WasmEdge_kPageSize 65536ULL
 
-// --- SanitizerCoverage infrastructure ---
+// --- Coverage infrastructure ---
 //
 // Global coverage accumulator keyed by hook hash. Persists across all hook
-// executions in the process. Each sancovTraceGuard call records the guard
-// ID under the executing hook's hash.
+// executions in the process. Each __on_source_line call records a (line, col)
+// pair under the executing hook's hash.
 //
 // Test API:
-//   hook::coverageReset()          — clear all accumulated data
-//   hook::coverageHits(hookHash)   — get hits for a specific hook
-//   hook::coverageLabel(hash, label) — register a human-readable label for a hook hash
-//   hook::coverageDump(path)          — write all data to a file
+//   hook::coverageReset()            — clear all accumulated data
+//   hook::coverageHits(hookHash)     — get hits for a specific hook
+//   hook::coverageLabel(hash, label) — register a human-readable label
+//   hook::coverageDump(path)         — write all data to a file
 //
 // The dump file format is:
 //   [label or hash]
-//   hits=<id1>,<id2>,...
-//
-// The symbolication script reads this + the WASM binary to map to source lines.
+//   hits=<line:col>,<line:col>,...
 
 struct CoverageData
 {
@@ -389,11 +387,11 @@ coverageDump(std::string const& path)
 
         out << "hits=";
         bool first = true;
-        for (auto id : data.hits)
+        for (auto key : data.hits)
         {
             if (!first)
                 out << ",";
-            out << id;
+            out << (key >> 16) << ":" << (key & 0xFFFF);
             first = false;
         }
         out << "\n\n";
@@ -402,80 +400,30 @@ coverageDump(std::string const& path)
     return true;
 }
 
-// --- SanitizerCoverage WasmEdge host callbacks ---
+// --- Coverage host callback ---
 
 inline WasmEdge_Result
-sancovTraceGuard(
+onSourceLine(
     void* data_ptr,
     const WasmEdge_CallingFrameContext* frameCtx,
     const WasmEdge_Value* in,
     WasmEdge_Value* out)
 {
-    // Called at every CFG edge. in[0] is a pointer (i32 offset) into
-    // linear memory where the guard ID lives.
-    //
-    // If __sanitizer_cov_trace_pc_guard_init never ran (common — xahaud
-    // doesn't call WASM constructors), the guard slots are all 0. In that
-    // case we use the memory offset directly as the guard ID, which is
-    // unique per guard and stable across executions of the same binary.
+    // Called by hookz-instrumented WASM at each DWARF source location.
+    // in[0] = line number, in[1] = column number.
     (void)out;
+    (void)frameCtx;
     auto* hookCtx = reinterpret_cast<HookContext*>(data_ptr);
     if (!hookCtx)
         return WasmEdge_Result_Success;
 
-    uint32_t offset = WasmEdge_ValueGetI32(in[0]);
+    uint32_t line = WasmEdge_ValueGetI32(in[0]);
+    uint32_t col = WasmEdge_ValueGetI32(in[1]);
 
-    auto* mem = WasmEdge_CallingFrameGetMemoryInstance(frameCtx, 0);
-    if (!mem)
-        return WasmEdge_Result_Success;
-
-    uint8_t* ptr = WasmEdge_MemoryInstanceGetPointer(mem, offset, 4);
-    uint32_t guardId = (ptr ? *reinterpret_cast<uint32_t*>(ptr) : 0);
-
-    // If init never ran, guardId is 0 — use the memory offset instead
-    if (guardId == 0)
-        guardId = offset;
-
-    coverageMap()[hookCtx->result.hookHash].hits.insert(guardId);
-
-    return WasmEdge_Result_Success;
-}
-
-inline WasmEdge_Result
-sancovTraceGuardInit(
-    void* data_ptr,
-    const WasmEdge_CallingFrameContext* frameCtx,
-    const WasmEdge_Value* in,
-    WasmEdge_Value* out)
-{
-    // Called once per hook execution with the guard segment bounds.
-    // Records the range in the global accumulator. If this runs, we also
-    // assign sequential IDs — but often it doesn't run because xahaud
-    // doesn't call WASM constructors, in which case sancovTraceGuard
-    // falls back to using memory offsets as IDs.
-    (void)out;
-    auto* hookCtx = reinterpret_cast<HookContext*>(data_ptr);
-    if (!hookCtx)
-        return WasmEdge_Result_Success;
-
-    uint32_t start = WasmEdge_ValueGetI32(in[0]);
-    uint32_t stop = WasmEdge_ValueGetI32(in[1]);
-
-    // Ensure entry exists in the map
-    coverageMap()[hookCtx->result.hookHash];
-
-    // Try to assign sequential IDs if we have memory access
-    auto* mem = WasmEdge_CallingFrameGetMemoryInstance(frameCtx, 0);
-    if (mem)
-    {
-        uint32_t id = 1;
-        for (uint32_t offset = start; offset < stop; offset += 4)
-        {
-            uint8_t* ptr = WasmEdge_MemoryInstanceGetPointer(mem, offset, 4);
-            if (ptr)
-                *reinterpret_cast<uint32_t*>(ptr) = id++;
-        }
-    }
+    // Pack (line, col) into a single uint32_t key.
+    // Limits: line < 65536, col < 65536 — more than sufficient for hooks.
+    uint32_t key = (line << 16) | (col & 0xFFFF);
+    coverageMap()[hookCtx->result.hookHash].hits.insert(key);
 
     return WasmEdge_Result_Success;
 }
@@ -658,49 +606,20 @@ public:
 #undef HOOK_WRAP_PARAMS
 #pragma pop_macro("HOOK_API_DEFINITION")
 
-        // --- SanitizerCoverage host callbacks (for hook coverage testing) ---
-        //
-        // These are void-returning functions so they can't use the standard
-        // DEFINE_HOOK_FUNCTION / ADD_HOOK_FUNCTION macros (which hardcode
-        // WasmFunctionResult to size 1). Instead we register them manually
-        // with WasmEdge_FunctionTypeCreate(..., nullptr, 0) for zero returns.
-        //
-        // When a hook is compiled with -fsanitize-coverage=trace-pc-guard,
-        // clang injects calls to these at every CFG edge. The host records
-        // which guards were visited, then post-test symbolication maps guard
-        // IDs back to C source lines via DWARF .debug_line.
-        //
-        // Signatures (from clang's sancov instrumentation):
-        //   void __sanitizer_cov_trace_pc_guard(uint32_t* guard)
-        //   void __sanitizer_cov_trace_pc_guard_init(uint32_t* start, uint32_t* stop)
-        //
-        // TODO: implement actual coverage recording in the callbacks below.
-        //       Currently they are no-ops that allow instrumented hooks to load.
-        // TODO: gate these behind a coverage/test-mode flag so they're not
-        //       registered in production builds.
-        // See: .ai-docs/hook-coverage-testing-plan-and-journal.md
+        // Coverage callback: void __on_source_line(i32 line, i32 col)
+        // Registered unconditionally — production hooks don't import it,
+        // so it's harmless. Instrumented hooks call it at each DWARF
+        // source location to record line:col coverage hits.
         {
-            static WasmEdge_ValType paramsGuard[] = {WasmEdge_ValType_I32};
-            static auto* ftGuard =
-                WasmEdge_FunctionTypeCreate(paramsGuard, 1, nullptr, 0);
-            auto* hfGuard = WasmEdge_FunctionInstanceCreate(
-                ftGuard, hook::sancovTraceGuard, (void*)(&ctx), 0);
-            static auto nameGuard = WasmEdge_StringCreateByCString(
-                "__sanitizer_cov_trace_pc_guard");
-            WasmEdge_ModuleInstanceAddFunction(
-                importObj, nameGuard, hfGuard);
-        }
-        {
-            static WasmEdge_ValType paramsInit[] = {
+            static WasmEdge_ValType paramsOSL[] = {
                 WasmEdge_ValType_I32, WasmEdge_ValType_I32};
-            static auto* ftInit =
-                WasmEdge_FunctionTypeCreate(paramsInit, 2, nullptr, 0);
-            auto* hfInit = WasmEdge_FunctionInstanceCreate(
-                ftInit, hook::sancovTraceGuardInit, (void*)(&ctx), 0);
-            static auto nameInit = WasmEdge_StringCreateByCString(
-                "__sanitizer_cov_trace_pc_guard_init");
-            WasmEdge_ModuleInstanceAddFunction(
-                importObj, nameInit, hfInit);
+            static auto* ftOSL =
+                WasmEdge_FunctionTypeCreate(paramsOSL, 2, nullptr, 0);
+            auto* hfOSL = WasmEdge_FunctionInstanceCreate(
+                ftOSL, hook::onSourceLine, (void*)(&ctx), 0);
+            static auto nameOSL =
+                WasmEdge_StringCreateByCString("__on_source_line");
+            WasmEdge_ModuleInstanceAddFunction(importObj, nameOSL, hfOSL);
         }
 
         WasmEdge_TableInstanceContext* hostTable =

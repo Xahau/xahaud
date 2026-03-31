@@ -428,11 +428,8 @@ getImportWhitelist(Rules const& rules)
 
 #include "hook_api.macro"
 
-    // SanitizerCoverage callbacks for hook coverage testing.
-    // void __sanitizer_cov_trace_pc_guard(uint32_t* guard)
-    whitelist["__sanitizer_cov_trace_pc_guard"] = {void_t, uint32_t};
-    // void __sanitizer_cov_trace_pc_guard_init(uint32_t* start, uint32_t* stop)
-    whitelist["__sanitizer_cov_trace_pc_guard_init"] = {void_t, uint32_t, uint32_t};
+    // Coverage callback: void __on_source_line(uint32_t line, uint32_t col)
+    whitelist["__on_source_line"] = {void_t, uint32_t, uint32_t};
 
 #undef HOOK_API_DEFINITION
 #undef HOOK_WRAP_PARAMS

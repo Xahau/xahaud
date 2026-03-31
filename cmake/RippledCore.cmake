@@ -190,7 +190,7 @@ if(xrpld)
     # Optionally set HOOKS_C_DIR to pass --hooks-c-dir args to the compiler
     # (e.g. "tipbot=/path/to/hooks" — multiple values separated by ";").
     #
-    # x-build-test-hooks must be on PATH. It auto-compiles hooks referenced
+    # hookz build-test-hooks must be on PATH. It auto-compiles hooks referenced
     # in each *_test.cpp and generates *_test_hooks.h next to the test file.
     if(NOT HOOKS_TEST_DIR AND DEFINED ENV{HOOKS_TEST_DIR})
       set(HOOKS_TEST_DIR $ENV{HOOKS_TEST_DIR})
@@ -203,7 +203,7 @@ if(xrpld)
         "${HOOKS_TEST_DIR}/*_test.cpp"
       )
       if(EXTERNAL_HOOK_TESTS)
-        # Build extra args for x-build-test-hooks
+        # Build extra args for hookz build-test-hooks
         set(_hooks_extra_args "")
         set(_hooks_source_deps "")
         if(HOOKS_C_DIR)
@@ -226,31 +226,48 @@ if(xrpld)
         endif()
         if(HOOKS_COVERAGE OR DEFINED ENV{HOOKS_COVERAGE})
           list(APPEND _hooks_extra_args "--hook-coverage")
-          message(STATUS "Hook coverage enabled: compiling hooks with sancov")
+          message(STATUS "Hook coverage enabled: compiling hooks with hookz")
         endif()
-        if(DEFINED ENV{HOOKS_COMPILER})
-          list(APPEND _hooks_extra_args "--hooks-compiler" "$ENV{HOOKS_COMPILER}")
-          message(STATUS "Hook compiler: $ENV{HOOKS_COMPILER}")
+        if(HOOKS_FORCE_RECOMPILE OR DEFINED ENV{HOOKS_FORCE_RECOMPILE})
+          list(APPEND _hooks_extra_args "--force-write" "--no-cache")
+          message(STATUS "Hook force recompile enabled (cache bypassed)")
         endif()
 
-        # Run x-build-test-hooks on each test file before compilation
+        # Run hookz build-test-hooks on each test file before compilation
         foreach(_test_file ${EXTERNAL_HOOK_TESTS})
           get_filename_component(_stem ${_test_file} NAME_WE)
           set(_hooks_header "${HOOKS_TEST_DIR}/${_stem}_hooks.h")
-          add_custom_command(
-            OUTPUT "${_hooks_header}"
-            COMMAND x-build-test-hooks "${_test_file}" ${_hooks_extra_args}
-            DEPENDS "${_test_file}" ${_hooks_source_deps}
-            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-            COMMENT "Compiling hooks for ${_stem}"
-            VERBATIM
-          )
-          list(APPEND EXTERNAL_HOOK_HEADERS "${_hooks_header}")
+          if(HOOKS_FORCE_RECOMPILE OR DEFINED ENV{HOOKS_FORCE_RECOMPILE})
+            # Always run — no DEPENDS, no OUTPUT caching
+            add_custom_target(compile_hooks_${_stem} ALL
+              COMMAND hookz build-test-hooks "${_test_file}" ${_hooks_extra_args}
+              WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+              COMMENT "Compiling hooks for ${_stem} (forced)"
+              VERBATIM
+            )
+            list(APPEND EXTERNAL_HOOK_TARGETS compile_hooks_${_stem})
+          else()
+            add_custom_command(
+              OUTPUT "${_hooks_header}"
+              COMMAND hookz build-test-hooks "${_test_file}" ${_hooks_extra_args}
+              DEPENDS "${_test_file}" ${_hooks_source_deps}
+              WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+              COMMENT "Compiling hooks for ${_stem}"
+              VERBATIM
+            )
+            list(APPEND EXTERNAL_HOOK_HEADERS "${_hooks_header}")
+          endif()
         endforeach()
 
         # Ensure headers are generated before rippled compiles
-        add_custom_target(compile_external_hooks DEPENDS ${EXTERNAL_HOOK_HEADERS})
-        add_dependencies(rippled compile_external_hooks)
+        if(HOOKS_FORCE_RECOMPILE OR DEFINED ENV{HOOKS_FORCE_RECOMPILE})
+          foreach(_tgt ${EXTERNAL_HOOK_TARGETS})
+            add_dependencies(rippled ${_tgt})
+          endforeach()
+        else()
+          add_custom_target(compile_external_hooks DEPENDS ${EXTERNAL_HOOK_HEADERS})
+          add_dependencies(rippled compile_external_hooks)
+        endif()
 
         target_sources(rippled PRIVATE ${EXTERNAL_HOOK_TESTS})
         target_include_directories(rippled PRIVATE "${HOOKS_TEST_DIR}")

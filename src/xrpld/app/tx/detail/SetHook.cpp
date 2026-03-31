@@ -533,12 +533,14 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     hsacc = ss.str();
                 }
 
-                // TODO(coverage): guard validation disabled for coverage
-                // testing. Re-enable and fix individual checks for production.
-                auto result = std::optional<std::pair<uint64_t, uint64_t>>(
-                    std::make_pair(uint64_t{1000}, uint64_t{0}));
+                auto result = validateGuards(
+                    hook,
+                    logger,
+                    hsacc,
+                    hook_api::getImportWhitelist(ctx.rules),
+                    hook_api::getGuardRulesVersion(ctx.rules));
 
-                if (false && ctx.j.trace())
+                if (ctx.j.trace())
                 {
                     // clunky but to get the stream to accept the output
                     // correctly we will split on new line and feed each line
