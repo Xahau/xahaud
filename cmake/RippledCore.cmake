@@ -270,7 +270,13 @@ if(xrpld)
         endif()
 
         target_sources(rippled PRIVATE ${EXTERNAL_HOOK_TESTS})
-        target_include_directories(rippled PRIVATE "${HOOKS_TEST_DIR}")
+        # Keep the generated hook-header include path scoped to the external
+        # test sources so changing HOOKS_TEST_DIR doesn't invalidate the
+        # compile command for the rest of rippled.
+        set_property(
+          SOURCE ${EXTERNAL_HOOK_TESTS}
+          APPEND PROPERTY INCLUDE_DIRECTORIES "${HOOKS_TEST_DIR}"
+        )
         message(STATUS "Including external hook tests from: ${HOOKS_TEST_DIR}")
       endif()
     endif()
