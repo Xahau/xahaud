@@ -246,9 +246,12 @@ Transactor::calculateHookGas(uint32_t gasCount, Fees const& fees)
 {
     uint64_t const gasPrice =
         fees.hookGasPrice > 0 ? fees.hookGasPrice : GAS_PRICE_MICRO_DROPS;
-    // TODO: overflow check
+    uint64_t gasCountU64 = static_cast<uint64_t>(gasCount);
+    if (gasPrice > 0 &&
+        gasCountU64 > std::numeric_limits<uint64_t>::max() / gasPrice)
+        return XRPAmount{INITIAL_XRP.drops()};
     return XRPAmount{static_cast<XRPAmount::value_type>(
-        (static_cast<uint64_t>(gasCount) * gasPrice) / GAS_PRICE_MICRO_DROPS)};
+        (gasCountU64 * gasPrice) / GAS_PRICE_MICRO_DROPS)};
 }
 
 // RH NOTE: this only computes one chain at a time, so if there is a receiving
@@ -1397,20 +1400,12 @@ Transactor::executeHookChain(
     ripple::AccountID const& account,
     bool strong,
     bool isOutgoing,
-    std::shared_ptr<STObject const> const& provisionalMeta)
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    uint32_t& gasPool)
 {
     std::set<uint256> hookSkips;
     std::map<uint256, std::map<std::vector<uint8_t>, std::vector<uint8_t>>>
         hookParamOverrides{};
-
-    // Initialize Gas pool for Gas-type hooks
-    uint32_t gasPool = 0;
-    if (ctx_.tx.isFieldPresent(sfHookGas))
-    {
-        gasPool = ctx_.tx.getFieldU32(sfHookGas);
-        JLOG(j_.trace()) << "HookChain: Initialized Gas pool with " << gasPool
-                         << " instructions";
-    }
 
     auto const& hooks = hookSLE->getFieldArray(sfHooks);
     uint8_t hook_no = 0;
@@ -1547,6 +1542,9 @@ Transactor::executeHookChain(
 
                 JLOG(j_.trace()) << "HookChain: Pool after: " << gasPool;
             }
+
+            if (hookResult.exitType == hook_api::ExitType::GAS_INSUFFICIENT)
+                return tecHOOK_INSUFFICIENT_GAS;
 
             if (hookResult.exitType != hook_api::ExitType::ACCEPT)
             {
@@ -1792,7 +1790,8 @@ Transactor::doTSH(
     std::vector<std::pair<AccountID, bool>> tsh,
     hook::HookStateMap& stateMap,
     std::vector<hook::HookResult>& results,
-    std::shared_ptr<STObject const> const& provisionalMeta)
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    uint32_t& gasPool)
 {
     auto& view = ctx_.view();
 
@@ -1942,7 +1941,8 @@ Transactor::doTSH(
             tshAccountID,
             strong,
             false,
-            provisionalMeta);
+            provisionalMeta,
+            gasPool);
 
         if (canRollback && (!isTesSuccess(tshResult)))
             return tshResult;
@@ -2145,6 +2145,15 @@ Transactor::operator()()
         auto const& accountID = ctx_.tx.getAccountID(sfAccount);
         std::vector<hook::HookResult> hookResults;
 
+        // Initialize Gas pool once for strong TSH hook chains
+        uint32_t gasPool = 0;
+        if (ctx_.tx.isFieldPresent(sfHookGas))
+        {
+            gasPool = ctx_.tx.getFieldU32(sfHookGas);
+            JLOG(j_.trace()) << "HookChain: Initialized Gas pool with "
+                             << gasPool << " instructions";
+        }
+
         auto const& hooksOriginator = view().read(keylet::hook(accountID));
 
         // First check if the Sending account has any hooks that can be fired
@@ -2157,7 +2166,8 @@ Transactor::operator()()
                 accountID,
                 true,
                 true,
-                {});
+                {},
+                gasPool);
 
         if (isTesSuccess(result))
         {
@@ -2166,7 +2176,7 @@ Transactor::operator()()
             // (who have the right to rollback the txn), any weak TSH will be
             // executed after doApply has been successful (callback as well)
 
-            result = doTSH(true, tsh, stateMap, hookResults, {});
+            result = doTSH(true, tsh, stateMap, hookResults, {}, gasPool);
         }
 
         // write state if all chains executed successfully
@@ -2462,7 +2472,8 @@ Transactor::operator()()
             tsh = hook::getTransactionalStakeHolders(ctx_.tx, ctx_.view());
         }
 
-        doTSH(false, tsh, stateMap, weakResults, proMeta);
+        uint32_t weakGasPool = 0;
+        doTSH(false, tsh, stateMap, weakResults, proMeta, weakGasPool);
 
         // execute any hooks that nominated for 'again as weak'
         for (auto const& [accID, hookHashes] : aawMap)

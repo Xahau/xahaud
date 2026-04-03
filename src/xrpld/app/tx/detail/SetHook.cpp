@@ -541,8 +541,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                         << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
                         << HS_ACC()
                         << "]: Malformed transaction: SetHook with "
-                           "sfHookWeakGas must be used with hsfCOLLECT "
-                           "flag.";
+                           "hsfCOLLECT flag requires sfHookWeakGas to be "
+                           "present.";
                     return false;
                 }
             }
@@ -2221,6 +2221,14 @@ SetHook::setHook()
                 if (newDefSLE->isFieldPresent(sfHookOnOutgoing))
                     defHookOnOutgoing =
                         newDefSLE->getFieldH256(sfHookOnOutgoing);
+
+                // refresh gas fields from the new definition
+                if (newDefSLE->isFieldPresent(sfHookCallbackGas))
+                    defHookCallbackGas =
+                        newDefSLE->getFieldU32(sfHookCallbackGas);
+
+                if (newDefSLE->isFieldPresent(sfHookWeakGas))
+                    defHookWeakGas = newDefSLE->getFieldU32(sfHookWeakGas);
 
                 // set the hookon field if it differs from definition
                 if (newHookOn)

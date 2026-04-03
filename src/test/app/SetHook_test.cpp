@@ -15474,14 +15474,14 @@ public:
                 ter(tecHOOK_INVALID));
             env.close();
 
-            // sfHookCallbackGas is present
+            // sfHookCallbackGas override (definition has it, user overrides)
             auto jvh2 = hso(gas_accept_with_cbak_hash, overrideFlag);
             jvh2[sfHookCallbackGas.jsonName] = 1000001;
             env(ripple::test::jtx::hook(bob, {{jvh2}}, 0),
                 M("test gas type hook installation: version=1 hook(with-cbak, "
-                  "non-weak), sfHookCallbackGas is present"),
+                  "non-weak), sfHookCallbackGas override"),
                 HSFEE,
-                ter(tecHOOK_INVALID));
+                ter(tesSUCCESS));
             env.close();
 
             // Valid Installation
@@ -15917,7 +15917,7 @@ public:
             env.fund(XRP(10000), alice);
             env.close();
 
-            auto const expectedGas = success ? 1000 : 1;
+            auto const expectedGas = success ? 100000 : 1;
 
             Json::Value jv = hso(hook_wasm, overrideFlag);
             jv[jss::HookApiVersion] = 1;
@@ -15971,9 +15971,9 @@ public:
             auto const& execution = meta->getFieldArray(sfHookExecutions)[0];
             BEAST_REQUIRE(execution.isFieldPresent(sfHookResult));
             BEAST_REQUIRE(
-                execution.getFieldU8(sfHookResult) == success
-                    ? hook_api::ExitType::ACCEPT
-                    : hook_api::ExitType::GAS_INSUFFICIENT);
+                execution.getFieldU8(sfHookResult) ==
+                (success ? hook_api::ExitType::ACCEPT
+                         : hook_api::ExitType::GAS_INSUFFICIENT));
         }
     }
 

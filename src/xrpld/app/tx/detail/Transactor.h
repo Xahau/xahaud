@@ -195,7 +195,8 @@ protected:
         std::vector<std::pair<AccountID, bool>> tsh,
         hook::HookStateMap& stateMap,
         std::vector<hook::HookResult>& result,
-        std::shared_ptr<STObject const> const& provisionalMeta);
+        std::shared_ptr<STObject const> const& provisionalMeta,
+        uint32_t& gasPool);
 
     // Execute a hook "Again As Weak" is a feature that allows
     // a hook that which is being executed pre-application of the otxn
@@ -216,7 +217,8 @@ protected:
         ripple::AccountID const& account,
         bool strong,
         bool isOutgoing,
-        std::shared_ptr<STObject const> const& provisionalMeta);
+        std::shared_ptr<STObject const> const& provisionalMeta,
+        uint32_t& gasPool);
 
     void
     addWeakTSHFromBalanceChanges(detail::ApplyViewBase const& pv);
