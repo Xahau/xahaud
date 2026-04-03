@@ -242,9 +242,15 @@ validateImportSection(
         WasmEdge_ExternalType extType =
             WasmEdge_ImportTypeGetExternalType(imports[i]);
 
-        // Only check function imports
+        // Reject non-function imports (memory, global, table)
         if (extType != WasmEdge_ExternalType_Function)
-            continue;
+        {
+            JLOG(j.trace()) << "HookSet(" << hook::log::IMPORT_ILLEGAL
+                            << "): Gas-type hooks cannot have non-function "
+                               "imports";
+            return Unexpected(
+                "Gas-type hooks cannot have non-function imports");
+        }
 
         // Convert WasmEdge_String to std::string for comparison
         std::string modName(moduleName.Buf, moduleName.Length);

@@ -16363,6 +16363,44 @@ public:
     }
 
     void
+    testGasTypeHookNonFunctionImportRejection(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook rejects non-function imports");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const& rules = env.current()->rules();
+        auto const& j = env.journal;
+
+        // WAT with memory import (non-function import)
+        TestHook test_gas_memory_import_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "memory" (memory 1))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_memory_import);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_memory_import_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("non-function imports") !=
+                    std::string::npos);
+        }
+    }
+
+    void
     testWithFeatures(FeatureBitset features)
     {
         testHooksOwnerDir(features);
@@ -16496,6 +16534,7 @@ public:
         testGasTypeHookImportErrors(features);
         testGasTypeHookMemoryValidation(features);
         testGasTypeHookExportedMemoryPageLimit(features);
+        testGasTypeHookNonFunctionImportRejection(features);
     }
 
 public:
