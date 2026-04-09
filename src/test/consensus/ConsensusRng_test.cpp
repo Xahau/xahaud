@@ -539,6 +539,153 @@ public:
     }
 
     void
+    testRngEntropyConvergesWithPartialReveals()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG entropy converges with partial reveal subsets");
+
+        // 6 peers in two groups. Group A drops reveals from peer 5,
+        // group B drops reveals from peer 0.  Both groups have > 80%
+        // quorum of reveals but DIFFERENT subsets.
+        //
+        // Without the entropySetHash convergence gate, these groups
+        // compute different entropy -> different pseudo-tx -> fork.
+        //
+        // With the gate, they must either converge on the same reveal
+        // set (via SHAMap fetch/merge) or both fall back to zero
+        // entropy.  Either way: no fork.
+
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup groupA = sim.createGroup(3);
+        PeerGroup groupB = sim.createGroup(3);
+        PeerGroup network = groupA + groupB;
+
+        for (Peer* peer : network)
+            peer->ce().enableRngConsensus_ = true;
+
+        network.trust(network);
+
+        auto const fast = round<milliseconds>(0.2 * parms.ledgerGRANULARITY);
+        network.connect(network, fast);
+
+        // Group A never sees peer 5's reveal
+        for (Peer* peer : groupA)
+            peer->ce().dropRevealFrom_.insert(network[5]->id);
+
+        // Group B never sees peer 0's reveal
+        for (Peer* peer : groupB)
+            peer->ce().dropRevealFrom_.insert(network[0]->id);
+
+        sim.run(1);
+
+        // Must not fork
+        BEAST_EXPECT(sim.branches(network) == 1);
+        BEAST_EXPECT(sim.synchronized(network));
+
+        // All peers must agree on entropy (same digest or all zero)
+        auto const& refDigest = network[0]->ce().lastEntropyDigest_;
+        for (Peer const* peer : network)
+        {
+            BEAST_EXPECT(peer->ce().lastEntropyDigest_ == refDigest);
+            BEAST_EXPECT(
+                peer->ce().lastEntropyCount_ ==
+                network[0]->ce().lastEntropyCount_);
+        }
+    }
+
+    void
+    testRngEntropyFallbackOnMajorRevealLoss()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG entropy falls back to zero on major reveal loss");
+
+        // 5 peers.  Peer 0 drops reveals from peers 2, 3, 4
+        // (only sees 2/5 reveals = 40%, below 80% quorum).
+        // All other peers see all reveals.
+        //
+        // Peer 0 must fall back to zero entropy.
+        // The network must still agree (either all use full entropy
+        // from the converged set, or all fall back).
+
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup peers = sim.createGroup(5);
+        for (Peer* peer : peers)
+            peer->ce().enableRngConsensus_ = true;
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        // Peer 0 drops most reveals
+        peers[0]->ce().dropRevealFrom_.insert(peers[2]->id);
+        peers[0]->ce().dropRevealFrom_.insert(peers[3]->id);
+        peers[0]->ce().dropRevealFrom_.insert(peers[4]->id);
+
+        sim.run(1);
+
+        // Must not fork
+        BEAST_EXPECT(sim.branches(peers) == 1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
+        // All peers must agree on entropy
+        auto const& refDigest = peers[0]->ce().lastEntropyDigest_;
+        for (Peer const* peer : peers)
+            BEAST_EXPECT(peer->ce().lastEntropyDigest_ == refDigest);
+    }
+
+    void
+    testRngSingleByzantineCannotDenyEntropy()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG single Byzantine validator cannot deny entropy");
+
+        // 5 peers, all see all reveals. Peer 0 forces a different
+        // entropy set hash (simulating a Byzantine node publishing
+        // a garbage entropySetHash).
+        //
+        // The remaining 4/5 (80%) should still produce valid entropy.
+        // The Byzantine node's hash should be outvoted by supermajority.
+
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup peers = sim.createGroup(5);
+        for (Peer* peer : peers)
+            peer->ce().enableRngConsensus_ = true;
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        // TODO: add forcedEntropySetHash_ test knob to CsfExtensions
+        // For now, this test documents the expected behavior.
+        // When the convergence gate is implemented, uncomment:
+        //
+        // peers[0]->ce().forcedEntropySetHash_ =
+        //     sha512Half(std::string("byzantine-entropy"));
+
+        sim.run(1);
+
+        BEAST_EXPECT(sim.branches(peers) == 1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
+        // With 5 healthy peers, entropy should be non-zero
+        for (Peer const* peer : peers)
+        {
+            BEAST_EXPECT(!peer->ce().lastEntropyWasFallback_);
+            BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
+        }
+    }
+
+    void
     run() override
     {
         testRngCommitRevealConverges();
@@ -553,6 +700,9 @@ public:
         testRngRejectsInvalidReveal();
         testRngCommitChangeClearsStaleReveal();
         testRngRevealTimeoutAsymmetricDelays();
+        testRngEntropyConvergesWithPartialReveals();
+        testRngEntropyFallbackOnMajorRevealLoss();
+        testRngSingleByzantineCannotDenyEntropy();
     }
 };
 

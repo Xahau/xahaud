@@ -307,6 +307,10 @@ struct Peer
         // Optional test hook: force a specific commit-set hash
         std::optional<uint256> forcedCommitSetHash_;
 
+        // Optional test hook: drop reveals from specific peers
+        // (simulates asymmetric reveal delivery / packet loss)
+        hash_set<PeerID> dropRevealFrom_;
+
         explicit Extensions(Peer& p) : peer(p), j_(p.j)
         {
         }
@@ -509,6 +513,10 @@ struct Peer
             }
 
             if (!position.myReveal)
+                return;
+
+            // Test hook: drop reveals from specific peers
+            if (dropRevealFrom_.count(nodeId) > 0)
                 return;
 
             auto const commitIt = pendingCommits_.find(nodeId);
