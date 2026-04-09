@@ -164,6 +164,12 @@ DatabasePinnedImp::getWriteLoad() const
 void
 DatabasePinnedImp::importDatabase(Database& source)
 {
+    // Import is not supported with DatabasePinned. The dual-backend
+    // routing relies on knowing which ledger ranges are pinned, which
+    // is only possible with catalogue packs where the ranges are known
+    // quantities. A generic import would need to scan for ledger
+    // headers and walk SHAMap trees to determine routing — not
+    // impossible, but not currently implemented.
     Throw<std::runtime_error>(
         "DatabasePinned does not support import operations");
 }

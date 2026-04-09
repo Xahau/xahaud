@@ -1265,17 +1265,29 @@ doCatalogueLoad(RPC::JsonContext& context)
                 rpcINTERNAL, "Catalogue file contains a corrupted ledger.");
         }
 
-        // IMPORTANT: Mark as pinned BEFORE saving to database
-        // This ensures isPinned() returns true when saveValidatedLedger checks,
-        // preventing the ledger from being cached in AcceptedLedgerCache.
-        //
-        // NOTE: If the save below fails, mPinnedLedgers will be one ledger
-        // ahead of state.db. This is harmless because:
-        // 1. The failure aborts the RPC immediately (no further mutations)
-        // 2. On restart, mPinnedLedgers is reloaded from state.db
-        // 3. Re-running catalogue_load restarts from pack beginning,
-        //    overwriting any partially-loaded data
+        // IMPORTANT: Mark as pinned BEFORE saving to database.
+        // This ensures isPinned() returns true when saveValidatedLedger
+        // checks, which: (a) routes to persistent backend via pinnedLEDGER
+        // type, and (b) skips AcceptedLedgerCache to avoid memory bloat.
         context.app.getLedgerMaster().storeLedger(ledger, true);
+
+        // Scope guard: un-pin if we exit without a successful save.
+        // Dismissed on success below.
+        bool saveDone = false;
+        auto unpinGuard = [&]() {
+            if (!saveDone)
+                context.app.getLedgerMaster().unpinLedger(
+                    ledger->info().seq);
+        };
+        // Use a simple RAII wrapper to guarantee the guard runs
+        struct OnExit
+        {
+            std::function<void()> fn;
+            ~OnExit()
+            {
+                fn();
+            }
+        } unpinOnExit{unpinGuard};
 
         // Save in database - wait for completion to avoid memory bloat.
         // Uses pendSaveValidated to respect job queue tuning on live
@@ -1296,10 +1308,11 @@ doCatalogueLoad(RPC::JsonContext& context)
             if (!queued)
                 return rpcError(rpcINTERNAL, "Failed to save ledger");
 
-            // Wait for save. If the job throws (e.g. disk error), the
-            // promise is destroyed without set_value, and get() throws
-            // std::future_error(broken_promise). Let that propagate as
-            // a hard failure — something is seriously wrong.
+            // Wait for the async save to complete. Note: if the save
+            // job throws, the JobQueue has no exception handling — the
+            // process will std::terminate before we ever see a
+            // broken_promise here. The catch is defensive in case the
+            // job queue gains exception handling in the future.
             bool saved = false;
             try
             {
@@ -1327,6 +1340,9 @@ doCatalogueLoad(RPC::JsonContext& context)
                         std::to_string(ledger->info().seq) +
                         " to SQLite database");
             }
+
+            // Save succeeded — dismiss the guard
+            saveDone = true;
         }
 
         if (info.seq == header.max_ledger &&
@@ -1340,8 +1356,17 @@ doCatalogueLoad(RPC::JsonContext& context)
         context.app.getLedgerMaster().setLedgerRangePresent(
             header.min_ledger, info.seq, true);
 
-        // Save pinned ranges to database after every ledger
-        // This is just a single row UPDATE, so it's not expensive
+        // Persist pinned ranges to state.db after every ledger.
+        // This is a single row UPDATE, so it's cheap.
+        //
+        // DURABILITY NOTE: There is a small crash window between the
+        // ledger save above and this setPinnedRanges call. If the
+        // process crashes in that window, the ledger data is safely
+        // in the persistent backend (always opened based on config,
+        // independent of state.db), and fetchNodeObject will still
+        // find it via the tryPersistent fallback. However, state.db
+        // won't record the pinned range, so mCompleteLedgers won't
+        // include those seqs until catalogue_load is re-run.
         context.app.getSHAMapStore().setPinnedRanges(
             context.app.getLedgerMaster().getPinnedLedgersRangeSet());
 

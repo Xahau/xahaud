@@ -446,10 +446,15 @@ bool
 LedgerMaster::storeLedger(std::shared_ptr<Ledger const> ledger, bool pin)
 {
     bool validated = ledger->info().validated;
-    // Returns true if we already had the ledger
-    // NOTE: When pinning is enabled, we skip inserting into history to avoid
-    // memory bloat when loading millions of ledgers (e.g., from catalogue
-    // files).
+    // Returns true if we already had the ledger.
+    //
+    // When pin=true, we deliberately skip mLedgerHistory insertion.
+    // A single catalogue pack can contain tens of thousands of ledgers,
+    // each holding a full SHAMap of account/transaction nodes. Keeping
+    // them all in the in-memory history cache would consume hundreds of
+    // GB of RAM. Instead, pinned ledgers are persisted to the nodestore
+    // and SQLite, and are retrievable via RPC (which reads from SQLite),
+    // but are NOT kept in memory.
     if (!pin && !mLedgerHistory.insert(std::move(ledger), validated))
         return false;
 
@@ -536,6 +541,13 @@ LedgerMaster::isPinned(std::uint32_t seq)
 {
     std::lock_guard sl(mCompleteLock);
     return boost::icl::contains(mPinnedLedgers, seq);
+}
+
+void
+LedgerMaster::unpinLedger(std::uint32_t seq)
+{
+    std::lock_guard sl(mCompleteLock);
+    mPinnedLedgers.erase(range(seq, seq));
 }
 
 bool

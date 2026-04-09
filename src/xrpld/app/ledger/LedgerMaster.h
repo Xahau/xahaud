@@ -209,6 +209,8 @@ public:
     clearLedger(std::uint32_t seq);
     bool
     isPinned(std::uint32_t seq);
+    void
+    unpinLedger(std::uint32_t seq);
     bool
     isValidated(ReadView const& ledger);
     bool
