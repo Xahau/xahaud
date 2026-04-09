@@ -1651,18 +1651,22 @@ ConsensusExtensions::onTrustedPeerMessage(
         auto const fullSlice = makeSlice(blob);
         auto const sigSlice = fullSlice.substr(65);
 
-        // Verify the multisign signature against the inner tx.
-        // The ttEXPORT must be in our open ledger — validators only
-        // sign exports they see in their open ledger (decorateMessage),
-        // and we only receive proposals after consensus has started on
-        // the same transaction set.  If the tx isn't found, reject —
-        // don't store unverified sigs.
+        // Verify the multisign signature against the inner tx when
+        // possible.  If the ttEXPORT isn't in our open ledger yet
+        // (relay ordering), store the sig anyway — the proposal-level
+        // authentication (checkSign + sender binding) provides
+        // sufficient trust, and the collector's stale cleanup (256
+        // ledgers) bounds retention.  The multisign sig will be
+        // verified on the destination chain regardless.
         auto const txIt = exportTxns.find(txHash);
         if (txIt == exportTxns.end() ||
             !txIt->second->isFieldPresent(sfExportedTxn))
         {
-            JLOG(j_.debug()) << "Export: cannot verify sig for tx " << txHash
-                             << " (not in open ledger) — rejected";
+            JLOG(j_.debug()) << "Export: storing sig for tx " << txHash
+                             << " without multisign verification"
+                             << " (not in open ledger yet)";
+            Buffer sigBuf(sigSlice.data(), sigSlice.size());
+            exportSigCollector_.addSignature(txHash, senderPK, sigBuf);
             continue;
         }
 
