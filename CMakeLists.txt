@@ -12,24 +12,32 @@ endif()
 
 # Fix "unrecognized escape" issues when passing CMAKE_MODULE_PATH on Windows.
 file(TO_CMAKE_PATH "${CMAKE_MODULE_PATH}" CMAKE_MODULE_PATH)
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Builds/CMake")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 if(POLICY CMP0144)
   cmake_policy(SET CMP0144 NEW)
 endif()
 
-project (rippled)
+project (xrpl)
 set(Boost_NO_BOOST_CMAKE ON)
 
 # make GIT_COMMIT_HASH define available to all sources
 find_package(Git)
 if(Git_FOUND)
-    execute_process(COMMAND ${GIT_EXECUTABLE} describe --always --abbrev=40
+    execute_process(COMMAND ${GIT_EXECUTABLE} --git-dir=${CMAKE_CURRENT_SOURCE_DIR}/.git rev-parse HEAD
         OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE gch)
     if(gch)
         set(GIT_COMMIT_HASH "${gch}")
         message(STATUS gch: ${GIT_COMMIT_HASH})
         add_definitions(-DGIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
+    endif()
+
+    execute_process(COMMAND ${GIT_EXECUTABLE} --git-dir=${CMAKE_CURRENT_SOURCE_DIR}/.git rev-parse --abbrev-ref HEAD
+        OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE gb)
+    if(gb)
+        set(GIT_BRANCH "${gb}")
+        message(STATUS gb: ${GIT_BRANCH})
+        add_definitions(-DGIT_BRANCH="${GIT_BRANCH}")
     endif()
 endif() #git
 
@@ -37,20 +45,11 @@ endif() #git
 set(SOURCE_ROOT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/")
 add_definitions(-DSOURCE_ROOT_PATH="${SOURCE_ROOT_PATH}")
 
-# BEAST_ENHANCED_LOGGING option - adds file:line numbers and formatting to logs
-# Default to ON for Debug builds, OFF for Release
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages" ON)
-else()
-    option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages" OFF)
-endif()
-
-if(BEAST_ENHANCED_LOGGING)
-    add_definitions(-DBEAST_ENHANCED_LOGGING=1)
-    message(STATUS "Log line numbers enabled")
-else()
-    message(STATUS "Log line numbers disabled")
-endif()
+# BEAST_ENHANCED_LOGGING - adds file:line numbers and formatting to logs
+# Automatically enabled for Debug builds via generator expression
+# Can be explicitly controlled with -DBEAST_ENHANCED_LOGGING=ON/OFF
+option(BEAST_ENHANCED_LOGGING "Include file and line numbers in log messages (auto: Debug=ON, Release=OFF)" OFF)
+message(STATUS "BEAST_ENHANCED_LOGGING option: ${BEAST_ENHANCED_LOGGING}")
 
 if(thread_safety_analysis)
   add_compile_options(-Wthread-safety -D_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS -DRIPPLE_ENABLE_THREAD_SAFETY_ANNOTATIONS)
@@ -73,7 +72,6 @@ include (CheckCXXCompilerFlag)
 include (FetchContent)
 include (ExternalProject)
 include (CMakeFuncs) # must come *after* ExternalProject b/c it overrides one function in EP
-include (ProcessorCount)
 if (target)
   message (FATAL_ERROR "The target option has been removed - use native cmake options to control build")
 endif ()
@@ -98,8 +96,12 @@ find_package(OpenSSL 1.1.1 REQUIRED)
 set_target_properties(OpenSSL::SSL PROPERTIES
   INTERFACE_COMPILE_DEFINITIONS OPENSSL_NO_SSL2
 )
-add_subdirectory(src/secp256k1)
-add_subdirectory(src/ed25519-donna)
+set(SECP256K1_INSTALL TRUE)
+add_subdirectory(external/secp256k1)
+add_library(secp256k1::secp256k1 ALIAS secp256k1)
+add_subdirectory(external/ed25519-donna)
+add_subdirectory(external/antithesis-sdk)
+find_package(gRPC REQUIRED)
 find_package(lz4 REQUIRED)
 # Target names with :: are not allowed in a generator expression.
 # We need to pull the include directories and imported location properties
@@ -107,8 +109,7 @@ find_package(lz4 REQUIRED)
 find_package(LibArchive REQUIRED)
 find_package(SOCI REQUIRED)
 find_package(SQLite3 REQUIRED)
-find_package(Snappy REQUIRED)
-# find_package(wasmedge REQUIRED)
+
 option(rocksdb "Enable RocksDB" ON)
 if(rocksdb)
   find_package(RocksDB REQUIRED)
@@ -117,10 +118,11 @@ if(rocksdb)
   )
   target_link_libraries(ripple_libs INTERFACE RocksDB::rocksdb)
 endif()
+
 find_package(nudb REQUIRED)
 find_package(date REQUIRED)
-include(deps/Protobuf)
-include(deps/gRPC)
+find_package(xxHash REQUIRED)
+
 include(deps/WasmEdge) 
   if(TARGET nudb::core)
   set(nudb nudb::core)
@@ -131,32 +133,23 @@ else()
 endif()
 target_link_libraries(ripple_libs INTERFACE ${nudb})
 
-if(reporting)
-  find_package(cassandra-cpp-driver REQUIRED)
-  find_package(PostgreSQL REQUIRED)
-  target_link_libraries(ripple_libs INTERFACE
-    cassandra-cpp-driver::cassandra-cpp-driver
-    PostgreSQL::PostgreSQL
-  )
-endif()
 target_link_libraries(ripple_libs INTERFACE
   ed25519::ed25519
   LibArchive::LibArchive
   lz4::lz4
   OpenSSL::Crypto
   OpenSSL::SSL
-  Ripple::grpc_pbufs
-  Ripple::pbufs
   secp256k1::secp256k1
   soci::soci
   SQLite::SQLite3
 )
 
-###
+if(coverage)
+  include(RippledCov)
+endif()
 
+set(PROJECT_EXPORT_SET RippleExports)
 include(RippledCore)
 include(RippledInstall)
-include(RippledCov)
-include(RippledMultiConfig)
 include(RippledDocs)
 include(RippledValidatorKeys)

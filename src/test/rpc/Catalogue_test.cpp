@@ -17,17 +17,17 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/beast/utility/temp_dir.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/protocol/jss.h>
+#include <test/jtx.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/beast/utility/temp_dir.h>
+#include <xrpl/protocol/jss.h>
 #include <boost/filesystem.hpp>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <grpc/impl/codegen/compression_types.h>
-#include <test/jtx.h>
 #include <thread>
 
 namespace ripple {
@@ -405,11 +405,7 @@ class Catalogue_test : public beast::unit_test::suite
         // availability as the async publishAcqLedger jobs complete
         Env loadEnv{
             *this,
-            envconfig([](std::unique_ptr<Config> cfg) {
-                // Increment port to avoid conflicts
-                cfg = test::jtx::port_increment(std::move(cfg), 3);
-                return cfg;
-            }),
+            test::jtx::envconfig(),
             features,
         };
 

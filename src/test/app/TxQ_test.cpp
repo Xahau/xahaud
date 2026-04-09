@@ -17,20 +17,19 @@
 */
 //==============================================================================
 
-#include <ripple/app/main/Application.h>
-#include <ripple/app/misc/LoadFeeTrack.h>
-#include <ripple/app/misc/TxQ.h>
-#include <ripple/app/tx/apply.h>
-#include <ripple/basics/Log.h>
-#include <ripple/basics/mulDiv.h>
-#include <ripple/protocol/ErrorCodes.h>
-#include <ripple/protocol/jss.h>
-#include <ripple/protocol/st.h>
 #include <test/jtx.h>
 #include <test/jtx/TestSuite.h>
 #include <test/jtx/WSClient.h>
 #include <test/jtx/envconfig.h>
 #include <test/jtx/ticket.h>
+#include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/LoadFeeTrack.h>
+#include <xrpld/app/misc/TxQ.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/jss.h>
+#include <xrpl/protocol/st.h>
 
 #define DEBUG_TX_QTEST 0
 
@@ -38,7 +37,7 @@ namespace ripple {
 
 namespace test {
 
-class TxQ1_test : public beast::unit_test::suite
+class TxQPosNegFlows_test : public beast::unit_test::suite
 {
     void
     checkMetrics(
@@ -1038,6 +1037,9 @@ public:
         // Fail in preflight
         env(pay(alice, bob, XRP(-1000)), ter(temBAD_AMOUNT));
 
+        // Fail in preflight
+        env(pay(alice, alice, XRP(100)), ter(temREDUNDANT));
+
         // Fail in preclaim
         env(noop(alice), fee(XRP(100000)), ter(terINSUF_FEE_B));
     }
@@ -1077,16 +1079,16 @@ public:
             auto const& jt = env.jt(noop(alice));
             BEAST_EXPECT(jt.stx);
 
-            bool didApply;
-            TER ter;
+            Env::ParsedResult parsed;
 
             env.app().openLedger().modify(
                 [&](OpenView& view, beast::Journal j) {
-                    std::tie(ter, didApply) = ripple::apply(
+                    auto const result = ripple::apply(
                         env.app(), view, *jt.stx, tapNONE, env.journal);
-                    return didApply;
+                    parsed.ter = result.ter;
+                    return result.applied;
                 });
-            env.postconditions(jt, ter, didApply);
+            env.postconditions(jt, parsed);
         }
         checkMetrics(__LINE__, env, 1, std::nullopt, 4, 2, 256);
 
@@ -1520,7 +1522,7 @@ public:
             "bob: "s + std::to_string(bobSeq) + ", " +
                 std::to_string(env.seq(bob)));
         BEAST_EXPECTS(
-            charlieSeq + 1 == env.seq(charlie),
+            charlieSeq == env.seq(charlie),
             "charlie: "s + std::to_string(charlieSeq) + ", " +
                 std::to_string(env.seq(charlie)));
         BEAST_EXPECTS(
@@ -1528,7 +1530,7 @@ public:
             "daria: "s + std::to_string(dariaSeq) + ", " +
                 std::to_string(env.seq(daria)));
         BEAST_EXPECTS(
-            elmoSeq == env.seq(elmo),
+            elmoSeq + 1 == env.seq(elmo),
             "elmo: "s + std::to_string(elmoSeq) + ", " +
                 std::to_string(env.seq(elmo)));
         BEAST_EXPECTS(
@@ -1544,17 +1546,24 @@ public:
             "hank: "s + std::to_string(hankSeq) + ", " +
                 std::to_string(env.seq(hank)));
 
-        // Which sequences get incremented may change
-        // Match the below with the above. If + 1 then ++
+        // Which sequences get incremented may change if TxQ ordering is
+        // changed
         ++aliceSeq;
         // ++bobSeq;
         // ++(++charlieSeq);
-        ++charlieSeq;
         ++dariaSeq;
-        // ++elmoSeq;
+        ++elmoSeq;
         ++fredSeq;
         ++gwenSeq;
         ++hankSeq;
+
+        // std::cout << "bobSeq: " << ++bobSeq << "\n";
+        // std::cout << "charlieSeq: " << ++(++charlieSeq) << "\n";
+        // std::cout << "dariaSeq: " << ++dariaSeq << "\n";
+        // std::cout << "elmoSeq: " << ++elmoSeq << "\n";
+        // std::cout << "fredSeq: " << ++fredSeq << "\n";
+        // std::cout << "gwenSeq: " << ++gwenSeq << "\n";
+        // std::cout << "hankSeq: " << ++hankSeq << "\n";
 
         auto getTxsQueued = [&]() {
             auto const txs = env.app().getTxQ().getTxs();
@@ -2888,6 +2897,12 @@ public:
     {
         // This test focuses on which gaps in queued transactions are
         // allowed to be filled even when the account's queue is full.
+
+        // NOTE: This test is fragile and dependent on ordering of
+        // transactions, which is affected by the closed/validated
+        // ledger hash. This test may need to be edited if changes
+        // are made that impact the ledger hash.
+        // TODO: future-proof this test.
         using namespace jtx;
         testcase("full queue gap handling");
 
@@ -3029,9 +3044,9 @@ public:
         // may not reduce to 8.
         env.close();
         checkMetrics(__LINE__, env, 9, 50, 6, 5, 256);
-        BEAST_EXPECT(env.seq(alice) == aliceSeq + 17);
+        BEAST_EXPECT(env.seq(alice) == aliceSeq + 14);
 
-        // Close ledger 7.  That should remove 7 more of alice's transactions.
+        // Close ledger 7.  That should remove 4 more of alice's transactions.
         env.close();
         checkMetrics(__LINE__, env, 2, 60, 7, 6, 256);
         BEAST_EXPECT(env.seq(alice) == aliceSeq + 19);
@@ -4270,8 +4285,8 @@ public:
                 env.jt(noop(alice), seq(aliceSeq), openLedgerFee(env));
             auto const result =
                 ripple::apply(env.app(), view, *tx.stx, tapUNLIMITED, j);
-            BEAST_EXPECT(result.first == tesSUCCESS && result.second);
-            return result.second;
+            BEAST_EXPECT(result.ter == tesSUCCESS && result.applied);
+            return result.applied;
         });
         // the queued transaction is still there
         checkMetrics(__LINE__, env, 1, std::nullopt, 5, 3, 256);
@@ -4345,8 +4360,8 @@ public:
                 noop(alice), ticket::use(tktSeq0 + 1), openLedgerFee(env));
             auto const result =
                 ripple::apply(env.app(), view, *tx.stx, tapUNLIMITED, j);
-            BEAST_EXPECT(result.first == tesSUCCESS && result.second);
-            return result.second;
+            BEAST_EXPECT(result.ter == tesSUCCESS && result.applied);
+            return result.applied;
         });
         // the queued transaction is still there
         checkMetrics(__LINE__, env, 1, std::nullopt, 5, 3, 256);
@@ -4953,13 +4968,13 @@ public:
                     drops[jss::base_fee] == "0");
                 BEAST_EXPECT(
                     drops.isMember(jss::median_fee) &&
-                    drops[jss::base_fee] == "0");
+                    drops[jss::median_fee] == "0");
                 BEAST_EXPECT(
                     drops.isMember(jss::minimum_fee) &&
-                    drops[jss::base_fee] == "0");
+                    drops[jss::minimum_fee] == "0");
                 BEAST_EXPECT(
                     drops.isMember(jss::open_ledger_fee) &&
-                    drops[jss::base_fee] == "0");
+                    drops[jss::open_ledger_fee] == "0");
             }
         }
 
@@ -5052,7 +5067,8 @@ public:
         testMultiTxnPerAccount(all);
         // fragile: hardcoded ordering by txID XOR parentHash
         // parentHash < txTree Hash < txMeta < PreviousTxnID
-        testTieBreaking(all - fixProvisionalDoubleThreading);
+        testTieBreaking(
+            all - fixProvisionalDoubleThreading - fixHookAPI20251128);
         testAcctTxnID(all);
         testMaximum(all);
         testUnexpectedBalanceChange(all);
@@ -5063,7 +5079,7 @@ public:
     }
 
     void
-    run2()
+    runMetaInfo()
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments() - featureXahauGenesis};
@@ -5072,7 +5088,8 @@ public:
         testExpirationReplacement(all);
         // fragile: hardcoded ordering by txID XOR parentHash
         // parentHash < txTree Hash < txMeta < PreviousTxnID
-        testFullQueueGapFill(all - fixProvisionalDoubleThreading);
+        testFullQueueGapFill(
+            all - fixProvisionalDoubleThreading - fixHookAPI20251128);
         testSignAndSubmitSequence(all);
         testAccountInfo(all);
         testServerInfo(all);
@@ -5088,17 +5105,17 @@ public:
     }
 };
 
-class TxQ2_test : public TxQ1_test
+class TxQMetaInfo_test : public TxQPosNegFlows_test
 {
     void
     run() override
     {
-        run2();
+        runMetaInfo();
     }
 };
 
-BEAST_DEFINE_TESTSUITE_PRIO(TxQ1, app, ripple, 1);
-BEAST_DEFINE_TESTSUITE_PRIO(TxQ2, app, ripple, 1);
+BEAST_DEFINE_TESTSUITE_PRIO(TxQPosNegFlows, app, ripple, 1);
+BEAST_DEFINE_TESTSUITE_PRIO(TxQMetaInfo, app, ripple, 1);
 
 }  // namespace test
 }  // namespace ripple
