@@ -195,6 +195,12 @@ public:
     void
     setEntropyFailed();
 
+    /// Self-seed our own reveal into pendingReveals_.
+    /// Called from extensionsTick at reveal transition.
+    /// In production, decorateMessage also self-seeds (belt + suspenders).
+    void
+    selfSeedReveal();
+
     void
     clearRngState();
 

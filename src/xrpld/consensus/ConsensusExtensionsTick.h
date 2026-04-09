@@ -415,6 +415,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             auto newPos = ctx.getPosition();
             newPos.myReveal = ext.getEntropySecret();
 
+            // Self-seed our own reveal into pendingReveals so it
+            // counts toward reveal quorum and appears in the
+            // entropy set.  harvestRngData only sees peer proposals,
+            // not our own.
+            ext.selfSeedReveal();
+
             ctx.updatePosition(newPos);
 
             if (ctx.mode == ConsensusMode::proposing)

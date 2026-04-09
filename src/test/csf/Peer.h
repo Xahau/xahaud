@@ -463,6 +463,19 @@ struct Peer
         }
 
         void
+        selfSeedReveal()
+        {
+            if (!enableRngConsensus_)
+                return;
+            // Self-seed our own reveal into pendingReveals_ so it
+            // counts toward reveal quorum.  The real code does this
+            // in decorateMessage; the CSF does it here since it has
+            // no equivalent serialization hook.
+            if (myEntropySecret_ != uint256{})
+                pendingReveals_[peer.id] = myEntropySecret_;
+        }
+
+        void
         setEntropyFailed()
         {
             if (!enableRngConsensus_)

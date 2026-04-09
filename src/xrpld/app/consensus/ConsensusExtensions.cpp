@@ -508,6 +508,17 @@ ConsensusExtensions::setEntropyFailed()
     entropyFailed_ = true;
 }
 
+void
+ConsensusExtensions::selfSeedReveal()
+{
+    auto const& valKeys = app_.getValidatorKeys();
+    if (myEntropySecret_ != uint256{})
+    {
+        pendingReveals_[valKeys.nodeID] = myEntropySecret_;
+        nodeIdToKey_.insert_or_assign(valKeys.nodeID, valKeys.keys->publicKey);
+    }
+}
+
 //@@start clear-rng-state
 void
 ConsensusExtensions::clearRngState()
