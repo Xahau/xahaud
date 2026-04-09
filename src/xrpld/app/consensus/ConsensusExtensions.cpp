@@ -1482,6 +1482,16 @@ ConsensusExtensions::onTrustedPeerMessage(
     if (wireMsg.exportsignatures_size() == 0)
         return;
 
+    // Bind export sig pubkeys to the proposal sender.  Validators only
+    // sign for themselves (see decorateMessage), so every blob's embedded
+    // pubkey must match the proposal's nodepubkey.  Reject the entire
+    // proposal's export sigs on any mismatch — a single impersonation
+    // attempt means the sender is malicious.
+    auto const senderSlice = makeSlice(wireMsg.nodepubkey());
+    if (!publicKeyType(senderSlice))
+        return;
+    PublicKey const senderPK{senderSlice};
+
     for (int i = 0; i < wireMsg.exportsignatures_size(); ++i)
     {
         auto const& blob = wireMsg.exportsignatures(i);
@@ -1497,6 +1507,16 @@ ConsensusExtensions::onTrustedPeerMessage(
             continue;
 
         PublicKey const valPK{pkSlice};
+
+        // Reject if the embedded pubkey doesn't match the proposal sender.
+        if (valPK != senderPK)
+        {
+            JLOG(j_.warn())
+                << "Export: rejecting sigs from proposal — embedded pubkey "
+                   "does not match sender";
+            return;
+        }
+
         if (!app_.validators().trusted(valPK))
             continue;
 

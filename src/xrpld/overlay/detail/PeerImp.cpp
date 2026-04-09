@@ -1793,10 +1793,10 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     JLOG(p_journal_.trace())
         << "Proposal: " << (isTrusted ? "trusted" : "untrusted");
 
-    //@@start peer-harvest-export-sigs
-    if (isTrusted)
-        app_.getConsensusExtensions().onTrustedPeerMessage(set);
-    //@@end peer-harvest-export-sigs
+    // Export sig harvesting moved to checkPropose(), after checkSign()
+    // verifies the proposal's cryptographic signature. Harvesting here
+    // (before async sig verification) would allow any peer to inject
+    // forged export sigs by spoofing nodepubkey to a trusted validator.
 
     auto proposal = RCLCxPeerPos(
         publicKey,
@@ -3012,6 +3012,13 @@ PeerImp::checkPropose(
         charge(Resource::feeInvalidSignature, desc);
         return;
     }
+
+    //@@start peer-harvest-export-sigs
+    // Harvest export sigs AFTER checkSign() so only cryptographically
+    // verified proposals can contribute signatures to the collector.
+    if (isTrusted)
+        app_.getConsensusExtensions().onTrustedPeerMessage(*packet);
+    //@@end peer-harvest-export-sigs
 
     bool relay;
 
