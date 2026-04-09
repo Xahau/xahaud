@@ -43,6 +43,7 @@
 #include <xrpl/protocol/digest.h>
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 #include <random>
 
 namespace ripple {
@@ -171,7 +172,8 @@ ConsensusExtensions::shouldZeroEntropy() const
     if (entropyFailed_ || !entropySetMap_)
         return true;
 
-    auto const leafCount = entropySetMap_->leafCount();
+    auto const leafCount =
+        std::distance(entropySetMap_->begin(), entropySetMap_->end());
     return leafCount == 0 || leafCount < quorumThreshold();
 }
 
@@ -1183,7 +1185,10 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
         auto const entropyCount = static_cast<std::uint16_t>(
             app_.config().standalone()
                 ? 20  // synthetic: high enough for Hook APIs (need >= 5)
-                : (shouldZeroEntropy() ? 0 : entropySetMap_->leafCount()));
+                : (shouldZeroEntropy()
+                       ? 0
+                       : std::distance(
+                             entropySetMap_->begin(), entropySetMap_->end())));
         STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
             obj.setFieldU32(sfLedgerSequence, seq);
             obj.setAccountID(sfAccount, AccountID{});
