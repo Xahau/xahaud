@@ -52,6 +52,10 @@ private:
     DatabaseRotatingImp rotating_;         // Handles rotation for hot nodes
     std::shared_ptr<Backend> persistent_;  // NuDB for pinned nodes
 
+    // Debug counters for store routing
+    std::atomic<uint64_t> pinnedStoreCount_{0};
+    std::atomic<uint64_t> hotStoreCount_{0};
+
     // Lock-free cached pinned ranges for backend selection hint
     // Use std::atomic_load/store free functions for thread-safe access
     mutable std::shared_ptr<RangeSet<std::uint32_t>> cachedPinnedRanges_;

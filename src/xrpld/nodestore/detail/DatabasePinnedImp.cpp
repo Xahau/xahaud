@@ -60,9 +60,6 @@ DatabasePinnedImp::store(
     uint256 const& hash,
     std::uint32_t ledgerSeq)
 {
-    static std::atomic<uint64_t> pinnedCount{0};
-    static std::atomic<uint64_t> hotCount{0};
-
     // Route based on type
     if (isPinnedType(type))
     {
@@ -70,7 +67,7 @@ DatabasePinnedImp::store(
         type = toHotType(type);
 
         // Pinned types go to persistent storage
-        auto count = ++pinnedCount;
+        auto count = ++pinnedStoreCount_;
         if (count % 1000 == 0)
         {
             JLOG(j_.trace())
@@ -84,7 +81,7 @@ DatabasePinnedImp::store(
     else
     {
         // Hot types go through rotating storage
-        auto count = ++hotCount;
+        auto count = ++hotStoreCount_;
         if (count % 10000 == 0)
         {
             JLOG(j_.trace())
@@ -177,8 +174,12 @@ DatabasePinnedImp::importDatabase(Database& source)
 bool
 DatabasePinnedImp::isSameDB(std::uint32_t s1, std::uint32_t s2)
 {
-    // Delegate to rotating - all ledgers are in same logical database
-    return rotating_.isSameDB(s1, s2);
+    // Used by async read threads to determine if a fetched object can
+    // be reused for requests at different sequences. Since rotating and
+    // persistent are both part of the same logical database (same hash
+    // space), objects are always reusable regardless of which backend
+    // they came from.
+    return true;
 }
 
 void
