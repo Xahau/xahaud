@@ -1855,7 +1855,10 @@ ConsensusExtensions::decorateMessage(
         prop.add_exportsignatures(s.peekData().data(), s.peekData().size());
         //@@end export-attach-wire-sigs
 
-        exportSigCollector_.addVerifiedSignature(txHash, valPK, sigBuf);
+        // Only store if we actually produced a signature.
+        // sigBuf is empty if the inner tx failed to deserialize.
+        if (sigBuf.size() > 0)
+            exportSigCollector_.addVerifiedSignature(txHash, valPK, sigBuf);
 
         JLOG(j_.debug()) << "Export: attached sig for " << txHash
                          << " to proposal (sigLen=" << sigBuf.size() << ")";

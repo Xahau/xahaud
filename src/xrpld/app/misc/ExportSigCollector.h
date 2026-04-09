@@ -2,6 +2,7 @@
 #define RIPPLE_APP_MISC_EXPORTSIGCOLLECTOR_H_INCLUDED
 
 #include <xrpl/basics/Buffer.h>
+#include <xrpl/basics/contract.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <map>
 #include <mutex>
@@ -73,6 +74,10 @@ public:
         Buffer const& signature,
         std::uint32_t currentSeq = 0)
     {
+        XRPL_ASSERT(
+            signature.size() > 0,
+            "ripple::ExportSigCollector::addVerifiedSignature : "
+            "non-empty signature");
         std::lock_guard lock(mutex_);
         auto& entry = sigs_[txnHash];
         entry.validators.insert(validator);
@@ -95,6 +100,10 @@ public:
         Buffer const& signature,
         std::uint32_t currentSeq = 0)
     {
+        XRPL_ASSERT(
+            signature.size() > 0,
+            "ripple::ExportSigCollector::addUnverifiedSignature : "
+            "non-empty signature");
         std::lock_guard lock(mutex_);
         auto& entry = sigs_[txnHash];
         entry.validators.insert(validator);
@@ -235,6 +244,14 @@ public:
         for (auto const& pk : it->second.verified)
         {
             auto sit = it->second.signatures.find(pk);
+            XRPL_ASSERT(
+                sit != it->second.signatures.end(),
+                "ripple::ExportSigCollector::checkQuorumAndSnapshot : "
+                "verified key must exist in signatures map");
+            XRPL_ASSERT(
+                sit->second.size() > 0,
+                "ripple::ExportSigCollector::checkQuorumAndSnapshot : "
+                "verified signature must be non-empty");
             if (sit != it->second.signatures.end())
                 result[pk] = sit->second;
         }
