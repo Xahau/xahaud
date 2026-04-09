@@ -443,9 +443,6 @@ struct Peer
             auto const hash = hashRngSet(pendingReveals_, seq, "reveal");
             peer.sidecarStore.publish(
                 hash, SidecarStore::Type::reveal, pendingReveals_);
-            JLOG(j_.debug()) << "CSF buildEntropySet: hash=" << hash
-                             << " reveals=" << pendingReveals_.size()
-                             << " seq=" << static_cast<std::uint32_t>(seq);
             return hash;
         }
 
@@ -498,11 +495,7 @@ struct Peer
                 return;
             auto const* fetched = peer.sidecarStore.fetch(*hash);
             if (!fetched)
-            {
-                JLOG(j_.debug()) << "CSF fetch: hash " << *hash
-                                 << " not found in sidecar store";
                 return;
-            }
             // Union merge into the correct local set based on type.
             auto& target = (fetched->type == SidecarStore::Type::commit)
                 ? pendingCommits_
@@ -513,12 +506,6 @@ struct Peer
                 if (target.emplace(nodeId, digest).second)
                     ++added;
             }
-            JLOG(j_.debug())
-                << "CSF fetch: hash " << *hash << " type="
-                << (fetched->type == SidecarStore::Type::commit ? "commit"
-                                                                : "reveal")
-                << " entries=" << fetched->entries.size() << " added=" << added
-                << " localSize=" << target.size();
         }
 
         void
@@ -648,11 +635,6 @@ struct Peer
                 lastEntropyWasFallback_ = true;
                 return;
             }
-
-            JLOG(j_.debug())
-                << "CSF finalizeRoundEntropy: seq=" << seq
-                << " entropyFailed=" << (entropyFailed_ ? "yes" : "no")
-                << " reveals=" << pendingReveals_.size();
 
             if (shouldZeroEntropy())
             {

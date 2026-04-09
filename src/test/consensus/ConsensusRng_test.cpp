@@ -635,10 +635,6 @@ public:
         peers.trustAndConnect(
             peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
 
-        // Enable logging for debugging
-        for (Peer* peer : peers)
-            peer->sink.threshold(beast::severities::kDebug);
-
         // Warmup: populate prevProposers.
         sim.run(1);
         BEAST_EXPECT(sim.synchronized(peers));
