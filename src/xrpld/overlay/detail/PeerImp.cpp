@@ -3005,7 +3005,13 @@ PeerImp::checkPropose(
 
     XRPL_ASSERT(packet, "ripple::PeerImp::checkPropose : non-null packet");
 
-    if (!cluster() && !peerPos.checkSign())
+    // Always verify the proposal signature before harvesting export
+    // sigs, even in cluster mode.  Cluster peers are trusted for relay
+    // and resource charging, but export sigs produce on-chain artifacts
+    // (multisigned blobs in metadata) so they require cryptographic
+    // proof of validator identity regardless.
+    bool const sigValid = peerPos.checkSign();
+    if (!cluster() && !sigValid)
     {
         std::string desc{"Proposal fails sig check"};
         JLOG(p_journal_.warn()) << desc;
@@ -3016,7 +3022,7 @@ PeerImp::checkPropose(
     //@@start peer-harvest-export-sigs
     // Harvest export sigs AFTER checkSign() so only cryptographically
     // verified proposals can contribute signatures to the collector.
-    if (isTrusted)
+    if (isTrusted && sigValid)
         app_.getConsensusExtensions().onTrustedPeerMessage(*packet);
     //@@end peer-harvest-export-sigs
 

@@ -641,6 +641,18 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 
         if (isExportSet)
         {
+            // Build export tx lookup from open ledger for sig verification.
+            auto const openLedger = app_.openLedger().current();
+            std::unordered_map<uint256, std::shared_ptr<STTx const>> exportTxns;
+            if (openLedger)
+            {
+                for (auto const& [stx, meta] : openLedger->txs)
+                {
+                    if (stx && stx->getTxnType() == ttEXPORT)
+                        exportTxns.emplace(stx->getTransactionID(), stx);
+                }
+            }
+
             std::size_t merged = 0;
             map->visitLeaves(
                 [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
@@ -650,29 +662,72 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                     uint256 txHash;
                     std::memcpy(txHash.data(), data.data(), 32);
                     auto const pkSlice = data.substr(32, 33);
-                    if (auto const pkType = publicKeyType(pkSlice))
+                    if (!publicKeyType(pkSlice))
+                        return;
+
+                    PublicKey const valPK{pkSlice};
+                    if (!app_.validators().trusted(valPK))
+                        return;
+
+                    // Require a real signature (not pubkey-only).
+                    if (item->size() <= 65)
+                        return;
+
+                    auto const sigSlice = data.substr(65);
+
+                    // Verify the multisign signature against the inner tx.
+                    auto const txIt = exportTxns.find(txHash);
+                    if (txIt == exportTxns.end() ||
+                        !txIt->second->isFieldPresent(sfExportedTxn))
                     {
-                        PublicKey const valPK{pkSlice};
-                        // Only accept sigs from trusted validators.
-                        if (app_.validators().trusted(valPK))
+                        JLOG(j_.debug())
+                            << "Export: SHAMap merge — cannot verify sig "
+                               "for tx "
+                            << txHash << " (not in open ledger) — skipped";
+                        return;
+                    }
+
+                    try
+                    {
+                        auto const& exportedObj =
+                            const_cast<STTx&>(*txIt->second)
+                                .peekAtField(sfExportedTxn)
+                                .downcast<STObject>();
+
+                        Serializer innerSer;
+                        exportedObj.add(innerSer);
+                        SerialIter sit(innerSer.slice());
+                        STTx innerTx(std::ref(sit));
+
+                        auto const signerAcctID = calcAccountID(valPK);
+                        auto const sigData =
+                            buildMultiSigningData(innerTx, signerAcctID);
+                        if (!verify(valPK, sigData.slice(), sigSlice))
                         {
-                            if (item->size() > 65)
-                            {
-                                auto const sigSlice = data.substr(65);
-                                Buffer sigBuf(sigSlice.data(), sigSlice.size());
-                                exportSigCollector_.addSignature(
-                                    txHash, valPK, sigBuf);
-                            }
-                            else
-                            {
-                                exportSigCollector_.addSignature(txHash, valPK);
-                            }
-                            ++merged;
+                            JLOG(j_.warn())
+                                << "Export: SHAMap merge — invalid sig "
+                                   "for tx "
+                                << txHash << " — rejected";
+                            return;
                         }
                     }
+                    catch (std::exception const& e)
+                    {
+                        JLOG(j_.warn())
+                            << "Export: SHAMap merge — failed to verify "
+                               "sig for tx "
+                            << txHash << ": " << e.what();
+                        return;
+                    }
+
+                    Buffer sigBuf(sigSlice.data(), sigSlice.size());
+                    exportSigCollector_.addSignature(txHash, valPK, sigBuf);
+                    ++merged;
                 });
             JLOG(j_.info()) << "Export: merged " << merged
-                            << " entries from peer exportSigSet hash=" << hash;
+                            << " verified entries from peer exportSigSet "
+                               "hash="
+                            << hash;
             return;
         }
     }
@@ -1551,52 +1606,56 @@ ConsensusExtensions::onTrustedPeerMessage(
 
         if (blob.size() <= 65)
         {
-            // Pubkey-only entry (no real signature).
-            exportSigCollector_.addSignature(txHash, senderPK);
+            // Pubkey-only entry (no real signature) — skip.
+            // Only verified sigs are stored in the collector.
             continue;
         }
 
         auto const fullSlice = makeSlice(blob);
         auto const sigSlice = fullSlice.substr(65);
-        Buffer sigBuf(sigSlice.data(), sigSlice.size());
 
-        // Verify the multisign signature against the inner tx if
-        // we can find it in the open ledger.  If the tx isn't in
-        // our open ledger yet (timing / relay order), store the sig
-        // unverified — it will be verified at the SHAMap merge path
-        // or rejected at Export::doApply if invalid.
+        // Verify the multisign signature against the inner tx.
+        // The ttEXPORT must be in our open ledger — validators only
+        // sign exports they see in their open ledger (decorateMessage),
+        // and we only receive proposals after consensus has started on
+        // the same transaction set.  If the tx isn't found, reject —
+        // don't store unverified sigs.
         auto const txIt = exportTxns.find(txHash);
-        if (txIt != exportTxns.end() &&
-            txIt->second->isFieldPresent(sfExportedTxn))
+        if (txIt == exportTxns.end() ||
+            !txIt->second->isFieldPresent(sfExportedTxn))
         {
-            try
-            {
-                auto const& exportedObj = const_cast<STTx&>(*txIt->second)
-                                              .peekAtField(sfExportedTxn)
-                                              .downcast<STObject>();
+            JLOG(j_.debug()) << "Export: cannot verify sig for tx " << txHash
+                             << " (not in open ledger) — rejected";
+            continue;
+        }
 
-                Serializer innerSer;
-                exportedObj.add(innerSer);
-                SerialIter sit(innerSer.slice());
-                STTx innerTx(std::ref(sit));
+        try
+        {
+            auto const& exportedObj = const_cast<STTx&>(*txIt->second)
+                                          .peekAtField(sfExportedTxn)
+                                          .downcast<STObject>();
 
-                auto const sigData =
-                    buildMultiSigningData(innerTx, signerAcctID);
-                if (!verify(senderPK, sigData.slice(), sigSlice))
-                {
-                    JLOG(j_.warn()) << "Export: invalid multisign sig for tx "
-                                    << txHash << " — rejected";
-                    continue;
-                }
-            }
-            catch (std::exception const& e)
+            Serializer innerSer;
+            exportedObj.add(innerSer);
+            SerialIter sit(innerSer.slice());
+            STTx innerTx(std::ref(sit));
+
+            auto const sigData = buildMultiSigningData(innerTx, signerAcctID);
+            if (!verify(senderPK, sigData.slice(), sigSlice))
             {
-                JLOG(j_.warn()) << "Export: failed to verify sig for tx "
-                                << txHash << ": " << e.what();
+                JLOG(j_.warn()) << "Export: invalid multisign sig for tx "
+                                << txHash << " — rejected";
                 continue;
             }
         }
+        catch (std::exception const& e)
+        {
+            JLOG(j_.warn()) << "Export: failed to verify sig for tx " << txHash
+                            << ": " << e.what();
+            continue;
+        }
 
+        Buffer sigBuf(sigSlice.data(), sigSlice.size());
         exportSigCollector_.addSignature(txHash, senderPK, sigBuf);
     }
 }
