@@ -603,6 +603,9 @@ public:
         auto it = ledgers_.lower_bound(minSeq);
         auto end = ledgers_.upper_bound(maxSeq);
 
+        // Erase from both the per-ledger map and the global index.
+        // Important: erase from per-ledger map as we go so that partial
+        // deletes (hitting limit) make forward progress on the next call.
         std::size_t count = 0;
         while (it != end)
         {

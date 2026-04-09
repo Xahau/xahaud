@@ -143,8 +143,9 @@ DatabasePinnedImp::rotate(
         std::string const& writableName,
         std::string const& archiveName)> const& f)
 {
-    // Simply delegate to the rotating database
-    // It handles all the rotation logic perfectly
+    // Delegate to the inner rotating database. Pinned data lives in
+    // persistent_ and is never touched by rotation — only hot data
+    // in rotating_ participates in the rotate/archive/delete cycle.
     rotating_.rotate(std::move(newBackend), f);
 }
 
