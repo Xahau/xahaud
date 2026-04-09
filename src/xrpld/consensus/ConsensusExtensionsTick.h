@@ -570,9 +570,42 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                                 << "RNG: refreshed entropySetHash after "
                                    "merge to "
                                 << refreshedHash;
-                        }
 
-                        // Bounded grace window.
+                            // After merge, re-check: the conflicting
+                            // peer's data may have been a subset of
+                            // ours (no new data added).  If our hash
+                            // didn't change, the "conflict" is just a
+                            // peer with less data — not a real threat.
+                            // Re-count alignment with updated hash.
+                            aligned = 0;
+                            conflict = false;
+                            auto const updatedPos = ctx.getPosition();
+                            for (auto const& [_, pp2] : ctx.peerPositions)
+                            {
+                                auto const& p2 = pp2.proposal().position();
+                                if (!(p2 == updatedPos))
+                                    continue;
+                                if (!p2.entropySetHash)
+                                    continue;
+                                if (*p2.entropySetHash ==
+                                    *updatedPos.entropySetHash)
+                                    ++aligned;
+                                else
+                                    conflict = true;
+                            }
+                        }
+                        else
+                        {
+                            // Our hash didn't change after merge —
+                            // the conflicting peer had a subset of
+                            // our data.  Not a real conflict.
+                            conflict = false;
+                        }
+                    }
+
+                    if (conflict)
+                    {
+                        // Bounded grace window for real conflicts.
                         auto const entropyElapsed =
                             ctx.nowSteady - ext.revealPhaseStart_;
                         auto const entropyDeadline =
