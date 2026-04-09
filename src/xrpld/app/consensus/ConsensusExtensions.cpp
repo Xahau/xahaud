@@ -34,6 +34,7 @@
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/crypto/csprng.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Sign.h>
@@ -1541,6 +1542,17 @@ ConsensusExtensions::onTrustedPeerMessage(
 {
     if (wireMsg.exportsignatures_size() == 0)
         return;
+
+    // Cap the number of export sig entries per proposal to bound DoS
+    // surface.  Honest validators attach at most maxPendingExports sigs.
+    if (wireMsg.exportsignatures_size() > ExportLimits::maxPendingExports)
+    {
+        JLOG(j_.warn()) << "Export: rejecting proposal with "
+                        << wireMsg.exportsignatures_size()
+                        << " export sigs (max "
+                        << +ExportLimits::maxPendingExports << ")";
+        return;
+    }
 
     // Bind export sig pubkeys to the proposal sender.  Validators only
     // sign for themselves (see decorateMessage), so every blob's embedded
