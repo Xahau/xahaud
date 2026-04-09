@@ -887,14 +887,16 @@ LedgerMaster::setFullLedger(
 
     {
         std::lock_guard ml(mCompleteLock);
-        // One-time startup initialization: Copy pinned ledgers to complete
-        // ledgers. This condition can only be true once - after the first
-        // validation, mCompleteLedgers will contain pinned ranges which are
-        // protected from clearing (see clearLedger() check), so
-        // mCompleteLedgers.empty() can never be true again.
-        if (mCompleteLedgers.empty() && !mPinnedLedgers.empty())
+        // One-time merge of pinned ranges into mCompleteLedgers.
+        // For NORMAL/NETWORK startup, this fires on the first validated
+        // ledger (network quorum). For LOAD/standalone, the merge
+        // already happened in setPinnedLedgersRangeSet() and this
+        // is a no-op (mPinnedMergedToComplete is already true).
+        if (!mPinnedMergedToComplete && !mPinnedLedgers.empty())
         {
-            mCompleteLedgers.assign(mPinnedLedgers);
+            for (auto const& interval : mPinnedLedgers)
+                mCompleteLedgers.insert(interval);
+            mPinnedMergedToComplete = true;
         }
 
         mCompleteLedgers.insert(ledger->info().seq);
@@ -1743,63 +1745,30 @@ LedgerMaster::setPinnedLedgersRangeSet(const RangeSet<std::uint32_t>& range_set)
     }
     mPinnedLedgers.assign(range_set);
 
-    // Pinned ledgers are by definition complete (they were fully saved and are
-    // retrievable from the database). However, we DON'T add them to
-    // mCompleteLedgers here at startup. Instead, we wait for the first ledger
-    // validation in setFullLedger() to do a one-time copy. This approach:
-    //
-    // 1. Ensures pinned ledgers become queryable only after the node has some
-    //    validated state (avoiding the confusing "complete but not synced"
-    //    state)
-    // 2. Works naturally with all startup modes (normal, network, load,
-    // standalone)
-    // 3. Uses setFullLedger() as a clean hook point - it's called when any
-    // ledger
-    //    becomes official, and that's when we check if mCompleteLedgers is
-    //    empty and do a one-time assign from mPinnedLedgers
-    // 4. Works with the RPC fork protection logic - historical ledgers become
-    //    queryable once the node has a validated ledger and appears "synced"
-    //
-    // The actual population happens in setFullLedger() (around line 972):
-    //   if (mCompleteLedgers.empty() && !mPinnedLedgers.empty())
-    //       mCompleteLedgers.assign(mPinnedLedgers);
-    //
-    // This means:
-    // - On startup: complete_ledgers is empty, complete_ledgers_pinned shows
-    //   ranges
-    // - After first validation: complete_ledgers shows both pinned and active
-    //   ranges
-    // - Historical pinned ledgers become queryable via RPC once the node is
-    //   synced with the network
-    //
-    // RPC ACCESS BLOCKING CONDITIONS (returns rpcNO_NETWORK/rpcNOT_SYNCED):
-    //
-    // 1. STARTUP BLOCKING (all ledgers blocked):
-    //    - mValidLedgerSeq starts at 0
-    //    - mValidLedgerSign starts at 0 (stores close time as epoch seconds)
-    //    - getValidatedLedgerAge() returns 2 WEEKS when mValidLedgerSign is 0
-    //    - isValidatedOld() returns true (> 2 minutes)
-    //    - Result: ALL ledger queries blocked until first validation
-    //
-    // 2. HISTORICAL LEDGER BLOCKING (seq > validated):
-    //    - Requested ledger seq > mValidLedgerSeq AND
-    //    - isValidatedOld() is true
-    //    - Even if ledger is fully in database
-    //
-    // 3. STALE CURRENT/CLOSED BLOCKING:
-    //    - Current/closed ledger > 10 sequences behind validated
-    //    - Prevents serving very stale "current" state
-    //
-    // 4. NO NETWORK BLOCKING:
-    //    - When validated ledger becomes > 2 minutes old
-    //    - All queries blocked until re-sync
-    //
-    // In findNewLedgersToPublish(), we subtract pinned ledgers from the publish
-    // set to avoid memory bloat in standalone mode when loading large
-    // catalogues and only publish the latest validated ledger.
-
-    JLOG(m_journal.info()) << "Added pinned ranges to complete ledgers: "
-                           << to_string(range_set);
+    // Normally, we defer merging pinned ranges into mCompleteLedgers until
+    // the first validated ledger (in setFullLedger), so that pinned history
+    // only becomes queryable after the node has network quorum. But if
+    // mCompleteLedgers is already non-empty (LOAD/standalone startup already
+    // called setFullLedger before we got here), the one-shot in
+    // setFullLedger won't fire again. Merge immediately in that case.
+    if (!mCompleteLedgers.empty())
+    {
+        for (auto const& interval : mPinnedLedgers)
+            mCompleteLedgers.insert(interval);
+        mPinnedMergedToComplete = true;
+        JLOG(m_journal.info())
+            << "Merged pinned ranges into complete ledgers immediately "
+            << "(startup already past setFullLedger): "
+            << to_string(range_set);
+    }
+    else
+    {
+        // mCompleteLedgers is empty — defer merge to setFullLedger()
+        // when the first validated ledger arrives (network quorum).
+        JLOG(m_journal.info())
+            << "Loaded pinned ranges, will merge on first validation: "
+            << to_string(range_set);
+    }
 }
 
 std::optional<NetClock::time_point>

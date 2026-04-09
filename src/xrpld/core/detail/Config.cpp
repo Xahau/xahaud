@@ -1105,6 +1105,23 @@ Config::loadFromString(std::string const& fileContents)
                 "pinned_type requires online_delete (pinning without "
                 "deletion is redundant)");
         }
+
+        // In non-standalone mode, require a durable backend.
+        // Standalone mode is unrestricted (tests use rwdb, etc).
+        if (!RUN_STANDALONE)
+        {
+            auto pinnedType = get(db_section, "pinned_type", "");
+            boost::algorithm::to_lower(pinnedType);
+            if (pinnedType != "nudb" && pinnedType != "rocksdb")
+            {
+                Throw<std::runtime_error>(
+                    "pinned_type must be a durable backend (NuDB or "
+                    "RocksDB), got '" +
+                    pinnedType +
+                    "'. Non-durable backends lose pinned data on "
+                    "restart.");
+            }
+        }
     }
 }
 

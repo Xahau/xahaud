@@ -367,6 +367,7 @@ private:
     std::recursive_mutex mCompleteLock;
     RangeSet<std::uint32_t> mCompleteLedgers;
     RangeSet<std::uint32_t> mPinnedLedgers;  // Track pinned ledger ranges
+    bool mPinnedMergedToComplete{false};    // One-shot: pinned merged into mCompleteLedgers
 
     // Publish thread is running.
     bool mAdvanceThread{false};

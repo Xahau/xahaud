@@ -912,6 +912,21 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
     } opCleanup;
 
+    // Reject if DatabasePinned is not configured. Without it, loaded
+    // data lands in rotating storage and will be rotated away.
+    {
+        auto const& nscfg =
+            context.app.config().section(ConfigSection::nodeDatabase());
+        if (!nscfg.exists("pinned_type"))
+        {
+            return rpcError(
+                rpcINVALID_PARAMS,
+                "catalogue_load requires [node_db] pinned_type to be "
+                "configured. Without it, loaded data will be lost on "
+                "the next database rotation.");
+        }
+    }
+
     if (!context.params.isMember(jss::input_file))
         return rpcError(rpcINVALID_PARAMS, "expected input_file");
 
