@@ -492,6 +492,93 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 return {};
             }
 
+            // --- EntropySetHash convergence gate ---
+            //
+            // After publishing our entropySet, check if tx-converged
+            // peers agree on entropySetHash.  If not, fetch/merge/rebuild
+            // within a bounded window.  This prevents two honest validators
+            // from accepting with different reveal subsets (and therefore
+            // different entropy → different pseudo-tx → ledger fork).
+            //
+            // Same pattern as commitSetHash conflict handling (line ~308)
+            // and exportSigSetHash convergence gate (line ~674).
+            {
+                auto const ourPos = ctx.getPosition();
+                if (ourPos.entropySetHash)
+                {
+                    bool conflict = false;
+                    for (auto const& [_, peerPos] : ctx.peerPositions)
+                    {
+                        auto const& pp = peerPos.proposal().position();
+                        if (!(pp == ourPos))
+                            continue;  // not tx-converged
+                        if (!pp.entropySetHash)
+                            continue;  // peer hasn't published yet
+                        if (*pp.entropySetHash != *ourPos.entropySetHash)
+                        {
+                            conflict = true;
+                            ext.fetchRngSetIfNeeded(pp.entropySetHash);
+                        }
+                    }
+
+                    if (conflict)
+                    {
+                        // Rebuild our entropy set after any merges that
+                        // onAcquiredSidecarSet may have applied to
+                        // pendingReveals_.
+                        auto const refreshedHash =
+                            ext.buildEntropySet(buildSeq);
+                        if (refreshedHash != *ourPos.entropySetHash)
+                        {
+                            auto newPos = ctx.getPosition();
+                            newPos.entropySetHash = refreshedHash;
+                            ctx.updatePosition(newPos);
+                            if (ctx.mode == ConsensusMode::proposing)
+                                ctx.propose();
+                            JLOG(ext.j_.debug())
+                                << "RNG: refreshed entropySetHash after "
+                                   "merge to "
+                                << refreshedHash;
+                        }
+
+                        // Use a bounded grace window (same as
+                        // rngREVEAL_TIMEOUT).  Don't re-use the reveal
+                        // timeout timer — entropy convergence starts
+                        // when we first publish the entropy set, which
+                        // may be the same tick.
+                        auto const entropyElapsed =
+                            ctx.nowSteady - ext.revealPhaseStart_;
+                        auto const entropyDeadline =
+                            ctx.parms.rngREVEAL_TIMEOUT * 2;
+                        if (entropyElapsed <= entropyDeadline)
+                        {
+                            JLOG(ext.j_.debug())
+                                << "RNG: entropySetHash conflict, waiting "
+                                << std::chrono::duration_cast<
+                                       std::chrono::milliseconds>(
+                                       entropyElapsed)
+                                       .count()
+                                << "ms / "
+                                << std::chrono::duration_cast<
+                                       std::chrono::milliseconds>(
+                                       entropyDeadline)
+                                       .count()
+                                << "ms";
+                            logRngDiag("rng-entropy-hash-conflict-wait");
+                            return {};
+                        }
+
+                        // Deadline exceeded — fall back to zero entropy.
+                        ext.setEntropyFailed();
+                        JLOG(ext.j_.warn())
+                            << "RNG: entropySetHash conflict persisted "
+                               "past deadline, falling back to zero "
+                               "entropy";
+                        logRngDiag("rng-entropy-hash-conflict-timeout");
+                    }
+                }
+            }
+
             // Optional explicit final proposal (seq=4 style):
             // publish a synthetic tx-set hash that includes the
             // consensus-entropy pseudo-tx just before accept.
