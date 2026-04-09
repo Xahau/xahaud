@@ -667,14 +667,28 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     }
                     else if (!conflict && aligned == 0 && peersSeen > 0)
                     {
-                        // Peers published but none match ours — this
-                        // shouldn't happen after merge, but treat as
-                        // conflict and fall back.
+                        // Peers published but none match ours yet.
+                        // This can happen when a peer with a subset
+                        // hash is the only one we've seen so far —
+                        // other aligned peers may not have published
+                        // yet.  Wait bounded time for alignment.
+                        auto const entropyElapsed =
+                            ctx.nowSteady - ext.revealPhaseStart_;
+                        auto const entropyDeadline =
+                            ctx.parms.rngREVEAL_TIMEOUT * 2;
+                        if (entropyElapsed <= entropyDeadline)
+                        {
+                            JLOG(ext.j_.debug())
+                                << "RNG: no aligned peers yet "
+                                << "(peersSeen=" << peersSeen << "), waiting";
+                            logRngDiag("rng-entropy-hash-no-alignment-wait");
+                            return {};
+                        }
                         ext.setEntropyFailed();
                         JLOG(ext.j_.warn())
-                            << "RNG: peers published entropySetHash but "
-                               "none align with ours, falling back";
-                        logRngDiag("rng-entropy-hash-no-alignment");
+                            << "RNG: no peer alignment within deadline, "
+                               "falling back to zero";
+                        logRngDiag("rng-entropy-hash-no-alignment-timeout");
                     }
 
                     JLOG(ext.j_.debug())
