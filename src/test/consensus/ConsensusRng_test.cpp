@@ -572,6 +572,15 @@ public:
         auto const fast = round<milliseconds>(0.2 * parms.ledgerGRANULARITY);
         network.connect(network, fast);
 
+        // Enable logging for debugging
+        for (Peer* peer : network)
+            peer->sink.threshold(beast::severities::kDebug);
+
+        // Warmup: populate prevProposers (bootstrap skip bypasses
+        // RNG when prevProposers < quorum).
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(network));
+
         // Group A never sees peer 5's reveal
         for (Peer* peer : groupA)
             peer->ce().dropRevealFrom_.insert(network[5]->id);
@@ -580,7 +589,7 @@ public:
         for (Peer* peer : groupB)
             peer->ce().dropRevealFrom_.insert(network[0]->id);
 
-        sim.run(1);
+        sim.run(3);
 
         // Must not fork
         BEAST_EXPECT(sim.branches(network) == 1);
@@ -590,6 +599,13 @@ public:
         auto const& refDigest = network[0]->ce().lastEntropyDigest_;
         for (Peer const* peer : network)
         {
+            std::cerr << "  peer " << peer->id
+                      << " digest=" << peer->ce().lastEntropyDigest_
+                      << " count=" << peer->ce().lastEntropyCount_
+                      << " fallback="
+                      << (peer->ce().lastEntropyWasFallback_ ? "yes" : "no")
+                      << " reveals=" << peer->ce().pendingReveals_.size()
+                      << "\n";
             BEAST_EXPECT(peer->ce().lastEntropyDigest_ == refDigest);
             BEAST_EXPECT(
                 peer->ce().lastEntropyCount_ ==
@@ -623,12 +639,16 @@ public:
         peers.trustAndConnect(
             peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
 
+        // Warmup: populate prevProposers.
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
         // Peer 0 drops most reveals
         peers[0]->ce().dropRevealFrom_.insert(peers[2]->id);
         peers[0]->ce().dropRevealFrom_.insert(peers[3]->id);
         peers[0]->ce().dropRevealFrom_.insert(peers[4]->id);
 
-        sim.run(1);
+        sim.run(3);
 
         // Must not fork
         BEAST_EXPECT(sim.branches(peers) == 1);
@@ -665,6 +685,10 @@ public:
         peers.trustAndConnect(
             peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
 
+        // Warmup: populate prevProposers.
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
         // TODO: add forcedEntropySetHash_ test knob to CsfExtensions
         // For now, this test documents the expected behavior.
         // When the convergence gate is implemented, uncomment:
@@ -672,7 +696,7 @@ public:
         // peers[0]->ce().forcedEntropySetHash_ =
         //     sha512Half(std::string("byzantine-entropy"));
 
-        sim.run(1);
+        sim.run(3);
 
         BEAST_EXPECT(sim.branches(peers) == 1);
         BEAST_EXPECT(sim.synchronized(peers));

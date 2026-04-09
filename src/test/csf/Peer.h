@@ -55,6 +55,41 @@ namespace bc = boost::container;
        by Collectors
      - Exposes most internal state for forcibly simulating arbitrary scenarios
 */
+/// Content-addressed sidecar set store, simulating InboundTransactions.
+/// Shared across all peers in a simulation — peers publish sets by hash
+/// and fetch them by hash, just like the real SHAMap fetch pipeline.
+///
+/// Each entry is tagged with its type so fetchRngSetIfNeeded can merge
+/// into the correct local set without content-sniffing heuristics.
+struct SidecarStore
+{
+    enum class Type { commit, reveal };
+
+    using EntrySet = hash_map<PeerID, uint256>;
+
+    struct TaggedSet
+    {
+        Type type;
+        EntrySet entries;
+    };
+
+    void
+    publish(uint256 const& hash, Type type, EntrySet const& entries)
+    {
+        sets_[hash] = {type, entries};
+    }
+
+    TaggedSet const*
+    fetch(uint256 const& hash) const
+    {
+        auto it = sets_.find(hash);
+        return it != sets_.end() ? &it->second : nullptr;
+    }
+
+private:
+    std::map<uint256, TaggedSet> sets_;
+};
+
 struct Peer
 {
     /** Basic wrapper of a proposed position taken by a peer.
@@ -206,6 +241,9 @@ struct Peer
 
     //! The oracle that manages unique ledgers
     LedgerOracle& oracle;
+
+    //! Shared sidecar store (simulates InboundTransactions)
+    SidecarStore& sidecarStore;
 
     //! Scheduler of events
     Scheduler& scheduler;
@@ -385,13 +423,22 @@ struct Peer
         {
             if (forcedCommitSetHash_)
                 return *forcedCommitSetHash_;
-            return hashRngSet(pendingCommits_, seq, "commit");
+            auto const hash = hashRngSet(pendingCommits_, seq, "commit");
+            peer.sidecarStore.publish(
+                hash, SidecarStore::Type::commit, pendingCommits_);
+            return hash;
         }
 
         uint256
         buildEntropySet(Ledger::Seq seq)
         {
-            return hashRngSet(pendingReveals_, seq, "reveal");
+            auto const hash = hashRngSet(pendingReveals_, seq, "reveal");
+            peer.sidecarStore.publish(
+                hash, SidecarStore::Type::reveal, pendingReveals_);
+            JLOG(j_.debug()) << "CSF buildEntropySet: hash=" << hash
+                             << " reveals=" << pendingReveals_.size()
+                             << " seq=" << static_cast<std::uint32_t>(seq);
+            return hash;
         }
 
         void
@@ -424,9 +471,33 @@ struct Peer
         }
 
         void
-        fetchRngSetIfNeeded(std::optional<uint256> const&)
+        fetchRngSetIfNeeded(std::optional<uint256> const& hash)
         {
-            // CSF does not model SHAMap acquisition
+            if (!hash)
+                return;
+            auto const* fetched = peer.sidecarStore.fetch(*hash);
+            if (!fetched)
+            {
+                JLOG(j_.debug()) << "CSF fetch: hash " << *hash
+                                 << " not found in sidecar store";
+                return;
+            }
+            // Union merge into the correct local set based on type.
+            auto& target = (fetched->type == SidecarStore::Type::commit)
+                ? pendingCommits_
+                : pendingReveals_;
+            std::size_t added = 0;
+            for (auto const& [nodeId, digest] : fetched->entries)
+            {
+                if (target.emplace(nodeId, digest).second)
+                    ++added;
+            }
+            JLOG(j_.debug())
+                << "CSF fetch: hash " << *hash << " type="
+                << (fetched->type == SidecarStore::Type::commit ? "commit"
+                                                                : "reveal")
+                << " entries=" << fetched->entries.size() << " added=" << added
+                << " localSize=" << target.size();
         }
 
         void
@@ -556,6 +627,11 @@ struct Peer
                 lastEntropyWasFallback_ = true;
                 return;
             }
+
+            JLOG(j_.debug())
+                << "CSF finalizeRoundEntropy: seq=" << seq
+                << " entropyFailed=" << (entropyFailed_ ? "yes" : "no")
+                << " reveals=" << pendingReveals_.size();
 
             if (entropyFailed_ || pendingReveals_.empty())
             {
@@ -802,13 +878,15 @@ struct Peer
         BasicNetwork<Peer*>& n,
         TrustGraph<Peer*>& tg,
         CollectorRefs& c,
-        beast::Journal jIn)
+        beast::Journal jIn,
+        SidecarStore& sc)
         : sink(jIn, "Peer " + to_string(i) + ": ")
         , j(sink)
         , consensus(s.clock(), *this, j)
         , id{i}
         , key{id, 0}
         , oracle{o}
+        , sidecarStore{sc}
         , scheduler{s}
         , net{n}
         , trustGraph(tg)

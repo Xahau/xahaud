@@ -84,6 +84,7 @@ public:
     BasicNetwork<Peer*> net;
     TrustGraph<Peer*> trustGraph;
     CollectorRefs collectors;
+    SidecarStore sidecarStore;
 
     /** Create a simulation
 
@@ -120,7 +121,8 @@ public:
                 net,
                 trustGraph,
                 collectors,
-                j);
+                j,
+                sidecarStore);
             newPeers.emplace_back(&peers.back());
         }
         PeerGroup res{newPeers};
