@@ -524,6 +524,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     if (!ext.entropySetPublished_)
                     {
                         ext.entropySetPublished_ = true;
+                        ext.entropyPublishStart_ = ctx.nowSteady;
                         JLOG(ext.j_.debug())
                             << "RNG: entropySet first published, waiting "
                                "for peer observation";
@@ -607,7 +608,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     {
                         // Bounded grace window for real conflicts.
                         auto const entropyElapsed =
-                            ctx.nowSteady - ext.revealPhaseStart_;
+                            ctx.nowSteady - ext.entropyPublishStart_;
                         auto const entropyDeadline =
                             ctx.parms.rngREVEAL_TIMEOUT * 2;
                         if (entropyElapsed <= entropyDeadline)
@@ -647,7 +648,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         // No peers have published an entropySetHash yet.
                         // Wait for the bounded window so they have time.
                         auto const entropyElapsed =
-                            ctx.nowSteady - ext.revealPhaseStart_;
+                            ctx.nowSteady - ext.entropyPublishStart_;
                         auto const entropyDeadline =
                             ctx.parms.rngREVEAL_TIMEOUT * 2;
                         if (entropyElapsed <= entropyDeadline)
@@ -673,7 +674,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         // other aligned peers may not have published
                         // yet.  Wait bounded time for alignment.
                         auto const entropyElapsed =
-                            ctx.nowSteady - ext.revealPhaseStart_;
+                            ctx.nowSteady - ext.entropyPublishStart_;
                         auto const entropyDeadline =
                             ctx.parms.rngREVEAL_TIMEOUT * 2;
                         if (entropyElapsed <= entropyDeadline)

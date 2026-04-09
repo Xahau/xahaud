@@ -327,6 +327,7 @@ struct Peer
         std::chrono::steady_clock::time_point commitHashConflictStart_{};
         bool explicitFinalProposalSent_{false};
         bool entropySetPublished_{false};
+        std::chrono::steady_clock::time_point entropyPublishStart_{};
 
         // RNG state
         bool enableRngConsensus_ = false;
@@ -825,6 +826,7 @@ struct Peer
             commitHashConflictStart_ = {};
             explicitFinalProposalSent_ = false;
             entropySetPublished_ = false;
+            entropyPublishStart_ = {};
         }
 
         /// Defined in test/csf/PeerTick.h (keeps xrpld/app dependency
