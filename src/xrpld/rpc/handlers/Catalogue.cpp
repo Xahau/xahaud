@@ -1267,7 +1267,14 @@ doCatalogueLoad(RPC::JsonContext& context)
 
         // IMPORTANT: Mark as pinned BEFORE saving to database
         // This ensures isPinned() returns true when saveValidatedLedger checks,
-        // preventing the ledger from being cached in AcceptedLedgerCache
+        // preventing the ledger from being cached in AcceptedLedgerCache.
+        //
+        // NOTE: If the save below fails, mPinnedLedgers will be one ledger
+        // ahead of state.db. This is harmless because:
+        // 1. The failure aborts the RPC immediately (no further mutations)
+        // 2. On restart, mPinnedLedgers is reloaded from state.db
+        // 3. Re-running catalogue_load restarts from pack beginning,
+        //    overwriting any partially-loaded data
         context.app.getLedgerMaster().storeLedger(ledger, true);
 
         // Save in database - wait for completion to avoid memory bloat

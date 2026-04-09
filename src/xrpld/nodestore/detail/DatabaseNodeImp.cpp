@@ -32,18 +32,10 @@ DatabaseNodeImp::store(
 {
     storeStats(1, data.size());
 
-    // Check if this is an uncached type
-    bool skipCache = false;
-    if (type == pinnedACCOUNT_NODE)
-    {
-        type = hotACCOUNT_NODE;
-        skipCache = true;
-    }
-    else if (type == pinnedTRANSACTION_NODE)
-    {
-        type = hotTRANSACTION_NODE;
-        skipCache = true;
-    }
+    // Pinned types bypass the cache and get reduced to hot equivalents
+    bool skipCache = isPinnedType(type);
+    if (skipCache)
+        type = toHotType(type);
 
     auto obj = NodeObject::createObject(type, std::move(data), hash);
     backend_->store(obj);

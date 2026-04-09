@@ -64,9 +64,11 @@ DatabasePinnedImp::store(
     static std::atomic<uint64_t> hotCount{0};
 
     // Route based on type
-    if (type == pinnedACCOUNT_NODE || type == pinnedTRANSACTION_NODE ||
-        type == pinnedLEDGER)
+    if (isPinnedType(type))
     {
+        // Reduce to serializable hot type before storage
+        type = toHotType(type);
+
         // Pinned types go to persistent storage
         auto count = ++pinnedCount;
         if (count % 1000 == 0)

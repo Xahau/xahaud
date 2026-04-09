@@ -1351,6 +1351,11 @@ LedgerMaster::findNewLedgersToPublish(
     {
         for (auto const& interval : toPublish)
         {
+            // Advance pubSeq past pinned gaps — pinned ledgers are
+            // already persisted and don't need publishing.
+            if (pubSeq < interval.first())
+                pubSeq = interval.first();
+
             for (std::uint32_t seq = interval.first(); seq <= interval.last();
                  ++seq)
             {

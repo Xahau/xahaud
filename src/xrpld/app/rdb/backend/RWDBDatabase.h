@@ -606,15 +606,16 @@ public:
         std::size_t count = 0;
         while (it != end)
         {
-            for (const auto& [txHash, _] : it->second.transactions)
+            auto txIt = it->second.transactions.begin();
+            while (txIt != it->second.transactions.end())
             {
                 if (limit && count >= *limit)
                     return count;
 
-                transactionMap_.erase(txHash);
+                transactionMap_.erase(txIt->first);
+                txIt = it->second.transactions.erase(txIt);
                 ++count;
             }
-            it->second.transactions.clear();
             ++it;
         }
         return count;
