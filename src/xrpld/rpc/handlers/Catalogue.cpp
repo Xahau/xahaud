@@ -1277,30 +1277,47 @@ doCatalogueLoad(RPC::JsonContext& context)
         //    overwriting any partially-loaded data
         context.app.getLedgerMaster().storeLedger(ledger, true);
 
-        // Save in database - wait for completion to avoid memory bloat
-        // Use promise/future to wait for the async save to complete
+        // Save in database - wait for completion to avoid memory bloat.
+        // Uses pendSaveValidated to respect job queue tuning on live
+        // servers (jtPUBOLDLEDGER), runs synchronously in standalone.
         {
-            std::promise<bool> savePromise;
-            auto saveFuture = savePromise.get_future();
+            auto savePromise = std::make_shared<std::promise<bool>>();
+            auto saveFuture = savePromise->get_future();
 
-            // pendSaveValidated with callback that resolves the promise
             bool queued = pendSaveValidated(
                 context.app,
                 ledger,
-                context.app.config().standalone(),  // synchronous if standalone
-                false,                              // not current
-                [&savePromise](bool success) {
-                    savePromise.set_value(success);
+                context.app.config().standalone(),
+                false,
+                [savePromise](bool success) {
+                    savePromise->set_value(success);
                 });
 
             if (!queued)
-            {
-                // It failed immediately
                 return rpcError(rpcINTERNAL, "Failed to save ledger");
+
+            // Wait for save. If the job throws (e.g. disk error), the
+            // promise is destroyed without set_value, and get() throws
+            // std::future_error(broken_promise). Let that propagate as
+            // a hard failure — something is seriously wrong.
+            bool saved = false;
+            try
+            {
+                saved = saveFuture.get();
+            }
+            catch (std::future_error const& e)
+            {
+                JLOG(context.j.error())
+                    << "Save job for ledger " << ledger->info().seq
+                    << " failed with exception (promise broken): "
+                    << e.what();
+                return rpcError(
+                    rpcINTERNAL,
+                    "Save job crashed for ledger " +
+                        std::to_string(ledger->info().seq));
             }
 
-            // Wait for the save to complete
-            if (!saveFuture.get())
+            if (!saved)
             {
                 JLOG(context.j.error()) << "Failed to save ledger "
                                         << ledger->info().seq << " to SQLite";
