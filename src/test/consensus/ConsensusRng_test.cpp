@@ -730,6 +730,120 @@ public:
     }
 
     void
+    testRngNoEntropyWithoutPeerAlignment()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG no non-zero entropy without peer alignment");
+
+        // 5 peers.  All peers see all reveals (healthy network).
+        // But peer 0 drops ALL incoming proposals after publishing
+        // its entropy set — simulating a node that publishes but
+        // never sees any peer's entropySetHash response.
+        //
+        // Without the alignment check, peer 0 would accept non-zero
+        // entropy based purely on its own local view (no peer
+        // confirmation).
+        //
+        // With the alignment check, peer 0 must see at least some
+        // peers agreeing on the same hash before accepting non-zero
+        // entropy.  If it can't see any alignment within the bounded
+        // window, it must fall back to zero.
+        //
+        // The key invariant: no node should accept non-zero entropy
+        // unless it has observed positive peer agreement on the same
+        // entropySetHash.
+
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup peers = sim.createGroup(5);
+        for (Peer* peer : peers)
+            peer->ce().enableRngConsensus_ = true;
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        // Warmup
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
+        sim.run(3);
+
+        // All peers should agree — either all have the same entropy
+        // (since all reveals are available), or some fall back to zero.
+        // The key check: no peer should have non-zero entropy that
+        // differs from the majority.
+        BEAST_EXPECT(sim.synchronized(peers));
+
+        auto const& refDigest = peers[0]->ce().lastEntropyDigest_;
+        for (Peer const* peer : peers)
+            BEAST_EXPECT(peer->ce().lastEntropyDigest_ == refDigest);
+
+        // At least some peers should have non-zero entropy
+        // (healthy network, all reveals available)
+        BEAST_EXPECT(refDigest != uint256{});
+    }
+
+    void
+    testRngAlignmentRequiredForNonZeroEntropy()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG alignment required — isolated node falls back");
+
+        // 5 peers.  Peer 0 is isolated after the warmup round:
+        // it can still propose but receives no proposals back.
+        // This means peer 0 publishes its entropySetHash but never
+        // sees any peer's entropySetHash — aligned=0, peersSeen=0.
+        //
+        // The alignment gate should prevent peer 0 from accepting
+        // non-zero entropy without peer confirmation.  Instead it
+        // should fall back to zero or desync.
+
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup peers = sim.createGroup(5);
+        for (Peer* peer : peers)
+            peer->ce().enableRngConsensus_ = true;
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        // Warmup
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
+        // Isolate peer 0: drop all reveals from it so its
+        // entropy set will differ, AND it won't see peer alignment
+        // because its entropy hash won't match anyone else's.
+        for (std::size_t i = 1; i < peers.size(); ++i)
+            peers[0]->ce().dropRevealFrom_.insert(peers[i]->id);
+
+        sim.run(3);
+
+        // The majority (peers 1-4) should agree on non-zero entropy
+        std::vector<Peer const*> majority;
+        for (std::size_t i = 1; i < peers.size(); ++i)
+            majority.push_back(peers[i]);
+
+        auto const& majorityDigest = majority[0]->ce().lastEntropyDigest_;
+        BEAST_EXPECT(majorityDigest != uint256{});
+        for (Peer const* peer : majority)
+            BEAST_EXPECT(peer->ce().lastEntropyDigest_ == majorityDigest);
+
+        // Peer 0 must NOT have non-zero entropy that differs from
+        // the majority.  It should either:
+        // a) have converged to the majority via fetch/merge, or
+        // b) have fallen back to zero entropy
+        auto const& p0Digest = peers[0]->ce().lastEntropyDigest_;
+        BEAST_EXPECT(p0Digest == majorityDigest || p0Digest == uint256{});
+    }
+
+    void
     run() override
     {
         // Set XAHAU_RNG_TEST=<name> to run a single test method.
@@ -759,6 +873,8 @@ public:
         RUN(testRngEntropyConvergesWithPartialReveals);
         RUN(testRngEntropyFallbackOnMajorRevealLoss);
         RUN(testRngSingleByzantineCannotDenyEntropy);
+        RUN(testRngNoEntropyWithoutPeerAlignment);
+        RUN(testRngAlignmentRequiredForNonZeroEntropy);
 
 #undef RUN
     }

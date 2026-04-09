@@ -604,8 +604,48 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         logRngDiag("rng-entropy-hash-conflict-timeout");
                     }
 
+                    // Positive alignment check: require at least one
+                    // tx-converged peer with a matching entropySetHash
+                    // before accepting non-zero entropy.  Without this,
+                    // a node could accept based purely on its local view
+                    // with no peer confirmation.
+                    if (!conflict && aligned == 0 && peersSeen == 0)
+                    {
+                        // No peers have published an entropySetHash yet.
+                        // Wait for the bounded window so they have time.
+                        auto const entropyElapsed =
+                            ctx.nowSteady - ext.revealPhaseStart_;
+                        auto const entropyDeadline =
+                            ctx.parms.rngREVEAL_TIMEOUT * 2;
+                        if (entropyElapsed <= entropyDeadline)
+                        {
+                            JLOG(ext.j_.debug())
+                                << "RNG: waiting for peer entropySetHash "
+                                   "alignment (none seen yet)";
+                            logRngDiag("rng-entropy-hash-no-peers-wait");
+                            return {};
+                        }
+                        // Deadline: no peers ever published. Fall back.
+                        ext.setEntropyFailed();
+                        JLOG(ext.j_.warn())
+                            << "RNG: no peer entropySetHash observed "
+                               "within deadline, falling back to zero";
+                        logRngDiag("rng-entropy-hash-no-peers-timeout");
+                    }
+                    else if (!conflict && aligned == 0 && peersSeen > 0)
+                    {
+                        // Peers published but none match ours — this
+                        // shouldn't happen after merge, but treat as
+                        // conflict and fall back.
+                        ext.setEntropyFailed();
+                        JLOG(ext.j_.warn())
+                            << "RNG: peers published entropySetHash but "
+                               "none align with ours, falling back";
+                        logRngDiag("rng-entropy-hash-no-alignment");
+                    }
+
                     JLOG(ext.j_.debug())
-                        << "RNG: entropy gate passed — aligned=" << aligned
+                        << "RNG: entropy gate — aligned=" << aligned
                         << " peersSeen=" << peersSeen
                         << " conflict=" << (conflict ? "yes" : "no");
                 }

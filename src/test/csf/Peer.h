@@ -653,7 +653,7 @@ struct Peer
                 << " entropyFailed=" << (entropyFailed_ ? "yes" : "no")
                 << " reveals=" << pendingReveals_.size();
 
-            if (entropyFailed_ || pendingReveals_.empty())
+            if (shouldZeroEntropy())
             {
                 lastEntropyDigest_.zero();
                 lastEntropyCount_ = 0;
