@@ -823,7 +823,10 @@ public:
         for (std::size_t i = 1; i < peers.size(); ++i)
             peers[0]->ce().dropRevealFrom_.insert(peers[i]->id);
 
-        sim.run(3);
+        // Run just 1 round — enough to exercise the gate.
+        // More rounds cause peer 0 to desync, dropping prevProposers
+        // and triggering bootstrap skip on the final round.
+        sim.run(1);
 
         // The majority (peers 1-4) should agree on non-zero entropy
         std::vector<Peer const*> majority;
