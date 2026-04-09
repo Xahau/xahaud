@@ -23,7 +23,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
     // These sub-states use union convergence (not avalanche).
     // Commits and reveals arrive piggybacked on proposals, so by the time
     // we reach these checkpoints most data is already collected. The
-    // SHAMap fetch/diff/merge in handleAcquiredRngSet is a safety net
+    // SHAMap fetch/diff/merge in onAcquiredSidecarSet is a safety net
     // for stragglers, not a voting mechanism.
     //
     // Why 80% for commits but 100% for reveals?
