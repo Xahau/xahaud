@@ -73,6 +73,7 @@ public:
     std::chrono::steady_clock::time_point revealPhaseStart_{};
     std::chrono::steady_clock::time_point commitHashConflictStart_{};
     bool explicitFinalProposalSent_{false};
+    bool entropySetPublished_{false};
     /** Proof data from a proposal signature, for embedding in SHAMap
         entries. Contains everything needed to independently verify
         that a validator committed/revealed a specific value. */
@@ -319,6 +320,7 @@ public:
         revealPhaseStart_ = {};
         commitHashConflictStart_ = {};
         explicitFinalProposalSent_ = false;
+        entropySetPublished_ = false;
     }
 };
 

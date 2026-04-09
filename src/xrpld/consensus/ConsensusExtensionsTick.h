@@ -500,11 +500,18 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
             // --- EntropySetHash convergence gate ---
             //
-            // After publishing our entropySet, check if tx-converged
-            // peers agree on entropySetHash.  If not, fetch/merge/rebuild
-            // within a bounded window.  This prevents two honest validators
-            // from accepting with different reveal subsets (and therefore
-            // different entropy → different pseudo-tx → ledger fork).
+            // After publishing our entropySet, ensure peers have had
+            // at least one observation window to see our hash (and us
+            // theirs) before accepting.  Without this, a node can
+            // publish + accept in the same tick, never seeing a peer's
+            // different hash — causing asymmetric zero/non-zero entropy
+            // and a ledger fork.
+            //
+            // The gate works in two phases:
+            //   1. First tick after publishing: always wait (return {})
+            //      to give proposals time to propagate.
+            //   2. Subsequent ticks: check for conflict, fetch/merge/
+            //      rebuild if needed, bounded by deadline.
             //
             // Same pattern as commitSetHash conflict handling (line ~308)
             // and exportSigSetHash convergence gate (line ~674).
@@ -512,7 +519,22 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 auto const ourPos = ctx.getPosition();
                 if (ourPos.entropySetHash)
                 {
+                    // Phase 1: on the tick we first published, always
+                    // wait one more tick for observation.
+                    if (!ext.entropySetPublished_)
+                    {
+                        ext.entropySetPublished_ = true;
+                        JLOG(ext.j_.debug())
+                            << "RNG: entropySet first published, waiting "
+                               "for peer observation";
+                        logRngDiag("rng-entropy-hash-first-publish-wait");
+                        return {};
+                    }
+
+                    // Phase 2: check peer agreement.
                     bool conflict = false;
+                    std::size_t aligned = 0;
+                    std::size_t peersSeen = 0;
                     for (auto const& [_, peerPos] : ctx.peerPositions)
                     {
                         auto const& pp = peerPos.proposal().position();
@@ -520,18 +542,21 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             continue;  // not tx-converged
                         if (!pp.entropySetHash)
                             continue;  // peer hasn't published yet
+                        ++peersSeen;
                         if (*pp.entropySetHash != *ourPos.entropySetHash)
                         {
                             conflict = true;
                             ext.fetchRngSetIfNeeded(pp.entropySetHash);
                         }
+                        else
+                        {
+                            ++aligned;
+                        }
                     }
 
                     if (conflict)
                     {
-                        // Rebuild our entropy set after any merges that
-                        // onAcquiredSidecarSet may have applied to
-                        // pendingReveals_.
+                        // Rebuild our entropy set after any merges.
                         auto const refreshedHash =
                             ext.buildEntropySet(buildSeq);
                         if (refreshedHash != *ourPos.entropySetHash)
@@ -547,11 +572,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                                 << refreshedHash;
                         }
 
-                        // Use a bounded grace window (same as
-                        // rngREVEAL_TIMEOUT).  Don't re-use the reveal
-                        // timeout timer — entropy convergence starts
-                        // when we first publish the entropy set, which
-                        // may be the same tick.
+                        // Bounded grace window.
                         auto const entropyElapsed =
                             ctx.nowSteady - ext.revealPhaseStart_;
                         auto const entropyDeadline =
@@ -574,7 +595,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             return {};
                         }
 
-                        // Deadline exceeded — fall back to zero entropy.
+                        // Deadline exceeded — fall back to zero.
                         ext.setEntropyFailed();
                         JLOG(ext.j_.warn())
                             << "RNG: entropySetHash conflict persisted "
@@ -582,6 +603,11 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                                "entropy";
                         logRngDiag("rng-entropy-hash-conflict-timeout");
                     }
+
+                    JLOG(ext.j_.debug())
+                        << "RNG: entropy gate passed — aligned=" << aligned
+                        << " peersSeen=" << peersSeen
+                        << " conflict=" << (conflict ? "yes" : "no");
                 }
             }
 

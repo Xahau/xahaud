@@ -326,6 +326,7 @@ struct Peer
         std::chrono::steady_clock::time_point revealPhaseStart_{};
         std::chrono::steady_clock::time_point commitHashConflictStart_{};
         bool explicitFinalProposalSent_{false};
+        bool entropySetPublished_{false};
 
         // RNG state
         bool enableRngConsensus_ = false;
@@ -415,7 +416,13 @@ struct Peer
         bool
         shouldZeroEntropy() const
         {
-            return entropyFailed_ || pendingReveals_.empty();
+            if (entropyFailed_ || pendingReveals_.empty())
+                return true;
+            // Match production: zero when reveals < quorum threshold.
+            auto const threshold = unlNodes_.empty()
+                ? std::size_t{1}
+                : calculateQuorumThreshold(unlNodes_.size());
+            return pendingReveals_.size() < threshold;
         }
 
         uint256
@@ -817,6 +824,7 @@ struct Peer
             revealPhaseStart_ = {};
             commitHashConflictStart_ = {};
             explicitFinalProposalSent_ = false;
+            entropySetPublished_ = false;
         }
 
         /// Defined in test/csf/PeerTick.h (keeps xrpld/app dependency
