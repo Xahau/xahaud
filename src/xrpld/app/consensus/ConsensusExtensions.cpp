@@ -1487,11 +1487,38 @@ ConsensusExtensions::onTrustedPeerMessage(
     // pubkey must match the proposal's nodepubkey.  Reject the entire
     // proposal's export sigs on any mismatch — a single impersonation
     // attempt means the sender is malicious.
+    //
+    // Two-pass: validate all blobs first, then commit — ensures no partial
+    // state if a later blob fails the sender binding check.
     auto const senderSlice = makeSlice(wireMsg.nodepubkey());
     if (!publicKeyType(senderSlice))
         return;
     PublicKey const senderPK{senderSlice};
 
+    if (!app_.validators().trusted(senderPK))
+        return;
+
+    // Pass 1: validate all blobs.
+    for (int i = 0; i < wireMsg.exportsignatures_size(); ++i)
+    {
+        auto const& blob = wireMsg.exportsignatures(i);
+        if (blob.size() < 65)
+            continue;
+
+        auto const pkSlice = makeSlice(blob).substr(32, 33);
+        if (!publicKeyType(pkSlice))
+            continue;
+
+        if (PublicKey{pkSlice} != senderPK)
+        {
+            JLOG(j_.warn())
+                << "Export: rejecting sigs from proposal — embedded pubkey "
+                   "does not match sender";
+            return;
+        }
+    }
+
+    // Pass 2: commit validated sigs.
     for (int i = 0; i < wireMsg.exportsignatures_size(); ++i)
     {
         auto const& blob = wireMsg.exportsignatures(i);
@@ -1501,34 +1528,17 @@ ConsensusExtensions::onTrustedPeerMessage(
 
         uint256 txHash;
         std::memcpy(txHash.data(), blob.data(), 32);
-        auto const fullSlice = makeSlice(blob);
-        auto const pkSlice = fullSlice.substr(32, 33);
-        if (!publicKeyType(pkSlice))
-            continue;
-
-        PublicKey const valPK{pkSlice};
-
-        // Reject if the embedded pubkey doesn't match the proposal sender.
-        if (valPK != senderPK)
-        {
-            JLOG(j_.warn())
-                << "Export: rejecting sigs from proposal — embedded pubkey "
-                   "does not match sender";
-            return;
-        }
-
-        if (!app_.validators().trusted(valPK))
-            continue;
 
         if (blob.size() > 65)
         {
+            auto const fullSlice = makeSlice(blob);
             auto const sigSlice = fullSlice.substr(65);
             Buffer sigBuf(sigSlice.data(), sigSlice.size());
-            exportSigCollector_.addSignature(txHash, valPK, sigBuf);
+            exportSigCollector_.addSignature(txHash, senderPK, sigBuf);
         }
         else
         {
-            exportSigCollector_.addSignature(txHash, valPK);
+            exportSigCollector_.addSignature(txHash, senderPK);
         }
     }
 }

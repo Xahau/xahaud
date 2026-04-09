@@ -5,6 +5,7 @@
 #include <xrpl/protocol/PublicKey.h>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <unordered_map>
 
@@ -114,6 +115,20 @@ public:
         for (auto const& [hash, entry] : sigs_)
             result[hash] = entry.signatures;
         return result;
+    }
+
+    /// Atomic quorum check + snapshot for a single txHash.
+    /// Returns the signatures if quorum is met, nullopt otherwise.
+    /// Eliminates the TOCTOU window between signatureCount() and
+    /// snapshotWithSigs() in Export::doApply.
+    std::optional<std::map<PublicKey, Buffer>>
+    checkQuorumAndSnapshot(uint256 const& txnHash, std::size_t threshold) const
+    {
+        std::lock_guard lock(mutex_);
+        auto it = sigs_.find(txnHash);
+        if (it == sigs_.end() || it->second.validators.size() < threshold)
+            return std::nullopt;
+        return it->second.signatures;
     }
 
     /// Remove entries older than maxStaleLedgers.

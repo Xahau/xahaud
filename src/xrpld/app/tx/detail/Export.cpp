@@ -126,6 +126,11 @@ Export::doApply()
     // Network mode:
     //   With CE: 80% quorum (SHAMap convergence ensures agreement).
     //   Without CE: unanimity (avoids non-deterministic disagreement).
+    // Atomic quorum check + snapshot for network mode.
+    // Uses a single lock acquisition to eliminate the TOCTOU window
+    // between signatureCount() and snapshotWithSigs().
+    std::optional<std::map<PublicKey, Buffer>> collectedSigs;
+
     if (!ctx_.app.config().standalone())
     {
         std::size_t threshold;
@@ -135,12 +140,16 @@ Export::doApply()
             threshold = calculateQuorumThreshold(unlSize);
         else
             threshold = unlSize;
-        auto const sigCount = ctx_.app.getConsensusExtensions()
-                                  .exportSigCollector()
-                                  .signatureCount(txId);
 
-        if (sigCount < threshold)
+        collectedSigs = ctx_.app.getConsensusExtensions()
+                            .exportSigCollector()
+                            .checkQuorumAndSnapshot(txId, threshold);
+
+        if (!collectedSigs)
         {
+            auto const sigCount = ctx_.app.getConsensusExtensions()
+                                      .exportSigCollector()
+                                      .signatureCount(txId);
             // LLS semantics for retriable exports:
             //
             // Transactor::preclaim rejects with tefMAX_LEDGER when
@@ -218,27 +227,19 @@ Export::doApply()
     }
     else
     {
-        // Network mode: collect real signatures from peers
-        // via ExportSigCollector (populated from proposals).
-        auto const allSigs = ctx_.app.getConsensusExtensions()
-                                 .exportSigCollector()
-                                 .snapshotWithSigs();
-        auto it = allSigs.find(txId);
-
-        if (it != allSigs.end())
+        // Network mode: use the atomically-snapshotted sigs from
+        // the quorum check above.
+        for (auto const& [valPK, sigBuf] : *collectedSigs)
         {
-            for (auto const& [valPK, sigBuf] : it->second)
-            {
-                if (sigBuf.size() == 0)
-                    continue;  // pubkey-only, no real signature
+            if (sigBuf.size() == 0)
+                continue;  // pubkey-only, no real signature
 
-                STObject signer(sfSigner);
-                signer.setAccountID(sfAccount, calcAccountID(valPK));
-                signer.setFieldVL(sfSigningPubKey, valPK.slice());
-                signer.setFieldVL(
-                    sfTxnSignature, Slice(sigBuf.data(), sigBuf.size()));
-                signers.push_back(std::move(signer));
-            }
+            STObject signer(sfSigner);
+            signer.setAccountID(sfAccount, calcAccountID(valPK));
+            signer.setFieldVL(sfSigningPubKey, valPK.slice());
+            signer.setFieldVL(
+                sfTxnSignature, Slice(sigBuf.data(), sigBuf.size()));
+            signers.push_back(std::move(signer));
         }
     }
 
