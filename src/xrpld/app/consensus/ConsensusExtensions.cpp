@@ -676,7 +676,7 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 
                     // Skip if we already have a verified sig for this
                     // validator (e.g. from the proposal ingestion path).
-                    if (exportSigCollector_.hasSignature(txHash, valPK))
+                    if (exportSigCollector_.hasVerifiedSignature(txHash, valPK))
                         return;
 
                     auto const sigSlice = data.substr(65);
@@ -727,7 +727,8 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                     }
 
                     Buffer sigBuf(sigSlice.data(), sigSlice.size());
-                    exportSigCollector_.addSignature(txHash, valPK, sigBuf);
+                    exportSigCollector_.addVerifiedSignature(
+                        txHash, valPK, sigBuf);
                     ++merged;
                 });
             JLOG(j_.info()) << "Export: merged " << merged
@@ -1645,7 +1646,7 @@ ConsensusExtensions::onTrustedPeerMessage(
         }
 
         // Skip if we already have a verified sig for this validator.
-        if (exportSigCollector_.hasSignature(txHash, senderPK))
+        if (exportSigCollector_.hasVerifiedSignature(txHash, senderPK))
             continue;
 
         auto const fullSlice = makeSlice(blob);
@@ -1653,20 +1654,20 @@ ConsensusExtensions::onTrustedPeerMessage(
 
         // Verify the multisign signature against the inner tx when
         // possible.  If the ttEXPORT isn't in our open ledger yet
-        // (relay ordering), store the sig anyway — the proposal-level
+        // (relay ordering), store as unverified — the proposal-level
         // authentication (checkSign + sender binding) provides
-        // sufficient trust, and the collector's stale cleanup (256
-        // ledgers) bounds retention.  The multisign sig will be
-        // verified on the destination chain regardless.
+        // sufficient trust.  Unverified sigs can be upgraded to
+        // verified if encountered again through a path that CAN
+        // verify (e.g. SHAMap merge after the tx arrives).
         auto const txIt = exportTxns.find(txHash);
         if (txIt == exportTxns.end() ||
             !txIt->second->isFieldPresent(sfExportedTxn))
         {
-            JLOG(j_.debug()) << "Export: storing sig for tx " << txHash
-                             << " without multisign verification"
-                             << " (not in open ledger yet)";
+            JLOG(j_.debug()) << "Export: storing unverified sig for tx "
+                             << txHash << " (not in open ledger yet)";
             Buffer sigBuf(sigSlice.data(), sigSlice.size());
-            exportSigCollector_.addSignature(txHash, senderPK, sigBuf);
+            exportSigCollector_.addUnverifiedSignature(
+                txHash, senderPK, sigBuf);
             continue;
         }
 
@@ -1697,7 +1698,7 @@ ConsensusExtensions::onTrustedPeerMessage(
         }
 
         Buffer sigBuf(sigSlice.data(), sigSlice.size());
-        exportSigCollector_.addSignature(txHash, senderPK, sigBuf);
+        exportSigCollector_.addVerifiedSignature(txHash, senderPK, sigBuf);
     }
 }
 //@@end peer-harvest-export-sigs
@@ -1846,7 +1847,7 @@ ConsensusExtensions::decorateMessage(
         prop.add_exportsignatures(s.peekData().data(), s.peekData().size());
         //@@end export-attach-wire-sigs
 
-        exportSigCollector_.addSignature(txHash, valPK, sigBuf);
+        exportSigCollector_.addVerifiedSignature(txHash, valPK, sigBuf);
 
         JLOG(j_.debug()) << "Export: attached sig for " << txHash
                          << " to proposal (sigLen=" << sigBuf.size() << ")";
