@@ -1101,18 +1101,34 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
                         << seq << " (reveals=" << pendingReveals_.size()
                         << " threshold=" << quorumThreshold() << ")";
     }
-    else
+    else if (entropySetMap_)
     {
-        // Sort reveals deterministically by Validator Public Key
+        // Compute entropy from the agreed-upon entropySet SHAMap
+        // rather than from local pendingReveals_.  The map's hash
+        // was published in proposals and converged via fetch/merge,
+        // so all nodes with the same entropySetHash produce the
+        // same entropy — preventing reveal-subset divergence at
+        // timeout boundaries.
+        //
+        // Each leaf is an STTx with sfSigningPubKey (validator key)
+        // and sfDigest (the reveal).
         std::vector<std::pair<PublicKey, uint256>> sorted;
-        sorted.reserve(pendingReveals_.size());
-
-        for (auto const& [nodeId, reveal] : pendingReveals_)
-        {
-            auto it = nodeIdToKey_.find(nodeId);
-            if (it != nodeIdToKey_.end())
-                sorted.emplace_back(it->second, reveal);
-        }
+        entropySetMap_->visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                try
+                {
+                    SerialIter sit(item->slice());
+                    STTx tx(std::ref(sit));
+                    auto const pk = tx.getFieldVL(sfSigningPubKey);
+                    if (!publicKeyType(makeSlice(pk)))
+                        return;
+                    sorted.emplace_back(
+                        PublicKey(makeSlice(pk)), tx.getFieldH256(sfDigest));
+                }
+                catch (...)
+                {
+                }
+            });
 
         if (!sorted.empty())
         {
@@ -1133,7 +1149,7 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
 
             JLOG(j_.info()) << "RNG: Injecting entropy " << finalEntropy
                             << " from " << sorted.size() << " reveals"
-                            << " for ledger " << seq;
+                            << " (from entropySetMap) for ledger " << seq;
         }
     }
     //@@end rng-inject-entropy-selection
