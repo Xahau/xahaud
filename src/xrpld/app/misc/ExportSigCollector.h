@@ -25,9 +25,11 @@ namespace ripple {
 /// trust alone, e.g. when the ttEXPORT tx isn't in the open ledger yet
 /// due to relay ordering).
 ///
-/// The distinction matters for caching: `hasVerifiedSignature()` returns
-/// true only for verified sigs, so unverified sigs get re-checked when
-/// encountered again through a path that CAN verify.
+/// Only verified signatures count toward quorum, appear in SHAMap
+/// convergence, and are assembled into the final export blob.
+/// Unverified sigs are a local cache that can be upgraded to verified
+/// via `upgradeSignature()` when the tx becomes available (e.g. in
+/// Export::doApply which always has the tx).
 ///
 //@@start export-sig-collector-mutex
 /// Thread-safe.
@@ -38,12 +40,13 @@ class ExportSigCollector
 
     struct SigEntry
     {
+        /// All validators that have contributed (verified or unverified).
         std::set<PublicKey> validators;
-        /// Actual multisign signatures keyed by validator pubkey.
-        /// Empty buffers mean pubkey-only (standalone/test quorum counting).
+        /// Actual multisign signature bytes keyed by validator pubkey.
+        /// Empty buffers mean pubkey-only (standalone mode).
         std::map<PublicKey, Buffer> signatures;
-        /// Validators whose signatures have been cryptographically verified
-        /// via buildMultiSigningData + verify().
+        /// Validators whose sigs have been cryptographically verified.
+        /// Only these count toward quorum and appear in SHAMap/snapshot.
         std::set<PublicKey> verified;
         std::uint32_t firstSeenSeq{0};
     };
@@ -53,6 +56,13 @@ class ExportSigCollector
 
     static constexpr std::uint32_t maxStaleLedgers = 256;
 
+    void
+    touchSeq(SigEntry& entry, std::uint32_t seq)
+    {
+        if (entry.firstSeenSeq == 0 && seq > 0)
+            entry.firstSeenSeq = seq;
+    }
+
 public:
     /// Store a signature that has been cryptographically verified
     /// against buildMultiSigningData + verify().
@@ -60,25 +70,30 @@ public:
     addVerifiedSignature(
         uint256 const& txnHash,
         PublicKey const& validator,
-        Buffer const& signature)
+        Buffer const& signature,
+        std::uint32_t currentSeq = 0)
     {
         std::lock_guard lock(mutex_);
         auto& entry = sigs_[txnHash];
         entry.validators.insert(validator);
         entry.signatures[validator] = signature;
         entry.verified.insert(validator);
+        touchSeq(entry, currentSeq);
     }
 
     /// Store a signature from a trusted source (checkSign + sender
     /// binding passed) but without multisign content verification.
     /// Used when the ttEXPORT tx isn't in the open ledger yet due
-    /// to relay ordering.  Will be upgraded to verified if the same
-    /// sig is encountered again through a path that CAN verify.
+    /// to relay ordering.  Will be upgraded to verified via
+    /// upgradeSignature() when the tx becomes available.
+    ///
+    /// Does NOT count toward quorum or appear in SHAMap/snapshot.
     void
     addUnverifiedSignature(
         uint256 const& txnHash,
         PublicKey const& validator,
-        Buffer const& signature)
+        Buffer const& signature,
+        std::uint32_t currentSeq = 0)
     {
         std::lock_guard lock(mutex_);
         auto& entry = sigs_[txnHash];
@@ -86,18 +101,39 @@ public:
         // Don't overwrite a verified sig with an unverified one.
         if (entry.verified.find(validator) == entry.verified.end())
             entry.signatures[validator] = signature;
+        touchSeq(entry, currentSeq);
+    }
+
+    /// Upgrade a previously unverified sig to verified.
+    /// Called from Export::doApply after verifying against the inner tx.
+    void
+    upgradeSignature(uint256 const& txnHash, PublicKey const& validator)
+    {
+        std::lock_guard lock(mutex_);
+        auto it = sigs_.find(txnHash);
+        if (it == sigs_.end())
+            return;
+        auto sit = it->second.signatures.find(validator);
+        if (sit != it->second.signatures.end() && sit->second.size() > 0)
+            it->second.verified.insert(validator);
     }
 
     /// Store a pubkey-only entry (no real signature).  Used in
     /// standalone mode where quorum counting is sufficient.
+    /// Treated as verified (standalone has no consensus to verify against).
     void
-    addStandaloneSignature(uint256 const& txnHash, PublicKey const& validator)
+    addStandaloneSignature(
+        uint256 const& txnHash,
+        PublicKey const& validator,
+        std::uint32_t currentSeq = 0)
     {
         std::lock_guard lock(mutex_);
         auto& entry = sigs_[txnHash];
         entry.validators.insert(validator);
         if (entry.signatures.find(validator) == entry.signatures.end())
             entry.signatures[validator] = Buffer{};
+        entry.verified.insert(validator);
+        touchSeq(entry, currentSeq);
     }
 
     /// Check if a cryptographically verified signature exists.
@@ -111,9 +147,28 @@ public:
         auto it = sigs_.find(txnHash);
         if (it == sigs_.end())
             return false;
-        return it->second.verified.find(validator) != it->second.verified.end();
+        return it->second.verified.count(validator) > 0;
     }
 
+    /// Return unverified validators for a given txHash.
+    /// Used by Export::doApply to find sigs that need verification.
+    std::map<PublicKey, Buffer>
+    unverifiedSignatures(uint256 const& txnHash) const
+    {
+        std::lock_guard lock(mutex_);
+        std::map<PublicKey, Buffer> result;
+        auto it = sigs_.find(txnHash);
+        if (it == sigs_.end())
+            return result;
+        for (auto const& [pk, buf] : it->second.signatures)
+        {
+            if (buf.size() > 0 && it->second.verified.count(pk) == 0)
+                result[pk] = buf;
+        }
+        return result;
+    }
+
+    /// Count of VERIFIED signatures only.
     std::size_t
     signatureCount(uint256 const& txnHash) const
     {
@@ -121,7 +176,7 @@ public:
         auto it = sigs_.find(txnHash);
         if (it == sigs_.end())
             return 0;
-        return it->second.validators.size();
+        return it->second.verified.size();
     }
 
     void
@@ -131,42 +186,59 @@ public:
         sigs_.erase(txnHash);
     }
 
-    /// Get a snapshot of all sigs (pubkeys only) for building the SHAMap.
+    /// Get a snapshot of VERIFIED sigs (pubkeys only) for building
+    /// the SHAMap.  Only verified sigs appear in convergence.
     std::unordered_map<uint256, std::set<PublicKey>>
     snapshot() const
     {
         std::lock_guard lock(mutex_);
         std::unordered_map<uint256, std::set<PublicKey>> result;
         for (auto const& [hash, entry] : sigs_)
-            result[hash] = entry.validators;
+        {
+            if (!entry.verified.empty())
+                result[hash] = entry.verified;
+        }
         return result;
     }
 
-    /// Get a snapshot including actual multisign signatures.
-    /// Returns: txHash -> map of (validatorPK -> signature buffer).
-    /// Empty buffers mean no real signature was collected for that validator.
+    /// Get a snapshot of VERIFIED signatures including sig buffers.
     std::unordered_map<uint256, std::map<PublicKey, Buffer>>
     snapshotWithSigs() const
     {
         std::lock_guard lock(mutex_);
         std::unordered_map<uint256, std::map<PublicKey, Buffer>> result;
         for (auto const& [hash, entry] : sigs_)
-            result[hash] = entry.signatures;
+        {
+            std::map<PublicKey, Buffer> verifiedSigs;
+            for (auto const& pk : entry.verified)
+            {
+                auto sit = entry.signatures.find(pk);
+                if (sit != entry.signatures.end())
+                    verifiedSigs[pk] = sit->second;
+            }
+            if (!verifiedSigs.empty())
+                result[hash] = std::move(verifiedSigs);
+        }
         return result;
     }
 
     /// Atomic quorum check + snapshot for a single txHash.
-    /// Returns the signatures if quorum is met, nullopt otherwise.
-    /// Eliminates the TOCTOU window between signatureCount() and
-    /// snapshotWithSigs() in Export::doApply.
+    /// Returns VERIFIED signatures if quorum is met, nullopt otherwise.
     std::optional<std::map<PublicKey, Buffer>>
     checkQuorumAndSnapshot(uint256 const& txnHash, std::size_t threshold) const
     {
         std::lock_guard lock(mutex_);
         auto it = sigs_.find(txnHash);
-        if (it == sigs_.end() || it->second.validators.size() < threshold)
+        if (it == sigs_.end() || it->second.verified.size() < threshold)
             return std::nullopt;
-        return it->second.signatures;
+        std::map<PublicKey, Buffer> result;
+        for (auto const& pk : it->second.verified)
+        {
+            auto sit = it->second.signatures.find(pk);
+            if (sit != it->second.signatures.end())
+                result[pk] = sit->second;
+        }
+        return result;
     }
 
     /// Remove entries older than maxStaleLedgers.

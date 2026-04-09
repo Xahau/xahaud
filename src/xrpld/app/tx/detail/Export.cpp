@@ -126,9 +126,49 @@ Export::doApply()
     // Network mode:
     //   With CE: 80% quorum (SHAMap convergence ensures agreement).
     //   Without CE: unanimity (avoids non-deterministic disagreement).
+    // Deserialize the inner tx early — needed both for the upgrade
+    // pass (verify unverified sigs) and for blob assembly.
+    auto const& exportedObj =
+        ctx_.tx.peekAtField(sfExportedTxn).downcast<STObject>();
+
+    Serializer innerSer;
+    exportedObj.add(innerSer);
+    SerialIter sit(innerSer.slice());
+
+    STTx innerTx(std::ref(sit));
+
+    // Upgrade pass: verify any unverified sigs in the collector.
+    // We always have the inner tx here (it's ctx_.tx), so we can
+    // verify sigs that couldn't be checked at proposal ingestion
+    // time due to relay ordering.  This upgrades them to verified
+    // so they count toward quorum.
+    if (!ctx_.app.config().standalone())
+    {
+        auto& collector =
+            ctx_.app.getConsensusExtensions().exportSigCollector();
+        auto const unverified = collector.unverifiedSignatures(txId);
+        for (auto const& [valPK, sigBuf] : unverified)
+        {
+            auto const signerAcctID = calcAccountID(valPK);
+            auto const sigData = buildMultiSigningData(innerTx, signerAcctID);
+            if (verify(
+                    valPK,
+                    sigData.slice(),
+                    Slice(sigBuf.data(), sigBuf.size())))
+            {
+                collector.upgradeSignature(txId, valPK);
+            }
+            else
+            {
+                JLOG(j_.warn()) << "Export: upgrade verify failed for tx "
+                                << txId << " — removing invalid sig";
+            }
+        }
+    }
+
     // Atomic quorum check + snapshot for network mode.
-    // Uses a single lock acquisition to eliminate the TOCTOU window
-    // between signatureCount() and snapshotWithSigs().
+    // Only verified signatures count toward quorum and appear
+    // in the snapshot.
     std::optional<std::map<PublicKey, Buffer>> collectedSigs;
 
     if (!ctx_.app.config().standalone())
@@ -187,20 +227,6 @@ Export::doApply()
             return terRETRY_EXPORT;
         }
     }
-
-    // Build the multisigned transaction blob FIRST, then use its
-    // hash for the shadow ticket.  getTransactionID() includes ALL
-    // fields (including Signers), so the shadow ticket must store
-    // the hash of the final signed blob — not the unsigned inner tx.
-
-    auto const& exportedObj =
-        ctx_.tx.peekAtField(sfExportedTxn).downcast<STObject>();
-
-    Serializer innerSer;
-    exportedObj.add(innerSer);
-    SerialIter sit(innerSer.slice());
-
-    STTx innerTx(std::ref(sit));
 
     STArray signers(sfSigners);
 
