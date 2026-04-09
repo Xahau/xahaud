@@ -688,21 +688,35 @@ public:
     void
     run() override
     {
-        testRngCommitRevealConverges();
-        testRngCommitRevealConvergesWithTransactions();
-        testRngImpossibleQuorumFallback();
-        testRngPersistentLossDoesNotShrinkQuorum();
-        testRngTimeoutWithPartialQuorum();
-        testRngCommitSetConflictForcesFallback();
-        testRngObserverDoesNotExpectSelfCommit();
-        testRngIgnoresNonUNLData();
-        testRngRejectsRevealWithoutCommit();
-        testRngRejectsInvalidReveal();
-        testRngCommitChangeClearsStaleReveal();
-        testRngRevealTimeoutAsymmetricDelays();
-        testRngEntropyConvergesWithPartialReveals();
-        testRngEntropyFallbackOnMajorRevealLoss();
-        testRngSingleByzantineCannotDenyEntropy();
+        // Set XAHAU_RNG_TEST=<name> to run a single test method.
+        // e.g. XAHAU_RNG_TEST=SingleByzantine
+        auto const* filter = std::getenv("XAHAU_RNG_TEST");
+        std::string f = filter ? filter : "";
+
+#define RUN(method)                                                         \
+    do                                                                      \
+    {                                                                       \
+        if (f.empty() || std::string(#method).find(f) != std::string::npos) \
+            method();                                                       \
+    } while (false)
+
+        RUN(testRngCommitRevealConverges);
+        RUN(testRngCommitRevealConvergesWithTransactions);
+        RUN(testRngImpossibleQuorumFallback);
+        RUN(testRngPersistentLossDoesNotShrinkQuorum);
+        RUN(testRngTimeoutWithPartialQuorum);
+        RUN(testRngCommitSetConflictForcesFallback);
+        RUN(testRngObserverDoesNotExpectSelfCommit);
+        RUN(testRngIgnoresNonUNLData);
+        RUN(testRngRejectsRevealWithoutCommit);
+        RUN(testRngRejectsInvalidReveal);
+        RUN(testRngCommitChangeClearsStaleReveal);
+        RUN(testRngRevealTimeoutAsymmetricDelays);
+        RUN(testRngEntropyConvergesWithPartialReveals);
+        RUN(testRngEntropyFallbackOnMajorRevealLoss);
+        RUN(testRngSingleByzantineCannotDenyEntropy);
+
+#undef RUN
     }
 };
 
