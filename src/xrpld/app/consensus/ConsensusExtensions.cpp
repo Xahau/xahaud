@@ -1518,7 +1518,27 @@ ConsensusExtensions::onTrustedPeerMessage(
         }
     }
 
-    // Pass 2: commit validated sigs.
+    // Pass 2: verify multisign signatures and commit.
+    // Look up each export tx from the open ledger to reconstruct the
+    // signing data.  This runs on a jtPROPOSAL_t job queue thread
+    // (post-C1 fix), so the verify() cost doesn't block the IO strand
+    // or the single-threaded transactor.
+    auto const openLedger = app_.openLedger().current();
+
+    // Build a txHash -> STTx lookup for ttEXPORT txns in the open ledger.
+    // Avoids O(N*M) iteration when processing multiple export sig blobs.
+    std::unordered_map<uint256, std::shared_ptr<STTx const>> exportTxns;
+    if (openLedger)
+    {
+        for (auto const& [stx, meta] : openLedger->txs)
+        {
+            if (stx && stx->getTxnType() == ttEXPORT)
+                exportTxns.emplace(stx->getTransactionID(), stx);
+        }
+    }
+
+    auto const signerAcctID = calcAccountID(senderPK);
+
     for (int i = 0; i < wireMsg.exportsignatures_size(); ++i)
     {
         auto const& blob = wireMsg.exportsignatures(i);
@@ -1529,17 +1549,55 @@ ConsensusExtensions::onTrustedPeerMessage(
         uint256 txHash;
         std::memcpy(txHash.data(), blob.data(), 32);
 
-        if (blob.size() > 65)
+        if (blob.size() <= 65)
         {
-            auto const fullSlice = makeSlice(blob);
-            auto const sigSlice = fullSlice.substr(65);
-            Buffer sigBuf(sigSlice.data(), sigSlice.size());
-            exportSigCollector_.addSignature(txHash, senderPK, sigBuf);
-        }
-        else
-        {
+            // Pubkey-only entry (no real signature).
             exportSigCollector_.addSignature(txHash, senderPK);
+            continue;
         }
+
+        auto const fullSlice = makeSlice(blob);
+        auto const sigSlice = fullSlice.substr(65);
+        Buffer sigBuf(sigSlice.data(), sigSlice.size());
+
+        // Verify the multisign signature against the inner tx if
+        // we can find it in the open ledger.  If the tx isn't in
+        // our open ledger yet (timing / relay order), store the sig
+        // unverified — it will be verified at the SHAMap merge path
+        // or rejected at Export::doApply if invalid.
+        auto const txIt = exportTxns.find(txHash);
+        if (txIt != exportTxns.end() &&
+            txIt->second->isFieldPresent(sfExportedTxn))
+        {
+            try
+            {
+                auto const& exportedObj = const_cast<STTx&>(*txIt->second)
+                                              .peekAtField(sfExportedTxn)
+                                              .downcast<STObject>();
+
+                Serializer innerSer;
+                exportedObj.add(innerSer);
+                SerialIter sit(innerSer.slice());
+                STTx innerTx(std::ref(sit));
+
+                auto const sigData =
+                    buildMultiSigningData(innerTx, signerAcctID);
+                if (!verify(senderPK, sigData.slice(), sigSlice))
+                {
+                    JLOG(j_.warn()) << "Export: invalid multisign sig for tx "
+                                    << txHash << " — rejected";
+                    continue;
+                }
+            }
+            catch (std::exception const& e)
+            {
+                JLOG(j_.warn()) << "Export: failed to verify sig for tx "
+                                << txHash << ": " << e.what();
+                continue;
+            }
+        }
+
+        exportSigCollector_.addSignature(txHash, senderPK, sigBuf);
     }
 }
 //@@end peer-harvest-export-sigs
