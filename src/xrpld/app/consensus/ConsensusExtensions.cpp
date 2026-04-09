@@ -673,6 +673,11 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                     if (item->size() <= 65)
                         return;
 
+                    // Skip if we already have a verified sig for this
+                    // validator (e.g. from the proposal ingestion path).
+                    if (exportSigCollector_.hasSignature(txHash, valPK))
+                        return;
+
                     auto const sigSlice = data.substr(65);
 
                     // Verify the multisign signature against the inner tx.
@@ -1610,6 +1615,10 @@ ConsensusExtensions::onTrustedPeerMessage(
             // Only verified sigs are stored in the collector.
             continue;
         }
+
+        // Skip if we already have a verified sig for this validator.
+        if (exportSigCollector_.hasSignature(txHash, senderPK))
+            continue;
 
         auto const fullSlice = makeSlice(blob);
         auto const sigSlice = fullSlice.substr(65);

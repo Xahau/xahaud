@@ -70,6 +70,20 @@ public:
             entry.firstSeenSeq = currentSeq;
     }
 
+    /// Check if a verified signature already exists for this validator.
+    /// Used to skip redundant verify() calls when the same sig arrives
+    /// via multiple paths (proposal + SHAMap merge).
+    bool
+    hasSignature(uint256 const& txnHash, PublicKey const& validator) const
+    {
+        std::lock_guard lock(mutex_);
+        auto it = sigs_.find(txnHash);
+        if (it == sigs_.end())
+            return false;
+        auto sit = it->second.signatures.find(validator);
+        return sit != it->second.signatures.end() && sit->second.size() > 0;
+    }
+
     std::size_t
     signatureCount(uint256 const& txnHash) const
     {
