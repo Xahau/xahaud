@@ -168,7 +168,18 @@ ConsensusExtensions::hasAnyReveals() const
 bool
 ConsensusExtensions::shouldZeroEntropy() const
 {
-    return entropyFailed_ || pendingReveals_.empty() ||
+    if (entropyFailed_)
+        return true;
+
+    // Use entropySetMap_ as the canonical source when available,
+    // falling back to pendingReveals_ during pipeline stages
+    // before the map is built (e.g. ConvergingReveal timeout checks).
+    if (entropySetMap_)
+    {
+        auto const leafCount = entropySetMap_->leafCount();
+        return leafCount == 0 || leafCount < quorumThreshold();
+    }
+    return pendingReveals_.empty() ||
         pendingReveals_.size() < quorumThreshold();
 }
 
@@ -1180,7 +1191,10 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
         auto const entropyCount = static_cast<std::uint16_t>(
             app_.config().standalone()
                 ? 20  // synthetic: high enough for Hook APIs (need >= 5)
-                : (shouldZeroEntropy() ? 0 : pendingReveals_.size()));
+                : (shouldZeroEntropy()
+                       ? 0
+                       : (entropySetMap_ ? entropySetMap_->leafCount()
+                                         : pendingReveals_.size())));
         STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
             obj.setFieldU32(sfLedgerSequence, seq);
             obj.setAccountID(sfAccount, AccountID{});
