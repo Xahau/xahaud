@@ -488,8 +488,12 @@ struct Peer
             entropyFailed_ = true;
         }
 
+        enum class SidecarKind : uint8_t { commit, reveal, exportSig };
+
         void
-        fetchRngSetIfNeeded(std::optional<uint256> const& hash)
+        fetchRngSetIfNeeded(
+            std::optional<uint256> const& hash,
+            SidecarKind kind = SidecarKind::commit)
         {
             if (!hash)
                 return;

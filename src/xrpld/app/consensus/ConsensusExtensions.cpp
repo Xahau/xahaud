@@ -615,7 +615,7 @@ ConsensusExtensions::isSidecarSet(uint256 const& hash) const
         return true;
     if (exportSigSetMap_ && exportSigSetMap_->getHash().as_uint256() == hash)
         return true;
-    return pendingRngFetches_.count(hash) > 0;
+    return pendingRngFetches_.find(hash) != pendingRngFetches_.end();
 }
 //@@end is-sidecar-set
 
@@ -625,38 +625,30 @@ void
 ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 {
     auto const hash = map->getHash().as_uint256();
-    pendingRngFetches_.erase(hash);
+
+    // Look up the expected kind before erasing.
+    auto const kindIt = pendingRngFetches_.find(hash);
+    auto const kind = (kindIt != pendingRngFetches_.end())
+        ? kindIt->second
+        : SidecarKind::commit;  // fallback for non-fetch paths
+    if (kindIt != pendingRngFetches_.end())
+        pendingRngFetches_.erase(kindIt);
     //@@end handle-acquired-sidecar-entry
 
     JLOG(j_.debug()) << "RNGFETCH: handle acquired hash=" << hash
+                     << " kind=" << static_cast<int>(kind)
                      << " pending-after-erase=" << pendingRngFetches_.size();
 
-    // Check if this is an export sig set (not an RNG set).
-    // Export sig entries are raw blobs (65 bytes: txHash + pubkey),
-    // not STTx objects. Detect by inspecting the first leaf.
+    // Dispatch by kind — no content-sniffing needed.
+    // The kind was recorded at fetch time from the typed call site
+    // (commitSetHash / entropySetHash / exportSigSetHash).
+    if (kind == SidecarKind::exportSig)
     {
         // If we already have this exact export sig set, skip.
         if (exportSigSetMap_ &&
             exportSigSetMap_->getHash().as_uint256() == hash)
             return;
 
-        bool isExportSet = false;
-        map->visitLeaves(
-            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                // Export sig entries are >= 65 bytes (32 hash + 33 pubkey
-                // + optional variable-length signature). RNG entries are
-                // serialized STTx objects with different structure.
-                // Detect by checking the first 65 bytes contain a valid
-                // pubkey at offset 32.
-                if (!isExportSet && item->size() >= 65)
-                {
-                    auto const pkSlice = item->slice().substr(32, 33);
-                    if (publicKeyType(pkSlice))
-                        isExportSet = true;
-                }
-            });
-
-        if (isExportSet)
         {
             // Build export tx lookup from open ledger for sig verification.
             auto const openLedger = app_.openLedger().current();
@@ -1013,7 +1005,9 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 //@@end handle-acquired-sidecar
 
 void
-ConsensusExtensions::fetchRngSetIfNeeded(std::optional<uint256> const& hash)
+ConsensusExtensions::fetchRngSetIfNeeded(
+    std::optional<uint256> const& hash,
+    SidecarKind kind)
 {
     if (!hash)
     {
@@ -1068,7 +1062,7 @@ ConsensusExtensions::fetchRngSetIfNeeded(std::optional<uint256> const& hash)
 
     // Trigger network fetch
     JLOG(j_.debug()) << "RNGFETCH: triggering network fetch hash=" << *hash;
-    pendingRngFetches_.insert(*hash);
+    pendingRngFetches_.emplace(*hash, kind);
     if (auto immediate = app_.getInboundTransactions().getSet(*hash, true))
     {
         JLOG(j_.debug()) << "RNGFETCH: immediate fetch hit, merging hash="

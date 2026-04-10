@@ -292,7 +292,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     auto const& peerPosition = peerPos.proposal().position();
                     if (!(peerPosition == ourPos))
                         continue;
-                    ext.fetchRngSetIfNeeded(peerPosition.commitSetHash);
+                    ext.fetchRngSetIfNeeded(
+                        peerPosition.commitSetHash, Ext::SidecarKind::commit);
                 }
             }
 
@@ -547,7 +548,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         if (*pp.entropySetHash != *ourPos.entropySetHash)
                         {
                             conflict = true;
-                            ext.fetchRngSetIfNeeded(pp.entropySetHash);
+                            ext.fetchRngSetIfNeeded(
+                                pp.entropySetHash, Ext::SidecarKind::reveal);
                         }
                         else
                         {
@@ -924,7 +926,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             conflict = true;
 
                             // Trigger fetch for the differing set
-                            ext.fetchRngSetIfNeeded(pp.exportSigSetHash);
+                            ext.fetchRngSetIfNeeded(
+                                pp.exportSigSetHash,
+                                Ext::SidecarKind::exportSig);
                             break;
                         }
                     }

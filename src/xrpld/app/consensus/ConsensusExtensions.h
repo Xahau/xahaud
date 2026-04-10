@@ -38,6 +38,9 @@ class ConsensusExtensions
 public:
     beast::Journal j_;  // public: accessed by extensionsTick template
 
+    // Type of sidecar set, known at fetch time from proposal context.
+    enum class SidecarKind : uint8_t { commit, reveal, exportSig };
+
 private:
     // --- RNG Pipelined Storage ---
     hash_map<NodeID, uint256> pendingCommits_;
@@ -55,8 +58,10 @@ private:
     std::shared_ptr<SHAMap> exportSigSetMap_;
     std::optional<LedgerIndex> rngRoundSeq_;
 
-    // Track pending RNG set hashes we've triggered fetches for
-    hash_set<uint256> pendingRngFetches_;
+    // Track pending sidecar set fetches by hash → kind.
+    // Kind is known at fetch time (call site context), so
+    // onAcquiredSidecarSet can dispatch without content-sniffing.
+    hash_map<uint256, SidecarKind> pendingRngFetches_;
 
     // Cached set of NodeIDs from UNL Report (or fallback UNL)
     hash_set<NodeID> unlReportNodeIds_;
@@ -176,7 +181,9 @@ public:
     onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map);
 
     void
-    fetchRngSetIfNeeded(std::optional<uint256> const& hash);
+    fetchRngSetIfNeeded(
+        std::optional<uint256> const& hash,
+        SidecarKind kind = SidecarKind::commit);
 
     /// Fetch any sidecar sets from a peer's position if needed.
     void
