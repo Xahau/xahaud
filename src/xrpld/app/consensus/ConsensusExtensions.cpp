@@ -1804,12 +1804,21 @@ ConsensusExtensions::decorateMessage(
 
     // Attach export signatures for any ttEXPORT txns in the open ledger.
     // Gated on featureExport amendment.
-    // XAHAUD_NO_EXPORT_SIG=1 disables sig attachment (for testing sub-quorum).
-    if (auto const* noSig = std::getenv("XAHAUD_NO_EXPORT_SIG");
-        noSig && std::string(noSig) == "1")
+    // RuntimeConfig no_export_sig disables sig attachment (testing sub-quorum).
     {
-        JLOG(j_.debug()) << "Export: XAHAUD_NO_EXPORT_SIG=1, skipping sigs";
-        return;
+        auto& rc = app_.getRuntimeConfig();
+        if (rc.active())
+        {
+            if (auto cfg = rc.getConfig("*"))
+            {
+                if (cfg->noExportSig && *cfg->noExportSig)
+                {
+                    JLOG(j_.debug())
+                        << "Export: noExportSig=true, skipping sigs";
+                    return;
+                }
+            }
+        }
     }
 
     auto const openLedger = app_.openLedger().current();

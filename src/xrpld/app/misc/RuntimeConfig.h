@@ -50,6 +50,11 @@ struct ConfigVals
     // Bootstrap fast start: seed prevRoundTime_ to 3s instead of 15s on first
     // round, auto-disables after stable quorum is observed.
     std::optional<bool> bootstrapFastStart;
+    // RNG poll interval in ms.  Controls how fast the heartbeat timer
+    // ticks during RNG sub-state transitions.  Minimum 50ms.  Default 250ms.
+    std::optional<int> rngPollMs;
+    // Disable export signature attachment (testing sub-quorum scenarios).
+    std::optional<bool> noExportSig;
     // If set (non-nullopt), only apply to these TrafficCount::category values.
     // nullopt = not specified (inherit from global on merge).
     // Empty set = explicitly "all categories" (overrides global filter).
@@ -70,7 +75,9 @@ struct ConfigVals
             (sendDelayJitterMs && *sendDelayJitterMs > 0) ||
             (sendDropPctX100 && *sendDropPctX100 > 0) ||
             (rngClaimDropPctX100 && *rngClaimDropPctX100 > 0) ||
-            explicitFinalProposal.has_value() || bootstrapFastStart.has_value();
+            explicitFinalProposal.has_value() ||
+            bootstrapFastStart.has_value() || rngPollMs.has_value() ||
+            noExportSig.has_value();
     }
 
     /** Merge other on top of this — other's set fields override. */
@@ -90,6 +97,10 @@ struct ConfigVals
             result.explicitFinalProposal = other.explicitFinalProposal;
         if (other.bootstrapFastStart.has_value())
             result.bootstrapFastStart = other.bootstrapFastStart;
+        if (other.rngPollMs)
+            result.rngPollMs = other.rngPollMs;
+        if (other.noExportSig.has_value())
+            result.noExportSig = other.noExportSig;
         if (other.messageCategories)
             result.messageCategories = other.messageCategories;
         return result;

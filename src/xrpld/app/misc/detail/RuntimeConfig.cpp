@@ -69,6 +69,10 @@ parseConfigVals(Json::Value const& v)
         cfg.explicitFinalProposal = v["explicit_final_proposal"].asBool();
     if (v.isMember("bootstrap_fast_start"))
         cfg.bootstrapFastStart = v["bootstrap_fast_start"].asBool();
+    if (v.isMember("rng_poll_ms"))
+        cfg.rngPollMs = std::max(50, v["rng_poll_ms"].asInt());
+    if (v.isMember("no_export_sig"))
+        cfg.noExportSig = v["no_export_sig"].asBool();
     return cfg;
 }
 }  // namespace
@@ -108,6 +112,10 @@ RuntimeConfig::RuntimeConfig()
         global.explicitFinalProposal = *parsed;
     if (auto parsed = parseBoolEnv(std::getenv("XAHAUD_BOOTSTRAP_FAST_START")))
         global.bootstrapFastStart = *parsed;
+    if (auto const* env = std::getenv("XAHAU_RNG_POLL_MS"))
+        global.rngPollMs = std::max(50, std::atoi(env));
+    if (auto parsed = parseBoolEnv(std::getenv("XAHAUD_NO_EXPORT_SIG")))
+        global.noExportSig = *parsed;
 
     if (global.active())
     {

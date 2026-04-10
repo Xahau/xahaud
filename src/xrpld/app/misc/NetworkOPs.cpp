@@ -34,6 +34,7 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/StateAccounting.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
@@ -1030,15 +1031,20 @@ NetworkOPsImp::processHeartbeatTimer()
     //@@start rng-fast-polling
     // Use faster polling during RNG sub-state transitions
     // to reduce latency of commit-reveal rounds.
-    // Tunable via XAHAU_RNG_POLL_MS env var (default 250ms).
+    // Tunable via RuntimeConfig rng_poll_ms (default 250ms, min 50ms).
     if (mConsensus.extensionsBusy())
     {
-        static auto const rngPollMs = []() -> std::chrono::milliseconds {
-            if (auto const* env = std::getenv("XAHAU_RNG_POLL_MS"))
-                return std::chrono::milliseconds{std::atoi(env)};
-            return std::chrono::milliseconds{250};
-        }();
-        setHeartbeatTimer(rngPollMs);
+        auto pollMs = std::chrono::milliseconds{250};
+        auto& rc = app_.getRuntimeConfig();
+        if (rc.active())
+        {
+            if (auto cfg = rc.getConfig("*"))
+            {
+                if (cfg->rngPollMs)
+                    pollMs = std::chrono::milliseconds{*cfg->rngPollMs};
+            }
+        }
+        setHeartbeatTimer(pollMs);
     }
     else
         setHeartbeatTimer();
