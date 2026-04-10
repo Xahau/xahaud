@@ -120,6 +120,14 @@ struct ConfigVals
     1. Compile-time defaults (empty map)
     2. XAHAU_RUNTIME_CONFIG JSON env var, or individual XAHAU_SEND_* vars
     3. Admin RPC `runtime_config` for live changes
+
+    RPC handler: runtime_config (Role::ADMIN)
+    Disconnect handler: disconnect (Role::ADMIN)
+
+    TODO: Consider gating RuntimeConfig activation on a config flag
+    (e.g. [runtime_config] section in rippled.cfg) or compile-time
+    define, so the system is fully inert on production nodes unless
+    explicitly opted in.
 */
 class RuntimeConfig
 {
