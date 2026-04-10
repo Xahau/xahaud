@@ -37,6 +37,7 @@
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/SidecarType.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/TxFormats.h>
@@ -346,24 +347,24 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
         AccountID acctId;
         std::memcpy(acctId.data(), nid.data(), acctId.size());
 
-        STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
-            obj.setFieldU32(sfFlags, tfEntropyCommit);
-            obj.setFieldU32(sfLedgerSequence, seq);
-            obj.setAccountID(sfAccount, acctId);
-            obj.setFieldU32(sfSequence, 0);
-            obj.setFieldAmount(sfFee, STAmount{});
-            obj.setFieldH256(sfDigest, commit);
-            obj.setFieldVL(sfSigningPubKey, kit->second.slice());
-            auto proofIt = commitProofs_.find(nid);
-            if (proofIt != commitProofs_.end())
-                obj.setFieldVL(sfBlob, serializeProof(proofIt->second));
-        });
+        STObject sidecar(sfGeneric);
+        sidecar.setFieldU8(sfSidecarType, sidecarRngCommit);
+        sidecar.setFieldU32(sfLedgerSequence, seq);
+        sidecar.setAccountID(sfAccount, acctId);
+        sidecar.setFieldH256(sfDigest, commit);
+        sidecar.setFieldVL(sfSigningPubKey, kit->second.slice());
+        auto proofIt = commitProofs_.find(nid);
+        if (proofIt != commitProofs_.end())
+            sidecar.setFieldVL(sfBlob, serializeProof(proofIt->second));
 
+        // TODO: replace HashPrefix::transactionID with a dedicated
+        // sidecar prefix once one is allocated.
+        auto const itemKey = sidecar.getHash(HashPrefix::transactionID);
         Serializer s(2048);
-        tx.add(s);
+        sidecar.add(s);
         map->addItem(
             SHAMapNodeType::tnTRANSACTION_NM,
-            make_shamapitem(tx.getTransactionID(), s.slice()));
+            make_shamapitem(itemKey, s.slice()));
     }
 
     map = map->snapShot(false);
@@ -404,29 +405,29 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
         AccountID acctId;
         std::memcpy(acctId.data(), nid.data(), acctId.size());
 
-        STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
-            obj.setFieldU32(sfFlags, tfEntropyReveal);
-            obj.setFieldU32(sfLedgerSequence, seq);
-            obj.setAccountID(sfAccount, acctId);
-            obj.setFieldU32(sfSequence, 0);
-            obj.setFieldAmount(sfFee, STAmount{});
-            obj.setFieldH256(sfDigest, reveal);
-            obj.setFieldVL(sfSigningPubKey, kit->second.slice());
-            // Intentionally omit sfBlob for reveal-set entries.
-            //
-            // Reveal proofs are timing-dependent (seq/closeTime/signature can
-            // differ while the reveal digest is identical), which makes the
-            // entropy-set hash non-deterministic across nodes under packet
-            // loss/reordering.  We only need deterministic reveal material
-            // (validator identity + digest) for fetch/merge and entropy
-            // calculation.
-        });
+        STObject sidecar(sfGeneric);
+        sidecar.setFieldU8(sfSidecarType, sidecarRngReveal);
+        sidecar.setFieldU32(sfLedgerSequence, seq);
+        sidecar.setAccountID(sfAccount, acctId);
+        sidecar.setFieldH256(sfDigest, reveal);
+        sidecar.setFieldVL(sfSigningPubKey, kit->second.slice());
+        // Intentionally omit sfBlob for reveal-set entries.
+        //
+        // Reveal proofs are timing-dependent (seq/closeTime/signature can
+        // differ while the reveal digest is identical), which makes the
+        // entropy-set hash non-deterministic across nodes under packet
+        // loss/reordering.  We only need deterministic reveal material
+        // (validator identity + digest) for fetch/merge and entropy
+        // calculation.
 
+        // TODO: replace HashPrefix::transactionID with a dedicated
+        // sidecar prefix once one is allocated.
+        auto const itemKey = sidecar.getHash(HashPrefix::transactionID);
         Serializer s(2048);
-        tx.add(s);
+        sidecar.add(s);
         map->addItem(
             SHAMapNodeType::tnTRANSACTION_NM,
-            make_shamapitem(tx.getTransactionID(), s.slice()));
+            make_shamapitem(itemKey, s.slice()));
     }
 
     map = map->snapShot(false);
@@ -455,17 +456,22 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
     {
         for (auto const& [valPK, sigBuf] : valSigs)
         {
-            // Each entry: txHash + validatorPK + signature (if available).
-            Serializer s;
-            s.addBitString(txHash);
-            s.addRaw(valPK.slice());
+            STObject sidecar(sfGeneric);
+            sidecar.setFieldU8(sfSidecarType, sidecarExportSig);
+            sidecar.setFieldH256(sfTransactionHash, txHash);
+            sidecar.setFieldVL(sfSigningPubKey, valPK.slice());
             if (sigBuf.size() > 0)
-                s.addRaw(Slice(sigBuf.data(), sigBuf.size()));
+                sidecar.setFieldVL(
+                    sfTxnSignature, Slice(sigBuf.data(), sigBuf.size()));
 
-            auto const itemHash = sha512Half(txHash, valPK);
+            // TODO: replace HashPrefix::transactionID with a dedicated
+            // sidecar prefix once one is allocated.
+            auto const itemKey = sidecar.getHash(HashPrefix::transactionID);
+            Serializer s;
+            sidecar.add(s);
             map->addItem(
                 SHAMapNodeType::tnTRANSACTION_NM,
-                make_shamapitem(itemHash, s.slice()));
+                make_shamapitem(itemKey, s.slice()));
             ++entryCount;
         }
     }
@@ -665,21 +671,24 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             std::size_t merged = 0;
             map->visitLeaves(
                 [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                    if (item->size() < 65)
-                        return;
-                    auto const data = item->slice();
-                    uint256 txHash;
-                    std::memcpy(txHash.data(), data.data(), 32);
-                    auto const pkSlice = data.substr(32, 33);
-                    if (!publicKeyType(pkSlice))
+                    SerialIter sit(item->slice());
+                    STObject sidecar(sit, sfGeneric);
+
+                    if (!sidecar.isFieldPresent(sfTransactionHash) ||
+                        !sidecar.isFieldPresent(sfSigningPubKey))
                         return;
 
-                    PublicKey const valPK{pkSlice};
+                    auto const txHash = sidecar.getFieldH256(sfTransactionHash);
+                    auto const pk = sidecar.getFieldVL(sfSigningPubKey);
+                    if (!publicKeyType(makeSlice(pk)))
+                        return;
+
+                    PublicKey const valPK{makeSlice(pk)};
                     if (!app_.validators().trusted(valPK))
                         return;
 
                     // Require a real signature (not pubkey-only).
-                    if (item->size() <= 65)
+                    if (!sidecar.isFieldPresent(sfTxnSignature))
                         return;
 
                     // Skip if we already have a verified sig for this
@@ -687,7 +696,8 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                     if (exportSigCollector_.hasVerifiedSignature(txHash, valPK))
                         return;
 
-                    auto const sigSlice = data.substr(65);
+                    auto const sigVL = sidecar.getFieldVL(sfTxnSignature);
+                    auto const sigSlice = makeSlice(sigVL);
 
                     // Verify the multisign signature against the inner tx.
                     auto const txIt = exportTxns.find(txHash);
@@ -748,54 +758,16 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
     }
 
     enum class RngSetKind { commit, reveal };
-    auto const classifyKind =
-        [](std::uint32_t flags) -> std::optional<RngSetKind> {
-        auto const hasCommit = (flags & tfEntropyCommit) != 0;
-        auto const hasReveal = (flags & tfEntropyReveal) != 0;
-        if (hasCommit == hasReveal)
-            return std::nullopt;
-        return hasCommit ? std::optional<RngSetKind>{RngSetKind::commit}
-                         : std::optional<RngSetKind>{RngSetKind::reveal};
-    };
-
-    // Determine whether this is a pure commitSet or entropySet. Mixed sets are
-    // rejected to avoid cross-type contamination of pending state.
     std::optional<RngSetKind> setKind;
-    bool mixedKinds = false;
-    map->visitLeaves([&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-        try
-        {
-            SerialIter sit(item->slice());
-            auto stx = std::make_shared<STTx const>(std::ref(sit));
-            if (stx->getTxnType() != ttCONSENSUS_ENTROPY ||
-                !stx->isFieldPresent(sfFlags))
-                return;
-
-            auto const entryKind = classifyKind(stx->getFieldU32(sfFlags));
-            if (!entryKind)
-                return;
-
-            if (!setKind)
-                setKind = entryKind;
-            else if (*setKind != *entryKind)
-                mixedKinds = true;
-        }
-        catch (std::exception const&)
-        {
-            // Skip malformed entries
-        }
-    });
+    if (kind == SidecarKind::commit)
+        setKind = RngSetKind::commit;
+    else if (kind == SidecarKind::reveal)
+        setKind = RngSetKind::reveal;
 
     if (!setKind)
     {
         JLOG(j_.warn()) << "RNGFETCH: acquired set " << hash
-                        << " has no recognizable RNG entries";
-        return;
-    }
-    if (mixedKinds)
-    {
-        JLOG(j_.warn()) << "RNGFETCH: acquired set " << hash
-                        << " mixes commit/reveal entries; rejecting";
+                        << " has no recognizable RNG kind";
         return;
     }
 
@@ -817,24 +789,24 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
         try
         {
             SerialIter sit(entry);
-            auto stx = std::make_shared<STTx const>(std::ref(sit));
-            if (stx->getTxnType() != ttCONSENSUS_ENTROPY ||
-                !stx->isFieldPresent(sfFlags))
+            STObject sidecar(sit, sfGeneric);
+
+            if (!sidecar.isFieldPresent(sfSidecarType))
                 return;
 
-            auto const entryKind = classifyKind(stx->getFieldU32(sfFlags));
-            if (!entryKind ||
-                ((*entryKind == RngSetKind::commit) != isCommitSet))
+            auto const entryType = sidecar.getFieldU8(sfSidecarType);
+            if ((isCommitSet && entryType != sidecarRngCommit) ||
+                (!isCommitSet && entryType != sidecarRngReveal))
                 return;
 
-            auto const pk = stx->getFieldVL(sfSigningPubKey);
+            auto const pk = sidecar.getFieldVL(sfSigningPubKey);
             PublicKey pubKey(makeSlice(pk));
-            auto const digest = stx->getFieldH256(sfDigest);
+            auto const digest = sidecar.getFieldH256(sfDigest);
 
             // Recover NodeID from sfAccount (encoded by
             // buildCommitSet/buildEntropySet) so we can compare against trusted
             // validator identity.
-            auto const acctId = stx->getAccountID(sfAccount);
+            auto const acctId = sidecar.getAccountID(sfAccount);
             NodeID nodeId;
             std::memcpy(nodeId.data(), acctId.data(), nodeId.size());
 
@@ -865,9 +837,9 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             }
 
             std::optional<ProposalProof> parsedProof;
-            if (stx->isFieldPresent(sfBlob))
+            if (sidecar.isFieldPresent(sfBlob))
             {
-                auto const proofBlob = stx->getFieldVL(sfBlob);
+                auto const proofBlob = sidecar.getFieldVL(sfBlob);
                 if (!verifyProof(proofBlob, pubKey, digest, isCommitSet))
                 {
                     JLOG(j_.warn()) << "RNG: invalid proof from " << nodeId
@@ -894,7 +866,7 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                 return;
             }
 
-            auto const seq = stx->getFieldU32(sfLedgerSequence);
+            auto const seq = sidecar.getFieldU32(sfLedgerSequence);
             auto const expectedSeq = [&]() -> std::optional<LedgerIndex> {
                 if (rngRoundSeq_)
                     return rngRoundSeq_;
@@ -1129,12 +1101,12 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
                 try
                 {
                     SerialIter sit(item->slice());
-                    STTx tx(std::ref(sit));
-                    auto const pk = tx.getFieldVL(sfSigningPubKey);
+                    STObject obj(sit, sfGeneric);
+                    auto const pk = obj.getFieldVL(sfSigningPubKey);
                     if (!publicKeyType(makeSlice(pk)))
                         return;
                     sorted.emplace_back(
-                        PublicKey(makeSlice(pk)), tx.getFieldH256(sfDigest));
+                        PublicKey(makeSlice(pk)), obj.getFieldH256(sfDigest));
                 }
                 catch (...)
                 {
