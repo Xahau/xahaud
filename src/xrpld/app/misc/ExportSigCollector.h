@@ -4,6 +4,7 @@
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/protocol/PublicKey.h>
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -115,16 +116,29 @@ public:
 
     /// Upgrade a previously unverified sig to verified.
     /// Called from Export::doApply after verifying against the inner tx.
+    /// The caller passes the exact buffer it verified; we only promote
+    /// if the stored buffer still matches (guards against concurrent
+    /// overwrites between unverifiedSignatures() and this call).
     void
-    upgradeSignature(uint256 const& txnHash, PublicKey const& validator)
+    upgradeSignature(
+        uint256 const& txnHash,
+        PublicKey const& validator,
+        Buffer const& verifiedBuf)
     {
         std::lock_guard lock(mutex_);
         auto it = sigs_.find(txnHash);
         if (it == sigs_.end())
             return;
         auto sit = it->second.signatures.find(validator);
-        if (sit != it->second.signatures.end() && sit->second.size() > 0)
-            it->second.verified.insert(validator);
+        if (sit == it->second.signatures.end() || sit->second.size() == 0)
+            return;
+        // Only promote if the stored buffer is the same one we verified.
+        if (sit->second.size() != verifiedBuf.size() ||
+            std::memcmp(
+                sit->second.data(), verifiedBuf.data(), verifiedBuf.size()) !=
+                0)
+            return;
+        it->second.verified.insert(validator);
     }
 
     /// Store a pubkey-only entry (no real signature).  Used in

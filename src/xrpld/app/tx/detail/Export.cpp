@@ -156,7 +156,7 @@ Export::doApply()
                     sigData.slice(),
                     Slice(sigBuf.data(), sigBuf.size())))
             {
-                collector.upgradeSignature(txId, valPK);
+                collector.upgradeSignature(txId, valPK, sigBuf);
             }
             else
             {
