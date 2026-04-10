@@ -500,12 +500,8 @@ struct Peer
             auto& target = (fetched->type == SidecarStore::Type::commit)
                 ? pendingCommits_
                 : pendingReveals_;
-            std::size_t added = 0;
             for (auto const& [nodeId, digest] : fetched->entries)
-            {
-                if (target.emplace(nodeId, digest).second)
-                    ++added;
-            }
+                target.emplace(nodeId, digest);
         }
 
         void

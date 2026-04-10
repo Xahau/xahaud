@@ -4,7 +4,6 @@
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/protocol/PublicKey.h>
-#include <cstring>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -133,10 +132,7 @@ public:
         if (sit == it->second.signatures.end() || sit->second.size() == 0)
             return;
         // Only promote if the stored buffer is the same one we verified.
-        if (sit->second.size() != verifiedBuf.size() ||
-            std::memcmp(
-                sit->second.data(), verifiedBuf.data(), verifiedBuf.size()) !=
-                0)
+        if (!(sit->second == verifiedBuf))
             return;
         it->second.verified.insert(validator);
     }

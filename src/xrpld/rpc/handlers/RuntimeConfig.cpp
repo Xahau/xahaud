@@ -102,6 +102,12 @@ doRuntimeConfig(RPC::JsonContext& context)
             if (v.isMember("explicit_final_proposal"))
                 cfg.explicitFinalProposal =
                     v["explicit_final_proposal"].asBool();
+            if (v.isMember("bootstrap_fast_start"))
+                cfg.bootstrapFastStart = v["bootstrap_fast_start"].asBool();
+            if (v.isMember("rng_poll_ms"))
+                cfg.rngPollMs = std::max(50, v["rng_poll_ms"].asInt());
+            if (v.isMember("no_export_sig"))
+                cfg.noExportSig = v["no_export_sig"].asBool();
             if (v.isMember("message_types"))
             {
                 auto const& mts = v["message_types"];
@@ -159,6 +165,12 @@ doRuntimeConfig(RPC::JsonContext& context)
             entry["rng_claim_drop_pct"] = *cfg.rngClaimDropPctX100 / 100.0;
         if (cfg.explicitFinalProposal.has_value())
             entry["explicit_final_proposal"] = *cfg.explicitFinalProposal;
+        if (cfg.bootstrapFastStart.has_value())
+            entry["bootstrap_fast_start"] = *cfg.bootstrapFastStart;
+        if (cfg.rngPollMs)
+            entry["rng_poll_ms"] = *cfg.rngPollMs;
+        if (cfg.noExportSig.has_value())
+            entry["no_export_sig"] = *cfg.noExportSig;
         if (cfg.messageCategories)
         {
             Json::Value types{Json::arrayValue};
