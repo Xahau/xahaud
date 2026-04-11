@@ -48,8 +48,8 @@ public:
         pthread_rwlock_destroy(&rwlock_);
     }
 
-    reader_preferring_shared_mutex(
-        reader_preferring_shared_mutex const&) = delete;
+    reader_preferring_shared_mutex(reader_preferring_shared_mutex const&) =
+        delete;
     reader_preferring_shared_mutex&
     operator=(reader_preferring_shared_mutex const&) = delete;
 

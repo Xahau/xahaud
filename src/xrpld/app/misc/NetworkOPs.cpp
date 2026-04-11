@@ -963,17 +963,15 @@ NetworkOPsImp::processHeartbeatTimer()
                     setMode(OperatingMode::DISCONNECTED);
                     std::stringstream ss;
                     ss << "Node count (" << numPeers << ") has fallen "
-                       << "below required minimum (" << minPeerCount_
-                       << ").";
+                       << "below required minimum (" << minPeerCount_ << ").";
                     JLOG(m_journal.warn()) << ss.str();
-                    CLOG(clog.ss())
-                        << "set mode to DISCONNECTED: " << ss.str();
+                    CLOG(clog.ss()) << "set mode to DISCONNECTED: " << ss.str();
                 }
                 else
                 {
                     CLOG(clog.ss())
-                        << "already DISCONNECTED. too few peers ("
-                        << numPeers << "), need at least " << minPeerCount_;
+                        << "already DISCONNECTED. too few peers (" << numPeers
+                        << "), need at least " << minPeerCount_;
                 }
 
                 // MasterMutex lock need not be held to call

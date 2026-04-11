@@ -55,7 +55,8 @@ DatabaseRotatingImp::copyArchiveTo(Backend& dest)
         return archiveBackend_;
     }();
 
-    archive->for_each([&](std::shared_ptr<NodeObject> obj) { dest.store(obj); });
+    archive->for_each(
+        [&](std::shared_ptr<NodeObject> obj) { dest.store(obj); });
 }
 
 void

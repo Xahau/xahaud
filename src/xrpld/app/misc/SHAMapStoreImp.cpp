@@ -123,8 +123,9 @@ SHAMapStoreImp::SHAMapStoreImp(
     // value never triggers the "online_delete must be at least …" throw.
     if (isMemoryBackend_ && deleteInterval_ == 0)
     {
-        auto const minInterval =
-            config.standalone() ? minimumDeletionIntervalSA_ : minimumDeletionInterval_;
+        auto const minInterval = config.standalone()
+            ? minimumDeletionIntervalSA_
+            : minimumDeletionInterval_;
         deleteInterval_ = std::max(config.LEDGER_HISTORY, minInterval);
     }
 
@@ -345,7 +346,8 @@ SHAMapStoreImp::run()
                 // After rotate(), newBackend (archive copy) becomes the new
                 // writable, old writable becomes new archive, and old archive
                 // is destroyed.
-                JLOG(journal_.debug()) << "RWDB: creating pre-populated backend for rotation";
+                JLOG(journal_.debug())
+                    << "RWDB: creating pre-populated backend for rotation";
                 auto newBackend = makeBackendRotating();
                 dbRotating_->copyArchiveTo(*newBackend);
                 if (healthWait() == stopping)
