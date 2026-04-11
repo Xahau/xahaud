@@ -20,10 +20,10 @@
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
 #include <xrpld/app/paths/AccountCurrencies.h>
-#include <xrpld/core/JobQueue.h>
-#include <xrpld/rpc/Context.h>
 #include <xrpld/app/paths/Pathfinder.h>
 #include <xrpld/app/paths/RippleLineCache.h>
+#include <xrpld/core/JobQueue.h>
+#include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/Tuning.h>
