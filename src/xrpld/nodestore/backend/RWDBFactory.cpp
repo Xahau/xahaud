@@ -4,11 +4,13 @@
 #include <xrpld/nodestore/detail/EncodedBlob.h>
 #include <xrpld/nodestore/detail/codec.h>
 #include <xrpl/basics/contract.h>
+#include <xrpl/basics/ReaderPreferringSharedMutex.h>
 #include <boost/beast/core/string.hpp>
 #include <boost/core/ignore_unused.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 
 namespace ripple {
 namespace NodeStore {
@@ -34,8 +36,7 @@ private:
     using DataStore =
         std::map<uint256, std::vector<std::uint8_t>>;  // Store compressed blob
                                                        // data
-    mutable std::recursive_mutex
-        mutex_;  // Only needed for std::map implementation
+    mutable reader_preferring_shared_mutex mutex_;
 
     DataStore table_;
 
@@ -65,7 +66,7 @@ public:
     void
     open(bool createIfMissing) override
     {
-        std::lock_guard lock(mutex_);
+        std::unique_lock lock(mutex_);
         if (isOpen_)
             Throw<std::runtime_error>("already open");
         isOpen_ = true;
@@ -74,26 +75,31 @@ public:
     bool
     isOpen() override
     {
+        std::shared_lock lock(mutex_);
         return isOpen_;
     }
 
     void
     close() override
     {
-        std::lock_guard lock(mutex_);
-        table_.clear();
-        isOpen_ = false;
+        DataStore old;
+        {
+            std::unique_lock lock(mutex_);
+            isOpen_ = false;
+            old.swap(table_);  // O(1) swap; release lock before destructor runs
+        }
+        // 'old' is now destroyed outside the lock — no fetch() can be
+        // blocked by the (potentially millions-of-entries) map destructor.
     }
 
     Status
     fetch(void const* key, std::shared_ptr<NodeObject>* pObject) override
     {
-        if (!isOpen_)
-            return notFound;
-
         uint256 const hash(uint256::fromVoid(key));
 
-        std::lock_guard lock(mutex_);
+        std::shared_lock lock(mutex_);
+        if (!isOpen_)
+            return notFound;
         auto it = table_.find(hash);
         if (it == table_.end())
             return notFound;
@@ -162,10 +168,9 @@ public:
     void
     for_each(std::function<void(std::shared_ptr<NodeObject>)> f) override
     {
+        std::shared_lock lock(mutex_);
         if (!isOpen_)
             return;
-
-        std::lock_guard lock(mutex_);
         for (const auto& entry : table_)
         {
             nudb::detail::buffer bf;

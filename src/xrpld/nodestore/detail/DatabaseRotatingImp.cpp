@@ -45,6 +45,20 @@ DatabaseRotatingImp::DatabaseRotatingImp(
 }
 
 void
+DatabaseRotatingImp::copyArchiveTo(Backend& dest)
+{
+    // Snapshot the archive backend pointer under lock, then iterate it
+    // outside the lock.  dest is not yet shared so its store() calls are
+    // uncontested — no live-backend write-lock contention.
+    auto archive = [&] {
+        std::lock_guard const lock(mutex_);
+        return archiveBackend_;
+    }();
+
+    archive->for_each([&](std::shared_ptr<NodeObject> obj) { dest.store(obj); });
+}
+
+void
 DatabaseRotatingImp::rotate(
     std::unique_ptr<NodeStore::Backend>&& newBackend,
     std::function<void(
@@ -111,8 +125,11 @@ DatabaseRotatingImp::rotate(
         // Execute the lambda
         ensurePinnedLedgersInWritable();
 
-        // Now it's safe to mark the archive backend for deletion
-        archiveBackend_->setDeletePath();
+        // Do NOT call setDeletePath() inside this lock.  For in-memory
+        // backends, setDeletePath() calls close() which destructs the entire
+        // table_ map (millions of shared_ptr<NodeObject> ref-count decrements)
+        // while the lock is held, blocking every concurrent fetchNodeObject
+        // call for several seconds and starving consensus reads.
         oldArchiveBackend = std::move(archiveBackend_);
 
         // Complete the rotation
@@ -121,6 +138,9 @@ DatabaseRotatingImp::rotate(
 
         writableBackend_ = std::move(newBackend);
     }
+
+    // Lock released — clear the old archive now without blocking fetches.
+    oldArchiveBackend->setDeletePath();
 
     f(newWritableBackendName, newArchiveBackendName);
 }
