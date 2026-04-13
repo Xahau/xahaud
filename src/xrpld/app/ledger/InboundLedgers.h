@@ -87,6 +87,10 @@ public:
     virtual void
     onLedgerFetched() = 0;
 
+    virtual std::shared_ptr<Ledger const>
+    getClosestFullyWiredLedger(
+        std::shared_ptr<Ledger const> const& targetLedger) = 0;
+
     virtual void
     gotFetchPack() = 0;
     virtual void
