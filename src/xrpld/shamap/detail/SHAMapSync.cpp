@@ -246,9 +246,7 @@ SHAMap::gmn_ProcessNodes(MissingNodes& mn, MissingNodes::StackEntry& se)
             }
             else if (
                 d->isInner() &&
-                (!useFullBelowCache() ||
-                 !static_cast<SHAMapInnerNode*>(d)->isFullBelow(
-                     mn.generation_)))
+                !static_cast<SHAMapInnerNode*>(d)->isFullBelow(mn.generation_))
             {
                 mn.stack_.push(se);
 
@@ -346,9 +344,8 @@ SHAMap::getMissingNodes(int max, SHAMapSyncFilter* filter)
         f_.getFullBelowCache()->getGeneration());
 
     if (!root_->isInner() ||
-        (useFullBelowCache() &&
-         std::static_pointer_cast<SHAMapInnerNode>(root_)->isFullBelow(
-             mn.generation_)))
+        std::static_pointer_cast<SHAMapInnerNode>(root_)->isFullBelow(
+            mn.generation_))
     {
         clearSynching();
         return std::move(mn.missingNodes_);
@@ -418,10 +415,10 @@ SHAMap::getMissingNodes(int max, SHAMapSyncFilter* filter)
             {
                 // Recheck nodes we could not finish before
                 for (auto const& [innerNode, nodeId] : mn.resumes_)
-                    if (!useFullBelowCache() ||
-                        !innerNode->isFullBelow(mn.generation_))
-                        mn.stack_.push(std::make_tuple(
-                            innerNode, nodeId, rand_int(255), 0, true));
+                    if (!innerNode->isFullBelow(mn.generation_))
+                        mn.stack_.push(
+                            std::make_tuple(
+                                innerNode, nodeId, rand_int(255), 0, true));
 
                 mn.resumes_.clear();
             }
@@ -614,8 +611,7 @@ SHAMap::addKnownNode(
     auto iNode = root_.get();
 
     while (iNode->isInner() &&
-           (!useFullBelowCache() ||
-            !static_cast<SHAMapInnerNode*>(iNode)->isFullBelow(generation)) &&
+           !static_cast<SHAMapInnerNode*>(iNode)->isFullBelow(generation) &&
            (iNodeID.getDepth() < node.getDepth()))
     {
         int branch = selectBranch(iNodeID, node.getNodeID());

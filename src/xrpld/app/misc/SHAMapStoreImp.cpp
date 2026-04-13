@@ -117,6 +117,18 @@ SHAMapStoreImp::SHAMapStoreImp(
 
     get_if_exists(section, "online_delete", deleteInterval_);
     isMemoryBackend_ = boost::iequals(get(section, "type"), "rwdb");
+
+    // Allow null_backend to be set via config as well as env var.
+    // If the config key is present, propagate it to the environment so
+    // that libxrpl helpers (which cannot access Config) pick it up.
+    // This runs single-threaded during startup, before worker threads.
+    if (isMemoryBackend_ && section.exists("null_backend"))
+    {
+        auto const val = get(section, "null_backend");
+        if (val == "1" || boost::iequals(val, "true"))
+            ::setenv("XAHAU_RWDB_NULL", "1", 1);
+    }
+
     isNullBackend_ = isMemoryBackend_ && Config::null_backend();
 
     if (isNullBackend_)
@@ -128,8 +140,7 @@ SHAMapStoreImp::SHAMapStoreImp(
         }
         JLOG(journal_.info())
             << "RWDB null mode: node store is ephemeral, "
-            << "retaining " << config.LEDGER_HISTORY
-            << " ledgers in memory";
+            << "retaining " << config.LEDGER_HISTORY << " ledgers in memory";
     }
 
     // For RWDB, default online_delete to ledger_history only if user did not
@@ -386,7 +397,8 @@ SHAMapStoreImp::run()
                 // not yet shared, avoiding both exclusive-lock contention
                 // on the live writable backend AND stale-node
                 // accumulation.
-                JLOG(journal_.debug()) << "RWDB: copying live state for rotation";
+                JLOG(journal_.debug())
+                    << "RWDB: copying live state for rotation";
                 auto newBackend = makeBackendRotating();
                 std::uint64_t nodeCount = 0;
                 bool aborted = false;

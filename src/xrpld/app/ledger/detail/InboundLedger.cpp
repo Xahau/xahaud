@@ -24,8 +24,8 @@
 #include <xrpld/app/ledger/TransactionStateSF.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
-#include <xrpld/core/JobQueue.h>
 #include <xrpld/core/Config.h>
+#include <xrpld/core/JobQueue.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpl/basics/Log.h>
@@ -154,7 +154,27 @@ primeInboundLedgerForUse(
 
     if (!baseLedger || !baseLedger->isFullyWired())
     {
-        return ledger->fullWireForUse(journal, context);
+        // No base ledger available for a delta walk. The full state tree
+        // walk (wireCompleteSHAMap on 70M+ leaves) is too expensive — on
+        // x86 it takes longer than a consensus round, preventing the node
+        // from ever catching up. Sync already pinned every child in the
+        // tree via canonicalizeChild (in descendAsync/addKnownNode), so
+        // the state map is fully wired. Just wire the (tiny) tx map.
+        try
+        {
+            auto const txLeaves = wireCompleteSHAMap(ledger->txMap());
+            ledger->setFullyWired();
+            JLOG(journal.info())
+                << context << ": wired ledger " << ledger->info().seq
+                << " (sync-pinned state, " << txLeaves << " tx leaves)";
+            return true;
+        }
+        catch (SHAMapMissingNode const& e)
+        {
+            JLOG(journal.warn()) << context << ": incomplete ledger "
+                                 << ledger->info().seq << ": " << e.what();
+            return false;
+        }
     }
 
     try
@@ -624,7 +644,8 @@ InboundLedger::done()
             switch (mReason)
             {
                 case Reason::HISTORY:
-                    app_.getInboundLedgers().onLedgerFetched(shared_from_this());
+                    app_.getInboundLedgers().onLedgerFetched(
+                        shared_from_this());
                     break;
                 default:
                     app_.getLedgerMaster().storeLedger(mLedger);
@@ -1224,8 +1245,9 @@ InboundLedger::getNeededHashes()
             mLedger->txMap().family().db(), app_.getLedgerMaster());
         for (auto const& h : neededTxHashes(4, &filter))
         {
-            ret.push_back(std::make_pair(
-                protocol::TMGetObjectByHash::otTRANSACTION_NODE, h));
+            ret.push_back(
+                std::make_pair(
+                    protocol::TMGetObjectByHash::otTRANSACTION_NODE, h));
         }
     }
 
