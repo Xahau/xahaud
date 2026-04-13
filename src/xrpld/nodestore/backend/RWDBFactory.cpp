@@ -8,9 +8,11 @@
 #include <boost/beast/core/string.hpp>
 #include <boost/core/ignore_unused.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <string_view>
 
 namespace ripple {
 namespace NodeStore {
@@ -92,9 +94,22 @@ public:
         // blocked by the (potentially millions-of-entries) map destructor.
     }
 
+    static bool
+    nullMode()
+    {
+        static bool const v = [] {
+            char const* e = std::getenv("XAHAU_RWDB_NULL");
+            return e && *e && std::string_view{e} != "0";
+        }();
+        return v;
+    }
+
     Status
     fetch(void const* key, std::shared_ptr<NodeObject>* pObject) override
     {
+        if (nullMode())
+            return notFound;
+
         uint256 const hash(uint256::fromVoid(key));
 
         std::shared_lock lock(mutex_);
@@ -138,6 +153,17 @@ public:
             return;
 
         if (!object)
+            return;
+
+        if (nullMode())
+            return;
+
+        static bool const discardHotAccountNode = [] {
+            char const* v = std::getenv("XAHAU_RWDB_DISCARD_HOT_ACCOUNT_NODE");
+            return v && *v && std::string_view{v} != "0";
+        }();
+
+        if (discardHotAccountNode && object->getType() == hotACCOUNT_NODE)
             return;
 
         EncodedBlob encoded(object);
