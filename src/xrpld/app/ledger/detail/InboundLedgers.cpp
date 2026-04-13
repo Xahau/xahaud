@@ -22,6 +22,7 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/JobQueue.h>
+#include <xrpld/ledger/View.h>
 #include <xrpld/perflog/PerfLog.h>
 #include <xrpl/basics/DecayingSample.h>
 #include <xrpl/basics/Log.h>
@@ -31,11 +32,63 @@
 #include <xrpl/protocol/jss.h>
 
 #include <exception>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <vector>
 
 namespace ripple {
+
+namespace {
+
+std::optional<std::uint32_t>
+sameChainDistance(
+    std::shared_ptr<Ledger const> const& targetLedger,
+    std::shared_ptr<Ledger const> const& candidate,
+    beast::Journal journal)
+{
+    if (!targetLedger || !candidate || !candidate->isFullyWired())
+        return std::nullopt;
+
+    if (candidate->info().hash == targetLedger->info().hash)
+        return 0;
+
+    bool sameChain = false;
+    try
+    {
+        if (candidate->info().seq < targetLedger->info().seq)
+        {
+            if (auto const hash =
+                    hashOfSeq(*targetLedger, candidate->info().seq, journal);
+                hash && *hash == candidate->info().hash)
+            {
+                sameChain = true;
+            }
+        }
+        else if (candidate->info().seq > targetLedger->info().seq)
+        {
+            if (auto const hash =
+                    hashOfSeq(*candidate, targetLedger->info().seq, journal);
+                hash && *hash == targetLedger->info().hash)
+            {
+                sameChain = true;
+            }
+        }
+    }
+    catch (std::exception const&)
+    {
+        sameChain = false;
+    }
+
+    if (!sameChain)
+        return std::nullopt;
+
+    return candidate->info().seq < targetLedger->info().seq
+        ? targetLedger->info().seq - candidate->info().seq
+        : candidate->info().seq - targetLedger->info().seq;
+}
+
+}  // namespace
 
 class InboundLedgersImp : public InboundLedgers
 {
@@ -313,6 +366,44 @@ public:
     {
         std::lock_guard lock(fetchRateMutex_);
         fetchRate_.add(1, m_clock.now());
+    }
+
+    std::shared_ptr<Ledger const>
+    getClosestFullyWiredLedger(
+        std::shared_ptr<Ledger const> const& targetLedger) override
+    {
+        if (!targetLedger)
+            return {};
+
+        std::vector<std::shared_ptr<Ledger const>> candidates;
+        {
+            ScopedLockType sl(mLock);
+            candidates.reserve(mLedgers.size());
+            for (auto const& [hash, inbound] : mLedgers)
+            {
+                (void)hash;
+                if (auto const ledger = inbound->getLedger();
+                    ledger && ledger->isFullyWired())
+                {
+                    candidates.push_back(ledger);
+                }
+            }
+        }
+
+        std::shared_ptr<Ledger const> best;
+        auto bestDistance = std::numeric_limits<std::uint32_t>::max();
+        for (auto const& candidate : candidates)
+        {
+            if (auto const distance =
+                    sameChainDistance(targetLedger, candidate, j_);
+                distance && *distance < bestDistance)
+            {
+                best = candidate;
+                bestDistance = *distance;
+            }
+        }
+
+        return best;
     }
 
     Json::Value

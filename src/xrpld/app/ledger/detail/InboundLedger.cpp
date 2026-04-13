@@ -69,6 +69,87 @@ wireCompleteSHAMap(Map const& map)
     return leaves;
 }
 
+std::optional<std::uint32_t>
+sameChainDistance(
+    std::shared_ptr<Ledger const> const& targetLedger,
+    std::shared_ptr<Ledger const> const& candidate,
+    beast::Journal journal)
+{
+    if (!targetLedger || !candidate || !candidate->isFullyWired())
+        return std::nullopt;
+
+    if (candidate->info().hash == targetLedger->info().hash)
+        return 0;
+
+    bool sameChain = false;
+    try
+    {
+        if (candidate->info().seq < targetLedger->info().seq)
+        {
+            if (auto const hash =
+                    hashOfSeq(*targetLedger, candidate->info().seq, journal);
+                hash && *hash == candidate->info().hash)
+            {
+                sameChain = true;
+            }
+        }
+        else if (candidate->info().seq > targetLedger->info().seq)
+        {
+            if (auto const hash =
+                    hashOfSeq(*candidate, targetLedger->info().seq, journal);
+                hash && *hash == targetLedger->info().hash)
+            {
+                sameChain = true;
+            }
+        }
+    }
+    catch (std::exception const&)
+    {
+        sameChain = false;
+    }
+
+    if (!sameChain)
+        return std::nullopt;
+
+    return candidate->info().seq < targetLedger->info().seq
+        ? targetLedger->info().seq - candidate->info().seq
+        : candidate->info().seq - targetLedger->info().seq;
+}
+
+std::shared_ptr<Ledger const>
+chooseCloserBase(
+    std::shared_ptr<Ledger const> const& targetLedger,
+    std::shared_ptr<Ledger const> const& first,
+    std::shared_ptr<Ledger const> const& second,
+    beast::Journal journal)
+{
+    auto const firstDistance = sameChainDistance(targetLedger, first, journal);
+    auto const secondDistance =
+        sameChainDistance(targetLedger, second, journal);
+
+    if (firstDistance && secondDistance)
+        return *firstDistance <= *secondDistance ? first : second;
+    if (firstDistance)
+        return first;
+    if (secondDistance)
+        return second;
+    return {};
+}
+
+std::shared_ptr<Ledger const>
+findBestFullyWiredBase(
+    Application& app,
+    std::shared_ptr<Ledger const> const& targetLedger,
+    beast::Journal journal)
+{
+    auto const ledgerMasterBase =
+        app.getLedgerMaster().getClosestFullyWiredLedger(targetLedger);
+    auto const inboundBase =
+        app.getInboundLedgers().getClosestFullyWiredLedger(targetLedger);
+    return chooseCloserBase(
+        targetLedger, inboundBase, ledgerMasterBase, journal);
+}
+
 bool
 primeInboundLedgerForUse(
     std::shared_ptr<Ledger> const& ledger,
@@ -103,8 +184,8 @@ primeInboundLedgerForUse(
         ledger->setFullyWired();
         JLOG(journal.info())
             << context << ": fully wired ledger " << ledger->info().seq << " ("
-            << stateNodes << " changed state nodes vs base ledger, " << txLeaves
-            << " tx leaves)";
+            << stateNodes << " changed state nodes vs base ledger "
+            << baseLedger->info().seq << ", " << txLeaves << " tx leaves)";
         return true;
     }
     catch (SHAMapMissingNode const& e)
@@ -196,8 +277,7 @@ InboundLedger::init(ScopedLockType& collectionLock)
 
     JLOG(journal_.debug()) << "Acquiring ledger we already have in "
                            << " local store. " << hash_;
-    auto const baseLedger =
-        app_.getLedgerMaster().getClosestFullyWiredLedger(mLedger);
+    auto const baseLedger = findBestFullyWiredBase(app_, mLedger, journal_);
     if (!primeInboundLedgerForUse(
             mLedger, baseLedger, journal_, "InboundLedger::init"))
     {
@@ -535,8 +615,7 @@ InboundLedger::done()
 
     if (complete_ && !failed_ && mLedger)
     {
-        auto const baseLedger =
-            app_.getLedgerMaster().getClosestFullyWiredLedger(mLedger);
+        auto const baseLedger = findBestFullyWiredBase(app_, mLedger, journal_);
         if (!primeInboundLedgerForUse(
                 mLedger, baseLedger, journal_, "InboundLedger::done"))
         {
