@@ -51,7 +51,7 @@ sameChainDistance(
         return std::nullopt;
 
     if (candidate->info().hash == targetLedger->info().hash)
-        return 0;
+        return std::nullopt;
 
     bool sameChain = false;
     try
