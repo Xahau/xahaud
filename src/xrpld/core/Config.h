@@ -36,9 +36,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
@@ -373,6 +375,23 @@ public:
         // RHNOTE: memory type is not selected for here because it breaks
         // tests
         return isMem;
+    }
+
+    /** Returns true when the RWDB backend is running in null mode.
+
+        In null mode the in-memory node store never persists or retrieves
+        objects — nodes are retained purely through the Ledger -> SHAMap
+        shared_ptr retention chain.  Activated via the XAHAU_RWDB_NULL
+        environment variable.
+    */
+    static bool
+    null_backend()
+    {
+        static bool const v = [] {
+            char const* e = std::getenv("XAHAU_RWDB_NULL");
+            return e && *e && std::string_view(e) != "0";
+        }();
+        return v;
     }
 
     bool

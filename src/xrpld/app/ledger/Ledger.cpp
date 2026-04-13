@@ -50,8 +50,6 @@
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <boost/optional.hpp>
-#include <cstdlib>
-#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -62,16 +60,6 @@ namespace ripple {
 create_genesis_t const create_genesis{};
 
 namespace {
-
-bool
-isRWDBNullMode()
-{
-    static bool const v = [] {
-        char const* e = std::getenv("XAHAU_RWDB_NULL");
-        return e && *e && std::string_view{e} != "0";
-    }();
-    return v;
-}
 
 template <class Map>
 std::size_t
@@ -424,7 +412,7 @@ Ledger::setImmutable(bool rehash)
 bool
 Ledger::fullWireForUse(beast::Journal journal, char const* context) const
 {
-    if (!isRWDBNullMode() || isFullyWired())
+    if (!Config::null_backend() || isFullyWired())
         return true;
 
     try

@@ -25,6 +25,7 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/JobQueue.h>
+#include <xrpld/core/Config.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpl/basics/Log.h>
@@ -35,26 +36,14 @@
 #include <boost/iterator/function_output_iterator.hpp>
 
 #include <algorithm>
-#include <cstdlib>
 #include <limits>
 #include <random>
-#include <string_view>
 
 namespace ripple {
 
 using namespace std::chrono_literals;
 
 namespace {
-
-bool
-isRWDBNullMode()
-{
-    static bool const v = [] {
-        char const* e = std::getenv("XAHAU_RWDB_NULL");
-        return e && *e && std::string_view{e} != "0";
-    }();
-    return v;
-}
 
 template <class Map>
 std::size_t
@@ -157,7 +146,7 @@ primeInboundLedgerForUse(
     beast::Journal journal,
     char const* context)
 {
-    if (!isRWDBNullMode())
+    if (!Config::null_backend())
         return true;
 
     if (ledger->isFullyWired())
@@ -649,7 +638,7 @@ InboundLedger::done()
         jtLEDGER_DATA, "AcquisitionDone", [self = shared_from_this()]() {
             if (self->complete_ && !self->failed_)
             {
-                if (!isRWDBNullMode() && self->mReason != Reason::HISTORY)
+                if (!Config::null_backend() && self->mReason != Reason::HISTORY)
                 {
                     // Prime the state tree BEFORE checkAccept so consensus
                     // never sees a lazy tree. Runs off any inbound lock —

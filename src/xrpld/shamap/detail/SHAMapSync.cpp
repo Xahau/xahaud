@@ -28,6 +28,7 @@ namespace ripple {
 
 namespace {
 
+// Mirror of Config::null_backend() — shamap cannot depend on xrpld.core.
 bool
 useFullBelowCache()
 {

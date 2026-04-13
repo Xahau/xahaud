@@ -45,21 +45,6 @@ DatabaseRotatingImp::DatabaseRotatingImp(
 }
 
 void
-DatabaseRotatingImp::copyArchiveTo(Backend& dest)
-{
-    // Snapshot the archive backend pointer under lock, then iterate it
-    // outside the lock.  dest is not yet shared so its store() calls are
-    // uncontested — no live-backend write-lock contention.
-    auto archive = [&] {
-        std::lock_guard const lock(mutex_);
-        return archiveBackend_;
-    }();
-
-    archive->for_each(
-        [&](std::shared_ptr<NodeObject> obj) { dest.store(obj); });
-}
-
-void
 DatabaseRotatingImp::rotate(
     std::unique_ptr<NodeStore::Backend>&& newBackend,
     std::function<void(
@@ -272,8 +257,8 @@ DatabaseRotatingImp::fetchNodeObject(
             }
 
             // Update writable backend with data from the archive backend
-            // if (duplicate)
-            writable->store(nodeObject);
+            if (duplicate)
+                writable->store(nodeObject);
         }
     }
 
