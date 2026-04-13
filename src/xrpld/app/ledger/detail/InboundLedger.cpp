@@ -292,7 +292,10 @@ InboundLedger::init(ScopedLockType& collectionLock)
     mLedger->setImmutable();
 
     if (mReason == Reason::HISTORY)
+    {
+        app_.getInboundLedgers().onLedgerFetched(shared_from_this());
         return;
+    }
 
     app_.getLedgerMaster().storeLedger(mLedger);
 
@@ -632,7 +635,7 @@ InboundLedger::done()
             switch (mReason)
             {
                 case Reason::HISTORY:
-                    app_.getInboundLedgers().onLedgerFetched();
+                    app_.getInboundLedgers().onLedgerFetched(shared_from_this());
                     break;
                 default:
                     app_.getLedgerMaster().storeLedger(mLedger);

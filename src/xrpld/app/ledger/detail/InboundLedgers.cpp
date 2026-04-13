@@ -31,6 +31,7 @@
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/protocol/jss.h>
 
+#include <deque>
 #include <exception>
 #include <limits>
 #include <memory>
@@ -40,6 +41,15 @@
 namespace ripple {
 
 namespace {
+
+std::size_t
+historyPrimingCacheSize(Application& app)
+{
+    auto const configured = static_cast<std::size_t>(app.config().LEDGER_HISTORY);
+    auto const bounded = std::min<std::size_t>(
+        configured == 0 ? 8 : configured, 32);
+    return std::max<std::size_t>(1, bounded);
+}
 
 std::optional<std::uint32_t>
 sameChainDistance(
@@ -114,6 +124,7 @@ public:
         , m_clock(clock)
         , mRecentFailures(clock)
         , mCounter(collector->make_counter("ledger_fetches"))
+        , historyPrimingCacheSize_(historyPrimingCacheSize(app))
         , mPeerSetBuilder(std::move(peerSetBuilder))
     {
     }
@@ -349,6 +360,7 @@ public:
         ScopedLockType sl(mLock);
 
         mRecentFailures.clear();
+        recentHistoryLedgers_.clear();
         mLedgers.clear();
     }
 
@@ -359,11 +371,40 @@ public:
         return 60 * fetchRate_.value(m_clock.now());
     }
 
-    // Should only be called with an inboundledger that has
-    // a reason of history
+    // Should only be called with a complete inbound ledger that has
+    // a reason of history.
     void
-    onLedgerFetched() override
+    onLedgerFetched(std::shared_ptr<InboundLedger> const& inbound) override
     {
+        if (!inbound)
+            return;
+
+        auto const ledger = inbound->getLedger();
+        if (!ledger || !ledger->isFullyWired())
+            return;
+
+        {
+            ScopedLockType sl(mLock);
+            if (auto const it = mLedgers.find(ledger->info().hash);
+                it != mLedgers.end() && it->second.get() == inbound.get())
+            {
+                mLedgers.erase(it);
+            }
+
+            for (auto it = recentHistoryLedgers_.begin();
+                 it != recentHistoryLedgers_.end();)
+            {
+                if (!*it || (*it)->info().hash == ledger->info().hash)
+                    it = recentHistoryLedgers_.erase(it);
+                else
+                    ++it;
+            }
+
+            recentHistoryLedgers_.push_back(ledger);
+            while (recentHistoryLedgers_.size() > historyPrimingCacheSize_)
+                recentHistoryLedgers_.pop_front();
+        }
+
         std::lock_guard lock(fetchRateMutex_);
         fetchRate_.add(1, m_clock.now());
     }
@@ -378,12 +419,10 @@ public:
         std::vector<std::shared_ptr<Ledger const>> candidates;
         {
             ScopedLockType sl(mLock);
-            candidates.reserve(mLedgers.size());
-            for (auto const& [hash, inbound] : mLedgers)
+            candidates.reserve(recentHistoryLedgers_.size());
+            for (auto const& ledger : recentHistoryLedgers_)
             {
-                (void)hash;
-                if (auto const ledger = inbound->getLedger();
-                    ledger && ledger->isFullyWired())
+                if (ledger && ledger->isFullyWired())
                 {
                     candidates.push_back(ledger);
                 }
@@ -525,6 +564,7 @@ public:
     {
         ScopedLockType lock(mLock);
         stopping_ = true;
+        recentHistoryLedgers_.clear();
         mLedgers.clear();
         mRecentFailures.clear();
     }
@@ -545,10 +585,12 @@ private:
     bool stopping_ = false;
     using MapType = hash_map<uint256, std::shared_ptr<InboundLedger>>;
     MapType mLedgers;
+    std::deque<std::shared_ptr<Ledger const>> recentHistoryLedgers_;
 
     beast::aged_map<uint256, std::uint32_t> mRecentFailures;
 
     beast::insight::Counter mCounter;
+    std::size_t const historyPrimingCacheSize_;
 
     std::unique_ptr<PeerSetBuilder> mPeerSetBuilder;
 
