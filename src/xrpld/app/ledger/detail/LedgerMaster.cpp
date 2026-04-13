@@ -1885,7 +1885,7 @@ LedgerMaster::getClosestFullyWiredLedger(
             continue;
 
         if (candidate->info().hash == targetHash)
-            return candidate;
+            continue;
 
         bool sameChain = false;
         try
