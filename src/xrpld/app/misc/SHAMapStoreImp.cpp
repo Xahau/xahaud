@@ -31,7 +31,45 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 
+#include <cstdlib>
+#include <string_view>
+
 namespace ripple {
+
+namespace {
+
+constexpr std::uint32_t minimumDeletionIntervalExperimental = 8;
+
+bool
+isRWDBNullMode()
+{
+    static bool const enabled = [] {
+        char const* e = std::getenv("XAHAU_RWDB_NULL");
+        return e && *e && std::string_view{e} != "0";
+    }();
+    return enabled;
+}
+
+std::uint32_t
+minimumDeleteIntervalForMode(Config const& config, bool isMemoryBackend)
+{
+    if (config.standalone())
+        return minimumDeletionIntervalExperimental;
+
+    if (isMemoryBackend && isRWDBNullMode())
+        return minimumDeletionIntervalExperimental;
+
+    return 256;
+}
+
+bool
+skipNodeStoreRotateForMode(bool isMemoryBackend)
+{
+    return isMemoryBackend && isRWDBNullMode();
+}
+
+}  // namespace
+
 void
 SHAMapStoreImp::SavedStateDB::init(
     BasicConfig const& config,
@@ -123,9 +161,8 @@ SHAMapStoreImp::SHAMapStoreImp(
     // value never triggers the "online_delete must be at least …" throw.
     if (isMemoryBackend_ && deleteInterval_ == 0)
     {
-        auto const minInterval = config.standalone()
-            ? minimumDeletionIntervalSA_
-            : minimumDeletionInterval_;
+        auto const minInterval =
+            minimumDeleteIntervalForMode(config, isMemoryBackend_);
         deleteInterval_ = std::max(config.LEDGER_HISTORY, minInterval);
     }
 
@@ -147,9 +184,8 @@ SHAMapStoreImp::SHAMapStoreImp(
 
         get_if_exists(section, "advisory_delete", advisoryDelete_);
 
-        auto const minInterval = config.standalone()
-            ? minimumDeletionIntervalSA_
-            : minimumDeletionInterval_;
+        auto const minInterval =
+            minimumDeleteIntervalForMode(config, isMemoryBackend_);
         if (deleteInterval_ < minInterval)
         {
             Throw<std::runtime_error>(
@@ -339,6 +375,17 @@ SHAMapStoreImp::run()
 
             if (isMemoryBackend_)
             {
+                if (skipNodeStoreRotateForMode(isMemoryBackend_))
+                {
+                    JLOG(journal_.debug())
+                        << "RWDB null mode: skipping node store rotation";
+
+                    lastRotated = validatedSeq;
+                    state_db_.setLastRotated(lastRotated);
+                    clearCaches(validatedSeq);
+                    continue;
+                }
+
                 // For RWDB: copy only the current validated ledger's live
                 // state nodes into a fresh backend that is not yet shared,
                 // avoiding both exclusive-lock contention on the live
