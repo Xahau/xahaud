@@ -35,11 +35,87 @@
 #include <boost/iterator/function_output_iterator.hpp>
 
 #include <algorithm>
+#include <cstdlib>
+#include <limits>
 #include <random>
+#include <string_view>
 
 namespace ripple {
 
 using namespace std::chrono_literals;
+
+namespace {
+
+bool
+isRWDBNullMode()
+{
+    static bool const v = [] {
+        char const* e = std::getenv("XAHAU_RWDB_NULL");
+        return e && *e && std::string_view{e} != "0";
+    }();
+    return v;
+}
+
+template <class Map>
+std::size_t
+wireCompleteSHAMap(Map const& map)
+{
+    std::size_t leaves = 0;
+    for (auto const& item : map)
+    {
+        (void)item;
+        ++leaves;
+    }
+    return leaves;
+}
+
+bool
+primeInboundLedgerForUse(
+    std::shared_ptr<Ledger> const& ledger,
+    std::shared_ptr<Ledger const> const& baseLedger,
+    beast::Journal journal,
+    char const* context)
+{
+    if (!isRWDBNullMode())
+        return true;
+
+    if (ledger->isFullyWired())
+        return true;
+
+    if (!baseLedger || !baseLedger->isFullyWired())
+    {
+        return ledger->fullWireForUse(journal, context);
+    }
+
+    try
+    {
+        std::size_t stateNodes = 0;
+        // By the time an inbound ledger is marked complete, sync has already
+        // descended the current tree; this delta walk avoids rewalking
+        // unchanged state subtrees that are known-good via a fully wired
+        // same-chain base ledger.
+        ledger->stateMap().visitDifferences(
+            &baseLedger->stateMap(), [&stateNodes](SHAMapTreeNode const&) {
+                ++stateNodes;
+                return true;
+            });
+        auto const txLeaves = wireCompleteSHAMap(ledger->txMap());
+        ledger->setFullyWired();
+        JLOG(journal.info())
+            << context << ": fully wired ledger " << ledger->info().seq << " ("
+            << stateNodes << " changed state nodes vs base ledger, " << txLeaves
+            << " tx leaves)";
+        return true;
+    }
+    catch (SHAMapMissingNode const& e)
+    {
+        JLOG(journal.warn()) << context << ": incomplete ledger "
+                             << ledger->info().seq << ": " << e.what();
+        return false;
+    }
+}
+
+}  // namespace
 
 enum {
     // Number of peers to start with
@@ -120,6 +196,16 @@ InboundLedger::init(ScopedLockType& collectionLock)
 
     JLOG(journal_.debug()) << "Acquiring ledger we already have in "
                            << " local store. " << hash_;
+    auto const baseLedger =
+        app_.getLedgerMaster().getClosestFullyWiredLedger(mLedger);
+    if (!primeInboundLedgerForUse(
+            mLedger, baseLedger, journal_, "InboundLedger::init"))
+    {
+        complete_ = false;
+        failed_ = true;
+        done();
+        return;
+    }
     XRPL_ASSERT(
         mLedger->read(keylet::fees()),
         "ripple::InboundLedger::init : valid ledger fees");
@@ -351,10 +437,6 @@ InboundLedger::tryDB(NodeStore::Database& srcDB)
     {
         JLOG(journal_.debug()) << "Had everything locally";
         complete_ = true;
-        XRPL_ASSERT(
-            mLedger->read(keylet::fees()),
-            "ripple::InboundLedger::tryDB : valid ledger fees");
-        mLedger->setImmutable();
     }
 }
 
@@ -453,18 +535,30 @@ InboundLedger::done()
 
     if (complete_ && !failed_ && mLedger)
     {
-        XRPL_ASSERT(
-            mLedger->read(keylet::fees()),
-            "ripple::InboundLedger::done : valid ledger fees");
-        mLedger->setImmutable();
-        switch (mReason)
+        auto const baseLedger =
+            app_.getLedgerMaster().getClosestFullyWiredLedger(mLedger);
+        if (!primeInboundLedgerForUse(
+                mLedger, baseLedger, journal_, "InboundLedger::done"))
         {
-            case Reason::HISTORY:
-                app_.getInboundLedgers().onLedgerFetched();
-                break;
-            default:
-                app_.getLedgerMaster().storeLedger(mLedger);
-                break;
+            complete_ = false;
+            failed_ = true;
+        }
+        else
+        {
+            XRPL_ASSERT(
+                mLedger->read(keylet::fees()),
+                "ripple::InboundLedger::done : valid ledger fees");
+            mLedger->setImmutable();
+
+            switch (mReason)
+            {
+                case Reason::HISTORY:
+                    app_.getInboundLedgers().onLedgerFetched();
+                    break;
+                default:
+                    app_.getLedgerMaster().storeLedger(mLedger);
+                    break;
+            }
         }
     }
 
@@ -473,6 +567,42 @@ InboundLedger::done()
         jtLEDGER_DATA, "AcquisitionDone", [self = shared_from_this()]() {
             if (self->complete_ && !self->failed_)
             {
+                if (!isRWDBNullMode() && self->mReason != Reason::HISTORY)
+                {
+                    // Prime the state tree BEFORE checkAccept so consensus
+                    // never sees a lazy tree. Runs off any inbound lock —
+                    // this job is dispatched without mtx_ held.
+                    // visitDifferences against prior validated walks only
+                    // the delta; canonicalization means shared subtrees are
+                    // the same inner objects (already wired). Gated on
+                    // non-HISTORY to avoid paying on historical backfills.
+                    auto const prior =
+                        self->app_.getLedgerMaster().getValidatedLedger();
+                    SHAMap const* have = prior ? &prior->stateMap() : nullptr;
+
+                    try
+                    {
+                        std::size_t walked = 0;
+                        self->mLedger->stateMap().visitDifferences(
+                            have, [&walked](SHAMapTreeNode const&) {
+                                ++walked;
+                                return true;
+                            });
+                        JLOG(self->journal_.info())
+                            << "Inbound prime: ledger "
+                            << self->mLedger->info().seq << " wired " << walked
+                            << (have ? " delta nodes vs prior validated"
+                                     : " nodes (first full walk)");
+                    }
+                    catch (SHAMapMissingNode const& e)
+                    {
+                        JLOG(self->journal_.warn())
+                            << "Inbound prime: incomplete state tree for "
+                            << "ledger " << self->mLedger->info().seq << ": "
+                            << e.what();
+                    }
+                }
+
                 self->app_.getLedgerMaster().checkAccept(self->getLedger());
                 self->app_.getLedgerMaster().tryAdvance();
             }
