@@ -911,29 +911,16 @@ LedgerMaster::setFullLedger(
         }
     }
 
-    // Memory-resident retirement is gated on a STICKY "at least TRACKING"
-    // observation. OperatingMode values are ordered by how-caught-up we
-    // are:
-    //
-    //   DISCONNECTED=0, CONNECTED=1, SYNCING=2, TRACKING=3, FULL=4
-    //
-    // TRACKING ("convinced we agree with the network") is the right
-    // threshold — it means we're in step with the network's current
-    // ledger. FULL additionally requires validator participation, so a
-    // tracking-only node would never reach it; using FULL as the gate
-    // would leave retirement disabled forever on non-validator nodes,
-    // letting mCompleteLedgers grow unbounded.
-    //
-    // Once we've ever observed >= TRACKING, retirement stays enabled for
-    // the rest of the process's lifetime — transient drops (network
-    // hiccups, brief consensus stalls) don't cause mCompleteLedgers to
-    // drift. Static atomic is process-wide; xahaud runs a single
-    // Application per process so effectively per-instance.
-    static std::atomic<bool> sawCaughtUp{false};
-    if (app_.getOPs().getOperatingMode() >= OperatingMode::TRACKING)
-        sawCaughtUp.store(true, std::memory_order_release);
-    bool const shouldRetire = app_.getSHAMapStore().memoryResidentMode() &&
-        sawCaughtUp.load(std::memory_order_acquire);
+    // In memory-resident mode we retire every time a Ledger falls off
+    // mRetainedLedgers. No OperatingMode gate: mRetainedLedgers already
+    // caps at ledger_history_ on every publish regardless of
+    // DISCONNECTED/SYNCING/TRACKING/FULL, so mCompleteLedgers should
+    // track it step-for-step. The earlier sticky-TRACKING gate was
+    // defensive against fetchForHistory re-inserting historical seqs
+    // and fighting the prune, but fetchForHistory is now
+    // !memoryResidentMode-gated in doAdvance, so there's nothing left
+    // to fight.
+    bool const shouldRetire = app_.getSHAMapStore().memoryResidentMode();
 
     // The mCompleteLedgers insert of the new seq AND the bulk-prefix prune
     // of retired seqs both run under one mCompleteLock acquisition. This
