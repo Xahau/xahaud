@@ -908,14 +908,50 @@ LedgerMaster::setFullLedger(
         }
     }
 
-    // Memory-resident retirement happens outside m_mutex — relational
-    // deletes shouldn't run under the LedgerMaster lock. In disk-backed
-    // mode this is a no-op (memoryResidentMode() returns false and
-    // retireLedgers short-circuits).
+    // Memory-resident retirement only fires once the node is in FULL
+    // operating mode — i.e. caught up to the network. During catch-up we
+    // let mCompleteLedgers, LedgerHistory, and the relational tables
+    // accumulate freely; mRetainedLedgers's own pop_front above still
+    // caps the structural retention at ledger_history, so the overhead
+    // of growth is bounded. Once FULL is reached, the first retire's
+    // bulk-prefix clean-up inside retireLedgers collapses all the
+    // accumulated history below the retention window in one pass.
+    //
+    // We split the work in two:
+    //
+    //   (a) Synchronously on this thread — update mCompleteLedgers via
+    //       clearPriorLedgers. This is a trivial range-set erase under
+    //       mCompleteLock. Doing it here keeps the reported
+    //       complete_ledgers range tight: no transient 16↔17 window,
+    //       no over-advertising to peers.
+    //
+    //   (b) Asynchronously via the job queue — the expensive part:
+    //       LedgerHistory cache eviction, relational deletes, and the
+    //       shared_ptr destruction cascade through the retired ledgers'
+    //       SHAMap spines. All off the publish thread. The retired
+    //       Ledgers stay alive in the captured vector until the job runs.
+    //
+    // In disk-backed mode the whole block is dormant (memoryResidentMode
+    // false).
     if (!retiredLedgers.empty() &&
-        app_.getSHAMapStore().memoryResidentMode())
+        app_.getSHAMapStore().memoryResidentMode() &&
+        app_.getOPs().getOperatingMode() == OperatingMode::FULL)
     {
-        app_.getSHAMapStore().retireLedgers(retiredLedgers);
+        LedgerIndex maxRetiredSeq = 0;
+        for (auto const& r : retiredLedgers)
+        {
+            if (r && r->info().seq > maxRetiredSeq)
+                maxRetiredSeq = r->info().seq;
+        }
+        if (maxRetiredSeq > 0)
+            clearPriorLedgers(maxRetiredSeq + 1);
+
+        app_.getJobQueue().addJob(
+            jtLEDGER_DATA,
+            "retireLedgers",
+            [&app = app_, retired = std::move(retiredLedgers)]() {
+                app.getSHAMapStore().retireLedgers(retired);
+            });
     }
 
     {

@@ -849,34 +849,52 @@ SHAMapStoreImp::retireLedgers(
     if (!memoryResidentMode_ || ledgers.empty())
         return;
 
-    // Memory-resident retirement: synchronously prune the per-seq state
-    // associated with each ledger. No batching delays — we expect
-    // RWDB-relational where deletes are in-memory map.erase() calls.
+    // Memory-resident retirement: bulk-prefix prune everything at or
+    // below the max retired seq. This single pattern handles both the
+    // steady-state case (one ledger in `ledgers`) and the post-catch-up
+    // case where LedgerHistory and the relational tables accumulated
+    // many seqs below the retention window during catch-up — retireLedgers
+    // is only called once the node is FULL, so the first invocation
+    // after catch-up collapses all that accumulation in one pass.
     //
-    // Relational and LedgerHistory pruning are PREFIX deletes (everything
-    // ≤ seq), so for N retired ledgers we only need one call with the
-    // highest seq to cover them all. mCompleteLedgers is per-seq because
-    // pinning may interleave with the retired range.
-    auto& lm = app_.getLedgerMaster();
+    // This function runs on a JobQueue worker, off the publish thread,
+    // so the expensive work doesn't block doAdvance:
+    //
+    //   - clearPriorLedgers is idempotent here. LedgerMaster::setFullLedger
+    //     already pruned mCompleteLedgers synchronously before posting
+    //     this job, keeping the reported complete_ledgers range tight.
+    //     Still called here for safety / external callers of retireLedgers.
+    //
+    //   - clearLedgerCachePrior iterates the LedgerHistory cache and
+    //     drops the shared_ptrs held there. This is where the heavy
+    //     destruction cascade happens: Ledger → stateMap() SHAMap →
+    //     canonical inner nodes → their children_ → etc. Thousands of
+    //     shared_ptr decrements and TaggedCache weak_ptr bookkeeping
+    //     per ledger. Kept off the publish thread by the job post.
+    //
+    //   - Relational deletes are prefix operations; under RWDB-relational
+    //     these are in-memory map.erase() calls (fast).
+    //
+    //   - The `ledgers` vector going out of scope when this function
+    //     returns drops the last strong references held by the job
+    //     closure, kicking off destruction of any Ledgers that were
+    //     only still alive via that capture.
+    //
+    // clearPriorLedgers preserves pinned ledgers.
     LedgerIndex maxSeq = 0;
     for (auto const& ledger : ledgers)
     {
-        if (!ledger)
-            continue;
-        auto const seq = ledger->info().seq;
-        if (seq > maxSeq)
-            maxSeq = seq;
-        // mCompleteLedgers per-seq (preserves pinning).
-        lm.clearLedger(seq);
+        if (ledger && ledger->info().seq > maxSeq)
+            maxSeq = ledger->info().seq;
     }
 
     if (maxSeq == 0)
         return;
 
-    // LedgerHistory cache: one prefix call covers every retired seq.
+    auto& lm = app_.getLedgerMaster();
+    lm.clearPriorLedgers(maxSeq + 1);
     lm.clearLedgerCachePrior(maxSeq + 1);
 
-    // Relational tables: same — one prefix delete per table.
     if (auto* db = dynamic_cast<SQLiteDatabase*>(&app_.getRelationalDatabase()))
     {
         if (app_.config().useTxTables())
@@ -887,16 +905,9 @@ SHAMapStoreImp::retireLedgers(
         db->deleteBeforeLedgerSeq(maxSeq + 1);
     }
 
-    if (ledgers.size() == 1)
-    {
-        JLOG(journal_.info())
-            << "retireLedgers: dropped ledger " << maxSeq;
-    }
-    else
-    {
-        JLOG(journal_.info()) << "retireLedgers: dropped " << ledgers.size()
-                              << " ledgers up to seq " << maxSeq;
-    }
+    JLOG(journal_.info()) << "retireLedgers: pruned everything at or below seq "
+                          << maxSeq << " (" << ledgers.size()
+                          << " popped this batch)";
 }
 
 //------------------------------------------------------------------------------
