@@ -230,16 +230,22 @@ SHAMap::gmn_ProcessNodes(MissingNodes& mn, MissingNodes::StackEntry& se)
             if (!isRWDBNullMode())
                 continue;
 
-            // Null mode: validate via TreeNodeCache liveness and anchor
-            // the canonical into THIS SHAMap's spine. Same reasoning as
-            // addKnownNode.
+            // Null mode: validate via TreeNodeCache liveness AND the
+            // canonical's own full-below flag, then anchor the canonical
+            // into THIS SHAMap's spine. Same reasoning as addKnownNode.
             if (auto canonical =
-                    f_.getTreeNodeCache()->fetch(childHash.as_uint256()))
+                    f_.getTreeNodeCache()->fetch(childHash.as_uint256());
+                canonical && canonical->isInner() &&
+                static_cast<SHAMapInnerNode*>(canonical.get())
+                    ->isFullBelow(mn.generation_))
             {
                 node->canonicalizeChild(branch, std::move(canonical));
                 continue;
             }
-            // Stale claim — fall through and descend.
+            // fetch() returned null (canonical gone) OR the fetched
+            // canonical isn't marked full-below in the current
+            // generation (it's fresh — built from wire bytes with empty
+            // children_). Fall through to descend and walk properly.
         }
         //@@end gmn-fullbelow-check
 
@@ -670,17 +676,53 @@ SHAMap::addKnownNode(
             if (!isRWDBNullMode())
                 return SHAMapAddNode::duplicate();
 
-            // Null mode: no DB to fall back on. Validate via TreeNodeCache
-            // liveness and anchor the canonical into THIS SHAMap's spine so
-            // retention is structural and doesn't depend on whichever
-            // ledger originally marked this subtree full-below.
+            // Null mode: no DB to fall back on. Before trusting the FBC
+            // claim we verify two things about the canonical at this
+            // hash:
+            //
+            //   1. Liveness — TreeNodeCache::fetch returns non-null.
+            //      Proves SOME shared_ptr to the canonical exists
+            //      somewhere, so anchoring it via canonicalizeChild
+            //      makes retention structural (not dependent on
+            //      whichever ledger originally marked the subtree
+            //      full-below).
+            //
+            //   2. Fully-walked — the canonical's own fullBelowGen_
+            //      matches the current FBC generation. This is a
+            //      strictly stronger property than liveness: it is
+            //      only set by gmn_ProcessNodes AFTER successfully
+            //      descending every child, which means children_[i]
+            //      are populated.
+            //
+            // Why both matter: the FBC claim is tied to a hash, not to
+            // a specific canonical object. If the canonical that
+            // established the claim dies (last holder retires) and a
+            // fresh one is later materialised from wire bytes (e.g.
+            // via addKnownNode's `iNode == nullptr` branch or
+            // descend → filter), the fresh canonical has
+            // fullBelowGen_ == 0 and empty children_[i]. Liveness
+            // alone would pass, and we'd short-circuit onto an empty
+            // subtree; subsequent reads through unwired branches would
+            // then throw SHAMapMissingNode. The fullBelowGen_ check
+            // rejects fresh canonicals and forces descent, which
+            // populates children_ as it walks.
+            //
+            // In null mode the FBC generation is stable (no clear()
+            // calls — we removed rotation), so a canonical walked at
+            // any point since process start remains full-below for
+            // its lifetime.
             if (auto canonical =
-                    f_.getTreeNodeCache()->fetch(childHash.as_uint256()))
+                    f_.getTreeNodeCache()->fetch(childHash.as_uint256());
+                canonical && canonical->isInner() &&
+                static_cast<SHAMapInnerNode*>(canonical.get())
+                    ->isFullBelow(generation))
             {
                 inner->canonicalizeChild(branch, std::move(canonical));
                 return SHAMapAddNode::duplicate();
             }
-            // Stale claim — canonical freed. Fall through to normal descent.
+            // Either no canonical, or canonical is fresh (not walked).
+            // Fall through to normal descent, which will populate this
+            // canonical's children_ as we walk toward the target.
         }
         //@@end fullbelow-short-circuit
 
