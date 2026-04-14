@@ -984,13 +984,27 @@ LedgerMaster::setFullLedger(
     // Ledgers' SHAMap spines). The retired Ledgers stay alive in the
     // captured vector until the job runs; destruction happens on the
     // worker thread, off doAdvance's critical path.
-    if (shouldRetire && !retiredLedgers.empty())
+    //
+    // Dispatch unconditionally whenever we have retired Ledgers — even
+    // pre-TRACKING, where shouldRetire is false and we skip the
+    // mCompleteLedgers / relational / LedgerHistory pruning. The job
+    // still owns the shared_ptrs, so their destruction cascade runs on
+    // the worker, not on the advance thread. Without this, retired
+    // Ledgers fall out of scope synchronously in setFullLedger and the
+    // advance thread blocks on a million-leaf destruction per publish,
+    // producing the sync-stall-then-flurry pattern during catch-up.
+    if (!retiredLedgers.empty())
     {
         app_.getJobQueue().addJob(
             jtLEDGER_DATA,
             "retireLedgers",
-            [&app = app_, retired = std::move(retiredLedgers)]() {
-                app.getSHAMapStore().retireLedgers(retired);
+            [&app = app_, shouldRetire, retired = std::move(retiredLedgers)]() {
+                if (shouldRetire)
+                    app.getSHAMapStore().retireLedgers(retired);
+                // Otherwise `retired` just destructs here on this
+                // worker thread as the lambda exits — bookkeeping
+                // side effects skipped, destruction cascade kept off
+                // the advance thread either way.
             });
     }
 
