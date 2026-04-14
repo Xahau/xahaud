@@ -968,16 +968,14 @@ LedgerMaster::setFullLedger(
                 mCompleteLedgers.insert(interval);
             JLOG(m_journal.info())
                 << "mCompleteLedgers[setFullLedger/insert+prune]: insert("
-                << ledger->info().seq << ") + clearPrior("
-                << maxRetiredSeq + 1 << ") -> "
-                << to_string(mCompleteLedgers);
+                << ledger->info().seq << ") + clearPrior(" << maxRetiredSeq + 1
+                << ") -> " << to_string(mCompleteLedgers);
         }
         else
         {
             JLOG(m_journal.info())
                 << "mCompleteLedgers[setFullLedger]: insert("
-                << ledger->info().seq << ") -> "
-                << to_string(mCompleteLedgers);
+                << ledger->info().seq << ") -> " << to_string(mCompleteLedgers);
         }
     }
 
@@ -2157,7 +2155,14 @@ LedgerMaster::doAdvance(std::unique_lock<std::recursive_mutex>& sl)
         auto const pubLedgers = findNewLedgersToPublish(sl);
         if (pubLedgers.empty())
         {
-            if (!standalone_ && !app_.getFeeTrack().isLoadedLocal() &&
+            // History backfill is pointless in memory-resident mode: our
+            // retention IS ledger_history, and prevMissing finds gaps just
+            // below the retention window that we'd re-fetch only to
+            // immediately retire again — producing the classic flicker
+            // where mCompleteLedgers oscillates between ledger_history
+            // and ledger_history+1.
+            if (!standalone_ && !app_.getSHAMapStore().memoryResidentMode() &&
+                !app_.getFeeTrack().isLoadedLocal() &&
                 (app_.getJobQueue().getJobCount(jtPUBOLDLEDGER) < 10) &&
                 (mValidLedgerSeq == mPubLedgerSeq) &&
                 (getValidatedLedgerAge() < MAX_LEDGER_AGE_ACQUIRE) &&
