@@ -154,7 +154,17 @@ SHAMapStoreImp::SHAMapStoreImp(
     }
 
     get_if_exists(section, "online_delete", deleteInterval_);
-    isMemoryBackend_ = boost::iequals(get(section, "type"), "rwdb");
+    auto const backendType = get(section, "type");
+    isMemoryBackend_ = boost::iequals(backendType, "rwdb") ||
+                       boost::iequals(backendType, "none");
+
+    // type=none is the declared null-nodestore config (via NullFactory).
+    // Propagate to XAHAU_RWDB_NULL so isRWDBNullMode() in other components
+    // (SHAMapSync, InboundLedger, Ledger) picks up null-mode semantics via
+    // their file-local helpers. overwrite=0 preserves any value the user
+    // has already set.
+    if (boost::iequals(backendType, "none"))
+        ::setenv("XAHAU_RWDB_NULL", "1", 0);
 
     // For RWDB, default online_delete to ledger_history only if user did not
     // explicitly set online_delete.  Clamp to the minimum so an implicit
