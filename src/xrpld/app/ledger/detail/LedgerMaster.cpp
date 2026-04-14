@@ -523,6 +523,8 @@ LedgerMaster::clearLedger(std::uint32_t seq)
     }
 
     mCompleteLedgers.erase(seq);
+    JLOG(m_journal.info()) << "mCompleteLedgers[clearLedger]: erase(" << seq
+                           << ") -> " << to_string(mCompleteLedgers);
 }
 
 bool
@@ -688,6 +690,9 @@ LedgerMaster::tryFill(std::shared_ptr<Ledger const> ledger)
             {
                 std::lock_guard ml(mCompleteLock);
                 mCompleteLedgers.insert(range(minHas, maxHas));
+                JLOG(m_journal.info())
+                    << "mCompleteLedgers[tryFill/inner]: insert(" << minHas
+                    << "-" << maxHas << ") -> " << to_string(mCompleteLedgers);
             }
             maxHas = minHas;
             ledgerHashes = app_.getRelationalDatabase().getHashesByIndex(
@@ -718,6 +723,9 @@ LedgerMaster::tryFill(std::shared_ptr<Ledger const> ledger)
     {
         std::lock_guard ml(mCompleteLock);
         mCompleteLedgers.insert(range(minHas, maxHas));
+        JLOG(m_journal.info())
+            << "mCompleteLedgers[tryFill/final]: insert(" << minHas << "-"
+            << maxHas << ") -> " << to_string(mCompleteLedgers);
     }
     {
         std::lock_guard ml(m_mutex);
@@ -861,11 +869,6 @@ LedgerMaster::setFullLedger(
 
     pendSaveValidated(app_, ledger, isSynchronous, isCurrent);
 
-    {
-        std::lock_guard ml(mCompleteLock);
-        mCompleteLedgers.insert(ledger->info().seq);
-    }
-
     // Pin a sliding window of recently validated current ledgers so their
     // SHAMap state trees stay resident via shared_ptr. This tracks the
     // server's active online band rather than retaining arbitrary historical
@@ -908,44 +911,74 @@ LedgerMaster::setFullLedger(
         }
     }
 
-    // Memory-resident retirement only fires once the node is in FULL
-    // operating mode — i.e. caught up to the network. During catch-up we
-    // let mCompleteLedgers, LedgerHistory, and the relational tables
-    // accumulate freely; mRetainedLedgers's own pop_front above still
-    // caps the structural retention at ledger_history, so the overhead
-    // of growth is bounded. Once FULL is reached, the first retire's
-    // bulk-prefix clean-up inside retireLedgers collapses all the
-    // accumulated history below the retention window in one pass.
+    // Memory-resident retirement is gated on a STICKY FULL observation.
+    // Once we've seen OperatingMode::FULL at any prior setFullLedger call,
+    // retirement stays enabled even if the mode temporarily dips to
+    // TRACKING or SYNCING. This keeps mCompleteLedgers from accumulating
+    // across transient mode flickers, which were causing the reported
+    // complete_ledgers count to drift past ledger_history.
     //
-    // We split the work in two:
-    //
-    //   (a) Synchronously on this thread — update mCompleteLedgers via
-    //       clearPriorLedgers. This is a trivial range-set erase under
-    //       mCompleteLock. Doing it here keeps the reported
-    //       complete_ledgers range tight: no transient 16↔17 window,
-    //       no over-advertising to peers.
-    //
-    //   (b) Asynchronously via the job queue — the expensive part:
-    //       LedgerHistory cache eviction, relational deletes, and the
-    //       shared_ptr destruction cascade through the retired ledgers'
-    //       SHAMap spines. All off the publish thread. The retired
-    //       Ledgers stay alive in the captured vector until the job runs.
-    //
-    // In disk-backed mode the whole block is dormant (memoryResidentMode
-    // false).
-    if (!retiredLedgers.empty() &&
-        app_.getSHAMapStore().memoryResidentMode() &&
-        app_.getOPs().getOperatingMode() == OperatingMode::FULL)
+    // Static atomic is process-wide; xahaud runs a single Application per
+    // process so effectively per-instance.
+    static std::atomic<bool> sawFull{false};
+    if (app_.getOPs().getOperatingMode() == OperatingMode::FULL)
+        sawFull.store(true, std::memory_order_release);
+    bool const shouldRetire = app_.getSHAMapStore().memoryResidentMode() &&
+        sawFull.load(std::memory_order_acquire);
+
+    // The mCompleteLedgers insert of the new seq AND the bulk-prefix prune
+    // of retired seqs both run under one mCompleteLock acquisition. This
+    // closes the transient insert-before-prune window where observers
+    // would see ledger_history + 1 entries briefly. Peers get a
+    // complete_ledgers range that stays tight at exactly ledger_history.
+    LedgerIndex maxRetiredSeq = 0;
+    if (shouldRetire)
     {
-        LedgerIndex maxRetiredSeq = 0;
         for (auto const& r : retiredLedgers)
         {
             if (r && r->info().seq > maxRetiredSeq)
                 maxRetiredSeq = r->info().seq;
         }
-        if (maxRetiredSeq > 0)
-            clearPriorLedgers(maxRetiredSeq + 1);
+    }
 
+    {
+        std::lock_guard ml(mCompleteLock);
+        mCompleteLedgers.insert(ledger->info().seq);
+
+        // Inline bulk-prefix prune under the same lock. This is the body
+        // of clearPriorLedgers without its own lock acquisition. Pinning
+        // is preserved.
+        if (maxRetiredSeq > 0)
+        {
+            auto pinnedCopy = mPinnedLedgers;
+            RangeSet<std::uint32_t> toClear;
+            toClear.insert(range(0u, maxRetiredSeq));
+            for (auto const& interval : toClear)
+                mCompleteLedgers.erase(interval);
+            for (auto const& interval : pinnedCopy)
+                mCompleteLedgers.insert(interval);
+            JLOG(m_journal.info())
+                << "mCompleteLedgers[setFullLedger/insert+prune]: insert("
+                << ledger->info().seq << ") + clearPrior("
+                << maxRetiredSeq + 1 << ") -> "
+                << to_string(mCompleteLedgers);
+        }
+        else
+        {
+            JLOG(m_journal.info())
+                << "mCompleteLedgers[setFullLedger]: insert("
+                << ledger->info().seq << ") -> "
+                << to_string(mCompleteLedgers);
+        }
+    }
+
+    // Heavy work goes async (LedgerHistory cache eviction, relational
+    // deletes, and the shared_ptr destruction cascade through the retired
+    // Ledgers' SHAMap spines). The retired Ledgers stay alive in the
+    // captured vector until the job runs; destruction happens on the
+    // worker thread, off doAdvance's critical path.
+    if (shouldRetire && !retiredLedgers.empty())
+    {
         app_.getJobQueue().addJob(
             jtLEDGER_DATA,
             "retireLedgers",
@@ -1910,6 +1943,9 @@ LedgerMaster::setLedgerRangePresent(
 {
     std::lock_guard sl(mCompleteLock);
     mCompleteLedgers.insert(range(minV, maxV));
+    JLOG(m_journal.info()) << "mCompleteLedgers[setLedgerRangePresent]: insert("
+                           << minV << "-" << maxV << ") -> "
+                           << to_string(mCompleteLedgers);
 
     if (pin)
     {
@@ -1953,6 +1989,8 @@ LedgerMaster::clearPriorLedgers(LedgerIndex seq)
     for (auto const& interval : pinnedCopy)
         mCompleteLedgers.insert(interval);
 
+    JLOG(m_journal.info()) << "mCompleteLedgers[clearPriorLedgers]: clearPrior("
+                           << seq << ") -> " << to_string(mCompleteLedgers);
     JLOG(m_journal.debug()) << "clearPriorLedgers: after restoration, pinned="
                             << to_string(mPinnedLedgers);
 }
@@ -2025,7 +2063,16 @@ LedgerMaster::fetchForHistory(
                 mHistLedger = ledger;
                 fillInProgress = mFillInProgress;
             }
+            // tryFill walks back the ledger's parent-hash chain and marks
+            // every seq it finds in mCompleteLedgers, so peers know we
+            // have the whole chain. Under memory-resident mode we only
+            // actually retain ledger_history ledgers, so the walk would
+            // either (a) duplicate bookkeeping we already have for the
+            // retained range, or (b) mark older seqs we can't actually
+            // serve. Skip it and let mCompleteLedgers track only the
+            // ledgers mRetainedLedgers structurally holds.
             if (fillInProgress == 0 &&
+                !app_.getSHAMapStore().memoryResidentMode() &&
                 app_.getRelationalDatabase().getHashByIndex(seq - 1) ==
                     ledger->info().parentHash)
             {
