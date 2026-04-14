@@ -108,15 +108,18 @@ public:
     virtual bool
     memoryResidentMode() const = 0;
 
-    /** Retire a single ledger from memory-resident retention.
+    /** Retire a batch of ledgers from memory-resident retention.
 
-        Called by LedgerMaster when a Ledger drops off the back of the
-        retention deque. Synchronously prunes mCompleteLedgers, the
-        LedgerHistory cache, and per-seq relational rows for this ledger.
-        No-op outside memory-resident mode.
+        Called by LedgerMaster when one or more Ledgers drop off the back
+        of the retention deque. Synchronously prunes mCompleteLedgers, the
+        LedgerHistory cache, and per-seq relational rows for these ledgers.
+        Relational/cache pruning collapses to a single prefix-delete at the
+        highest retired sequence, so plural calls are no costlier than a
+        singular one. No-op outside memory-resident mode.
     */
     virtual void
-    retireLedger(std::shared_ptr<Ledger const> const& ledger) = 0;
+    retireLedgers(
+        std::vector<std::shared_ptr<Ledger const>> const& ledgers) = 0;
 };
 
 //------------------------------------------------------------------------------

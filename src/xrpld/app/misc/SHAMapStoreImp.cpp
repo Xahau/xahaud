@@ -176,6 +176,10 @@ SHAMapStoreImp::SHAMapStoreImp(
         // No rotation thread will run, so working_ stays false and
         // rendezvous() short-circuits cleanly.
         working_ = false;
+        JLOG(journal_.info())
+            << "Memory-resident retention mode enabled (no rotation thread); "
+            << "ledger_history=" << config.LEDGER_HISTORY
+            << " is the retention bound";
     }
 
     // For RWDB, default online_delete to ledger_history only if user did not
@@ -839,32 +843,59 @@ SHAMapStoreImp::minimumOnline() const
 }
 
 void
-SHAMapStoreImp::retireLedger(std::shared_ptr<Ledger const> const& ledger)
+SHAMapStoreImp::retireLedgers(
+    std::vector<std::shared_ptr<Ledger const>> const& ledgers)
 {
-    if (!memoryResidentMode_ || !ledger)
+    if (!memoryResidentMode_ || ledgers.empty())
         return;
 
     // Memory-resident retirement: synchronously prune the per-seq state
-    // associated with this ledger. No batching, no backoff — we expect
+    // associated with each ledger. No batching delays — we expect
     // RWDB-relational where deletes are in-memory map.erase() calls.
-    auto const seq = ledger->info().seq;
-
+    //
+    // Relational and LedgerHistory pruning are PREFIX deletes (everything
+    // ≤ seq), so for N retired ledgers we only need one call with the
+    // highest seq to cover them all. mCompleteLedgers is per-seq because
+    // pinning may interleave with the retired range.
     auto& lm = app_.getLedgerMaster();
-    // mCompleteLedgers (reported via complete_ledgers); preserves pinning.
-    lm.clearLedger(seq);
-    // LedgerHistory cache (mLedgerByHash, mLedgersByIndex). Idempotent on
-    // subsequent calls — entries < seq+1 are already gone after the first.
-    lm.clearLedgerCachePrior(seq + 1);
+    LedgerIndex maxSeq = 0;
+    for (auto const& ledger : ledgers)
+    {
+        if (!ledger)
+            continue;
+        auto const seq = ledger->info().seq;
+        if (seq > maxSeq)
+            maxSeq = seq;
+        // mCompleteLedgers per-seq (preserves pinning).
+        lm.clearLedger(seq);
+    }
 
-    // Relational tables — per-seq, no batching, no backoff.
+    if (maxSeq == 0)
+        return;
+
+    // LedgerHistory cache: one prefix call covers every retired seq.
+    lm.clearLedgerCachePrior(maxSeq + 1);
+
+    // Relational tables: same — one prefix delete per table.
     if (auto* db = dynamic_cast<SQLiteDatabase*>(&app_.getRelationalDatabase()))
     {
         if (app_.config().useTxTables())
         {
-            db->deleteTransactionsBeforeLedgerSeq(seq + 1);
-            db->deleteAccountTransactionsBeforeLedgerSeq(seq + 1);
+            db->deleteTransactionsBeforeLedgerSeq(maxSeq + 1);
+            db->deleteAccountTransactionsBeforeLedgerSeq(maxSeq + 1);
         }
-        db->deleteBeforeLedgerSeq(seq + 1);
+        db->deleteBeforeLedgerSeq(maxSeq + 1);
+    }
+
+    if (ledgers.size() == 1)
+    {
+        JLOG(journal_.info())
+            << "retireLedgers: dropped ledger " << maxSeq;
+    }
+    else
+    {
+        JLOG(journal_.info()) << "retireLedgers: dropped " << ledgers.size()
+                              << " ledgers up to seq " << maxSeq;
     }
 }
 

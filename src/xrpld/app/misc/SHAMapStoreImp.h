@@ -187,7 +187,8 @@ public:
     }
 
     void
-    retireLedger(std::shared_ptr<Ledger const> const& ledger) override;
+    retireLedgers(
+        std::vector<std::shared_ptr<Ledger const>> const& ledgers) override;
 
 private:
     // callback for visitNodes

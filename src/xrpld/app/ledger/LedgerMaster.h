@@ -184,10 +184,6 @@ public:
     std::shared_ptr<Ledger const>
     getLedgerByHash(uint256 const& hash);
 
-    std::shared_ptr<Ledger const>
-    getClosestFullyWiredLedger(
-        std::shared_ptr<Ledger const> const& targetLedger);
-
     void
     setLedgerRangePresent(
         std::uint32_t minV,
