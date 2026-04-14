@@ -63,18 +63,23 @@ namespace hook_api {
     fprintf
 
 #pragma push_macro("HOOK_API_DEFINITION")
+#pragma push_macro("HOOK_API_COST")
 #undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
 
 #define HOOK_WRAP_PARAMS(...) __VA_ARGS__
 #define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
     DECLARE_HOOK_FUNCTION(                                                 \
         RETURN_TYPE, FUNCTION_NAME, HOOK_WRAP_PARAMS PARAMS_TUPLE);
+#define HOOK_API_COST(FUNCTION_NAME, cost, amendment)
 
 #include <xrpl/hook/hook_api.macro>
 
 #undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
 #undef HOOK_WRAP_PARAMS
 #pragma pop_macro("HOOK_API_DEFINITION")
+#pragma pop_macro("HOOK_API_COST")
 
 } /* end namespace hook_api */
 
@@ -275,14 +280,14 @@ gatherHookParameters(
     beast::Journal const& j_);
 
 // RH TODO: call destruct for these on rippled shutdown
-#define ADD_HOOK_FUNCTION(F, ctx)                          \
+#define ADD_HOOK_FUNCTION(F, ctx, cost)                    \
     {                                                      \
         WasmEdge_FunctionInstanceContext* hf =             \
             WasmEdge_FunctionInstanceCreate(               \
                 hook_api::WasmFunctionType##F,             \
                 hook_api::WasmFunction##F,                 \
                 (void*)(&ctx),                             \
-                0);                                        \
+                cost);                                     \
         WasmEdge_ModuleInstanceAddFunction(                \
             importObj, hook_api::WasmFunctionName##F, hf); \
     }
@@ -510,17 +515,40 @@ public:
         WasmEdge_LogSetDebugLevel();
 
 #pragma push_macro("HOOK_API_DEFINITION")
+#pragma push_macro("HOOK_API_COST")
+
+        // Access rules for amendment-based cost switching
+        auto const& rules_ = ctx.applyCtx.view().rules();
+
+        // Phase 1: Declare per-function cost variables, initialized to 0
 #undef HOOK_API_DEFINITION
-
+#undef HOOK_API_COST
 #define HOOK_WRAP_PARAMS(...) __VA_ARGS__
-#define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
-    ADD_HOOK_FUNCTION(FUNCTION_NAME, ctx);
+#define HOOK_API_DEFINITION(RT, FN, ...) uint64_t cost_##FN = 0;
+#define HOOK_API_COST(...)
+#include <xrpl/hook/hook_api.macro>
 
+        // Phase 2: Set costs; amendment-gated entries override base costs
+#undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
+#define HOOK_API_DEFINITION(...)
+#define HOOK_API_COST(FN, cost, AM)              \
+    if ((AM) == uint256{} || rules_.enabled(AM)) \
+        cost_##FN = (cost);
+#include <xrpl/hook/hook_api.macro>
+
+        // Phase 3: Register functions with WasmEdge using computed costs
+#undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
+#define HOOK_API_DEFINITION(RT, FN, ...) ADD_HOOK_FUNCTION(FN, ctx, cost_##FN);
+#define HOOK_API_COST(...)
 #include <xrpl/hook/hook_api.macro>
 
 #undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
 #undef HOOK_WRAP_PARAMS
 #pragma pop_macro("HOOK_API_DEFINITION")
+#pragma pop_macro("HOOK_API_COST")
 
         WasmEdge_TableInstanceContext* hostTable =
             WasmEdge_TableInstanceCreate(tableType);

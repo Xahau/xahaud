@@ -416,7 +416,9 @@ getImportWhitelist(Rules const& rules)
     APIWhitelist whitelist;
 
 #pragma push_macro("HOOK_API_DEFINITION")
+#pragma push_macro("HOOK_API_COST")
 #undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
 
 #define int64_t 0x7EU
 #define int32_t 0x7FU
@@ -424,20 +426,23 @@ getImportWhitelist(Rules const& rules)
 
 #define HOOK_WRAP_PARAMS(...) __VA_ARGS__
 
-#define HOOK_API_DEFINITION(                                \
-    RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, AMENDMENT)    \
-    if (AMENDMENT == uint256{} || rules.enabled(AMENDMENT)) \
-        whitelist[#FUNCTION_NAME] = {                       \
+#define HOOK_API_DEFINITION(                                    \
+    RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, AMENDMENT)        \
+    if (AMENDMENT == uint256{} || rules.enabled(AMENDMENT))     \
+        whitelist[#FUNCTION_NAME] = {                           \
             RETURN_TYPE, HOOK_WRAP_PARAMS PARAMS_TUPLE};
+#define HOOK_API_COST(FUNCTION_NAME, cost, amendment)
 
 #include "hook_api.macro"
 
 #undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
 #undef HOOK_WRAP_PARAMS
 #undef int64_t
 #undef int32_t
 #undef uint32_t
 #pragma pop_macro("HOOK_API_DEFINITION")
+#pragma pop_macro("HOOK_API_COST")
 
     return whitelist;
 }

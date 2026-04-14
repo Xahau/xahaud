@@ -15929,7 +15929,7 @@ public:
             env.close();
 
             env(invoke::invoke(alice),
-                hookgas(1000),
+                hookgas(10000),
                 M("test gas type hook cbak gas invocation"),
                 fee(XRP(1)));
 
