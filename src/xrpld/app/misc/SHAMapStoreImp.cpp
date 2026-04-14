@@ -375,6 +375,7 @@ SHAMapStoreImp::run()
 
             if (isMemoryBackend_)
             {
+                //@@start rwdb-null-skip-rotation
                 if (skipNodeStoreRotateForMode(isMemoryBackend_))
                 {
                     JLOG(journal_.debug())
@@ -385,6 +386,7 @@ SHAMapStoreImp::run()
                     clearCaches(validatedSeq);
                     continue;
                 }
+                //@@end rwdb-null-skip-rotation
 
                 // For RWDB: copy only the current validated ledger's live
                 // state nodes into a fresh backend that is not yet shared,
@@ -402,6 +404,7 @@ SHAMapStoreImp::run()
 
                 try
                 {
+                    //@@start rwdb-visit-copy
                     validatedLedger->stateMap().snapShot(false)->visitNodes(
                         [&](SHAMapTreeNode& node) -> bool {
                             auto const hash = node.getHash().as_uint256();
@@ -426,6 +429,7 @@ SHAMapStoreImp::run()
                             }
                             return true;
                         });
+                    //@@end rwdb-visit-copy
                 }
                 catch (SHAMapMissingNode const& e)
                 {

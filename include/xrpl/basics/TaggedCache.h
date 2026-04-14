@@ -511,6 +511,7 @@ public:
     // End CachedSLEs functions.
 
 private:
+    //@@start tagged-cache-fetch-promote
     std::shared_ptr<T>
     initialFetch(key_type const& key, std::lock_guard<mutex_type> const& l)
     {
@@ -537,6 +538,7 @@ private:
         m_cache.erase(cit);
         return {};
     }
+    //@@end tagged-cache-fetch-promote
 
     void
     collect_metrics()
@@ -599,6 +601,7 @@ private:
     class ValueEntry
     {
     public:
+        //@@start tagged-cache-dual-tier
         std::shared_ptr<mapped_type> ptr;
         std::weak_ptr<mapped_type> weak_ptr;
         clock_type::time_point last_access;
@@ -609,6 +612,7 @@ private:
             : ptr(ptr_), weak_ptr(ptr_), last_access(last_access_)
         {
         }
+        //@@end tagged-cache-dual-tier
 
         bool
         isWeak() const
@@ -668,6 +672,7 @@ private:
             stuffToSweep.first.reserve(partition.size());
             stuffToSweep.second.reserve(partition.size());
             {
+                //@@start tagged-cache-sweep-demote
                 auto cit = partition.begin();
                 while (cit != partition.end())
                 {
@@ -710,6 +715,7 @@ private:
                         ++cit;
                     }
                 }
+                //@@end tagged-cache-sweep-demote
             }
 
             if (mapRemovals || cacheRemovals)

@@ -277,15 +277,14 @@ InboundLedger::init(ScopedLockType& collectionLock)
 
     JLOG(journal_.debug()) << "Acquiring ledger we already have in "
                            << " local store. " << hash_;
-    auto const baseLedger = findBestFullyWiredBase(app_, mLedger, journal_);
-    if (!primeInboundLedgerForUse(
-            mLedger, baseLedger, journal_, "InboundLedger::init"))
-    {
-        complete_ = false;
-        failed_ = true;
-        done();
-        return;
-    }
+    // tryDB's getMissingNodes(1, filter) call already descended through
+    // every non-fullbelow branch and hooked children via canonicalizeChild.
+    // With the FullBelowCache liveness check in SHAMapSync, short-circuits
+    // only fire when the canonical subtree is proven alive via TreeNodeCache,
+    // so read-time lazy fetches are guaranteed to resolve. No upfront walk
+    // needed.
+    if (isRWDBNullMode() && !mLedger->isFullyWired())
+        mLedger->setFullyWired();
     XRPL_ASSERT(
         mLedger->read(keylet::fees()),
         "ripple::InboundLedger::init : valid ledger fees");
@@ -618,29 +617,29 @@ InboundLedger::done()
 
     if (complete_ && !failed_ && mLedger)
     {
-        auto const baseLedger = findBestFullyWiredBase(app_, mLedger, journal_);
-        if (!primeInboundLedgerForUse(
-                mLedger, baseLedger, journal_, "InboundLedger::done"))
-        {
-            complete_ = false;
-            failed_ = true;
-        }
-        else
-        {
-            XRPL_ASSERT(
-                mLedger->read(keylet::fees()),
-                "ripple::InboundLedger::done : valid ledger fees");
-            mLedger->setImmutable();
+        // Sync's addKnownNode calls have canonicalized every arriving node
+        // into TreeNodeCache and hooked each into its parent via
+        // canonicalizeChild. With the FullBelowCache liveness check in
+        // SHAMapSync, any FBC short-circuit during sync's getMissingNodes
+        // walk is only taken when the canonical subtree is alive, so
+        // read-time lazy fetches are guaranteed to resolve via
+        // TreeNodeCache. No post-sync walk needed.
+        if (isRWDBNullMode() && !mLedger->isFullyWired())
+            mLedger->setFullyWired();
 
-            switch (mReason)
-            {
-                case Reason::HISTORY:
-                    app_.getInboundLedgers().onLedgerFetched(shared_from_this());
-                    break;
-                default:
-                    app_.getLedgerMaster().storeLedger(mLedger);
-                    break;
-            }
+        XRPL_ASSERT(
+            mLedger->read(keylet::fees()),
+            "ripple::InboundLedger::done : valid ledger fees");
+        mLedger->setImmutable();
+
+        switch (mReason)
+        {
+            case Reason::HISTORY:
+                app_.getInboundLedgers().onLedgerFetched(shared_from_this());
+                break;
+            default:
+                app_.getLedgerMaster().storeLedger(mLedger);
+                break;
         }
     }
 
@@ -1111,6 +1110,7 @@ InboundLedger::receiveNode(protocol::TMLedgerData& packet, SHAMapAddNode& san)
     {
         auto const f = filter.get();
 
+        //@@start receive-node-link-loop
         for (auto const& node : packet.nodes())
         {
             auto const nodeID = deserializeSHAMapNodeID(node.nodeid());
@@ -1133,6 +1133,7 @@ InboundLedger::receiveNode(protocol::TMLedgerData& packet, SHAMapAddNode& san)
                 return;
             }
         }
+        //@@end receive-node-link-loop
     }
     catch (std::exception const& e)
     {

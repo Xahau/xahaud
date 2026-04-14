@@ -29,13 +29,25 @@ namespace ripple {
 namespace {
 
 bool
+isRWDBNullMode()
+{
+    static bool const v = [] {
+        char const* e = std::getenv("XAHAU_RWDB_NULL");
+        return e && *e && std::string_view{e} != "0";
+    }();
+    return v;
+}
+
+bool
 useFullBelowCache()
 {
-    static bool const use = [] {
-        char const* e = std::getenv("XAHAU_RWDB_NULL");
-        return !(e && *e && std::string_view{e} != "0");
-    }();
-    return use;
+    // FullBelowCache is enabled in both disk-backed and null modes. In
+    // null mode the FBC short-circuit sites (addKnownNode and
+    // gmn_ProcessNodes) additionally validate the claim via TreeNodeCache
+    // liveness and anchor the canonical into the current SHAMap's spine,
+    // so the claim cannot outlive the canonical node it vouches for. See
+    // .ai-docs/null-nodestore-backend.md for the full reasoning.
+    return true;
 }
 
 }  // namespace
@@ -206,10 +218,31 @@ SHAMap::gmn_ProcessNodes(MissingNodes& mn, MissingNodes::StackEntry& se)
         {
             // we already know this child node is missing
             fullBelow = false;
+            continue;
         }
-        else if (
-            !backed_ || !useFullBelowCache() ||
-            !f_.getFullBelowCache()->touch_if_exists(childHash.as_uint256()))
+
+        //@@start gmn-fullbelow-check
+        if (backed_ && useFullBelowCache() &&
+            f_.getFullBelowCache()->touch_if_exists(childHash.as_uint256()))
+        {
+            // Disk-backed mode: trust the claim (self-healing via lazy DB
+            // refetch on later reads).
+            if (!isRWDBNullMode())
+                continue;
+
+            // Null mode: validate via TreeNodeCache liveness and anchor
+            // the canonical into THIS SHAMap's spine. Same reasoning as
+            // addKnownNode.
+            if (auto canonical =
+                    f_.getTreeNodeCache()->fetch(childHash.as_uint256()))
+            {
+                node->canonicalizeChild(branch, std::move(canonical));
+                continue;
+            }
+            // Stale claim — fall through and descend.
+        }
+        //@@end gmn-fullbelow-check
+
         {
             bool pending = false;
             auto d = descendAsync(
@@ -627,11 +660,29 @@ SHAMap::addKnownNode(
         }
 
         auto childHash = inner->getChildHash(branch);
+        //@@start fullbelow-short-circuit
         if (useFullBelowCache() &&
             f_.getFullBelowCache()->touch_if_exists(childHash.as_uint256()))
         {
-            return SHAMapAddNode::duplicate();
+            // Disk-backed mode: the FBC claim is self-healing (stale
+            // entries surface as lazy DB refetches). Return duplicate
+            // without further work.
+            if (!isRWDBNullMode())
+                return SHAMapAddNode::duplicate();
+
+            // Null mode: no DB to fall back on. Validate via TreeNodeCache
+            // liveness and anchor the canonical into THIS SHAMap's spine so
+            // retention is structural and doesn't depend on whichever
+            // ledger originally marked this subtree full-below.
+            if (auto canonical =
+                    f_.getTreeNodeCache()->fetch(childHash.as_uint256()))
+            {
+                inner->canonicalizeChild(branch, std::move(canonical));
+                return SHAMapAddNode::duplicate();
+            }
+            // Stale claim — canonical freed. Fall through to normal descent.
         }
+        //@@end fullbelow-short-circuit
 
         auto prevNode = inner;
         std::tie(iNode, iNodeID) = descend(inner, iNodeID, branch, filter);
@@ -667,6 +718,7 @@ SHAMap::addKnownNode(
                 return SHAMapAddNode::useful();
             }
 
+            //@@start addknown-hook-seq
             if (backed_)
                 canonicalize(childHash, newNode);
 
@@ -683,6 +735,7 @@ SHAMap::addKnownNode(
                     std::move(s.modData()),
                     newNode->getType());
             }
+            //@@end addknown-hook-seq
 
             return SHAMapAddNode::useful();
         }
