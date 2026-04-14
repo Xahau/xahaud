@@ -166,6 +166,18 @@ SHAMapStoreImp::SHAMapStoreImp(
     if (boost::iequals(backendType, "none"))
         ::setenv("XAHAU_RWDB_NULL", "1", 0);
 
+    // Memory-resident mode is implied by null-mode semantics. The rotation
+    // thread doesn't run; per-ledger retirement happens via retireLedger
+    // called from LedgerMaster::setFullLedger when a ledger drops off the
+    // back of mRetainedLedgers.
+    memoryResidentMode_ = isRWDBNullMode();
+    if (memoryResidentMode_)
+    {
+        // No rotation thread will run, so working_ stays false and
+        // rendezvous() short-circuits cleanly.
+        working_ = false;
+    }
+
     // For RWDB, default online_delete to ledger_history only if user did not
     // explicitly set online_delete.  Clamp to the minimum so an implicit
     // value never triggers the "online_delete must be at least …" throw.
@@ -824,6 +836,36 @@ SHAMapStoreImp::minimumOnline() const
     if (deleteInterval_ && minimumOnline_)
         return minimumOnline_.load();
     return app_.getLedgerMaster().minSqlSeq();
+}
+
+void
+SHAMapStoreImp::retireLedger(std::shared_ptr<Ledger const> const& ledger)
+{
+    if (!memoryResidentMode_ || !ledger)
+        return;
+
+    // Memory-resident retirement: synchronously prune the per-seq state
+    // associated with this ledger. No batching, no backoff — we expect
+    // RWDB-relational where deletes are in-memory map.erase() calls.
+    auto const seq = ledger->info().seq;
+
+    auto& lm = app_.getLedgerMaster();
+    // mCompleteLedgers (reported via complete_ledgers); preserves pinning.
+    lm.clearLedger(seq);
+    // LedgerHistory cache (mLedgerByHash, mLedgersByIndex). Idempotent on
+    // subsequent calls — entries < seq+1 are already gone after the first.
+    lm.clearLedgerCachePrior(seq + 1);
+
+    // Relational tables — per-seq, no batching, no backoff.
+    if (auto* db = dynamic_cast<SQLiteDatabase*>(&app_.getRelationalDatabase()))
+    {
+        if (app_.config().useTxTables())
+        {
+            db->deleteTransactionsBeforeLedgerSeq(seq + 1);
+            db->deleteAccountTransactionsBeforeLedgerSeq(seq + 1);
+        }
+        db->deleteBeforeLedgerSeq(seq + 1);
+    }
 }
 
 //------------------------------------------------------------------------------

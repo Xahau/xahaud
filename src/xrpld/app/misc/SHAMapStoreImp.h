@@ -102,6 +102,9 @@ private:
     std::uint32_t deleteInterval_ = 0;
     bool advisoryDelete_ = false;
     bool isMemoryBackend_ = false;
+    // Memory-resident mode: skip the rotation thread entirely; per-ledger
+    // retirement happens via retireLedger called from LedgerMaster.
+    bool memoryResidentMode_ = false;
     std::uint32_t deleteBatch_ = 100;
     std::chrono::milliseconds backOff_{100};
     std::chrono::seconds ageThreshold_{60};
@@ -177,6 +180,15 @@ public:
     std::optional<LedgerIndex>
     minimumOnline() const override;
 
+    bool
+    memoryResidentMode() const override
+    {
+        return memoryResidentMode_;
+    }
+
+    void
+    retireLedger(std::shared_ptr<Ledger const> const& ledger) override;
+
 private:
     // callback for visitNodes
     bool
@@ -238,6 +250,8 @@ public:
     void
     start() override
     {
+        if (memoryResidentMode_)
+            return;
         if (deleteInterval_)
             thread_ = std::thread(&SHAMapStoreImp::run, this);
     }

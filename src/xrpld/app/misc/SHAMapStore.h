@@ -97,6 +97,26 @@ public:
     */
     virtual std::optional<LedgerIndex>
     minimumOnline() const = 0;
+
+    /** True if this store is configured for memory-resident retention.
+
+        In memory-resident mode (null nodestore) the rotation thread does
+        not run; ledgers are retired one at a time as new validated ledgers
+        arrive (see retireLedger), and online_delete is effectively
+        ignored. The retention bound is ledger_history.
+    */
+    virtual bool
+    memoryResidentMode() const = 0;
+
+    /** Retire a single ledger from memory-resident retention.
+
+        Called by LedgerMaster when a Ledger drops off the back of the
+        retention deque. Synchronously prunes mCompleteLedgers, the
+        LedgerHistory cache, and per-seq relational rows for this ledger.
+        No-op outside memory-resident mode.
+    */
+    virtual void
+    retireLedger(std::shared_ptr<Ledger const> const& ledger) = 0;
 };
 
 //------------------------------------------------------------------------------

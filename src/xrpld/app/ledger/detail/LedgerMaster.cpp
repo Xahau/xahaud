@@ -870,13 +870,17 @@ LedgerMaster::setFullLedger(
     // SHAMap state trees stay resident via shared_ptr. This tracks the
     // server's active online band rather than retaining arbitrary historical
     // backfill ledgers.
+    std::vector<std::shared_ptr<Ledger const>> retiredLedgers;
     if (isCurrent && ledger_history_ > 0)
     {
         std::lock_guard ml(m_mutex);
         bool const isFirst = mRetainedLedgers.empty();
         mRetainedLedgers.push_back(ledger);
         while (mRetainedLedgers.size() > ledger_history_)
+        {
+            retiredLedgers.push_back(std::move(mRetainedLedgers.front()));
             mRetainedLedgers.pop_front();
+        }
 
         // Legacy bootstrap for lazy trees. In null mode the ledger has
         // already been fully wired before it reaches retention, so there is
@@ -902,6 +906,17 @@ LedgerMaster::setFullLedger(
                     << ledger->info().seq << ": " << e.what();
             }
         }
+    }
+
+    // Memory-resident retirement happens outside m_mutex — relational
+    // deletes shouldn't run under the LedgerMaster lock. In disk-backed
+    // mode this is a no-op (memoryResidentMode() returns false and
+    // retireLedger short-circuits).
+    if (!retiredLedgers.empty() &&
+        app_.getSHAMapStore().memoryResidentMode())
+    {
+        for (auto const& r : retiredLedgers)
+            app_.getSHAMapStore().retireLedger(r);
     }
 
     {
