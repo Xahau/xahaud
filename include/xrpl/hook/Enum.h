@@ -426,10 +426,10 @@ getImportWhitelist(Rules const& rules)
 
 #define HOOK_WRAP_PARAMS(...) __VA_ARGS__
 
-#define HOOK_API_DEFINITION(                                    \
-    RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, AMENDMENT)        \
-    if (AMENDMENT == uint256{} || rules.enabled(AMENDMENT))     \
-        whitelist[#FUNCTION_NAME] = {                           \
+#define HOOK_API_DEFINITION(                                \
+    RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, AMENDMENT)    \
+    if (AMENDMENT == uint256{} || rules.enabled(AMENDMENT)) \
+        whitelist[#FUNCTION_NAME] = {                       \
             RETURN_TYPE, HOOK_WRAP_PARAMS PARAMS_TUPLE};
 #define HOOK_API_COST(FUNCTION_NAME, cost, amendment)
 
