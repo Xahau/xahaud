@@ -220,7 +220,7 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
             scheduler_,
             readThreads,
             nscfg,
-            app_.getJournal(nodeStoreName_));
+            app_.logs().journal(nodeStoreName_));
         fdRequired_ += db->fdRequired();
     }
     else if (deleteInterval_)
