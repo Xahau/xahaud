@@ -582,9 +582,9 @@ class BaseFee_test : public beast::unit_test::suite
     }
 
     void
-    testSignersListSet(FeatureBitset features)
+    testSignerListSet(FeatureBitset features)
     {
-        testcase("signers list set w/ hook params");
+        testcase("signer list set w/ hook params");
 
         using namespace test::jtx;
         using namespace std::literals;
@@ -810,7 +810,7 @@ class BaseFee_test : public beast::unit_test::suite
         testPaymentChannelFund(features);
         testSetHook(features);
         testSetRegularKey(features);
-        testSignersListSet(features);
+        testSignerListSet(features);
         testTicketCreate(features);
         testTrustSet(features);
         testURITokenBurnFee(features);
