@@ -43,6 +43,7 @@ TxFormats::TxFormats()
         {sfSigningPubKey, soeREQUIRED},
         {sfTicketSequence, soeOPTIONAL},
         {sfTxnSignature, soeOPTIONAL},
+        {sfJsonTxBody, soeOPTIONAL},  // json-tx: ASCII bytes that were signed
         {sfSigners, soeOPTIONAL},  // submit_multisigned
         {sfEmitDetails, soeOPTIONAL},
         {sfFirstLedgerSequence, soeOPTIONAL},

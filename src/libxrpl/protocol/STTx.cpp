@@ -25,6 +25,7 @@
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
+#include <xrpl/protocol/JsonTx.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/STAccount.h>
@@ -216,6 +217,14 @@ STTx::checkSign(
 {
     try
     {
+        // json-tx: when sfJsonTxBody is present and the amendment is
+        // active, the signature covers the raw ASCII bytes of the body
+        // instead of the classical signing payload. Structural
+        // equivalence between the body and the other STTx fields is
+        // enforced separately in passesLocalChecks.
+        if (rules.enabled(featureJsonTx) && jsonTx::hasBody(*this))
+            return jsonTx::checkSignature(*this);
+
         // Determine whether we're single- or multi-signing by looking
         // at the SigningPubKey.  If it's empty we must be
         // multi-signing.  Otherwise we're single-signing.
@@ -661,6 +670,21 @@ passesLocalChecks(STObject const& st, std::string& reason)
     {
         reason = "Amount can not be MPT.";
         return false;
+    }
+
+    // json-tx: if the tx carries sfJsonTxBody, its parsed content must
+    // match the other structural fields. We can only run this when the
+    // object is actually an STTx -- passesLocalChecks is also called on
+    // nested STObjects that don't participate in the json-tx scheme.
+    if (auto const* stx = dynamic_cast<STTx const*>(&st);
+        stx && jsonTx::hasBody(*stx))
+    {
+        if (auto const result = jsonTx::checkStructuralEquivalence(*stx);
+            !result)
+        {
+            reason = result.error();
+            return false;
+        }
     }
 
     return true;
