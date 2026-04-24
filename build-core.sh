@@ -71,6 +71,7 @@ cmake .. -G Ninja \
   -Dxrpld=TRUE \
   -Dtests=TRUE &&
 ccache -z &&
+ccache -p &&
 ninja -j $3 && echo "=== Re-running final link with verbose output ===" && rm -f rippled && ninja -v rippled &&
 ccache -s &&
 strip -s rippled &&
