@@ -880,9 +880,9 @@ private:
     }
 
     void
-    testSignersListSet(FeatureBitset features)
+    testSignerListSet(FeatureBitset features)
     {
-        testcase("signers list set");
+        testcase("signer list set");
 
         using namespace test::jtx;
         using namespace std::literals;
@@ -895,7 +895,7 @@ private:
         env.fund(XRP(1000), alice, signer1, signer2);
         env.close();
 
-        // signers list set
+        // signer list set
         env(signers(alice, 2, {{signer1, 1}, {signer2, 1}}), ter(tesSUCCESS));
         env.close();
 
@@ -1384,7 +1384,7 @@ private:
         testPaymentChannelFund(features);
         testSetHook(features);
         testSetRegularKey(features);
-        testSignersListSet(features);
+        testSignerListSet(features);
         testTicketCreate(features);
         testTrustSet(features);
         testURITokenMint(features);
