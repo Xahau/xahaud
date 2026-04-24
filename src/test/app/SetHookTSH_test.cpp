@@ -4492,14 +4492,14 @@ private:
         }
     }
 
-    // SignersListSet
+    // SignerListSet
     // | otxn  | tsh | sls |
     // |   A   |  A  |  S  |
     // |   A   |  S  |  S  |
     void
-    testSignersListSetTSH(FeatureBitset features)
+    testSignerListSetTSH(FeatureBitset features)
     {
-        testcase("signers list set tsh");
+        testcase("signer list set tsh");
 
         using namespace test::jtx;
         using namespace std::literals;
@@ -4527,7 +4527,7 @@ private:
             // set tsh hook
             setTSHHook(env, account, testStrong);
 
-            // signers list set
+            // signer list set
             env(signers(account, 2, {{signer1, 1}, {signer2, 1}}),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -4566,7 +4566,7 @@ private:
             // set tsh hook
             setTSHHook(env, signer2, testStrong);
 
-            // signers list set
+            // signer list set
             env(signers(account, 2, {{signer1, 1}, {signer2, 1}}),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -6914,7 +6914,7 @@ private:
         testPaymentChannelFundTSH(features);
         testSetHookTSH(features);
         testSetRegularKeyTSH(features);
-        testSignersListSetTSH(features);
+        testSignerListSetTSH(features);
         testTicketCreateTSH(features);
         testTrustSetTSH(features);
         testURITokenMintTSH(features);
