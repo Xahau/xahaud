@@ -68,6 +68,17 @@ target_link_libraries(xrpl.imports.main
     $<$<BOOL:${voidstar}>:antithesis-sdk-cpp>
 )
 
+# date-tz for enhanced logging (always linked, code is #ifdef guarded)
+if(TARGET date::date-tz)
+  target_link_libraries(xrpl.imports.main INTERFACE date::date-tz)
+endif()
+
+# BEAST_ENHANCED_LOGGING: enable for Debug builds OR when explicitly requested
+# Uses generator expression so it works with multi-config generators (Xcode, VS, Ninja Multi-Config)
+target_compile_definitions(xrpl.imports.main INTERFACE
+  $<$<OR:$<CONFIG:Debug>,$<BOOL:${BEAST_ENHANCED_LOGGING}>>:BEAST_ENHANCED_LOGGING=1>
+)
+
 include(add_module)
 include(target_link_modules)
 
