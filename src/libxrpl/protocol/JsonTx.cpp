@@ -25,34 +25,38 @@
 #include <xrpl/protocol/jss.h>
 
 #include <algorithm>
-#include <vector>
-
-#include <set>
+#include <initializer_list>
 #include <string>
+#include <vector>
 
 namespace ripple {
 namespace jsonTx {
 
 namespace {
 
-/** Serialize `obj` in canonical form, skipping the named fields.
-    Returns the concatenated field-by-field binary encoding -- the same
-    bytes that would appear in the normal binary tx minus the excluded
-    fields. Field order is the usual fieldCode-sorted canonical order.
-*/
+/** Canonical serialization of `obj` with the given fields removed.
+    STObject's own serialization already sorts by field code, but we
+    have to walk the fields ourselves to skip the json-tx wrapper
+    entries rather than mutate the object. */
 Blob
 canonicalSerialization(
     STObject const& obj,
-    std::set<std::string> const& skip)
+    std::initializer_list<SField const*> skip)
 {
     std::vector<STBase const*> fields;
     for (auto const& entry : obj)
     {
         if (entry.getSType() == STI_NOTPRESENT)
             continue;
-        if (skip.find(entry.getFName().getName()) != skip.end())
-            continue;
-        fields.push_back(&entry);
+        bool skipped = false;
+        for (SField const* s : skip)
+            if (entry.getFName() == *s)
+            {
+                skipped = true;
+                break;
+            }
+        if (!skipped)
+            fields.push_back(&entry);
     }
     std::sort(
         fields.begin(), fields.end(), [](STBase const* a, STBase const* b) {
@@ -78,8 +82,7 @@ hasBody(STObject const& obj) noexcept
 {
     try
     {
-        return obj.isFieldPresent(sfJsonTxBody) &&
-            !obj.getFieldVL(sfJsonTxBody).empty();
+        return obj.isFieldPresent(sfJsonTxBody);
     }
     catch (...)
     {
@@ -111,7 +114,11 @@ Expected<void, std::string>
 checkSignature(STTx const& stx)
 {
     if (!hasBody(stx))
-        return Unexpected<std::string>("JsonTxBody is missing or empty.");
+        return Unexpected<std::string>("JsonTxBody field is missing.");
+
+    auto const bodySlice = body(stx);
+    if (bodySlice.empty())
+        return Unexpected<std::string>("JsonTxBody is empty.");
 
     if (!stx.isFieldPresent(sfSigningPubKey))
         return Unexpected<std::string>("SigningPubKey is missing.");
@@ -127,7 +134,7 @@ checkSignature(STTx const& stx)
     if (sig.empty())
         return Unexpected<std::string>("TxnSignature is empty.");
 
-    if (!verify(PublicKey(makeSlice(spk)), body(stx), makeSlice(sig)))
+    if (!verify(PublicKey(makeSlice(spk)), bodySlice, makeSlice(sig)))
         return Unexpected<std::string>(
             "Signature over JsonTxBody failed verification.");
 
@@ -138,9 +145,12 @@ Expected<void, std::string>
 checkStructuralEquivalence(STTx const& stx)
 {
     if (!hasBody(stx))
-        return Unexpected<std::string>("JsonTxBody is missing or empty.");
+        return Unexpected<std::string>("JsonTxBody field is missing.");
 
     auto const bodySlice = body(stx);
+    if (bodySlice.empty())
+        return Unexpected<std::string>("JsonTxBody is empty.");
+
     std::string const bodyStr(
         reinterpret_cast<char const*>(bodySlice.data()), bodySlice.size());
 
@@ -158,11 +168,11 @@ checkStructuralEquivalence(STTx const& stx)
                  ? parsedObj.error[jss::error_message].asString()
                  : std::string("unknown parse error")));
 
-    // The json-tx wrapper fields (TxnSignature, JsonTxBody) must be
-    // excluded from both sides: TxnSignature covers the body bytes
-    // (not the binary), and JsonTxBody is the body itself.
-    std::set<std::string> const skip{
-        sfTxnSignature.getName(), sfJsonTxBody.getName()};
+    // The json-tx wrapper fields (TxnSignature, JsonTxBody) are excluded
+    // from both sides: TxnSignature covers the body bytes (not the
+    // binary), and JsonTxBody is the body itself.
+    std::initializer_list<SField const*> const skip{
+        &sfTxnSignature, &sfJsonTxBody};
 
     if (canonicalSerialization(stx, skip) !=
         canonicalSerialization(*parsedObj.object, skip))

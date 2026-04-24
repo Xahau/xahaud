@@ -21,11 +21,14 @@
 namespace ripple {
 namespace jsonTx {
 
-/** Returns true iff the STObject carries a non-empty sfJsonTxBody.
+/** Returns true iff the STObject declares a sfJsonTxBody field.
 
-    A transaction with sfJsonTxBody present uses the "json-tx" signing
-    scheme: the signature in sfTxnSignature covers the raw ASCII bytes
-    of sfJsonTxBody instead of the classical signing payload.
+    Used as a routing predicate: a transaction with this field present
+    is claimed to use the "json-tx" signing scheme and must be validated
+    through jsonTx::checkSignature / checkStructuralEquivalence. An
+    empty body field still counts as "claimed json-tx" so the empty
+    case is reported as a clean failure instead of silently falling
+    back to the classical sig path.
 */
 [[nodiscard]] bool
 hasBody(STObject const& obj) noexcept;
