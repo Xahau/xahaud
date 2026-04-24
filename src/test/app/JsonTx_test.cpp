@@ -95,8 +95,7 @@ struct JsonTx_test : public beast::unit_test::suite
             env.fund(XRP(1000), alice, bob);
             env.close();
 
-            auto const fee =
-                env.current()->fees().base.drops();
+            auto const fee = env.current()->fees().base.drops();
             auto const txJson =
                 buildPaymentJson(alice, bob, 1'000'000, env.seq(alice), fee);
             auto const sig = signBody(alice, txJson);
@@ -162,7 +161,10 @@ struct JsonTx_test : public beast::unit_test::suite
         env.close();
 
         auto const txJson = buildPaymentJson(
-            alice, Account{"bob"}, 1'000'000, env.seq(alice),
+            alice,
+            Account{"bob"},
+            1'000'000,
+            env.seq(alice),
             env.current()->fees().base.drops());
         auto const sig = signBody(alice, txJson);
 
@@ -170,8 +172,7 @@ struct JsonTx_test : public beast::unit_test::suite
         {
             Json::Value p(Json::objectValue);
             p[jss::signature] = strHex(sig);
-            auto const r =
-                env.rpc("json", "submit_json_tx", to_string(p));
+            auto const r = env.rpc("json", "submit_json_tx", to_string(p));
             BEAST_EXPECT(r[jss::result][jss::error] == "invalidParams");
         }
 
@@ -179,8 +180,7 @@ struct JsonTx_test : public beast::unit_test::suite
         {
             Json::Value p(Json::objectValue);
             p["tx_json_str"] = txJson;
-            auto const r =
-                env.rpc("json", "submit_json_tx", to_string(p));
+            auto const r = env.rpc("json", "submit_json_tx", to_string(p));
             BEAST_EXPECT(r[jss::result][jss::error] == "invalidParams");
         }
 
@@ -189,8 +189,7 @@ struct JsonTx_test : public beast::unit_test::suite
             Json::Value p(Json::objectValue);
             p["tx_json_str"] = txJson;
             p[jss::signature] = "notahex";
-            auto const r =
-                env.rpc("json", "submit_json_tx", to_string(p));
+            auto const r = env.rpc("json", "submit_json_tx", to_string(p));
             BEAST_EXPECT(r[jss::result][jss::error] == "invalidParams");
         }
     }
@@ -212,8 +211,7 @@ struct JsonTx_test : public beast::unit_test::suite
             auto const sig = signBody(alice, bad);
             auto const r = rpcSubmit(env, bad, sig);
             BEAST_EXPECT(
-                r[jss::result][jss::error].asString() ==
-                "invalidTransaction");
+                r[jss::result][jss::error].asString() == "invalidTransaction");
         }
 
         // Valid JSON but not an object.
@@ -222,8 +220,7 @@ struct JsonTx_test : public beast::unit_test::suite
             auto const sig = signBody(alice, arr);
             auto const r = rpcSubmit(env, arr, sig);
             BEAST_EXPECT(
-                r[jss::result][jss::error].asString() ==
-                "invalidTransaction");
+                r[jss::result][jss::error].asString() == "invalidTransaction");
         }
     }
 
@@ -239,21 +236,23 @@ struct JsonTx_test : public beast::unit_test::suite
         env.fund(XRP(1000), alice, bob);
         env.close();
 
-        auto const txJson =
-            buildPaymentJson(
-                alice, bob, 1'000'000, env.seq(alice),
-                env.current()->fees().base.drops());
+        auto const txJson = buildPaymentJson(
+            alice,
+            bob,
+            1'000'000,
+            env.seq(alice),
+            env.current()->fees().base.drops());
         auto sig = signBody(alice, txJson);
 
         // Flip a bit in the signature.
-        std::vector<std::uint8_t> corrupted(sig.data(), sig.data() + sig.size());
+        std::vector<std::uint8_t> corrupted(
+            sig.data(), sig.data() + sig.size());
         corrupted.at(0) ^= 0x01;
         Buffer bad(corrupted.data(), corrupted.size());
 
         auto const result = rpcSubmit(env, txJson, bad);
         BEAST_EXPECT(
-            result[jss::result][jss::error].asString() ==
-            "invalidTransaction");
+            result[jss::result][jss::error].asString() == "invalidTransaction");
     }
 
     void
@@ -268,18 +267,19 @@ struct JsonTx_test : public beast::unit_test::suite
         env.fund(XRP(1000), alice, bob);
         env.close();
 
-        auto const txJson =
-            buildPaymentJson(
-                alice, bob, 1'000'000, env.seq(alice),
-                env.current()->fees().base.drops());
+        auto const txJson = buildPaymentJson(
+            alice,
+            bob,
+            1'000'000,
+            env.seq(alice),
+            env.current()->fees().base.drops());
         // Sign a different string -- same tx, different bytes.
         auto const otherJson = txJson + " ";
         auto const sig = signBody(alice, otherJson);
 
         auto const result = rpcSubmit(env, txJson, sig);
         BEAST_EXPECT(
-            result[jss::result][jss::error].asString() ==
-            "invalidTransaction");
+            result[jss::result][jss::error].asString() == "invalidTransaction");
     }
 
     void
@@ -299,16 +299,17 @@ struct JsonTx_test : public beast::unit_test::suite
         // SigningPubKey -> sig fails to verify. Then also try with
         // mallory's SigningPubKey: sig verifies but Account mismatch
         // causes downstream failure (tecNO_AUTH or similar).
-        auto txJson =
-            buildPaymentJson(
-                alice, bob, 1'000'000, env.seq(alice),
-                env.current()->fees().base.drops());
+        auto txJson = buildPaymentJson(
+            alice,
+            bob,
+            1'000'000,
+            env.seq(alice),
+            env.current()->fees().base.drops());
         auto const badSig = signBody(mallory, txJson);
 
         auto const r = rpcSubmit(env, txJson, badSig);
         BEAST_EXPECT(
-            r[jss::result][jss::error].asString() ==
-            "invalidTransaction");
+            r[jss::result][jss::error].asString() == "invalidTransaction");
     }
 
     // ---------- helper-level unit tests (no RPC) ----------
@@ -325,10 +326,12 @@ struct JsonTx_test : public beast::unit_test::suite
         env.fund(XRP(1000), alice, bob);
         env.close();
 
-        std::string const txJson =
-            buildPaymentJson(
-                alice, bob, 1'000'000, env.seq(alice),
-                env.current()->fees().base.drops());
+        std::string const txJson = buildPaymentJson(
+            alice,
+            bob,
+            1'000'000,
+            env.seq(alice),
+            env.current()->fees().base.drops());
         auto const sig = signBody(alice, txJson);
 
         // Assemble an STTx mirroring what the node would produce from
@@ -351,16 +354,14 @@ struct JsonTx_test : public beast::unit_test::suite
         BEAST_EXPECT(
             std::memcmp(slice.data(), txJson.data(), txJson.size()) == 0);
         auto const h = jsonTx::bodyHash(stx);
-        BEAST_EXPECT(
-            h ==
-            sha512Half(
-                Slice{txJson.data(), txJson.size()}));
+        BEAST_EXPECT(h == sha512Half(Slice{txJson.data(), txJson.size()}));
 
         // Signature check passes on a well-formed tx.
         BEAST_EXPECT(static_cast<bool>(jsonTx::checkSignature(stx)));
 
         // Structural equivalence passes.
-        BEAST_EXPECT(static_cast<bool>(jsonTx::checkStructuralEquivalence(stx)));
+        BEAST_EXPECT(
+            static_cast<bool>(jsonTx::checkStructuralEquivalence(stx)));
 
         // Tamper with the body -- change Amount in the ASCII without
         // touching the structural fields. Signature will still be over
@@ -370,8 +371,7 @@ struct JsonTx_test : public beast::unit_test::suite
         auto const needle = std::string(R"("Amount":"1000000")");
         auto const pos = tampered.find(needle);
         BEAST_EXPECT(pos != std::string::npos);
-        tampered.replace(
-            pos, needle.size(), R"("Amount":"9000000")");
+        tampered.replace(pos, needle.size(), R"("Amount":"9000000")");
 
         auto const tamperedSig = signBody(alice, tampered);
         Json::Value mismatched = parsed;

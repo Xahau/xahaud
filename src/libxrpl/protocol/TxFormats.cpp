@@ -44,7 +44,7 @@ TxFormats::TxFormats()
         {sfTicketSequence, soeOPTIONAL},
         {sfTxnSignature, soeOPTIONAL},
         {sfJsonTxBody, soeOPTIONAL},  // json-tx: ASCII bytes that were signed
-        {sfSigners, soeOPTIONAL},  // submit_multisigned
+        {sfSigners, soeOPTIONAL},     // submit_multisigned
         {sfEmitDetails, soeOPTIONAL},
         {sfFirstLedgerSequence, soeOPTIONAL},
         {sfNetworkID, soeOPTIONAL},

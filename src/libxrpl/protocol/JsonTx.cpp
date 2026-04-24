@@ -15,11 +15,11 @@
 #include <xrpl/basics/strHex.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/protocol/PublicKey.h>
+#include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STBase.h>
 #include <xrpl/protocol/STBlob.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STParsedJSON.h>
-#include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
