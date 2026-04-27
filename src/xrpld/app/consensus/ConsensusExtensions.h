@@ -273,7 +273,7 @@ public:
     cacheConsensusTxSet(RCLTxSet const& txns);
 
     std::size_t
-    verifyPendingExportSigs(RCLTxSet const& txns);
+    verifyPendingExportSigs(RCLTxSet const& txns, LedgerIndex seq);
 
     void
     cacheUNLReport(std::shared_ptr<Ledger const> const& prevLedger = {});

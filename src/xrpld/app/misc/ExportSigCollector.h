@@ -123,7 +123,8 @@ public:
     upgradeSignature(
         uint256 const& txnHash,
         PublicKey const& validator,
-        Buffer const& verifiedBuf)
+        Buffer const& verifiedBuf,
+        std::uint32_t currentSeq = 0)
     {
         std::lock_guard lock(mutex_);
         auto it = sigs_.find(txnHash);
@@ -136,6 +137,37 @@ public:
         if (!(sit->second == verifiedBuf))
             return;
         it->second.verified.insert(validator);
+        touchSeq(it->second, currentSeq);
+    }
+
+    /// Remove a signature if the stored buffer still matches the caller's
+    /// verified-invalid buffer. This keeps stale unverified data from being
+    /// retried forever while avoiding races with a newer replacement.
+    bool
+    removeSignature(
+        uint256 const& txnHash,
+        PublicKey const& validator,
+        Buffer const& expectedBuf)
+    {
+        std::lock_guard lock(mutex_);
+        auto it = sigs_.find(txnHash);
+        if (it == sigs_.end())
+            return false;
+
+        auto& entry = it->second;
+        auto sit = entry.signatures.find(validator);
+        if (sit == entry.signatures.end() || !(sit->second == expectedBuf))
+            return false;
+
+        entry.signatures.erase(sit);
+        entry.validators.erase(validator);
+        entry.verified.erase(validator);
+
+        if (entry.signatures.empty() && entry.validators.empty() &&
+            entry.verified.empty())
+            sigs_.erase(it);
+
+        return true;
     }
 
     /// Store a pubkey-only entry (no real signature).  Used in

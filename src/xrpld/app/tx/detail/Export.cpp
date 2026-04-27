@@ -165,12 +165,13 @@ Export::doApply()
                     sigData.slice(),
                     Slice(sigBuf.data(), sigBuf.size())))
             {
-                collector.upgradeSignature(txId, valPK, sigBuf);
+                collector.upgradeSignature(txId, valPK, sigBuf, currentSeq);
             }
             else
             {
                 JLOG(j_.warn()) << "Export: upgrade verify failed for tx "
                                 << txId << " — removing invalid sig";
+                collector.removeSignature(txId, valPK, sigBuf);
             }
         }
     };

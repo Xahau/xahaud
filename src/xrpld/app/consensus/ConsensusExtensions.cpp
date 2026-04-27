@@ -160,6 +160,14 @@ buildOpenLedgerExportTxnLookup(Application& app)
     return exportTxns;
 }
 
+LedgerIndex
+currentClosedLedgerSeq(Application& app)
+{
+    if (auto const closed = app.getLedgerMaster().getClosedLedger())
+        return closed->info().seq;
+    return 0;
+}
+
 bool
 verifyExportSignatureAgainstTx(
     STTx const& exportTx,
@@ -919,6 +927,7 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                 : buildOpenLedgerExportTxnLookup(app_);
             auto const& exportTxns =
                 useConsensusTxSet ? consensusExportTxns_ : openLedgerExportTxns;
+            auto const currentSeq = currentClosedLedgerSeq(app_);
 
             auto const validatorView = activeValidatorView();
             std::size_t merged = 0;
@@ -987,7 +996,7 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 
                         Buffer sigBuf(sigSlice.data(), sigSlice.size());
                         exportSigCollector_.addVerifiedSignature(
-                            txHash, valPK, sigBuf);
+                            txHash, valPK, sigBuf, currentSeq);
                         ++merged;
                     }
                     catch (std::exception const& e)
@@ -1320,7 +1329,9 @@ ConsensusExtensions::cacheConsensusTxSet(RCLTxSet const& txns)
 }
 
 std::size_t
-ConsensusExtensions::verifyPendingExportSigs(RCLTxSet const& txns)
+ConsensusExtensions::verifyPendingExportSigs(
+    RCLTxSet const& txns,
+    LedgerIndex seq)
 {
     if (!exportSigCollector_.hasUnverifiedSignatures())
         return 0;
@@ -1351,7 +1362,7 @@ ConsensusExtensions::verifyPendingExportSigs(RCLTxSet const& txns)
                     "consensus tx set"))
                 continue;
 
-            exportSigCollector_.upgradeSignature(txHash, valPK, sigBuf);
+            exportSigCollector_.upgradeSignature(txHash, valPK, sigBuf, seq);
             ++upgraded;
         }
     }
@@ -1930,6 +1941,7 @@ ConsensusExtensions::onTrustedPeerMessage(
     // candidate tx set later upgrades still-unverified signatures before
     // they can enter an exportSigSetHash.
     auto const exportTxns = buildOpenLedgerExportTxnLookup(app_);
+    auto const currentSeq = currentClosedLedgerSeq(app_);
 
     for (int i = 0; i < wireMsg.exportsignatures_size(); ++i)
     {
@@ -1965,7 +1977,7 @@ ConsensusExtensions::onTrustedPeerMessage(
                              << txHash << " (not in open ledger yet)";
             Buffer sigBuf(sigSlice.data(), sigSlice.size());
             exportSigCollector_.addUnverifiedSignature(
-                txHash, senderPK, sigBuf);
+                txHash, senderPK, sigBuf, currentSeq);
             continue;
         }
 
@@ -1974,7 +1986,8 @@ ConsensusExtensions::onTrustedPeerMessage(
             continue;
 
         Buffer sigBuf(sigSlice.data(), sigSlice.size());
-        exportSigCollector_.addVerifiedSignature(txHash, senderPK, sigBuf);
+        exportSigCollector_.addVerifiedSignature(
+            txHash, senderPK, sigBuf, currentSeq);
     }
 }
 //@@end peer-harvest-export-sigs
@@ -2105,7 +2118,8 @@ ConsensusExtensions::attachExportSignatures(
         // Only store if we actually produced a signature.
         // sigBuf is empty if the inner tx failed to deserialize.
         if (sigBuf.size() > 0)
-            exportSigCollector_.addVerifiedSignature(txHash, valPK, sigBuf);
+            exportSigCollector_.addVerifiedSignature(
+                txHash, valPK, sigBuf, openLedger->info().seq);
 
         JLOG(j_.debug()) << "Export: attached sig for " << txHash
                          << " to proposal (sigLen=" << sigBuf.size() << ")";
@@ -2163,7 +2177,7 @@ ConsensusExtensions::onTick(TickContext const& ctx)
     if (exportEnabled())
     {
         cacheConsensusTxSet(ctx.getTxns());
-        verifyPendingExportSigs(ctx.getTxns());
+        verifyPendingExportSigs(ctx.getTxns(), ctx.buildSeq);
     }
     else
     {
