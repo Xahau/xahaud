@@ -64,6 +64,8 @@ class ExtendedPosition_test : public beast::unit_test::suite
             BEAST_EXPECT(!deserialized->myReveal);
             BEAST_EXPECT(!deserialized->commitSetHash);
             BEAST_EXPECT(!deserialized->entropySetHash);
+            BEAST_EXPECT(!deserialized->exportSigSetHash);
+            BEAST_EXPECT(!deserialized->exportSignaturesHash);
         }
 
         // Position with commitment
@@ -97,20 +99,24 @@ class ExtendedPosition_test : public beast::unit_test::suite
             auto const txSet = makeHash("txset-c");
             auto const commitSet = makeHash("commitset-c");
             auto const entropySet = makeHash("entropyset-c");
+            auto const exportSigSet = makeHash("exportsigset-c");
+            auto const exportSigs = makeHash("exportsigs-c");
             auto const commit = makeHash("commit-c");
             auto const reveal = makeHash("reveal-c");
 
             ExtendedPosition pos{txSet};
             pos.commitSetHash = commitSet;
             pos.entropySetHash = entropySet;
+            pos.exportSigSetHash = exportSigSet;
+            pos.exportSignaturesHash = exportSigs;
             pos.myCommitment = commit;
             pos.myReveal = reveal;
 
             Serializer s;
             pos.add(s);
 
-            // 32 + 1 + 32 + 32 + 32 + 32 = 161
-            BEAST_EXPECT(s.getDataLength() == 161);
+            // 32 + 1 + 6*32 = 225
+            BEAST_EXPECT(s.getDataLength() == 225);
 
             SerialIter sit(s.slice());
             auto deserialized =
@@ -122,6 +128,8 @@ class ExtendedPosition_test : public beast::unit_test::suite
             BEAST_EXPECT(deserialized->txSetHash == txSet);
             BEAST_EXPECT(deserialized->commitSetHash == commitSet);
             BEAST_EXPECT(deserialized->entropySetHash == entropySet);
+            BEAST_EXPECT(deserialized->exportSigSetHash == exportSigSet);
+            BEAST_EXPECT(deserialized->exportSignaturesHash == exportSigs);
             BEAST_EXPECT(deserialized->myCommitment == commit);
             BEAST_EXPECT(deserialized->myReveal == reveal);
         }
@@ -346,12 +354,12 @@ class ExtendedPosition_test : public beast::unit_test::suite
             BEAST_EXPECT(!result.has_value());
         }
 
-        // Unknown flag bits in upper nibble (wire malleability)
+        // Unknown flag bits above known extension fields (wire malleability)
         {
             auto const txSet = makeHash("txset-unkflags");
             Serializer s;
             s.addBitString(txSet);
-            s.add8(0x11);  // bit 4 is unknown, bit 0 = commitSetHash
+            s.add8(0x41);  // bit 6 is unknown, bit 0 = commitSetHash
             s.addBitString(makeHash("commitset-unkflags"));
             SerialIter sit(s.slice());
             auto result =
@@ -421,9 +429,34 @@ class ExtendedPosition_test : public beast::unit_test::suite
         b.entropySetHash = makeHash("es-eq");
         BEAST_EXPECT(a == b);
 
+        // Same txSetHash, different export signature digest -> still equal
+        b.exportSignaturesHash = makeHash("export-sigs-eq");
+        BEAST_EXPECT(a == b);
+
         // Different txSetHash -> not equal
         ExtendedPosition c{txSet2};
         BEAST_EXPECT(a != c);
+    }
+
+    void
+    testExportSignatureDigest()
+    {
+        testcase("Export signature digest");
+
+        std::vector<std::string> blobs;
+        blobs.emplace_back("txhash-pubkey-sig-a");
+        blobs.emplace_back("txhash-pubkey-sig-b");
+
+        auto const digest = proposalExportSignaturesHash(blobs);
+        BEAST_EXPECT(digest == proposalExportSignaturesHash(blobs));
+
+        auto reordered = blobs;
+        std::swap(reordered[0], reordered[1]);
+        BEAST_EXPECT(digest != proposalExportSignaturesHash(reordered));
+
+        auto mutated = blobs;
+        mutated[1].push_back('x');
+        BEAST_EXPECT(digest != proposalExportSignaturesHash(mutated));
     }
 
 public:
@@ -435,6 +468,7 @@ public:
         testSuppressionConsistency();
         testMalformedPayload();
         testEquality();
+        testExportSignatureDigest();
     }
 };
 

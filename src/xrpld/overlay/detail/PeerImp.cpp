@@ -22,6 +22,7 @@
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
@@ -39,6 +40,8 @@
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/core/LexicalCast.h>
+#include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/digest.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -50,6 +53,7 @@
 #include <numeric>
 #include <random>
 #include <sstream>
+#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -1747,6 +1751,68 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         fee_.update(Resource::feeMalformedRequest, "bad proposal position");
         return;
     }
+    bool const hasEntropyMaterial = parsedPosition->commitSetHash ||
+        parsedPosition->entropySetHash || parsedPosition->myCommitment ||
+        parsedPosition->myReveal;
+    bool const hasExportMaterial = parsedPosition->exportSigSetHash ||
+        parsedPosition->exportSignaturesHash || set.exportsignatures_size() > 0;
+    if (hasEntropyMaterial || hasExportMaterial)
+    {
+        auto const openLedger = app_.openLedger().current();
+        bool const entropyEnabled =
+            openLedger && openLedger->rules().enabled(featureConsensusEntropy);
+        bool const exportEnabled =
+            openLedger && openLedger->rules().enabled(featureExport);
+        if (hasEntropyMaterial && !entropyEnabled)
+        {
+            JLOG(p_journal_.warn())
+                << "Proposal: entropy fields while featureConsensusEntropy "
+                   "disabled";
+            fee_.update(
+                Resource::feeMalformedRequest, "entropy fields disabled");
+            return;
+        }
+        if (hasExportMaterial && !exportEnabled)
+        {
+            JLOG(p_journal_.warn())
+                << "Proposal: export fields while featureExport disabled";
+            fee_.update(
+                Resource::feeMalformedRequest, "export fields disabled");
+            return;
+        }
+    }
+    if (set.exportsignatures_size() > ExportLimits::maxPendingExports)
+    {
+        JLOG(p_journal_.warn()) << "Proposal: too many export signatures";
+        fee_.update(Resource::feeMalformedRequest, "too many export sigs");
+        return;
+    }
+
+    if (set.exportsignatures_size() > 0)
+    {
+        if (!parsedPosition->exportSignaturesHash)
+        {
+            JLOG(p_journal_.warn()) << "Proposal: unsigned export signatures";
+            fee_.update(Resource::feeMalformedRequest, "unsigned export sigs");
+            return;
+        }
+
+        if (proposalExportSignaturesHash(set.exportsignatures()) !=
+            *parsedPosition->exportSignaturesHash)
+        {
+            JLOG(p_journal_.warn())
+                << "Proposal: export signatures hash mismatch";
+            fee_.update(
+                Resource::feeMalformedRequest, "export sig hash mismatch");
+            return;
+        }
+    }
+    else if (parsedPosition->exportSignaturesHash)
+    {
+        JLOG(p_journal_.warn()) << "Proposal: missing signed export signatures";
+        fee_.update(Resource::feeMalformedRequest, "missing export sigs");
+        return;
+    }
 
     uint256 const prevLedger{set.previousledger()};
 
@@ -1798,6 +1864,11 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     // (before async sig verification) would allow any peer to inject
     // forged export sigs by spoofing nodepubkey to a trusted validator.
 
+    std::vector<std::string> exportSignatures;
+    exportSignatures.reserve(set.exportsignatures_size());
+    for (int i = 0; i < set.exportsignatures_size(); ++i)
+        exportSignatures.push_back(set.exportsignatures(i));
+
     auto proposal = RCLCxPeerPos(
         publicKey,
         sig,
@@ -1808,7 +1879,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
             *parsedPosition,
             closeTime,
             app_.timeKeeper().closeTime(),
-            calcNodeID(app_.validatorManifests().getMasterKey(publicKey))});
+            calcNodeID(app_.validatorManifests().getMasterKey(publicKey))},
+        std::move(exportSignatures));
 
     std::weak_ptr<PeerImp> weak = shared_from_this();
     app_.getJobQueue().addJob(

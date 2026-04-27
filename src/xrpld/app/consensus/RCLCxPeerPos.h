@@ -35,6 +35,7 @@
 #include <optional>
 #include <ostream>
 #include <string>
+#include <vector>
 
 namespace ripple {
 
@@ -57,6 +58,7 @@ struct ExtendedPosition
     std::optional<uint256> commitSetHash;
     std::optional<uint256> entropySetHash;
     std::optional<uint256> exportSigSetHash;
+    std::optional<uint256> exportSignaturesHash;
 
     // === Per-Validator Leaves (unique per proposer) ===
     std::optional<uint256> myCommitment;
@@ -164,7 +166,7 @@ struct ExtendedPosition
         // Wire compatibility: if no extensions, emit exactly 32 bytes
         // so legacy nodes that expect a plain uint256 work unchanged.
         if (!commitSetHash && !entropySetHash && !exportSigSetHash &&
-            !myCommitment && !myReveal)
+            !exportSignaturesHash && !myCommitment && !myReveal)
             return;
 
         std::uint8_t flags = 0;
@@ -178,6 +180,8 @@ struct ExtendedPosition
             flags |= 0x08;
         if (exportSigSetHash)
             flags |= 0x10;
+        if (exportSignaturesHash)
+            flags |= 0x20;
         s.add8(flags);
 
         if (commitSetHash)
@@ -190,6 +194,8 @@ struct ExtendedPosition
             s.addBitString(*myReveal);
         if (exportSigSetHash)
             s.addBitString(*exportSigSetHash);
+        if (exportSignaturesHash)
+            s.addBitString(*exportSignaturesHash);
     }
     //@@end rng-extended-position-serialize
 
@@ -204,6 +210,8 @@ struct ExtendedPosition
             ret["entropy_set"] = to_string(*entropySetHash);
         if (exportSigSetHash)
             ret["export_sig_set"] = to_string(*exportSigSetHash);
+        if (exportSignaturesHash)
+            ret["export_signatures"] = to_string(*exportSignaturesHash);
         return ret;
     }
 
@@ -233,13 +241,13 @@ struct ExtendedPosition
         std::uint8_t flags = sit.get8();
 
         // Reject unknown flag bits (reduces wire malleability)
-        if (flags & 0xE0)
+        if (flags & 0xC0)
             return std::nullopt;
 
         // Validate exact byte count for the flagged fields.
         // Each flag bit indicates a 32-byte uint256.
         int fieldCount = 0;
-        for (int i = 0; i < 5; ++i)
+        for (int i = 0; i < 6; ++i)
             if (flags & (1 << i))
                 ++fieldCount;
 
@@ -256,6 +264,8 @@ struct ExtendedPosition
             pos.myReveal = sit.get256();
         if (flags & 0x10)
             pos.exportSigSetHash = sit.get256();
+        if (flags & 0x20)
+            pos.exportSignaturesHash = sit.get256();
 
         return pos;
     }
@@ -274,6 +284,24 @@ inline std::ostream&
 operator<<(std::ostream& os, ExtendedPosition const& pos)
 {
     return os << pos.txSetHash;
+}
+
+/** Hash the raw export-signature blobs carried alongside a proposal.
+
+    The resulting digest is embedded in ExtendedPosition and therefore covered
+    by the normal proposal signature. The raw protobuf field remains outside
+    consensus equality, but stripping or mutating it invalidates the signed
+    digest before duplicate suppression.
+*/
+template <class ExportSignatures>
+uint256
+proposalExportSignaturesHash(ExportSignatures const& exportSignatures)
+{
+    Serializer s(512);
+    s.add32(static_cast<std::uint32_t>(exportSignatures.size()));
+    for (auto const& blob : exportSignatures)
+        s.addVL(Slice(blob.data(), blob.size()));
+    return s.getSHA512Half();
 }
 
 // For hash_append (used in sha512Half and similar)
@@ -314,7 +342,8 @@ public:
         PublicKey const& publicKey,
         Slice const& signature,
         uint256 const& suppress,
-        Proposal&& proposal);
+        Proposal&& proposal,
+        std::vector<std::string> exportSignatures = {});
 
     //! Verify the signing hash of the proposal
     bool
@@ -347,6 +376,12 @@ public:
         return proposal_;
     }
 
+    std::vector<std::string> const&
+    exportSignatures() const
+    {
+        return exportSignatures_;
+    }
+
     //! JSON representation of proposal
     Json::Value
     getJson() const;
@@ -361,6 +396,7 @@ private:
     PublicKey publicKey_;
     uint256 suppression_;
     Proposal proposal_;
+    std::vector<std::string> exportSignatures_;
     boost::container::static_vector<std::uint8_t, 72> signature_;
 
     template <class Hasher>

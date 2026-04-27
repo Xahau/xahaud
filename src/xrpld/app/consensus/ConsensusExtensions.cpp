@@ -92,6 +92,8 @@ buildActiveValidatorView(
         }
     }
 
+    // TODO: If this fork still supports Negative UNL, fold that policy into
+    // this active view before quorum sizing or sidecar eligibility decisions.
     if (!view.masterKeys.empty())
         return view;
 
@@ -1867,46 +1869,11 @@ ConsensusExtensions::decoratePosition(
 
 //@@start export-sig-attachment
 void
-ConsensusExtensions::decorateMessage(
+ConsensusExtensions::attachExportSignatures(
     protocol::TMProposeSet& prop,
-    RCLCxPeerPos::Proposal const& proposal,
-    Buffer const& proposalSig)
+    RCLCxPeerPos::Proposal const& proposal)
 {
     auto const& valKeys = app_.getValidatorKeys();
-
-    // Self-seed our own reveal so we count toward reveal quorum
-    // (harvestRngData only sees peer proposals, not our own).
-    if (proposal.position().myReveal)
-    {
-        pendingReveals_[valKeys.nodeID] = *proposal.position().myReveal;
-        nodeIdToKey_.insert_or_assign(valKeys.nodeID, valKeys.keys->publicKey);
-        JLOG(j_.trace()) << "RNG: self-seeded reveal for " << valKeys.nodeID;
-    }
-
-    // Store our own proposal proof for embedding in SHAMap entries.
-    // commitProofs_ gets seq=0 only (deterministic commitSet).
-    // proposalProofs_ gets the latest with a reveal (for entropySet).
-    if (proposal.position().myCommitment || proposal.position().myReveal)
-    {
-        auto makeProof = [&]() {
-            ProposalProof proof;
-            proof.proposeSeq = proposal.proposeSeq();
-            proof.closeTime = static_cast<std::uint32_t>(
-                proposal.closeTime().time_since_epoch().count());
-            proof.prevLedger = proposal.prevLedger();
-            Serializer s;
-            proposal.position().add(s);
-            proof.positionData = std::move(s);
-            proof.signature = Buffer(proposalSig.data(), proposalSig.size());
-            return proof;
-        };
-
-        if (proposal.position().myCommitment && proposal.proposeSeq() == 0)
-            commitProofs_.emplace(valKeys.nodeID, makeProof());
-
-        if (proposal.position().myReveal)
-            proposalProofs_[valKeys.nodeID] = makeProof();
-    }
 
     // Attach export signatures for any ttEXPORT txns in the open ledger.
     // Gated on featureExport amendment.
@@ -1996,6 +1963,50 @@ ConsensusExtensions::decorateMessage(
     }
 }
 //@@end export-sig-attachment
+
+void
+ConsensusExtensions::decorateMessage(
+    protocol::TMProposeSet&,
+    RCLCxPeerPos::Proposal const& proposal,
+    ExtendedPosition const& signedPosition,
+    Buffer const& proposalSig)
+{
+    auto const& valKeys = app_.getValidatorKeys();
+
+    // Self-seed our own reveal so we count toward reveal quorum
+    // (harvestRngData only sees peer proposals, not our own).
+    if (signedPosition.myReveal)
+    {
+        pendingReveals_[valKeys.nodeID] = *signedPosition.myReveal;
+        nodeIdToKey_.insert_or_assign(valKeys.nodeID, valKeys.keys->publicKey);
+        JLOG(j_.trace()) << "RNG: self-seeded reveal for " << valKeys.nodeID;
+    }
+
+    // Store our own proposal proof for embedding in SHAMap entries.
+    // commitProofs_ gets seq=0 only (deterministic commitSet).
+    // proposalProofs_ gets the latest with a reveal (for entropySet).
+    if (signedPosition.myCommitment || signedPosition.myReveal)
+    {
+        auto makeProof = [&]() {
+            ProposalProof proof;
+            proof.proposeSeq = proposal.proposeSeq();
+            proof.closeTime = static_cast<std::uint32_t>(
+                proposal.closeTime().time_since_epoch().count());
+            proof.prevLedger = proposal.prevLedger();
+            Serializer s;
+            signedPosition.add(s);
+            proof.positionData = std::move(s);
+            proof.signature = Buffer(proposalSig.data(), proposalSig.size());
+            return proof;
+        };
+
+        if (signedPosition.myCommitment && proposal.proposeSeq() == 0)
+            commitProofs_.emplace(valKeys.nodeID, makeProof());
+
+        if (signedPosition.myReveal)
+            proposalProofs_[valKeys.nodeID] = makeProof();
+    }
+}
 
 ExtensionTickResult
 ConsensusExtensions::onTick(TickContext const& ctx)

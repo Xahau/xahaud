@@ -167,7 +167,9 @@ message TMProposeSet
     // Number of hops traveled
     optional uint32 hops                = 12    [deprecated=true];
 
-    // Export signatures for pending exports seen in the proposal set.
+    // Export signatures for pending exports seen in the proposal set. The
+    // proposal's ExtendedPosition includes a digest of this repeated field, so
+    // these side-channel blobs are covered by the proposal signature.
     // Each entry is: txnHash (32 bytes) + validator pubkey (33 bytes)
     // + multisign signature (variable length). Validators attach these
     // so export quorum can be reached within the same consensus round.

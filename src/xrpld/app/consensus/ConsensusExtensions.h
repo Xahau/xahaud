@@ -343,13 +343,21 @@ public:
         std::shared_ptr<Ledger const> const& prevLedger,
         bool proposing);
 
-    /** Attach extension data to the outgoing protobuf AFTER signing.
-        Self-seeds own reveal, stores proposal proofs, attaches export
-        signatures. Does NOT affect proposal identity. */
+    /** Attach export signatures before proposal signing.
+        The caller hashes the resulting blobs into ExtendedPosition so the
+        proposal signature authenticates the side-channel protobuf field. */
+    void
+    attachExportSignatures(
+        protocol::TMProposeSet& prop,
+        RCLCxPeerPos::Proposal const& proposal);
+
+    /** Record post-signature RNG state for the outgoing protobuf.
+        Self-seeds own reveal and stores proposal proofs. */
     void
     decorateMessage(
         protocol::TMProposeSet& prop,
         RCLCxPeerPos::Proposal const& proposal,
+        ExtendedPosition const& signedPosition,
         Buffer const& proposalSig);
 
     ExtensionTickResult

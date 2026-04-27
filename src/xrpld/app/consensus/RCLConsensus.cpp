@@ -219,6 +219,9 @@ RCLConsensus::Adaptor::share(RCLCxPeerPos const& peerPos)
     auto const sig = peerPos.signature();
     prop.set_signature(sig.data(), sig.size());
 
+    for (auto const& exportSig : peerPos.exportSignatures())
+        prop.add_exportsignatures(exportSig.data(), exportSig.size());
+
     app_.overlay().relay(prop, peerPos.suppressionID(), peerPos.publicKey());
 }
 
@@ -252,9 +255,17 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
 
     protocol::TMProposeSet prop;
 
-    // Serialize full ExtendedPosition (includes RNG leaves)
+    auto wirePosition = proposal.position();
+
+    ce().attachExportSignatures(prop, proposal);
+    if (prop.exportsignatures_size() > 0)
+        wirePosition.exportSignaturesHash =
+            proposalExportSignaturesHash(prop.exportsignatures());
+
+    // Serialize full ExtendedPosition (includes RNG leaves and export
+    // signature digest)
     Serializer positionData;
-    proposal.position().add(positionData);
+    wirePosition.add(positionData);
     auto const posSlice = positionData.slice();
     prop.set_currenttxhash(posSlice.data(), posSlice.size());
 
@@ -269,12 +280,17 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
     auto sig = signDigest(
         validatorKeys_.keys->publicKey,
         validatorKeys_.keys->secretKey,
-        proposal.signingHash());
+        sha512Half(
+            HashPrefix::proposal,
+            std::uint32_t(proposal.proposeSeq()),
+            proposal.closeTime().time_since_epoch().count(),
+            proposal.prevLedger(),
+            wirePosition));
 
     prop.set_signature(sig.data(), sig.size());
 
     auto const suppression = proposalUniqueId(
-        proposal.position(),
+        wirePosition,
         proposal.prevLedger(),
         proposal.proposeSeq(),
         proposal.closeTime(),
@@ -283,7 +299,7 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
 
     app_.getHashRouter().addSuppression(suppression);
 
-    ce().decorateMessage(prop, proposal, sig);
+    ce().decorateMessage(prop, proposal, wirePosition, sig);
 
     app_.overlay().broadcast(prop);
 }
