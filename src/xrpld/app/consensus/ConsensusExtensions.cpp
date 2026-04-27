@@ -2068,11 +2068,20 @@ ConsensusExtensions::attachExportSignatures(
         return;
 
     auto const signerAcctID = calcAccountID(valPK);
+    std::uint8_t attached = 0;
 
     for (auto const& [stx, meta] : openLedger->txs)
     {
         if (!stx || stx->getTxnType() != ttEXPORT)
             continue;
+
+        if (attached >= ExportLimits::maxPendingExports)
+        {
+            JLOG(j_.debug())
+                << "Export: proposal signature attachment cap reached (max "
+                << +ExportLimits::maxPendingExports << ")";
+            break;
+        }
 
         auto const txHash = stx->getTransactionID();
 
@@ -2113,6 +2122,7 @@ ConsensusExtensions::attachExportSignatures(
         if (sigBuf.size() > 0)
             s.addRaw(Slice(sigBuf.data(), sigBuf.size()));
         prop.add_exportsignatures(s.peekData().data(), s.peekData().size());
+        ++attached;
         //@@end export-attach-wire-sigs
 
         // Only store if we actually produced a signature.
