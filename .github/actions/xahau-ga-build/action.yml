@@ -183,7 +183,9 @@ runs:
           -G "${{ inputs.generator }}" \
           ${CMAKE_CXX_FLAGS:+-DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"} \
           -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${TOOLCHAIN_FILE} \
-          -DCMAKE_BUILD_TYPE=${{ inputs.configuration }}
+          -DCMAKE_BUILD_TYPE=${{ inputs.configuration }} \
+          -Dtests=TRUE \
+          -Dxrpld=TRUE
 
     - name: Show ccache config before build
       if: inputs.ccache_enabled == 'true'

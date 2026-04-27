@@ -12,7 +12,7 @@ The server software that powers Xahau is called `xahaud` and is available in thi
 
 ### Build from Source
 
-* [Read the build instructions in our documentation](https://xahau.network/infrastructure/building-xahau)
+* [Read the build instructions in our documentation](https://xahau.network/docs/infrastructure/build-xahaud/)
 * If you encounter any issues, please [open an issue](https://github.com/xahau/xahaud/issues)
 
 ## Highlights of Xahau
@@ -60,7 +60,7 @@ git-subtree. See those directories' README files for more details.
   - [Xrpl Documentation](https://xrpl.org)
   - [Xahau Documentation](https://xahau.network/)
   - [Hooks Technical Documentation](https://xrpl-hooks.readme.io/)
-- **Explorers**: Explore the Xahau ledger using various explorers:
+- **Explorers**: Explore the Xahau Network using various explorers:
   - [xahauexplorer.com](https://xahauexplorer.com)
   - [xahscan.com](https://xahscan.com)
   - [xahau.xrpl.org](https://xahau.xrpl.org)

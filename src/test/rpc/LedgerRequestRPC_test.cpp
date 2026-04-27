@@ -17,12 +17,14 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/protocol/ErrorCodes.h>
-#include <ripple/protocol/jss.h>
-#include <ripple/rpc/impl/RPCHelpers.h>
 #include <test/jtx.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/rpc/detail/RPCHelpers.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/jss.h>
+
+#include <functional>
 
 namespace ripple {
 
@@ -263,7 +265,7 @@ public:
     }
 
     void
-    testBadInput()
+    testBadInput(unsigned apiVersion)
     {
         using namespace test::jtx;
         Env env{*this};
@@ -287,9 +289,9 @@ public:
         // the purpose in this test is to force the ledger expiration/out of
         // date check to trigger
         env.timeKeeper().adjustCloseTime(weeks{3});
-        result = env.rpc("ledger_request", "1")[jss::result];
+        result = env.rpc(apiVersion, "ledger_request", "1")[jss::result];
         BEAST_EXPECT(result[jss::status] == "error");
-        if (RPC::apiMaximumSupportedVersion == 1)
+        if (apiVersion == 1)
         {
             BEAST_EXPECT(result[jss::error] == "noCurrent");
             BEAST_EXPECT(
@@ -345,6 +347,7 @@ public:
         auto const USD = gw["USD"];
         env.fund(XRP(100000), gw);
 
+        env.set_retries(0);
         auto const result = env.rpc("ledger_request", "1")[jss::result];
         // The current HTTP/S ServerHandler returns an HTTP 403 error code here
         // rather than a noPermission JSON error.  The JSONRPCClient just eats
@@ -357,7 +360,8 @@ public:
     {
         testLedgerRequest();
         testEvolution();
-        testBadInput();
+        forAllApiVersions(
+            std::bind_front(&LedgerRequestRPC_test::testBadInput, this));
         testMoreThan256Closed();
         testNonAdmin();
     }

@@ -34,7 +34,7 @@ fi
 
 BUILD_TYPE=Release
 
-mv Builds/CMake/deps/WasmEdge.cmake Builds/CMake/deps/WasmEdge.old &&
+mv cmake/deps/WasmEdge.cmake cmake/deps/WasmEdge.old &&
 echo "find_package(LLVM REQUIRED CONFIG)
 message(STATUS \"Found LLVM \${LLVM_PACKAGE_VERSION}\")
 message(STATUS \"Using LLVMConfig.cmake in: \${LLVM_DIR}\")
@@ -43,16 +43,17 @@ set_target_properties(wasmedge PROPERTIES IMPORTED_LOCATION \${WasmEdge_LIB})
 target_link_libraries (ripple_libs INTERFACE wasmedge)
 add_library (wasmedge::wasmedge ALIAS wasmedge)
 message(\"WasmEdge DONE\")
-" > Builds/CMake/deps/WasmEdge.cmake &&
+" > cmake/deps/WasmEdge.cmake &&
 
 export LDFLAGS="-static-libstdc++"
+export CMAKE_EXE_LINKER_FLAGS="-static-libstdc++"
+export CMAKE_STATIC_LINKER_FLAGS="-static-libstdc++"
 
 git config --global --add safe.directory /io &&
-git checkout src/ripple/protocol/impl/BuildInfo.cpp &&
-sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)$(if [ -n "$4" ]; then echo "+$4"; fi)\"/g src/ripple/protocol/impl/BuildInfo.cpp &&
+git checkout src/libxrpl/protocol/BuildInfo.cpp &&
+sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)$(if [ -n "$4" ]; then echo "+$4"; fi)\"/g src/libxrpl/protocol/BuildInfo.cpp  &&
 conan export external/snappy --version 1.1.10 --user xahaud --channel stable &&
 conan export external/soci --version 4.0.3 --user xahaud --channel stable &&
-conan export external/wasmedge --version 0.11.2 --user xahaud --channel stable &&
 cd release-build &&
 # Install dependencies - tool_requires in conanfile.py handles glibc 2.28 compatibility
 # for build tools (protoc, grpc plugins, b2) in HBB environment
@@ -70,6 +71,7 @@ cmake .. -G Ninja \
   -Dxrpld=TRUE \
   -Dtests=TRUE &&
 ccache -z &&
+ccache -p &&
 ninja -j $3 && echo "=== Re-running final link with verbose output ===" && rm -f rippled && ninja -v rippled &&
 ccache -s &&
 strip -s rippled &&
@@ -82,7 +84,7 @@ echo "Build host: `hostname`" > release.info &&
 echo "Build date: `date`" >> release.info &&
 echo "Build md5: `md5sum xahaud`" >> release.info &&
 echo "Git remotes:" >> release.info && 
-git remote -v >> release.info 
+git remote -v >> release.info &&
 echo "Git status:" >> release.info &&
 git status -v >> release.info &&
 echo "Git log [last 20]:" >> release.info &&
@@ -101,9 +103,9 @@ fi
 
 cd ..;
 
-mv src/ripple/net/impl/RegisterSSLCerts.cpp.old src/ripple/net/impl/RegisterSSLCerts.cpp;
-mv Builds/CMake/deps/WasmEdge.old Builds/CMake/deps/WasmEdge.cmake;
+mv src/xrpld/net/detail/RegisterSSLCerts.cpp.old src/xrpld/net/detail/RegisterSSLCerts.cpp;
+mv cmake/deps/WasmEdge.old cmake/deps/WasmEdge.cmake;
 rm src/certs/certbundle.h;
-git checkout src/ripple/protocol/impl/BuildInfo.cpp;
+git checkout src/libxrpl/protocol/BuildInfo.cpp;
 
 echo "END INSIDE CONTAINER - CORE"
