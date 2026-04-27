@@ -1,4 +1,4 @@
-# RCL Consensus 
+# RCL Consensus
 
 This directory holds the types and classes needed
 to connect the generic consensus algorithm to the
@@ -7,7 +7,11 @@ rippled-specific instance of consensus.
   * `RCLCxTx` adapts a `SHAMapItem` transaction.
   * `RCLCxTxSet` adapts a `SHAMap` to represent a set of transactions.
   * `RCLCxLedger` adapts a `Ledger`.
-  * `RCLConsensus` is implements the requirements of the generic 
+  * `RCLConsensus` implements the requirements of the generic
     `Consensus` class by connecting to the rest of the `rippled`
-    application. 
+    application.
 
+Xahau-specific proposal sidecars, ConsensusEntropy/RNG, and export signature
+convergence follow the invariants in
+[`ConsensusExtensionsDesign.md`](ConsensusExtensionsDesign.md). Read that note
+before changing extension quorum, sidecar sync, or fallback behavior.
