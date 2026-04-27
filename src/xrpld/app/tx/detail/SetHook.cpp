@@ -1356,8 +1356,8 @@ SetHook::setHook()
             ctx_.view().rules().enabled(featureXahauGenesis)
                 ? ctx_.view().info().parentCloseTime.time_since_epoch().count()
                 : ctx_.view().rules().enabled(featureDeletableAccounts)
-                    ? ctx_.view().seq()
-                    : 1};
+                ? ctx_.view().seq()
+                : 1};
         sleNewAccount->setFieldU32(sfSequence, seqno);
         sleNewAccount->setFieldU32(sfFlags, lsfDisableMaster);
 
