@@ -160,11 +160,17 @@ extensionsTick(Ext& ext, Ctx const& ctx)
         bool rngBootstrapSkip = false;
         {
             auto const threshold = ext.quorumThreshold();
-            if (ctx.prevProposers < threshold)
+            // prevProposers is peer-only. Include our own proposer slot when
+            // we are actively proposing, otherwise a 4/5 honest quorum appears
+            // as only three previous proposers after one validator diverges.
+            auto const previousParticipants = ctx.prevProposers +
+                (ctx.mode == ConsensusMode::proposing ? 1 : 0);
+            if (previousParticipants < threshold)
             {
                 JLOG(ext.j_.debug())
-                    << "RNG: bootstrap skip (prevProposers="
-                    << ctx.prevProposers << " < threshold=" << threshold << ")";
+                    << "RNG: bootstrap skip (previousParticipants="
+                    << previousParticipants << " < threshold=" << threshold
+                    << ", prevProposers=" << ctx.prevProposers << ")";
                 rngBootstrapSkip = true;
             }
         }
@@ -573,8 +579,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     };
 
                     auto entropyState = inspectEntropyPeers(ourPos, true);
+                    auto const entropyQuorum = ext.quorumThreshold();
+                    auto quorumAligned = [&] {
+                        return entropyState.aligned + 1 >= entropyQuorum;
+                    };
 
-                    if (entropyState.conflict)
+                    if (entropyState.conflict && !quorumAligned())
                     {
                         // Rebuild our entropy set after any merges.
                         auto const refreshedHash =
@@ -600,7 +610,16 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             inspectEntropyPeers(ctx.getPosition(), true);
                     }
 
-                    if (entropyState.conflict)
+                    if (entropyState.conflict && quorumAligned())
+                    {
+                        JLOG(ext.j_.debug())
+                            << "RNG: entropySetHash conflict ignored after "
+                               "quorum alignment"
+                            << " alignedParticipants="
+                            << (entropyState.aligned + 1)
+                            << " quorum=" << entropyQuorum;
+                    }
+                    else if (entropyState.conflict)
                     {
                         // Bounded grace window for unresolved entropy-side
                         // conflicts.
@@ -636,15 +655,13 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     }
 
                     // Positive alignment check: require at least one
-                    // tx-converged peer with a matching entropySetHash
+                    // tx-converged quorum with a matching entropySetHash
                     // before accepting non-zero entropy.  Without this,
-                    // a node could accept based purely on its local view
-                    // with no peer confirmation.
-                    if (!entropyState.conflict && entropyState.aligned == 0 &&
-                        entropyState.peersSeen == 0)
+                    // a small minority of early publishers could accept
+                    // non-zero entropy before the round has enough shared
+                    // sidecar agreement.
+                    if (!entropyState.conflict && !quorumAligned())
                     {
-                        // No peers have published an entropySetHash yet.
-                        // Wait for the bounded window so they have time.
                         auto const entropyElapsed =
                             ctx.nowSteady - ext.entropyPublishStart_;
                         auto const entropyDeadline =
@@ -652,50 +669,31 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         if (entropyElapsed <= entropyDeadline)
                         {
                             JLOG(ext.j_.debug())
-                                << "RNG: waiting for peer entropySetHash "
-                                   "alignment (none seen yet)";
-                            logRngDiag("rng-entropy-hash-no-peers-wait");
-                            return {};
-                        }
-                        // Deadline: no peers ever published. Fall back.
-                        ext.setEntropyFailed();
-                        JLOG(ext.j_.warn())
-                            << "RNG: no peer entropySetHash observed "
-                               "within deadline, falling back to zero";
-                        logRngDiag("rng-entropy-hash-no-peers-timeout");
-                    }
-                    else if (
-                        !entropyState.conflict && entropyState.aligned == 0 &&
-                        entropyState.peersSeen > 0)
-                    {
-                        // Peers published but none match ours yet.
-                        // This can happen when a peer with a subset
-                        // hash is the only one we've seen so far —
-                        // other aligned peers may not have published
-                        // yet.  Wait bounded time for alignment.
-                        auto const entropyElapsed =
-                            ctx.nowSteady - ext.entropyPublishStart_;
-                        auto const entropyDeadline =
-                            ctx.parms.rngREVEAL_TIMEOUT * 2;
-                        if (entropyElapsed <= entropyDeadline)
-                        {
-                            JLOG(ext.j_.debug())
-                                << "RNG: no aligned peers yet "
-                                << "(peersSeen=" << entropyState.peersSeen
-                                << "), waiting";
-                            logRngDiag("rng-entropy-hash-no-alignment-wait");
+                                << "RNG: waiting for entropySetHash quorum "
+                                   "alignment"
+                                << " alignedParticipants="
+                                << (entropyState.aligned + 1)
+                                << " quorum=" << entropyQuorum
+                                << " peersSeen=" << entropyState.peersSeen;
+                            logRngDiag("rng-entropy-hash-quorum-wait");
                             return {};
                         }
                         ext.setEntropyFailed();
                         JLOG(ext.j_.warn())
-                            << "RNG: no peer alignment within deadline, "
-                               "falling back to zero";
-                        logRngDiag("rng-entropy-hash-no-alignment-timeout");
+                            << "RNG: entropySetHash quorum alignment missing "
+                               "within deadline, falling back to zero"
+                            << " alignedParticipants="
+                            << (entropyState.aligned + 1)
+                            << " quorum=" << entropyQuorum
+                            << " peersSeen=" << entropyState.peersSeen;
+                        logRngDiag("rng-entropy-hash-quorum-timeout");
                     }
 
                     JLOG(ext.j_.debug())
                         << "RNG: entropy gate — aligned="
                         << entropyState.aligned
+                        << " alignedParticipants=" << (entropyState.aligned + 1)
+                        << " quorum=" << entropyQuorum
                         << " peersSeen=" << entropyState.peersSeen
                         << " conflict="
                         << (entropyState.conflict ? "yes" : "no");

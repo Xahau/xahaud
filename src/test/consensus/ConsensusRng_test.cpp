@@ -719,33 +719,34 @@ public:
         sim.run(1);
         BEAST_EXPECT(sim.synchronized(peers));
 
-        // TODO: add forcedEntropySetHash_ test knob to CsfExtensions
-        // For now, this test documents the expected behavior.
-        // When the convergence gate is implemented, uncomment:
-        //
-        // peers[0]->ce().forcedEntropySetHash_ =
-        //     sha512Half(std::string("byzantine-entropy"));
+        peers[0]->ce().forcedEntropySetHash_ =
+            sha512Half(std::string("byzantine-entropy"));
 
         sim.run(3);
 
-        BEAST_EXPECT(sim.branches(peers) == 1);
-        BEAST_EXPECT(sim.synchronized(peers));
+        PeerGroup honest{
+            std::vector<Peer*>{peers[1], peers[2], peers[3], peers[4]}};
+        BEAST_EXPECT(sim.branches(honest) == 1);
+        BEAST_EXPECT(sim.synchronized(honest));
 
-        // With 5 healthy peers, entropy should be non-zero
-        for (Peer const* peer : peers)
+        // One bad hash is below quorum. The honest 4/5 quorum should agree
+        // on non-zero entropy instead of letting a single validator deny the
+        // round's entropy.
+        for (Peer const* peer : honest)
         {
             BEAST_EXPECT(!peer->ce().lastEntropyWasFallback_);
             BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
+            BEAST_EXPECT(peer->ce().lastEntropyCount_ > 0);
         }
     }
 
     void
-    testRngEntropyHashConflictFallsBackToZero()
+    testRngEntropyHashConflictWithoutQuorumFallsBackToZero()
     {
         using namespace csf;
         using namespace std::chrono;
 
-        testcase("RNG entropy hash conflict falls back to zero");
+        testcase("RNG entropy hash conflict without quorum falls back to zero");
 
         ConsensusParms const parms{};
         Sim sim;
@@ -761,13 +762,13 @@ public:
         sim.run(1);
         BEAST_EXPECT(sim.synchronized(peers));
 
-        // Peer 0 advertises an entropy-set hash that nobody can acquire.
-        // The other peers can still agree on the base tx set and several
-        // peers will share a normal entropy hash, but a still-conflicting
-        // tx-converged entropy hash must zero the round instead of allowing
-        // mixed zero/non-zero entropy outcomes.
+        // Two peers advertise entropy-set hashes that nobody can acquire.
+        // The remaining 3/5 do not form an entropy quorum, so the safe
+        // outcome is zero entropy instead of mixed zero/non-zero results.
         peers[0]->ce().forcedEntropySetHash_ =
-            sha512Half(std::string("forced-entropy-conflict"));
+            sha512Half(std::string("forced-entropy-conflict-a"));
+        peers[1]->ce().forcedEntropySetHash_ =
+            sha512Half(std::string("forced-entropy-conflict-b"));
 
         sim.run(3);
 
@@ -927,7 +928,7 @@ public:
         RUN(testRngEntropyConvergesWithPartialReveals);
         RUN(testRngEntropyFallbackOnMajorRevealLoss);
         RUN(testRngSingleByzantineCannotDenyEntropy);
-        RUN(testRngEntropyHashConflictFallsBackToZero);
+        RUN(testRngEntropyHashConflictWithoutQuorumFallsBackToZero);
         RUN(testRngNoEntropyWithoutPeerAlignment);
         RUN(testRngAlignmentRequiredForNonZeroEntropy);
 
