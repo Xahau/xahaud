@@ -50,7 +50,7 @@ that `test` code should *never* be included in `ripple` code.)
 
 ## Validation
 
-The [levelization.sh](levelization.sh) script takes no parameters,
+The [levelization.py](levelization.py) script takes no parameters,
 reads no environment variables, and can be run from any directory,
 as long as it is in the expected location in the rippled repo.
 It can be run at any time from within a checked out repo, and will
@@ -58,10 +58,6 @@ do an analysis of all the `#include`s in
 the rippled source. The only caveat is that it runs much slower
 under Windows than in Linux. It hasn't yet been tested under MacOS.
 It generates many files of [results](results):
-
-For local iteration speed there is also
-[levelization.py](levelization.py), which generates the same artifact set much
-faster. The shell script remains canonical for CI/auditing.
 
 * `rawincludes.txt`: The raw dump of the `#includes`
 * `paths.txt`: A second dump grouping the source module
@@ -88,7 +84,7 @@ faster. The shell script remains canonical for CI/auditing.
   Github Actions workflow to test that levelization loops haven't
   changed.  Unfortunately, if changes are detected, it can't tell if
   they are improvements or not, so if you have resolved any issues or
-  done anything else to improve levelization, run `levelization.sh`,
+  done anything else to improve levelization, run `levelization.py`,
   and commit the updated results.
 
 The  `loops.txt` and `ordering.txt` files relate the modules
@@ -112,10 +108,7 @@ The committed files hide the detailed values intentionally, to
 prevent false alarms and merging issues, and because it's easy to
 get those details locally.
 
-1. Run `levelization.sh`
-   * Faster local loop: `python3 Builds/levelization/levelization.py`
-   * Optional parity check against canonical shell output:
-     `python3 Builds/levelization/levelization.py --results-dir /tmp/levelization-py-results --compare-to Builds/levelization/results`
+1. Run `levelization.py`
 2. Grep the modules in `paths.txt`.
    * For example, if a cycle is found `A ~= B`, simply `grep -w
      A Builds/levelization/results/paths.txt | grep -w B`
