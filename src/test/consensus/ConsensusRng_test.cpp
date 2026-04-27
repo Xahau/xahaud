@@ -593,33 +593,33 @@ public:
         // entropy for that ledger.
         BEAST_EXPECT(sim.branches(network) == 1);
 
-        std::vector<Peer const*> majority;
-        for (Peer const* ref : network)
+        auto sameBranch = [](auto const& lhs, auto const& rhs) {
+            if (lhs.id() == rhs.id())
+                return true;
+            if (lhs.seq() < rhs.seq())
+                return rhs.isAncestor(lhs);
+            return lhs.isAncestor(rhs);
+        };
+
+        for (Peer const* lhs : network)
         {
-            std::vector<Peer const*> cohort;
-            for (Peer const* peer : network)
+            for (Peer const* rhs : network)
             {
-                if (peer->lastClosedLedger.id() == ref->lastClosedLedger.id())
-                    cohort.push_back(peer);
+                BEAST_EXPECT(
+                    sameBranch(lhs->lastClosedLedger, rhs->lastClosedLedger));
+
+                if (lhs->lastClosedLedger.id() != rhs->lastClosedLedger.id())
+                    continue;
+
+                BEAST_EXPECT(
+                    lhs->ce().lastEntropyDigest_ ==
+                    rhs->ce().lastEntropyDigest_);
+                BEAST_EXPECT(
+                    lhs->ce().lastEntropyCount_ == rhs->ce().lastEntropyCount_);
+                BEAST_EXPECT(
+                    lhs->ce().lastEntropyWasFallback_ ==
+                    rhs->ce().lastEntropyWasFallback_);
             }
-            if (cohort.size() > majority.size())
-                majority = std::move(cohort);
-        }
-
-        // For a 6-validator UNL the entropy quorum is 5, so we require at
-        // least a quorum-sized cohort to have accepted the same ledger.
-        BEAST_EXPECT(majority.size() >= 5);
-
-        // Peers that accepted the same ledger must agree on entropy
-        // (same digest or all zero).
-        auto const& refDigest = majority[0]->ce().lastEntropyDigest_;
-        auto const refCount = majority[0]->ce().lastEntropyCount_;
-        auto const refFallback = majority[0]->ce().lastEntropyWasFallback_;
-        for (Peer const* peer : majority)
-        {
-            BEAST_EXPECT(peer->ce().lastEntropyDigest_ == refDigest);
-            BEAST_EXPECT(peer->ce().lastEntropyCount_ == refCount);
-            BEAST_EXPECT(peer->ce().lastEntropyWasFallback_ == refFallback);
         }
     }
 
