@@ -96,6 +96,9 @@ enum class HashPrefix : std::uint32_t {
 
     /** Credentials signature */
     credential = detail::make_hash_prefix('C', 'R', 'D'),
+
+    /** consensus extension sidecar object */
+    sidecar = detail::make_hash_prefix('S', 'C', 'R'),
 };
 
 template <class Hasher>

@@ -20,11 +20,13 @@
 #include <xrpld/app/ledger/ConsensusTransSetSF.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
+#include <xrpld/app/ledger/SidecarSetSF.h>
 #include <xrpld/app/ledger/detail/TransactionAcquire.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/overlay/detail/ProtocolMessage.h>
+#include <xrpld/shamap/SHAMapSyncFilter.h>
 
 #include <memory>
 
@@ -40,10 +42,24 @@ enum {
     MAX_TIMEOUTS = 20,
 };
 
+namespace {
+
+std::unique_ptr<SHAMapSyncFilter>
+makeSyncFilter(InboundSetKind kind, Application& app)
+{
+    if (kind == InboundSetKind::sidecar)
+        return std::make_unique<SidecarSetSF>(app.getTempNodeCache());
+
+    return std::make_unique<ConsensusTransSetSF>(app, app.getTempNodeCache());
+}
+
+}  // namespace
+
 TransactionAcquire::TransactionAcquire(
     Application& app,
     uint256 const& hash,
-    std::unique_ptr<PeerSet> peerSet)
+    std::unique_ptr<PeerSet> peerSet,
+    InboundSetKind kind)
     : TimeoutCounter(
           app,
           hash,
@@ -52,9 +68,13 @@ TransactionAcquire::TransactionAcquire(
           app.journal("TransactionAcquire"))
     , mHaveRoot(false)
     , mPeerSet(std::move(peerSet))
+    , mSetKind(kind)
 {
     mMap = std::make_shared<SHAMap>(
-        SHAMapType::TRANSACTION, hash, app_.getNodeFamily());
+        kind == InboundSetKind::sidecar ? SHAMapType::SIDECAR
+                                        : SHAMapType::TRANSACTION,
+        hash,
+        app_.getNodeFamily());
     mMap->setUnbacked();
 }
 
@@ -69,7 +89,10 @@ TransactionAcquire::done()
     }
     else
     {
-        JLOG(journal_.debug()) << "Acquired TX set " << hash_;
+        JLOG(journal_.debug())
+            << "Acquired "
+            << (mSetKind == InboundSetKind::sidecar ? "sidecar" : "TX")
+            << " set " << hash_;
         mMap->setImmutable();
 
         uint256 const& hash(hash_);
@@ -145,8 +168,8 @@ TransactionAcquire::trigger(std::shared_ptr<Peer> const& peer)
     }
     else
     {
-        ConsensusTransSetSF sf(app_, app_.getTempNodeCache());
-        auto nodes = mMap->getMissingNodes(256, &sf);
+        auto sf = makeSyncFilter(mSetKind, app_);
+        auto nodes = mMap->getMissingNodes(256, sf.get());
 
         if (nodes.empty())
         {
@@ -198,7 +221,7 @@ TransactionAcquire::takeNodes(
         if (data.empty())
             return SHAMapAddNode::invalid();
 
-        ConsensusTransSetSF sf(app_, app_.getTempNodeCache());
+        auto sf = makeSyncFilter(mSetKind, app_);
 
         for (auto const& d : data)
         {
@@ -216,7 +239,7 @@ TransactionAcquire::takeNodes(
                 else
                     mHaveRoot = true;
             }
-            else if (!mMap->addKnownNode(d.first, d.second, &sf).isGood())
+            else if (!mMap->addKnownNode(d.first, d.second, sf.get()).isGood())
             {
                 JLOG(journal_.warn()) << "TX acquire got bad non-root node";
                 return SHAMapAddNode::invalid();

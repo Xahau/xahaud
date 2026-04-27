@@ -23,8 +23,11 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/overlay/PeerSet.h>
 #include <xrpld/shamap/SHAMap.h>
+#include <cstdint>
 
 namespace ripple {
+
+enum class InboundSetKind : std::uint8_t;
 
 // VFALCO TODO rename to PeerTxRequest
 // A transaction set we are trying to acquire
@@ -39,7 +42,8 @@ public:
     TransactionAcquire(
         Application& app,
         uint256 const& hash,
-        std::unique_ptr<PeerSet> peerSet);
+        std::unique_ptr<PeerSet> peerSet,
+        InboundSetKind kind);
     ~TransactionAcquire() = default;
 
     SHAMapAddNode
@@ -57,6 +61,7 @@ private:
     std::shared_ptr<SHAMap> mMap;
     bool mHaveRoot;
     std::unique_ptr<PeerSet> mPeerSet;
+    InboundSetKind mSetKind;
 
     void
     onTimer(bool progress, ScopedLockType& peerSetLock) override;

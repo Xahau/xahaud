@@ -325,7 +325,7 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
     rngRoundSeq_ = seq;
 
     auto map =
-        std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
+        std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
     map->setUnbacked();
 
     // NOTE: avoid structured bindings in for-loops containing lambdas —
@@ -357,14 +357,11 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
         if (proofIt != commitProofs_.end())
             sidecar.setFieldVL(sfBlob, serializeProof(proofIt->second));
 
-        // TODO: replace HashPrefix::transactionID with a dedicated
-        // sidecar prefix once one is allocated.
-        auto const itemKey = sidecar.getHash(HashPrefix::transactionID);
+        auto const itemKey = sidecar.getHash(HashPrefix::sidecar);
         Serializer s(2048);
         sidecar.add(s);
         map->addItem(
-            SHAMapNodeType::tnTRANSACTION_NM,
-            make_shamapitem(itemKey, s.slice()));
+            SHAMapNodeType::tnSIDECAR, make_shamapitem(itemKey, s.slice()));
     }
 
     map = map->snapShot(false);
@@ -386,7 +383,7 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
     rngRoundSeq_ = seq;
 
     auto map =
-        std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
+        std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
     map->setUnbacked();
 
     // NOTE: avoid structured bindings — clang-14 can't capture them (P2036R3).
@@ -420,14 +417,11 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
         // (validator identity + digest) for fetch/merge and entropy
         // calculation.
 
-        // TODO: replace HashPrefix::transactionID with a dedicated
-        // sidecar prefix once one is allocated.
-        auto const itemKey = sidecar.getHash(HashPrefix::transactionID);
+        auto const itemKey = sidecar.getHash(HashPrefix::sidecar);
         Serializer s(2048);
         sidecar.add(s);
         map->addItem(
-            SHAMapNodeType::tnTRANSACTION_NM,
-            make_shamapitem(itemKey, s.slice()));
+            SHAMapNodeType::tnSIDECAR, make_shamapitem(itemKey, s.slice()));
     }
 
     map = map->snapShot(false);
@@ -446,7 +440,7 @@ uint256
 ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
 {
     auto map =
-        std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app_.getNodeFamily());
+        std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
     map->setUnbacked();
 
     auto const allSigs = exportSigCollector_.snapshotWithSigs();
@@ -464,14 +458,11 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
                 sidecar.setFieldVL(
                     sfTxnSignature, Slice(sigBuf.data(), sigBuf.size()));
 
-            // TODO: replace HashPrefix::transactionID with a dedicated
-            // sidecar prefix once one is allocated.
-            auto const itemKey = sidecar.getHash(HashPrefix::transactionID);
+            auto const itemKey = sidecar.getHash(HashPrefix::sidecar);
             Serializer s;
             sidecar.add(s);
             map->addItem(
-                SHAMapNodeType::tnTRANSACTION_NM,
-                make_shamapitem(itemKey, s.slice()));
+                SHAMapNodeType::tnSIDECAR, make_shamapitem(itemKey, s.slice()));
             ++entryCount;
         }
     }
@@ -926,12 +917,16 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             if (isCommitSet)
             {
                 if (parsedProof && parsedProof->proposeSeq == 0)
+                {
                     commitProofs_.insert_or_assign(nodeId, *parsedProof);
+                }
                 else if (parsedProof)
+                {
                     JLOG(j_.debug()) << "RNG: commit proof from " << nodeId
                                      << " has non-zero proposeSeq="
                                      << parsedProof->proposeSeq
                                      << "; not caching for commitSet rebuild";
+                }
             }
             else if (parsedProof)
             {
@@ -1039,7 +1034,8 @@ ConsensusExtensions::fetchRngSetIfNeeded(
     // Trigger network fetch
     JLOG(j_.debug()) << "RNGFETCH: triggering network fetch hash=" << *hash;
     pendingRngFetches_.emplace(*hash, kind);
-    if (auto immediate = app_.getInboundTransactions().getSet(*hash, true))
+    if (auto immediate = app_.getInboundTransactions().getSet(
+            *hash, true, InboundSetKind::sidecar))
     {
         JLOG(j_.debug()) << "RNGFETCH: immediate fetch hit, merging hash="
                          << *hash;
@@ -1050,8 +1046,8 @@ ConsensusExtensions::fetchRngSetIfNeeded(
 void
 ConsensusExtensions::fetchSidecarsIfNeeded(ExtendedPosition const& peerPos)
 {
-    fetchRngSetIfNeeded(peerPos.commitSetHash);
-    fetchRngSetIfNeeded(peerPos.entropySetHash);
+    fetchRngSetIfNeeded(peerPos.commitSetHash, SidecarKind::commit);
+    fetchRngSetIfNeeded(peerPos.entropySetHash, SidecarKind::reveal);
 }
 
 void

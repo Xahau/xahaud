@@ -23,11 +23,14 @@
 #include <xrpld/overlay/Peer.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/beast/clock/abstract_clock.h>
+#include <cstdint>
 #include <memory>
 
 namespace ripple {
 
 class Application;
+
+enum class InboundSetKind : std::uint8_t { transaction, sidecar };
 
 /** Manages the acquisition and lifetime of transaction sets.
  */
@@ -49,11 +52,15 @@ public:
      * @param setHash The transaction set ID (digest of the SHAMap root node).
      * @param acquire Whether to fetch the transaction set from the network if
      * it is missing.
+     * @param kind The kind of SHAMap payload to acquire if the set is missing.
      * @return The transaction set with ID setHash, or nullptr if it is
      * missing.
      */
     virtual std::shared_ptr<SHAMap>
-    getSet(uint256 const& setHash, bool acquire) = 0;
+    getSet(
+        uint256 const& setHash,
+        bool acquire,
+        InboundSetKind kind = InboundSetKind::transaction) = 0;
 
     /** Add a transaction set from a LedgerData message.
      *

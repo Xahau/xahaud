@@ -93,7 +93,10 @@ public:
     }
 
     std::shared_ptr<SHAMap>
-    getSet(uint256 const& hash, bool acquire) override
+    getSet(
+        uint256 const& hash,
+        bool acquire,
+        InboundSetKind kind = InboundSetKind::transaction) override
     {
         TransactionAcquire::pointer ta;
 
@@ -117,7 +120,7 @@ public:
                 return std::shared_ptr<SHAMap>();
 
             ta = std::make_shared<TransactionAcquire>(
-                app_, hash, m_peerSetBuilder->build());
+                app_, hash, m_peerSetBuilder->build(), kind);
 
             auto& obj = m_map[hash];
             obj.mAcquire = ta;

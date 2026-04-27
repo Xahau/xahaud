@@ -79,6 +79,8 @@ SHAMapLeafNode::getString(const SHAMapNodeID& id) const
         ret += ",txn+md\n";
     else if (type == SHAMapNodeType::tnACCOUNT_STATE)
         ret += ",as\n";
+    else if (type == SHAMapNodeType::tnSIDECAR)
+        ret += ",sidecar\n";
     else
         ret += ",leaf\n";
 
