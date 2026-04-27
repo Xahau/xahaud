@@ -17,19 +17,19 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/misc/AmendmentTable.h>
-#include <ripple/app/misc/HashRouter.h>
-#include <ripple/app/tx/impl/Import.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/json/json_reader.h>
-#include <ripple/json/json_writer.h>
-#include <ripple/ledger/Directory.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Import.h>
-#include <ripple/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/misc/AmendmentTable.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/tx/detail/Import.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpld/ledger/Dir.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/json/json_writer.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Import.h>
+#include <xrpl/protocol/jss.h>
 
 #define BEAST_REQUIRE(x)     \
     {                        \
@@ -1898,7 +1898,7 @@ class Import_test : public beast::unit_test::suite
         // different keys.
         {
             auto const xpopJson =
-                import::loadXpop(ImportTCSignersListSet::w_signers);
+                import::loadXpop(ImportTCSignerListSet::w_signers);
             env(import::import(alice, xpopJson),
                 msig(bob, dave),
                 fee((3 * feeDrops) * 10),
@@ -1910,7 +1910,7 @@ class Import_test : public beast::unit_test::suite
         // different keys. - empty innerSigners
         {
             Json::Value xpopJson =
-                import::loadXpop(ImportTCSignersListSet::w_signers);
+                import::loadXpop(ImportTCSignerListSet::w_signers);
             xpopJson[jss::transaction][jss::blob] =
                 "12000C22000000002400000014201B0000002B201D00005359202300000002"
                 "6840000000001E84B073008114AE123A8556F3CF91154711376AFB0F894F83"
@@ -1927,7 +1927,7 @@ class Import_test : public beast::unit_test::suite
         // different keys.
         {
             Json::Value xpopJson =
-                import::loadXpop(ImportTCSignersListSet::w_signers);
+                import::loadXpop(ImportTCSignerListSet::w_signers);
             xpopJson[jss::transaction][jss::blob] =
                 "12000C22000000002400000014201B0000002B201D00005359202300000002"
                 "6840000000001E84B073008114AE123A8556F3CF91154711376AFB0F894F83"
@@ -1953,7 +1953,7 @@ class Import_test : public beast::unit_test::suite
         // temMALFORMED - Import: inner txn signature verify failed
         {
             Json::Value xpopJson =
-                import::loadXpop(ImportTCSignersListSet::w_signers);
+                import::loadXpop(ImportTCSignerListSet::w_signers);
             xpopJson[jss::transaction][jss::blob] =
                 "12000C2200000008240000001A201B000003B9201D00005359202300000000"
                 "6840000000001E84B073008114AE123A8556F3CF91154711376AFB0F894F83"
@@ -2768,7 +2768,7 @@ class Import_test : public beast::unit_test::suite
             env.close();
         }
 
-        // tefIMPORT_BLACKHOLED - SignersListSet (w/seed)
+        // tefIMPORT_BLACKHOLED - SignerListSet (w/seed)
         {
             test::jtx::Env env{
                 *this, network::makeNetworkVLConfig(21337, keys)};
@@ -2792,7 +2792,7 @@ class Import_test : public beast::unit_test::suite
 
             // Import with Master Key
             Json::Value tmpXpop =
-                import::loadXpop(ImportTCSignersListSet::w_seed);
+                import::loadXpop(ImportTCSignerListSet::w_seed);
             env(import::import(alice, tmpXpop),
                 ter(tefIMPORT_BLACKHOLED),
                 fee(feeDrops * 10),
@@ -3244,7 +3244,7 @@ class Import_test : public beast::unit_test::suite
             env(noop(alice), sig(bob), fee(feeDrops), ter(tefBAD_AUTH));
         }
 
-        // w/ signers list -> dne
+        // w/ signer list -> dne
         {
             test::jtx::Env env{
                 *this, network::makeNetworkVLConfig(21337, keys)};
@@ -3975,7 +3975,7 @@ class Import_test : public beast::unit_test::suite
             env(noop(alice), sig(carol), fee(feeDrops), ter(tesSUCCESS));
         }
 
-        // w/ signers list -> funded (update regular key)
+        // w/ signer list -> funded (update regular key)
         {
             test::jtx::Env env{
                 *this, network::makeNetworkVLConfig(21337, keys)};
@@ -4049,7 +4049,7 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(acctSle->getAccountID(sfRegularKey) == dave.id());
             env(noop(alice), sig(dave), fee(feeDrops), ter(tesSUCCESS));
 
-            // confirm signers list not set
+            // confirm signer list not set
             auto const k = keylet::signers(alice);
             BEAST_EXPECT(env.current()->read(k) == nullptr);
         }
@@ -4351,9 +4351,9 @@ class Import_test : public beast::unit_test::suite
     }
 
     void
-    testSignersListSet(FeatureBitset features)
+    testSignerListSet(FeatureBitset features)
     {
-        testcase("signers list set tx");
+        testcase("signer list set tx");
 
         using namespace test::jtx;
         using namespace std::literals;
@@ -4394,7 +4394,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson =
-                import::loadXpop(ImportTCSignersListSet::w_seed_bad_fee);
+                import::loadXpop(ImportTCSignerListSet::w_seed_bad_fee);
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             // tx[jss::Fee] = 0;
@@ -4438,7 +4438,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson =
-                import::loadXpop(ImportTCSignersListSet::w_seed);
+                import::loadXpop(ImportTCSignerListSet::w_seed);
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -4523,7 +4523,7 @@ class Import_test : public beast::unit_test::suite
             // import tx
             auto const burnAmt = XRP(2);
             auto const xpopJson =
-                import::loadXpop(ImportTCSignersListSet::w_regular_key);
+                import::loadXpop(ImportTCSignerListSet::w_regular_key);
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -4614,7 +4614,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson =
-                import::loadXpop(ImportTCSignersListSet::w_signers);
+                import::loadXpop(ImportTCSignerListSet::w_signers);
             Json::Value tx = import::import(alice, xpopJson);
             tx[jss::Sequence] = 0;
             tx[jss::Fee] = 0;
@@ -4685,7 +4685,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson =
-                import::loadXpop(ImportTCSignersListSet::w_seed);
+                import::loadXpop(ImportTCSignerListSet::w_seed);
             env(import::import(alice, xpopJson),
                 fee(feeDrops * 10),
                 ter(tesSUCCESS));
@@ -4771,7 +4771,7 @@ class Import_test : public beast::unit_test::suite
             auto const envAlice = env.balance(alice);
             BEAST_EXPECT(envAlice == XRP(1000));
 
-            // set the signers list
+            // set the signer list
             env(signers(alice, 2, {{bob, 1}, {carol, 1}}));
             env(noop(alice),
                 msig(bob, carol),
@@ -4787,7 +4787,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson =
-                import::loadXpop(ImportTCSignersListSet::w_seed_empty);
+                import::loadXpop(ImportTCSignerListSet::w_seed_empty);
             env(import::import(alice, xpopJson),
                 fee(feeDrops * 10),
                 ter(tesSUCCESS));
@@ -4852,7 +4852,7 @@ class Import_test : public beast::unit_test::suite
             env(noop(alice), sig(bob), fee(feeDrops), ter(tesSUCCESS));
             env.close();
 
-            // set the signers list
+            // set the signer list
             env(signers(alice, 2, {{bob, 1}, {carol, 1}}));
             env(noop(alice),
                 msig(bob, carol),
@@ -4868,7 +4868,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson =
-                import::loadXpop(ImportTCSignersListSet::w_regular_key_empty);
+                import::loadXpop(ImportTCSignerListSet::w_regular_key_empty);
             env(import::import(alice, xpopJson),
                 fee(feeDrops * 10),
                 sig(bob),
@@ -4935,7 +4935,7 @@ class Import_test : public beast::unit_test::suite
             auto const envAlice = env.balance(alice);
             BEAST_EXPECT(envAlice == XRP(1000));
 
-            // set the signers list
+            // set the signer list
             env(signers(alice, 2, {{bob, 1}, {carol, 1}}));
             env(noop(alice),
                 msig(bob, carol),
@@ -4951,7 +4951,7 @@ class Import_test : public beast::unit_test::suite
 
             // import tx
             auto const xpopJson =
-                import::loadXpop(ImportTCSignersListSet::w_signers_empty);
+                import::loadXpop(ImportTCSignerListSet::w_signers_empty);
             env(import::import(alice, xpopJson),
                 msig(bob, carol),
                 fee((3 * feeDrops) * 10),
@@ -5041,8 +5041,7 @@ class Import_test : public beast::unit_test::suite
         {
             for (std::uint32_t const withFeature : {0, 1, 2})
             {
-                auto const amend = withFeature == 0
-                    ? features
+                auto const amend = withFeature == 0 ? features
                     : withFeature == 1 ? features - featureXahauGenesis
                                        : features - featureDeletableAccounts;
                 test::jtx::Env env{
@@ -5081,8 +5080,9 @@ class Import_test : public beast::unit_test::suite
                 {
                     BEAST_EXPECT((*acctSle)[sfAccountIndex] == 0);
                 }
-                std::uint64_t const seq =
-                    withFeature == 0 ? 12 : withFeature == 1 ? 6 : 12;
+                std::uint64_t const seq = withFeature == 0 ? 12
+                    : withFeature == 1                     ? 6
+                                                           : 12;
                 BEAST_EXPECT((*acctSle)[sfSequence] == seq);
 
                 // confirm account count was set
@@ -5098,8 +5098,7 @@ class Import_test : public beast::unit_test::suite
         {
             for (std::uint32_t const withFeature : {0, 1, 2})
             {
-                auto const amend = withFeature == 0
-                    ? features
+                auto const amend = withFeature == 0 ? features
                     : withFeature == 1 ? features - featureXahauGenesis
                                        : features - featureDeletableAccounts;
                 test::jtx::Env env{
@@ -5119,8 +5118,9 @@ class Import_test : public beast::unit_test::suite
                     std::uint64_t sequence;
                 };
 
-                std::uint64_t const seq =
-                    withFeature == 0 ? 11 : withFeature == 1 ? 5 : 11;
+                std::uint64_t const seq = withFeature == 0 ? 11
+                    : withFeature == 1                     ? 5
+                                                           : 11;
                 std::array<TestAccountData, 3> acctTests = {{
                     {alice, 0, seq},
                     {bob, 1, seq},
@@ -6228,7 +6228,7 @@ public:
         testAccountSetFlags(features);
         testSetRegularKey(features);
         testSetRegularKeyFlags(features);
-        testSignersListSet(features);
+        testSignerListSet(features);
         testUsingTickets(features);
         testAccountIndex(features);
         testHookIssuer(features);

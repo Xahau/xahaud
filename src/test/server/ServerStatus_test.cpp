@@ -17,13 +17,17 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/misc/LoadFeeTrack.h>
-#include <ripple/app/misc/NetworkOPs.h>
-#include <ripple/basics/base64.h>
-#include <ripple/beast/test/yield_to.hpp>
-#include <ripple/json/json_reader.h>
-#include <ripple/rpc/ServerHandler.h>
+#include <test/jtx.h>
+#include <test/jtx/JSONRPCClient.h>
+#include <test/jtx/WSClient.h>
+#include <test/jtx/envconfig.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/misc/LoadFeeTrack.h>
+#include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/rpc/ServerHandler.h>
+#include <xrpl/basics/base64.h>
+#include <xrpl/beast/test/yield_to.h>
+#include <xrpl/json/json_reader.h>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -33,10 +37,6 @@
 #include <array>
 #include <random>
 #include <regex>
-#include <test/jtx.h>
-#include <test/jtx/JSONRPCClient.h>
-#include <test/jtx/WSClient.h>
-#include <test/jtx/envconfig.h>
 
 namespace ripple {
 namespace test {
@@ -860,7 +860,7 @@ class ServerStatus_test : public beast::unit_test::suite,
 
         // mark the Network as having an Amendment Warning, but won't fail
         env.app().getOPs().setAmendmentWarned();
-        env.app().getOPs().beginConsensus(env.closed()->info().hash);
+        env.app().getOPs().beginConsensus(env.closed()->info().hash, {});
 
         // consensus doesn't change
         BEAST_EXPECT(
@@ -991,7 +991,7 @@ class ServerStatus_test : public beast::unit_test::suite,
         // mark the Network as Amendment Blocked, but still won't fail until
         // ELB is enabled (next step)
         env.app().getOPs().setAmendmentBlocked();
-        env.app().getOPs().beginConsensus(env.closed()->info().hash);
+        env.app().getOPs().beginConsensus(env.closed()->info().hash, {});
 
         // consensus now sees validation disabled
         BEAST_EXPECT(

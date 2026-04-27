@@ -17,13 +17,13 @@
 */
 //==============================================================================
 
-#include <ripple/app/rdb/RelationalDatabase.h>
-#include <ripple/app/rdb/backend/SQLiteDatabase.h>
-#include <ripple/core/ConfigSections.h>
-#include <boost/filesystem.hpp>
-#include <chrono>
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
+#include <xrpld/app/rdb/RelationalDatabase.h>
+#include <xrpld/app/rdb/backend/SQLiteDatabase.h>
+#include <xrpld/core/ConfigSections.h>
+#include <boost/filesystem.hpp>
+#include <chrono>
 
 namespace ripple {
 namespace test {
