@@ -174,6 +174,11 @@ SHAMaps. Proposal-ingress signatures are sender-bound to the trusted proposal
 validator and may be stored as unverified until the matching export transaction
 is available for cryptographic verification.
 
+The consensus candidate transaction set is the authority for export signature
+verification. The open ledger may be used for early proposal ingestion, but
+once a candidate tx set exists, only signatures verified against the `ttEXPORT`
+in that candidate set may become quorum material or enter `exportSigSetHash`.
+
 Export success requires quorum alignment on `exportSigSetHash`, not merely a
 local collector quorum. If the verified signature set cannot align by the
 bounded deadline, the export retries or expires according to normal transaction

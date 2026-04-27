@@ -188,6 +188,21 @@ public:
         return result;
     }
 
+    bool
+    hasUnverifiedSignatures() const
+    {
+        std::lock_guard lock(mutex_);
+        for (auto const& [_, entry] : sigs_)
+        {
+            for (auto const& [pk, buf] : entry.signatures)
+            {
+                if (buf.size() > 0 && entry.verified.count(pk) == 0)
+                    return true;
+            }
+        }
+        return false;
+    }
+
     /// Count of VERIFIED signatures only.
     template <class IncludeValidator>
     std::size_t

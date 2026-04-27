@@ -102,6 +102,9 @@ private:
     std::shared_ptr<SHAMap> entropySetMap_;
     std::shared_ptr<SHAMap> exportSigSetMap_;
     std::optional<LedgerIndex> rngRoundSeq_;
+    std::shared_ptr<SHAMap const> consensusTxSetMap_;
+    hash_map<uint256, std::shared_ptr<STTx const>> consensusExportTxns_;
+    std::optional<uint256> consensusTxSetHash_;
 
     // Track pending sidecar set fetches by hash → kind.
     // Kind is known at fetch time (call site context), so
@@ -265,6 +268,12 @@ public:
     /// Fetch any sidecar sets from a peer's position if needed.
     void
     fetchSidecarsIfNeeded(ExtendedPosition const& peerPos);
+
+    void
+    cacheConsensusTxSet(RCLTxSet const& txns);
+
+    std::size_t
+    verifyPendingExportSigs(RCLTxSet const& txns);
 
     void
     cacheUNLReport(std::shared_ptr<Ledger const> const& prevLedger = {});

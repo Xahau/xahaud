@@ -119,6 +119,92 @@ buildActiveValidatorView(
     return view;
 }
 
+using ExportTxnLookup = hash_map<uint256, std::shared_ptr<STTx const>>;
+
+ExportTxnLookup
+buildExportTxnLookup(SHAMap const& txns, beast::Journal j)
+{
+    ExportTxnLookup exportTxns;
+    txns.visitLeaves([&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+        try
+        {
+            SerialIter sit(item->slice());
+            auto stx = std::make_shared<STTx const>(sit);
+            if (stx->getTxnType() == ttEXPORT)
+                exportTxns.emplace(stx->getTransactionID(), std::move(stx));
+        }
+        catch (std::exception const& e)
+        {
+            JLOG(j.warn()) << "Export: failed to parse candidate tx "
+                           << item->key()
+                           << " while building lookup: " << e.what();
+        }
+    });
+    return exportTxns;
+}
+
+ExportTxnLookup
+buildOpenLedgerExportTxnLookup(Application& app)
+{
+    ExportTxnLookup exportTxns;
+    auto const openLedger = app.openLedger().current();
+    if (!openLedger)
+        return exportTxns;
+
+    for (auto const& entry : openLedger->txs)
+    {
+        auto const& stx = entry.first;
+        if (stx && stx->getTxnType() == ttEXPORT)
+            exportTxns.emplace(stx->getTransactionID(), stx);
+    }
+    return exportTxns;
+}
+
+bool
+verifyExportSignatureAgainstTx(
+    STTx const& exportTx,
+    PublicKey const& validator,
+    Slice sigSlice,
+    uint256 const& txHash,
+    beast::Journal j,
+    char const* source)
+{
+    if (!exportTx.isFieldPresent(sfExportedTxn))
+    {
+        JLOG(j.warn()) << "Export: cannot verify sig for tx " << txHash
+                       << " from " << source << " (missing sfExportedTxn)";
+        return false;
+    }
+
+    try
+    {
+        auto const& exportedObj = const_cast<STTx&>(exportTx)
+                                      .peekAtField(sfExportedTxn)
+                                      .downcast<STObject>();
+
+        Serializer innerSer;
+        exportedObj.add(innerSer);
+        SerialIter sit(innerSer.slice());
+        STTx innerTx(std::ref(sit));
+
+        auto const signerAcctID = calcAccountID(validator);
+        auto const sigData = buildMultiSigningData(innerTx, signerAcctID);
+        if (!verify(validator, sigData.slice(), sigSlice))
+        {
+            JLOG(j.warn()) << "Export: invalid multisign sig for tx " << txHash
+                           << " from " << source << " — rejected";
+            return false;
+        }
+        return true;
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j.warn()) << "Export: failed to verify sig for tx " << txHash
+                       << " from " << source << ": " << e.what();
+        return false;
+    }
+}
+
 }  // namespace
 
 std::size_t
@@ -579,10 +665,15 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
         [this, validatorView](PublicKey const& key) {
             return isActiveValidator(key, *validatorView);
         });
+    // Only signatures for export txns in the consensus candidate can affect
+    // this round's sidecar hash; open-ledger-only txns stay cached for later.
     std::size_t entryCount = 0;
 
     for (auto const& [txHash, valSigs] : allSigs)
     {
+        if (consensusExportTxns_.find(txHash) == consensusExportTxns_.end())
+            continue;
+
         for (auto const& [valPK, sigBuf] : valSigs)
         {
             STObject sidecar(sfGeneric);
@@ -623,7 +714,16 @@ ConsensusExtensions::hasPendingExportSigs() const
         [this, validatorView](PublicKey const& key) {
             return isActiveValidator(key, *validatorView);
         });
-    return !allSigs.empty();
+    if (allSigs.empty() || !consensusTxSetMap_)
+        return false;
+
+    for (auto const& entry : allSigs)
+    {
+        if (consensusExportTxns_.find(entry.first) !=
+            consensusExportTxns_.end())
+            return true;
+    }
+    return false;
 }
 
 void
@@ -688,6 +788,9 @@ ConsensusExtensions::clearRngState()
     entropySetMap_.reset();
     exportSigSetMap_.reset();
     rngRoundSeq_.reset();
+    consensusTxSetMap_.reset();
+    consensusExportTxns_.clear();
+    consensusTxSetHash_.reset();
     pendingRngFetches_.clear();
     exportSigGateStarted_ = false;
     exportSigGateStart_ = {};
@@ -807,104 +910,94 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             return;
 
         {
-            // Build export tx lookup from open ledger for sig verification.
-            auto const openLedger = app_.openLedger().current();
-            std::unordered_map<uint256, std::shared_ptr<STTx const>> exportTxns;
-            if (openLedger)
-            {
-                for (auto const& [stx, meta] : openLedger->txs)
-                {
-                    if (stx && stx->getTxnType() == ttEXPORT)
-                        exportTxns.emplace(stx->getTransactionID(), stx);
-                }
-            }
+            auto const useConsensusTxSet =
+                static_cast<bool>(consensusTxSetMap_);
+            auto const txSource =
+                useConsensusTxSet ? "consensus tx set" : "open ledger";
+            auto const openLedgerExportTxns = useConsensusTxSet
+                ? ExportTxnLookup{}
+                : buildOpenLedgerExportTxnLookup(app_);
+            auto const& exportTxns =
+                useConsensusTxSet ? consensusExportTxns_ : openLedgerExportTxns;
 
             auto const validatorView = activeValidatorView();
             std::size_t merged = 0;
-            map->visitLeaves([&](boost::intrusive_ptr<SHAMapItem const> const&
-                                     item) {
-                try
-                {
-                    SerialIter sit(item->slice());
-                    STObject sidecar(sit, sfGeneric);
-
-                    // Enforce the self-describing type tag.
-                    if (!sidecar.isFieldPresent(sfSidecarType) ||
-                        sidecar.getFieldU8(sfSidecarType) != sidecarExportSig)
-                        return;
-
-                    if (!sidecar.isFieldPresent(sfTransactionHash) ||
-                        !sidecar.isFieldPresent(sfSigningPubKey))
-                        return;
-
-                    auto const txHash = sidecar.getFieldH256(sfTransactionHash);
-                    auto const pk = sidecar.getFieldVL(sfSigningPubKey);
-                    if (!publicKeyType(makeSlice(pk)))
-                        return;
-
-                    PublicKey const valPK{makeSlice(pk)};
-                    // Fetched export sidecars are only useful if the signer is
-                    // active in the same view that final quorum will use.
-                    if (!isActiveValidator(valPK, *validatorView))
-                        return;
-
-                    // Require a real signature (not pubkey-only).
-                    if (!sidecar.isFieldPresent(sfTxnSignature))
-                        return;
-
-                    // Skip if we already have a verified sig for this
-                    // validator (e.g. from the proposal ingestion path).
-                    if (exportSigCollector_.hasVerifiedSignature(txHash, valPK))
-                        return;
-
-                    auto const sigVL = sidecar.getFieldVL(sfTxnSignature);
-                    auto const sigSlice = makeSlice(sigVL);
-
-                    // Verify the multisign signature against the inner
-                    // tx.
-                    auto const txIt = exportTxns.find(txHash);
-                    if (txIt == exportTxns.end() ||
-                        !txIt->second->isFieldPresent(sfExportedTxn))
+            map->visitLeaves(
+                [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                    try
                     {
-                        JLOG(j_.debug())
-                            << "Export: SHAMap merge — cannot verify "
-                               "sig for tx "
-                            << txHash << " (not in open ledger) — skipped";
-                        return;
+                        SerialIter sit(item->slice());
+                        STObject sidecar(sit, sfGeneric);
+
+                        // Enforce the self-describing type tag.
+                        if (!sidecar.isFieldPresent(sfSidecarType) ||
+                            sidecar.getFieldU8(sfSidecarType) !=
+                                sidecarExportSig)
+                            return;
+
+                        if (!sidecar.isFieldPresent(sfTransactionHash) ||
+                            !sidecar.isFieldPresent(sfSigningPubKey))
+                            return;
+
+                        auto const txHash =
+                            sidecar.getFieldH256(sfTransactionHash);
+                        auto const pk = sidecar.getFieldVL(sfSigningPubKey);
+                        if (!publicKeyType(makeSlice(pk)))
+                            return;
+
+                        PublicKey const valPK{makeSlice(pk)};
+                        // Fetched export sidecars are only useful if the signer
+                        // is active in the same view that final quorum will
+                        // use.
+                        if (!isActiveValidator(valPK, *validatorView))
+                            return;
+
+                        // Require a real signature (not pubkey-only).
+                        if (!sidecar.isFieldPresent(sfTxnSignature))
+                            return;
+
+                        // Skip if we already have a verified sig for this
+                        // validator (e.g. from the proposal ingestion path).
+                        if (exportSigCollector_.hasVerifiedSignature(
+                                txHash, valPK))
+                            return;
+
+                        auto const sigVL = sidecar.getFieldVL(sfTxnSignature);
+                        auto const sigSlice = makeSlice(sigVL);
+
+                        auto const txIt = exportTxns.find(txHash);
+                        if (txIt == exportTxns.end())
+                        {
+                            JLOG(j_.debug())
+                                << "Export: SHAMap merge — cannot verify "
+                                   "sig for tx "
+                                << txHash << " (not in " << txSource
+                                << ") — skipped";
+                            return;
+                        }
+
+                        if (!verifyExportSignatureAgainstTx(
+                                *txIt->second,
+                                valPK,
+                                sigSlice,
+                                txHash,
+                                j_,
+                                txSource))
+                            return;
+
+                        Buffer sigBuf(sigSlice.data(), sigSlice.size());
+                        exportSigCollector_.addVerifiedSignature(
+                            txHash, valPK, sigBuf);
+                        ++merged;
                     }
-
-                    auto const& exportedObj = const_cast<STTx&>(*txIt->second)
-                                                  .peekAtField(sfExportedTxn)
-                                                  .downcast<STObject>();
-
-                    Serializer innerSer;
-                    exportedObj.add(innerSer);
-                    SerialIter sit2(innerSer.slice());
-                    STTx innerTx(std::ref(sit2));
-
-                    auto const signerAcctID = calcAccountID(valPK);
-                    auto const sigData =
-                        buildMultiSigningData(innerTx, signerAcctID);
-                    if (!verify(valPK, sigData.slice(), sigSlice))
+                    catch (std::exception const& e)
                     {
-                        JLOG(j_.warn()) << "Export: SHAMap merge — invalid sig "
-                                           "for tx "
-                                        << txHash << " — rejected";
-                        return;
+                        JLOG(j_.warn())
+                            << "Export: SHAMap merge — failed to parse "
+                               "entry: "
+                            << e.what();
                     }
-
-                    Buffer sigBuf(sigSlice.data(), sigSlice.size());
-                    exportSigCollector_.addVerifiedSignature(
-                        txHash, valPK, sigBuf);
-                    ++merged;
-                }
-                catch (std::exception const& e)
-                {
-                    JLOG(j_.warn()) << "Export: SHAMap merge — failed to parse "
-                                       "entry: "
-                                    << e.what();
-                }
-            });
+                });
             JLOG(j_.info()) << "Export: merged " << merged
                             << " verified entries from peer exportSigSet "
                                "hash="
@@ -1212,6 +1305,64 @@ ConsensusExtensions::fetchSidecarsIfNeeded(ExtendedPosition const& peerPos)
     fetchRngSetIfNeeded(peerPos.commitSetHash, SidecarKind::commit);
     fetchRngSetIfNeeded(peerPos.entropySetHash, SidecarKind::reveal);
     fetchRngSetIfNeeded(peerPos.exportSigSetHash, SidecarKind::exportSig);
+}
+
+void
+ConsensusExtensions::cacheConsensusTxSet(RCLTxSet const& txns)
+{
+    auto const txSetHash = txns.id();
+    if (consensusTxSetHash_ && *consensusTxSetHash_ == txSetHash)
+        return;
+
+    consensusTxSetMap_ = txns.map_;
+    consensusExportTxns_ = buildExportTxnLookup(*txns.map_, j_);
+    consensusTxSetHash_ = txSetHash;
+}
+
+std::size_t
+ConsensusExtensions::verifyPendingExportSigs(RCLTxSet const& txns)
+{
+    if (!exportSigCollector_.hasUnverifiedSignatures())
+        return 0;
+
+    if (!consensusTxSetHash_ || *consensusTxSetHash_ != txns.id())
+        cacheConsensusTxSet(txns);
+
+    if (consensusExportTxns_.empty())
+        return 0;
+
+    auto const validatorView = activeValidatorView();
+    std::size_t upgraded = 0;
+    for (auto const& [txHash, stx] : consensusExportTxns_)
+    {
+        auto const unverified =
+            exportSigCollector_.unverifiedSignatures(txHash);
+        for (auto const& [valPK, sigBuf] : unverified)
+        {
+            if (!isActiveValidator(valPK, *validatorView))
+                continue;
+
+            if (!verifyExportSignatureAgainstTx(
+                    *stx,
+                    valPK,
+                    Slice(sigBuf.data(), sigBuf.size()),
+                    txHash,
+                    j_,
+                    "consensus tx set"))
+                continue;
+
+            exportSigCollector_.upgradeSignature(txHash, valPK, sigBuf);
+            ++upgraded;
+        }
+    }
+
+    if (upgraded > 0)
+    {
+        JLOG(j_.debug()) << "Export: upgraded " << upgraded
+                         << " proposal signatures against consensus tx set "
+                         << txns.id();
+    }
+    return upgraded;
 }
 
 void
@@ -1775,26 +1926,10 @@ ConsensusExtensions::onTrustedPeerMessage(
         }
     }
 
-    // Pass 2: verify multisign signatures and commit.
-    // Look up each export tx from the open ledger to reconstruct the
-    // signing data.  This runs on a jtPROPOSAL_t job queue thread
-    // (post-C1 fix), so the verify() cost doesn't block the IO strand
-    // or the single-threaded transactor.
-    auto const openLedger = app_.openLedger().current();
-
-    // Build a txHash -> STTx lookup for ttEXPORT txns in the open ledger.
-    // Avoids O(N*M) iteration when processing multiple export sig blobs.
-    std::unordered_map<uint256, std::shared_ptr<STTx const>> exportTxns;
-    if (openLedger)
-    {
-        for (auto const& [stx, meta] : openLedger->txs)
-        {
-            if (stx && stx->getTxnType() == ttEXPORT)
-                exportTxns.emplace(stx->getTransactionID(), stx);
-        }
-    }
-
-    auto const signerAcctID = calcAccountID(senderPK);
+    // Pass 2: opportunistically verify using the open ledger. The consensus
+    // candidate tx set later upgrades still-unverified signatures before
+    // they can enter an exportSigSetHash.
+    auto const exportTxns = buildOpenLedgerExportTxnLookup(app_);
 
     for (int i = 0; i < wireMsg.exportsignatures_size(); ++i)
     {
@@ -1808,7 +1943,7 @@ ConsensusExtensions::onTrustedPeerMessage(
 
         if (blob.size() <= 65)
         {
-            // Pubkey-only entry (no real signature) — skip.
+            // Pubkey-only entry (no real signature) - skip.
             // Only verified sigs are stored in the collector.
             continue;
         }
@@ -1820,16 +1955,11 @@ ConsensusExtensions::onTrustedPeerMessage(
         auto const fullSlice = makeSlice(blob);
         auto const sigSlice = fullSlice.substr(65);
 
-        // Verify the multisign signature against the inner tx when
-        // possible.  If the ttEXPORT isn't in our open ledger yet
-        // (relay ordering), store as unverified — the proposal-level
-        // authentication (checkSign + sender binding) provides
-        // sufficient trust.  Unverified sigs can be upgraded to
-        // verified if encountered again through a path that CAN
-        // verify (e.g. SHAMap merge after the tx arrives).
+        // If the ttEXPORT isn't in the open ledger yet, keep only a trusted
+        // unverified cache. The consensus tx set is the authoritative source
+        // for promotion into quorum material.
         auto const txIt = exportTxns.find(txHash);
-        if (txIt == exportTxns.end() ||
-            !txIt->second->isFieldPresent(sfExportedTxn))
+        if (txIt == exportTxns.end())
         {
             JLOG(j_.debug()) << "Export: storing unverified sig for tx "
                              << txHash << " (not in open ledger yet)";
@@ -1839,31 +1969,9 @@ ConsensusExtensions::onTrustedPeerMessage(
             continue;
         }
 
-        try
-        {
-            auto const& exportedObj = const_cast<STTx&>(*txIt->second)
-                                          .peekAtField(sfExportedTxn)
-                                          .downcast<STObject>();
-
-            Serializer innerSer;
-            exportedObj.add(innerSer);
-            SerialIter sit(innerSer.slice());
-            STTx innerTx(std::ref(sit));
-
-            auto const sigData = buildMultiSigningData(innerTx, signerAcctID);
-            if (!verify(senderPK, sigData.slice(), sigSlice))
-            {
-                JLOG(j_.warn()) << "Export: invalid multisign sig for tx "
-                                << txHash << " — rejected";
-                continue;
-            }
-        }
-        catch (std::exception const& e)
-        {
-            JLOG(j_.warn()) << "Export: failed to verify sig for tx " << txHash
-                            << ": " << e.what();
+        if (!verifyExportSignatureAgainstTx(
+                *txIt->second, senderPK, sigSlice, txHash, j_, "open ledger"))
             continue;
-        }
 
         Buffer sigBuf(sigSlice.data(), sigSlice.size());
         exportSigCollector_.addVerifiedSignature(txHash, senderPK, sigBuf);
@@ -2052,6 +2160,18 @@ ConsensusExtensions::decorateMessage(
 ExtensionTickResult
 ConsensusExtensions::onTick(TickContext const& ctx)
 {
+    if (exportEnabled())
+    {
+        cacheConsensusTxSet(ctx.getTxns());
+        verifyPendingExportSigs(ctx.getTxns());
+    }
+    else
+    {
+        consensusTxSetMap_.reset();
+        consensusExportTxns_.clear();
+        consensusTxSetHash_.reset();
+    }
+
     return extensionsTick(*this, ctx);
 }
 
