@@ -136,10 +136,19 @@ bool
 ConsensusExtensions::hasQuorumOfCommits() const
 {
     auto threshold = quorumThreshold();
-    bool result = pendingCommits_.size() >= threshold;
-    JLOG(j_.trace()) << "RNG: hasQuorumOfCommits? " << pendingCommits_.size()
-                     << "/" << threshold << " -> " << (result ? "YES" : "no")
-                     << " (activeUNL=" << unlReportNodeIds_.size()
+    auto const proofedCommitCount = std::count_if(
+        pendingCommits_.begin(),
+        pendingCommits_.end(),
+        [this](auto const& entry) {
+            auto const& nid = entry.first;
+            return isUNLReportMember(nid) && nodeIdToKey_.count(nid) > 0 &&
+                commitProofs_.count(nid) > 0;
+        });
+    bool result = static_cast<std::size_t>(proofedCommitCount) >= threshold;
+    JLOG(j_.trace()) << "RNG: hasQuorumOfCommits? " << proofedCommitCount << "/"
+                     << threshold << " -> " << (result ? "YES" : "no")
+                     << " (pending=" << pendingCommits_.size()
+                     << ", activeUNL=" << unlReportNodeIds_.size()
                      << ", likelyParticipants=" << likelyParticipants_.size()
                      << ")";
     return result;
@@ -341,6 +350,9 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
         auto kit = nodeIdToKey_.find(nid);
         if (kit == nodeIdToKey_.end())
             continue;
+        auto proofIt = commitProofs_.find(nid);
+        if (proofIt == commitProofs_.end())
+            continue;
 
         // Encode the NodeID into sfAccount so onAcquiredSidecarSet can
         // recover it without recomputing (master vs signing key issue).
@@ -353,9 +365,7 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
         sidecar.setAccountID(sfAccount, acctId);
         sidecar.setFieldH256(sfDigest, commit);
         sidecar.setFieldVL(sfSigningPubKey, kit->second.slice());
-        auto proofIt = commitProofs_.find(nid);
-        if (proofIt != commitProofs_.end())
-            sidecar.setFieldVL(sfBlob, serializeProof(proofIt->second));
+        sidecar.setFieldVL(sfBlob, serializeProof(proofIt->second));
 
         auto const itemKey = sidecar.getHash(HashPrefix::sidecar);
         Serializer s(2048);
@@ -550,17 +560,19 @@ ConsensusExtensions::clearRngState()
 //@@end clear-rng-state
 
 void
-ConsensusExtensions::cacheUNLReport()
+ConsensusExtensions::cacheUNLReport(
+    std::shared_ptr<Ledger const> const& prevLedger)
 {
     unlReportNodeIds_.clear();
-    bool const includeSelf = mode_ == ConsensusMode::proposing &&
-        app_.getValidatorKeys().keys &&
-        app_.getValidatorKeys().nodeID != beast::zero;
 
-    // Try UNL Report from the validated ledger
-    if (auto const prevLedger = app_.getLedgerMaster().getValidatedLedger())
+    // Try UNL Report from the consensus parent ledger.  Falling back to
+    // LedgerMaster preserves older tests that call cacheUNLReport directly,
+    // but live rounds should pass the exact parent ledger for the round.
+    auto const sourceLedger =
+        prevLedger ? prevLedger : app_.getLedgerMaster().getValidatedLedger();
+    if (sourceLedger)
     {
-        if (auto const sle = prevLedger->read(keylet::UNLReport()))
+        if (auto const sle = sourceLedger->read(keylet::UNLReport()))
         {
             if (sle->isFieldPresent(sfActiveValidators))
             {
@@ -584,14 +596,11 @@ ConsensusExtensions::cacheUNLReport()
         {
             unlReportNodeIds_.insert(calcNodeID(masterKey));
         }
-    }
 
-    // Only include ourselves when actively proposing. Observers/non-validators
-    // do not emit commitments and must not be expected in commit quorum.
-    if (includeSelf)
-        unlReportNodeIds_.insert(app_.getValidatorKeys().nodeID);
-    else
-        unlReportNodeIds_.erase(app_.getValidatorKeys().nodeID);
+        auto const& valKeys = app_.getValidatorKeys();
+        if (valKeys.keys && valKeys.nodeID != beast::zero)
+            unlReportNodeIds_.insert(valKeys.nodeID);
+    }
 
     JLOG(j_.trace()) << "RNG: cacheUNLReport size=" << unlReportNodeIds_.size();
 }
@@ -1048,6 +1057,7 @@ ConsensusExtensions::fetchSidecarsIfNeeded(ExtendedPosition const& peerPos)
 {
     fetchRngSetIfNeeded(peerPos.commitSetHash, SidecarKind::commit);
     fetchRngSetIfNeeded(peerPos.entropySetHash, SidecarKind::reveal);
+    fetchRngSetIfNeeded(peerPos.exportSigSetHash, SidecarKind::exportSig);
 }
 
 void
@@ -1093,8 +1103,8 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
         // same entropy — preventing reveal-subset divergence at
         // timeout boundaries.
         //
-        // Each leaf is an STTx with sfSigningPubKey (validator key)
-        // and sfDigest (the reveal).
+        // Each leaf is an STObject(sfGeneric) sidecar with sfSigningPubKey
+        // (validator key) and sfDigest (the reveal).
         std::vector<std::pair<PublicKey, uint256>> sorted;
         entropySetMap_->visitLeaves(
             [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
@@ -1453,7 +1463,7 @@ ConsensusExtensions::onRoundStart(
     hash_set<NodeID> lastProposers)
 {
     clearRngState();
-    cacheUNLReport();
+    cacheUNLReport(prevLedger.ledger_);
     setExpectedProposers(std::move(lastProposers));
     resetSubState();
 }
@@ -1705,7 +1715,7 @@ ConsensusExtensions::decoratePosition(
     }
 
     setMode(ConsensusMode::proposing);
-    cacheUNLReport();
+    cacheUNLReport(prevLedger);
     generateEntropySecret();
 
     auto const& valKeys = app_.getValidatorKeys();

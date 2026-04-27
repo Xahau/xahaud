@@ -168,9 +168,9 @@ message TMProposeSet
     optional uint32 hops                = 12    [deprecated=true];
 
     // Export signatures for pending exports seen in the proposal set.
-    // Each entry is: txnHash (32 bytes) + validator pubkey (33 bytes).
-    // Validators attach these so export quorum can be reached within
-    // the same consensus round.
+    // Each entry is: txnHash (32 bytes) + validator pubkey (33 bytes)
+    // + multisign signature (variable length). Validators attach these
+    // so export quorum can be reached within the same consensus round.
     repeated bytes exportSignatures     = 13;
 }
 
@@ -224,9 +224,9 @@ message TMValidation
     // Number of hops traveled
     optional uint32 hops = 3           [deprecated = true];
 
-    // Export signatures for pending exports validated in this ledger.
-    // Each entry is: txnHash (32 bytes) + serialized sfSigner STObject.
-    // Used for ephemeral export signature collection via validation gossip.
+    // Legacy export signature gossip field retained for wire compatibility.
+    // Current proposal-based export signatures use
+    // TMProposeSet.exportSignatures.
     repeated bytes exportSignatures = 4;
 }
 
@@ -395,4 +395,3 @@ message TMHaveTransactions
 {
     repeated bytes hashes = 1;
 }
-

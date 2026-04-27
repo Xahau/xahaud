@@ -9,7 +9,7 @@ namespace ripple {
 //
 // These limits bound the DoS surface of the export signature system:
 // - Each pending export requires every validator to sign it every round
-//   (sign-once, broadcast-many via TMValidation)
+//   (sign-once, attach once via TMProposeSet)
 // - Inbound signature processing involves crypto verification per sig
 // - The directory cap (maxPendingExports) is the root constraint;
 //   signing throughput and inbound processing are transitively bounded by it
@@ -21,8 +21,8 @@ struct ExportLimits
 
     // Maximum pending exports in the exported directory at any time.
     // This transitively caps:
-    //   - signatures per TMValidation message (1 per pending export)
-    //   - inbound signature processing in PeerImp (clamped to this)
+    //   - signatures per TMProposeSet message (1 per pending export)
+    //   - inbound proposal signature processing (clamped to this)
     //   - validator signing work per round
     static constexpr std::uint8_t maxPendingExports = 8;
 };

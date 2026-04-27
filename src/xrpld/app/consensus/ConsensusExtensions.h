@@ -27,9 +27,6 @@ using TickContext = ConsensusTick<ExtendedPosition, RCLCxPeerPos, RCLTxSet>;
 /// Owns all RNG/Export state that was previously scattered across
 /// RCLCxAdaptor and Consensus.h. Lifecycle hooks are grouped by
 /// caller/threading context.
-///
-/// See .ai-docs/refactoring-xahaud-consensus-extensions-v8.md.j2
-/// for design rationale.
 class ConsensusExtensions
 {
     Application& app_;
@@ -190,7 +187,7 @@ public:
     fetchSidecarsIfNeeded(ExtendedPosition const& peerPos);
 
     void
-    cacheUNLReport();
+    cacheUNLReport(std::shared_ptr<Ledger const> const& prevLedger = {});
 
     bool
     isUNLReportMember(NodeID const& nodeId) const;

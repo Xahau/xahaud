@@ -100,8 +100,7 @@ struct TestVLPublisher
     buildVLData(
         std::vector<TestValidator> const& validators,
         std::uint32_t sequence = 1,
-        std::uint32_t expiration =
-            767784645) const  // ~2024, matches Import_test
+        std::uint32_t expiration = 767784645) const
     {
         // Build the JSON blob
         std::string data = "{\"sequence\":" + std::to_string(sequence) +
