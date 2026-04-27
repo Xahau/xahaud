@@ -1711,7 +1711,7 @@ TxQ::accept(Application& app, OpenView& view)
                     // set
                     if (fls >= view.info().seq)
                     {
-                        if (ExportLedgerOps::isPendingExportTxn(*stpTrans))
+                        if (ExportLedgerOps::isPendingExportWorkTxn(*stpTrans))
                         {
                             auto const pending =
                                 ExportLedgerOps::exportTxnCount(view);

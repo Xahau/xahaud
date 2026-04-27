@@ -122,6 +122,9 @@ public:
     TER
     checkInvariants(TER const result, XRPAmount const fee);
 
+    TER
+    checkExportEmissionLimit(TER const result);
+
     bool
     isEmittedTxn()
     {

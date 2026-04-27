@@ -28,15 +28,47 @@ isPendingExportTxn(STTx const& stx)
     return isExportTxn(stx) && stx.isFieldPresent(sfExportedTxn);
 }
 
+inline bool
+isPendingExportWorkTxn(STTx const& stx)
+{
+    return isExportTxn(stx) &&
+        (stx.isFieldPresent(sfExportedTxn) ||
+         stx.isFieldPresent(sfEmitDetails));
+}
+
 inline std::size_t
 exportTxnCount(ReadView const& view)
 {
     std::size_t count = 0;
     for (auto const& tx : view.txs)
     {
-        if (tx.first && isPendingExportTxn(*tx.first))
+        if (tx.first && isPendingExportWorkTxn(*tx.first))
             ++count;
     }
+    return count;
+}
+
+inline bool
+isPendingExportEmission(SLE const& sle)
+{
+    if (sle.getType() != ltEMITTED_TXN || !sle.isFieldPresent(sfEmittedTxn))
+        return false;
+
+    auto const& emittedObj = sle.peekAtField(sfEmittedTxn).downcast<STObject>();
+    return emittedObj.isFieldPresent(sfTransactionType) &&
+        emittedObj.getFieldU16(sfTransactionType) == ttEXPORT &&
+        emittedObj.isFieldPresent(sfExportedTxn);
+}
+
+inline std::size_t
+pendingExportEmissionCount(ReadView const& view)
+{
+    std::size_t count = 0;
+    forEachItem(
+        view, keylet::emittedDir(), [&](std::shared_ptr<SLE const> const& sle) {
+            if (sle && isPendingExportEmission(*sle))
+                ++count;
+        });
     return count;
 }
 

@@ -1662,6 +1662,8 @@ hook::finalizeHookResult(
     std::vector<std::pair<uint256 /* txnid */, uint256 /* emit nonce */>>
         emission_txnid;
     std::vector<uint256 /* txnid */> exported_txnid;
+    std::size_t pendingExportEmissions =
+        ExportLedgerOps::pendingExportEmissionCount(applyCtx.view());
 
     if (doEmit)
     {
@@ -1676,12 +1678,29 @@ hook::finalizeHookResult(
 
             std::shared_ptr<const ripple::STTx> ptr =
                 tpTrans->getSTransaction();
+            bool const isExportEmission =
+                ExportLedgerOps::isPendingExportWorkTxn(*ptr);
 
             auto emittedId = keylet::emittedTxn(id);
             auto sleEmitted = applyCtx.view().peek(emittedId);
 
             if (!sleEmitted)
             {
+                if (isExportEmission)
+                {
+                    if (pendingExportEmissions >=
+                        ExportLimits::maxPendingExports)
+                    {
+                        JLOG(j.warn())
+                            << "HookExport[" << HR_ACC()
+                            << "]: export emission limit reached pending="
+                            << pendingExportEmissions
+                            << " max=" << +ExportLimits::maxPendingExports;
+                        return tecDIR_FULL;
+                    }
+                    ++pendingExportEmissions;
+                }
+
                 auto const& emitDetails = const_cast<ripple::STTx&>(*ptr)
                                               .getField(sfEmitDetails)
                                               .downcast<STObject>();
@@ -1696,7 +1715,8 @@ hook::finalizeHookResult(
                 ptr->add(s);
                 SerialIter sit(s.slice());
 
-                sleEmitted->emplace_back(ripple::STObject(sit, sfEmittedTxn));
+                sleEmitted->set(
+                    std::make_unique<ripple::STObject>(sit, sfEmittedTxn));
                 auto page = applyCtx.view().dirInsert(
                     keylet::emittedDir(), emittedId, [&](SLE::ref sle) {
                         (*sle)[sfFlags] = lsfEmittedDir;

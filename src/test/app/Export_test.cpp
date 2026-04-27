@@ -23,6 +23,7 @@
 #include <test/jtx/import.h>
 #include <test/jtx/xpop.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
@@ -527,6 +528,64 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testXportEmissionLimit(FeatureBitset features)
+    {
+        testcase("Xport emitted export limit");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, bob, carol);
+        env.close();
+
+        env(ripple::test::jtx::hook(alice, {{hso(xport_wasm)}}, 0),
+            HSFEE,
+            ter(tesSUCCESS));
+        env.close();
+
+        auto params = makeDstParams(carol.id());
+        for (std::uint32_t i = 0; i <= ExportLimits::maxPendingExports; ++i)
+        {
+            env(pay(bob, alice, XRP(1)),
+                fee(XRP(1)),
+                json(jss::HookParameters, params),
+                ter(tesSUCCESS));
+        }
+
+        env.close();
+
+        std::uint32_t accepted = 0;
+        std::uint32_t capped = 0;
+        for (auto const& [stx, meta] : env.closed()->txs)
+        {
+            if (stx->getTxnType() != ttPAYMENT ||
+                stx->getAccountID(sfAccount) != bob.id())
+            {
+                continue;
+            }
+
+            if ((*meta)[sfTransactionResult] ==
+                static_cast<std::uint8_t>(TERtoInt(tesSUCCESS)))
+                ++accepted;
+            else if (
+                (*meta)[sfTransactionResult] ==
+                static_cast<std::uint8_t>(TERtoInt(tecDIR_FULL)))
+                ++capped;
+        }
+
+        BEAST_EXPECT(accepted == ExportLimits::maxPendingExports);
+        BEAST_EXPECT(capped == 1);
+        BEAST_EXPECT(
+            ExportLedgerOps::pendingExportEmissionCount(*env.current()) ==
+            ExportLimits::maxPendingExports);
+    }
+
+    void
     testExportTxnOpenLedger(FeatureBitset features)
     {
         testcase("ttEXPORT succeeds on open ledger (provisional)");
@@ -997,6 +1056,7 @@ struct Export_test : public beast::unit_test::suite
         testXportPayment(allWithExport);
         testXportRejectsLocalNetworkID(allWithExport);
         testXportRejectsUnconfiguredNetworkID(allWithExport);
+        testXportEmissionLimit(allWithExport);
 
         // ttEXPORT transactor tests
         testExportTxnOpenLedger(allWithExport);

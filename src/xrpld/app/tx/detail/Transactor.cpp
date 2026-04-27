@@ -1972,7 +1972,12 @@ Transactor::operator()()
 
         // write state if all chains executed successfully
         if (isTesSuccess(result))
-            hook::finalizeHookState(stateMap, ctx_, ctx_.tx.getTransactionID());
+        {
+            if (auto const ter = hook::finalizeHookState(
+                    stateMap, ctx_, ctx_.tx.getTransactionID());
+                !isTesSuccess(ter))
+                result = ter;
+        }
 
         // write hook results
         // this happens irrespective of whether final result was a tesSUCCESS
@@ -1981,8 +1986,12 @@ Transactor::operator()()
 
         for (auto& hookResult : hookResults)
         {
-            hook::finalizeHookResult(hookResult, ctx_, isTesSuccess(result));
-            if (hookResult.executeAgainAsWeak)
+            if (auto const ter = hook::finalizeHookResult(
+                    hookResult, ctx_, isTesSuccess(result));
+                isTesSuccess(result) && !isTesSuccess(ter))
+                result = ter;
+
+            if (isTesSuccess(result) && hookResult.executeAgainAsWeak)
             {
                 if (aawMap.find(hookResult.account) == aawMap.end())
                     aawMap[hookResult.account] = {hookResult.hookHash};
@@ -2276,6 +2285,28 @@ Transactor::operator()()
 
         if (ctx_.size() > oversizeMetaDataCap)
             result = tecOVERSIZE;
+    }
+
+    if (applied)
+    {
+        auto const limitResult = ctx_.checkExportEmissionLimit(result);
+        if (!isTesSuccess(limitResult))
+        {
+            result = limitResult;
+
+            auto const resetResult = reset(fee);
+            if (!isTesSuccess(resetResult.first))
+            {
+                result = resetResult.first;
+                applied = false;
+            }
+            else
+            {
+                fee = resetResult.second;
+                result = ctx_.checkInvariants(result, fee);
+                applied = isTesSuccess(result) || isTecClaim(result);
+            }
+        }
     }
 
     std::optional<TxMeta> metadata;
