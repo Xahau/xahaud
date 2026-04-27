@@ -740,6 +740,47 @@ public:
     }
 
     void
+    testRngEntropyHashConflictFallsBackToZero()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG entropy hash conflict falls back to zero");
+
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup peers = sim.createGroup(5);
+        for (Peer* peer : peers)
+            peer->ce().enableRngConsensus_ = true;
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        // Warmup: populate prevProposers.
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
+        // Peer 0 advertises an entropy-set hash that nobody can acquire.
+        // The other peers can still agree on the base tx set and several
+        // peers will share a normal entropy hash, but a still-conflicting
+        // tx-converged entropy hash must zero the round instead of allowing
+        // mixed zero/non-zero entropy outcomes.
+        peers[0]->ce().forcedEntropySetHash_ =
+            sha512Half(std::string("forced-entropy-conflict"));
+
+        sim.run(3);
+
+        BEAST_EXPECT(sim.branches(peers) == 1);
+        for (Peer const* peer : peers)
+        {
+            BEAST_EXPECT(peer->ce().lastEntropyWasFallback_);
+            BEAST_EXPECT(peer->ce().lastEntropyDigest_ == uint256{});
+            BEAST_EXPECT(peer->ce().lastEntropyCount_ == 0);
+        }
+    }
+
+    void
     testRngNoEntropyWithoutPeerAlignment()
     {
         using namespace csf;
@@ -886,6 +927,7 @@ public:
         RUN(testRngEntropyConvergesWithPartialReveals);
         RUN(testRngEntropyFallbackOnMajorRevealLoss);
         RUN(testRngSingleByzantineCannotDenyEntropy);
+        RUN(testRngEntropyHashConflictFallsBackToZero);
         RUN(testRngNoEntropyWithoutPeerAlignment);
         RUN(testRngAlignmentRequiredForNonZeroEntropy);
 

@@ -346,6 +346,8 @@ struct Peer
 
         // Optional test hook: force a specific commit-set hash
         std::optional<uint256> forcedCommitSetHash_;
+        // Optional test hook: force a specific entropy-set hash
+        std::optional<uint256> forcedEntropySetHash_;
 
         // Optional test hook: drop reveals from specific peers
         // (simulates asymmetric reveal delivery / packet loss)
@@ -440,6 +442,8 @@ struct Peer
         uint256
         buildEntropySet(Ledger::Seq seq)
         {
+            if (forcedEntropySetHash_)
+                return *forcedEntropySetHash_;
             auto const hash = hashRngSet(pendingReveals_, seq, "reveal");
             peer.sidecarStore.publish(
                 hash, SidecarStore::Type::reveal, pendingReveals_);

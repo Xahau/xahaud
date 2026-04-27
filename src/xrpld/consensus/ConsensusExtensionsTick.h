@@ -533,31 +533,48 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         return {};
                     }
 
-                    // Phase 2: check peer agreement.
-                    bool conflict = false;
-                    std::size_t aligned = 0;
-                    std::size_t peersSeen = 0;
-                    for (auto const& [_, peerPos] : ctx.peerPositions)
+                    struct EntropyPeerState
                     {
-                        auto const& pp = peerPos.proposal().position();
-                        if (!(pp == ourPos))
-                            continue;  // not tx-converged
-                        if (!pp.entropySetHash)
-                            continue;  // peer hasn't published yet
-                        ++peersSeen;
-                        if (*pp.entropySetHash != *ourPos.entropySetHash)
-                        {
-                            conflict = true;
-                            ext.fetchRngSetIfNeeded(
-                                pp.entropySetHash, Ext::SidecarKind::reveal);
-                        }
-                        else
-                        {
-                            ++aligned;
-                        }
-                    }
+                        bool conflict = false;
+                        std::size_t aligned = 0;
+                        std::size_t peersSeen = 0;
+                    };
 
-                    if (conflict)
+                    // Phase 2: check peer agreement.  Extension hashes do not
+                    // participate in tx-set equality, so a different
+                    // entropySetHash is an RNG-side disagreement to resolve or
+                    // zero out, not something that should block ordinary
+                    // tx-set consensus indefinitely.
+                    auto inspectEntropyPeers =
+                        [&](auto const& pos,
+                            bool fetchMismatches) -> EntropyPeerState {
+                        EntropyPeerState state;
+                        for (auto const& [_, peerPos] : ctx.peerPositions)
+                        {
+                            auto const& pp = peerPos.proposal().position();
+                            if (!(pp == pos))
+                                continue;  // not tx-converged
+                            if (!pp.entropySetHash)
+                                continue;  // peer hasn't published yet
+                            ++state.peersSeen;
+                            if (*pp.entropySetHash == *pos.entropySetHash)
+                            {
+                                ++state.aligned;
+                                continue;
+                            }
+
+                            state.conflict = true;
+                            if (fetchMismatches)
+                                ext.fetchRngSetIfNeeded(
+                                    pp.entropySetHash,
+                                    Ext::SidecarKind::reveal);
+                        }
+                        return state;
+                    };
+
+                    auto entropyState = inspectEntropyPeers(ourPos, true);
+
+                    if (entropyState.conflict)
                     {
                         // Rebuild our entropy set after any merges.
                         auto const refreshedHash =
@@ -573,42 +590,20 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                                 << "RNG: refreshed entropySetHash after "
                                    "merge to "
                                 << refreshedHash;
+                        }
 
-                            // After merge, re-check: the conflicting
-                            // peer's data may have been a subset of
-                            // ours (no new data added).  If our hash
-                            // didn't change, the "conflict" is just a
-                            // peer with less data — not a real threat.
-                            // Re-count alignment with updated hash.
-                            aligned = 0;
-                            conflict = false;
-                            auto const updatedPos = ctx.getPosition();
-                            for (auto const& [_, pp2] : ctx.peerPositions)
-                            {
-                                auto const& p2 = pp2.proposal().position();
-                                if (!(p2 == updatedPos))
-                                    continue;
-                                if (!p2.entropySetHash)
-                                    continue;
-                                if (*p2.entropySetHash ==
-                                    *updatedPos.entropySetHash)
-                                    ++aligned;
-                                else
-                                    conflict = true;
-                            }
-                        }
-                        else
-                        {
-                            // Our hash didn't change after merge —
-                            // the conflicting peer had a subset of
-                            // our data.  Not a real conflict.
-                            conflict = false;
-                        }
+                        // Re-check against the current local hash.  Any peer
+                        // that still advertises a different entropySetHash is
+                        // unresolved until it converges or the bounded RNG
+                        // window expires and forces zero entropy.
+                        entropyState =
+                            inspectEntropyPeers(ctx.getPosition(), true);
                     }
 
-                    if (conflict)
+                    if (entropyState.conflict)
                     {
-                        // Bounded grace window for real conflicts.
+                        // Bounded grace window for unresolved entropy-side
+                        // conflicts.
                         auto const entropyElapsed =
                             ctx.nowSteady - ext.entropyPublishStart_;
                         auto const entropyDeadline =
@@ -645,7 +640,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     // before accepting non-zero entropy.  Without this,
                     // a node could accept based purely on its local view
                     // with no peer confirmation.
-                    if (!conflict && aligned == 0 && peersSeen == 0)
+                    if (!entropyState.conflict && entropyState.aligned == 0 &&
+                        entropyState.peersSeen == 0)
                     {
                         // No peers have published an entropySetHash yet.
                         // Wait for the bounded window so they have time.
@@ -668,7 +664,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                                "within deadline, falling back to zero";
                         logRngDiag("rng-entropy-hash-no-peers-timeout");
                     }
-                    else if (!conflict && aligned == 0 && peersSeen > 0)
+                    else if (
+                        !entropyState.conflict && entropyState.aligned == 0 &&
+                        entropyState.peersSeen > 0)
                     {
                         // Peers published but none match ours yet.
                         // This can happen when a peer with a subset
@@ -683,7 +681,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         {
                             JLOG(ext.j_.debug())
                                 << "RNG: no aligned peers yet "
-                                << "(peersSeen=" << peersSeen << "), waiting";
+                                << "(peersSeen=" << entropyState.peersSeen
+                                << "), waiting";
                             logRngDiag("rng-entropy-hash-no-alignment-wait");
                             return {};
                         }
@@ -695,9 +694,11 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     }
 
                     JLOG(ext.j_.debug())
-                        << "RNG: entropy gate — aligned=" << aligned
-                        << " peersSeen=" << peersSeen
-                        << " conflict=" << (conflict ? "yes" : "no");
+                        << "RNG: entropy gate — aligned="
+                        << entropyState.aligned
+                        << " peersSeen=" << entropyState.peersSeen
+                        << " conflict="
+                        << (entropyState.conflict ? "yes" : "no");
                 }
             }
 
