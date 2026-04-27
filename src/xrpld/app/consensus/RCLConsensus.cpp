@@ -587,13 +587,14 @@ RCLConsensus::Adaptor::doAccept(
     }
 
     //@@start auxiliary-pre-build-injection
-    // Inject consensus entropy pseudo-transaction (if amendment enabled)
-    // This must happen before buildLCL so the entropy tx is in the ledger
+    // Inject consensus entropy pseudo-transaction (if amendment enabled).
+    // Export-only rounds still need extension state preserved through buildLCL
+    // so ttEXPORT can observe exportSigSetHash convergence at apply time.
     //@@start accept-time-cleanup-disabled
-    if (prevLedger.ledger_->rules().enabled(featureConsensusEntropy))
+    if (ce().rngEnabled())
         ce().onPreBuild(retriableTxs, prevLedger.seq() + 1);
-    else
-        ce().clearRngState();  // CE disabled — clear extension state now
+    else if (!ce().exportEnabled())
+        ce().clearRngState();
     //@@end accept-time-cleanup-disabled
 
     auto built = buildLCL(

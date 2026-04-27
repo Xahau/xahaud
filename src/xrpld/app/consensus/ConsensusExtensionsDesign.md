@@ -192,6 +192,11 @@ Export sig convergence runs in parallel with RNG. An export-side convergence
 failure must not change RNG semantics; an RNG fallback must not make export
 unsafe. Each feature has its own gate and fallback.
 
+Accept-time cleanup must preserve Export state through `buildLCL` whenever
+`featureExport` is enabled. RNG-disabled does not mean extensions-disabled:
+`ttEXPORT` still needs the round's export sidecar convergence state when it
+applies.
+
 CSF consensus tests model the export sidecar gate directly. Testnet scenarios
 under `.testnet/scenarios/export/` cover live-node Export+CE behavior and the
 Export-only unanimity mode.
