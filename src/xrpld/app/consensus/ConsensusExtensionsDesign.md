@@ -48,12 +48,20 @@ and the ledger still closes.
    to distinguish payloads and `HashPrefix::sidecar` for item hashes. They
    are fetched through sidecar sync, not parsed or submitted as transactions.
 
-6. Proposal-visible extension data must be signed.
+6. Proposal-visible or validation-visible extension data must be signed.
 
    Do not attach behavior-changing sidecar payloads as unsigned out-of-band
-   proposal data. If stripping or changing a field would alter RNG or export
-   behavior, that field must be covered by the proposal signature and by the
-   proposal identity used for duplicate suppression.
+   proposal or validation wrapper data. If stripping or changing a field would
+   alter RNG or export behavior, that field must be covered by the relevant
+   signed payload and by the identity used for duplicate suppression/replay
+   checks on that path.
+
+   Today ConsensusExtensions uses signed proposal sidecars, not validation
+   sidecars. If a future design carries extension material through
+   validations, the same rule applies: the behavior-changing data, or a digest
+   of it, must be inside the signed validation payload and bound to the
+   validating key and ledger. A protobuf field outside the signed validation is
+   only transport metadata; it must not affect consensus-extension behavior.
 
 ## Validator Set And Quorum
 
@@ -178,7 +186,7 @@ When changing consensus extension code, check these questions:
 - Are quorum calculations using the active validator view, not recent
   proposers as the denominator?
 - Are sidecar entries typed as sidecars, not pseudo-transactions?
-- Are proposal-visible sidecar fields covered by proposal signing and
-  duplicate suppression?
+- Are proposal-visible or validation-visible sidecar fields covered by the
+  relevant signature and duplicate/replay identity?
 - Are export signatures verified before they count?
 - Are CE and Export still independently gated and independently stoppable?

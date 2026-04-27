@@ -225,11 +225,6 @@ message TMValidation
 
     // Number of hops traveled
     optional uint32 hops = 3           [deprecated = true];
-
-    // Legacy export signature gossip field retained for wire compatibility.
-    // Current proposal-based export signatures use
-    // TMProposeSet.exportSignatures.
-    repeated bytes exportSignatures = 4;
 }
 
 // An array of Endpoint messages
