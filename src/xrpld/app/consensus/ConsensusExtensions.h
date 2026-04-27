@@ -58,6 +58,13 @@ public:
             nodeIds.insert(calcNodeID(masterKey));
         }
 
+        void
+        eraseMaster(PublicKey const& masterKey)
+        {
+            masterKeys.erase(masterKey);
+            nodeIds.erase(calcNodeID(masterKey));
+        }
+
         std::size_t
         size() const
         {

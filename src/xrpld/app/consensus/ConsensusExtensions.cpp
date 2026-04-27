@@ -92,22 +92,29 @@ buildActiveValidatorView(
         }
     }
 
-    // TODO: If this fork still supports Negative UNL, fold that policy into
-    // this active view before quorum sizing or sidecar eligibility decisions.
-    if (!view.masterKeys.empty())
-        return view;
+    if (view.masterKeys.empty())
+    {
+        // Fallback exists for early ledgers and dev/test networks before the
+        // report object is available. It is deliberately the configured trusted
+        // master-key set so manifest signing keys still resolve through trust.
+        for (auto const& masterKey : app.validators().getTrustedMasterKeys())
+            view.insertMaster(masterKey);
 
-    // Fallback exists for early ledgers and dev/test networks before the
-    // report object is available. It is deliberately the configured trusted
-    // master-key set so manifest signing keys still resolve through trust.
-    for (auto const& masterKey : app.validators().getTrustedMasterKeys())
-        view.insertMaster(masterKey);
+        // Some standalone/dev configurations trust local validation implicitly.
+        // insertMaster() makes this idempotent if self is already trusted.
+        auto const& valKeys = app.getValidatorKeys();
+        if (valKeys.keys && valKeys.nodeID != beast::zero)
+            view.insertMaster(valKeys.keys->masterPublicKey);
+    }
 
-    // Some standalone/dev configurations trust local validation implicitly.
-    // insertMaster() makes this idempotent if self is already trusted.
-    auto const& valKeys = app.getValidatorKeys();
-    if (valKeys.keys && valKeys.nodeID != beast::zero)
-        view.insertMaster(valKeys.keys->masterPublicKey);
+    if (sourceLedger && sourceLedger->rules().enabled(featureNegativeUNL))
+    {
+        // UNLReport records recently active validators; NegativeUNL is the
+        // separate ledger policy overlay that core consensus applies to quorum.
+        // Apply it to either source so sidecar quorum matches that policy.
+        for (auto const& masterKey : sourceLedger->negativeUNL())
+            view.eraseMaster(masterKey);
+    }
 
     return view;
 }
