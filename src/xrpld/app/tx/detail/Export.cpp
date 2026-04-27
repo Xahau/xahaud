@@ -1,4 +1,5 @@
 #include <xrpld/app/consensus/ConsensusExtensions.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/detail/Export.h>
@@ -109,16 +110,20 @@ Export::doApply()
         return tesSUCCESS;
     }
 
-    // Closed ledger: check if we have enough validator signatures.
-    // UNL size from UNLReport ActiveValidators, fallback to local trusted keys.
-    std::size_t unlSize = 0;
-    {
-        auto const unlReport = view().read(keylet::UNLReport());
-        if (unlReport && unlReport->isFieldPresent(sfActiveValidators))
-            unlSize = unlReport->getFieldArray(sfActiveValidators).size();
-        else
-            unlSize = ctx_.app.validators().getTrustedMasterKeys().size();
-    }
+    auto& consensusExtensions = ctx_.app.getConsensusExtensions();
+    auto const parentLedger =
+        ctx_.app.getLedgerMaster().getLedgerByHash(view().info().parentHash);
+    auto const validatorView =
+        consensusExtensions.makeActiveValidatorView(parentLedger);
+    auto const isActiveSigner = [&consensusExtensions,
+                                 validatorView](PublicKey const& key) {
+        return consensusExtensions.isActiveValidator(key, *validatorView);
+    };
+    // Closed-ledger export builds a local parent-ledger validator view, not the
+    // mutable apply view or cached RNG state, so apply order cannot move
+    // quorum.
+    auto const unlSize = validatorView->size();
+
     // Standalone mode: no consensus running, so we skip the quorum
     // check and sign directly with our validator keys in the blob
     // assembly step below.
@@ -144,11 +149,15 @@ Export::doApply()
     // so they count toward quorum.
     if (!ctx_.app.config().standalone())
     {
-        auto& collector =
-            ctx_.app.getConsensusExtensions().exportSigCollector();
+        auto& collector = consensusExtensions.exportSigCollector();
         auto const unverified = collector.unverifiedSignatures(txId);
         for (auto const& [valPK, sigBuf] : unverified)
         {
+            // Upgrade only active-view signatures; inactive trusted signatures
+            // may stay cached, but they must not become quorum material.
+            if (!isActiveSigner(valPK))
+                continue;
+
             auto const signerAcctID = calcAccountID(valPK);
             auto const sigData = buildMultiSigningData(innerTx, signerAcctID);
             if (verify(
@@ -181,15 +190,17 @@ Export::doApply()
         else
             threshold = unlSize;
 
-        collectedSigs = ctx_.app.getConsensusExtensions()
-                            .exportSigCollector()
-                            .checkQuorumAndSnapshot(txId, threshold);
+        // The collector may contain old trusted signatures; quorum counts only
+        // signatures whose keys resolve into the same frozen active view.
+        collectedSigs =
+            consensusExtensions.exportSigCollector().checkQuorumAndSnapshot(
+                txId, threshold, isActiveSigner);
 
         if (!collectedSigs)
         {
-            auto const sigCount = ctx_.app.getConsensusExtensions()
-                                      .exportSigCollector()
-                                      .signatureCount(txId);
+            auto const sigCount =
+                consensusExtensions.exportSigCollector().signatureCount(
+                    txId, isActiveSigner);
             // LLS semantics for retriable exports:
             //
             // Transactor::preclaim rejects with tefMAX_LEDGER when

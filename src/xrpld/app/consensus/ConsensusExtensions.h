@@ -11,7 +11,11 @@
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/PublicKey.h>
 #include <chrono>
+#include <memory>
+#include <mutex>
+#include <optional>
 
 namespace ripple {
 
@@ -38,6 +42,42 @@ public:
     // Type of sidecar set, known at fetch time from proposal context.
     enum class SidecarKind : uint8_t { commit, reveal, exportSig };
 
+    struct ActiveValidatorView
+    {
+        hash_set<PublicKey> masterKeys;
+        hash_set<NodeID> nodeIds;
+        std::optional<uint256> sourceLedgerHash;
+        bool fromUNLReport = false;
+
+        // Export paths receive validator keys; RNG sidecars identify
+        // validators by NodeID. Keep both indexes in lockstep.
+        void
+        insertMaster(PublicKey const& masterKey)
+        {
+            masterKeys.insert(masterKey);
+            nodeIds.insert(calcNodeID(masterKey));
+        }
+
+        std::size_t
+        size() const
+        {
+            return masterKeys.size();
+        }
+
+        bool
+        containsMaster(PublicKey const& masterKey) const
+        {
+            return masterKeys.count(masterKey) > 0;
+        }
+
+        bool
+        containsNode(NodeID const& nodeId) const
+        {
+            return nodeIds.count(nodeId) > 0;
+        }
+    };
+    using ActiveValidatorViewPtr = std::shared_ptr<ActiveValidatorView const>;
+
 private:
     // --- RNG Pipelined Storage ---
     hash_map<NodeID, uint256> pendingCommits_;
@@ -60,8 +100,10 @@ private:
     // onAcquiredSidecarSet can dispatch without content-sniffing.
     hash_map<uint256, SidecarKind> pendingRngFetches_;
 
-    // Cached set of NodeIDs from UNL Report (or fallback UNL)
-    hash_set<NodeID> unlReportNodeIds_;
+    // Parent-ledger validator view used by RNG and Export quorum logic.
+    ActiveValidatorViewPtr activeValidatorView_ =
+        std::make_shared<ActiveValidatorView const>();
+    mutable std::mutex activeValidatorViewMutex_;
 
     // Recent proposers intersected with the active UNL (liveness hint)
     hash_set<NodeID> likelyParticipants_;
@@ -173,6 +215,21 @@ public:
 
     bool
     isSidecarSet(uint256 const& hash) const;
+
+    ActiveValidatorViewPtr
+    activeValidatorView() const;
+
+    ActiveValidatorViewPtr
+    makeActiveValidatorView(
+        std::shared_ptr<Ledger const> const& prevLedger) const;
+
+    bool
+    isActiveValidator(PublicKey const& validationKey) const;
+
+    bool
+    isActiveValidator(
+        PublicKey const& validationKey,
+        ActiveValidatorView const& view) const;
 
     void
     onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map);

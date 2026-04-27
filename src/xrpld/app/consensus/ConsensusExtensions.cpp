@@ -57,13 +57,69 @@ ConsensusExtensions::ConsensusExtensions(Application& app, beast::Journal j)
 //------------------------------------------------------------------------------
 // RNG Helper Methods
 
+namespace {
+
+ConsensusExtensions::ActiveValidatorView
+buildActiveValidatorView(
+    Application& app,
+    std::shared_ptr<Ledger const> const& prevLedger)
+{
+    ConsensusExtensions::ActiveValidatorView view;
+
+    // Prefer the consensus parent ledger so all validators evaluate the round
+    // against the same frozen UNLReport, not a local latest-validated ledger.
+    auto const sourceLedger =
+        prevLedger ? prevLedger : app.getLedgerMaster().getValidatedLedger();
+    if (sourceLedger)
+    {
+        view.sourceLedgerHash = sourceLedger->info().hash;
+
+        if (auto const sle = sourceLedger->read(keylet::UNLReport()))
+        {
+            if (sle->isFieldPresent(sfActiveValidators))
+            {
+                for (auto const& obj : sle->getFieldArray(sfActiveValidators))
+                {
+                    auto const pk = obj.getFieldVL(sfPublicKey);
+                    if (!publicKeyType(makeSlice(pk)))
+                        continue;
+
+                    PublicKey const masterKey{makeSlice(pk)};
+                    view.insertMaster(masterKey);
+                }
+                view.fromUNLReport = !view.masterKeys.empty();
+            }
+        }
+    }
+
+    if (!view.masterKeys.empty())
+        return view;
+
+    // Fallback exists for early ledgers and dev/test networks before the
+    // report object is available. It is deliberately the configured trusted
+    // master-key set so manifest signing keys still resolve through trust.
+    for (auto const& masterKey : app.validators().getTrustedMasterKeys())
+        view.insertMaster(masterKey);
+
+    // Some standalone/dev configurations trust local validation implicitly.
+    // insertMaster() makes this idempotent if self is already trusted.
+    auto const& valKeys = app.getValidatorKeys();
+    if (valKeys.keys && valKeys.nodeID != beast::zero)
+        view.insertMaster(valKeys.keys->masterPublicKey);
+
+    return view;
+}
+
+}  // namespace
+
 std::size_t
 ConsensusExtensions::quorumThreshold() const
 {
     // Non-zero entropy is only allowed once a fixed 80% quorum of the active
     // UNL snapshot has committed. Recent proposers are useful for liveness
     // heuristics, but they do not lower this floor.
-    auto const base = unlReportNodeIds_.size();
+    // Use the shared validator view so RNG and Export use the same denominator.
+    auto const base = activeValidatorView()->size();
     if (base == 0)
         return 1;  // safety: need at least one commit
     return calculateQuorumThreshold(base);
@@ -81,12 +137,15 @@ ConsensusExtensions::setExpectedProposers(hash_set<NodeID> proposers)
         // Intersect recent proposers with the active UNL. This set is used as
         // a liveness hint only; commit quorum itself remains fixed to the
         // active UNL snapshot for the round.
+        auto const validatorView = activeValidatorView();
         hash_set<NodeID> filtered;
         for (auto const& id : proposers)
         {
             if (!includeSelf && id == app_.getValidatorKeys().nodeID)
                 continue;
-            if (unlReportNodeIds_.count(id))
+            // Recent proposers are only a liveness hint; filter them through
+            // the same active view that defines commit quorum membership.
+            if (validatorView->containsNode(id))
                 filtered.insert(id);
         }
         if (includeSelf)
@@ -101,9 +160,10 @@ ConsensusExtensions::setExpectedProposers(hash_set<NodeID> proposers)
 
     // First round (or no recent data): fall back to the active UNL snapshot as
     // our best guess for who may still contribute before timeout.
-    if (!unlReportNodeIds_.empty())
+    auto const validatorView = activeValidatorView();
+    if (validatorView->size() > 0)
     {
-        likelyParticipants_ = unlReportNodeIds_;
+        likelyParticipants_ = validatorView->nodeIds;
         JLOG(j_.trace()) << "RNG: likelyParticipants from active UNL: "
                          << likelyParticipants_.size();
         return;
@@ -135,20 +195,25 @@ ConsensusExtensions::expectedProposerCount() const
 bool
 ConsensusExtensions::hasQuorumOfCommits() const
 {
-    auto threshold = quorumThreshold();
+    auto const validatorView = activeValidatorView();
+    auto const threshold = validatorView->size() == 0
+        ? std::size_t{1}
+        : calculateQuorumThreshold(validatorView->size());
     auto const proofedCommitCount = std::count_if(
         pendingCommits_.begin(),
         pendingCommits_.end(),
-        [this](auto const& entry) {
+        [this, validatorView](auto const& entry) {
             auto const& nid = entry.first;
-            return isUNLReportMember(nid) && nodeIdToKey_.count(nid) > 0 &&
-                commitProofs_.count(nid) > 0;
+            // Commit quorum only counts entries that can be emitted as
+            // verifiable sidecar leaves under the shared active view.
+            return validatorView->containsNode(nid) &&
+                nodeIdToKey_.count(nid) > 0 && commitProofs_.count(nid) > 0;
         });
     bool result = static_cast<std::size_t>(proofedCommitCount) >= threshold;
     JLOG(j_.trace()) << "RNG: hasQuorumOfCommits? " << proofedCommitCount << "/"
                      << threshold << " -> " << (result ? "YES" : "no")
                      << " (pending=" << pendingCommits_.size()
-                     << ", activeUNL=" << unlReportNodeIds_.size()
+                     << ", activeUNL=" << validatorView->size()
                      << ", likelyParticipants=" << likelyParticipants_.size()
                      << ")";
     return result;
@@ -163,10 +228,30 @@ ConsensusExtensions::hasMinimumReveals() const
     // node builds the same entropy set.  rngPIPELINE_TIMEOUT in
     // Consensus.h is the safety valve for nodes that crash/partition
     // between commit and reveal.
-    auto const expected = pendingCommits_.size();
-    bool result = pendingReveals_.size() >= expected;
-    JLOG(j_.trace()) << "RNG: hasMinimumReveals? " << pendingReveals_.size()
-                     << "/" << expected << " -> " << (result ? "YES" : "no");
+    auto const validatorView = activeValidatorView();
+    // Reveal quorum targets the commit sidecar set, not every later proposal
+    // commitment we heard. That keeps proofless late commits from extending
+    // the reveal wait after they were excluded from buildCommitSet().
+    auto const expected = std::count_if(
+        pendingCommits_.begin(),
+        pendingCommits_.end(),
+        [this, validatorView](auto const& entry) {
+            auto const& nid = entry.first;
+            return validatorView->containsNode(nid) &&
+                nodeIdToKey_.count(nid) > 0 && commitProofs_.count(nid) > 0;
+        });
+    auto const revealCount = std::count_if(
+        pendingReveals_.begin(),
+        pendingReveals_.end(),
+        [this, validatorView](auto const& entry) {
+            auto const& nid = entry.first;
+            return validatorView->containsNode(nid) &&
+                pendingCommits_.count(nid) > 0 && commitProofs_.count(nid) > 0;
+        });
+    bool result = revealCount >= expected;
+    JLOG(j_.trace()) << "RNG: hasMinimumReveals? " << revealCount << "/"
+                     << expected << " -> " << (result ? "YES" : "no")
+                     << " (pending=" << pendingReveals_.size() << ")";
     return result;
 }
 
@@ -337,6 +422,7 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
         std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
     map->setUnbacked();
 
+    auto const validatorView = activeValidatorView();
     // NOTE: avoid structured bindings in for-loops containing lambdas —
     // clang-14 (CI) rejects capturing them (P2036R3 not implemented).
     for (auto const& entry : pendingCommits_)
@@ -344,7 +430,9 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
         auto const& nid = entry.first;
         auto const& commit = entry.second;
 
-        if (!isUNLReportMember(nid))
+        // Commit sidecars are consensus inputs, so only publish leaves from
+        // the frozen validator view used by quorum calculation.
+        if (!validatorView->containsNode(nid))
             continue;
 
         auto kit = nodeIdToKey_.find(nid);
@@ -396,13 +484,16 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
         std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
     map->setUnbacked();
 
+    auto const validatorView = activeValidatorView();
     // NOTE: avoid structured bindings — clang-14 can't capture them (P2036R3).
     for (auto const& entry : pendingReveals_)
     {
         auto const& nid = entry.first;
         auto const& reveal = entry.second;
 
-        if (!isUNLReportMember(nid))
+        // Reveal sidecars must use the same validator view as the commit set
+        // so timeout/fetch paths cannot expand the entropy participant set.
+        if (!validatorView->containsNode(nid))
             continue;
 
         auto kit = nodeIdToKey_.find(nid);
@@ -453,7 +544,13 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
         std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
     map->setUnbacked();
 
-    auto const allSigs = exportSigCollector_.snapshotWithSigs();
+    auto const validatorView = activeValidatorView();
+    // Export sidecar convergence should not advertise signatures from trusted
+    // but inactive validators; those signatures cannot count at apply time.
+    auto const allSigs = exportSigCollector_.snapshotWithSigs(
+        [this, validatorView](PublicKey const& key) {
+            return isActiveValidator(key, *validatorView);
+        });
     std::size_t entryCount = 0;
 
     for (auto const& [txHash, valSigs] : allSigs)
@@ -491,7 +588,13 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
 bool
 ConsensusExtensions::hasPendingExportSigs() const
 {
-    auto const allSigs = exportSigCollector_.snapshot();
+    auto const validatorView = activeValidatorView();
+    // The export convergence gate only needs to run for signatures that are
+    // eligible under the active view used by final quorum evaluation.
+    auto const allSigs = exportSigCollector_.snapshotWithSigs(
+        [this, validatorView](PublicKey const& key) {
+            return isActiveValidator(key, *validatorView);
+        });
     return !allSigs.empty();
 }
 
@@ -546,7 +649,6 @@ ConsensusExtensions::clearRngState()
     exportSigSetMap_.reset();
     rngRoundSeq_.reset();
     pendingRngFetches_.clear();
-    unlReportNodeIds_.clear();
     likelyParticipants_.clear();
     commitProofs_.clear();
     proposalProofs_.clear();
@@ -563,52 +665,58 @@ void
 ConsensusExtensions::cacheUNLReport(
     std::shared_ptr<Ledger const> const& prevLedger)
 {
-    unlReportNodeIds_.clear();
+    auto view = makeActiveValidatorView(prevLedger);
+    auto const size = view->size();
+    auto const fromUNLReport = view->fromUNLReport;
 
-    // Try UNL Report from the consensus parent ledger.  Falling back to
-    // LedgerMaster preserves older tests that call cacheUNLReport directly,
-    // but live rounds should pass the exact parent ledger for the round.
-    auto const sourceLedger =
-        prevLedger ? prevLedger : app_.getLedgerMaster().getValidatedLedger();
-    if (sourceLedger)
     {
-        if (auto const sle = sourceLedger->read(keylet::UNLReport()))
-        {
-            if (sle->isFieldPresent(sfActiveValidators))
-            {
-                for (auto const& obj : sle->getFieldArray(sfActiveValidators))
-                {
-                    auto const pk = obj.getFieldVL(sfPublicKey);
-                    if (publicKeyType(makeSlice(pk)))
-                    {
-                        unlReportNodeIds_.insert(
-                            calcNodeID(PublicKey(makeSlice(pk))));
-                    }
-                }
-            }
-        }
+        std::lock_guard lock(activeValidatorViewMutex_);
+        activeValidatorView_ = std::move(view);
     }
 
-    // Fallback to normal UNL if no report or empty
-    if (unlReportNodeIds_.empty())
-    {
-        for (auto const& masterKey : app_.validators().getTrustedMasterKeys())
-        {
-            unlReportNodeIds_.insert(calcNodeID(masterKey));
-        }
-
-        auto const& valKeys = app_.getValidatorKeys();
-        if (valKeys.keys && valKeys.nodeID != beast::zero)
-            unlReportNodeIds_.insert(valKeys.nodeID);
-    }
-
-    JLOG(j_.trace()) << "RNG: cacheUNLReport size=" << unlReportNodeIds_.size();
+    JLOG(j_.trace()) << "RNG: cacheUNLReport size=" << size << " source="
+                     << (fromUNLReport ? "UNLReport" : "trusted-fallback");
 }
 
 bool
 ConsensusExtensions::isUNLReportMember(NodeID const& nodeId) const
 {
-    return unlReportNodeIds_.count(nodeId) > 0;
+    // RNG commit/reveal sidecars identify validators by master-key NodeID, so
+    // use the shared active view instead of a separate RNG-only membership set.
+    return activeValidatorView()->containsNode(nodeId);
+}
+
+ConsensusExtensions::ActiveValidatorViewPtr
+ConsensusExtensions::activeValidatorView() const
+{
+    std::lock_guard lock(activeValidatorViewMutex_);
+    return activeValidatorView_;
+}
+
+ConsensusExtensions::ActiveValidatorViewPtr
+ConsensusExtensions::makeActiveValidatorView(
+    std::shared_ptr<Ledger const> const& prevLedger) const
+{
+    return std::make_shared<ActiveValidatorView const>(
+        buildActiveValidatorView(app_, prevLedger));
+}
+
+bool
+ConsensusExtensions::isActiveValidator(PublicKey const& validationKey) const
+{
+    return isActiveValidator(validationKey, *activeValidatorView());
+}
+
+bool
+ConsensusExtensions::isActiveValidator(
+    PublicKey const& validationKey,
+    ActiveValidatorView const& view) const
+{
+    auto const trustedMaster = app_.validators().getTrustedKey(validationKey);
+    if (!trustedMaster)
+        return false;
+
+    return view.containsMaster(*trustedMaster);
 }
 
 //@@start is-sidecar-set
@@ -668,6 +776,7 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                 }
             }
 
+            auto const validatorView = activeValidatorView();
             std::size_t merged = 0;
             map->visitLeaves([&](boost::intrusive_ptr<SHAMapItem const> const&
                                      item) {
@@ -691,7 +800,9 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                         return;
 
                     PublicKey const valPK{makeSlice(pk)};
-                    if (!app_.validators().trusted(valPK))
+                    // Fetched export sidecars are only useful if the signer is
+                    // active in the same view that final quorum will use.
+                    if (!isActiveValidator(valPK, *validatorView))
                         return;
 
                     // Require a real signature (not pubkey-only).
@@ -1579,8 +1690,27 @@ ConsensusExtensions::onTrustedPeerMessage(
         return;
     PublicKey const senderPK{senderSlice};
 
-    if (!app_.validators().trusted(senderPK))
+    auto const validatorView = activeValidatorView();
+    // Proposal ingress is outside the consensus mutex, so take a snapshot of
+    // the shared active view and reject trusted-but-inactive signers here.
+    if (!isActiveValidator(senderPK, *validatorView))
         return;
+
+    // The active view is pinned to one parent ledger. Do not let a proposal
+    // for another parent feed signatures into this round's export collector.
+    if (validatorView->sourceLedgerHash)
+    {
+        if (wireMsg.previousledger().size() != uint256::size())
+            return;
+
+        uint256 proposalPrevLedger;
+        std::memcpy(
+            proposalPrevLedger.data(),
+            wireMsg.previousledger().data(),
+            uint256::size());
+        if (proposalPrevLedger != *validatorView->sourceLedgerHash)
+            return;
+    }
 
     // Pass 1: validate all blobs.
     for (int i = 0; i < wireMsg.exportsignatures_size(); ++i)
@@ -1803,6 +1933,11 @@ ConsensusExtensions::decorateMessage(
 
     auto const& valPK = valKeys.keys->publicKey;
     auto const& valSK = valKeys.keys->secretKey;
+    // A locally configured validator may be trusted but not active for this
+    // round; only active validators should advertise export signatures.
+    if (!isActiveValidator(valPK))
+        return;
+
     auto const signerAcctID = calcAccountID(valPK);
 
     for (auto const& [stx, meta] : openLedger->txs)

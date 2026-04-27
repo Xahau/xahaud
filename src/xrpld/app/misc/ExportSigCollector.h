@@ -4,6 +4,7 @@
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/protocol/PublicKey.h>
+#include <algorithm>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -188,14 +189,27 @@ public:
     }
 
     /// Count of VERIFIED signatures only.
+    template <class IncludeValidator>
     std::size_t
-    signatureCount(uint256 const& txnHash) const
+    signatureCount(uint256 const& txnHash, IncludeValidator includeValidator)
+        const
     {
         std::lock_guard lock(mutex_);
         auto it = sigs_.find(txnHash);
         if (it == sigs_.end())
             return 0;
-        return it->second.verified.size();
+
+        return std::count_if(
+            it->second.verified.begin(),
+            it->second.verified.end(),
+            includeValidator);
+    }
+
+    /// Count of VERIFIED signatures only.
+    std::size_t
+    signatureCount(uint256 const& txnHash) const
+    {
+        return signatureCount(txnHash, [](PublicKey const&) { return true; });
     }
 
     void
@@ -221,8 +235,9 @@ public:
     }
 
     /// Get a snapshot of VERIFIED signatures including sig buffers.
+    template <class IncludeValidator>
     std::unordered_map<uint256, std::map<PublicKey, Buffer>>
-    snapshotWithSigs() const
+    snapshotWithSigs(IncludeValidator includeValidator) const
     {
         std::lock_guard lock(mutex_);
         std::unordered_map<uint256, std::map<PublicKey, Buffer>> result;
@@ -231,6 +246,9 @@ public:
             std::map<PublicKey, Buffer> verifiedSigs;
             for (auto const& pk : entry.verified)
             {
+                if (!includeValidator(pk))
+                    continue;
+
                 auto sit = entry.signatures.find(pk);
                 if (sit != entry.signatures.end())
                     verifiedSigs[pk] = sit->second;
@@ -241,18 +259,33 @@ public:
         return result;
     }
 
+    /// Get a snapshot of VERIFIED signatures including sig buffers.
+    std::unordered_map<uint256, std::map<PublicKey, Buffer>>
+    snapshotWithSigs() const
+    {
+        return snapshotWithSigs([](PublicKey const&) { return true; });
+    }
+
     /// Atomic quorum check + snapshot for a single txHash.
     /// Returns VERIFIED signatures if quorum is met, nullopt otherwise.
+    template <class IncludeValidator>
     std::optional<std::map<PublicKey, Buffer>>
-    checkQuorumAndSnapshot(uint256 const& txnHash, std::size_t threshold) const
+    checkQuorumAndSnapshot(
+        uint256 const& txnHash,
+        std::size_t threshold,
+        IncludeValidator includeValidator) const
     {
         std::lock_guard lock(mutex_);
         auto it = sigs_.find(txnHash);
-        if (it == sigs_.end() || it->second.verified.size() < threshold)
+        if (it == sigs_.end())
             return std::nullopt;
+
         std::map<PublicKey, Buffer> result;
         for (auto const& pk : it->second.verified)
         {
+            if (!includeValidator(pk))
+                continue;
+
             auto sit = it->second.signatures.find(pk);
             XRPL_ASSERT(
                 sit != it->second.signatures.end(),
@@ -265,7 +298,20 @@ public:
             if (sit != it->second.signatures.end())
                 result[pk] = sit->second;
         }
+
+        if (result.size() < threshold)
+            return std::nullopt;
+
         return result;
+    }
+
+    /// Atomic quorum check + snapshot for a single txHash.
+    /// Returns VERIFIED signatures if quorum is met, nullopt otherwise.
+    std::optional<std::map<PublicKey, Buffer>>
+    checkQuorumAndSnapshot(uint256 const& txnHash, std::size_t threshold) const
+    {
+        return checkQuorumAndSnapshot(
+            txnHash, threshold, [](PublicKey const&) { return true; });
     }
 
     /// Remove entries older than maxStaleLedgers.
