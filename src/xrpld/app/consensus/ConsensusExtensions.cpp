@@ -134,6 +134,19 @@ ConsensusExtensions::quorumThreshold() const
     return calculateQuorumThreshold(base);
 }
 
+std::size_t
+ConsensusExtensions::exportSigQuorumThreshold() const
+{
+    auto const base = activeValidatorView()->size();
+    if (base == 0)
+        return 1;
+
+    // Export can operate without ConsensusEntropy. In that mode it uses the
+    // original unanimity rule, but still relies on the same sidecar alignment
+    // gate so all nodes make the same accept-time decision.
+    return rngEnabled() ? calculateQuorumThreshold(base) : base;
+}
+
 void
 ConsensusExtensions::setExpectedProposers(hash_set<NodeID> proposers)
 {
@@ -285,6 +298,12 @@ bool
 ConsensusExtensions::rngEnabled() const
 {
     return rngEnabledThisRound_;
+}
+
+bool
+ConsensusExtensions::exportEnabled() const
+{
+    return exportEnabledThisRound_;
 }
 
 bool
@@ -608,6 +627,18 @@ ConsensusExtensions::hasPendingExportSigs() const
 }
 
 void
+ConsensusExtensions::setExportSigConvergenceFailed()
+{
+    exportSigConvergenceFailed_ = true;
+}
+
+bool
+ConsensusExtensions::exportSigConvergenceFailed() const
+{
+    return exportSigConvergenceFailed_;
+}
+
+void
 ConsensusExtensions::generateEntropySecret()
 {
     // Generate cryptographically secure random entropy
@@ -658,14 +689,17 @@ ConsensusExtensions::clearRngState()
     exportSigSetMap_.reset();
     rngRoundSeq_.reset();
     pendingRngFetches_.clear();
+    exportSigGateStarted_ = false;
+    exportSigGateStart_ = {};
+    exportSigConvergenceFailed_ = false;
     likelyParticipants_.clear();
     commitProofs_.clear();
     proposalProofs_.clear();
     //@@end round-stop-rng-reset
-    // Keep the round-level enable latch intact here. Consensus::startRound()
-    // calls preStartRound() first to snapshot whether RNG is enabled for the
-    // upcoming round, then immediately clears per-round working state.
-    // Resetting rngEnabledThisRound_ here would wipe that snapshot before
+    // Keep the round-level enable latches intact here. Consensus::startRound()
+    // calls preStartRound() first to snapshot which extensions are enabled for
+    // the upcoming round, then immediately clears per-round working state.
+    // Resetting these latches here would wipe that snapshot before
     // phaseEstablish() can consult it.
 }
 //@@end clear-rng-state

@@ -937,5 +937,180 @@ public:
 };
 
 BEAST_DEFINE_TESTSUITE(ConsensusRng, consensus, ripple);
+
+class ConsensusExport_test : public beast::unit_test::suite
+{
+    SuiteJournal journal_;
+
+public:
+    ConsensusExport_test() : journal_("ConsensusExport_test", *this)
+    {
+    }
+
+    void
+    testExportOnlySteadyStateSucceeds()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("Export-only sig set converges");
+
+        ConsensusParms const parms{};
+        Sim sim;
+        PeerGroup peers = sim.createGroup(5);
+
+        for (Peer* peer : peers)
+            peer->ce().enableExportConsensus_ = true;
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        sim.run(2);
+
+        BEAST_EXPECT(sim.synchronized(peers));
+        for (Peer const* peer : peers)
+        {
+            BEAST_EXPECT(peer->ce().lastExportSucceeded_);
+            BEAST_EXPECT(!peer->ce().lastExportRetried_);
+        }
+    }
+
+    void
+    testExportOnlyRequiresUnanimousAlignment()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("Export-only sig set requires unanimous alignment");
+
+        ConsensusParms const parms{};
+        Sim sim;
+        PeerGroup peers = sim.createGroup(5);
+
+        for (Peer* peer : peers)
+            peer->ce().enableExportConsensus_ = true;
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        peers[0]->ce().forcedExportSigSetHash_ =
+            sha512Half(std::string("forced-export-only"));
+
+        sim.run(3);
+
+        BEAST_EXPECT(sim.branches(peers) == 1);
+        for (Peer const* peer : peers)
+        {
+            BEAST_EXPECT(!peer->ce().lastExportSucceeded_);
+            BEAST_EXPECT(peer->ce().lastExportRetried_);
+        }
+    }
+
+    void
+    testExportSigSetQuorumAlignmentIgnoresMinorityConflict()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("Export sig set quorum ignores minority conflict");
+
+        ConsensusParms const parms{};
+        Sim sim;
+        PeerGroup peers = sim.createGroup(5);
+
+        for (Peer* peer : peers)
+        {
+            peer->ce().enableRngConsensus_ = true;
+            peer->ce().enableExportConsensus_ = true;
+        }
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        // Warmup: populate prevProposers so the RNG path does not bootstrap
+        // skip the extension tick scenario.
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
+        peers[0]->ce().forcedExportSigSetHash_ =
+            sha512Half(std::string("forced-export-minority"));
+
+        sim.run(3);
+
+        PeerGroup honest{
+            std::vector<Peer*>{peers[1], peers[2], peers[3], peers[4]}};
+        BEAST_EXPECT(sim.branches(honest) == 1);
+        BEAST_EXPECT(sim.synchronized(honest));
+
+        for (Peer const* peer : honest)
+        {
+            BEAST_EXPECT(peer->ce().lastExportSucceeded_);
+            BEAST_EXPECT(!peer->ce().lastExportRetried_);
+        }
+        BEAST_EXPECT(!peers[0]->ce().lastExportSucceeded_);
+    }
+
+    void
+    testExportSigSetConflictWithoutQuorumRetries()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("Export sig set conflict without quorum retries");
+
+        ConsensusParms const parms{};
+        Sim sim;
+        PeerGroup peers = sim.createGroup(5);
+
+        for (Peer* peer : peers)
+        {
+            peer->ce().enableRngConsensus_ = true;
+            peer->ce().enableExportConsensus_ = true;
+        }
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
+        peers[0]->ce().forcedExportSigSetHash_ =
+            sha512Half(std::string("forced-export-conflict-a"));
+        peers[1]->ce().forcedExportSigSetHash_ =
+            sha512Half(std::string("forced-export-conflict-b"));
+
+        sim.run(3);
+
+        BEAST_EXPECT(sim.branches(peers) == 1);
+        for (Peer const* peer : peers)
+        {
+            BEAST_EXPECT(!peer->ce().lastExportSucceeded_);
+            BEAST_EXPECT(peer->ce().lastExportRetried_);
+        }
+    }
+
+    void
+    run() override
+    {
+        auto const* filter = std::getenv("XAHAU_EXPORT_TEST");
+        std::string f = filter ? filter : "";
+
+#define RUN(method)                                                         \
+    do                                                                      \
+    {                                                                       \
+        if (f.empty() || std::string(#method).find(f) != std::string::npos) \
+            method();                                                       \
+    } while (false)
+
+        RUN(testExportOnlySteadyStateSucceeds);
+        RUN(testExportOnlyRequiresUnanimousAlignment);
+        RUN(testExportSigSetQuorumAlignmentIgnoresMinorityConflict);
+        RUN(testExportSigSetConflictWithoutQuorumRetries);
+
+#undef RUN
+    }
+};
+
+BEAST_DEFINE_TESTSUITE(ConsensusExport, consensus, ripple);
 }  // namespace test
 }  // namespace ripple

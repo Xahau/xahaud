@@ -1083,9 +1083,12 @@ RCLConsensus::Adaptor::preStartRound(
 {
     ce().setRngEnabledThisRound(
         prevLgr.ledger_->rules().enabled(featureConsensusEntropy));
+    ce().setExportEnabledThisRound(
+        prevLgr.ledger_->rules().enabled(featureExport));
 
     JLOG(j_.trace()) << "RNGGATE: preStartRound prevSeq=" << prevLgr.seq()
-                     << " rulesEnabled=" << ce().rngEnabled();
+                     << " rulesEnabled=" << ce().rngEnabled()
+                     << " exportEnabled=" << ce().exportEnabled();
 
     // We have a key, we do not want out of sync validations after a restart
     // and are not amendment blocked.

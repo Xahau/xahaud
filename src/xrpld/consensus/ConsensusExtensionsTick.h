@@ -879,78 +879,211 @@ extensionsTick(Ext& ext, Ctx const& ctx)
     //@@end rng-phase-establish-substates
 
     //@@start export-sig-convergence-gate
-    // Export sig convergence gate: runs after RNG sub-states, only when
-    // both CE and Export are enabled. Builds/publishes exportSigSetHash
-    // and waits for peer agreement before accepting.
+    // Export sig convergence gate: runs after RNG sub-states when Export has
+    // verified signatures to converge, or when a tx-converged peer advertises
+    // an exportSigSetHash we may need to fetch. Builds/publishes
+    // exportSigSetHash and waits for quorum peer agreement before accepting.
     if constexpr (requires { ctx.getPosition().exportSigSetHash; })
     {
-        // Only run when CE is active (provides ExtendedPosition infra)
-        // and there are export sigs to converge.
-        if (isRngEnabled)
-        {
-            if (ext.hasPendingExportSigs())
+        if (!ext.exportEnabled())
+            return {.readyForAccept = true};
+
+        auto startExportSigGate = [&]() -> bool {
+            if (ext.exportSigGateStarted_)
+                return false;
+            ext.exportSigGateStarted_ = true;
+            ext.exportSigGateStart_ = ctx.nowSteady;
+            return true;
+        };
+
+        auto fetchPeerExportSigSets = [&](auto const& pos) {
+            std::size_t peerSets = 0;
+            for (auto const& [_, peerPos] : ctx.peerPositions)
             {
-                //@@start export-publish-sigset-hash
-                auto const buildSeqExport = ctx.buildSeq;
-                auto const exportHash = ext.buildExportSigSet(buildSeqExport);
+                auto const& pp = peerPos.proposal().position();
+                if (!(pp == pos))
+                    continue;  // not tx-converged
+                if (!pp.exportSigSetHash)
+                    continue;
 
-                auto currentPos = ctx.getPosition();
-                if (!currentPos.exportSigSetHash ||
-                    *currentPos.exportSigSetHash != exportHash)
+                ++peerSets;
+                ext.fetchRngSetIfNeeded(
+                    pp.exportSigSetHash, Ext::SidecarKind::exportSig);
+            }
+            return peerSets;
+        };
+
+        bool hasLocalExportSigs = ext.hasPendingExportSigs();
+        if (!hasLocalExportSigs)
+        {
+            auto const peerSets = fetchPeerExportSigSets(ctx.getPosition());
+            if (peerSets > 0)
+            {
+                startExportSigGate();
+                hasLocalExportSigs = ext.hasPendingExportSigs();
+                if (!hasLocalExportSigs)
                 {
-                    currentPos.exportSigSetHash = exportHash;
-                    ctx.updatePosition(currentPos);
+                    auto const elapsed =
+                        ctx.nowSteady - ext.exportSigGateStart_;
+                    auto const deadline = ctx.parms.rngREVEAL_TIMEOUT * 2;
+                    if (elapsed <= deadline)
+                    {
+                        JLOG(ext.j_.debug())
+                            << "Export: waiting for advertised exportSigSet "
+                               "fetch/merge"
+                            << " peerSets=" << peerSets;
+                        return {};
+                    }
 
-                    if (ctx.mode == ConsensusMode::proposing)
-                        ctx.propose();
-
-                    JLOG(ext.j_.debug())
-                        << "Export: published exportSigSetHash=" << exportHash;
+                    ext.setExportSigConvergenceFailed();
+                    JLOG(ext.j_.warn())
+                        << "Export: advertised exportSigSet did not converge "
+                           "locally within deadline; exports will retry or "
+                           "expire"
+                        << " peerSets=" << peerSets;
                 }
-                //@@end export-publish-sigset-hash
+            }
+        }
 
-                //@@start export-sigset-conflict-wait
-                // Check peer agreement on exportSigSetHash.
-                // If any tx-converged peer has a different non-empty hash,
-                // wait briefly for fetch/merge to resolve it.
+        if (hasLocalExportSigs)
+        {
+            //@@start export-publish-sigset-hash
+            auto const buildSeqExport = ctx.buildSeq;
+            auto const exportHash = ext.buildExportSigSet(buildSeqExport);
+
+            auto currentPos = ctx.getPosition();
+            bool const publishedNewHash = !currentPos.exportSigSetHash ||
+                *currentPos.exportSigSetHash != exportHash;
+            if (publishedNewHash)
+            {
+                currentPos.exportSigSetHash = exportHash;
+                ctx.updatePosition(currentPos);
+
+                if (ctx.mode == ConsensusMode::proposing)
+                    ctx.propose();
+
+                JLOG(ext.j_.debug())
+                    << "Export: published exportSigSetHash=" << exportHash;
+            }
+            //@@end export-publish-sigset-hash
+
+            //@@start export-sigset-conflict-wait
+            // Check quorum agreement on exportSigSetHash. Like RNG entropy,
+            // Export success is an accept-time derived effect outside tx-set
+            // equality. A local-only quorum must not succeed unless enough
+            // tx-converged peers advertise the same export sig sidecar hash.
+            {
+                if (startExportSigGate() || publishedNewHash)
+                {
+                    JLOG(ext.j_.debug())
+                        << "Export: exportSigSet published, waiting for peer "
+                           "observation";
+                    return {};
+                }
+
+                struct ExportPeerState
                 {
                     bool conflict = false;
+                    std::size_t aligned = 0;
+                    std::size_t peersSeen = 0;
+                };
+
+                auto inspectExportPeers =
+                    [&](auto const& pos,
+                        bool fetchMismatches) -> ExportPeerState {
+                    ExportPeerState state;
+                    if (!pos.exportSigSetHash)
+                        return state;
+
                     for (auto const& [_, peerPos] : ctx.peerPositions)
                     {
                         auto const& pp = peerPos.proposal().position();
+                        if (!(pp == pos))
+                            continue;  // not tx-converged
                         if (!pp.exportSigSetHash)
-                            continue;
-                        if (*pp.exportSigSetHash != exportHash)
+                            continue;  // peer hasn't published yet
+                        ++state.peersSeen;
+                        if (*pp.exportSigSetHash == *pos.exportSigSetHash)
                         {
-                            conflict = true;
+                            ++state.aligned;
+                            continue;
+                        }
 
-                            // Trigger fetch for the differing set
+                        state.conflict = true;
+                        if (fetchMismatches)
                             ext.fetchRngSetIfNeeded(
                                 pp.exportSigSetHash,
                                 Ext::SidecarKind::exportSig);
-                            break;
-                        }
+                    }
+                    return state;
+                };
+
+                auto exportState = inspectExportPeers(ctx.getPosition(), true);
+                auto const exportQuorum = ext.exportSigQuorumThreshold();
+                auto quorumAligned = [&] {
+                    return exportState.aligned + 1 >= exportQuorum;
+                };
+
+                if (exportState.conflict && !quorumAligned())
+                {
+                    auto const refreshedHash =
+                        ext.buildExportSigSet(buildSeqExport);
+                    auto current = ctx.getPosition();
+                    if (!current.exportSigSetHash ||
+                        *current.exportSigSetHash != refreshedHash)
+                    {
+                        current.exportSigSetHash = refreshedHash;
+                        ctx.updatePosition(current);
+                        if (ctx.mode == ConsensusMode::proposing)
+                            ctx.propose();
+                        JLOG(ext.j_.debug())
+                            << "Export: refreshed exportSigSetHash after merge "
+                               "to "
+                            << refreshedHash;
                     }
 
-                    if (conflict)
-                    {
-                        // Don't block indefinitely — use the same pipeline
-                        // timeout as RNG.
-                        bool const timeout =
-                            ctx.roundTime > ctx.parms.rngPIPELINE_TIMEOUT;
-                        if (!timeout)
-                        {
-                            JLOG(ext.j_.debug())
-                                << "Export: exportSigSetHash conflict, waiting";
-                            return {};
-                        }
-                        JLOG(ext.j_.info())
-                            << "Export: exportSigSetHash conflict timed out, "
-                               "proceeding (exports will retry next round)";
-                    }
+                    exportState = inspectExportPeers(ctx.getPosition(), true);
                 }
-                //@@end export-sigset-conflict-wait
+
+                if (exportState.conflict && quorumAligned())
+                {
+                    JLOG(ext.j_.info())
+                        << "Export: exportSigSetHash conflict ignored after "
+                           "quorum alignment"
+                        << " alignedParticipants=" << (exportState.aligned + 1)
+                        << " quorum=" << exportQuorum;
+                }
+                else if (exportState.conflict || !quorumAligned())
+                {
+                    auto const elapsed =
+                        ctx.nowSteady - ext.exportSigGateStart_;
+                    auto const deadline = ctx.parms.rngREVEAL_TIMEOUT * 2;
+                    if (elapsed <= deadline)
+                    {
+                        JLOG(ext.j_.debug())
+                            << "Export: waiting for exportSigSet quorum "
+                               "alignment"
+                            << " alignedParticipants="
+                            << (exportState.aligned + 1)
+                            << " quorum=" << exportQuorum
+                            << " peersSeen=" << exportState.peersSeen
+                            << " conflict="
+                            << (exportState.conflict ? "yes" : "no");
+                        return {};
+                    }
+
+                    ext.setExportSigConvergenceFailed();
+                    JLOG(ext.j_.warn())
+                        << "Export: exportSigSet quorum alignment missing "
+                           "within deadline; exports will retry or expire"
+                        << " alignedParticipants=" << (exportState.aligned + 1)
+                        << " quorum=" << exportQuorum
+                        << " peersSeen=" << exportState.peersSeen
+                        << " conflict="
+                        << (exportState.conflict ? "yes" : "no");
+                }
             }
+            //@@end export-sigset-conflict-wait
         }
     }
     //@@end export-sig-convergence-gate

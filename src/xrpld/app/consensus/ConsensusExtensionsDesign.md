@@ -157,22 +157,39 @@ conflicts and produce asymmetric zero/non-zero outcomes.
 gated.
 
 Export can run without ConsensusEntropy, but then it uses a conservative
-ephemeral mode. With ConsensusEntropy active, export can use the shared
-`ExtendedPosition` and sidecar convergence machinery to converge a verified
-export signature set and use the normal 80% threshold.
+ephemeral mode: verified export signature sidecars still converge through
+`ExtendedPosition`, but success requires unanimity of the active validator
+view. With ConsensusEntropy active, the same sidecar machinery uses the normal
+80% threshold.
 
 The extended proposal machinery is enabled when either feature needs signed
 sidecar fields. Do not make Export depend on RNG availability just because RNG
 was the first consumer of `ExtendedPosition`.
+
+When `featureExport` is disabled, the export sidecar gate is disabled too. Stale
+collector entries must not keep a stopped amendment active.
 
 Only verified export signatures count toward quorum or enter export sidecar
 SHAMaps. Proposal-ingress signatures are sender-bound to the trusted proposal
 validator and may be stored as unverified until the matching export transaction
 is available for cryptographic verification.
 
+Export success requires quorum alignment on `exportSigSetHash`, not merely a
+local collector quorum. If the verified signature set cannot align by the
+bounded deadline, the export retries or expires according to normal transaction
+rules.
+
+Closed-ledger apply must not promote unverified proposal-carried signatures into
+current-round quorum material. It may verify and retain them for a future retry,
+where they can be published in a sidecar set and converged before use.
+
 Export sig convergence runs in parallel with RNG. An export-side convergence
 failure must not change RNG semantics; an RNG fallback must not make export
 unsafe. Each feature has its own gate and fallback.
+
+CSF consensus tests model the export sidecar gate directly. Testnet scenarios
+under `.testnet/scenarios/export/` cover live-node Export+CE behavior and the
+Export-only unanimity mode.
 
 ## Review Checklist
 
@@ -189,4 +206,6 @@ When changing consensus extension code, check these questions:
 - Are proposal-visible or validation-visible sidecar fields covered by the
   relevant signature and duplicate/replay identity?
 - Are export signatures verified before they count?
+- Does export success require `exportSigSetHash` alignment, not just local
+  collector quorum?
 - Are CE and Export still independently gated and independently stoppable?

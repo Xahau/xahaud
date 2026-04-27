@@ -19,13 +19,278 @@
 #include <test/jtx.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/consensus/ConsensusExtensionsTick.h>
+#include <xrpld/consensus/ConsensusProposal.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/digest.h>
+#include <cstring>
 
 namespace ripple {
 namespace test {
+
+namespace {
+
+uint256
+makeHash(char const* label)
+{
+    return sha512Half(Slice(label, std::strlen(label)));
+}
+
+NodeID
+makeNode(std::uint8_t id)
+{
+    NodeID node;
+    node.zero();
+    node.data()[NodeID::size() - 1] = id;
+    return node;
+}
+
+struct FakeTxSet
+{
+    using ID = uint256;
+
+    uint256 hash;
+
+    uint256
+    id() const
+    {
+        return hash;
+    }
+};
+
+class FakePeerPosition
+{
+public:
+    using Proposal = ConsensusProposal<NodeID, uint256, ExtendedPosition>;
+
+    FakePeerPosition(NodeID const& nodeId, ExtendedPosition const& position)
+        : proposal_(
+              uint256{},
+              Proposal::seqJoin,
+              position,
+              NetClock::time_point{},
+              NetClock::time_point{},
+              nodeId)
+    {
+    }
+
+    Proposal const&
+    proposal() const
+    {
+        return proposal_;
+    }
+
+private:
+    Proposal proposal_;
+};
+
+struct FakeExtensions
+{
+    enum class SidecarKind : uint8_t { commit, reveal, exportSig };
+
+    beast::Journal j_{beast::Journal::getNullSink()};
+    EstablishState estState_{EstablishState::ConvergingTx};
+    std::chrono::steady_clock::time_point revealPhaseStart_{};
+    std::chrono::steady_clock::time_point commitHashConflictStart_{};
+    bool explicitFinalProposalSent_{false};
+    bool entropySetPublished_{false};
+    std::chrono::steady_clock::time_point entropyPublishStart_{};
+    bool exportSigGateStarted_{false};
+    std::chrono::steady_clock::time_point exportSigGateStart_{};
+    bool exportSigConvergenceFailed_{false};
+    bool localExportSigs{true};
+    bool exportOn{true};
+    std::size_t exportQuorum{4};
+    uint256 exportHash{makeHash("local-export-sig-set")};
+    std::vector<uint256> fetchedExportSets;
+    int exportBuilds = 0;
+
+    bool
+    rngEnabled() const
+    {
+        return false;
+    }
+
+    bool
+    exportEnabled() const
+    {
+        return exportOn;
+    }
+
+    std::size_t
+    quorumThreshold() const
+    {
+        return exportQuorum;
+    }
+
+    std::size_t
+    exportSigQuorumThreshold() const
+    {
+        return exportQuorum;
+    }
+
+    std::size_t
+    pendingCommitCount() const
+    {
+        return 0;
+    }
+
+    std::size_t
+    pendingRevealCount() const
+    {
+        return 0;
+    }
+
+    std::size_t
+    expectedProposerCount() const
+    {
+        return 0;
+    }
+
+    bool
+    hasQuorumOfCommits() const
+    {
+        return false;
+    }
+
+    bool
+    hasMinimumReveals() const
+    {
+        return false;
+    }
+
+    bool
+    hasAnyReveals() const
+    {
+        return false;
+    }
+
+    uint256
+    buildCommitSet(LedgerIndex)
+    {
+        return makeHash("commit-set");
+    }
+
+    uint256
+    buildEntropySet(LedgerIndex)
+    {
+        return makeHash("entropy-set");
+    }
+
+    uint256
+    getEntropySecret() const
+    {
+        return makeHash("entropy-secret");
+    }
+
+    void
+    selfSeedReveal()
+    {
+    }
+
+    void
+    setEntropyFailed()
+    {
+    }
+
+    void
+    fetchRngSetIfNeeded(std::optional<uint256> const& hash, SidecarKind kind)
+    {
+        if (kind == SidecarKind::exportSig && hash)
+            fetchedExportSets.push_back(*hash);
+    }
+
+    bool
+    shouldSendExplicitFinalProposal() const
+    {
+        return false;
+    }
+
+    std::optional<FakeTxSet>
+    buildExplicitFinalProposalTxSet(FakeTxSet const&, LedgerIndex)
+    {
+        return std::nullopt;
+    }
+
+    bool
+    hasPendingExportSigs() const
+    {
+        return localExportSigs;
+    }
+
+    uint256
+    buildExportSigSet(LedgerIndex)
+    {
+        ++exportBuilds;
+        return exportHash;
+    }
+
+    void
+    setExportSigConvergenceFailed()
+    {
+        exportSigConvergenceFailed_ = true;
+    }
+};
+
+struct ExportTickHarness
+{
+    ExtendedPosition position{makeHash("tx-set")};
+    FakeTxSet txns{position.txSetHash};
+    hash_map<NodeID, FakePeerPosition> peers;
+    ConsensusParms parms;
+    NetClock::time_point netNow{NetClock::duration{123}};
+    std::chrono::steady_clock::time_point start{};
+    int updates = 0;
+    int proposes = 0;
+
+    void
+    addPeer(
+        std::uint8_t id,
+        std::optional<uint256> exportSigSetHash,
+        uint256 txSetHash = makeHash("tx-set"))
+    {
+        ExtendedPosition peerPosition{txSetHash};
+        peerPosition.exportSigSetHash = exportSigSetHash;
+        peers.emplace(
+            makeNode(id), FakePeerPosition{makeNode(id), peerPosition});
+    }
+
+    ExtensionTickResult
+    tick(FakeExtensions& ext, std::chrono::milliseconds elapsed = {})
+    {
+        ConsensusTick<ExtendedPosition, FakePeerPosition, FakeTxSet> ctx{
+            .buildSeq = 2,
+            .now = netNow,
+            .nowSteady = start + elapsed,
+            .roundTime = elapsed,
+            .mode = ConsensusMode::proposing,
+            .prevProposers = 0,
+            .peerPositions = peers,
+            .parms = parms,
+            .haveCloseTimeConsensus = true,
+            .convergePercent = 100,
+            .j = beast::Journal{beast::Journal::getNullSink()},
+            .getPosition = [&]() -> ExtendedPosition const& {
+                return position;
+            },
+            .updatePosition =
+                [&](ExtendedPosition const& newPosition) {
+                    position = newPosition;
+                    ++updates;
+                },
+            .propose = [&]() { ++proposes; },
+            .haveConsensus = []() { return true; },
+            .cacheAndShareTxSet = [](FakeTxSet const&) {},
+            .getTxns = [&]() -> FakeTxSet const& { return txns; }};
+
+        return extensionsTick(ext, ctx);
+    }
+};
+
+}  // namespace
 
 class ConsensusExtensions_test : public beast::unit_test::suite
 {
@@ -106,11 +371,113 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(view->containsNode(calcNodeID(vlKeys[1])));
     }
 
+    void
+    testExportSigGateRequiresQuorumAlignment()
+    {
+        testcase("Export sig gate requires quorum alignment");
+
+        FakeExtensions ext;
+        ExportTickHarness harness;
+        auto const localHash = ext.exportHash;
+
+        harness.addPeer(1, localHash);
+        harness.addPeer(2, localHash);
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(harness.position.exportSigSetHash == localHash);
+        BEAST_EXPECT(ext.exportSigGateStarted_);
+
+        result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(!ext.exportSigConvergenceFailed_);
+
+        result = harness.tick(
+            ext,
+            harness.parms.rngREVEAL_TIMEOUT * 2 + std::chrono::milliseconds{1});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(ext.exportSigConvergenceFailed_);
+    }
+
+    void
+    testExportSigGateAllowsAlignedQuorumDespiteMinorityConflict()
+    {
+        testcase("Export sig gate ignores minority conflict after quorum");
+
+        FakeExtensions ext;
+        ExportTickHarness harness;
+        auto const localHash = ext.exportHash;
+        auto const conflictHash = makeHash("conflicting-export-sig-set");
+
+        harness.addPeer(1, localHash);
+        harness.addPeer(2, localHash);
+        harness.addPeer(3, localHash);
+        harness.addPeer(4, conflictHash);
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(!result.readyForAccept);
+
+        result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(!ext.exportSigConvergenceFailed_);
+        BEAST_EXPECT(ext.fetchedExportSets.size() == 1);
+        BEAST_EXPECT(ext.fetchedExportSets.front() == conflictHash);
+    }
+
+    void
+    testExportSigGateFetchesAdvertisedPeerSets()
+    {
+        testcase("Export sig gate fetches advertised peer sets");
+
+        FakeExtensions ext;
+        ext.localExportSigs = false;
+        ExportTickHarness harness;
+        auto const peerHash = makeHash("peer-export-sig-set");
+
+        harness.addPeer(1, peerHash);
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(ext.exportSigGateStarted_);
+        BEAST_EXPECT(!harness.position.exportSigSetHash);
+        BEAST_EXPECT(ext.fetchedExportSets.size() == 1);
+        BEAST_EXPECT(ext.fetchedExportSets.front() == peerHash);
+
+        result = harness.tick(
+            ext,
+            harness.parms.rngREVEAL_TIMEOUT * 2 + std::chrono::milliseconds{1});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(ext.exportSigConvergenceFailed_);
+    }
+
+    void
+    testExportSigGateSkipsWhenExportDisabled()
+    {
+        testcase("Export sig gate skips when Export disabled");
+
+        FakeExtensions ext;
+        ext.exportOn = false;
+        ExportTickHarness harness;
+
+        harness.addPeer(1, ext.exportHash);
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(!ext.exportSigGateStarted_);
+        BEAST_EXPECT(!harness.position.exportSigSetHash);
+        BEAST_EXPECT(ext.exportBuilds == 0);
+        BEAST_EXPECT(ext.fetchedExportSets.empty());
+    }
+
 public:
     void
     run() override
     {
         testActiveValidatorViewAppliesNegativeUNL();
+        testExportSigGateRequiresQuorumAlignment();
+        testExportSigGateAllowsAlignedQuorumDespiteMinorityConflict();
+        testExportSigGateFetchesAdvertisedPeerSets();
+        testExportSigGateSkipsWhenExportDisabled();
     }
 };
 

@@ -142,13 +142,13 @@ Export::doApply()
 
     STTx innerTx(std::ref(sit));
 
-    // Upgrade pass: verify any unverified sigs in the collector.
-    // We always have the inner tx here (it's ctx_.tx), so we can
-    // verify sigs that couldn't be checked at proposal ingestion
-    // time due to relay ordering.  This upgrades them to verified
-    // so they count toward quorum.
-    if (!ctx_.app.config().standalone())
-    {
+    auto upgradeUnverifiedForNextRound = [&]() {
+        if (ctx_.app.config().standalone())
+            return;
+
+        // Closed-ledger apply must not create new current-round quorum
+        // material. These upgrades are retained for a retrying export, where
+        // the sidecar alignment gate can publish and converge them first.
         auto& collector = consensusExtensions.exportSigCollector();
         auto const unverified = collector.unverifiedSignatures(txId);
         for (auto const& [valPK, sigBuf] : unverified)
@@ -173,7 +173,7 @@ Export::doApply()
                                 << txId << " — removing invalid sig";
             }
         }
-    }
+    };
 
     // Atomic quorum check + snapshot for network mode.
     // Only verified signatures count toward quorum and appear
@@ -183,18 +183,22 @@ Export::doApply()
     if (!ctx_.app.config().standalone())
     {
         std::size_t threshold;
+        bool const ceEnabled = view().rules().enabled(featureConsensusEntropy);
         if (unlSize == 0)
             threshold = 1;
-        else if (view().rules().enabled(featureConsensusEntropy))
+        else if (ceEnabled)
             threshold = calculateQuorumThreshold(unlSize);
         else
             threshold = unlSize;
 
         // The collector may contain old trusted signatures; quorum counts only
         // signatures whose keys resolve into the same frozen active view.
-        collectedSigs =
-            consensusExtensions.exportSigCollector().checkQuorumAndSnapshot(
-                txId, threshold, isActiveSigner);
+        if (!consensusExtensions.exportSigConvergenceFailed())
+        {
+            collectedSigs =
+                consensusExtensions.exportSigCollector().checkQuorumAndSnapshot(
+                    txId, threshold, isActiveSigner);
+        }
 
         if (!collectedSigs)
         {
@@ -231,10 +235,15 @@ Export::doApply()
                 }
             }
 
+            upgradeUnverifiedForNextRound();
+
             JLOG(j_.info())
                 << "Export: not enough sigs at ledger " << currentSeq
                 << " sigs=" << sigCount << " threshold=" << threshold
-                << " unlSize=" << unlSize << " -> terRETRY_EXPORT";
+                << " unlSize=" << unlSize << " exportSigConvergenceFailed="
+                << (consensusExtensions.exportSigConvergenceFailed() ? "yes"
+                                                                     : "no")
+                << " -> terRETRY_EXPORT";
             return terRETRY_EXPORT;
         }
     }

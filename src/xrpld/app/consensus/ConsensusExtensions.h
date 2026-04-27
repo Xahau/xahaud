@@ -95,6 +95,7 @@ private:
     uint256 myEntropySecret_;
     bool entropyFailed_ = false;
     bool rngEnabledThisRound_ = false;
+    bool exportEnabledThisRound_ = false;
 
     // Real SHAMaps for the current round (unbacked, ephemeral)
     std::shared_ptr<SHAMap> commitSetMap_;
@@ -126,6 +127,9 @@ public:
     bool explicitFinalProposalSent_{false};
     bool entropySetPublished_{false};
     std::chrono::steady_clock::time_point entropyPublishStart_{};
+    bool exportSigGateStarted_{false};
+    std::chrono::steady_clock::time_point exportSigGateStart_{};
+    bool exportSigConvergenceFailed_{false};
     /** Proof data from a proposal signature, for embedding in SHAMap
         entries. Contains everything needed to independently verify
         that a validator committed/revealed a specific value. */
@@ -172,6 +176,9 @@ public:
     std::size_t
     quorumThreshold() const;
 
+    std::size_t
+    exportSigQuorumThreshold() const;
+
     void
     setExpectedProposers(hash_set<NodeID> proposers);
 
@@ -200,6 +207,9 @@ public:
     rngEnabled() const;
 
     bool
+    exportEnabled() const;
+
+    bool
     bootstrapFastStartEnabled() const;
 
     bool
@@ -219,6 +229,12 @@ public:
 
     bool
     hasPendingExportSigs() const;
+
+    void
+    setExportSigConvergenceFailed();
+
+    bool
+    exportSigConvergenceFailed() const;
 
     bool
     isSidecarSet(uint256 const& hash) const;
@@ -378,10 +394,18 @@ public:
         rngEnabledThisRound_ = v;
     }
 
+    void
+    setExportEnabledThisRound(bool v)
+    {
+        exportEnabledThisRound_ = v;
+    }
+
     bool
     extensionsBusy() const
     {
-        return estState_ != EstablishState::ConvergingTx;
+        return estState_ != EstablishState::ConvergingTx ||
+            (exportEnabled() &&
+             (exportSigGateStarted_ || hasPendingExportSigs()));
     }
 
     EstablishState
@@ -399,6 +423,9 @@ public:
         explicitFinalProposalSent_ = false;
         entropySetPublished_ = false;
         entropyPublishStart_ = {};
+        exportSigGateStarted_ = false;
+        exportSigGateStart_ = {};
+        exportSigConvergenceFailed_ = false;
     }
 };
 
