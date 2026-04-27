@@ -4,6 +4,7 @@
 #include <xrpld/ledger/ApplyView.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/TER.h>
@@ -14,6 +15,53 @@ namespace ripple {
 /// Used by both the hook xport() API (inline path) and the
 /// Export transactor (user-submitted ttEXPORT path).
 namespace ExportLedgerOps {
+
+inline bool
+isExportTxn(STTx const& stx)
+{
+    return stx.getTxnType() == ttEXPORT;
+}
+
+inline bool
+isPendingExportTxn(STTx const& stx)
+{
+    return isExportTxn(stx) && stx.isFieldPresent(sfExportedTxn);
+}
+
+inline std::size_t
+exportTxnCount(ReadView const& view)
+{
+    std::size_t count = 0;
+    for (auto const& tx : view.txs)
+    {
+        if (tx.first && isPendingExportTxn(*tx.first))
+            ++count;
+    }
+    return count;
+}
+
+inline std::size_t
+shadowTicketCount(ReadView const& view, AccountID const& account)
+{
+    std::size_t count = 0;
+    forEachItem(view, account, [&](std::shared_ptr<SLE const> const& sle) {
+        if (sle && sle->getType() == ltSHADOW_TICKET)
+            ++count;
+    });
+    return count;
+}
+
+inline TER
+checkExportTxnLimit(ReadView const& view, beast::Journal j)
+{
+    auto const pending = exportTxnCount(view);
+    if (pending < ExportLimits::maxPendingExports)
+        return tesSUCCESS;
+
+    JLOG(j.warn()) << "ExportLedgerOps: export txn limit reached pending="
+                   << pending << " max=" << +ExportLimits::maxPendingExports;
+    return tecDIR_FULL;
+}
 
 /// Validate that the exported transaction's NetworkID doesn't target
 /// the local network. Returns tesSUCCESS if OK, or a TER error code.
@@ -120,6 +168,15 @@ createShadowTicket(
         JLOG(j.warn()) << "ExportLedgerOps: shadow ticket already exists for "
                        << account << " seq=" << ticketSeq;
         return tefINTERNAL;
+    }
+
+    auto const pending = shadowTicketCount(view, account);
+    if (pending >= ExportLimits::maxPendingExports)
+    {
+        JLOG(j.warn()) << "ExportLedgerOps: shadow ticket limit reached for "
+                       << account << " pending=" << pending
+                       << " max=" << +ExportLimits::maxPendingExports;
+        return tecDIR_FULL;
     }
 
     auto sle = std::make_shared<SLE>(key);

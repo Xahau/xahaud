@@ -11,7 +11,7 @@ namespace ripple {
 // - Each pending export requires every validator to sign it every round
 //   (sign-once, attach once via TMProposeSet)
 // - Inbound signature processing involves crypto verification per sig
-// - The directory cap (maxPendingExports) is the root constraint;
+// - The open-ledger cap (maxPendingExports) is the root constraint;
 //   signing throughput and inbound processing are transitively bounded by it
 struct ExportLimits
 {
@@ -19,7 +19,8 @@ struct ExportLimits
     // (also enforced by hook_api::max_export in Enum.h)
     static constexpr std::uint8_t maxExportsPerHook = 2;
 
-    // Maximum pending exports in the exported directory at any time.
+    // Maximum pending export transactions in an open/apply ledger.
+    // Hook-emitted export backlog drains into the open ledger at this cap.
     // This transitively caps:
     //   - signatures per TMProposeSet message (1 per pending export)
     //   - inbound proposal signature processing (clamped to this)

@@ -24,6 +24,7 @@
 #include <test/jtx/xpop.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Sign.h>
@@ -554,6 +555,84 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testOpenLedgerExportLimit(FeatureBitset features)
+    {
+        testcase("ttEXPORT open ledger limit");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto submitExport = [&](std::uint32_t ticketSeq, TER expected) {
+            auto const seq = env.current()->seq();
+            auto innerObj = buildExportedPayment(
+                alice.id(), carol.id(), seq + 1, seq + 50, ticketSeq);
+
+            Json::Value jv;
+            jv[jss::TransactionType] = jss::Export;
+            jv[jss::Account] = alice.human();
+            jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+
+            env(jv, fee(XRP(1)), ter(expected));
+        };
+
+        for (std::uint32_t i = 1; i <= ExportLimits::maxPendingExports; ++i)
+            submitExport(i, tesSUCCESS);
+
+        submitExport(ExportLimits::maxPendingExports + 1, tecDIR_FULL);
+    }
+
+    void
+    testShadowTicketLimit(FeatureBitset features)
+    {
+        testcase("shadow ticket pending export limit");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto submitClosedExport = [&](std::uint32_t ticketSeq, TER expected) {
+            auto const seq = env.current()->seq();
+            auto innerObj = buildExportedPayment(
+                alice.id(), carol.id(), seq + 1, seq + 50, ticketSeq);
+
+            Json::Value jv;
+            jv[jss::TransactionType] = jss::Export;
+            jv[jss::Account] = alice.human();
+            jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+
+            env(jv, fee(XRP(1)), ter(tesSUCCESS));
+            auto const meta = env.meta();
+            BEAST_EXPECT(meta);
+            BEAST_EXPECT(
+                (*meta)[sfTransactionResult] ==
+                static_cast<std::uint8_t>(TERtoInt(expected)));
+
+            auto const shadow =
+                env.le(keylet::shadowTicket(alice.id(), ticketSeq));
+            BEAST_EXPECT((expected == tesSUCCESS) == static_cast<bool>(shadow));
+            env.close();
+        };
+
+        for (std::uint32_t i = 1; i <= ExportLimits::maxPendingExports; ++i)
+            submitClosedExport(i, tesSUCCESS);
+
+        submitClosedExport(ExportLimits::maxPendingExports + 1, tecDIR_FULL);
+    }
+
+    void
     testShadowTicketLifecycle(FeatureBitset features)
     {
         testcase("Shadow ticket lifecycle");
@@ -921,6 +1000,8 @@ struct Export_test : public beast::unit_test::suite
 
         // ttEXPORT transactor tests
         testExportTxnOpenLedger(allWithExport);
+        testOpenLedgerExportLimit(allWithExport);
+        testShadowTicketLimit(allWithExport);
         testShadowTicketLifecycle(allWithExport);
         testCancelShadowTicketViaTxn(allWithExport);
         testExportRejectsNoTicketSequence(allWithExport);
