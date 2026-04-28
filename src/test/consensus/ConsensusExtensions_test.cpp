@@ -469,6 +469,29 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(ext.fetchedExportSets.empty());
     }
 
+    void
+    testExportDisabledRoundClearsCollector()
+    {
+        testcase("Export disabled round clears collector");
+
+        using namespace jtx;
+        Env env{*this, envconfig(), supported_amendments(), nullptr};
+        ConsensusExtensions ce{env.app(), env.journal};
+        auto const tx = makeHash("export-disabled-clears-collector");
+        auto const pk = makeValidatorKeys().front();
+        std::uint8_t const sigBytes[] = {1, 2, 3};
+        Buffer const sig{sigBytes, sizeof(sigBytes)};
+
+        ce.setExportEnabledThisRound(true);
+        ce.exportSigCollector().addVerifiedSignature(tx, pk, sig, 10);
+        ce.clearRngState();
+        BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 1);
+
+        ce.setExportEnabledThisRound(false);
+        ce.clearRngState();
+        BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 0);
+    }
+
 public:
     void
     run() override
@@ -478,6 +501,7 @@ public:
         testExportSigGateAllowsAlignedQuorumDespiteMinorityConflict();
         testExportSigGateFetchesAdvertisedPeerSets();
         testExportSigGateSkipsWhenExportDisabled();
+        testExportDisabledRoundClearsCollector();
     }
 };
 

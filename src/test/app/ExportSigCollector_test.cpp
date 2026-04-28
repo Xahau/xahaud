@@ -123,11 +123,36 @@ public:
     }
 
     void
+    testClearAll()
+    {
+        testcase("clear all signatures and round state");
+
+        ExportSigCollector collector;
+        auto const verifiedTx = makeHash("clear-all-verified");
+        auto const unverifiedTx = makeHash("clear-all-unverified");
+        auto const sig = makeSignature(12);
+
+        collector.addVerifiedSignature(verifiedTx, validator_, sig, 10);
+        collector.addUnverifiedSignature(unverifiedTx, validator_, sig, 10);
+        BEAST_EXPECT(collector.signatureCount(verifiedTx) == 1);
+        BEAST_EXPECT(collector.hasUnverifiedSignatures());
+        BEAST_EXPECT(collector.markSent(verifiedTx));
+        BEAST_EXPECT(!collector.markSent(verifiedTx));
+
+        collector.clearAll();
+
+        BEAST_EXPECT(collector.signatureCount(verifiedTx) == 0);
+        BEAST_EXPECT(!collector.hasUnverifiedSignatures());
+        BEAST_EXPECT(collector.markSent(verifiedTx));
+    }
+
+    void
     run() override
     {
         testCleanupUsesFirstSeenSeq();
         testUpgradeSetsFirstSeenSeq();
         testRemoveInvalidUnverifiedSignature();
+        testClearAll();
     }
 };
 

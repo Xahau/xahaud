@@ -788,6 +788,13 @@ ConsensusExtensions::clearRngState()
     exportSigCollector_.clearRound();
     if (auto const closed = app_.getLedgerMaster().getClosedLedger())
         exportSigCollector_.cleanupStale(closed->info().seq);
+    if (!exportEnabledThisRound_)
+    {
+        // Export disabled is an amendment boundary, not a retry boundary.
+        // Drop cached signatures so an emergency stop cannot leave old quorum
+        // material waiting for a later re-enable.
+        exportSigCollector_.clearAll();
+    }
     //@@end round-stop-export-reset
     //@@start round-stop-rng-reset
     pendingCommits_.clear();
@@ -1873,6 +1880,9 @@ void
 ConsensusExtensions::onTrustedPeerMessage(
     ::protocol::TMProposeSet const& wireMsg)
 {
+    if (!exportEnabled())
+        return;
+
     if (wireMsg.exportsignatures_size() == 0)
         return;
 
@@ -2043,6 +2053,9 @@ ConsensusExtensions::attachExportSignatures(
     RCLCxPeerPos::Proposal const& proposal)
 {
     auto const& valKeys = app_.getValidatorKeys();
+
+    if (!exportEnabled())
+        return;
 
     // Attach export signatures for any ttEXPORT txns in the open ledger.
     // Gated on featureExport amendment.

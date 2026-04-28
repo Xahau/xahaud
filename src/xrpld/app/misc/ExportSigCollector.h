@@ -266,6 +266,14 @@ public:
         sigs_.erase(txnHash);
     }
 
+    void
+    clearAll()
+    {
+        std::lock_guard lock(mutex_);
+        sigs_.clear();
+        sentThisRound_.clear();
+    }
+
     /// Get a snapshot of VERIFIED sigs (pubkeys only) for building
     /// the SHAMap.  Only verified sigs appear in convergence.
     std::unordered_map<uint256, std::set<PublicKey>>
