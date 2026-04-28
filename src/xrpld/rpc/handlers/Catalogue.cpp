@@ -27,6 +27,7 @@
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpld/rpc/Role.h>
+#include <xrpld/rpc/detail/CatalogueStream.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/Tuning.h>
 #include <xrpld/shamap/SHAMapItem.h>
@@ -680,10 +681,10 @@ doCatalogueCreate(RPC::JsonContext& context)
                 return false;
             }
 
-            size_t stateNodesWritten =
-                ledger->stateMap().serializeToStream(*compStream, prevStateMap);
+            size_t stateNodesWritten = RPC::serializeStateMapToStream(
+                ledger->stateMap(), *compStream, prevStateMap);
             size_t txNodesWritten =
-                ledger->txMap().serializeToStream(*compStream);
+                RPC::serializeTxMapToStream(ledger->txMap(), *compStream);
 
             predictor.addLedger(info.seq, byteCounter.getBytesWritten());
 
@@ -1212,8 +1213,11 @@ doCatalogueLoad(RPC::JsonContext& context)
             ledger->setLedgerInfo(info);
 
             // Deserialize the complete state map from leaf nodes
-            if (!ledger->stateMap().deserializeFromStream(
-                    *decompStream, pinnedACCOUNT_NODE))
+            if (!RPC::deserializeStateMapFromStream(
+                    ledger->stateMap(),
+                    *decompStream,
+                    pinnedACCOUNT_NODE,
+                    context.j))
             {
                 JLOG(context.j.error())
                     << "Failed to deserialize base ledger state";
@@ -1239,8 +1243,11 @@ doCatalogueLoad(RPC::JsonContext& context)
                 *snapshot);
 
             // Apply delta (only leaf-node changes)
-            if (!ledger->stateMap().deserializeFromStream(
-                    *decompStream, pinnedACCOUNT_NODE))
+            if (!RPC::deserializeStateMapFromStream(
+                    ledger->stateMap(),
+                    *decompStream,
+                    pinnedACCOUNT_NODE,
+                    context.j))
             {
                 JLOG(context.j.error())
                     << "Failed to apply delta to ledger " << info.seq;
@@ -1249,17 +1256,16 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
 
         // pull in the tx map
-        if (!ledger->txMap().deserializeFromStream(
-                *decompStream, pinnedTRANSACTION_NODE))
+        if (!RPC::deserializeTxMapFromStream(
+                ledger->txMap(),
+                *decompStream,
+                pinnedTRANSACTION_NODE,
+                context.j))
         {
             JLOG(context.j.error())
                 << "Failed to apply delta to ledger " << info.seq;
             return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
         }
-
-        // Finalize the ledger
-        ledger->stateMap().flushDirty(pinnedACCOUNT_NODE);
-        ledger->txMap().flushDirty(pinnedTRANSACTION_NODE);
 
         ledger->setAccepted(
             info.closeTime,
