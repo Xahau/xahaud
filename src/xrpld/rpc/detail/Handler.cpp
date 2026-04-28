@@ -174,6 +174,7 @@ Handler const handlerArray[]{
      byRef(&doSubmitMultiSigned),
      Role::USER,
      NEEDS_CURRENT_LEDGER},
+    {"submit_and_wait", byRef(&doSubmitAndWait), Role::USER, NO_CONDITION},
     {"transaction_entry", byRef(&doTransactionEntry), Role::USER, NO_CONDITION},
     {"tx", byRef(&doTxJson), Role::USER, NEEDS_NETWORK_CONNECTION},
     {"tx_history", byRef(&doTxHistory), Role::USER, NO_CONDITION, 1, 1},

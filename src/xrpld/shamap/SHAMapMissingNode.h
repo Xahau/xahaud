@@ -29,11 +29,13 @@
 
 namespace ripple {
 
+//@@start shamap-type-enum
 enum class SHAMapType {
     TRANSACTION = 1,  // A tree of transactions
     STATE = 2,        // A tree of state nodes
     FREE = 3,         // A tree not part of a ledger
 };
+//@@end shamap-type-enum
 
 inline std::string
 to_string(SHAMapType t)
@@ -52,6 +54,7 @@ to_string(SHAMapType t)
     }
 }
 
+//@@start shamap-missing-node-class
 class SHAMapMissingNode : public std::runtime_error
 {
 public:
@@ -67,6 +70,7 @@ public:
     {
     }
 };
+//@@end shamap-missing-node-class
 
 }  // namespace ripple
 

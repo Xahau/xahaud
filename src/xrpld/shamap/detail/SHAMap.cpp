@@ -17,13 +17,16 @@
 */
 //==============================================================================
 
+#include <xrpld/core/JobQueue.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpld/shamap/SHAMapAccountStateLeafNode.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpld/shamap/SHAMapSyncFilter.h>
 #include <xrpld/shamap/SHAMapTxLeafNode.h>
 #include <xrpld/shamap/SHAMapTxPlusMetaLeafNode.h>
+#include <xrpl/basics/LocalValue.h>
 #include <xrpl/basics/contract.h>
+#include <chrono>
 
 namespace ripple {
 
@@ -154,6 +157,7 @@ SHAMap::walkTowardsKey(uint256 const& id, SharedPtrNodeStack* stack) const
     return static_cast<SHAMapLeafNode*>(inNode.get());
 }
 
+//@@start find-key
 SHAMapLeafNode*
 SHAMap::findKey(uint256 const& id) const
 {
@@ -162,6 +166,7 @@ SHAMap::findKey(uint256 const& id) const
         leaf = nullptr;
     return leaf;
 }
+//@@end find-key
 
 std::shared_ptr<SHAMapTreeNode>
 SHAMap::fetchNodeFromDB(SHAMapHash const& hash) const
@@ -187,6 +192,70 @@ SHAMap::finishFetch(
                 full_ = false;
                 f_.missingNodeAcquireBySeq(ledgerSeq_, hash.as_uint256());
             }
+
+            // If partial sync wait is enabled, poll-wait for the node
+            if (isPartialSyncWaitEnabled())
+                if (auto* coro =
+                        static_cast<JobQueue::Coro*>(getCurrentCoroPtr()))
+                {
+                    using namespace std::chrono;
+                    constexpr auto pollInterval = 50ms;
+                    constexpr auto defaultTimeout = 30s;
+                    // Use coroutine-local timeout if set, otherwise default
+                    auto coroTimeout = getCoroFetchTimeout();
+                    auto timeout =
+                        coroTimeout.count() > 0 ? coroTimeout : defaultTimeout;
+                    auto const deadline = steady_clock::now() + timeout;
+
+                    // Linear backoff for re-requests: 50ms, 100ms, 150ms... up
+                    // to 2s
+                    auto nextRequestDelay = 50ms;
+                    constexpr auto maxRequestDelay = 2000ms;
+                    constexpr auto backoffStep = 50ms;
+                    auto nextRequestTime =
+                        steady_clock::now() + nextRequestDelay;
+
+                    JLOG(journal_.debug())
+                        << "finishFetch: waiting for node " << hash;
+
+                    while (steady_clock::now() < deadline)
+                    {
+                        // Sleep for the poll interval (yields coroutine, frees
+                        // job thread)
+                        coro->sleepFor(pollInterval);
+
+                        // Try to fetch from cache/db again
+                        if (auto obj = f_.db().fetchNodeObject(
+                                hash.as_uint256(), ledgerSeq_))
+                        {
+                            JLOG(journal_.debug())
+                                << "finishFetch: got node " << hash;
+                            auto node = SHAMapTreeNode::makeFromPrefix(
+                                makeSlice(obj->getData()), hash);
+                            if (node)
+                                canonicalize(hash, node);
+                            return node;
+                        }
+
+                        // Re-request with priority using linear backoff
+                        auto now = steady_clock::now();
+                        if (now >= nextRequestTime)
+                        {
+                            f_.missingNodeAcquireBySeq(
+                                ledgerSeq_,
+                                hash.as_uint256(),
+                                true /*prioritize*/);
+                            // Increase delay for next request (linear backoff)
+                            if (nextRequestDelay < maxRequestDelay)
+                                nextRequestDelay += backoffStep;
+                            nextRequestTime = now + nextRequestDelay;
+                        }
+                    }
+
+                    JLOG(journal_.warn())
+                        << "finishFetch: timeout waiting for node " << hash;
+                }
+
             return {};
         }
 
@@ -268,6 +337,7 @@ SHAMap::fetchNodeNT(SHAMapHash const& hash, SHAMapSyncFilter* filter) const
 }
 */
 
+//@@start fetch-with-timeout
 std::shared_ptr<SHAMapTreeNode>
 SHAMap::fetchNodeNT(SHAMapHash const& hash, SHAMapSyncFilter* filter) const
 {
@@ -309,6 +379,7 @@ SHAMap::fetchNodeNT(SHAMapHash const& hash, SHAMapSyncFilter* filter) const
 
     return nullptr;
 }
+//@@end fetch-with-timeout
 
 std::shared_ptr<SHAMapTreeNode>
 SHAMap::fetchNodeNT(SHAMapHash const& hash) const
@@ -333,6 +404,7 @@ SHAMap::fetchNode(SHAMapHash const& hash) const
     return node;
 }
 
+//@@start throw-on-missing
 SHAMapTreeNode*
 SHAMap::descendThrow(SHAMapInnerNode* parent, int branch) const
 {
@@ -343,6 +415,7 @@ SHAMap::descendThrow(SHAMapInnerNode* parent, int branch) const
 
     return ret;
 }
+//@@end throw-on-missing
 
 std::shared_ptr<SHAMapTreeNode>
 SHAMap::descendThrow(std::shared_ptr<SHAMapInnerNode> const& parent, int branch)
@@ -435,6 +508,7 @@ SHAMap::descend(
     return std::make_pair(child, parentID.getChildNodeID(branch));
 }
 
+//@@start async-fetch
 SHAMapTreeNode*
 SHAMap::descendAsync(
     SHAMapInnerNode* parent,
@@ -457,6 +531,7 @@ SHAMap::descendAsync(
         if (filter)
             ptr = checkFilter(hash, filter);
 
+        //@@start db-async-fetch
         if (!ptr && backed_)
         {
             f_.db().asyncFetch(
@@ -470,6 +545,7 @@ SHAMap::descendAsync(
             pending = true;
             return nullptr;
         }
+        //@@end db-async-fetch
     }
 
     if (ptr)
@@ -477,6 +553,7 @@ SHAMap::descendAsync(
 
     return ptr.get();
 }
+//@@end async-fetch
 
 template <class Node>
 std::shared_ptr<Node>

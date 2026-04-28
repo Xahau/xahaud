@@ -225,6 +225,9 @@ public:
         bool bLocal,
         FailHard failType) override;
 
+    std::optional<uint256>
+    broadcastRawTransaction(Blob const& txBlob) override;
+
     /**
      * For transactions submitted directly by a client, apply batch of
      * transactions and wait for this transaction to complete.
@@ -823,11 +826,13 @@ NetworkOPsImp::isNeedNetworkLedger()
     return needNetworkLedger_;
 }
 
+//@@start is-full-check
 inline bool
 NetworkOPsImp::isFull()
 {
     return !needNetworkLedger_ && (mMode == OperatingMode::FULL);
 }
+//@@end is-full-check
 
 std::string
 NetworkOPsImp::getHostId(bool forAdmin)
@@ -1224,6 +1229,43 @@ NetworkOPsImp::processTransaction(
         doTransactionAsync(transaction, bUnlimited, failType);
 }
 
+std::optional<uint256>
+NetworkOPsImp::broadcastRawTransaction(Blob const& txBlob)
+{
+    // Parse the transaction blob to get the hash
+    std::shared_ptr<STTx const> stx;
+    try
+    {
+        SerialIter sit(makeSlice(txBlob));
+        stx = std::make_shared<STTx const>(std::ref(sit));
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(m_journal.warn())
+            << "broadcastRawTransaction: Failed to parse tx blob: " << e.what();
+        return std::nullopt;
+    }
+
+    uint256 txHash = stx->getTransactionID();
+
+    // Broadcast to all peers without local validation
+    protocol::TMTransaction msg;
+    Serializer s;
+    stx->add(s);
+    msg.set_rawtransaction(s.data(), s.size());
+    msg.set_status(protocol::tsNEW);  // tsNEW = origin node could not validate
+    msg.set_receivetimestamp(
+        app_.timeKeeper().now().time_since_epoch().count());
+
+    app_.overlay().foreach(
+        send_always(std::make_shared<Message>(msg, protocol::mtTRANSACTION)));
+
+    JLOG(m_journal.info()) << "broadcastRawTransaction: Broadcast tx "
+                           << txHash;
+
+    return txHash;
+}
+
 void
 NetworkOPsImp::doTransactionAsync(
     std::shared_ptr<Transaction> transaction,
@@ -1494,6 +1536,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 bool const isEmitted =
                     hook::isEmittedTxn(*(e.transaction->getSTransaction()));
 
+                //@@start tx-relay
                 if (toSkip && !isEmitted)
                 {
                     protocol::TMTransaction tx;
@@ -1509,6 +1552,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     app_.overlay().relay(e.transaction->getID(), tx, *toSkip);
                     e.transaction->setBroadcast();
                 }
+                //@@end tx-relay
             }
 
             if (validatedLedgerIndex)
@@ -1741,6 +1785,14 @@ NetworkOPsImp::checkLastClosedLedger(
     if (!switchLedgers)
         return false;
 
+    // Safety check: can't acquire a ledger with an invalid hash
+    if (!closedLedger.isNonZero())
+    {
+        JLOG(m_journal.warn())
+            << "checkLastClosedLedger: closedLedger hash is zero, skipping";
+        return false;
+    }
+
     auto consensus = m_ledgerMaster.getLedgerByHash(closedLedger);
 
     if (!consensus)
@@ -1963,6 +2015,7 @@ NetworkOPsImp::endConsensus(std::unique_ptr<std::stringstream> const& clog)
     // timing to make sure there shouldn't be a newer LCL. We need this
     // information to do the next three tests.
 
+    //@@start mode-transitions
     if (((mMode == OperatingMode::CONNECTED) ||
          (mMode == OperatingMode::SYNCING)) &&
         !ledgerChange)
@@ -1988,8 +2041,11 @@ NetworkOPsImp::endConsensus(std::unique_ptr<std::stringstream> const& clog)
             setMode(OperatingMode::FULL);
         }
     }
+    //@@end mode-transitions
 
+    //@@start consensus-gate
     beginConsensus(networkClosed, clog);
+    //@@end consensus-gate
 }
 
 void

@@ -23,6 +23,7 @@
 #include <xrpld/app/ledger/InboundLedger.h>
 #include <xrpl/protocol/RippleLedgerHash.h>
 #include <memory>
+#include <optional>
 
 namespace ripple {
 
@@ -55,6 +56,45 @@ public:
 
     virtual std::shared_ptr<InboundLedger>
     find(LedgerHash const& hash) = 0;
+
+    /** Get a partial ledger (has header but may be incomplete).
+        Used for partial sync mode - allows RPC queries against
+        ledgers that are still being acquired.
+        @return The ledger if header exists and not failed, nullptr otherwise.
+    */
+    virtual std::shared_ptr<Ledger const>
+    getPartialLedger(uint256 const& hash) = 0;
+
+    /** Find which partial ledger contains a transaction.
+        Used by submit_and_wait to locate transactions as they appear
+        in incoming ledgers' txMaps.
+        @param txHash The transaction hash to search for
+        @return The ledger hash if found, nullopt otherwise
+    */
+    virtual std::optional<uint256>
+    findTxLedger(uint256 const& txHash) = 0;
+
+    /** Add a priority node hash for immediate fetching.
+        Used by partial sync mode to prioritize specific nodes
+        needed by queries.
+        @param ledgerSeq The ledger sequence being acquired
+        @param nodeHash The specific node hash to prioritize
+    */
+    virtual void
+    addPriorityNode(std::uint32_t ledgerSeq, uint256 const& nodeHash) = 0;
+
+    /** Add a ledger range where TX fetching should be prioritized.
+        Ledgers in this range will fetch TX nodes BEFORE state nodes.
+        Used by submit_and_wait to quickly detect transactions.
+        @param start First ledger sequence (inclusive)
+        @param end Last ledger sequence (inclusive)
+    */
+    virtual void
+    prioritizeTxForLedgers(std::uint32_t start, std::uint32_t end) = 0;
+
+    /** Check if TX fetching should be prioritized for a ledger sequence. */
+    virtual bool
+    isTxPrioritized(std::uint32_t seq) const = 0;
 
     // VFALCO TODO Remove the dependency on the Peer object.
     //

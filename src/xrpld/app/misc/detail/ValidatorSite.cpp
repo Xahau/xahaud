@@ -166,6 +166,7 @@ ValidatorSite::load(
 void
 ValidatorSite::start()
 {
+    JLOG(j_.warn()) << "ValidatorSite::start() called";
     std::lock_guard l0{sites_mutex_};
     std::lock_guard l1{state_mutex_};
     if (timer_.expires_at() == clock_type::time_point{})
@@ -218,12 +219,21 @@ ValidatorSite::setTimer(
     if (next != sites_.end())
     {
         pending_ = next->nextRefresh <= clock_type::now();
+        auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(
+            next->nextRefresh - clock_type::now());
+        JLOG(j_.warn()) << "ValidatorSite::setTimer() pending=" << pending_
+                        << " delay=" << delay.count() << "ms"
+                        << " uri=" << next->startingResource->uri;
         cv_.notify_all();
         timer_.expires_at(next->nextRefresh);
         auto idx = std::distance(sites_.begin(), next);
         timer_.async_wait([this, idx](boost::system::error_code const& ec) {
             this->onTimer(idx, ec);
         });
+    }
+    else
+    {
+        JLOG(j_.warn()) << "ValidatorSite::setTimer() no sites configured";
     }
 }
 

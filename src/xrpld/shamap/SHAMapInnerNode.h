@@ -213,6 +213,7 @@ SHAMapInnerNode::getBranchCount() const
     return popcnt16(isBranch_);
 }
 
+//@@start full-below-methods
 inline bool
 SHAMapInnerNode::isFullBelow(std::uint32_t generation) const
 {
@@ -224,6 +225,7 @@ SHAMapInnerNode::setFullBelowGen(std::uint32_t gen)
 {
     fullBelowGen_ = gen;
 }
+//@@end full-below-methods
 
 }  // namespace ripple
 #endif

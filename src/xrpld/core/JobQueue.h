@@ -26,9 +26,11 @@
 #include <xrpld/core/detail/Workers.h>
 #include <xrpl/basics/LocalValue.h>
 #include <xrpl/json/json_value.h>
+#include <boost/asio/io_service.hpp>
 #include <boost/coroutine/all.hpp>
 #include <boost/range/begin.hpp>  // workaround for boost 1.72 bug
 #include <boost/range/end.hpp>    // workaround for boost 1.72 bug
+#include <atomic>
 
 namespace ripple {
 
@@ -69,6 +71,7 @@ public:
         std::condition_variable cv_;
         boost::coroutines::asymmetric_coroutine<void>::pull_type coro_;
         boost::coroutines::asymmetric_coroutine<void>::push_type* yield_;
+        std::atomic<bool> yielding_{false};  // For postAndYield synchronization
 #ifndef NDEBUG
         bool finished_ = false;
 #endif
@@ -136,11 +139,28 @@ public:
         /** Waits until coroutine returns from the user function. */
         void
         join();
+
+        /** Combined post and yield for poll-wait patterns.
+            Safely schedules resume before yielding, avoiding race conditions.
+            @return true if successfully posted and yielded, false if job queue
+           stopping.
+        */
+        bool
+        postAndYield();
+
+        /** Sleep for a duration without blocking the job queue thread.
+            Yields the coroutine and schedules resume after the delay.
+            @param delay The duration to sleep.
+            @return true if successfully slept, false if job queue stopping.
+        */
+        bool
+        sleepFor(std::chrono::milliseconds delay);
     };
 
     using JobFunction = std::function<void()>;
 
     JobQueue(
+        boost::asio::io_service& io_service,
         int threadCount,
         beast::insight::Collector::ptr const& collector,
         beast::Journal journal,
@@ -242,6 +262,7 @@ private:
 
     using JobDataMap = std::map<JobType, JobTypeData>;
 
+    boost::asio::io_service& io_service_;
     beast::Journal m_journal;
     mutable std::mutex m_mutex;
     std::uint64_t m_lastJob;

@@ -280,6 +280,38 @@ public:
         return !mValidLedger.empty();
     }
 
+    //! Get the hash/seq of the last validated ledger (even if not resident).
+    std::pair<uint256, LedgerIndex>
+    getLastValidatedLedger()
+    {
+        std::lock_guard lock(m_mutex);
+        return mLastValidLedger;
+    }
+
+    //! For partial sync: set the network-observed ledger from any validation.
+    //! This allows queries before trusted validators are fully configured.
+    void
+    setNetworkObservedLedger(uint256 const& hash, LedgerIndex seq)
+    {
+        std::lock_guard lock(m_mutex);
+        if (seq > mNetworkObservedLedger.second)
+        {
+            JLOG(jPartialSync_.warn())
+                << "network-observed ledger updated to seq=" << seq
+                << " hash=" << hash;
+            mNetworkObservedLedger = std::make_pair(hash, seq);
+        }
+    }
+
+    //! Get the network-observed ledger (from any validations, not just
+    //! trusted).
+    std::pair<uint256, LedgerIndex>
+    getNetworkObservedLedger()
+    {
+        std::lock_guard lock(m_mutex);
+        return mNetworkObservedLedger;
+    }
+
     // Returns the minimum ledger sequence in SQL database, if any.
     std::optional<LedgerIndex>
     minSqlSeq();
@@ -329,6 +361,7 @@ private:
 
     Application& app_;
     beast::Journal m_journal;
+    beast::Journal jPartialSync_;
 
     std::recursive_mutex mutable m_mutex;
 
@@ -349,6 +382,9 @@ private:
 
     // Fully validated ledger, whether or not we have the ledger resident.
     std::pair<uint256, LedgerIndex> mLastValidLedger{uint256(), 0};
+
+    // Network-observed ledger from any validations (for partial sync).
+    std::pair<uint256, LedgerIndex> mNetworkObservedLedger{uint256(), 0};
 
     LedgerHistory mLedgerHistory;
 

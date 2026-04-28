@@ -21,6 +21,8 @@
 #define RIPPLE_CORE_COROINL_H_INCLUDED
 
 #include <xrpl/basics/ByteUtilities.h>
+#include <boost/asio/steady_timer.hpp>
+#include <thread>
 
 namespace ripple {
 
@@ -48,6 +50,7 @@ JobQueue::Coro::Coro(
           },
           boost::coroutines::attributes(megabytes(1)))
 {
+    lvs_.coroPtr = this;
 }
 
 inline JobQueue::Coro::~Coro()
@@ -57,6 +60,7 @@ inline JobQueue::Coro::~Coro()
 #endif
 }
 
+//@@start coro-yield
 inline void
 JobQueue::Coro::yield() const
 {
@@ -66,6 +70,7 @@ JobQueue::Coro::yield() const
     }
     (*yield_)();
 }
+//@@end coro-yield
 
 inline bool
 JobQueue::Coro::post()
@@ -89,6 +94,7 @@ JobQueue::Coro::post()
     return false;
 }
 
+//@@start coro-resume
 inline void
 JobQueue::Coro::resume()
 {
@@ -113,6 +119,7 @@ JobQueue::Coro::resume()
     running_ = false;
     cv_.notify_all();
 }
+//@@end coro-resume
 
 inline bool
 JobQueue::Coro::runnable() const
@@ -146,6 +153,65 @@ JobQueue::Coro::join()
 {
     std::unique_lock<std::mutex> lk(mutex_run_);
     cv_.wait(lk, [this]() { return running_ == false; });
+}
+
+inline bool
+JobQueue::Coro::postAndYield()
+{
+    {
+        std::lock_guard lk(mutex_run_);
+        running_ = true;
+    }
+
+    // Flag starts false - will be set true right before yield()
+    yielding_.store(false, std::memory_order_release);
+
+    // Post a job that waits for yield to be ready, then resumes
+    if (!jq_.addJob(type_, name_, [this, sp = shared_from_this()]() {
+            // Spin-wait until yield() is about to happen
+            // yielding_ is set true immediately before (*yield_)() is called
+            while (!yielding_.load(std::memory_order_acquire))
+                std::this_thread::yield();
+            resume();
+        }))
+    {
+        std::lock_guard lk(mutex_run_);
+        running_ = false;
+        cv_.notify_all();
+        return false;
+    }
+
+    // Signal that we're about to yield, then yield
+    yielding_.store(true, std::memory_order_release);
+    yield();
+
+    // Clear flag after resuming
+    yielding_.store(false, std::memory_order_release);
+    return true;
+}
+
+inline bool
+JobQueue::Coro::sleepFor(std::chrono::milliseconds delay)
+{
+    {
+        std::lock_guard lk(mutex_run_);
+        running_ = true;
+    }
+
+    // Use an asio timer on the existing io_service thread pool
+    // instead of spawning a detached thread per sleep call
+    auto timer =
+        std::make_shared<boost::asio::steady_timer>(jq_.io_service_);
+    timer->expires_after(delay);
+    timer->async_wait(
+        [sp = shared_from_this(), timer](
+            boost::system::error_code const& ec) {
+            if (ec != boost::asio::error::operation_aborted)
+                sp->post();
+        });
+
+    yield();
+    return true;
 }
 
 }  // namespace ripple

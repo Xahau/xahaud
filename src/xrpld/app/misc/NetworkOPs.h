@@ -32,6 +32,7 @@
 #include <boost/asio.hpp>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <tuple>
 
 namespace ripple {
@@ -111,6 +112,17 @@ public:
         bool bUnlimited,
         bool bLocal,
         FailHard failType) = 0;
+
+    /**
+     * Broadcast a raw transaction to peers without local validation.
+     * Used by submit_and_wait during partial sync mode when local state
+     * is not available for validation.
+     *
+     * @param txBlob The raw serialized transaction blob
+     * @return The transaction hash, or nullopt if parsing failed
+     */
+    virtual std::optional<uint256>
+    broadcastRawTransaction(Blob const& txBlob) = 0;
 
     //--------------------------------------------------------------------------
     //

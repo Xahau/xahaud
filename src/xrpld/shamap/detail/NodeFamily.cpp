@@ -21,7 +21,6 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/Tuning.h>
 #include <xrpld/shamap/NodeFamily.h>
-#include <sstream>
 
 namespace ripple {
 
@@ -66,9 +65,18 @@ NodeFamily::reset()
 }
 
 void
-NodeFamily::missingNodeAcquireBySeq(std::uint32_t seq, uint256 const& nodeHash)
+NodeFamily::missingNodeAcquireBySeq(
+    std::uint32_t seq,
+    uint256 const& nodeHash,
+    bool prioritize)
 {
-    JLOG(j_.error()) << "Missing node in " << seq;
+    JLOG(j_.error()) << "Missing node in " << seq << " hash=" << nodeHash
+                     << (prioritize ? " [PRIORITY]" : "");
+
+    // Add priority for the specific node hash needed by the query
+    if (prioritize && nodeHash.isNonZero())
+        app_.getInboundLedgers().addPriorityNode(seq, nodeHash);
+
     std::unique_lock<std::mutex> lock(maxSeqMutex_);
     if (maxSeq_ == 0)
     {

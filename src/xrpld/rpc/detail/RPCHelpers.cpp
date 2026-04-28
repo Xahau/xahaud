@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/LedgerToJson.h>
 #include <xrpld/app/ledger/OpenLedger.h>
@@ -28,6 +29,7 @@
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/DeliveredAmount.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
+#include <xrpl/basics/LocalValue.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/RPCErr.h>
@@ -37,7 +39,6 @@
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
-#include <xrpl/resource/Fees.h>
 #include <regex>
 
 namespace ripple {
@@ -575,6 +576,11 @@ getLedger(T& ledger, uint256 const& ledgerHash, Context& context)
 {
     ledger = context.ledgerMaster.getLedgerByHash(ledgerHash);
     if (ledger == nullptr)
+    {
+        // Partial sync fallback: try to get incomplete ledger being acquired
+        ledger = context.app.getInboundLedgers().getPartialLedger(ledgerHash);
+    }
+    if (ledger == nullptr)
         return {rpcLGR_NOT_FOUND, "ledgerNotFound"};
     return Status::OK;
 }
@@ -611,6 +617,14 @@ getLedger(T& ledger, uint32_t ledgerIndex, Context& context)
         }
     }
 
+    // Partial sync fallback: try to get incomplete ledger being acquired
+    if (ledger == nullptr)
+    {
+        auto hash = context.ledgerMaster.getHashBySeq(ledgerIndex);
+        if (hash.isNonZero())
+            ledger = context.app.getInboundLedgers().getPartialLedger(hash);
+    }
+
     if (ledger == nullptr)
         return {rpcLGR_NOT_FOUND, "ledgerNotFound"};
 
@@ -633,16 +647,87 @@ template <class T>
 Status
 getLedger(T& ledger, LedgerShortcut shortcut, Context& context)
 {
-    if (isValidatedOld(context.ledgerMaster, context.app.config().standalone()))
-    {
-        if (context.apiVersion == 1)
-            return {rpcNO_NETWORK, "InsufficientNetworkMode"};
-        return {rpcNOT_SYNCED, "notSynced"};
-    }
+    //@@start sync-validation
+    // TODO: Re-enable for production. Disabled for partial sync testing.
+    // if (isValidatedOld(context.ledgerMaster,
+    // context.app.config().standalone()))
+    // {
+    //     if (context.apiVersion == 1)
+    //         return {rpcNO_NETWORK, "InsufficientNetworkMode"};
+    //     return {rpcNOT_SYNCED, "notSynced"};
+    // }
+    //@@end sync-validation
 
     if (shortcut == LedgerShortcut::VALIDATED)
     {
         ledger = context.ledgerMaster.getValidatedLedger();
+
+        // Partial sync fallback: try to get incomplete validated ledger
+        if (ledger == nullptr)
+        {
+            auto [hash, seq] = context.ledgerMaster.getLastValidatedLedger();
+            JLOG(context.j.warn())
+                << "Partial sync: getValidatedLedger null, trying trusted hash="
+                << hash << " seq=" << seq;
+
+            // If no trusted validations yet, try network-observed ledger
+            if (hash.isZero())
+            {
+                std::tie(hash, seq) =
+                    context.ledgerMaster.getNetworkObservedLedger();
+                JLOG(context.j.warn())
+                    << "Partial sync: trying network-observed hash=" << hash
+                    << " seq=" << seq;
+
+                // Poll-wait for validations to arrive (up to ~10 seconds)
+                if (hash.isZero() && context.coro)
+                {
+                    for (int i = 0; i < 100 && hash.isZero(); ++i)
+                    {
+                        context.coro->sleepFor(std::chrono::milliseconds(100));
+                        std::tie(hash, seq) =
+                            context.ledgerMaster.getNetworkObservedLedger();
+                    }
+                    if (hash.isNonZero())
+                    {
+                        JLOG(context.j.warn())
+                            << "Partial sync: got network-observed hash="
+                            << hash << " seq=" << seq;
+                    }
+                }
+            }
+
+            if (hash.isNonZero())
+            {
+                setPartialSyncWait(true);
+                ledger = context.app.getInboundLedgers().getPartialLedger(hash);
+                // If no InboundLedger exists yet, trigger acquisition and wait
+                if (!ledger)
+                {
+                    JLOG(context.j.warn())
+                        << "Partial sync: acquiring ledger " << hash;
+                    context.app.getInboundLedgers().acquire(
+                        hash, seq, InboundLedger::Reason::CONSENSUS);
+
+                    // Poll-wait for the ledger header (up to ~10 seconds)
+                    int i = 0;
+                    for (; i < 100 && !ledger && context.coro; ++i)
+                    {
+                        context.coro->sleepFor(std::chrono::milliseconds(100));
+                        ledger =
+                            context.app.getInboundLedgers().getPartialLedger(
+                                hash);
+                    }
+                    JLOG(context.j.warn())
+                        << "Partial sync: poll-wait completed after " << i
+                        << " iterations, ledger="
+                        << (ledger ? "found" : "null");
+                }
+            }
+            JLOG(context.j.warn()) << "Partial sync: getPartialLedger returned "
+                                   << (ledger ? "ledger" : "null");
+        }
+
         if (ledger == nullptr)
         {
             if (context.apiVersion == 1)

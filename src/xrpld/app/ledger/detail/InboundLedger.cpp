@@ -41,6 +41,7 @@ namespace ripple {
 
 using namespace std::chrono_literals;
 
+//@@start tx-fetch-constants
 enum {
     // Number of peers to start with
     peerCountStart = 5
@@ -69,6 +70,7 @@ enum {
     ,
     reqNodes = 12
 };
+//@@end tx-fetch-constants
 
 // millisecond for each ledger timeout
 auto constexpr ledgerAcquireTimeout = 3000ms;
@@ -98,6 +100,8 @@ InboundLedger::InboundLedger(
     , mPeerSet(std::move(peerSet))
 {
     JLOG(journal_.trace()) << "Acquiring ledger " << hash_;
+    JLOG(app_.journal("TxTrack").warn())
+        << "NEW LEDGER seq=" << seq << " hash=" << hash;
     touch();
 }
 
@@ -155,6 +159,22 @@ InboundLedger::update(std::uint32_t seq)
 
     // Prevent this from being swept
     touch();
+}
+
+void
+InboundLedger::addPriorityHash(uint256 const& hash)
+{
+    ScopedLockType sl(mtx_);
+    priorityHashes_.insert(hash);
+    JLOG(journal_.debug()) << "Added priority hash " << hash << " for ledger "
+                           << hash_;
+}
+
+bool
+InboundLedger::hasTx(uint256 const& txHash) const
+{
+    ScopedLockType sl(mtx_);
+    return knownTxHashes_.count(txHash) > 0;
 }
 
 bool
@@ -347,6 +367,7 @@ InboundLedger::tryDB(NodeStore::Database& srcDB)
         }
     }
 
+    //@@start completion-check
     if (mHaveTransactions && mHaveState)
     {
         JLOG(journal_.debug()) << "Had everything locally";
@@ -356,6 +377,7 @@ InboundLedger::tryDB(NodeStore::Database& srcDB)
             "ripple::InboundLedger::tryDB : valid ledger fees");
         mLedger->setImmutable();
     }
+    //@@end completion-check
 }
 
 /** Called with a lock by the PeerSet when the timer expires
@@ -520,6 +542,43 @@ InboundLedger::trigger(std::shared_ptr<Peer> const& peer, TriggerReason reason)
         }
     }
 
+    // Handle priority hashes immediately (for partial sync queries)
+    if (mHaveHeader && !priorityHashes_.empty())
+    {
+        JLOG(journal_.warn()) << "PRIORITY: trigger() sending "
+                              << priorityHashes_.size() << " priority requests";
+
+        protocol::TMGetObjectByHash tmBH;
+        tmBH.set_query(true);
+        tmBH.set_type(protocol::TMGetObjectByHash::otSTATE_NODE);
+        tmBH.set_ledgerhash(hash_.begin(), hash_.size());
+
+        for (auto const& h : priorityHashes_)
+        {
+            JLOG(journal_.warn()) << "PRIORITY: requesting node " << h;
+            protocol::TMIndexedObject* io = tmBH.add_objects();
+            io->set_hash(h.begin(), h.size());
+            if (mSeq != 0)
+                io->set_ledgerseq(mSeq);
+        }
+
+        // Send to all peers in our peer set
+        auto packet = std::make_shared<Message>(tmBH, protocol::mtGET_OBJECTS);
+        auto const& peerIds = mPeerSet->getPeerIds();
+        std::size_t sentCount = 0;
+        for (auto id : peerIds)
+        {
+            if (auto p = app_.overlay().findPeerByShortID(id))
+            {
+                p->send(packet);
+                ++sentCount;
+            }
+        }
+        JLOG(journal_.warn()) << "PRIORITY: sent to " << sentCount << " peers";
+
+        priorityHashes_.clear();
+    }
+
     protocol::TMGetLedger tmGL;
     tmGL.set_ledgerhash(hash_.begin(), hash_.size());
 
@@ -613,7 +672,12 @@ InboundLedger::trigger(std::shared_ptr<Peer> const& peer, TriggerReason reason)
 
     // Get the state data first because it's the most likely to be useful
     // if we wind up abandoning this fetch.
-    if (mHaveHeader && !mHaveState && !failed_)
+    // When TX is prioritized for this ledger range, skip state until TX
+    // complete.
+    bool const txPrioritized =
+        mSeq != 0 && app_.getInboundLedgers().isTxPrioritized(mSeq);
+    if (mHaveHeader && !mHaveState && !failed_ &&
+        !(txPrioritized && !mHaveTransactions))
     {
         XRPL_ASSERT(
             mLedger,
@@ -837,6 +901,9 @@ InboundLedger::takeHeader(std::string const& data)
     mLedger->txMap().setLedgerSeq(mSeq);
     mHaveHeader = true;
 
+    JLOG(app_.journal("TxTrack").warn())
+        << "GOT HEADER seq=" << mSeq << " txHash=" << mLedger->info().txHash;
+
     Serializer s(data.size() + 4);
     s.add32(HashPrefix::ledgerMaster);
     s.addRaw(data.data(), data.size());
@@ -905,6 +972,33 @@ InboundLedger::receiveNode(protocol::TMLedgerData& packet, SHAMapAddNode& san)
 
             if (!nodeID)
                 throw std::runtime_error("data does not properly deserialize");
+
+            // For TX nodes, extract tx hash from leaf nodes for submit_and_wait
+            if (packet.type() == protocol::liTX_NODE)
+            {
+                auto const& data = node.nodedata();
+                // Leaf nodes have wire type as last byte
+                // Format: [tx+meta data...][32-byte tx hash][1-byte type]
+                if (data.size() >= 33)
+                {
+                    uint8_t wireType =
+                        static_cast<uint8_t>(data[data.size() - 1]);
+                    // wireTypeTransactionWithMeta = 4
+                    if (wireType == 4)
+                    {
+                        uint256 txHash;
+                        std::memcpy(
+                            txHash.data(), data.data() + data.size() - 33, 32);
+                        auto [it, inserted] = knownTxHashes_.insert(txHash);
+                        if (inserted)
+                        {
+                            JLOG(app_.journal("TxTrack").warn())
+                                << "GOT TX ledger=" << mSeq << " tx=" << txHash
+                                << " count=" << knownTxHashes_.size();
+                        }
+                    }
+                }
+            }
 
             if (nodeID->isRoot())
             {

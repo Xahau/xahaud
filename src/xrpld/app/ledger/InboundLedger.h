@@ -80,6 +80,13 @@ public:
         return mLedger;
     }
 
+    /** Returns true if we have the ledger header (may still be incomplete). */
+    bool
+    hasHeader() const
+    {
+        return mHaveHeader;
+    }
+
     std::uint32_t
     getSeq() const
     {
@@ -105,6 +112,26 @@ public:
 
     void
     runData();
+
+    /** Add a node hash to the priority queue for immediate fetching.
+        Used by partial sync mode to prioritize nodes needed by queries.
+    */
+    void
+    addPriorityHash(uint256 const& hash);
+
+    /** Check if a transaction hash has been seen in this ledger's txMap.
+        Used by submit_and_wait to find transactions in partial ledgers.
+    */
+    bool
+    hasTx(uint256 const& txHash) const;
+
+    /** Return the count of known transaction hashes (for debugging). */
+    std::size_t
+    knownTxCount() const
+    {
+        ScopedLockType sl(mtx_);
+        return knownTxHashes_.size();
+    }
 
     void
     touch()
@@ -175,15 +202,24 @@ private:
     clock_type::time_point mLastAction;
 
     std::shared_ptr<Ledger> mLedger;
+    //@@start state-tracking-members
     bool mHaveHeader;
     bool mHaveState;
     bool mHaveTransactions;
+    //@@end state-tracking-members
     bool mSignaled;
     bool mByHash;
     std::uint32_t mSeq;
     Reason const mReason;
 
     std::set<uint256> mRecentNodes;
+
+    // Priority nodes to fetch immediately (for partial sync queries)
+    std::set<uint256> priorityHashes_;
+
+    // Transaction hashes seen in incoming txMap leaf nodes (for
+    // submit_and_wait)
+    std::set<uint256> knownTxHashes_;
 
     SHAMapAddNode mStats;
 

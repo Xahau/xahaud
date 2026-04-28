@@ -25,6 +25,7 @@
 #include <xrpld/perflog/PerfLog.h>
 #include <xrpl/basics/DecayingSample.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/basics/RangeSet.h>
 #include <xrpl/basics/scope.h>
 #include <xrpl/beast/container/aged_map.h>
 #include <xrpl/beast/core/LexicalCast.h>
@@ -181,6 +182,89 @@ public:
         }
 
         return ret;
+    }
+
+    std::shared_ptr<Ledger const>
+    getPartialLedger(uint256 const& hash) override
+    {
+        auto inbound = find(hash);
+        if (inbound && inbound->hasHeader() && !inbound->isFailed())
+            return inbound->getLedger();
+        return nullptr;
+    }
+
+    std::optional<uint256>
+    findTxLedger(uint256 const& txHash) override
+    {
+        auto const swj = app_.journal("SubmitAndWait");
+        ScopedLockType sl(mLock);
+        JLOG(swj.debug()) << "findTxLedger tx=" << txHash << " searching "
+                          << mLedgers.size() << " inbound ledgers";
+        for (auto const& [hash, inbound] : mLedgers)
+        {
+            bool hasHdr = inbound->hasHeader();
+            bool failed = inbound->isFailed();
+            bool hasTx = hasHdr && !failed && inbound->hasTx(txHash);
+            JLOG(swj.trace())
+                << "findTxLedger checking ledger seq=" << inbound->getSeq()
+                << " hash=" << hash << " hasHeader=" << hasHdr
+                << " failed=" << failed << " hasTx=" << hasTx;
+            if (hasTx)
+            {
+                JLOG(swj.warn()) << "findTxLedger FOUND tx=" << txHash
+                                 << " in ledger seq=" << inbound->getSeq();
+                return hash;
+            }
+        }
+        JLOG(swj.debug()) << "findTxLedger tx=" << txHash << " NOT FOUND";
+        return std::nullopt;
+    }
+
+    void
+    addPriorityNode(std::uint32_t ledgerSeq, uint256 const& nodeHash) override
+    {
+        std::shared_ptr<InboundLedger> inbound;
+        {
+            ScopedLockType sl(mLock);
+            // Find inbound ledger by sequence (need to iterate)
+            for (auto const& [hash, ledger] : mLedgers)
+            {
+                if (ledger->getSeq() == ledgerSeq && !ledger->isFailed() &&
+                    !ledger->isComplete())
+                {
+                    inbound = ledger;
+                    break;
+                }
+            }
+        }
+
+        if (inbound)
+        {
+            inbound->addPriorityHash(nodeHash);
+            JLOG(j_.warn()) << "PRIORITY: added node " << nodeHash
+                            << " for ledger seq " << ledgerSeq;
+        }
+        else
+        {
+            JLOG(j_.warn()) << "PRIORITY: no inbound ledger for seq "
+                            << ledgerSeq << " (node " << nodeHash << ")";
+        }
+    }
+
+    void
+    prioritizeTxForLedgers(std::uint32_t start, std::uint32_t end) override
+    {
+        std::lock_guard lock(txPriorityMutex_);
+        txPriorityRange_.insert(ClosedInterval<std::uint32_t>(start, end));
+        JLOG(j_.debug()) << "TX priority added for ledgers " << start << "-"
+                         << end;
+    }
+
+    bool
+    isTxPrioritized(std::uint32_t seq) const override
+    {
+        std::lock_guard lock(txPriorityMutex_);
+        return boost::icl::contains(txPriorityRange_, seq);
     }
 
     /*
@@ -406,6 +490,11 @@ public:
                 }
                 else if ((la + std::chrono::minutes(1)) < start)
                 {
+                    JLOG(app_.journal("SubmitAndWait").debug())
+                        << "sweep removing ledger seq=" << it->second->getSeq()
+                        << " complete=" << it->second->isComplete()
+                        << " failed=" << it->second->isFailed()
+                        << " knownTxCount=" << it->second->knownTxCount();
                     stuffToSweep.push_back(it->second);
                     // shouldn't cause the actual final delete
                     // since we are holding a reference in the vector.
@@ -420,13 +509,22 @@ public:
             beast::expire(mRecentFailures, kReacquireInterval);
         }
 
-        JLOG(j_.debug())
-            << "Swept " << stuffToSweep.size() << " out of " << total
+        JLOG(app_.journal("SubmitAndWait").debug())
+            << "sweep removed " << stuffToSweep.size() << " out of " << total
             << " inbound ledgers. Duration: "
             << std::chrono::duration_cast<std::chrono::milliseconds>(
                    m_clock.now() - start)
                    .count()
             << "ms";
+
+        // Clear expired TX-priority ranges (anything at or below validated)
+        {
+            std::lock_guard lock(txPriorityMutex_);
+            auto const validSeq = app_.getLedgerMaster().getValidLedgerIndex();
+            if (validSeq > 0 && !txPriorityRange_.empty())
+                txPriorityRange_.erase(
+                    ClosedInterval<std::uint32_t>(0, validSeq));
+        }
     }
 
     void
@@ -463,6 +561,10 @@ private:
 
     std::set<uint256> pendingAcquires_;
     std::mutex acquiresMutex_;
+
+    // Ledger ranges where TX fetching should be prioritized
+    mutable std::mutex txPriorityMutex_;
+    RangeSet<std::uint32_t> txPriorityRange_;
 };
 
 //------------------------------------------------------------------------------

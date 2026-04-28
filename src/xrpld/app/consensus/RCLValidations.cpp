@@ -192,8 +192,24 @@ handleNewValidation(
     auto const outcome =
         validations.add(calcNodeID(masterKey.value_or(signingKey)), val);
 
+    if (j.has_value())
+    {
+        JLOG(j->warn()) << "handleNewValidation: seq=" << seq
+                        << " hash=" << hash << " trusted=" << val->isTrusted()
+                        << " outcome="
+                        << (outcome == ValStatus::current      ? "current"
+                                : outcome == ValStatus::stale  ? "stale"
+                                : outcome == ValStatus::badSeq ? "badSeq"
+                                                               : "other");
+    }
+
     if (outcome == ValStatus::current)
     {
+        // For partial sync: track the network-observed ledger from ANY
+        // validation (not just trusted). This allows queries before
+        // trusted validators are fully configured.
+        app.getLedgerMaster().setNetworkObservedLedger(hash, seq);
+
         if (val->isTrusted())
         {
             // Was: app.getLedgerMaster().checkAccept(hash, seq);
@@ -211,6 +227,23 @@ handleNewValidation(
             else
             {
                 app.getLedgerMaster().checkAccept(hash, seq);
+            }
+        }
+        else
+        {
+            // Partial sync debug: only log untrusted validations during startup
+            // (before we have any validated ledger)
+            auto [lastHash, lastSeq] =
+                app.getLedgerMaster().getLastValidatedLedger();
+            if (lastSeq == 0)
+            {
+                auto jPartialSync = app.journal("PartialSync");
+                auto const quorum = app.validators().quorum();
+                auto const unlSize = app.validators().count();
+                JLOG(jPartialSync.debug())
+                    << "validation NOT trusted: seq=" << seq << " hash=" << hash
+                    << " unlSize=" << unlSize << " quorum=" << quorum
+                    << " (masterKey=" << (masterKey ? "found" : "none") << ")";
             }
         }
         return;

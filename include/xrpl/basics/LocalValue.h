@@ -21,6 +21,7 @@
 #define RIPPLE_BASICS_LOCALVALUE_H_INCLUDED
 
 #include <boost/thread/tss.hpp>
+#include <chrono>
 #include <memory>
 #include <unordered_map>
 
@@ -33,6 +34,16 @@ struct LocalValues
     explicit LocalValues() = default;
 
     bool onCoro = true;
+    void* coroPtr = nullptr;  // Pointer to owning JobQueue::Coro (if any)
+
+    // When true, SHAMap::finishFetch() will poll-wait for missing nodes
+    // instead of returning empty. Only set by partial sync code paths.
+    bool partialSyncWait = false;
+
+    // Configurable timeout for SHAMap node fetching during partial sync.
+    // Zero means use the default (30s). RPC handlers can set this to
+    // customize poll-wait behavior.
+    std::chrono::milliseconds fetchTimeout{0};
 
     struct BasicValue
     {
@@ -127,6 +138,57 @@ LocalValue<T>::operator*()
             .emplace(this, std::make_unique<detail::LocalValues::Value<T>>(t_))
             .first->second->get());
 }
+
+// Returns pointer to current coroutine if running inside one, nullptr otherwise
+inline void*
+getCurrentCoroPtr()
+{
+    auto lvs = detail::getLocalValues().get();
+    if (lvs && lvs->onCoro)
+        return lvs->coroPtr;
+    return nullptr;
+}
+
+// Check if partial sync wait is enabled for the current coroutine context.
+inline bool
+isPartialSyncWaitEnabled()
+{
+    auto lvs = detail::getLocalValues().get();
+    if (lvs && lvs->onCoro)
+        return lvs->partialSyncWait;
+    return false;
+}
+
+// Enable/disable partial sync wait for the current coroutine context.
+inline void
+setPartialSyncWait(bool enabled)
+{
+    auto lvs = detail::getLocalValues().get();
+    if (lvs && lvs->onCoro)
+        lvs->partialSyncWait = enabled;
+}
+
+// Get the configured fetch timeout for current coroutine context.
+// Returns 0ms if not in a coroutine or no custom timeout set.
+inline std::chrono::milliseconds
+getCoroFetchTimeout()
+{
+    auto lvs = detail::getLocalValues().get();
+    if (lvs && lvs->onCoro)
+        return lvs->fetchTimeout;
+    return std::chrono::milliseconds{0};
+}
+
+// Set the fetch timeout for the current coroutine context.
+// Only works if called from within a coroutine.
+inline void
+setCoroFetchTimeout(std::chrono::milliseconds timeout)
+{
+    auto lvs = detail::getLocalValues().get();
+    if (lvs && lvs->onCoro)
+        lvs->fetchTimeout = timeout;
+}
+
 }  // namespace ripple
 
 #endif

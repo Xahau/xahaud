@@ -68,9 +68,14 @@ public:
      *
      * @param refNum Sequence of ledger to acquire.
      * @param nodeHash Hash of missing node to report in throw.
+     * @param prioritize If true, prioritize fetching this specific node
+     *        (used by partial sync mode for RPC queries).
      */
     virtual void
-    missingNodeAcquireBySeq(std::uint32_t refNum, uint256 const& nodeHash) = 0;
+    missingNodeAcquireBySeq(
+        std::uint32_t refNum,
+        uint256 const& nodeHash,
+        bool prioritize = false) = 0;
 
     /** Acquire ledger that has a missing node by ledger hash
      *

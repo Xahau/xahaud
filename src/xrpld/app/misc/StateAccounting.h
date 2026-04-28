@@ -31,6 +31,7 @@ namespace ripple {
           not change them without verifying each use and ensuring that it is
           not a breaking change.
 */
+//@@start operating-mode-enum
 enum class OperatingMode {
     DISCONNECTED = 0,  //!< not ready to process requests
     CONNECTED = 1,     //!< convinced we are talking to the network
@@ -38,6 +39,7 @@ enum class OperatingMode {
     TRACKING = 3,      //!< convinced we agree with the network
     FULL = 4           //!< we have the ledger and can even validate
 };
+//@@end operating-mode-enum
 
 class StateAccounting
 {

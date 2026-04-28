@@ -203,5 +203,6 @@ xrpld.rpc > xrpl.protocol
 xrpld.rpc > xrpl.resource
 xrpld.rpc > xrpl.server
 xrpld.shamap > xrpl.basics
+xrpld.shamap > xrpld.core
 xrpld.shamap > xrpld.nodestore
 xrpld.shamap > xrpl.protocol

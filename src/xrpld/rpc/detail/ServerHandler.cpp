@@ -315,12 +315,14 @@ ServerHandler::onRequest(Session& session)
     }
 
     std::shared_ptr<Session> detachedSession = session.detach();
+    //@@start rpc-coro-usage
     auto const postResult = m_jobQueue.postCoro(
         jtCLIENT_RPC,
         "RPC-Client",
         [this, detachedSession](std::shared_ptr<JobQueue::Coro> coro) {
             processSession(detachedSession, coro);
         });
+    //@@end rpc-coro-usage
     if (postResult == nullptr)
     {
         // The coroutine was rejected, probably because we're shutting down.

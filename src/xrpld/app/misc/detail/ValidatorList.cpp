@@ -966,6 +966,16 @@ ValidatorList::applyListsAndBroadcast(
         if (good)
         {
             networkOPs.clearUNLBlocked();
+            // For partial sync: trigger early quorum calculation so
+            // validations can be trusted before consensus starts
+            JLOG(j_.warn()) << "All publisher lists available, triggering "
+                               "early updateTrusted for partial sync";
+            updateTrusted(
+                {},  // empty seenValidators - we just need quorum calculated
+                timeKeeper_.now(),
+                networkOPs,
+                overlay,
+                hashRouter);
         }
     }
     bool broadcast = disposition <= ListDisposition::known_sequence;
