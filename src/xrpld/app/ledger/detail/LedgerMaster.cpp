@@ -1365,10 +1365,41 @@ LedgerMaster::findNewLedgersToPublish(
     {
         for (auto const& interval : toPublish)
         {
-            // Advance pubSeq past pinned gaps — pinned ledgers are
-            // already persisted and don't need publishing.
+            // Some sequences may be absent from toPublish because they are
+            // pinned ledgers already persisted to disk and intentionally not
+            // republished.
+            //
+            // Core invariant: never publish across a gap in non-pinned
+            // ledgers. Publication must remain contiguous for every
+            // non-pinned sequence from mPubLedgerSeq + 1 forward.
+            //
+            // Therefore, we may only advance pubSeq to the start of a later
+            // interval if every skipped sequence is pinned. If pubSeq is
+            // lagging because an earlier non-pinned ledger could not be
+            // fetched/published, we must stop here rather than publish newer
+            // ledgers out of order.
             if (pubSeq < interval.first())
+            {
+                RangeSet<std::uint32_t> skipped;
+                skipped.insert(range(pubSeq, interval.first() - 1));
+
+                RangeSet<std::uint32_t> skippedNonPinned = skipped;
+                {
+                    std::lock_guard sll(mCompleteLock);
+                    skippedNonPinned -= mPinnedLedgers;
+                }
+
+                if (!skippedNonPinned.empty())
+                {
+                    JLOG(m_journal.trace())
+                        << "Stopping publish at seq " << pubSeq
+                        << " because skipped span includes non-pinned ledgers: "
+                        << to_string(skippedNonPinned);
+                    break;
+                }
+
                 pubSeq = interval.first();
+            }
 
             for (std::uint32_t seq = interval.first(); seq <= interval.last();
                  ++seq)

@@ -329,23 +329,53 @@ SHAMapStoreImp::copyNode(std::uint64_t& nodeCount, SHAMapTreeNode const& node)
 void
 SHAMapStoreImp::loadPinnedRanges()
 {
-    // Always load pinned ranges from state.db if they exist
     auto rangesStr = state_db_.getPinnedRanges();
-    if (!rangesStr.empty())
+    if (rangesStr.empty())
+        return;
+
+    auto const& nscfg = app_.config().section(ConfigSection::nodeDatabase());
+    if (!nscfg.exists("pinned_type"))
     {
-        RangeSet<std::uint32_t> pinnedRanges;
-        if (from_string(pinnedRanges, rangesStr))
+        JLOG(journal_.warn())
+            << "Ignoring persisted pinned ranges because [node_db] "
+               "pinned_type is not configured: "
+            << rangesStr;
+        return;
+    }
+
+    RangeSet<std::uint32_t> persistedRanges;
+    if (!from_string(persistedRanges, rangesStr))
+    {
+        Throw<std::runtime_error>(
+            "Failed to parse persisted pinned ranges in state.db: " +
+            rangesStr);
+    }
+
+    // state.db alone is not sufficient evidence that pinned history is
+    // available in the currently configured backend. Validate each interval
+    // boundary against the actual node store before advertising it as pinned.
+    auto const hasLedgerData = [this](std::uint32_t seq) {
+        auto const hash = app_.getRelationalDatabase().getHashByIndex(seq);
+        return hash.isNonZero() &&
+            static_cast<bool>(app_.getNodeStore().fetchNodeObject(hash, seq));
+    };
+
+    for (auto const& interval : persistedRanges)
+    {
+        if (!hasLedgerData(interval.lower()) ||
+            !hasLedgerData(interval.upper()))
         {
-            JLOG(journal_.info())
-                << "Loaded pinned ranges from database: " << rangesStr;
-            app_.getLedgerMaster().setPinnedLedgersRangeSet(pinnedRanges);
-        }
-        else
-        {
-            JLOG(journal_.warn())
-                << "Failed to parse pinned ranges: " << rangesStr;
+            Throw<std::runtime_error>(
+                "Persisted pinned interval " +
+                std::to_string(interval.lower()) + "-" +
+                std::to_string(interval.upper()) +
+                " is not present in the currently configured pinned store");
         }
     }
+
+    JLOG(journal_.info()) << "Loaded pinned ranges from database: "
+                          << rangesStr;
+    app_.getLedgerMaster().setPinnedLedgersRangeSet(persistedRanges);
 }
 
 void

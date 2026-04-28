@@ -988,6 +988,10 @@ doCatalogueLoad(RPC::JsonContext& context)
     uint8_t version = getCatalogueVersion(header.version);
     uint8_t compressionLevel = getCompressionLevel(header.version);
 
+    if (header.min_ledger > header.max_ledger)
+        return rpcError(
+            rpcINVALID_PARAMS, "catalogue min_ledger must be <= max_ledger");
+
     // Initialize status tracking
     {
         std::unique_lock<std::shared_mutex> writeLock(catalogueStatusMutex);

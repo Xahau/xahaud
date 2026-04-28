@@ -337,6 +337,8 @@ saveValidatedLedger(
                 std::string const txnSeq(
                     std::to_string(acceptedLedgerTx->getTxnSeq()));
 
+                *db << boost::str(deleteAcctTrans % transactionID);
+
                 auto const& accts = acceptedLedgerTx->getAffected();
 
                 if (!accts.empty())

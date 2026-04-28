@@ -168,7 +168,11 @@ DatabasePinnedImp::importDatabase(Database& source)
     // headers and walk SHAMap trees to determine routing — not
     // impossible, but not currently implemented.
     Throw<std::runtime_error>(
-        "DatabasePinned does not support import operations");
+        "--import is not supported when [node_db] pinned_type is configured. "
+        "DatabasePinned uses separate rotating and persistent backends, and a "
+        "generic node import cannot determine pinned ledger ranges or update "
+        "state.db pinned range metadata. Use catalogue_load for pinned "
+        "history import, or run --import with a non-pinned node store.");
 }
 
 bool

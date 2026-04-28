@@ -325,6 +325,42 @@ class Catalogue_test : public beast::unit_test::suite
             BEAST_EXPECT(result[jss::error] == "internal");
             BEAST_EXPECT(result[jss::status] == "error");
         }
+
+        // Header has min_ledger > max_ledger
+        {
+            boost::filesystem::path tempDir =
+                boost::filesystem::temp_directory_path() /
+                boost::filesystem::unique_path();
+            boost::filesystem::create_directories(tempDir);
+
+            auto cataloguePath = (tempDir / "invalid-range.catl").string();
+
+            TestCATLHeader header;
+            header.min_ledger = 20;
+            header.max_ledger = 10;
+            header.version = 1;
+            header.network_id = env.app().config().NETWORK_ID;
+            header.filesize = sizeof(TestCATLHeader);
+
+            std::ofstream outfile(
+                cataloguePath.c_str(), std::ios::out | std::ios::binary);
+            BEAST_EXPECT(outfile.good());
+            outfile.write(
+                reinterpret_cast<char const*>(&header), sizeof(header));
+            outfile.close();
+
+            Json::Value params{Json::objectValue};
+            params[jss::input_file] = cataloguePath;
+            auto const result =
+                env.client().invoke("catalogue_load", params)[jss::result];
+            BEAST_EXPECT(result[jss::error] == "invalidParams");
+            BEAST_EXPECT(result[jss::status] == "error");
+            BEAST_EXPECT(
+                result[jss::error_message].asString().find(
+                    "min_ledger must be <= max_ledger") != std::string::npos);
+
+            boost::filesystem::remove_all(tempDir);
+        }
     }
 
     void

@@ -22,10 +22,13 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/NodeStoreScheduler.h>
 #include <xrpld/app/misc/SHAMapStore.h>
+#include <xrpld/app/misc/SHAMapStoreImp.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
+#include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/jss.h>
+#include <boost/filesystem.hpp>
 
 namespace ripple {
 namespace test {
@@ -48,6 +51,25 @@ class SHAMapStore_test : public beast::unit_test::suite
     {
         cfg = onlineDelete(std::move(cfg));
         cfg->section(ConfigSection::nodeDatabase()).set("advisory_delete", "1");
+        return cfg;
+    }
+
+    static auto
+    pinnedPersistent(
+        std::unique_ptr<Config> cfg,
+        std::string const& dbPath,
+        std::string const& nodePath,
+        std::string const& pinnedPath)
+    {
+        cfg = onlineDelete(std::move(cfg));
+        cfg->legacy("database_path", dbPath);
+        cfg->overwrite(SECTION_RELATIONAL_DB, "backend", "sqlite");
+
+        auto& section = cfg->section(ConfigSection::nodeDatabase());
+        section.set("type", "rwdb");
+        section.set("path", nodePath);
+        section.set("pinned_type", "nudb");
+        section.set("pinned_path", pinnedPath);
         return cfg;
     }
 
@@ -649,12 +671,60 @@ public:
     }
 
     void
+    testPinnedRangeRestoreRequiresPinnedData()
+    {
+        testcase("pinned range restore requires pinned data");
+
+        using namespace jtx;
+
+        beast::temp_dir tempDir;
+        auto const tempPath = boost::filesystem::path(tempDir.path());
+        auto const dbPath = (tempPath / "db").string();
+        auto const nodePath = (tempPath / "node").string();
+        auto const pinnedPath = (tempPath / "pinned").string();
+
+        boost::filesystem::create_directories(dbPath);
+        boost::filesystem::create_directories(nodePath);
+        boost::filesystem::create_directories(pinnedPath);
+
+        {
+            Env env(
+                *this,
+                envconfig(pinnedPersistent, dbPath, nodePath, pinnedPath));
+
+            RangeSet<std::uint32_t> ranges;
+            ranges.insert(range(100u, 200u));
+            env.app().getSHAMapStore().setPinnedRanges(ranges);
+
+            NodeStoreScheduler scheduler(env.app().getJobQueue());
+            auto const journal = env.app().journal("SHAMapStoreTest");
+
+            try
+            {
+                SHAMapStoreImp restoreCheck(env.app(), scheduler, journal);
+                restoreCheck.start();
+                fail(
+                    "Expected startup failure for stale persisted pinned "
+                    "ranges");
+            }
+            catch (std::runtime_error const& e)
+            {
+                BEAST_EXPECT(
+                    std::string(e.what()).find(
+                        "Persisted pinned interval 100-200") !=
+                    std::string::npos);
+            }
+        }
+    }
+
+    void
     run() override
     {
         testClear();
         testAutomatic();
         testCanDelete();
         testRotate();
+        testPinnedRangeRestoreRequiresPinnedData();
     }
 };
 
