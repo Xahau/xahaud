@@ -604,8 +604,9 @@ public:
                 // Safety: prevent infinite loop in case of bug
                 if (iterations > initialTxCount + 1)
                 {
-                    fail("deleteTransactionsInRange: too many iterations, "
-                         "possible infinite loop");
+                    fail(
+                        "deleteTransactionsInRange: too many iterations, "
+                        "possible infinite loop");
                     break;
                 }
             }
@@ -631,16 +632,16 @@ public:
                 ++iterations;
                 if (iterations > initialAcctTxCount + 1)
                 {
-                    fail("deleteAccountTransactionsInRange: too many "
-                         "iterations, possible infinite loop");
+                    fail(
+                        "deleteAccountTransactionsInRange: too many "
+                        "iterations, possible infinite loop");
                     break;
                 }
             }
             BEAST_EXPECT(totalDeleted > 0);
             BEAST_EXPECT(totalDeleted <= initialAcctTxCount);
             auto afterAcctTxCount = sqliteDb->getAccountTransactionCount();
-            BEAST_EXPECT(
-                afterAcctTxCount == initialAcctTxCount - totalDeleted);
+            BEAST_EXPECT(afterAcctTxCount == initialAcctTxCount - totalDeleted);
         }
 
         // Test deleteLedgersInRange

@@ -223,7 +223,8 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
             // Create persistent backend for pinned data
             Section pinnedConfig = nscfg;
             pinnedConfig.set("type", *nscfg.get("pinned_type"));
-            pinnedConfig.set("path", *nscfg.get("pinned_path"));
+            if (auto pinnedPath = nscfg.get("pinned_path"))
+                pinnedConfig.set("path", *pinnedPath);
             auto pinnedBackend = NodeStore::Manager::instance().make_Backend(
                 pinnedConfig,
                 megabytes(app_.config().getValueFor(

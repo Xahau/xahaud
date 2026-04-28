@@ -1626,8 +1626,9 @@ r.ripple.com:51235
             try
             {
                 c.loadFromString(toLoad);
-                fail("Expected exception for pinned_type without "
-                     "online_delete");
+                fail(
+                    "Expected exception for pinned_type without "
+                    "online_delete");
             }
             catch (std::runtime_error const& e)
             {

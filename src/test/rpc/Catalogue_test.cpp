@@ -86,6 +86,18 @@ getLedgerWithRetry(const LedgerRetryParams& params)
     }
 }
 
+// envconfig with pinned_type set so catalogue_load passes the
+// config guard. Uses rwdb for in-process speed (allowed in standalone).
+inline std::unique_ptr<Config>
+catalogueEnvconfig()
+{
+    auto cfg = test::jtx::envconfig();
+    auto& nodeDb = cfg->section(ConfigSection::nodeDatabase());
+    nodeDb.set("pinned_type", "rwdb");
+    nodeDb.set("online_delete", "256");
+    return cfg;
+}
+
 }  // anonymous namespace
 
 #pragma pack(push, 1)  // pack the struct tightly
@@ -275,7 +287,7 @@ class Catalogue_test : public beast::unit_test::suite
     {
         testcase("catalogue_load: Invalid parameters");
         using namespace test::jtx;
-        Env env{*this, envconfig(), features};
+        Env env{*this, catalogueEnvconfig(), features};
 
         // No parameters
         {
@@ -322,7 +334,7 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment and test data
-        Env env{*this, envconfig(), nullptr, beast::severities::kNone};
+        Env env{*this, catalogueEnvconfig(), nullptr, beast::severities::kNone};
         prepareLedgerData(env, 5);
 
         auto noop = [](test::jtx::Env& env,
@@ -405,7 +417,7 @@ class Catalogue_test : public beast::unit_test::suite
         // availability as the async publishAcqLedger jobs complete
         Env loadEnv{
             *this,
-            test::jtx::envconfig(),
+            catalogueEnvconfig(),
             features,
         };
 
@@ -666,10 +678,11 @@ class Catalogue_test : public beast::unit_test::suite
             // Try to load catalogue in environment with different network ID
             Env env2{
                 *this,
-                envconfig([](std::unique_ptr<Config> cfg) {
+                [&]() {
+                    auto cfg = catalogueEnvconfig();
                     cfg->NETWORK_ID = 456;
                     return cfg;
-                }),
+                }(),
                 features,
             };
 
@@ -696,7 +709,7 @@ class Catalogue_test : public beast::unit_test::suite
         // Create environment and test data
         Env env{
             *this,
-            envconfig(),
+            catalogueEnvconfig(),
             features,
             nullptr,
             beast::severities::kDisabled,
@@ -793,7 +806,7 @@ class Catalogue_test : public beast::unit_test::suite
         // Create environment and test data
         Env env{
             *this,
-            envconfig(),
+            catalogueEnvconfig(),
             features,
             nullptr,
             beast::severities::kDisabled,
@@ -872,7 +885,7 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment and test data
-        Env env{*this, envconfig(), features};
+        Env env{*this, catalogueEnvconfig(), features};
         prepareLedgerData(env, 5);
 
         boost::filesystem::path tempDir =
@@ -961,7 +974,7 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment
-        Env env{*this, envconfig(), features};
+        Env env{*this, catalogueEnvconfig(), features};
 
         boost::filesystem::path tempDir =
             boost::filesystem::temp_directory_path() /

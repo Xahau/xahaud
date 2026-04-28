@@ -1758,8 +1758,7 @@ LedgerMaster::setPinnedLedgersRangeSet(const RangeSet<std::uint32_t>& range_set)
         mPinnedMergedToComplete = true;
         JLOG(m_journal.info())
             << "Merged pinned ranges into complete ledgers immediately "
-            << "(startup already past setFullLedger): "
-            << to_string(range_set);
+            << "(startup already past setFullLedger): " << to_string(range_set);
     }
     else
     {

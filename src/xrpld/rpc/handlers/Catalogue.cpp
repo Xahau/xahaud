@@ -1291,8 +1291,7 @@ doCatalogueLoad(RPC::JsonContext& context)
         bool saveDone = false;
         auto unpinGuard = [&]() {
             if (!saveDone)
-                context.app.getLedgerMaster().unpinLedger(
-                    ledger->info().seq);
+                context.app.getLedgerMaster().unpinLedger(ledger->info().seq);
         };
         // Use a simple RAII wrapper to guarantee the guard runs
         struct OnExit
@@ -1337,8 +1336,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             {
                 JLOG(context.j.error())
                     << "Save job for ledger " << ledger->info().seq
-                    << " failed with exception (promise broken): "
-                    << e.what();
+                    << " failed with exception (promise broken): " << e.what();
                 return rpcError(
                     rpcINTERNAL,
                     "Save job crashed for ledger " +

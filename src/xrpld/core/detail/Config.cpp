@@ -1089,8 +1089,13 @@ Config::loadFromString(std::string const& fileContents)
                 "type must be specified when using pinned_type");
         }
 
-        // Ensure pinned_path is specified
-        if (!db_section.exists("pinned_path"))
+        // Ensure pinned_path is specified for filesystem-backed types.
+        // In-memory backends (rwdb) don't need a path.
+        auto pinnedTypeForPath = get(db_section, "pinned_type", "");
+        boost::algorithm::to_lower(pinnedTypeForPath);
+        bool const needsPath =
+            pinnedTypeForPath != "rwdb" && pinnedTypeForPath != "memory";
+        if (needsPath && !db_section.exists("pinned_path"))
         {
             Throw<std::runtime_error>(
                 "pinned_path is required when pinned_type is set");
