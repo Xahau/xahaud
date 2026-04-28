@@ -738,6 +738,12 @@ ConsensusExtensions::hasPendingExportSigs() const
     return false;
 }
 
+bool
+ConsensusExtensions::hasConsensusExportTxns() const
+{
+    return !consensusExportTxns_.empty();
+}
+
 void
 ConsensusExtensions::setExportSigConvergenceFailed()
 {

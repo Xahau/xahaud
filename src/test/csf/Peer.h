@@ -350,6 +350,7 @@ struct Peer
         bool lastEntropyWasFallback_ = true;
         bool lastExportSucceeded_ = false;
         bool lastExportRetried_ = false;
+        std::size_t exportSigFetchMerges_ = 0;
 
         // Optional test hook: force a specific commit-set hash
         std::optional<uint256> forcedCommitSetHash_;
@@ -363,6 +364,9 @@ struct Peer
         hash_set<PeerID> dropRevealFrom_;
         // Optional test hook: drop proposal-carried export signatures.
         hash_set<PeerID> dropExportSigFrom_;
+        // Optional test hook: stay an active proposer but do not originate an
+        // export signature, so tests can force sidecar-fetch-only convergence.
+        bool suppressOwnExportSig_ = false;
 
         explicit Extensions(Peer& p) : peer(p), j_(p.j)
         {
@@ -556,7 +560,11 @@ struct Peer
                 return pendingCommits_;
             }();
             for (auto const& [nodeId, digest] : fetched->entries)
-                target.emplace(nodeId, digest);
+            {
+                auto const [_, inserted] = target.emplace(nodeId, digest);
+                if (fetched->type == SidecarStore::Type::exportSig && inserted)
+                    ++exportSigFetchMerges_;
+            }
         }
 
         void
@@ -853,8 +861,11 @@ struct Peer
                 static_cast<std::uint32_t>(peer.id),
                 peer.key.second,
                 seq);
-            pos.myExportSignature = sig;
-            pendingExportSigs_[peer.id] = sig;
+            if (!suppressOwnExportSig_)
+            {
+                pos.myExportSignature = sig;
+                pendingExportSigs_[peer.id] = sig;
+            }
             nodeKeys_.insert_or_assign(peer.id, peer.key);
         }
 
@@ -892,6 +903,11 @@ struct Peer
         hasPendingExportSigs() const
         {
             return enableExportConsensus_ && !pendingExportSigs_.empty();
+        }
+        bool
+        hasConsensusExportTxns() const
+        {
+            return enableExportConsensus_;
         }
         void
         setExportSigConvergenceFailed()

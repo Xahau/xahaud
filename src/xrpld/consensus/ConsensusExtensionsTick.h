@@ -881,8 +881,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
     //@@start export-sig-convergence-gate
     // Export sig convergence gate: runs after RNG sub-states when Export has
     // verified signatures to converge, or when a tx-converged peer advertises
-    // an exportSigSetHash we may need to fetch. Builds/publishes
-    // exportSigSetHash and waits for quorum peer agreement before accepting.
+    // an exportSigSetHash we may need to fetch. This is a bounded safety
+    // coordination window, not a wait-for-Export-success mechanism.
     if constexpr (requires { ctx.getPosition().exportSigSetHash; })
     {
         if (!ext.exportEnabled())
@@ -929,7 +929,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     if (elapsed <= deadline)
                     {
                         JLOG(ext.j_.debug())
-                            << "Export: waiting for advertised exportSigSet "
+                            << "Export: bounded wait for advertised "
+                               "exportSigSet "
                                "fetch/merge"
                             << " peerSets=" << peerSets;
                         return {};
@@ -938,10 +939,32 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     ext.setExportSigConvergenceFailed();
                     JLOG(ext.j_.warn())
                         << "Export: advertised exportSigSet did not converge "
-                           "locally within deadline; exports will retry or "
-                           "expire"
+                           "locally within bounded safety window; exports "
+                           "will retry or expire"
                         << " peerSets=" << peerSets;
                 }
+            }
+            else if (ext.hasConsensusExportTxns())
+            {
+                // A candidate ttEXPORT with no local sig material gets one
+                // short observation window so an already-reachable peer
+                // exportSigSetHash can be fetched before apply. If nothing
+                // appears in time, apply takes the retry/expire path.
+                startExportSigGate();
+                auto const elapsed = ctx.nowSteady - ext.exportSigGateStart_;
+                auto const deadline = ctx.parms.rngREVEAL_TIMEOUT * 2;
+                if (elapsed <= deadline)
+                {
+                    JLOG(ext.j_.debug())
+                        << "Export: bounded wait for exportSigSet "
+                           "advertisement";
+                    return {};
+                }
+
+                ext.setExportSigConvergenceFailed();
+                JLOG(ext.j_.warn())
+                    << "Export: no exportSigSet advertisement within bounded "
+                       "safety window; exports will retry or expire";
             }
         }
 

@@ -235,6 +235,9 @@ public:
     bool
     hasPendingExportSigs() const;
 
+    bool
+    hasConsensusExportTxns() const;
+
     void
     setExportSigConvergenceFailed();
 

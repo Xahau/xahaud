@@ -1012,6 +1012,47 @@ public:
     }
 
     void
+    testExportOnlyFetchesPeerAdvertisedSigSet()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("Export-only fetches peer-advertised sig set");
+
+        ConsensusParms const parms{};
+        Sim sim;
+        PeerGroup peers = sim.createGroup(5);
+
+        for (Peer* peer : peers)
+            peer->ce().enableExportConsensus_ = true;
+
+        // Peer 0 remains an active validator/proposer, but starts with no
+        // local export signature material. It drops proposal-carried export
+        // signatures from peers, so only sidecar fetch/merge can populate its
+        // local export set.
+        peers[0]->ce().suppressOwnExportSig_ = true;
+        for (std::size_t i = 1; i < peers.size(); ++i)
+            peers[0]->ce().dropExportSigFrom_.insert(peers[i]->id);
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        sim.run(3);
+
+        BEAST_EXPECT(sim.branches(peers) == 1);
+        BEAST_EXPECT(sim.synchronized(peers));
+        BEAST_EXPECT(peers[0]->ce().exportSigFetchMerges_ >= 4);
+        BEAST_EXPECT(peers[0]->ce().lastExportSucceeded_);
+        BEAST_EXPECT(!peers[0]->ce().lastExportRetried_);
+
+        for (std::size_t i = 1; i < peers.size(); ++i)
+        {
+            BEAST_EXPECT(peers[i]->ce().lastExportSucceeded_);
+            BEAST_EXPECT(!peers[i]->ce().lastExportRetried_);
+        }
+    }
+
+    void
     testExportSigSetQuorumAlignmentIgnoresMinorityConflict()
     {
         using namespace csf;
@@ -1109,6 +1150,7 @@ public:
 
         RUN(testExportOnlySteadyStateSucceeds);
         RUN(testExportOnlyQuorumIgnoresMinorityConflict);
+        RUN(testExportOnlyFetchesPeerAdvertisedSigSet);
         RUN(testExportSigSetQuorumAlignmentIgnoresMinorityConflict);
         RUN(testExportSigSetConflictWithoutQuorumRetries);
 

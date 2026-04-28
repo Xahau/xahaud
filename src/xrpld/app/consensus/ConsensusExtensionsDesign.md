@@ -10,6 +10,14 @@ but it must not redefine ordinary transaction-set consensus. When extension
 state cannot be made safe in time, the extension degrades deterministically
 and the ledger still closes.
 
+The priority order for consensus extensions is: safe, fast, works. Safety means
+extension timing must not create divergent closed-ledger effects when a bounded
+coordination step can avoid it. Fast means those coordination steps stay short
+and conditional, never becoming an open-ended wait for an extension feature to
+succeed. Works means missed or late extension material follows that feature's
+deterministic fallback, such as zero entropy for RNG or normal Export
+retry/expiry, rather than blocking core consensus.
+
 ## Core Invariants
 
 1. Core consensus remains keyed by the transaction set.
@@ -187,6 +195,14 @@ separate apply input: on merge, each leaf must be active-view checked, verified
 against the candidate transaction, and promoted into `ExportSigCollector`.
 Closed-ledger apply snapshots that collector, so the sidecar convergence state
 and the signer set used by `ttEXPORT` stay on the same path.
+
+If the consensus candidate contains a `ttEXPORT` but the node has no eligible
+local export signatures yet, the export sidecar gate opens only a bounded
+safety window for tx-converged peers to advertise `exportSigSetHash`. This is
+not a wait-for-Export-success mechanism; it is a short opportunity to avoid
+closing a minority ledger while sidecar convergence is already reachable. If no
+advertised sidecar appears by the deadline, the gate stops waiting and the
+export retries or expires through normal transaction rules.
 
 Export success requires quorum alignment on `exportSigSetHash`, not merely a
 local collector quorum. If a quorum of tx-converged participants advertises the

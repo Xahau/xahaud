@@ -114,6 +114,7 @@ struct FakeExtensions
     std::chrono::steady_clock::time_point exportSigGateStart_{};
     bool exportSigConvergenceFailed_{false};
     bool localExportSigs{true};
+    bool consensusExportTxns{false};
     bool exportOn{true};
     std::size_t exportQuorum{4};
     uint256 exportHash{makeHash("local-export-sig-set")};
@@ -231,6 +232,12 @@ struct FakeExtensions
     hasPendingExportSigs() const
     {
         return localExportSigs;
+    }
+
+    bool
+    hasConsensusExportTxns() const
+    {
+        return consensusExportTxns;
     }
 
     uint256
@@ -463,6 +470,34 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExportSigGateBoundsCandidateObservationWindow()
+    {
+        testcase("Export sig gate bounds candidate observation window");
+
+        FakeExtensions ext;
+        ext.localExportSigs = false;
+        ext.consensusExportTxns = true;
+        ExportTickHarness harness;
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(ext.exportSigGateStarted_);
+        BEAST_EXPECT(!harness.position.exportSigSetHash);
+        BEAST_EXPECT(ext.fetchedExportSets.empty());
+        BEAST_EXPECT(!ext.exportSigConvergenceFailed_);
+
+        result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(!ext.exportSigConvergenceFailed_);
+
+        result = harness.tick(
+            ext,
+            harness.parms.rngREVEAL_TIMEOUT * 2 + std::chrono::milliseconds{1});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(ext.exportSigConvergenceFailed_);
+    }
+
+    void
     testExportSigGateSkipsWhenExportDisabled()
     {
         testcase("Export sig gate skips when Export disabled");
@@ -558,6 +593,7 @@ public:
         testExportSigGateRequiresQuorumAlignment();
         testExportSigGateAllowsAlignedQuorumDespiteMinorityConflict();
         testExportSigGateFetchesAdvertisedPeerSets();
+        testExportSigGateBoundsCandidateObservationWindow();
         testExportSigGateSkipsWhenExportDisabled();
         testExportDisabledRoundClearsCollector();
         testReplayedProposalHarvestsExportSigs();
