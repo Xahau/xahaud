@@ -5,7 +5,6 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
-#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/ledger/View.h>
@@ -1662,8 +1661,6 @@ hook::finalizeHookResult(
     std::vector<std::pair<uint256 /* txnid */, uint256 /* emit nonce */>>
         emission_txnid;
     std::vector<uint256 /* txnid */> exported_txnid;
-    std::size_t pendingExportEmissions =
-        ExportLedgerOps::pendingExportEmissionCount(applyCtx.view());
 
     if (doEmit)
     {
@@ -1678,29 +1675,12 @@ hook::finalizeHookResult(
 
             std::shared_ptr<const ripple::STTx> ptr =
                 tpTrans->getSTransaction();
-            bool const isExportEmission =
-                ExportLedgerOps::isPendingExportWorkTxn(*ptr);
 
             auto emittedId = keylet::emittedTxn(id);
             auto sleEmitted = applyCtx.view().peek(emittedId);
 
             if (!sleEmitted)
             {
-                if (isExportEmission)
-                {
-                    if (pendingExportEmissions >=
-                        ExportLimits::maxPendingExports)
-                    {
-                        JLOG(j.warn())
-                            << "HookExport[" << HR_ACC()
-                            << "]: export emission limit reached pending="
-                            << pendingExportEmissions
-                            << " max=" << +ExportLimits::maxPendingExports;
-                        return tecDIR_FULL;
-                    }
-                    ++pendingExportEmissions;
-                }
-
                 auto const& emitDetails = const_cast<ripple::STTx&>(*ptr)
                                               .getField(sfEmitDetails)
                                               .downcast<STObject>();
@@ -1740,7 +1720,9 @@ hook::finalizeHookResult(
 
         // Exported txns now flow through the emitted txn path above
         // (xport() pushes a ttEXPORT wrapper onto emittedTxn).
-        // No separate processing needed here.
+        // The export backlog cap is enforced after hook finalization by
+        // ApplyContext::checkExportEmissionLimit(), so strong and weak hook
+        // emissions use the same fee-only reset path.
     }
 
     bool const fixV2 = applyCtx.view().rules().enabled(fixXahauV2);

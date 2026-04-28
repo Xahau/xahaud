@@ -1972,12 +1972,7 @@ Transactor::operator()()
 
         // write state if all chains executed successfully
         if (isTesSuccess(result))
-        {
-            if (auto const ter = hook::finalizeHookState(
-                    stateMap, ctx_, ctx_.tx.getTransactionID());
-                !isTesSuccess(ter))
-                result = ter;
-        }
+            hook::finalizeHookState(stateMap, ctx_, ctx_.tx.getTransactionID());
 
         // write hook results
         // this happens irrespective of whether final result was a tesSUCCESS
@@ -1986,12 +1981,9 @@ Transactor::operator()()
 
         for (auto& hookResult : hookResults)
         {
-            if (auto const ter = hook::finalizeHookResult(
-                    hookResult, ctx_, isTesSuccess(result));
-                isTesSuccess(result) && !isTesSuccess(ter))
-                result = ter;
+            hook::finalizeHookResult(hookResult, ctx_, isTesSuccess(result));
 
-            if (isTesSuccess(result) && hookResult.executeAgainAsWeak)
+            if (hookResult.executeAgainAsWeak)
             {
                 if (aawMap.find(hookResult.account) == aawMap.end())
                     aawMap[hookResult.account] = {hookResult.hookHash};
@@ -2287,7 +2279,7 @@ Transactor::operator()()
             result = tecOVERSIZE;
     }
 
-    if (applied)
+    if (applied && isTesSuccess(result))
     {
         auto const limitResult = ctx_.checkExportEmissionLimit(result);
         if (!isTesSuccess(limitResult))
