@@ -156,11 +156,12 @@ conflicts and produce asymmetric zero/non-zero outcomes.
 `featureExport` and `featureConsensusEntropy` are independently amendment
 gated.
 
-Export can run without ConsensusEntropy, but then it uses a conservative
-ephemeral mode: verified export signature sidecars still converge through
-`ExtendedPosition`, but success requires unanimity of the active validator
-view. With ConsensusEntropy active, the same sidecar machinery uses the normal
-80% threshold.
+Export can run without ConsensusEntropy and still uses the active validator
+view's 80% quorum threshold. Verified export signature sidecars converge
+through `ExtendedPosition`, and the `exportSigSetHash` is signed by proposals
+whether or not RNG is enabled. Do not make Export liveness depend on unanimity:
+one active validator with a missing, delayed, or conflicting sidecar must not
+veto an otherwise quorum-aligned export round.
 
 The extended proposal machinery is enabled when either feature needs signed
 sidecar fields. Do not make Export depend on RNG availability just because RNG
@@ -180,9 +181,11 @@ once a candidate tx set exists, only signatures verified against the `ttEXPORT`
 in that candidate set may become quorum material or enter `exportSigSetHash`.
 
 Export success requires quorum alignment on `exportSigSetHash`, not merely a
-local collector quorum. If the verified signature set cannot align by the
-bounded deadline, the export retries or expires according to normal transaction
-rules.
+local collector quorum. If a quorum of tx-converged participants advertises the
+same export signature sidecar hash, that hash is aligned and below-quorum
+conflicts are ignored. If no export signature hash reaches quorum alignment by
+the bounded deadline, do not choose the largest non-quorum set; the export
+retries or expires according to normal transaction rules.
 
 Closed-ledger apply must not promote unverified proposal-carried signatures into
 current-round quorum material. It may verify and retain them for a future retry,
@@ -198,8 +201,8 @@ Accept-time cleanup must preserve Export state through `buildLCL` whenever
 applies.
 
 CSF consensus tests model the export sidecar gate directly. Testnet scenarios
-under `.testnet/scenarios/export/` cover live-node Export+CE behavior and the
-Export-only unanimity mode.
+under `.testnet/scenarios/export/` cover live-node Export+CE behavior and
+Export-only quorum behavior.
 
 ## Review Checklist
 
@@ -218,4 +221,6 @@ When changing consensus extension code, check these questions:
 - Are export signatures verified before they count?
 - Does export success require `exportSigSetHash` alignment, not just local
   collector quorum?
+- Can one bad validator deny Export to an honest quorum? It must not.
+- Can timeout select a largest-but-below-quorum export sidecar set? It must not.
 - Are CE and Export still independently gated and independently stoppable?

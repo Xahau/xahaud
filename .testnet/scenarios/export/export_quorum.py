@@ -1,6 +1,6 @@
-""":descr: Test Export without CE (unanimity mode). When all 5 nodes are up,
-100% quorum is reachable and the export should succeed. When 1 node
-suppresses sigs (4/5), unanimity fails and the export should expire.
+""":descr: Test Export quorum behavior. When enough active validators sign,
+the export should succeed whether or not CE is enabled. When fewer than the
+active-view quorum sign, the export should expire.
 
 Parameterized via `expect_success` kwarg from suite.yml.
 
@@ -33,7 +33,8 @@ async def scenario(ctx, log, expect_success=True):
     current_seq = ctx.validated_ledger_index(0)
 
     log(f"Current ledger: {current_seq}")
-    log(f"Expecting export {'success' if expect_success else 'failure (unanimity)'}")
+    outcome = "success" if expect_success else "failure (below quorum)"
+    log(f"Expecting export {outcome}")
 
     # --- Submit ttEXPORT ---
     result = await ctx.submit_and_wait(
@@ -77,11 +78,11 @@ async def scenario(ctx, log, expect_success=True):
         # Assert shadow ticket was created
         assert_shadow_ticket(ctx, alice.address, log, expect_exists=True)
 
-        log("Export succeeded as expected (all validators signed)")
+        log("Export succeeded as expected (active-view quorum reached)")
     else:
         if engine_result == "tesSUCCESS":
             raise AssertionError(
-                "Export should NOT have succeeded with sub-unanimity"
+                "Export should NOT have succeeded below active-view quorum"
             )
         log(f"Export failed as expected ({engine_result})")
 

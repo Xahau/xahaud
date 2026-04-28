@@ -235,10 +235,11 @@ ConsensusExtensions::exportSigQuorumThreshold() const
     if (base == 0)
         return 1;
 
-    // Export can operate without ConsensusEntropy. In that mode it uses the
-    // original unanimity rule, but still relies on the same sidecar alignment
-    // gate so all nodes make the same accept-time decision.
-    return rngEnabled() ? calculateQuorumThreshold(base) : base;
+    // Export sidecar hashes are signed through ExtendedPosition even when RNG
+    // is disabled, so a quorum-aligned exportSigSetHash is deterministic
+    // enough for Export-only mode. Unanimity would let one active validator
+    // veto an otherwise converged export round.
+    return calculateQuorumThreshold(base);
 }
 
 void

@@ -976,12 +976,12 @@ public:
     }
 
     void
-    testExportOnlyRequiresUnanimousAlignment()
+    testExportOnlyQuorumIgnoresMinorityConflict()
     {
         using namespace csf;
         using namespace std::chrono;
 
-        testcase("Export-only sig set requires unanimous alignment");
+        testcase("Export-only sig set quorum ignores minority conflict");
 
         ConsensusParms const parms{};
         Sim sim;
@@ -998,12 +998,17 @@ public:
 
         sim.run(3);
 
-        BEAST_EXPECT(sim.branches(peers) == 1);
-        for (Peer const* peer : peers)
+        PeerGroup honest{
+            std::vector<Peer*>{peers[1], peers[2], peers[3], peers[4]}};
+        BEAST_EXPECT(sim.branches(honest) == 1);
+        BEAST_EXPECT(sim.synchronized(honest));
+
+        for (Peer const* peer : honest)
         {
-            BEAST_EXPECT(!peer->ce().lastExportSucceeded_);
-            BEAST_EXPECT(peer->ce().lastExportRetried_);
+            BEAST_EXPECT(peer->ce().lastExportSucceeded_);
+            BEAST_EXPECT(!peer->ce().lastExportRetried_);
         }
+        BEAST_EXPECT(!peers[0]->ce().lastExportSucceeded_);
     }
 
     void
@@ -1103,7 +1108,7 @@ public:
     } while (false)
 
         RUN(testExportOnlySteadyStateSucceeds);
-        RUN(testExportOnlyRequiresUnanimousAlignment);
+        RUN(testExportOnlyQuorumIgnoresMinorityConflict);
         RUN(testExportSigSetQuorumAlignmentIgnoresMinorityConflict);
         RUN(testExportSigSetConflictWithoutQuorumRetries);
 

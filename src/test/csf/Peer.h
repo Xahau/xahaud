@@ -398,7 +398,7 @@ struct Peer
                 return (std::numeric_limits<std::size_t>::max)() / 4;
             auto const base =
                 unlNodes_.empty() ? std::size_t{1} : unlNodes_.size();
-            return enableRngConsensus_ ? calculateQuorumThreshold(base) : base;
+            return calculateQuorumThreshold(base);
         }
 
         std::size_t

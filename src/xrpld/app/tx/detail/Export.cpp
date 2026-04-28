@@ -132,9 +132,9 @@ Export::doApply()
     // check and sign directly with our validator keys in the blob
     // assembly step below.
     //
-    // Network mode:
-    //   With CE: 80% quorum (SHAMap convergence ensures agreement).
-    //   Without CE: unanimity (avoids non-deterministic disagreement).
+    // Network mode: active-view 80% quorum. Export-only rounds are still
+    // deterministic because exportSigSetHash is signed in ExtendedPosition and
+    // converged before closed-ledger apply can use the signatures.
     // Deserialize the inner tx early — needed both for the upgrade
     // pass (verify unverified sigs) and for blob assembly.
     auto const& exportedObj =
@@ -187,14 +187,8 @@ Export::doApply()
 
     if (!ctx_.app.config().standalone())
     {
-        std::size_t threshold;
-        bool const ceEnabled = view().rules().enabled(featureConsensusEntropy);
-        if (unlSize == 0)
-            threshold = 1;
-        else if (ceEnabled)
-            threshold = calculateQuorumThreshold(unlSize);
-        else
-            threshold = unlSize;
+        std::size_t const threshold =
+            unlSize == 0 ? 1 : calculateQuorumThreshold(unlSize);
 
         // The collector may contain old trusted signatures; quorum counts only
         // signatures whose keys resolve into the same frozen active view.
