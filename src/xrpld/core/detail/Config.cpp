@@ -118,7 +118,7 @@ sizedItems
     {SizedItem::txnDBCache,         {{      4,      12,      24,      64,     128 }}},
     {SizedItem::lgrDBCache,         {{      4,       8,      16,      32,     128 }}},
     {SizedItem::openFinalLimit,     {{      8,      16,      32,      64,     128 }}},
-    {SizedItem::burstSize,          {{      4,       8,      16,      32,      64*1024*1024 }}},
+    {SizedItem::burstSize,          {{      4,       8,      16,      32,      64 }}},
     {SizedItem::ramSizeGB,          {{      8,      12,      16,      24,      32 }}},
     {SizedItem::accountIdCacheSize, {{  20047,   50053,   77081,  150061,  300007 }}}
 }};
@@ -1058,23 +1058,6 @@ Config::loadFromString(std::string const& fileContents)
             Throw<std::runtime_error>(
                 "The minimum number of required peers (network_quorum) exceeds "
                 "the maximum number of allowed peers (peers_max)");
-        }
-    }
-
-    if (!RUN_STANDALONE)
-    {
-        auto db_section = section(ConfigSection::nodeDatabase());
-        if (auto type = get(db_section, "type", ""); type == "rwdb")
-        {
-            if (auto delete_interval = get(db_section, "online_delete", 0);
-                delete_interval == 0)
-            {
-                Throw<std::runtime_error>(
-                    "RWDB (in-memory backend) requires online_delete to "
-                    "prevent OOM "
-                    "Exception: standalone mode (used by tests) doesn't need "
-                    "online_delete");
-            }
         }
     }
 }

@@ -37,6 +37,7 @@
 #include <xrpl/protocol/RippleLedgerHash.h>
 #include <xrpl/protocol/STValidation.h>
 #include <xrpl/protocol/messages.h>
+#include <deque>
 #include <optional>
 
 #include <mutex>
@@ -182,6 +183,10 @@ public:
 
     std::shared_ptr<Ledger const>
     getLedgerByHash(uint256 const& hash);
+
+    std::shared_ptr<Ledger const>
+    getClosestFullyWiredLedger(
+        std::shared_ptr<Ledger const> const& targetLedger);
 
     void
     setLedgerRangePresent(
@@ -346,6 +351,12 @@ private:
 
     // The last ledger we handled fetching history
     std::shared_ptr<Ledger const> mHistLedger;
+
+    // Sliding window of recently validated ledgers pinned in memory so their
+    // SHAMap state trees remain reachable via shared_ptr. Required when the
+    // node store does not persist state nodes (e.g. RWDB with
+    // XAHAU_RWDB_DISCARD_HOT_ACCOUNT_NODE). Guarded by m_mutex.
+    std::deque<std::shared_ptr<Ledger const>> mRetainedLedgers;
 
     // Fully validated ledger, whether or not we have the ledger resident.
     std::pair<uint256, LedgerIndex> mLastValidLedger{uint256(), 0};

@@ -116,6 +116,36 @@ SHAMapStoreImp::SHAMapStoreImp(
     }
 
     get_if_exists(section, "online_delete", deleteInterval_);
+    isNullBackend_ = boost::iequals(get(section, "type"), "rwdb");
+
+    // RWDB is always null-backend: the in-memory node store never
+    // persists or retrieves objects.  Set the env var so that libxrpl
+    // helpers (which cannot access Config) can detect null mode.
+    if (isNullBackend_)
+        ::setenv("XAHAU_RWDB_NULL", "1", 1);
+
+    if (isNullBackend_)
+    {
+        if (config.LEDGER_HISTORY == 0)
+        {
+            Throw<std::runtime_error>(
+                "RWDB null mode requires ledger_history > 0");
+        }
+        JLOG(journal_.info())
+            << "RWDB null mode: node store is ephemeral, "
+            << "retaining " << config.LEDGER_HISTORY << " ledgers in memory";
+    }
+
+    // For RWDB, default online_delete to ledger_history only if user did not
+    // explicitly set online_delete.  Clamp to the minimum so an implicit
+    // value never triggers the "online_delete must be at least …" throw.
+    if (isNullBackend_ && deleteInterval_ == 0)
+    {
+        auto const minInterval = config.standalone()
+            ? minimumDeletionIntervalSA_
+            : minimumDeletionInterval_;
+        deleteInterval_ = std::max(config.LEDGER_HISTORY, minInterval);
+    }
 
     if (deleteInterval_)
     {
@@ -154,7 +184,7 @@ SHAMapStoreImp::SHAMapStoreImp(
         }
 
         state_db_.init(config, dbName_);
-        if (!config.mem_backend())
+        if (!isNullBackend_)
             dbPaths();
     }
 }
@@ -179,7 +209,21 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
 
     std::unique_ptr<NodeStore::Database> db;
 
-    if (deleteInterval_)
+    if (isNullBackend_)
+    {
+        // Null mode: create a plain (non-rotating) Database with a
+        // single NullBackend.  No DatabaseRotatingImp, no rotation
+        // thread artifacts.  dbRotating_ stays nullptr.
+        db = NodeStore::Manager::instance().make_Database(
+            megabytes(app_.config().getValueFor(
+                SizedItem::burstSize, std::nullopt)),
+            scheduler_,
+            readThreads,
+            nscfg,
+            app_.logs().journal(nodeStoreName_));
+        fdRequired_ += db->fdRequired();
+    }
+    else if (deleteInterval_)
     {
         SavedState state = state_db_.getState();
 
@@ -325,64 +369,82 @@ SHAMapStoreImp::run()
             if (healthWait() == stopping)
                 return;
 
-            JLOG(journal_.debug()) << "copying ledger " << validatedSeq;
-            std::uint64_t nodeCount = 0;
-
-            try
+            if (isNullBackend_)
             {
-                validatedLedger->stateMap().snapShot(false)->visitNodes(
-                    std::bind(
-                        &SHAMapStoreImp::copyNode,
-                        this,
-                        std::ref(nodeCount),
-                        std::placeholders::_1));
+                // In null mode the backend never stores anything.
+                // Skip clearCaches / makeBackendRotating / rotate
+                // entirely — the TreeNodeCache IS the node store and
+                // evicting it causes irrecoverable SHAMapMissingNode.
+                // Only sqlite cleanup (clearPrior above) is needed.
+                JLOG(journal_.info())
+                    << "RWDB null: skipping rotation, "
+                       "updating lastRotated to "
+                    << validatedSeq;
+
+                lastRotated = validatedSeq;
+                state_db_.setLastRotated(lastRotated);
+
+                JLOG(journal_.warn())
+                    << "finished null-mode cleanup " << validatedSeq;
             }
-            catch (SHAMapMissingNode const& e)
+            else
             {
-                JLOG(journal_.error())
-                    << "Missing node while copying ledger before rotate: "
-                    << e.what();
-                continue;
+                JLOG(journal_.debug()) << "copying ledger " << validatedSeq;
+                std::uint64_t nodeCount = 0;
+
+                try
+                {
+                    validatedLedger->stateMap().snapShot(false)->visitNodes(
+                        std::bind(
+                            &SHAMapStoreImp::copyNode,
+                            this,
+                            std::ref(nodeCount),
+                            std::placeholders::_1));
+                }
+                catch (SHAMapMissingNode const& e)
+                {
+                    JLOG(journal_.error())
+                        << "Missing node while copying ledger before rotate: "
+                        << e.what();
+                    continue;
+                }
+
+                if (healthWait() == stopping)
+                    return;
+                JLOG(journal_.debug()) << "copied ledger " << validatedSeq
+                                       << " nodecount " << nodeCount;
+
+                JLOG(journal_.debug()) << "freshening caches";
+                freshenCaches();
+                if (healthWait() == stopping)
+                    return;
+                JLOG(journal_.debug()) << validatedSeq << " freshened caches";
+
+                JLOG(journal_.trace()) << "Making a new backend";
+                auto newBackend = makeBackendRotating();
+                JLOG(journal_.debug())
+                    << validatedSeq << " new backend " << newBackend->getName();
+
+                clearCaches(validatedSeq);
+                if (healthWait() == stopping)
+                    return;
+
+                lastRotated = validatedSeq;
+
+                dbRotating_->rotate(
+                    std::move(newBackend),
+                    [&](std::string const& writableName,
+                        std::string const& archiveName) {
+                        SavedState savedState;
+                        savedState.writableDb = writableName;
+                        savedState.archiveDb = archiveName;
+                        savedState.lastRotated = lastRotated;
+                        state_db_.setState(savedState);
+                        clearCaches(validatedSeq);
+                    });
+
+                JLOG(journal_.warn()) << "finished rotation " << validatedSeq;
             }
-
-            if (healthWait() == stopping)
-                return;
-            // Only log if we completed without a "health" abort
-            JLOG(journal_.debug()) << "copied ledger " << validatedSeq
-                                   << " nodecount " << nodeCount;
-
-            JLOG(journal_.debug()) << "freshening caches";
-            freshenCaches();
-            if (healthWait() == stopping)
-                return;
-            // Only log if we completed without a "health" abort
-            JLOG(journal_.debug()) << validatedSeq << " freshened caches";
-
-            JLOG(journal_.debug()) << "Making a new backend";
-            auto newBackend = makeBackendRotating();
-            JLOG(journal_.debug())
-                << validatedSeq << " new backend " << newBackend->getName();
-
-            clearCaches(validatedSeq);
-            if (healthWait() == stopping)
-                return;
-
-            lastRotated = validatedSeq;
-
-            dbRotating_->rotate(
-                std::move(newBackend),
-                [&](std::string const& writableName,
-                    std::string const& archiveName) {
-                    SavedState savedState;
-                    savedState.writableDb = writableName;
-                    savedState.archiveDb = archiveName;
-                    savedState.lastRotated = lastRotated;
-                    state_db_.setState(savedState);
-
-                    clearCaches(validatedSeq);
-                });
-
-            JLOG(journal_.warn()) << "finished rotation " << validatedSeq;
         }
     }
 }
@@ -566,6 +628,15 @@ void
 SHAMapStoreImp::clearCaches(LedgerIndex validatedSeq)
 {
     ledgerMaster_->clearLedgerCachePrior(validatedSeq);
+
+    if (isNullBackend_)
+    {
+        // In null mode the TreeNodeCache is the only node store.
+        // Do NOT clear FullBelowCache or freshen TreeNodeCache —
+        // evicted entries are irrecoverable without a real backend.
+        return;
+    }
+
     fullBelowCache_->clear();
 }
 

@@ -55,6 +55,7 @@ public:
         std::function<void(
             std::string const& writableName,
             std::string const& archiveName)> const& f) = 0;
+
 };
 
 }  // namespace NodeStore

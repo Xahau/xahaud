@@ -59,6 +59,23 @@ namespace ripple {
 
 create_genesis_t const create_genesis{};
 
+namespace {
+
+template <class Map>
+std::size_t
+wireCompleteSHAMap(Map const& map)
+{
+    std::size_t leaves = 0;
+    for (auto const& item : map)
+    {
+        (void)item;
+        ++leaves;
+    }
+    return leaves;
+}
+
+}  // namespace
+
 uint256
 calculateLedgerHash(LedgerInfo const& info)
 {
@@ -249,6 +266,7 @@ Ledger::Ledger(
 
     stateMap_.flushDirty(hotACCOUNT_NODE);
     setImmutable();
+    setFullyWired();
 }
 
 Ledger::Ledger(
@@ -313,6 +331,7 @@ Ledger::Ledger(
 // Create a new ledger that follows this one
 Ledger::Ledger(Ledger const& prevLedger, NetClock::time_point closeTime)
     : mImmutable(false)
+    , fullyWired_(prevLedger.isFullyWired())
     , txMap_(SHAMapType::TRANSACTION, prevLedger.txMap_.family())
     , stateMap_(prevLedger.stateMap_, true)
     , fees_(prevLedger.fees_)
@@ -388,6 +407,30 @@ Ledger::setImmutable(bool rehash)
     txMap_.setImmutable();
     stateMap_.setImmutable();
     setup();
+}
+
+bool
+Ledger::fullWireForUse(beast::Journal journal, char const* context) const
+{
+    if (!Config::null_backend() || isFullyWired())
+        return true;
+
+    try
+    {
+        auto const stateLeaves = wireCompleteSHAMap(stateMap_);
+        auto const txLeaves = wireCompleteSHAMap(txMap_);
+        setFullyWired();
+        JLOG(journal.info())
+            << context << ": fully wired ledger " << info_.seq << " ("
+            << stateLeaves << " state leaves, " << txLeaves << " tx leaves)";
+        return true;
+    }
+    catch (SHAMapMissingNode const& e)
+    {
+        JLOG(journal.warn()) << context << ": incomplete ledger " << info_.seq
+                             << ": " << e.what();
+        return false;
+    }
 }
 
 // raw setters for catalogue
@@ -1130,13 +1173,16 @@ loadLedgerHelper(LedgerInfo const& info, Application& app, bool acquire)
 }
 
 static void
-finishLoadByIndexOrHash(
-    std::shared_ptr<Ledger> const& ledger,
-    Config const& config,
-    beast::Journal j)
+finishLoadByIndexOrHash(std::shared_ptr<Ledger>& ledger, beast::Journal j)
 {
     if (!ledger)
         return;
+
+    if (!ledger->fullWireForUse(j, "finishLoadByIndexOrHash"))
+    {
+        ledger.reset();
+        return;
+    }
 
     XRPL_ASSERT(
         ledger->read(keylet::fees()),
@@ -1155,7 +1201,13 @@ getLatestLedger(Application& app)
         app.getRelationalDatabase().getNewestLedgerInfo();
     if (!info)
         return {std::shared_ptr<Ledger>(), {}, {}};
-    return {loadLedgerHelper(*info, app, true), info->seq, info->hash};
+    auto ledger = loadLedgerHelper(*info, app, true);
+    if (ledger &&
+        !ledger->fullWireForUse(app.journal("Ledger"), "getLatestLedger"))
+    {
+        ledger.reset();
+    }
+    return {ledger, info->seq, info->hash};
 }
 
 std::shared_ptr<Ledger>
@@ -1165,7 +1217,7 @@ loadByIndex(std::uint32_t ledgerIndex, Application& app, bool acquire)
             app.getRelationalDatabase().getLedgerInfoByIndex(ledgerIndex))
     {
         std::shared_ptr<Ledger> ledger = loadLedgerHelper(*info, app, acquire);
-        finishLoadByIndexOrHash(ledger, app.config(), app.journal("Ledger"));
+        finishLoadByIndexOrHash(ledger, app.journal("Ledger"));
         return ledger;
     }
     return {};
@@ -1178,7 +1230,7 @@ loadByHash(uint256 const& ledgerHash, Application& app, bool acquire)
             app.getRelationalDatabase().getLedgerInfoByHash(ledgerHash))
     {
         std::shared_ptr<Ledger> ledger = loadLedgerHelper(*info, app, acquire);
-        finishLoadByIndexOrHash(ledger, app.config(), app.journal("Ledger"));
+        finishLoadByIndexOrHash(ledger, app.journal("Ledger"));
         XRPL_ASSERT(
             !ledger || ledger->info().hash == ledgerHash,
             "ripple::loadByHash : ledger hash match if loaded");

@@ -22,6 +22,8 @@
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
 #include <xrpl/protocol/HashPrefix.h>
 
+#include <shared_mutex>
+
 namespace ripple {
 namespace NodeStore {
 
@@ -59,7 +61,7 @@ DatabaseRotatingImp::rotate(
     // deleted.
     std::shared_ptr<NodeStore::Backend> oldArchiveBackend;
     {
-        std::lock_guard lock(mutex_);
+        std::unique_lock const lock(mutex_);
 
         // Before rotating, ensure all pinned ledgers are in the writable
         // backend
@@ -111,8 +113,11 @@ DatabaseRotatingImp::rotate(
         // Execute the lambda
         ensurePinnedLedgersInWritable();
 
-        // Now it's safe to mark the archive backend for deletion
-        archiveBackend_->setDeletePath();
+        // Do NOT call setDeletePath() inside this lock.  For in-memory
+        // backends, setDeletePath() calls close() which destructs the entire
+        // table_ map (millions of shared_ptr<NodeObject> ref-count decrements)
+        // while the lock is held, blocking every concurrent fetchNodeObject
+        // call for several seconds and starving consensus reads.
         oldArchiveBackend = std::move(archiveBackend_);
 
         // Complete the rotation
@@ -122,20 +127,23 @@ DatabaseRotatingImp::rotate(
         writableBackend_ = std::move(newBackend);
     }
 
+    // Lock released — clear the old archive now without blocking fetches.
+    oldArchiveBackend->setDeletePath();
+
     f(newWritableBackendName, newArchiveBackendName);
 }
 
 std::string
 DatabaseRotatingImp::getName() const
 {
-    std::lock_guard lock(mutex_);
+    std::shared_lock const lock(mutex_);
     return writableBackend_->getName();
 }
 
 std::int32_t
 DatabaseRotatingImp::getWriteLoad() const
 {
-    std::lock_guard lock(mutex_);
+    std::shared_lock const lock(mutex_);
     return writableBackend_->getWriteLoad();
 }
 
@@ -143,7 +151,7 @@ void
 DatabaseRotatingImp::importDatabase(Database& source)
 {
     auto const backend = [&] {
-        std::lock_guard lock(mutex_);
+        std::shared_lock const lock(mutex_);
         return writableBackend_;
     }();
 
@@ -154,7 +162,7 @@ bool
 DatabaseRotatingImp::storeLedger(std::shared_ptr<Ledger const> const& srcLedger)
 {
     auto const backend = [&] {
-        std::lock_guard lock(mutex_);
+        std::shared_lock const lock(mutex_);
         return writableBackend_;
     }();
 
@@ -164,7 +172,7 @@ DatabaseRotatingImp::storeLedger(std::shared_ptr<Ledger const> const& srcLedger)
 void
 DatabaseRotatingImp::sync()
 {
-    std::lock_guard lock(mutex_);
+    std::unique_lock const lock(mutex_);
     writableBackend_->sync();
 }
 
@@ -178,7 +186,7 @@ DatabaseRotatingImp::store(
     auto nObj = NodeObject::createObject(type, std::move(data), hash);
 
     auto const backend = [&] {
-        std::lock_guard lock(mutex_);
+        std::shared_lock const lock(mutex_);
         return writableBackend_;
     }();
 
@@ -232,7 +240,7 @@ DatabaseRotatingImp::fetchNodeObject(
     std::shared_ptr<NodeObject> nodeObject;
 
     auto [writable, archive] = [&] {
-        std::lock_guard lock(mutex_);
+        std::shared_lock const lock(mutex_);
         return std::make_pair(writableBackend_, archiveBackend_);
     }();
 
@@ -246,13 +254,13 @@ DatabaseRotatingImp::fetchNodeObject(
         {
             {
                 // Refresh the writable backend pointer
-                std::lock_guard lock(mutex_);
+                std::shared_lock const lock(mutex_);
                 writable = writableBackend_;
             }
 
             // Update writable backend with data from the archive backend
-            // if (duplicate)
-            writable->store(nodeObject);
+            if (duplicate)
+                writable->store(nodeObject);
         }
     }
 
@@ -267,7 +275,7 @@ DatabaseRotatingImp::for_each(
     std::function<void(std::shared_ptr<NodeObject>)> f)
 {
     auto [writable, archive] = [&] {
-        std::lock_guard lock(mutex_);
+        std::shared_lock const lock(mutex_);
         return std::make_pair(writableBackend_, archiveBackend_);
     }();
 

@@ -31,6 +31,7 @@
 #include <xrpl/protocol/STLedgerEntry.h>
 #include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/TxMeta.h>
+#include <atomic>
 #include <mutex>
 
 namespace ripple {
@@ -294,6 +295,21 @@ public:
         return mImmutable;
     }
 
+    bool
+    isFullyWired() const
+    {
+        return fullyWired_.load(std::memory_order_acquire);
+    }
+
+    void
+    setFullyWired() const
+    {
+        fullyWired_.store(true, std::memory_order_release);
+    }
+
+    bool
+    fullWireForUse(beast::Journal journal, char const* context) const;
+
     /*  Mark this ledger as "should be full".
 
         "Full" is metadata property of the ledger, it indicates
@@ -417,6 +433,7 @@ private:
     defaultFees(Config const& config);
 
     bool mImmutable;
+    mutable std::atomic<bool> fullyWired_{false};
 
     // A SHAMap containing the transactions associated with this ledger.
     SHAMap mutable txMap_;

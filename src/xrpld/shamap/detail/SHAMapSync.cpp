@@ -21,7 +21,25 @@
 #include <xrpld/shamap/SHAMapSyncFilter.h>
 #include <xrpl/basics/random.h>
 
+#include <cstdlib>
+#include <string_view>
+
 namespace ripple {
+
+namespace {
+
+// Mirror of Config::null_backend() — shamap cannot depend on xrpld.core.
+bool
+useFullBelowCache()
+{
+    static bool const use = [] {
+        char const* e = std::getenv("XAHAU_RWDB_NULL");
+        return !(e && *e && std::string_view{e} != "0");
+    }();
+    return use;
+}
+
+}  // namespace
 
 void
 SHAMap::visitLeaves(
@@ -191,7 +209,7 @@ SHAMap::gmn_ProcessNodes(MissingNodes& mn, MissingNodes::StackEntry& se)
             fullBelow = false;
         }
         else if (
-            !backed_ ||
+            !backed_ || !useFullBelowCache() ||
             !f_.getFullBelowCache()->touch_if_exists(childHash.as_uint256()))
         {
             bool pending = false;
@@ -248,7 +266,7 @@ SHAMap::gmn_ProcessNodes(MissingNodes& mn, MissingNodes::StackEntry& se)
     if (fullBelow)
     {  // No partial node encountered below this node
         node->setFullBelowGen(mn.generation_);
-        if (backed_)
+        if (backed_ && useFullBelowCache())
         {
             f_.getFullBelowCache()->insert(node->getHash().as_uint256());
         }
@@ -398,8 +416,9 @@ SHAMap::getMissingNodes(int max, SHAMapSyncFilter* filter)
                 // Recheck nodes we could not finish before
                 for (auto const& [innerNode, nodeId] : mn.resumes_)
                     if (!innerNode->isFullBelow(mn.generation_))
-                        mn.stack_.push(std::make_tuple(
-                            innerNode, nodeId, rand_int(255), 0, true));
+                        mn.stack_.push(
+                            std::make_tuple(
+                                innerNode, nodeId, rand_int(255), 0, true));
 
                 mn.resumes_.clear();
             }
@@ -605,7 +624,8 @@ SHAMap::addKnownNode(
         }
 
         auto childHash = inner->getChildHash(branch);
-        if (f_.getFullBelowCache()->touch_if_exists(childHash.as_uint256()))
+        if (useFullBelowCache() &&
+            f_.getFullBelowCache()->touch_if_exists(childHash.as_uint256()))
         {
             return SHAMapAddNode::duplicate();
         }
