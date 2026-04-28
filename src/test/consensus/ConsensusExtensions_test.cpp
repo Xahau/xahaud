@@ -19,6 +19,7 @@
 #include <test/jtx.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/consensus/ConsensusExtensionsTick.h>
 #include <xrpld/consensus/ConsensusProposal.h>
 #include <xrpl/basics/StringUtilities.h>
@@ -46,6 +47,17 @@ makeNode(std::uint8_t id)
     node.zero();
     node.data()[NodeID::size() - 1] = id;
     return node;
+}
+
+std::string
+makeExportSigBlob(uint256 const& txHash, PublicKey const& publicKey)
+{
+    std::string blob;
+    blob.append(reinterpret_cast<char const*>(txHash.data()), uint256::size());
+    blob.append(
+        reinterpret_cast<char const*>(publicKey.data()), publicKey.size());
+    blob.push_back('\x30');
+    return blob;
 }
 
 struct FakeTxSet
@@ -492,6 +504,52 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 0);
     }
 
+    void
+    testReplayedProposalHarvestsExportSigs()
+    {
+        testcase("Replayed proposal harvests export signatures");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        ConsensusExtensions ce{env.app(), env.journal};
+        ce.setExportEnabledThisRound(true);
+        ce.cacheUNLReport();
+
+        auto const activeView = ce.activeValidatorView();
+        BEAST_EXPECT(activeView->sourceLedgerHash);
+        if (!activeView->sourceLedgerHash)
+            return;
+
+        auto const senderPK = valKeys.keys->publicKey;
+        BEAST_EXPECT(ce.isActiveValidator(senderPK, *activeView));
+        if (!ce.isActiveValidator(senderPK, *activeView))
+            return;
+
+        auto const tx = makeHash("replayed-export-sig-tx");
+        auto const blob = makeExportSigBlob(tx, senderPK);
+        ExtendedPosition position{makeHash("replayed-position")};
+        position.exportSignaturesHash =
+            proposalExportSignaturesHash(std::vector<std::string>{blob});
+
+        ce.onTrustedPeerProposal(
+            calcNodeID(senderPK),
+            senderPK,
+            position,
+            0,
+            NetClock::time_point{},
+            *activeView->sourceLedgerHash,
+            Slice{},
+            std::vector<std::string>{blob});
+
+        BEAST_EXPECT(ce.exportSigCollector().hasUnverifiedSignatures());
+    }
+
 public:
     void
     run() override
@@ -502,6 +560,7 @@ public:
         testExportSigGateFetchesAdvertisedPeerSets();
         testExportSigGateSkipsWhenExportDisabled();
         testExportDisabledRoundClearsCollector();
+        testReplayedProposalHarvestsExportSigs();
     }
 };
 

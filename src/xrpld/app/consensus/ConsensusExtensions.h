@@ -16,6 +16,8 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace ripple {
 
@@ -353,7 +355,17 @@ public:
         std::uint32_t proposeSeq,
         NetClock::time_point closeTime,
         uint256 const& prevLedger,
-        Slice const& signature);
+        Slice const& signature,
+        std::vector<std::string> const& exportSignatures = {});
+
+    /** Harvest proposal-carried export signatures after the proposal payload is
+        known to be signed by `publicKey`. */
+    std::size_t
+    harvestExportSignatures(
+        PublicKey const& publicKey,
+        uint256 const& prevLedger,
+        std::vector<std::string> const& exportSignatures,
+        char const* source);
 
     /** Signal that the accept/build path finished successfully.
         Called from doAccept (frozen state, no consensus mutex). */

@@ -1804,7 +1804,8 @@ ConsensusExtensions::onTrustedPeerProposal(
     std::uint32_t proposeSeq,
     NetClock::time_point closeTime,
     uint256 const& prevLedger,
-    Slice const& signature)
+    Slice const& signature,
+    std::vector<std::string> const& exportSignatures)
 {
     harvestRngData(
         nodeId,
@@ -1814,6 +1815,17 @@ ConsensusExtensions::onTrustedPeerProposal(
         closeTime,
         prevLedger,
         signature);
+
+    // Stored future/wrong-ledger proposals are replayed through this path, not
+    // through PeerImp's original protobuf packet. Re-harvest signed export
+    // blobs here so they are evaluated against the active view for this parent.
+    if (!exportSignatures.empty() && position.exportSignaturesHash &&
+        proposalExportSignaturesHash(exportSignatures) ==
+            *position.exportSignaturesHash)
+    {
+        harvestExportSignatures(
+            publicKey, prevLedger, exportSignatures, "stored proposal");
+    }
 }
 
 void
@@ -1875,26 +1887,27 @@ ConsensusExtensions::logPosition(
                     << " myReveal=" << (pos.myReveal ? "yes" : "no");
 }
 
-//@@start peer-harvest-export-sigs
-void
-ConsensusExtensions::onTrustedPeerMessage(
-    ::protocol::TMProposeSet const& wireMsg)
+std::size_t
+ConsensusExtensions::harvestExportSignatures(
+    PublicKey const& senderPK,
+    uint256 const& proposalPrevLedger,
+    std::vector<std::string> const& exportSignatures,
+    char const* source)
 {
     if (!exportEnabled())
-        return;
+        return 0;
 
-    if (wireMsg.exportsignatures_size() == 0)
-        return;
+    if (exportSignatures.empty())
+        return 0;
 
     // Cap the number of export sig entries per proposal to bound DoS
     // surface.  Honest validators attach at most maxPendingExports sigs.
-    if (wireMsg.exportsignatures_size() > ExportLimits::maxPendingExports)
+    if (exportSignatures.size() > ExportLimits::maxPendingExports)
     {
         JLOG(j_.warn()) << "Export: rejecting proposal with "
-                        << wireMsg.exportsignatures_size()
-                        << " export sigs (max "
+                        << exportSignatures.size() << " export sigs (max "
                         << +ExportLimits::maxPendingExports << ")";
-        return;
+        return 0;
     }
 
     // Bind export sig pubkeys to the proposal sender.  Validators only
@@ -1905,38 +1918,24 @@ ConsensusExtensions::onTrustedPeerMessage(
     //
     // Two-pass: validate all blobs first, then commit — ensures no partial
     // state if a later blob fails the sender binding check.
-    auto const senderSlice = makeSlice(wireMsg.nodepubkey());
-    if (!publicKeyType(senderSlice))
-        return;
-    PublicKey const senderPK{senderSlice};
-
     auto const validatorView = activeValidatorView();
     // Proposal ingress is outside the consensus mutex, so take a snapshot of
     // the shared active view and reject trusted-but-inactive signers here.
     if (!isActiveValidator(senderPK, *validatorView))
-        return;
+        return 0;
 
     // The active view is pinned to one parent ledger. Do not let a proposal
     // for another parent feed signatures into this round's export collector;
     // build, merge, and apply all count against this same parent-ledger view.
     if (validatorView->sourceLedgerHash)
     {
-        if (wireMsg.previousledger().size() != uint256::size())
-            return;
-
-        uint256 proposalPrevLedger;
-        std::memcpy(
-            proposalPrevLedger.data(),
-            wireMsg.previousledger().data(),
-            uint256::size());
         if (proposalPrevLedger != *validatorView->sourceLedgerHash)
-            return;
+            return 0;
     }
 
     // Pass 1: validate all blobs.
-    for (int i = 0; i < wireMsg.exportsignatures_size(); ++i)
+    for (auto const& blob : exportSignatures)
     {
-        auto const& blob = wireMsg.exportsignatures(i);
         if (blob.size() < 65)
             continue;
 
@@ -1949,7 +1948,7 @@ ConsensusExtensions::onTrustedPeerMessage(
             JLOG(j_.warn())
                 << "Export: rejecting sigs from proposal — embedded pubkey "
                    "does not match sender";
-            return;
+            return 0;
         }
     }
 
@@ -1959,10 +1958,10 @@ ConsensusExtensions::onTrustedPeerMessage(
     // still gated by the candidate tx hash before sidecar publication.
     auto const exportTxns = buildOpenLedgerExportTxnLookup(app_);
     auto const currentSeq = currentClosedLedgerSeq(app_);
+    std::size_t stored = 0;
 
-    for (int i = 0; i < wireMsg.exportsignatures_size(); ++i)
+    for (auto const& blob : exportSignatures)
     {
-        auto const& blob = wireMsg.exportsignatures(i);
         // Each entry: txnHash (32) + validator pubkey (33) + sig (var)
         if (blob.size() < 65)
             continue;
@@ -1995,6 +1994,7 @@ ConsensusExtensions::onTrustedPeerMessage(
             Buffer sigBuf(sigSlice.data(), sigSlice.size());
             exportSigCollector_.addUnverifiedSignature(
                 txHash, senderPK, sigBuf, currentSeq);
+            ++stored;
             continue;
         }
 
@@ -2005,7 +2005,46 @@ ConsensusExtensions::onTrustedPeerMessage(
         Buffer sigBuf(sigSlice.data(), sigSlice.size());
         exportSigCollector_.addVerifiedSignature(
             txHash, senderPK, sigBuf, currentSeq);
+        ++stored;
     }
+
+    if (stored > 0)
+    {
+        JLOG(j_.debug()) << "Export: harvested " << stored << " sigs from "
+                         << source;
+    }
+    return stored;
+}
+
+//@@start peer-harvest-export-sigs
+void
+ConsensusExtensions::onTrustedPeerMessage(
+    ::protocol::TMProposeSet const& wireMsg)
+{
+    if (wireMsg.exportsignatures_size() == 0)
+        return;
+
+    auto const senderSlice = makeSlice(wireMsg.nodepubkey());
+    if (!publicKeyType(senderSlice))
+        return;
+    PublicKey const senderPK{senderSlice};
+
+    if (wireMsg.previousledger().size() != uint256::size())
+        return;
+
+    uint256 proposalPrevLedger;
+    std::memcpy(
+        proposalPrevLedger.data(),
+        wireMsg.previousledger().data(),
+        uint256::size());
+
+    std::vector<std::string> exportSignatures;
+    exportSignatures.reserve(wireMsg.exportsignatures_size());
+    for (int i = 0; i < wireMsg.exportsignatures_size(); ++i)
+        exportSignatures.push_back(wireMsg.exportsignatures(i));
+
+    harvestExportSignatures(
+        senderPK, proposalPrevLedger, exportSignatures, "wire proposal");
 }
 //@@end peer-harvest-export-sigs
 
