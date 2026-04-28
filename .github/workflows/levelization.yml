@@ -10,7 +10,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Check levelization
-      run: Builds/levelization/levelization.sh
+      run: python Builds/levelization/levelization.py
     - name: Check for differences
       id: assert
       run: |
@@ -40,7 +40,7 @@ jobs:
           To fix it, you can do one of two things:
           1. Download and apply the patch generated as an artifact of this
              job to your repo, commit, and push.
-          2. Run './Builds/levelization/levelization.sh' in your repo,
+          2. Run 'python Builds/levelization/levelization.py' in your repo,
              commit, and push.
 
           See Builds/levelization/README.md for more info.

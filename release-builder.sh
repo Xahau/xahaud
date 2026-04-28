@@ -195,6 +195,7 @@ ENV PATH=/usr/local/bin:$PATH
 RUN /hbb_exe/activate-exec bash -c "ccache -M 100G && \
     ccache -o cache_dir=/cache/ccache && \
     ccache -o compiler_check=content && \
+    ccache -o direct_mode=true && \
     mkdir -p ~/.conan2 /cache/conan2 /cache/conan2_download /cache/conan2_sources && \
     echo 'core.cache:storage_path=/cache/conan2' > ~/.conan2/global.conf && \
     echo 'core.download:download_cache=/cache/conan2_download' >> ~/.conan2/global.conf && \
