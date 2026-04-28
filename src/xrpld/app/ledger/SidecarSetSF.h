@@ -28,6 +28,8 @@ namespace ripple {
 
 // Sync filter for sidecar SHAMaps. Sidecar leaves are STObject(sfGeneric)
 // payloads, not STTx transactions, so acquisition must not submit them.
+// Validation stays with the consensus extension merge step, where the expected
+// sidecar kind and active validator view are known.
 class SidecarSetSF : public SHAMapSyncFilter
 {
 public:

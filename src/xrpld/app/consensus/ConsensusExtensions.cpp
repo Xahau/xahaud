@@ -1296,7 +1296,9 @@ ConsensusExtensions::fetchRngSetIfNeeded(
         return;
     }
 
-    // Trigger network fetch
+    // Trusted proposals advertise the sidecar root; acquisition is
+    // content-addressed, so peers can only supply nodes matching that root.
+    // Per-leaf trust/schema checks happen when the completed map is merged.
     JLOG(j_.debug()) << "RNGFETCH: triggering network fetch hash=" << *hash;
     pendingRngFetches_.emplace(*hash, kind);
     if (auto immediate = app_.getInboundTransactions().getSet(

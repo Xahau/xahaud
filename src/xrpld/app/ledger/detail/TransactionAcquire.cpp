@@ -47,6 +47,8 @@ namespace {
 std::unique_ptr<SHAMapSyncFilter>
 makeSyncFilter(InboundSetKind kind, Application& app)
 {
+    // Sidecars deliberately reuse candidate tx-set acquisition; the filter only
+    // changes leaf handling so sidecar STObjects are cached, not submitted.
     if (kind == InboundSetKind::sidecar)
         return std::make_unique<SidecarSetSF>(app.getTempNodeCache());
 
@@ -70,6 +72,8 @@ TransactionAcquire::TransactionAcquire(
     , mPeerSet(std::move(peerSet))
     , mSetKind(kind)
 {
+    // Keep sidecar fetch on the same content-addressed SHAMap path as tx sets:
+    // normal reply limits, peer scoring, charging, and timeout behavior apply.
     mMap = std::make_shared<SHAMap>(
         kind == InboundSetKind::sidecar ? SHAMapType::SIDECAR
                                         : SHAMapType::TRANSACTION,
