@@ -180,6 +180,14 @@ verification. The open ledger may be used for early proposal ingestion, but
 once a candidate tx set exists, only signatures verified against the `ttEXPORT`
 in that candidate set may become quorum material or enter `exportSigSetHash`.
 
+Export sidecar publication is local-material only. A node may publish only the
+verified export signatures it actually has locally, and only for `ttEXPORT`
+transactions in the consensus candidate set. A fetched export sidecar is not a
+separate apply input: on merge, each leaf must be active-view checked, verified
+against the candidate transaction, and promoted into `ExportSigCollector`.
+Closed-ledger apply snapshots that collector, so the sidecar convergence state
+and the signer set used by `ttEXPORT` stay on the same path.
+
 Export success requires quorum alignment on `exportSigSetHash`, not merely a
 local collector quorum. If a quorum of tx-converged participants advertises the
 same export signature sidecar hash, that hash is aligned and below-quorum
