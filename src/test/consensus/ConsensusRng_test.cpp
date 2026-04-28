@@ -782,6 +782,57 @@ public:
     }
 
     void
+    testRngFastPathDoesNotOutrunPeerObservation()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG fast path does not outrun peer observation");
+
+        // Peer 0 can build the full reveal set immediately. The other peers
+        // miss peer 0's proposal-carried reveal, so peer 0 is the one most
+        // likely to hit the reveal fast path early. It must still publish and
+        // wait for sidecar observation instead of closing a non-zero ledger
+        // before the rest of the round can merge or safely zero.
+
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup peers = sim.createGroup(5);
+        for (Peer* peer : peers)
+            peer->ce().enableRngConsensus_ = true;
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
+        for (std::size_t i = 1; i < peers.size(); ++i)
+            peers[i]->ce().dropRevealFrom_.insert(peers[0]->id);
+
+        sim.run(1);
+
+        BEAST_EXPECT(sim.branches(peers) == 1);
+
+        for (Peer const* lhs : peers)
+        {
+            for (Peer const* rhs : peers)
+            {
+                if (lhs->lastClosedLedger.id() != rhs->lastClosedLedger.id())
+                    continue;
+
+                BEAST_EXPECT(
+                    lhs->ce().lastEntropyDigest_ ==
+                    rhs->ce().lastEntropyDigest_);
+                BEAST_EXPECT(
+                    lhs->ce().lastEntropyWasFallback_ ==
+                    rhs->ce().lastEntropyWasFallback_);
+            }
+        }
+    }
+
+    void
     testRngNoEntropyWithoutPeerAlignment()
     {
         using namespace csf;
@@ -929,6 +980,7 @@ public:
         RUN(testRngEntropyFallbackOnMajorRevealLoss);
         RUN(testRngSingleByzantineCannotDenyEntropy);
         RUN(testRngEntropyHashConflictWithoutQuorumFallsBackToZero);
+        RUN(testRngFastPathDoesNotOutrunPeerObservation);
         RUN(testRngNoEntropyWithoutPeerAlignment);
         RUN(testRngAlignmentRequiredForNonZeroEntropy);
 

@@ -113,18 +113,23 @@ struct FakeExtensions
     bool exportSigGateStarted_{false};
     std::chrono::steady_clock::time_point exportSigGateStart_{};
     bool exportSigConvergenceFailed_{false};
+    bool rngOn{false};
     bool localExportSigs{true};
     bool consensusExportTxns{false};
     bool exportOn{true};
+    bool entropyFailed{false};
     std::size_t exportQuorum{4};
     uint256 exportHash{makeHash("local-export-sig-set")};
+    uint256 entropyHash{makeHash("local-entropy-set")};
     std::vector<uint256> fetchedExportSets;
+    std::vector<uint256> fetchedEntropySets;
     int exportBuilds = 0;
+    int entropyBuilds = 0;
 
     bool
     rngEnabled() const
     {
-        return false;
+        return rngOn;
     }
 
     bool
@@ -148,13 +153,13 @@ struct FakeExtensions
     std::size_t
     pendingCommitCount() const
     {
-        return 0;
+        return rngOn ? exportQuorum : 0;
     }
 
     std::size_t
     pendingRevealCount() const
     {
-        return 0;
+        return rngOn ? exportQuorum : 0;
     }
 
     std::size_t
@@ -166,19 +171,19 @@ struct FakeExtensions
     bool
     hasQuorumOfCommits() const
     {
-        return false;
+        return rngOn;
     }
 
     bool
     hasMinimumReveals() const
     {
-        return false;
+        return rngOn;
     }
 
     bool
     hasAnyReveals() const
     {
-        return false;
+        return rngOn;
     }
 
     uint256
@@ -190,7 +195,8 @@ struct FakeExtensions
     uint256
     buildEntropySet(LedgerIndex)
     {
-        return makeHash("entropy-set");
+        ++entropyBuilds;
+        return entropyHash;
     }
 
     uint256
@@ -207,12 +213,15 @@ struct FakeExtensions
     void
     setEntropyFailed()
     {
+        entropyFailed = true;
     }
 
     void
     fetchRngSetIfNeeded(std::optional<uint256> const& hash, SidecarKind kind)
     {
-        if (kind == SidecarKind::exportSig && hash)
+        if (kind == SidecarKind::reveal && hash)
+            fetchedEntropySets.push_back(*hash);
+        else if (kind == SidecarKind::exportSig && hash)
             fetchedExportSets.push_back(*hash);
     }
 
@@ -262,6 +271,7 @@ struct ExportTickHarness
     ConsensusParms parms;
     NetClock::time_point netNow{NetClock::duration{123}};
     std::chrono::steady_clock::time_point start{};
+    std::size_t prevProposers = 4;
     int updates = 0;
     int proposes = 0;
 
@@ -277,6 +287,18 @@ struct ExportTickHarness
             makeNode(id), FakePeerPosition{makeNode(id), peerPosition});
     }
 
+    void
+    addEntropyPeer(
+        std::uint8_t id,
+        std::optional<uint256> entropySetHash,
+        uint256 txSetHash = makeHash("tx-set"))
+    {
+        ExtendedPosition peerPosition{txSetHash};
+        peerPosition.entropySetHash = entropySetHash;
+        peers.emplace(
+            makeNode(id), FakePeerPosition{makeNode(id), peerPosition});
+    }
+
     ExtensionTickResult
     tick(FakeExtensions& ext, std::chrono::milliseconds elapsed = {})
     {
@@ -286,7 +308,7 @@ struct ExportTickHarness
             .nowSteady = start + elapsed,
             .roundTime = elapsed,
             .mode = ConsensusMode::proposing,
-            .prevProposers = 0,
+            .prevProposers = prevProposers,
             .peerPositions = peers,
             .parms = parms,
             .haveCloseTimeConsensus = true,
@@ -419,6 +441,75 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testRngEntropyGateRequiresFullObservation()
+    {
+        testcase("RNG entropy gate requires full sidecar observation");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.estState_ = EstablishState::ConvergingReveal;
+
+        ExportTickHarness harness;
+        auto const localHash = ext.entropyHash;
+
+        harness.addEntropyPeer(1, localHash);
+        harness.addEntropyPeer(2, localHash);
+        harness.addEntropyPeer(3, localHash);
+        harness.addEntropyPeer(4, std::nullopt);
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(harness.position.entropySetHash == localHash);
+        BEAST_EXPECT(ext.entropySetPublished_);
+
+        // Quorum alignment is not safe if a tx-converged peer has not
+        // advertised any entropySetHash. Otherwise local observation order
+        // can split non-zero entropy from deterministic zero fallback.
+        result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(!ext.entropyFailed);
+        BEAST_EXPECT(harness.position.entropySetHash == localHash);
+
+        result = harness.tick(
+            ext,
+            harness.parms.rngREVEAL_TIMEOUT * 2 + std::chrono::milliseconds{1});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(ext.entropyFailed);
+        BEAST_EXPECT(!harness.position.entropySetHash);
+    }
+
+    void
+    testRngFastPathWaitsAfterEntropyPublish()
+    {
+        testcase("RNG fast path waits after entropy publish");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.estState_ = EstablishState::ConvergingCommit;
+
+        ExportTickHarness harness;
+        auto const localHash = ext.entropyHash;
+
+        harness.addEntropyPeer(1, localHash);
+        harness.addEntropyPeer(2, localHash);
+        harness.addEntropyPeer(3, localHash);
+        harness.addEntropyPeer(4, localHash);
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(ext.estState_ == EstablishState::ConvergingReveal);
+        BEAST_EXPECT(ext.entropySetPublished_);
+        BEAST_EXPECT(harness.position.entropySetHash == localHash);
+
+        result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(!ext.entropyFailed);
+        BEAST_EXPECT(harness.position.entropySetHash == localHash);
+    }
+
+    void
     testExportSigGateAllowsAlignedQuorumDespiteMinorityConflict()
     {
         testcase("Export sig gate ignores minority conflict after quorum");
@@ -441,6 +532,38 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!ext.exportSigConvergenceFailed_);
         BEAST_EXPECT(ext.fetchedExportSets.size() == 1);
         BEAST_EXPECT(ext.fetchedExportSets.front() == conflictHash);
+    }
+
+    void
+    testExportSigGateRequiresFullObservation()
+    {
+        testcase("Export sig gate requires full sidecar observation");
+
+        FakeExtensions ext;
+        ExportTickHarness harness;
+        auto const localHash = ext.exportHash;
+
+        harness.addPeer(1, localHash);
+        harness.addPeer(2, localHash);
+        harness.addPeer(3, localHash);
+        harness.addPeer(4, std::nullopt);
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(harness.position.exportSigSetHash == localHash);
+        BEAST_EXPECT(ext.exportSigGateStarted_);
+
+        // Local quorum alignment is not enough if a tx-converged peer has
+        // not advertised any exportSigSetHash yet.
+        result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(!ext.exportSigConvergenceFailed_);
+
+        result = harness.tick(
+            ext,
+            harness.parms.rngREVEAL_TIMEOUT * 2 + std::chrono::milliseconds{1});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(ext.exportSigConvergenceFailed_);
     }
 
     void
@@ -591,7 +714,10 @@ public:
     {
         testActiveValidatorViewAppliesNegativeUNL();
         testExportSigGateRequiresQuorumAlignment();
+        testRngEntropyGateRequiresFullObservation();
+        testRngFastPathWaitsAfterEntropyPublish();
         testExportSigGateAllowsAlignedQuorumDespiteMinorityConflict();
+        testExportSigGateRequiresFullObservation();
         testExportSigGateFetchesAdvertisedPeerSets();
         testExportSigGateBoundsCandidateObservationWindow();
         testExportSigGateSkipsWhenExportDisabled();

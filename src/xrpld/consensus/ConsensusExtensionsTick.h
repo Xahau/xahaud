@@ -447,8 +447,13 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             if (ext.hasMinimumReveals())
             {
                 publishEntropySet();
+                ext.entropySetPublished_ = true;
+                ext.entropyPublishStart_ = ctx.nowSteady;
                 JLOG(ext.j_.debug())
-                    << "RNG: fast-path published entropySet in same tick";
+                    << "RNG: fast-path published entropySet, waiting for "
+                       "peer observation";
+                logRngDiag("rng-reveal-fast-path-entropy-published-wait");
+                return {};
             }
             else
             {
@@ -544,6 +549,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         bool conflict = false;
                         std::size_t aligned = 0;
                         std::size_t peersSeen = 0;
+                        std::size_t txConverged = 0;
                     };
 
                     // Phase 2: check peer agreement.  Extension hashes do not
@@ -560,6 +566,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             auto const& pp = peerPos.proposal().position();
                             if (!(pp == pos))
                                 continue;  // not tx-converged
+                            ++state.txConverged;
                             if (!pp.entropySetHash)
                                 continue;  // peer hasn't published yet
                             ++state.peersSeen;
@@ -582,6 +589,24 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     auto const entropyQuorum = ext.quorumThreshold();
                     auto quorumAligned = [&] {
                         return entropyState.aligned + 1 >= entropyQuorum;
+                    };
+                    auto fullObservation = [&] {
+                        // Local quorum alignment is not enough if some
+                        // tx-converged peers have not advertised their
+                        // entropy sidecar hash yet. Otherwise one node can
+                        // accept non-zero from an asymmetric local view while
+                        // the rest of the network times out to zero.
+                        return entropyState.peersSeen ==
+                            entropyState.txConverged;
+                    };
+                    auto clearEntropyHash = [&] {
+                        auto failedPos = ctx.getPosition();
+                        if (!failedPos.entropySetHash)
+                            return;
+                        failedPos.entropySetHash.reset();
+                        ctx.updatePosition(failedPos);
+                        if (ctx.mode == ConsensusMode::proposing)
+                            ctx.propose();
                     };
 
                     if (entropyState.conflict && !quorumAligned())
@@ -610,14 +635,17 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             inspectEntropyPeers(ctx.getPosition(), true);
                     }
 
-                    if (entropyState.conflict && quorumAligned())
+                    if (entropyState.conflict && quorumAligned() &&
+                        fullObservation())
                     {
                         JLOG(ext.j_.debug())
                             << "RNG: entropySetHash conflict ignored after "
                                "quorum alignment"
                             << " alignedParticipants="
                             << (entropyState.aligned + 1)
-                            << " quorum=" << entropyQuorum;
+                            << " quorum=" << entropyQuorum
+                            << " peersSeen=" << entropyState.peersSeen
+                            << " txConverged=" << entropyState.txConverged;
                     }
                     else if (entropyState.conflict)
                     {
@@ -647,6 +675,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
                         // Deadline exceeded — fall back to zero.
                         ext.setEntropyFailed();
+                        clearEntropyHash();
                         JLOG(ext.j_.warn())
                             << "RNG: entropySetHash conflict persisted "
                                "past deadline, falling back to zero "
@@ -656,11 +685,14 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
                     // Positive alignment check: require at least one
                     // tx-converged quorum with a matching entropySetHash
-                    // before accepting non-zero entropy.  Without this,
-                    // a small minority of early publishers could accept
-                    // non-zero entropy before the round has enough shared
-                    // sidecar agreement.
-                    if (!entropyState.conflict && !quorumAligned())
+                    // before accepting non-zero entropy, and require every
+                    // tx-converged peer we are counting to have advertised
+                    // some entropySetHash.  Without the full-observation
+                    // part, asymmetric proposal delivery lets a node accept
+                    // non-zero while peers that are still missing sidecar
+                    // hashes hit the deadline and deterministically zero.
+                    if (!entropyState.conflict &&
+                        (!quorumAligned() || !fullObservation()))
                     {
                         auto const entropyElapsed =
                             ctx.nowSteady - ext.entropyPublishStart_;
@@ -674,18 +706,21 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                                 << " alignedParticipants="
                                 << (entropyState.aligned + 1)
                                 << " quorum=" << entropyQuorum
-                                << " peersSeen=" << entropyState.peersSeen;
+                                << " peersSeen=" << entropyState.peersSeen
+                                << " txConverged=" << entropyState.txConverged;
                             logRngDiag("rng-entropy-hash-quorum-wait");
                             return {};
                         }
                         ext.setEntropyFailed();
+                        clearEntropyHash();
                         JLOG(ext.j_.warn())
                             << "RNG: entropySetHash quorum alignment missing "
                                "within deadline, falling back to zero"
                             << " alignedParticipants="
                             << (entropyState.aligned + 1)
                             << " quorum=" << entropyQuorum
-                            << " peersSeen=" << entropyState.peersSeen;
+                            << " peersSeen=" << entropyState.peersSeen
+                            << " txConverged=" << entropyState.txConverged;
                         logRngDiag("rng-entropy-hash-quorum-timeout");
                     }
 
@@ -695,6 +730,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " alignedParticipants=" << (entropyState.aligned + 1)
                         << " quorum=" << entropyQuorum
                         << " peersSeen=" << entropyState.peersSeen
+                        << " txConverged=" << entropyState.txConverged
                         << " conflict="
                         << (entropyState.conflict ? "yes" : "no");
                 }
@@ -1009,6 +1045,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     bool conflict = false;
                     std::size_t aligned = 0;
                     std::size_t peersSeen = 0;
+                    std::size_t txConverged = 0;
                 };
 
                 auto inspectExportPeers =
@@ -1023,6 +1060,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         auto const& pp = peerPos.proposal().position();
                         if (!(pp == pos))
                             continue;  // not tx-converged
+                        ++state.txConverged;
                         if (!pp.exportSigSetHash)
                             continue;  // peer hasn't published yet
                         ++state.peersSeen;
@@ -1046,6 +1084,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 auto quorumAligned = [&] {
                     return exportState.aligned + 1 >= exportQuorum;
                 };
+                auto fullObservation = [&] {
+                    // Export success changes ledger effects too. Require a
+                    // full view of tx-converged peers before treating a local
+                    // quorum as safe enough to succeed in this ledger.
+                    return exportState.peersSeen == exportState.txConverged;
+                };
 
                 if (exportState.conflict && !quorumAligned())
                 {
@@ -1068,15 +1112,20 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     exportState = inspectExportPeers(ctx.getPosition(), true);
                 }
 
-                if (exportState.conflict && quorumAligned())
+                if (exportState.conflict && quorumAligned() &&
+                    fullObservation())
                 {
                     JLOG(ext.j_.info())
                         << "Export: exportSigSetHash conflict ignored after "
                            "quorum alignment"
                         << " alignedParticipants=" << (exportState.aligned + 1)
-                        << " quorum=" << exportQuorum;
+                        << " quorum=" << exportQuorum
+                        << " peersSeen=" << exportState.peersSeen
+                        << " txConverged=" << exportState.txConverged;
                 }
-                else if (exportState.conflict || !quorumAligned())
+                else if (
+                    exportState.conflict || !quorumAligned() ||
+                    !fullObservation())
                 {
                     auto const elapsed =
                         ctx.nowSteady - ext.exportSigGateStart_;
@@ -1090,6 +1139,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             << (exportState.aligned + 1)
                             << " quorum=" << exportQuorum
                             << " peersSeen=" << exportState.peersSeen
+                            << " txConverged=" << exportState.txConverged
                             << " conflict="
                             << (exportState.conflict ? "yes" : "no");
                         return {};
@@ -1102,6 +1152,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " alignedParticipants=" << (exportState.aligned + 1)
                         << " quorum=" << exportQuorum
                         << " peersSeen=" << exportState.peersSeen
+                        << " txConverged=" << exportState.txConverged
                         << " conflict="
                         << (exportState.conflict ? "yes" : "no");
                 }
