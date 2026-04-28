@@ -679,6 +679,9 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
 
     for (auto const& [txHash, valSigs] : allSigs)
     {
+        // Candidate membership is the deterministic publication gate. A sig
+        // may have been verified earlier from the open ledger, but it only
+        // enters the sidecar hash if the same tx hash is in the converged set.
         if (consensusExportTxns_.find(txHash) == consensusExportTxns_.end())
             continue;
 
@@ -1904,7 +1907,8 @@ ConsensusExtensions::onTrustedPeerMessage(
         return;
 
     // The active view is pinned to one parent ledger. Do not let a proposal
-    // for another parent feed signatures into this round's export collector.
+    // for another parent feed signatures into this round's export collector;
+    // build, merge, and apply all count against this same parent-ledger view.
     if (validatorView->sourceLedgerHash)
     {
         if (wireMsg.previousledger().size() != uint256::size())
@@ -1941,7 +1945,8 @@ ConsensusExtensions::onTrustedPeerMessage(
 
     // Pass 2: opportunistically verify using the open ledger. The consensus
     // candidate tx set later upgrades still-unverified signatures before
-    // they can enter an exportSigSetHash.
+    // they can enter an exportSigSetHash; early open-ledger verification is
+    // still gated by the candidate tx hash before sidecar publication.
     auto const exportTxns = buildOpenLedgerExportTxnLookup(app_);
     auto const currentSeq = currentClosedLedgerSeq(app_);
 
