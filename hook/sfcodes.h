@@ -274,7 +274,6 @@
 #define sfDisabledValidator ((14U << 16U) + 19U)
 #define sfEmittedTxn ((14U << 16U) + 20U)
 #define sfHookExecution ((14U << 16U) + 21U)
-#define sfHookDefinition ((14U << 16U) + 22U)
 #define sfHookParameter ((14U << 16U) + 23U)
 #define sfHookGrant ((14U << 16U) + 24U)
 #define sfVoteEntry ((14U << 16U) + 25U)

@@ -132,7 +132,7 @@ constexpr std::uint32_t tfTrustSetMask =
       tfClearFreeze | tfSetDeepFreeze | tfClearDeepFreeze);
 
 // EnableAmendment flags:
-enum EnableAmendmentFlags : std::uint32_t {
+enum EnableAmendmentFlags : uint32_t {
     tfGotMajority = 0x00010000,
     tfLostMajority = 0x00020000,
     tfTestSuite = 0x80000000,
