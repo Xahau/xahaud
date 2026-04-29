@@ -18,6 +18,15 @@ succeed. Works means missed or late extension material follows that feature's
 deterministic fallback, such as zero entropy for RNG or normal Export
 retry/expiry, rather than blocking core consensus.
 
+## Fallback Semantics
+
+RNG and Export use similar positive-path sidecar gates, but they do not have
+the same safe fallback. RNG can safely close with deterministic zero entropy
+when peers cannot establish quorum alignment on non-zero entropy in time.
+Export has no equivalent dummy success value: without quorum-aligned verified
+export signatures, the export must not be treated as complete and must retry or
+expire under transaction rules.
+
 ## Core Invariants
 
 1. Core consensus remains keyed by the transaction set.
