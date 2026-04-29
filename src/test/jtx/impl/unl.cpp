@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/app/tx/apply.h>
-#include <ripple/protocol/jss.h>
 #include <test/jtx/unl.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 namespace test {
@@ -46,9 +46,9 @@ applyAndTestResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
 {
     auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
     if (pass)
-        return res.first == tesSUCCESS;
+        return res.ter == tesSUCCESS;
     else
-        return res.first == tefFAILURE || res.first == temDISABLED;
+        return res.ter == tefFAILURE || res.ter == temDISABLED;
 }
 
 std::size_t
@@ -63,7 +63,7 @@ countTx(std::shared_ptr<SHAMap> const& txSet)
         auto tx = std::make_shared<STTx
     const>(SerialIter{sit.getSlice(sit.getVLDataLength())});
 
-        if (tx->getFieldU16(sfTransactionType) == ttUNL_MODIFY)
+        if (tx->getTxnType() == ttUNL_MODIFY)
             counter++;
     }
     */

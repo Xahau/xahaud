@@ -15,20 +15,20 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/misc/HashRouter.h>
-#include <ripple/app/tx/apply.h>
-#include <ripple/app/tx/impl/XahauGenesis.h>
-#include <ripple/core/Config.h>
-#include <ripple/json/json_reader.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Indexes.h>
-#include <ripple/protocol/STAccount.h>
-#include <ripple/protocol/digest.h>
-#include <ripple/protocol/jss.h>
-#include <string>
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/XahauGenesis.h>
+#include <xrpld/core/Config.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/STAccount.h>
+#include <xrpl/protocol/digest.h>
+#include <xrpl/protocol/jss.h>
+#include <string>
 #include <vector>
 
 #define BEAST_REQUIRE(x)     \
@@ -139,7 +139,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
             false,  // means the calling test already burned some of the genesis
         bool skipTests = false,
         bool const testFlag = false,
-        bool const badNetID = false)
+        bool const badNetID = false,
+        uint32_t const expectedOwnerCount = 14 /** case for testFlag=false */)
     {
         using namespace jtx;
 
@@ -247,7 +248,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
         BEAST_EXPECT(
             genesisAccRoot->getFieldAmount(sfBalance) ==
             XahauGenesis::GenesisAmount);
-        BEAST_EXPECT(genesisAccRoot->getFieldU32(sfOwnerCount) == 2);
+        BEAST_EXPECT(
+            genesisAccRoot->getFieldU32(sfOwnerCount) == expectedOwnerCount);
 
         // ensure the definitions are correctly set
         {
@@ -583,7 +585,15 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 toBase58(t), membersStr);
         }
 
-        activate(__LINE__, env, true, false, true);
+        activate(
+            __LINE__,
+            env,
+            true,
+            false,
+            true,
+            {},
+            2 /*Hook objects *2 */ + 3 /* IRR,IRD,IMC HookStates */ +
+                members.size());
 
         env.close();
         env.close();
@@ -2235,12 +2245,17 @@ struct XahauGenesis_test : public beast::unit_test::suite
             BEAST_EXPECT(!!hookLE);
             uint256 const ns = beast::zero;
             uint8_t mc = 0;
+            uint8_t paramsCount = 0;
+
             if (hookLE)
             {
                 auto const hooksArray = hookLE->getFieldArray(sfHooks);
                 BEAST_EXPECT(
                     hooksArray.size() == 1 &&
                     hooksArray[0].getFieldH256(sfHookHash) == governHookHash);
+
+                paramsCount =
+                    hooksArray[0].getFieldArray(sfHookParameters).size();
 
                 for (Account const* m : members)
                 {
@@ -2308,7 +2323,9 @@ struct XahauGenesis_test : public beast::unit_test::suite
             BEAST_EXPECT(!!root);
             if (root)
             {
-                BEAST_EXPECT(root->getFieldU32(sfOwnerCount) == mc * 2 + 2);
+                BEAST_EXPECT(
+                    root->getFieldU32(sfOwnerCount) ==
+                    (mc * 2 + 2 + paramsCount));
                 BEAST_EXPECT(root->getFieldU32(sfFlags) & lsfDisableMaster);
                 BEAST_EXPECT(root->getAccountID(sfRegularKey) == noAccount());
             }

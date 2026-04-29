@@ -20,13 +20,14 @@
 #ifndef RIPPLE_TEST_JTX_MULTISIGN_H_INCLUDED
 #define RIPPLE_TEST_JTX_MULTISIGN_H_INCLUDED
 
-#include <cstdint>
-#include <memory>
-#include <optional>
 #include <test/jtx/Account.h>
 #include <test/jtx/amount.h>
 #include <test/jtx/owners.h>
 #include <test/jtx/tags.h>
+#include <concepts>
+#include <cstdint>
+#include <memory>
+#include <optional>
 
 namespace ripple {
 namespace test {
@@ -88,7 +89,7 @@ public:
         Signer(
             Account const& acct_,
             std::vector<std::shared_ptr<Signer>> nested_)
-            : acct(acct_), nested(std::move(nested_))
+            : acct(acct_), sig(acct_), nested(std::move(nested_))
         {
         }
 
@@ -160,6 +161,7 @@ public:
 
     // Variadic constructor for backward compatibility
     template <class AccountType, class... Accounts>
+        requires std::convertible_to<AccountType, Reg>
     explicit msig(AccountType&& a0, Accounts&&... aN)
         : msig{std::vector<Reg>{
               std::forward<AccountType>(a0),

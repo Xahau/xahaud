@@ -58,10 +58,10 @@ public:
 class dest
 {
 private:
-    jtx::Account dest_;
+    AccountID dest_;
 
 public:
-    explicit dest(jtx::Account const& dest) : dest_(dest)
+    explicit dest(AccountID const& dest) : dest_(dest)
     {
     }
 

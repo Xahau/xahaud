@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/basics/Expected.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/protocol/TER.h>
+#include <xrpl/basics/Expected.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/TER.h>
 #include <array>
 #include <cstdint>
 
@@ -73,6 +73,29 @@ struct Expected_test : beast::unit_test::suite
             {
                 // There's no error, so should throw.
                 [[maybe_unused]] TER const t = expected.error();
+            }
+            catch (std::runtime_error const& e)
+            {
+                BEAST_EXPECT(e.what() == std::string("bad expected access"));
+                throwOccurred = true;
+            }
+            BEAST_EXPECT(throwOccurred);
+        }
+        // Test non-error overlapping type construction.
+        {
+            auto expected = []() -> Expected<std::uint32_t, std::uint16_t> {
+                return 1;
+            }();
+            BEAST_EXPECT(expected);
+            BEAST_EXPECT(expected.has_value());
+            BEAST_EXPECT(expected.value() == 1);
+            BEAST_EXPECT(*expected == 1);
+
+            bool throwOccurred = false;
+            try
+            {
+                // There's no error, so should throw.
+                [[maybe_unused]] std::uint16_t const t = expected.error();
             }
             catch (std::runtime_error const& e)
             {

@@ -17,13 +17,15 @@
 */
 //==============================================================================
 
-#include <ripple/core/ConfigSections.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Indexes.h>
-#include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/jss.h>
-#include <sstream>
 #include <test/jtx.h>
+#include <test/jtx/Oracle.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/jss.h>
+#include <chrono>
+#include <sstream>
 
 namespace ripple {
 namespace test {
@@ -345,8 +347,9 @@ struct SetRemarks_test : public beast::unit_test::suite
             env.close();
         }
         // tecCLAIM: SetRemarks: insane remarks accounting.
-        {}  // tecTOO_MANY_REMARKS: SetRemarks: an object may have at most 32
-            // remarks.
+        {
+        }  // tecTOO_MANY_REMARKS: SetRemarks: an object may have at most 32
+           // remarks.
         {
             std::vector<remarks::remark> _marks;
             unsigned int hexValue = 0xEFAC;
@@ -461,8 +464,8 @@ struct SetRemarks_test : public beast::unit_test::suite
         {
             using namespace std::literals::chrono_literals;
             auto const id = keylet::escrow(alice, env.seq(alice)).key;
-            env(escrow::create(alice, bob, XRP(10)),
-                escrow::finish_time(env.now() + 1s),
+            env(escrow(alice, bob, XRP(10)),
+                finish_time(env.now() + 1s),
                 fee(XRP(1)));
             env(remarks::setRemarks(alice, id, marks), fee(XRP(1)));
             env.close();
@@ -492,6 +495,19 @@ struct SetRemarks_test : public beast::unit_test::suite
         {
             auto const id = keylet::check(alice, env.seq(alice)).key;
             env(check::create(alice, bob, XRP(10)), fee(XRP(1)));
+            env(remarks::setRemarks(alice, id, marks), fee(XRP(1)));
+            env.close();
+            validateRemarks(*env.current(), id, marks);
+        }
+        // ltORACLE
+        {
+            auto const id = keylet::oracle(alice, 1).key;
+            oracle::CreateArg arg = {
+                .owner = alice,
+                .documentID = 1,
+                .series = {{"XAH", "USD", 740, 1}}};
+            env.close(std::chrono::seconds(300));
+            oracle::Oracle oracle(env, arg);
             env(remarks::setRemarks(alice, id, marks), fee(XRP(1)));
             env.close();
             validateRemarks(*env.current(), id, marks);

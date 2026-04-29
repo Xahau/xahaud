@@ -17,14 +17,15 @@
 */
 //==============================================================================
 
-#include <ripple/basics/chrono.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/ledger/Directory.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/Indexes.h>
-#include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/jss.h>
 #include <test/jtx.h>
+#include <test/jtx/AMM.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpld/ledger/Dir.h>
+#include <xrpl/basics/chrono.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/jss.h>
 
 #include <chrono>
 
@@ -410,6 +411,21 @@ struct Remit_test : public beast::unit_test::suite
             env.close();
         }
 
+        // tecNO_PERMISSION - inform account is an AMM
+        {
+            Env env{*this, features};
+            env.fund(XRP(1000), gw, alice, bob);
+            env.close();
+
+            AMM amm(env, gw, XRP(100), USD(100));
+            BEAST_EXPECT(amm.ammExists());
+
+            auto tx = remit::remit(alice, bob);
+            tx[sfInform.jsonName] = to_string(amm.ammAccount());
+            env(tx, alice, ter(tecNO_PERMISSION));
+            env.close();
+        }
+
         // tecNO_PERMISSION - lsfDisallowIncomingRemit
         // DA: see testAllowIncoming
 
@@ -465,7 +481,6 @@ struct Remit_test : public beast::unit_test::suite
 
         // tefBAD_LEDGER - invalid owner directory
         {
-
         }
 
         // tecDIR_FULL - destination directory full
@@ -2877,6 +2892,39 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
+    testDestAMM(FeatureBitset features)
+    {
+        testcase("remit to AMM Account");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const gw = Account("gw");
+        auto const USD = gw["USD"];
+
+        Env env{*this, features};
+        env.fund(XRP(10'000'000), alice, gw);
+        env.close();
+
+        env.trust(USD(100'000), alice);
+        env.close();
+        env(pay(gw, alice, USD(100'000)));
+        env.close();
+
+        AMM ammAlice(env, alice, XRP(10'000), USD(10'000));
+
+        env(remit::remit(alice, ammAlice.ammAccount()),
+            remit::amts({USD(10'000)}),
+            ter(tecNO_PERMISSION));
+        env(remit::remit(alice, ammAlice.ammAccount()),
+            remit::amts({XRP(10'000)}),
+            ter(tecNO_PERMISSION));
+        env(remit::remit(gw, ammAlice.ammAccount()),
+            remit::amts({gw["EUR"](10'000)}),
+            ter(tecNO_PERMISSION));
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testEnabled(features);
@@ -2897,6 +2945,7 @@ struct Remit_test : public beast::unit_test::suite
         testRippling(features);
         testURIToken(features);
         testOptionals(features);
+        testDestAMM(features);
     }
 
 public:
