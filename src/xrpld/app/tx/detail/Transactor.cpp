@@ -308,7 +308,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     //  * The additional cost of each multisignature on the transaction.
     XRPAmount baseFee = view.fees().base;
 
-    if (tx.getFieldU16(sfTransactionType) == ttIMPORT)
+    if (tx.getTxnType() == ttIMPORT)
     {
         XRPAmount const importFee = baseFee * 10;
         if (importFee > baseFee)
@@ -325,7 +325,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     if (view.rules().enabled(featureHooks))
     {
         // if this is a "cleanup" txn we regard it as already paid up
-        if (tx.getFieldU16(sfTransactionType) == ttEMIT_FAILURE)
+        if (tx.getTxnType() == ttEMIT_FAILURE)
             return XRPAmount{0};
 
         // if the txn is an emitted txn then we add the callback fee
@@ -1536,10 +1536,7 @@ Transactor::doHookCallback(
                 true,
                 true,
                 false,
-                safe_cast<TxType>(ctx_.tx.getFieldU16(sfTransactionType)) ==
-                        ttEMIT_FAILURE
-                    ? 1UL
-                    : 0UL,
+                ctx_.tx.getTxnType() == ttEMIT_FAILURE ? 1UL : 0UL,
                 hook_no - 1,
                 provisionalMeta);
 

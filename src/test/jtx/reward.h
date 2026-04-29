@@ -34,14 +34,21 @@ namespace reward {
 Json::Value
 claim(jtx::Account const& account);
 
+Json::Value
+claim(AccountID const& account);
+
 /** Sets the optional Issuer on a JTx. */
 class issuer
 {
 private:
-    jtx::Account issuer_;
+    AccountID issuer_;
 
 public:
     explicit issuer(jtx::Account const& issuer) : issuer_(issuer)
+    {
+    }
+
+    explicit issuer(AccountID const& issuer) : issuer_(issuer)
     {
     }
 

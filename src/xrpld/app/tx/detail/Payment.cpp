@@ -573,7 +573,7 @@ Payment::doApply()
         return tecUNFUNDED_PAYMENT;
     }
 
-    // AMMs can never receive an XRP payment.
+    // AMMs can never receive an XAH payment.
     // Must use AMMDeposit transaction instead.
     if (sleDst->isFieldPresent(sfAMMID))
         return tecNO_PERMISSION;

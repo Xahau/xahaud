@@ -82,8 +82,15 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
     if ((issuer && isOptOut) || (!issuer && !isOptOut))
         return temMALFORMED;
 
-    if (issuer && !ctx.view.exists(keylet::account(*issuer)))
-        return tecNO_ISSUER;
+    if (issuer)
+    {
+        auto const sleIssuer = ctx.view.read(keylet::account(*issuer));
+        if (!sleIssuer)
+            return tecNO_ISSUER;
+
+        if (sleIssuer->isFieldPresent(sfAMMID))
+            return tecNO_PERMISSION;
+    }
 
     return tesSUCCESS;
 }
