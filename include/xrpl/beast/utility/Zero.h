@@ -39,19 +39,14 @@ namespace beast {
     returns a positive, zero or negative number.
 */
 
-struct Zero
+inline constexpr struct Zero
 {
-    explicit Zero() = default;
-};
-
-namespace {
-static constexpr Zero zero{};
-}
+} zero;
 
 /** Default implementation of signum calls the method on the class. */
 template <typename T>
-auto
-signum(T const& t)
+constexpr auto
+signum(T const& t) noexcept
 {
     return t.signum();
 }
@@ -60,10 +55,10 @@ namespace detail {
 namespace zero_helper {
 
 // For argument dependent lookup to function properly, calls to signum must
-// be made from a namespace that does not include overloads of the function..
+// be made from a namespace that does not include overloads of the function.
 template <class T>
-auto
-call_signum(T const& t)
+constexpr auto
+call_signum(T const& t) noexcept
 {
     return signum(t);
 }
@@ -71,93 +66,19 @@ call_signum(T const& t)
 }  // namespace zero_helper
 }  // namespace detail
 
-// Handle operators where T is on the left side using signum.
+template <typename T>
+constexpr auto
+operator<=>(T const& t, Zero) noexcept
+{
+    auto s = detail::zero_helper::call_signum(t);
+    return s <=> 0;
+}
 
 template <typename T>
-bool
-operator==(T const& t, Zero)
+constexpr bool
+operator==(T const& t, Zero) noexcept
 {
     return detail::zero_helper::call_signum(t) == 0;
-}
-
-template <typename T>
-bool
-operator!=(T const& t, Zero)
-{
-    return detail::zero_helper::call_signum(t) != 0;
-}
-
-template <typename T>
-bool
-operator<(T const& t, Zero)
-{
-    return detail::zero_helper::call_signum(t) < 0;
-}
-
-template <typename T>
-bool
-operator>(T const& t, Zero)
-{
-    return detail::zero_helper::call_signum(t) > 0;
-}
-
-template <typename T>
-bool
-operator>=(T const& t, Zero)
-{
-    return detail::zero_helper::call_signum(t) >= 0;
-}
-
-template <typename T>
-bool
-operator<=(T const& t, Zero)
-{
-    return detail::zero_helper::call_signum(t) <= 0;
-}
-
-// Handle operators where T is on the right side by
-// reversing the operation, so that T is on the left side.
-
-template <typename T>
-bool
-operator==(Zero, T const& t)
-{
-    return t == zero;
-}
-
-template <typename T>
-bool
-operator!=(Zero, T const& t)
-{
-    return t != zero;
-}
-
-template <typename T>
-bool
-operator<(Zero, T const& t)
-{
-    return t > zero;
-}
-
-template <typename T>
-bool
-operator>(Zero, T const& t)
-{
-    return t < zero;
-}
-
-template <typename T>
-bool
-operator>=(Zero, T const& t)
-{
-    return t <= zero;
-}
-
-template <typename T>
-bool
-operator<=(Zero, T const& t)
-{
-    return t >= zero;
 }
 
 }  // namespace beast

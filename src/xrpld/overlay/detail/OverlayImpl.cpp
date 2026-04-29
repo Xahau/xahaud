@@ -84,8 +84,9 @@ void
 OverlayImpl::Timer::async_wait()
 {
     timer_.expires_after(std::chrono::seconds(1));
-    timer_.async_wait(overlay_.strand_.wrap(std::bind(
-        &Timer::on_timer, shared_from_this(), std::placeholders::_1)));
+    timer_.async_wait(overlay_.strand_.wrap(
+        std::bind(
+            &Timer::on_timer, shared_from_this(), std::placeholders::_1)));
 }
 
 void
@@ -131,16 +132,18 @@ OverlayImpl::OverlayImpl(
     , journal_(app_.journal("Overlay"))
     , serverHandler_(serverHandler)
     , m_resourceManager(resourceManager)
-    , m_peerFinder(PeerFinder::make_Manager(
-          io_service,
-          stopwatch(),
-          app_.journal("PeerFinder"),
-          config,
-          collector,
-          app.config().section(SECTION_RELATIONAL_DB).empty() ||
-              !boost::iequals(
-                  get(app.config().section(SECTION_RELATIONAL_DB), "backend"),
-                  "rwdb")))
+    , m_peerFinder(
+          PeerFinder::make_Manager(
+              io_service,
+              stopwatch(),
+              app_.journal("PeerFinder"),
+              config,
+              collector,
+              app.config().section(SECTION_RELATIONAL_DB).empty() ||
+                  !boost::iequals(
+                      get(app.config().section(SECTION_RELATIONAL_DB),
+                          "backend"),
+                      "rwdb")))
     , m_resolver(resolver)
     , next_id_(1)
     , timer_count_(0)
@@ -193,13 +196,13 @@ OverlayImpl::onHandoff(
     }
 
     auto consumer = m_resourceManager.newInboundEndpoint(
-        beast::IPAddressConversion::from_asio(remote_endpoint));
+        beast::IP::from_asio(remote_endpoint));
     if (consumer.disconnect(journal))
         return handoff;
 
     auto const slot = m_peerFinder->new_inbound_slot(
-        beast::IPAddressConversion::from_asio(local_endpoint),
-        beast::IPAddressConversion::from_asio(remote_endpoint));
+        beast::IP::from_asio(local_endpoint),
+        beast::IP::from_asio(remote_endpoint));
 
     if (slot == nullptr)
     {
@@ -414,7 +417,7 @@ OverlayImpl::connect(beast::IP::Endpoint const& remote_endpoint)
     auto const p = std::make_shared<ConnectAttempt>(
         app_,
         io_service_,
-        beast::IPAddressConversion::to_asio_endpoint(remote_endpoint),
+        beast::IP::to_asio_endpoint(remote_endpoint),
         usage,
         setup_.context,
         next_id_++,
@@ -1481,7 +1484,7 @@ setup_Overlay(BasicConfig const& config)
         if (!ip.empty())
         {
             boost::system::error_code ec;
-            setup.public_ip = beast::IP::Address::from_string(ip, ec);
+            setup.public_ip = boost::asio::ip::address::from_string(ip, ec);
             if (ec || beast::IP::is_private(setup.public_ip))
                 Throw<std::runtime_error>("Configured public IP is invalid");
         }

@@ -24,6 +24,7 @@
 #include <xrpl/protocol/KeyType.h>
 #include <xrpl/protocol/STExchange.h>
 #include <xrpl/protocol/UintTypes.h>
+#include <xrpl/protocol/detail/KeyBase.h>
 #include <xrpl/protocol/json_get_or_throw.h>
 #include <xrpl/protocol/tokens.h>
 
@@ -35,6 +36,26 @@
 #include <utility>
 
 namespace ripple {
+
+/** Returns the type of public key.
+
+    @return std::nullopt If the public key does not
+            represent a known type.
+*/
+[[nodiscard]] inline std::optional<KeyType>
+publicKeyType(Slice const& slice)
+{
+    if (slice.size() == 33)
+    {
+        if (slice[0] == 0xED)
+            return KeyType::ed25519;
+
+        if (slice[0] == 0x02 || slice[0] == 0x03)
+            return KeyType::secp256k1;
+    }
+
+    return std::nullopt;
+}
 
 /** A public key.
 
@@ -58,76 +79,46 @@ namespace ripple {
     prefix constant 0xED, followed by 32 bytes of
     public key data.
 */
-class PublicKey
+class PublicKey : public detail::KeyBase<PublicKey, 33>
 {
-protected:
-    // All the constructed public keys are valid, non-empty and contain 33
-    // bytes of data.
-    static constexpr std::size_t size_ = 33;
-    std::uint8_t buf_[size_];  // should be large enough
-
-public:
-    using const_iterator = std::uint8_t const*;
-
 public:
     PublicKey() = delete;
 
-    PublicKey(PublicKey const& other);
+    PublicKey(PublicKey const&) = default;
     PublicKey&
-    operator=(PublicKey const& other);
+    operator=(PublicKey const&) = default;
 
-    /** Create a public key.
-
-        Preconditions:
-            publicKeyType(slice) != std::nullopt
-    */
-    explicit PublicKey(Slice const& slice);
-
-    std::uint8_t const*
-    data() const noexcept
+    explicit PublicKey(Slice const& slice) noexcept
     {
-        return buf_;
+        if (slice.size() < buf_.size())
+            LogicError("PublicKey::PublicKey: undersized buffer");
+
+        if (!publicKeyType(slice))
+            LogicError("PublicKey::PublicKey: invalid type");
+
+        std::copy_n(slice.data(), buf_.size(), buf_.data());
     }
 
-    std::size_t
-    size() const noexcept
+    explicit PublicKey(value_t const& data) noexcept
+        : PublicKey(makeSlice(data))
     {
-        return size_;
     }
 
-    const_iterator
-    begin() const noexcept
-    {
-        return buf_;
-    }
-
-    const_iterator
-    cbegin() const noexcept
-    {
-        return buf_;
-    }
-
-    const_iterator
-    end() const noexcept
-    {
-        return buf_ + size_;
-    }
-
-    const_iterator
-    cend() const noexcept
-    {
-        return buf_ + size_;
-    }
-
-    Slice
+    [[nodiscard]] Slice
     slice() const noexcept
     {
-        return {buf_, size_};
+        return {buf_.data(), buf_.size()};
     }
 
     operator Slice() const noexcept
     {
         return slice();
+    }
+
+    [[nodiscard]] auto
+    operator<=>(PublicKey const& rhs) const
+    {
+        return buf_ <=> rhs.buf_;
     }
 };
 
@@ -135,22 +126,6 @@ public:
  */
 std::ostream&
 operator<<(std::ostream& os, PublicKey const& pk);
-
-inline bool
-operator==(PublicKey const& lhs, PublicKey const& rhs)
-{
-    return std::memcmp(lhs.data(), rhs.data(), rhs.size()) == 0;
-}
-
-inline bool
-operator<(PublicKey const& lhs, PublicKey const& rhs)
-{
-    return std::lexicographical_compare(
-        lhs.data(),
-        lhs.data() + lhs.size(),
-        rhs.data(),
-        rhs.data() + rhs.size());
-}
 
 template <class Hasher>
 void
@@ -220,22 +195,6 @@ enum class ECDSACanonicality { canonical, fullyCanonical };
 */
 std::optional<ECDSACanonicality>
 ecdsaCanonicality(Slice const& sig);
-
-/** Returns the type of public key.
-
-    @return std::nullopt If the public key does not
-            represent a known type.
-*/
-/** @{ */
-[[nodiscard]] std::optional<KeyType>
-publicKeyType(Slice const& slice);
-
-[[nodiscard]] inline std::optional<KeyType>
-publicKeyType(PublicKey const& publicKey)
-{
-    return publicKeyType(publicKey.slice());
-}
-/** @} */
 
 /** Verify a secp256k1 signature on the digest of a message. */
 [[nodiscard]] bool

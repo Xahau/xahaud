@@ -817,9 +817,9 @@ Transactor::apply()
     // that allow zero account. (and ttIMPORT)
     XRPL_ASSERT(
         sle != nullptr || account_ == beast::zero ||
-            view().rules().enabled(featureImport) &&
-                ctx_.tx.getTxnType() == ttIMPORT &&
-                !ctx_.tx.isFieldPresent(sfIssuer),
+            (view().rules().enabled(featureImport) &&
+             ctx_.tx.getTxnType() == ttIMPORT &&
+             !ctx_.tx.isFieldPresent(sfIssuer)),
         "ripple::Transactor::apply : non-null SLE or zero account");
 
     if (sle)
@@ -1364,23 +1364,24 @@ Transactor::executeHookChain(
 
         try
         {
-            results.push_back(hook::apply(
-                hookDef->getFieldH256(sfHookSetTxnID),
-                hookHash,
-                hookCanEmit,
-                ns,
-                hookDef->getFieldVL(sfCreateCode),
-                parameters,
-                hookParamOverrides,
-                stateMap,
-                ctx_,
-                account,
-                hasCallback,
-                false,
-                strong,
-                (strong ? 0 : 1UL),  // 0 = strong, 1 = weak
-                hook_no - 1,
-                provisionalMeta));
+            results.push_back(
+                hook::apply(
+                    hookDef->getFieldH256(sfHookSetTxnID),
+                    hookHash,
+                    hookCanEmit,
+                    ns,
+                    hookDef->getFieldVL(sfCreateCode),
+                    parameters,
+                    hookParamOverrides,
+                    stateMap,
+                    ctx_,
+                    account,
+                    hasCallback,
+                    false,
+                    strong,
+                    (strong ? 0 : 1UL),  // 0 = strong, 1 = weak
+                    hook_no - 1,
+                    provisionalMeta));
 
             executedHookCount_++;
 

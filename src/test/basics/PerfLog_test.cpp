@@ -299,6 +299,19 @@ public:
         }
     }
 
+    auto
+    make_string_vector(std::vector<std::string_view> input)
+    {
+        std::vector<std::string> output;
+        output.reserve(input.size());
+        std::transform(
+            input.begin(),
+            input.end(),
+            std::back_inserter(output),
+            [](std::string_view const& s) { return std::string(s); });
+        return output;
+    }
+
     void
     testRPC(WithFile withFile)
     {
@@ -310,8 +323,7 @@ public:
 
         // Get the all the labels we can use for RPC interfaces without
         // causing an assert.
-        std::vector<char const*> labels =
-            test::jtx::make_vector(ripple::RPC::getHandlerNames());
+        auto labels = make_string_vector(ripple::RPC::getHandlerNames());
         std::shuffle(labels.begin(), labels.end(), default_prng());
 
         // Get two IDs to associate with each label.  Errors tend to happen at
@@ -519,21 +531,19 @@ public:
         struct JobName
         {
             JobType type;
-            std::string typeName;
+            std::string_view typeName;
 
-            JobName(JobType t, std::string name)
-                : type(t), typeName(std::move(name))
+            JobName(JobType t, std::string_view name) : type(t), typeName(name)
             {
             }
         };
 
         std::vector<JobName> jobs;
         {
-            auto const& jobTypes = JobTypes::instance();
             jobs.reserve(jobTypes.size());
             for (auto const& job : jobTypes)
             {
-                jobs.emplace_back(job.first, job.second.name());
+                jobs.emplace_back(job.type, job.name);
             }
         }
         std::shuffle(jobs.begin(), jobs.end(), default_prng());
@@ -865,14 +875,10 @@ public:
         JobType jobType;
         std::string jobTypeName;
         {
-            auto const& jobTypes = JobTypes::instance();
+            auto index = rand_int<std::size_t>(0, jobTypes.size() - 1);
 
-            std::uniform_int_distribution<> dis(0, jobTypes.size() - 1);
-            auto iter{jobTypes.begin()};
-            std::advance(iter, dis(default_prng()));
-
-            jobType = iter->second.type();
-            jobTypeName = iter->second.name();
+            jobType = jobTypes[index].type;
+            jobTypeName = jobTypes[index].name;
         }
 
         // Say there's one worker thread.

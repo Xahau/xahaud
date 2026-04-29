@@ -1509,7 +1509,7 @@ vp_squelched=1
                 env_.app().config().COMPRESSION = c.COMPRESSION;
             };
             auto handshake = [&](int outboundEnable, int inboundEnable) {
-                beast::IP::Address addr =
+                boost::asio::ip::address addr =
                     boost::asio::ip::address::from_string("172.1.1.100");
 
                 setEnv(outboundEnable);

@@ -487,7 +487,7 @@ private:
                 static_cast<uint32_t>(entry.first);
         }
 
-        ret[jss::native_currency_code] = systemCurrencyCode();
+        ret[jss::native_currency_code] = systemCurrencyCode;
 
         // generate hash
         {

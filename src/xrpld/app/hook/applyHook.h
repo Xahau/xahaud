@@ -1,13 +1,14 @@
 #ifndef APPLY_HOOK_INCLUDED
-#define APPLY_HOOK_INCLUDED 1
+#define APPLY_HOOK_INCLUDED
+
 #include <xrpld/app/hook/HookAPI.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
 #include <xrpl/basics/Blob.h>
+#include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Macro.h>
-#include <xrpl/hook/Misc.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/digest.h>
@@ -19,6 +20,20 @@
 #include <wasmedge/wasmedge.h>
 
 namespace hook {
+
+inline constexpr auto UINT256_BIT = []() consteval {
+    std::array<uint256, 256> table{};
+
+    for (int i = 0; i < 256; ++i)
+    {
+        std::array<std::uint8_t, 32> bytes{};
+        bytes[31 - (i / 8)] = 1 << (i % 8);
+        table[i] = uint256(bytes);
+    }
+
+    return table;
+}();
+
 struct HookContext;
 struct HookResult;
 bool
@@ -80,11 +95,29 @@ namespace hook_api {
 
 namespace hook {
 
-bool
-canHook(ripple::TxType txType, ripple::uint256 hookOn);
+// Called by Transactor.cpp to determine if a transaction type can trigger a
+// given hook... The HookOn field in the SetHook transaction determines which
+// transaction types (tt's) trigger the hook. Every bit except ttHookSet is
+// active low, so for example ttESCROW_FINISH = 2, so if the 2nd bit (counting
+// from 0) from the right is 0 then the hook will trigger on ESCROW_FINISH. If
+// it is 1 then ESCROW_FINISH will not trigger the hook. However ttHOOK_SET = 22
+// is active high, so by default (HookOn == 0) ttHOOK_SET is not triggered by
+// transactions. If you wish to set a hook that has control over ttHOOK_SET then
+// set bit 1U<<22.
+[[nodiscard]] constexpr bool
+canHook(ripple::TxType txType, ripple::uint256 const& hookOn) noexcept
+{
+    // invert ttHOOK_SET bit
+    auto temp = (hookOn ^ UINT256_BIT[ttHOOK_SET]);
 
-bool
-canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit);
+    return (UINT256_BIT[txType] & ~temp) != beast::zero;
+}
+
+[[nodiscard]] constexpr bool
+canEmit(ripple::TxType txType, ripple::uint256 const& hookCanEmit) noexcept
+{
+    return hook::canHook(txType, hookCanEmit);
+}
 
 ripple::uint256
 getHookCanEmit(ripple::STObject const& hookObj, SLE::pointer const& hookDef);

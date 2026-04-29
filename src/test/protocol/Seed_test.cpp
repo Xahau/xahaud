@@ -51,18 +51,10 @@ public:
 
             for (std::uint8_t i = 0; i < 64; i++)
             {
-                beast::rngfill(src, sizeof(src), default_prng());
-                Seed const seed({src, sizeof(src)});
+                beast::rngfill(src, default_prng());
+                Seed const seed(src);
                 BEAST_EXPECT(memcmp(seed.data(), src, sizeof(src)) == 0);
             }
-        }
-
-        for (int i = 0; i < 64; i++)
-        {
-            uint128 src;
-            beast::rngfill(src.data(), src.size(), default_prng());
-            Seed const seed(src);
-            BEAST_EXPECT(memcmp(seed.data(), src.data(), src.size()) == 0);
         }
     }
 

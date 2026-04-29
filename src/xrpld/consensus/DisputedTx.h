@@ -238,17 +238,17 @@ DisputedTx<Tx_t, NodeID_t>::updateVote(
 
     if (newPosition == ourVote_)
     {
-        JLOG(j_.info()) << "No change (" << (ourVote_ ? "YES" : "NO")
-                        << ") : weight " << weight << ", percent "
-                        << percentTime;
-        JLOG(j_.debug()) << Json::Compact{getJson()};
+        JLOG(j_.debug()) << "No change (" << (ourVote_ ? "YES" : "NO")
+                         << ") : weight " << weight << ", percent "
+                         << percentTime;
+        JLOG(j_.trace()) << Json::Compact{getJson()};
         return false;
     }
 
     ourVote_ = newPosition;
     JLOG(j_.debug()) << "We now vote " << (ourVote_ ? "YES" : "NO") << " on "
                      << tx_.id();
-    JLOG(j_.debug()) << Json::Compact{getJson()};
+    JLOG(j_.trace()) << Json::Compact{getJson()};
     return true;
 }
 
