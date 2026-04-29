@@ -195,6 +195,71 @@ STTx::getTransactionID() const
     return tid_;
 }
 
+//------------------------------------------------------------------------------
+// Multi-sign depth and leaf limits
+//------------------------------------------------------------------------------
+
+/** Maximum nesting depth for nested multi-signing (featureNestedMultiSign). */
+constexpr int nestedMultiSignMaxDepth = 4;
+
+/** Maximum nesting depth when nested multi-signing is disabled (flat only). */
+constexpr int legacyMultiSignMaxDepth = 1;
+
+/** Maximum total leaf signers across the entire nested tree.
+    Bounds worst-case signature verification cost. Only enforced when
+    featureNestedMultiSign is enabled; flat signing is already capped by the
+    per-array multisign limit.
+*/
+constexpr std::size_t nestedMultiSignMaxLeafSigners = 64;
+
+//------------------------------------------------------------------------------
+// Multi-sign signer entry helpers
+//------------------------------------------------------------------------------
+
+/** Count populated fields in an STObject.
+    STObject::getCount() includes template slots for optional fields that are
+    not present. Signer shape validation needs only populated fields.
+*/
+inline std::size_t
+countPresentFields(STObject const& obj)
+{
+    std::size_t count = 0;
+    for (auto const& field : obj)
+    {
+        if (field.getSType() != STI_NOTPRESENT)
+            ++count;
+    }
+    return count;
+}
+
+/** A leaf signer has Account + SigningPubKey + TxnSignature only. */
+inline bool
+isLeafSigner(STObject const& signer)
+{
+    return signer.isFieldPresent(sfAccount) &&
+        signer.isFieldPresent(sfSigningPubKey) &&
+        signer.isFieldPresent(sfTxnSignature) &&
+        !signer.isFieldPresent(sfSigners) && countPresentFields(signer) == 3;
+}
+
+/** A nested signer has Account + Signers only. */
+inline bool
+isNestedSigner(STObject const& signer)
+{
+    return signer.isFieldPresent(sfAccount) &&
+        signer.isFieldPresent(sfSigners) &&
+        !signer.isFieldPresent(sfSigningPubKey) &&
+        !signer.isFieldPresent(sfTxnSignature) &&
+        countPresentFields(signer) == 2;
+}
+
+/** True when a signer entry is either a valid leaf or a valid nested signer. */
+inline bool
+isValidSignerEntry(STObject const& signer)
+{
+    return isLeafSigner(signer) || isNestedSigner(signer);
+}
+
 }  // namespace ripple
 
 #endif

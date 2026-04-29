@@ -1750,7 +1750,7 @@ public:
                 msig({msigner(f2, msigner(f3))}),
                 L(),
                 fee(3 * baseFee),
-                ter(temINVALID));
+                ter(telENV_RPC_FAILED));
             env.close();
             BEAST_EXPECT(env.seq(f1) == f1Seq);
             return;
@@ -2098,6 +2098,58 @@ public:
             // Test that direct signer still works normally
             aliceSeq = env.seq(alice);
             env(noop(alice), msig({msigner(bogie)}), L(), fee(3 * baseFee));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+        }
+
+        // Test Case 6b: Unauthorized cyclic nested signer must be rejected.
+        // Validates that parent-edge authorization happens before cycle skip.
+        {
+            testcase("Cycle Detection - Unauthorized Cyclic Signer Rejected");
+
+            env(signers(alice, jtx::none));
+            env(signers(becky, jtx::none));
+            env(signers(cheri, jtx::none));
+            env.close();
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{cheri, 1}}));
+            // cheri can only be signed by demon. becky is not authorized here.
+            env(signers(cheri, 1, {{demon, 1}}));
+            env.close();
+
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(
+                    becky, msigner(cheri, msigner(becky), msigner(demon)))}),
+                L(),
+                fee(4 * baseFee),
+                ter(tefBAD_SIGNATURE));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
+
+        // Test Case 6c: Authorized cyclic nested signer is ignored and the
+        // non-cyclic path can still satisfy the cycle-adjusted quorum.
+        {
+            testcase("Cycle Detection - Authorized Cyclic Signer Ignored");
+
+            env(signers(alice, jtx::none));
+            env(signers(becky, jtx::none));
+            env(signers(cheri, jtx::none));
+            env.close();
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{cheri, 1}}));
+            env(signers(cheri, 1, {{becky, 1}, {demon, 1}}));
+            env.close();
+
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(
+                    becky, msigner(cheri, msigner(becky), msigner(demon)))}),
+                L(),
+                fee(4 * baseFee));
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
         }
@@ -2462,6 +2514,105 @@ public:
             env.close();
             BEAST_EXPECT(env.seq(alice) == aliceSeq);
         }
+
+        // Test Case 16: Total leaf signer cap is enforced across the full
+        // nested tree, not per branch.
+        {
+            testcase("Nested Leaf Cap");
+
+            std::vector<Account> leaves;
+            leaves.reserve(65);
+            for (int i = 0; i < 65; ++i)
+                leaves.emplace_back(
+                    "leaf" + std::to_string(i), KeyType::secp256k1);
+            for (auto const& leaf : leaves)
+                env.fund(XRP(1000), leaf);
+            env.close();
+
+            // 65 leaves: becky(22) + cheri(22) + daria(21). Each signer list
+            // is within the per-list cap, but the full tree exceeds the global
+            // nested leaf cap.
+            env(signers(alice, 3, {{becky, 1}, {cheri, 1}, {daria, 1}}));
+            {
+                std::vector<signer> list;
+                for (int i = 0; i < 22; ++i)
+                    list.emplace_back(leaves[i], 1);
+                env(signers(becky, 1, list));
+            }
+            {
+                std::vector<signer> list;
+                for (int i = 22; i < 44; ++i)
+                    list.emplace_back(leaves[i], 1);
+                env(signers(cheri, 1, list));
+            }
+            {
+                std::vector<signer> list;
+                for (int i = 44; i < 65; ++i)
+                    list.emplace_back(leaves[i], 1);
+                env(signers(daria, 1, list));
+            }
+            env.close();
+
+            auto makeNested = [](Account const& acct,
+                                 std::vector<msig::SignerPtr> children) {
+                return std::make_shared<msig::Signer>(
+                    acct, std::move(children));
+            };
+
+            std::vector<msig::SignerPtr> beckyChildren;
+            for (int i = 0; i < 22; ++i)
+                beckyChildren.push_back(msigner(leaves[i]));
+            std::vector<msig::SignerPtr> cheriChildren;
+            for (int i = 22; i < 44; ++i)
+                cheriChildren.push_back(msigner(leaves[i]));
+            std::vector<msig::SignerPtr> dariaChildren;
+            for (int i = 44; i < 65; ++i)
+                dariaChildren.push_back(msigner(leaves[i]));
+
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig(
+                    {makeNested(becky, std::move(beckyChildren)),
+                     makeNested(cheri, std::move(cheriChildren)),
+                     makeNested(daria, std::move(dariaChildren))}),
+                fee(66 * baseFee),
+                ter(telENV_RPC_FAILED));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+
+            // Exactly 64 leaves succeeds: becky(32) + cheri(32).
+            env(signers(alice, 2, {{becky, 1}, {cheri, 1}}));
+            {
+                std::vector<signer> list;
+                for (int i = 0; i < 32; ++i)
+                    list.emplace_back(leaves[i], 1);
+                env(signers(becky, 1, list));
+            }
+            {
+                std::vector<signer> list;
+                for (int i = 32; i < 64; ++i)
+                    list.emplace_back(leaves[i], 1);
+                env(signers(cheri, 1, list));
+            }
+            env.close();
+
+            std::vector<msig::SignerPtr> beckyLeaves;
+            for (int i = 0; i < 32; ++i)
+                beckyLeaves.push_back(msigner(leaves[i]));
+            std::vector<msig::SignerPtr> cheriLeaves;
+            for (int i = 32; i < 64; ++i)
+                cheriLeaves.push_back(msigner(leaves[i]));
+
+            aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig(
+                    {makeNested(becky, std::move(beckyLeaves)),
+                     makeNested(cheri, std::move(cheriLeaves))}),
+                fee(65 * baseFee),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+        }
     }
 
     void
@@ -2518,6 +2669,55 @@ public:
     }
 
     void
+    test_countPresentFields()
+    {
+        testcase("countPresentFields vs getCount");
+
+        // The sfSigner template has four slots. getCount() includes template
+        // slots, but signer-shape validation needs only populated fields.
+        {
+            STObject signer(sfSigner);
+            signer.setAccountID(sfAccount, bogie.id());
+            signer.setFieldVL(sfSigningPubKey, Blob(33, 0x02));
+            signer.setFieldVL(sfTxnSignature, Blob(64, 0xAA));
+            signer.applyTemplateFromSField(sfSigner);
+
+            BEAST_EXPECT(signer.getCount() == 4);
+            BEAST_EXPECT(countPresentFields(signer) == 3);
+            BEAST_EXPECT(isLeafSigner(signer));
+            BEAST_EXPECT(!isNestedSigner(signer));
+            BEAST_EXPECT(isValidSignerEntry(signer));
+        }
+
+        {
+            STObject signer(sfSigner);
+            signer.setAccountID(sfAccount, demon.id());
+            signer.setFieldArray(sfSigners, STArray{});
+            signer.applyTemplateFromSField(sfSigner);
+
+            BEAST_EXPECT(signer.getCount() == 4);
+            BEAST_EXPECT(countPresentFields(signer) == 2);
+            BEAST_EXPECT(!isLeafSigner(signer));
+            BEAST_EXPECT(isNestedSigner(signer));
+            BEAST_EXPECT(isValidSignerEntry(signer));
+        }
+
+        {
+            STObject signer(sfSigner);
+            signer.setAccountID(sfAccount, ghost.id());
+            signer.setFieldVL(sfSigningPubKey, Blob(33, 0x02));
+            signer.setFieldVL(sfTxnSignature, Blob(64, 0xAA));
+            signer.setFieldArray(sfSigners, STArray{});
+            signer.applyTemplateFromSField(sfSigner);
+
+            BEAST_EXPECT(countPresentFields(signer) == 4);
+            BEAST_EXPECT(!isLeafSigner(signer));
+            BEAST_EXPECT(!isNestedSigner(signer));
+            BEAST_EXPECT(!isValidSignerEntry(signer));
+        }
+    }
+
+    void
     run() override
     {
         using namespace jtx;
@@ -2535,6 +2735,7 @@ public:
         testAll(all);
 
         test_signerListSetFlags(all);
+        test_countPresentFields();
 
         test_amendmentTransition();
     }

@@ -1834,14 +1834,21 @@ public:
             testMalformedSigningAccount(soTest1, true);
         }
 
-        /*{ // RHNOTE: featureNestedMultiSign covers this in the
-        checkMultiSign()
-            // Test case 2.  Omit sfSigningPubKey from SigningAccount.
+        {
+            // Test case 2. Omit sfSigningPubKey from SigningAccount.
+            // With nested multi-sign, sfSigningPubKey is optional in the
+            // template, so serialization succeeds. The signer-shape helpers
+            // still reject {Account + TxnSignature} as neither leaf nor nested.
             STObject soTest2(sfSigner);
             soTest2.setAccountID(sfAccount, id2);
             soTest2.setFieldVL(sfTxnSignature, saMultiSignature);
-            testMalformedSigningAccount(soTest2, false);
-        }*/
+            testMalformedSigningAccount(soTest2, true);
+
+            soTest2.applyTemplateFromSField(sfSigner);
+            BEAST_EXPECT(!isLeafSigner(soTest2));
+            BEAST_EXPECT(!isNestedSigner(soTest2));
+            BEAST_EXPECT(!isValidSignerEntry(soTest2));
+        }
         {
             // Test case 3.  Extra sfAmount in SigningAccount.
             STObject soTest3(sfSigner);

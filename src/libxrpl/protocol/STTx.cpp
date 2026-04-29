@@ -370,11 +370,6 @@ STTx::checkMultiSign(
 
     STArray const& signers{getFieldArray(sfSigners)};
 
-    // There are well known bounds that the number of signers must be within.
-    if (signers.size() < minMultiSigners ||
-        signers.size() > maxMultiSigners(&rules))
-        return Unexpected("Invalid Signers array size.");
-
     // We can ease the computational load inside the loop a bit by
     // pre-constructing part of the data that we hash.  Fill a Serializer
     // with the stuff that stays constant from signature to signature.
@@ -390,18 +385,23 @@ STTx::checkMultiSign(
     bool const isWildcardNetwork =
         isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535;
 
-    // Set max depth based on feature flag
-    int const maxDepth = rules.enabled(featureNestedMultiSign) ? 4 : 1;
+    // Set max depth and leaf cap based on feature flag.
+    bool const nested = rules.enabled(featureNestedMultiSign);
+    int const maxDepth =
+        nested ? nestedMultiSignMaxDepth : legacyMultiSignMaxDepth;
+    std::size_t const maxLeafSigners =
+        nested ? nestedMultiSignMaxLeafSigners : maxMultiSigners(&rules);
+    std::size_t totalLeafSigners = 0;
 
-    // Define recursive lambda for checking signatures at any depth
+    // Define recursive lambda for checking signatures at any depth.
     std::function<Expected<void, std::string>(
         STArray const&, AccountID const&, int)>
         checkSignersArray;
 
     checkSignersArray = [&](STArray const& signersArray,
-                            AccountID const& parentAccountID,
+                            [[maybe_unused]] AccountID const& parentAccountID,
                             int depth) -> Expected<void, std::string> {
-        // Check depth limit
+        // Check depth limit.
         if (depth > maxDepth)
             return Unexpected("Multi-signing depth limit exceeded.");
 
@@ -426,47 +426,29 @@ STTx::checkMultiSign(
             if (lastAccountID == accountID)
                 return Unexpected("Duplicate Signers not allowed.");
 
-            // Accounts must be in order by account ID.  No duplicates allowed.
+            // Accounts must be in order by account ID. No duplicates allowed.
             if (lastAccountID > accountID)
                 return Unexpected("Unsorted Signers array.");
 
             // The next signature must be greater than this one.
             lastAccountID = accountID;
 
-            // Check if this signer has nested signers
-            if (signer.isFieldPresent(sfSigners))
+            if (isNestedSigner(signer))
             {
-                // This is a nested multi-signer
-                if (maxDepth == 1)
-                {
-                    // amendment is not enabled, this is an error
+                if (!nested)
                     return Unexpected("FeatureNestedMultiSign is disabled");
-                }
 
-                // Ensure it doesn't also have signature fields
-                if (signer.isFieldPresent(sfSigningPubKey) ||
-                    signer.isFieldPresent(sfTxnSignature))
-                    return Unexpected(
-                        "Signer cannot have both nested signers and signature "
-                        "fields.");
-
-                // Recursively check nested signers
                 STArray const& nestedSigners = signer.getFieldArray(sfSigners);
                 auto result =
                     checkSignersArray(nestedSigners, accountID, depth + 1);
                 if (!result)
                     return result;
             }
-            else
+            else if (isLeafSigner(signer))
             {
-                // This is a leaf node - must have signature
-                if (!signer.isFieldPresent(sfSigningPubKey) ||
-                    !signer.isFieldPresent(sfTxnSignature))
-                    return Unexpected(
-                        "Leaf signer must have SigningPubKey and "
-                        "TxnSignature.");
+                if (++totalLeafSigners > maxLeafSigners)
+                    return Unexpected(std::string("Too many leaf signers."));
 
-                // Verify the signature
                 bool validSig = false;
                 try
                 {
@@ -498,12 +480,18 @@ STTx::checkMultiSign(
                         std::string("Invalid signature on account ") +
                         toBase58(accountID) + ".");
             }
+            else
+            {
+                return Unexpected(
+                    std::string("Malformed signer entry for account ") +
+                    toBase58(accountID) + ".");
+            }
         }
 
         return {};
     };
 
-    // Start the recursive check at depth 1
+    // Start the recursive check at depth 1.
     return checkSignersArray(signers, txnAccountID, 1);
 }
 
