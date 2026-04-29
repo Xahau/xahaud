@@ -402,7 +402,7 @@ NoZeroEscrow::finalize(
     if (bad_ && rv.rules().enabled(featurePaychanAndEscrowForTokens) &&
         txn.isFieldPresent(sfTransactionType))
     {
-        uint16_t const tt = txn.getFieldU16(sfTransactionType);
+        TxType const& tt = txn.getTxnType();
         if (tt == ttESCROW_CANCEL || tt == ttESCROW_FINISH)
             return true;
 
