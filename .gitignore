@@ -129,3 +129,6 @@ generated
 
 # Suggested in-tree build directory
 /.build/
+
+guard_checker
+guard_checker.dSYM

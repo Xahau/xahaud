@@ -2972,6 +2972,809 @@ public:
     }
 
     void
+    testHelperFunctions(FeatureBitset features)
+    {
+        testcase("Test helper functions and recursion detection");
+        using namespace jtx;
+        Env env{*this, features};
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        // Test 1: Valid helper function without loops - should pass
+        {
+            /*
+            #include <stdint.h>
+            extern int32_t _g(uint32_t id, uint32_t maxiter);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t
+                                  error_code);
+            extern int64_t hook_pos(void);
+
+            int64_t helper(int64_t n) { return n + hook_pos(); }
+
+            int64_t cbak(uint32_t reserved) {
+                _g(1, 1);
+                int64_t result = helper(34);
+                return accept(0, 0, result);
+            }
+
+            int64_t hook(uint32_t reserved) {
+                _g(1, 1);
+                int64_t result = helper(5);
+                return accept(0, 0, result);
+            }
+            */
+            TestHook hook_wasm = wasm[R"[test.hook](
+                (module
+                    (type (;0;) (func (param i32) (result i64)))
+                    (type (;1;) (func (result i64)))
+                    (type (;2;) (func (param i32 i32) (result i32)))
+                    (type (;3;) (func (param i32 i32 i64) (result i64)))
+                    (type (;4;) (func (param i64) (result i64)))
+                    (import "env" "hook_pos" (func (;0;) (type 1)))
+                    (import "env" "_g" (func (;1;) (type 2)))
+                    (import "env" "accept" (func (;2;) (type 3)))
+                    (func (;3;) (type 4) (param i64) (result i64)
+                        call 0
+                        local.get 0
+                        i64.add)
+                    (func (;4;) (type 0) (param i32) (result i64)
+                        i32.const 1
+                        i32.const 1
+                        call 1
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        i64.const 34
+                        call 3
+                        call 2)
+                    (func (;5;) (type 0) (param i32) (result i64)
+                        i32.const 1
+                        i32.const 1
+                        call 1
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        i64.const 5
+                        call 3
+                        call 2)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "cbak" (func 4))
+                    (export "hook" (func 5)))
+            )[test.hook]"];
+            HASH_WASM(hook);
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
+                M("Valid helper function without loops"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+            EXPECT_HOOK_FEE(hook, 14);
+
+            env(pay(bob, alice, XRP(1)), M("Test helper 1"), fee(XRP(1)));
+            env.close();
+        }
+
+        // Test 2: Helper function with guarded loop - should pass
+        {
+            /*
+            #include <stdint.h>
+            extern int32_t _g(uint32_t id, uint32_t maxiter);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t
+            error_code); extern int64_t hook_pos(void);
+
+            int64_t helper(int64_t n) {
+                int64_t sum = 0;
+                for (int i = 0; i < 3; ++i) {
+                    _g(2, 4);
+                    sum += i * n;
+                }
+                return sum;
+            }
+
+            int64_t cbak(uint32_t reserved) {
+                _g(1, 1);
+                int64_t result = helper(2);
+                return accept(0, 0, result);
+            }
+
+            int64_t hook(uint32_t reserved) {
+                _g(1, 1);
+                int64_t result = helper(3);
+                return accept(0, 0, result);
+            }
+            */
+            TestHook hook_wasm = wasm[R"[test.hook](
+                (module
+                    (type (;0;) (func (param i32) (result i64)))
+                    (type (;1;) (func (param i32 i32) (result i32)))
+                    (type (;2;) (func (param i32 i32 i64) (result i64)))
+                    (type (;3;) (func (param i64) (result i64)))
+                    (import "env" "_g" (func (;0;) (type 1)))
+                    (import "env" "accept" (func (;1;) (type 2)))
+                    (func (;2;) (type 0) (param i32) (result i64)
+                        i32.const 1
+                        i32.const 1
+                        call 0
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        i64.const 3
+                        call 3
+                        call 1)
+                    (func (;3;) (type 3) (param i64) (result i64)
+                        i32.const 2
+                        i32.const 4
+                        call 0
+                        drop
+                        i32.const 2
+                        i32.const 4
+                        call 0
+                        drop
+                        i32.const 2
+                        i32.const 4
+                        call 0
+                        drop
+                        local.get 0
+                        i64.const 3
+                        i64.mul)
+                    (func (;4;) (type 0) (param i32) (result i64)
+                        i32.const 1
+                        i32.const 1
+                        call 0
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        i64.const 2
+                        call 3
+                        call 1)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 2))
+                    (export "cbak" (func 4)))
+            )[test.hook]"];
+            HASH_WASM(hook);
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
+                M("Helper function with guarded loop"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+            EXPECT_HOOK_FEE(hook, 26);
+
+            env(pay(bob, alice, XRP(1)), M("Test helper 2"), fee(XRP(1)));
+            env.close();
+        }
+
+        // Test 3: Direct recursion - should fail
+        {
+            /*
+            #include <stdint.h>
+            extern int32_t _g(uint32_t id, uint32_t maxiter);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t
+                                  error_code);
+            extern int64_t hook_pos(void);
+
+            int64_t recursive_func(int64_t n) {
+              if (n <= 0)
+                return 0;
+              return n + recursive_func(n - hook_pos());
+            }
+            int64_t cbak(uint32_t reserved) {
+              _g(1, 1);
+              int64_t result = recursive_func(5);
+              return accept(0, 0, result);
+            }
+
+            int64_t hook(uint32_t reserved) {
+              _g(1, 1);
+              int64_t result = recursive_func(10);
+              return accept(0, 0, result);
+            }
+
+            */
+            TestHook hook = wasm[R"[test.hook](
+            (module
+                (type (;0;) (func (param i32) (result i64)))
+                (type (;1;) (func (param i32 i32) (result i32)))
+                (type (;2;) (func (param i32 i32 i64) (result i64)))
+                (type (;3;) (func (result i64)))
+                (type (;4;) (func (param i64) (result i64)))
+                (import "env" "_g" (func $g (type 1)))
+                (import "env" "accept" (func $accept (type 2)))
+                (import "env" "hook_pos" (func $hook_pos (type 3)))
+                (func $recursive_func (type 4) (param $n i64) (result i64)
+                    (if (result i64)
+                    (i64.le_s (local.get $n) (i64.const 0))
+                    (then
+                        (i64.const 0)
+                    )
+                    (else
+                        (i64.add
+                        (local.get $n)
+                        (call $recursive_func
+                            (i64.sub (local.get $n) (call $hook_pos))
+                        )
+                        )
+                    )
+                    )
+                )
+                (func (;3;) (type 0) (param i32) (result i64) ;; cbak
+                    i32.const 1
+                    i32.const 1
+                    call $g
+                    drop
+                    i32.const 0
+                    i32.const 0
+                    i64.const 5
+                    call $recursive_func
+                    call $accept
+                )
+                (func (;5;) (type 0) (param i32) (result i64) ;; hook
+                    i32.const 1
+                    i32.const 1
+                    call $g
+                    drop
+                    i32.const 0
+                    i32.const 0
+                    i64.const 10
+                    call $recursive_func
+                    call $accept
+                )
+                (memory (;0;) 2)
+                (export "memory" (memory 0))
+                (export "cbak" (func 3))
+                (export "hook" (func 5)))
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(alice, {{hso(hook)}}, 0),
+                M("Direct recursion should fail"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // Test 4: Indirect recursion (A -> B -> A) - should fail
+        {
+            /*
+            #include <stdint.h>
+            extern int32_t _g(uint32_t id, uint32_t maxiter);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t
+            error_code);
+
+            int64_t func_b(int64_t n);
+
+            int64_t func_a(int64_t n) {
+              if (n <= 0)
+                return 0;
+              return n + func_b(n - 1);
+            }
+
+            int64_t func_b(int64_t n) {
+              if (n <= 0)
+                return 0;
+              return n + func_a(n - 1);
+            }
+
+            int64_t cbak(uint32_t reserved) {
+              _g(1, 1);
+              int64_t result = func_a(5);
+              return accept(0, 0, result);
+            }
+
+            int64_t hook(uint32_t reserved) {
+              _g(1, 1);
+              int64_t result = func_a(10);
+              return accept(0, 0, result);
+            }
+
+            */
+            TestHook hook = wasm[R"[test.hook](
+            (module
+                (import "env" "_g" (func $_g (param i32 i32) (result i32)))
+                (import "env" "accept" (func $accept (param i32 i32 i64) (result i64)))
+                (type $func_type (func (param i64) (result i64)))
+                (func $func_b (param $n i64) (result i64)
+                    (if (result i64)
+                    (i64.le_s (local.get $n) (i64.const 0))
+                    (then
+                        (i64.const 0)
+                    )
+                    (else
+                        (i64.add
+                        (local.get $n)
+                        (call $func_a
+                            (i64.sub (local.get $n) (i64.const 1))
+                        )
+                        )
+                    )
+                    )
+                )
+                (func $func_a (param $n i64) (result i64)
+                    (if (result i64)
+                    (i64.le_s (local.get $n) (i64.const 0))
+                    (then
+                        (i64.const 0)
+                    )
+                    (else
+                        (i64.add
+                        (local.get $n)
+                        (call $func_b
+                            (i64.sub (local.get $n) (i64.const 1))
+                        )
+                        )
+                    )
+                    )
+                )
+                (func $cbak (param $reserved i32) (result i64)
+                    (local $result i64)
+                    (drop (call $_g (i32.const 1) (i32.const 1)))
+                    (local.set $result (call $func_a (i64.const 5)))
+                    (call $accept (i32.const 0) (i32.const 0) (local.get $result))
+                )
+                (func $hook (param $reserved i32) (result i64)
+                    (local $result i64)
+                    (drop (call $_g (i32.const 1) (i32.const 1)))
+                    (local.set $result (call $func_a (i64.const 10)))
+                    (call $accept (i32.const 0) (i32.const 0) (local.get $result))
+                )
+                (export "cbak" (func $cbak))
+                (export "hook" (func $hook)))
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(alice, {{hso(hook)}}, 0),
+                M("Indirect recursion should fail"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // Test 5: Deep call chain (A -> B -> C -> D) - should pass if WCE is OK
+        {
+            /*
+            #include <stdint.h>
+            extern int32_t _g(uint32_t id, uint32_t maxiter);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t
+                                  error_code);
+            extern int64_t hook_pos(void);
+
+            int64_t helper(int64_t n) { return n + hook_pos(); }
+
+            int64_t cbak(uint32_t reserved) {
+                _g(1, 1);
+                int64_t result = helper(34);
+                return accept(0, 0, result);
+            }
+
+            int64_t hook(uint32_t reserved) {
+                _g(1, 1);
+                int64_t result = helper(5);
+                return accept(0, 0, result);
+            }
+            */
+            TestHook hook_wasm = wasm[R"[test.hook](
+                (module
+                    (type (;0;) (func (param i32) (result i64)))
+                    (type (;1;) (func (result i64)))
+                    (type (;2;) (func (param i32 i32) (result i32)))
+                    (type (;3;) (func (param i32 i32 i64) (result i64)))
+                    (type (;4;) (func (param i64) (result i64)))
+                    (import "env" "hook_pos" (func (;0;) (type 1)))
+                    (import "env" "_g" (func (;1;) (type 2)))
+                    (import "env" "accept" (func (;2;) (type 3)))
+                    (func (;3;) (type 4) (param i64) (result i64)
+                        call 0
+                        local.get 0
+                        i64.add)
+                    (func (;4;) (type 0) (param i32) (result i64)
+                        i32.const 1
+                        i32.const 1
+                        call 1
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        i64.const 34
+                        call 3
+                        call 2)
+                    (func (;5;) (type 0) (param i32) (result i64)
+                        i32.const 1
+                        i32.const 1
+                        call 1
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        i64.const 5
+                        call 3
+                        call 2)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "cbak" (func 4))
+                    (export "hook" (func 5)))
+            )[test.hook]"];
+            HASH_WASM(hook);
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
+                M("Deep call chain without recursion"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+            EXPECT_HOOK_FEE(hook, 14);
+
+            env(pay(bob, alice, XRP(1)), M("Test helper 5"), fee(XRP(1)));
+            env.close();
+        }
+
+        // Test 6: Helper called multiple times - WCE should accumulate
+        {
+            /*
+            #include <stdint.h>
+            extern int32_t _g(uint32_t id, uint32_t maxiter);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t
+            error_code);
+
+            int64_t expensive_helper() {
+              int64_t sum = 0;
+              for (int i = 0; i < 100; ++i) {
+                _g(2, 301);
+                sum += i;
+              }
+              return sum;
+            }
+
+            int64_t hook(uint32_t reserved) {
+              _g(1, 1);
+              int64_t result = 0;
+              result += expensive_helper();
+              result += expensive_helper();
+              result += expensive_helper();
+              return accept(0, 0, result);
+            }
+            */
+
+            TestHook hook_wasm = wasm[R"[test.hook](
+                (module
+                    (type (;0;) (func (param i32 i32) (result i32)))
+                    (type (;1;) (func (param i32 i32 i64) (result i64)))
+                    (type (;2;) (func (result i64)))
+                    (type (;3;) (func (param i32) (result i64)))
+                    (import "env" "_g" (func (;0;) (type 0)))
+                    (import "env" "accept" (func (;1;) (type 1)))
+                    (func (;2;) (type 2) (result i64)
+                        (local i64)
+                        i64.const 100
+                        local.set 0
+                        loop  ;; label = @1
+                        i32.const 2
+                        i32.const 301
+                        call 0
+                        drop
+                        local.get 0
+                        i64.const 1
+                        i64.sub
+                        local.tee 0
+                        i64.eqz
+                        i32.eqz
+                        br_if 0 (;@1;)
+                        end
+                        i64.const 4950)
+                    (func (;3;) (type 3) (param i32) (result i64)
+                        i32.const 1
+                        i32.const 1
+                        call 0
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        call 2
+                        call 2
+                        i64.add
+                        call 2
+                        i64.add
+                        call 1)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 3)))
+            )[test.hook]"];
+            HASH_WASM(hook);
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
+                M("Helper called multiple times"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+            EXPECT_HOOK_FEE(hook, 2727);
+
+            env(pay(bob, alice, XRP(1)), M("Test helper 6"), fee(XRP(1)));
+            env.close();
+        }
+
+        // Test 7: WCE overflow through many helpers - should fail
+        {
+            /*
+            #include <stdint.h>
+            extern int32_t _g(uint32_t id, uint32_t maxiter);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t
+            error_code);
+
+            int64_t large_helper(int64_t n) {
+              int64_t sum = n;
+              for (int i = 0; i < 10000; ++i) {
+                _g(2, 10001);
+                sum += i;
+              }
+              return sum;
+            }
+
+            int64_t cbak(uint32_t reserved) {
+              _g(1, 1);
+              int64_t result = 10;
+              for (int i = 0; i < 10; ++i) {
+                _g(3, 11);
+                result += large_helper(10);
+              }
+              return accept(0, 0, result);
+            }
+
+            int64_t hook(uint32_t reserved) {
+              _g(1, 1);
+              int64_t result = 0;
+              for (int i = 0; i < 10; ++i) {
+                _g(3, 11);
+                result += large_helper(0);
+              }
+              return accept(0, 0, result);
+            }
+
+            */
+            TestHook hook = wasm[R"[test.hook](
+                (module
+                    (type (;0;) (func (param i32) (result i64)))
+                    (type (;1;) (func (param i32 i32) (result i32)))
+                    (type (;2;) (func (param i32 i32 i64) (result i64)))
+                    (type (;3;) (func (param i64) (result i64)))
+                    (import "env" "_g" (func (;0;) (type 1)))
+                    (import "env" "accept" (func (;1;) (type 2)))
+                    (func (;2;) (type 0) (param i32) (result i64)
+                        (local i64)
+                        i32.const 1
+                        i32.const 1
+                        call 0
+                        drop
+                        i32.const 10
+                        local.set 0
+                        i64.const 10
+                        local.set 1
+                        loop  ;; label = @1
+                        i32.const 3
+                        i32.const 11
+                        call 0
+                        drop
+                        i64.const 10
+                        call 3
+                        local.get 1
+                        i64.add
+                        local.set 1
+                        local.get 0
+                        i32.const 1
+                        i32.sub
+                        local.tee 0
+                        br_if 0 (;@1;)
+                        end
+                        i32.const 0
+                        i32.const 0
+                        local.get 1
+                        call 1)
+                    (func (;3;) (type 3) (param i64) (result i64)
+                        (local i64)
+                        i64.const 10000
+                        local.set 1
+                        loop  ;; label = @1
+                        i32.const 2
+                        i32.const 10001
+                        call 0
+                        drop
+                        local.get 1
+                        i64.const 1
+                        i64.sub
+                        local.tee 1
+                        i64.eqz
+                        i32.eqz
+                        br_if 0 (;@1;)
+                        end
+                        local.get 0
+                        i64.const 49995000
+                        i64.add)
+                    (func (;4;) (type 0) (param i32) (result i64)
+                        (local i64)
+                        i32.const 1
+                        i32.const 1
+                        call 0
+                        drop
+                        i32.const 10
+                        local.set 0
+                        loop  ;; label = @1
+                        i32.const 3
+                        i32.const 11
+                        call 0
+                        drop
+                        i64.const 0
+                        call 3
+                        local.get 1
+                        i64.add
+                        local.set 1
+                        local.get 0
+                        i32.const 1
+                        i32.sub
+                        local.tee 0
+                        br_if 0 (;@1;)
+                        end
+                        i32.const 0
+                        i32.const 0
+                        local.get 1
+                        call 1)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "cbak" (func 2))
+                    (export "hook" (func 4)))
+            )[test.hook]"];
+
+            env(ripple::test::jtx::hook(alice, {{hso(hook)}}, 0),
+                M("WCE overflow through helpers"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // Test 8: guard inside guard
+        {
+            /*
+            #include <stdint.h>
+            extern int32_t _g(uint32_t id, uint32_t maxiter);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t
+            error_code);
+
+            int64_t helper(int64_t n) {
+                int64_t sum = n;
+                for (int i = 0; i < 100; ++i) {
+                    _g(2, 1000);
+                    sum += i;
+                }
+                return sum;
+            }
+
+            int64_t cbak(uint32_t reserved) {
+                _g(1, 1);
+                int64_t result = 10;
+                for (int i = 0; i < 10; ++i) {
+                    _g(3, 11);
+                    result += helper(10);
+                }
+                return accept(0, 0, result);
+            }
+
+            int64_t hook(uint32_t reserved) {
+                _g(1, 1);
+                int64_t result = 0;
+                for (int i = 0; i < 10; ++i) {
+                    _g(3, 11);
+                    result += helper(0);
+                }
+                return accept(0, 0, result);
+            }
+            */
+
+            TestHook hook_wasm = wasm[R"[test.hook](
+                (module
+                    (type (;0;) (func (param i32) (result i64)))
+                    (type (;1;) (func (param i32 i32) (result i32)))
+                    (type (;2;) (func (param i32 i32 i64) (result i64)))
+                    (type (;3;) (func (param i64) (result i64)))
+                    (import "env" "_g" (func (;0;) (type 1)))
+                    (import "env" "accept" (func (;1;) (type 2)))
+                    (func (;2;) (type 3) (param i64) (result i64)
+                        (local i64)
+                        i64.const 100
+                        local.set 1
+                        loop  ;; label = @1
+                        i32.const 2
+                        i32.const 1000
+                        call 0
+                        drop
+                        local.get 1
+                        i64.const 1
+                        i64.sub
+                        local.tee 1
+                        i64.eqz
+                        i32.eqz
+                        br_if 0 (;@1;)
+                        end
+                        local.get 0
+                        i64.const 4950
+                        i64.add)
+                    (func (;3;) (type 0) (param i32) (result i64)
+                        (local i64)
+                        i32.const 1
+                        i32.const 1
+                        call 0
+                        drop
+                        i32.const 10
+                        local.set 0
+                        i64.const 10
+                        local.set 1
+                        loop  ;; label = @1
+                        i32.const 3
+                        i32.const 11
+                        call 0
+                        drop
+                        i64.const 10
+                        call 2
+                        local.get 1
+                        i64.add
+                        local.set 1
+                        local.get 0
+                        i32.const 1
+                        i32.sub
+                        local.tee 0
+                        br_if 0 (;@1;)
+                        end
+                        i32.const 0
+                        i32.const 0
+                        local.get 1
+                        call 1)
+                    (func (;4;) (type 0) (param i32) (result i64)
+                        (local i64)
+                        i32.const 1
+                        i32.const 1
+                        call 0
+                        drop
+                        i32.const 10
+                        local.set 0
+                        loop  ;; label = @1
+                        i32.const 3
+                        i32.const 11
+                        call 0
+                        drop
+                        i64.const 0
+                        call 2
+                        local.get 1
+                        i64.add
+                        local.set 1
+                        local.get 0
+                        i32.const 1
+                        i32.sub
+                        local.tee 0
+                        br_if 0 (;@1;)
+                        end
+                        i32.const 0
+                        i32.const 0
+                        local.get 1
+                        call 1)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "cbak" (func 3))
+                    (export "hook" (func 4)))
+            )[test.hook]"];
+            HASH_WASM(hook);
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
+                M("guard inside guard"),
+                HSFEE,
+                ter(tesSUCCESS));
+            EXPECT_HOOK_FEE(hook, 9151);
+
+            env(pay(bob, alice, XRP(1)), M("Test helper 8"), fee(XRP(1)));
+            env.close();
+        }
+    }
+
+    void
     test_emit(FeatureBitset features)
     {
         testcase("Test emit");
@@ -14729,6 +15532,7 @@ public:
         test_rollback(features);
 
         testGuards(features);
+        testHelperFunctions(features);
 
         test_emit(features);  //
         test_prepare(features);

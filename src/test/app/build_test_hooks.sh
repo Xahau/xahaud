@@ -58,8 +58,21 @@ cat $INPUT_FILE | tr '\n' '\f' |
             then
                 echo '#include "api.h"' > "$WASM_DIR/test-$COUNTER-gen.c"
                 tr '\f' '\n' <<< $line >> "$WASM_DIR/test-$COUNTER-gen.c"
-                DECLARED="`tr '\f' '\n' <<< $line | grep  -E '(extern|define) ' | grep -Eo '[a-z\-\_]+ *\(' | grep -v 'sizeof' | sed -E 's/[^a-z\-\_]//g' | sort | uniq`"
-                USED="`tr '\f' '\n' <<< $line | grep -vE '(extern|define) ' | grep -Eo '[a-z\-\_]+\(' | grep -v 'sizeof' | sed -E 's/[^a-z\-\_]//g' | grep -vE '^(hook|cbak)' | sort | uniq`"
+                DECLARED="`tr '\f' '\n' <<< $line \
+                  | grep  -E '(extern|static|define) ' \
+                  | grep -Eo '[a-z\-\_]+ *\(' \
+                  | grep -v 'sizeof' \
+                  | sed -E 's/[^a-z\-\_]//g' \
+                  | grep -vE '^__attribute__$' \
+                  | sort | uniq`"
+
+                USED="`tr '\f' '\n' <<< $line \
+                  | grep -vE '(extern|static|define) ' \
+                  | grep -Eo '[a-z\-\_]+\(' \
+                  | grep -v 'sizeof' \
+                  | sed -E 's/[^a-z\-\_]//g' \
+                  | grep -vE '^(__attribute__|hook|cbak)$' \
+                  | sort | uniq`"
                 ONCE="`echo $DECLARED $USED | tr ' ' '\n' | sort | uniq -c | grep '1 ' | sed -E 's/^ *1 //g'`"
                 FILTER="`echo $DECLARED | tr ' ' '|' | sed -E 's/\|$//g'`"
                 UNDECL="`echo $ONCE | grep -v -E $FILTER 2>/dev/null || echo ''`"
@@ -69,7 +82,7 @@ cat $INPUT_FILE | tr '\n' '\f' |
                     echo "$line"
                     exit 1
                 fi
-                wasmcc -x c /dev/stdin -o /dev/stdout -O2 -Wl,--allow-undefined <<< "`tr '\f' '\n' <<< $line`" |
+                wasmcc -x c /dev/stdin -o /dev/stdout -O2 -Wl,--allow-undefined,--export=hook,--export=cbak <<< "`tr '\f' '\n' <<< $line`" |
                     hook-cleaner - - 2>/dev/null |
                     xxd -p -u -c 10 | 
                     sed -E 's/../0x&U,/g' | sed -E 's/^/    /g' >> $OUTPUT_FILE
