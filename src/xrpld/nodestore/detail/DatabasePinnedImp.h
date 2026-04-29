@@ -80,6 +80,22 @@ public:
         stop();
     }
 
+    // Total count of store() calls routed to the persistent backend
+    // (pinned types). Exposed for tests and diagnostics.
+    uint64_t
+    pinnedStoreCount() const
+    {
+        return pinnedStoreCount_.load(std::memory_order_relaxed);
+    }
+
+    // Total count of store() calls routed to the rotating backend
+    // (hot types). Exposed for tests and diagnostics.
+    uint64_t
+    hotStoreCount() const
+    {
+        return hotStoreCount_.load(std::memory_order_relaxed);
+    }
+
     // DatabaseRotating interface - delegates to rotating_
     void
     rotate(

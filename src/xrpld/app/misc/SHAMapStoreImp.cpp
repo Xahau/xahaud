@@ -21,6 +21,7 @@
 
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/detail/OnlineDeleteRanges.h>
 #include <xrpld/app/rdb/State.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/core/ConfigSections.h>
@@ -639,16 +640,15 @@ SHAMapStoreImp::clearSqlRanges(
     if (!m)
         return;
 
-    LedgerIndex minSeq = *m;
-    if (minSeq >= lastRotated || healthWait() == stopping)
+    if (healthWait() == stopping)
         return;
 
-    // base window [minSeq, lastRotated-1]
-    RangeSet<std::uint32_t> target;
-    target.insert(range(minSeq, lastRotated - 1));
-
-    // subtract pins -> disjoint deletable intervals
-    target -= pinned;
+    // The pure interval-math is in detail::computeOnlineDeleteTargets so
+    // it can be unit-tested without spinning up SHAMapStoreImp. It
+    // returns the disjoint deletable intervals after subtracting pinned
+    // ranges from the base window [minSeq, lastRotated - 1].
+    auto const target =
+        detail::computeOnlineDeleteTargets(*m, lastRotated, pinned);
     if (target.empty())
     {
         JLOG(journal_.trace()) << "Nothing to delete from " << tableName

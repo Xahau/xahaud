@@ -24,6 +24,7 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/OrderBookDB.h>
 #include <xrpld/app/ledger/PendingSaves.h>
+#include <xrpld/app/ledger/detail/PublishGap.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/HashRouter.h>
@@ -1367,34 +1368,37 @@ LedgerMaster::findNewLedgersToPublish(
         {
             // Some sequences may be absent from toPublish because they are
             // pinned ledgers already persisted to disk and intentionally not
-            // republished.
+            // republished. The decision logic — "can pubSeq safely jump
+            // across this gap?" — lives in detail::canSkipPinnedGap so it
+            // is unit-testable without spinning up a full LedgerMaster.
             //
-            // Core invariant: never publish across a gap in non-pinned
-            // ledgers. Publication must remain contiguous for every
-            // non-pinned sequence from mPubLedgerSeq + 1 forward.
+            // Core invariant (enforced by canSkipPinnedGap): never publish
+            // across a gap in non-pinned ledgers. Publication must remain
+            // contiguous for every non-pinned sequence from
+            // mPubLedgerSeq + 1 forward. If pubSeq is lagging because an
+            // earlier non-pinned ledger could not be fetched/published, we
+            // stop here rather than publish newer ledgers out of order.
             //
-            // Therefore, we may only advance pubSeq to the start of a later
-            // interval if every skipped sequence is pinned. If pubSeq is
-            // lagging because an earlier non-pinned ledger could not be
-            // fetched/published, we must stop here rather than publish newer
-            // ledgers out of order.
+            // In production this branch is essentially dead code: pinned
+            // ranges are old historical catalogue data and pubSeq tracks
+            // the recent published tip, so toPublish won't have pinned-
+            // induced gaps. It only matters in test/standalone catalogue-
+            // load scenarios where pinned ranges can sit near pubSeq.
             if (pubSeq < interval.first())
             {
-                RangeSet<std::uint32_t> skipped;
-                skipped.insert(range(pubSeq, interval.first() - 1));
-
-                RangeSet<std::uint32_t> skippedNonPinned = skipped;
+                bool canSkip;
                 {
                     std::lock_guard sll(mCompleteLock);
-                    skippedNonPinned -= mPinnedLedgers;
+                    canSkip = detail::canSkipPinnedGap(
+                        pubSeq, interval.first(), mPinnedLedgers);
                 }
 
-                if (!skippedNonPinned.empty())
+                if (!canSkip)
                 {
                     JLOG(m_journal.trace())
                         << "Stopping publish at seq " << pubSeq
-                        << " because skipped span includes non-pinned ledgers: "
-                        << to_string(skippedNonPinned);
+                        << " — skipped span [" << pubSeq << ", "
+                        << interval.first() << ") contains non-pinned ledgers";
                     break;
                 }
 
