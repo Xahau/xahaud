@@ -680,6 +680,30 @@ private:
         beast::Journal const&) const;
 };
 
+class ValidLockedBalance
+{
+    std::optional<STAmount> iouIOULockedBalanceAfter_;
+    std::optional<STAmount> iouIOUBalanceAfter_;
+
+public:
+    ValidLockedBalance()
+    {
+    }
+    void
+    visitEntry(
+        bool,
+        std::shared_ptr<SLE const> const&,
+        std::shared_ptr<SLE const> const&);
+
+    bool
+    finalize(
+        STTx const&,
+        TER const,
+        XRPAmount const,
+        ReadView const&,
+        beast::Journal const&);
+};
+
 // additional invariant checks can be declared above and then added to this
 // tuple
 using InvariantChecks = std::tuple<
@@ -700,7 +724,8 @@ using InvariantChecks = std::tuple<
     ValidClawback,
     ValidMPTIssuance,
     ValidPermissionedDomain,
-    ValidAMM>;
+    ValidAMM,
+    ValidLockedBalance>;
 
 /**
  * @brief get a tuple of all invariant checks

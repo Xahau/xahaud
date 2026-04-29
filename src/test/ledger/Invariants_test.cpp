@@ -28,7 +28,6 @@
 #include <xrpl/protocol/STLedgerEntry.h>
 
 #include <boost/algorithm/string/predicate.hpp>
-#include <regex>
 
 namespace ripple {
 
@@ -137,7 +136,9 @@ class Invariants_test : public beast::unit_test::suite
                 if (sink.messages().str().find(m) == std::string::npos)
                 {
                     // uncomment if you want to log the invariant failure
-                    // message log << "   --> " << m << std::endl;
+                    // message
+                    // log << sink.messages().str() << std::endl;
+                    // log << "   --> " << m << std::endl;
                     fail();
                 }
             }
@@ -1233,6 +1234,42 @@ class Invariants_test : public beast::unit_test::suite
             {tecINVARIANT_FAILED, tecINVARIANT_FAILED});
     }
 
+    void
+    testLockedBalance()
+    {
+        using namespace test::jtx;
+
+        testcase << "ValidLockedBalance";
+
+        doInvariantCheck(
+            {{"Invariant failed: IOU locked balance is greater than balance"}},
+            [&](Account const& A1, Account const& A2, ApplyContext& ac) {
+                IOU const USD{A2["USD"]};
+                auto const sle =
+                    std::make_shared<SLE>(keylet::line(A1, A2, USD.currency));
+                sle->setFieldAmount(sfHighLimit, A1["USD"](100));
+                sle->setFieldAmount(sfLowLimit, A2["USD"](100));
+                sle->setFieldAmount(sfBalance, USD(100));
+                sle->setFieldAmount(sfLockedBalance, USD(101));
+                ac.view().insert(sle);
+                return true;
+            });
+
+        doInvariantCheck(
+            {{"Invariant failed: IOU locked balance is greater than balance"}},
+            [&](Account const& A1, Account const& A2, ApplyContext& ac) {
+                IOU const USD{A2["USD"]};
+                auto const sle =
+                    std::make_shared<SLE>(keylet::line(A1, A2, USD.currency));
+                sle->setFieldAmount(sfHighLimit, A1["USD"](100));
+                sle->setFieldAmount(sfLowLimit, A2["USD"](100));
+                sle->setFieldAmount(sfBalance, USD(-100));
+                sle->setFieldAmount(sfLockedBalance, USD(-101));
+                ac.view().insert(sle);
+                return true;
+            });
+    }
+
 public:
     void
     run() override
@@ -1251,6 +1288,7 @@ public:
         testValidNewAccountRoot();
         testNFTokenPageInvariants();
         testPermissionedDomainInvariants();
+        testLockedBalance();
     }
 };
 
