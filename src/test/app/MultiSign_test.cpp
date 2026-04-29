@@ -2082,11 +2082,11 @@ public:
             env(signers(becky, 1, {{alice, 1}, {demon, 1}}));
             env.close();
 
-            // Without cycle relaxation this would fail because:
+            // With cycle-adjusted quorum this succeeds because:
             // - alice needs becky (weight 1)
             // - becky needs alice, but alice is ancestor -> cycle
-            // - becky's effective quorum relaxes since alice is unavailable
-            // - demon can satisfy becky's relaxed quorum
+            // - becky's quorum is adjusted since alice is unavailable
+            // - demon can satisfy becky's cycle-adjusted quorum
             std::uint32_t aliceSeq = env.seq(alice);
             env(noop(alice),
                 msig({msigner(becky, msigner(demon))}),
@@ -2191,8 +2191,9 @@ public:
             // Without cycle detection: ruby needs nova, but nova is ancestor ->
             // stuck With cycle detection:
             //   - At ruby level: nova is cyclic, cyclicWeight=1, totalWeight=2
-            //   - maxAchievable = 2-1 = 1 < quorum(2), so effectiveQuorum -> 1
-            //   - jade alone can satisfy ruby's relaxed quorum
+            //   - maxAchievable = 2-1 = 1 < quorum(2), so cycle-adjusted
+            //     quorum becomes 1
+            //   - jade alone can satisfy ruby's cycle-adjusted quorum
             //   - ruby satisfied -> nova gets ruby's weight
             //   - nova: jade(1) + ruby(1) = 2 >= quorum(2) ✓
             //   - onyx: jade(1) + nova(1) = 2 >= quorum(2) ✓
@@ -2213,8 +2214,8 @@ public:
             BEAST_EXPECT(env.seq(onyx) == onyxSeq + 1);
         }
 
-        // Test Case 8: Cycle where all signers are cyclic (effectiveQuorum ==
-        // 0)
+        // Test Case 8: Cycle where all signer weight is cyclic
+        // (cycle-adjusted quorum is zero)
         {
             testcase("Cycle Detection - Total Lockout");
 
@@ -2275,7 +2276,7 @@ public:
             env.close();
 
             // At depth 4, daria needs alice but alice is ancestor
-            // daria's quorum relaxes, demon can satisfy
+            // daria's cycle-adjusted quorum can be satisfied by demon
             std::uint32_t aliceSeq = env.seq(alice);
             env(noop(alice),
                 msig({msigner(
@@ -2305,7 +2306,7 @@ public:
             env.close();
 
             // Both becky and cheri have cycles back to alice
-            // Both need their quorums relaxed
+            // Both need cycle-adjusted quorum
             // bogie satisfies becky, demon satisfies cheri
             std::uint32_t aliceSeq = env.seq(alice);
             env(noop(alice),
@@ -2318,10 +2319,10 @@ public:
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
         }
 
-        // Test Case 11: Cycle with sufficient non-cyclic weight (no relaxation
-        // needed)
+        // Test Case 11: Cycle with sufficient non-cyclic weight (no quorum
+        // adjustment needed)
         {
-            testcase("Cycle Detection - No Relaxation Needed");
+            testcase("Cycle Detection - No Quorum Adjustment Needed");
 
             // Reset signer lists
             env(signers(alice, jtx::none));
@@ -2335,7 +2336,7 @@ public:
 
             // becky quorum is 2, alice is cyclic (weight 1)
             // totalWeight = 3, cyclicWeight = 1, maxAchievable = 2 >= quorum
-            // No relaxation needed, bogie + demon satisfy quorum normally
+            // No adjustment needed, bogie + demon satisfy quorum normally
             std::uint32_t aliceSeq = env.seq(alice);
             env(noop(alice),
                 msig({msigner(becky, msigner(bogie), msigner(demon))}),
@@ -2378,7 +2379,7 @@ public:
             std::uint32_t aliceSeq = env.seq(alice);
             env(noop(alice),
                 msig(
-                    {msigner(becky, msigner(bogie)),    // relaxed quorum
+                    {msigner(becky, msigner(bogie)),    // cycle-adjusted quorum
                      msigner(cheri, msigner(daria))}),  // normal quorum
                 L(),
                 fee(6 * baseFee));
@@ -2419,9 +2420,9 @@ public:
             BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
         }
 
-        // Test Case 14: Cycle requiring maximum quorum relaxation
+        // Test Case 14: Cycle requiring maximum quorum adjustment
         {
-            testcase("Cycle Detection - Maximum Relaxation");
+            testcase("Cycle Detection - Maximum Quorum Adjustment");
 
             Account const omega{"omega", KeyType::secp256k1};
             Account const sigma{"sigma", KeyType::ed25519};
@@ -2447,10 +2448,10 @@ public:
             env.close();
 
             // From omega's perspective when signing for omega:
-            // - sigma: needs omega (cyclic), so relaxes to bogie only
-            // - alice: needs omega (cyclic), so relaxes to demon only
-            // - becky: needs omega (cyclic), so relaxes to ghost only
-            // All signers need relaxation but can be satisfied
+            // - sigma: needs omega (cyclic), so bogie remains achievable
+            // - alice: needs omega (cyclic), so demon remains achievable
+            // - becky: needs omega (cyclic), so ghost remains achievable
+            // All branches need cycle-adjusted quorum but can be satisfied
             std::uint32_t omegaSeq = env.seq(omega);
             env(noop(omega),
                 msig(
@@ -2483,7 +2484,7 @@ public:
             env(signers(daria, 1, {{alice, 1}, {bogie, 1}}));
             env.close();
 
-            // This should work - cycle detected and relaxed at depth 4
+            // This should work - cycle detected and quorum adjusted at depth 4
             std::uint32_t aliceSeq = env.seq(alice);
             env(noop(alice),
                 msig({msigner(

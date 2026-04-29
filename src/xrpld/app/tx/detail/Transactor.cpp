@@ -1009,8 +1009,14 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
     int const maxDepth =
         allowNested ? nestedMultiSignMaxDepth : legacyMultiSignMaxDepth;
 
-    // Define recursive lambda for checking signers at any depth. ancestors
-    // tracks the signing chain to detect cycles.
+    // Nested multi-sign is dynamic account delegation: a parent SignerList
+    // authorizes signer accounts, not a frozen set of leaf keys. A nested
+    // signer contributes when that signer account's current on-ledger
+    // SignerList is satisfied by the transaction evidence.
+    //
+    // ancestors tracks the current proof path. An authorized signer entry that
+    // points back to an ancestor is unavailable on that path and may cause the
+    // local quorum to be cycle-adjusted below.
     std::function<NotTEC(
         AccountID const&, STArray const&, int, std::set<AccountID>)>
         validateSigners;
@@ -1019,9 +1025,8 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                           STArray const& signers,
                           int depth,
                           std::set<AccountID> ancestors) -> NotTEC {
-        // Cycle detection is handled by skipping cyclic signers in the loop
-        // below, not by early return here. The ancestors set tracks the current
-        // proof path.
+        // Cycle detection is handled per authorized edge in the loop below,
+        // rather than by failing the delegated account outright.
 
         if (depth > maxDepth)
         {
@@ -1101,7 +1106,9 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                 return tefBAD_SIGNATURE;
             }
 
-            // Skip cyclic signers; they cannot contribute at this level.
+            // The signer is authorized by acc, but is already in the current
+            // proof path. Treat that cyclic ancestor edge as unavailable for
+            // this path; do not recurse into it and do not count its weight.
             if (ancestors.count(signer))
             {
                 JLOG(ctx.j.trace())
@@ -1219,7 +1226,12 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
             return tefINTERNAL;
         }
 
-        uint32_t effectiveQuorum = quorum;
+        // Dynamic delegation still requires the delegated account's own policy
+        // to be satisfied. The only adjustment is for authorized ancestor edges
+        // that cannot be used without circular proof. If those cyclic edges
+        // make the configured quorum unreachable, require all remaining
+        // non-cyclic weight.
+        uint32_t cycleAdjustedQuorum = quorum;
         uint32_t const maxAchievable = totalWeight - cyclicWeight;
 
         if (cyclicWeight > 0 && maxAchievable < quorum)
@@ -1228,21 +1240,21 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                                << acc << ": " << quorum << " -> "
                                << maxAchievable << " (total=" << totalWeight
                                << ", cyclic=" << cyclicWeight << ")";
-            effectiveQuorum = maxAchievable;
+            cycleAdjustedQuorum = maxAchievable;
         }
 
-        if (effectiveQuorum == 0)
+        if (cycleAdjustedQuorum == 0)
         {
             JLOG(ctx.j.warn()) << "checkMultiSign: All signers for " << acc
                                << " are cyclic - no valid signing path exists.";
             return tefBAD_QUORUM;
         }
 
-        if (sum < effectiveQuorum)
+        if (sum < cycleAdjustedQuorum)
         {
             JLOG(ctx.j.trace()) << "checkMultiSign: Quorum not met for " << acc
                                 << " at depth " << depth << " (sum=" << sum
-                                << ", required=" << effectiveQuorum << ")";
+                                << ", required=" << cycleAdjustedQuorum << ")";
             return tefBAD_QUORUM;
         }
 
