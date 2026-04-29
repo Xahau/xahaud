@@ -2616,6 +2616,538 @@ public:
     }
 
     void
+    test_nestedMultiSignEdgeCases(FeatureBitset features)
+    {
+        using namespace jtx;
+
+        if (!features[featureNestedMultiSign])
+            return;
+
+        Env env{*this, envconfig(), features};
+
+        Account const alice{"alice", KeyType::secp256k1};
+        Account const becky{"becky", KeyType::ed25519};
+        Account const cheri{"cheri", KeyType::secp256k1};
+        Account const daria{"daria", KeyType::ed25519};
+        Account const edgar{"edgar", KeyType::secp256k1};
+        Account const fiona{"fiona", KeyType::ed25519};
+        env.fund(XRP(1000), alice, becky, cheri, daria, edgar, fiona);
+        env.close();
+
+        auto const baseFee = env.current()->fees().base;
+
+        auto submitSTTx = [&env](STTx const& stx) {
+            Json::Value jvResult;
+            jvResult[jss::tx_blob] = strHex(stx.getSerializer().slice());
+            return env.rpc("json", "submit", to_string(jvResult));
+        };
+
+        // Fee calculation must count leaf signatures recursively, not nested
+        // signer entries.
+        {
+            testcase("Nested Fee Calculation");
+
+            env(signers(alice, jtx::none));
+            env(signers(becky, jtx::none));
+            env(signers(cheri, jtx::none));
+            env.close();
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 2, {{bogie, 1}, {demon, 1}}));
+            env.close();
+
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(becky, msigner(bogie), msigner(demon))}),
+                fee(3 * baseFee));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+
+            aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(becky, msigner(bogie), msigner(demon))}),
+                fee((3 * baseFee) - drops(1)),
+                ter(telINSUF_FEE_P));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+
+            env(signers(becky, 1, {{cheri, 1}}));
+            env(signers(cheri, 3, {{bogie, 1}, {demon, 1}, {ghost, 1}}));
+            env.close();
+
+            aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(
+                    becky,
+                    msigner(
+                        cheri,
+                        msigner(bogie),
+                        msigner(demon),
+                        msigner(ghost)))}),
+                fee(4 * baseFee));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+
+            aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(
+                    becky,
+                    msigner(
+                        cheri,
+                        msigner(bogie),
+                        msigner(demon),
+                        msigner(ghost)))}),
+                fee((4 * baseFee) - drops(1)),
+                ter(telINSUF_FEE_P));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
+
+        {
+            testcase("Mixed Flat and Nested Fee Calculation");
+
+            env(signers(alice, jtx::none));
+            env(signers(becky, jtx::none));
+            env.close();
+
+            env(signers(alice, 2, {{becky, 1}, {daria, 1}}));
+            env(signers(becky, 2, {{bogie, 1}, {demon, 1}}));
+            env.close();
+
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig(
+                    {msigner(becky, msigner(bogie), msigner(demon)),
+                     msigner(daria)}),
+                fee(4 * baseFee));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+
+            aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig(
+                    {msigner(becky, msigner(bogie), msigner(demon)),
+                     msigner(daria)}),
+                fee((4 * baseFee) - drops(1)),
+                ter(telINSUF_FEE_P));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
+
+        // STTx local checks reject depth overflow before ledger checks run.
+        {
+            testcase("Nested Depth Overflow in STTx");
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{cheri, 1}}));
+            env(signers(cheri, 1, {{daria, 1}}));
+            env(signers(daria, 1, {{edgar, 1}}));
+            env(signers(edgar, 1, {{bogie, 1}}));
+            env.close();
+
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(
+                    becky,
+                    msigner(
+                        cheri,
+                        msigner(daria, msigner(edgar, msigner(bogie)))))}),
+                fee(3 * baseFee),
+                ter(temMALFORMED));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+
+            JTx tx = env.jt(
+                noop(alice),
+                fee(3 * baseFee),
+                msig({msigner(becky, msigner(cheri))}));
+            BEAST_EXPECT(tx.stx);
+            if (tx.stx)
+            {
+                STTx local = *(tx.stx);
+                auto& outerSigners = local.peekFieldArray(sfSigners);
+                auto& beckySigners =
+                    outerSigners.back().peekFieldArray(sfSigners);
+                auto& cheriSigner = beckySigners.back();
+                cheriSigner.makeFieldAbsent(sfSigningPubKey);
+                cheriSigner.makeFieldAbsent(sfTxnSignature);
+
+                STObject fionaSigner(sfSigner);
+                fionaSigner.setAccountID(sfAccount, fiona.id());
+                fionaSigner.setFieldVL(sfSigningPubKey, Blob(33, 0x02));
+                fionaSigner.setFieldVL(sfTxnSignature, Blob(64, 0xAA));
+                fionaSigner.applyTemplateFromSField(sfSigner);
+
+                STObject edgarSigner(sfSigner);
+                edgarSigner.setAccountID(sfAccount, edgar.id());
+                STArray edgarChildren;
+                edgarChildren.push_back(fionaSigner);
+                edgarSigner.setFieldArray(sfSigners, edgarChildren);
+                edgarSigner.applyTemplateFromSField(sfSigner);
+
+                STObject dariaSigner(sfSigner);
+                dariaSigner.setAccountID(sfAccount, daria.id());
+                STArray dariaChildren;
+                dariaChildren.push_back(edgarSigner);
+                dariaSigner.setFieldArray(sfSigners, dariaChildren);
+                dariaSigner.applyTemplateFromSField(sfSigner);
+
+                STArray cheriChildren;
+                cheriChildren.push_back(dariaSigner);
+                cheriSigner.setFieldArray(sfSigners, cheriChildren);
+
+                auto const result = local.checkSign(
+                    STTx::RequireFullyCanonicalSig::no, env.current()->rules());
+                BEAST_EXPECT(!result);
+                BEAST_EXPECT(
+                    result.error().find("depth limit exceeded") !=
+                    std::string::npos);
+            }
+        }
+
+        {
+            testcase("Nested Corrupt SigningPubKey Exception");
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{bogie, 1}}));
+            env.close();
+
+            JTx tx = env.jt(
+                noop(alice),
+                fee(3 * baseFee),
+                msig({msigner(becky, msigner(bogie))}));
+            BEAST_EXPECT(tx.stx);
+            if (tx.stx)
+            {
+                STTx local = *(tx.stx);
+                auto& nestedSigners =
+                    local.peekFieldArray(sfSigners).back().peekFieldArray(
+                        sfSigners);
+                nestedSigners.back().setFieldVL(sfSigningPubKey, Blob(1, 0xFF));
+
+                auto const info = submitSTTx(local);
+                BEAST_EXPECT(
+                    info[jss::result][jss::error_exception].asString().find(
+                        "Invalid signature on account r") != std::string::npos);
+            }
+        }
+
+        {
+            testcase("Nested Malformed Signer Entry Shape");
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{bogie, 1}}));
+            env.close();
+
+            JTx tx = env.jt(
+                noop(alice),
+                fee(3 * baseFee),
+                msig({msigner(becky, msigner(bogie))}));
+            BEAST_EXPECT(tx.stx);
+            if (tx.stx)
+            {
+                STTx local = *(tx.stx);
+                auto& nestedSigners =
+                    local.peekFieldArray(sfSigners).back().peekFieldArray(
+                        sfSigners);
+                nestedSigners.back().setFieldArray(sfSigners, STArray{});
+
+                auto const info = submitSTTx(local);
+                BEAST_EXPECT(
+                    info[jss::result][jss::error_exception].asString().find(
+                        "Malformed signer entry for account r") !=
+                    std::string::npos);
+            }
+        }
+
+        {
+            testcase("Nested Fee Depth Guard");
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{cheri, 1}}));
+            env(signers(cheri, 1, {{daria, 1}}));
+            env(signers(daria, 1, {{bogie, 1}}));
+            env.close();
+
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(
+                    becky, msigner(cheri, msigner(daria, msigner(bogie))))}),
+                fee(2 * baseFee));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+
+            aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(
+                    becky, msigner(cheri, msigner(daria, msigner(bogie))))}),
+                fee((2 * baseFee) - drops(1)),
+                ter(telINSUF_FEE_P));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
+
+        {
+            testcase("Nested Unsorted Signers in STTx");
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{bogie, 1}, {demon, 1}}));
+            env.close();
+
+            JTx tx = env.jt(
+                noop(alice),
+                fee(4 * baseFee),
+                msig({msigner(becky, msigner(bogie), msigner(demon))}));
+            BEAST_EXPECT(tx.stx);
+            if (tx.stx)
+            {
+                STTx local = *(tx.stx);
+                auto& nestedSigners =
+                    local.peekFieldArray(sfSigners).back().peekFieldArray(
+                        sfSigners);
+                std::reverse(nestedSigners.begin(), nestedSigners.end());
+
+                auto const info = submitSTTx(local);
+                BEAST_EXPECT(
+                    info[jss::result][jss::error_exception] ==
+                    "fails local checks: Unsorted Signers array.");
+            }
+        }
+
+        {
+            testcase("Nested Unknown PubKey Type");
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{bogie, 1}}));
+            env.close();
+
+            JTx tx = env.jt(
+                noop(alice),
+                fee(3 * baseFee),
+                msig({msigner(becky, msigner(bogie))}));
+            BEAST_EXPECT(tx.stx);
+            if (tx.stx)
+            {
+                STTx local = *(tx.stx);
+                auto& nestedSigners =
+                    local.peekFieldArray(sfSigners).back().peekFieldArray(
+                        sfSigners);
+                Blob invalidPK(33, 0x00);
+                invalidPK[0] = 0x05;
+                nestedSigners.back().setFieldVL(sfSigningPubKey, invalidPK);
+
+                auto const info = submitSTTx(local);
+                BEAST_EXPECT(
+                    info[jss::result][jss::error_exception].asString().find(
+                        "Invalid signature on account r") != std::string::npos);
+            }
+        }
+
+        {
+            testcase("Nested Non-Phantom Without Account Root");
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{bogie, 1}}));
+            env.close();
+
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(becky, msigner(bogie, demon))}),
+                fee(3 * baseFee),
+                ter(tefBAD_SIGNATURE));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
+
+        {
+            testcase("Nested Malformed Signer Missing TxnSig");
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{bogie, 1}}));
+            env.close();
+
+            JTx tx = env.jt(
+                noop(alice),
+                fee(3 * baseFee),
+                msig({msigner(becky, msigner(bogie))}));
+            BEAST_EXPECT(tx.stx);
+            if (tx.stx)
+            {
+                STTx local = *(tx.stx);
+                auto& nestedSigners =
+                    local.peekFieldArray(sfSigners).back().peekFieldArray(
+                        sfSigners);
+                nestedSigners.back().makeFieldAbsent(sfTxnSignature);
+
+                auto const info = submitSTTx(local);
+                BEAST_EXPECT(
+                    info[jss::result][jss::error_exception].asString().find(
+                        "Malformed signer entry for account r") !=
+                    std::string::npos);
+            }
+        }
+
+        // All signer weight at cheri's level is cyclic, so cycle-adjusted
+        // quorum has no non-cyclic weight to use and validation fails.
+        {
+            testcase("Nested Cycle-Adjusted Quorum Zero");
+
+            env(signers(alice, jtx::none));
+            env(signers(becky, jtx::none));
+            env(signers(cheri, jtx::none));
+            env.close();
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{cheri, 1}}));
+            env(signers(cheri, 1, {{becky, 1}}));
+            env.close();
+
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(becky, msigner(cheri, msigner(becky)))}),
+                fee(3 * baseFee),
+                ter(tefBAD_QUORUM));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
+
+        {
+            testcase("Nested Complete 3-Way Cycle");
+
+            Account const zara{"zara", KeyType::secp256k1};
+            Account const yara{"yara", KeyType::ed25519};
+            Account const xena{"xena", KeyType::secp256k1};
+            Account const wren{"wren", KeyType::ed25519};
+            env.fund(XRP(1000), zara, yara, xena, wren);
+            env.close();
+
+            env(signers(zara, 1, {{yara, 1}}));
+            env(signers(yara, 2, {{xena, 1}, {wren, 1}}));
+            env(signers(xena, 2, {{yara, 1}, {wren, 1}}));
+            env(signers(wren, 2, {{yara, 1}, {xena, 1}}));
+            env.close();
+
+            env(fset(yara, asfDisableMaster), sig(yara));
+            env(fset(xena, asfDisableMaster), sig(xena));
+            env(fset(wren, asfDisableMaster), sig(wren));
+            env.close();
+
+            std::uint32_t zaraSeq = env.seq(zara);
+            env(noop(zara),
+                msig({msigner(
+                    yara,
+                    msigner(xena, msigner(wren, msigner(yara), msigner(xena))),
+                    msigner(
+                        wren,
+                        msigner(xena, msigner(yara), msigner(wren)),
+                        msigner(yara, msigner(xena), msigner(wren))))}),
+                fee(10 * baseFee),
+                ter(tefBAD_QUORUM));
+            env.close();
+            BEAST_EXPECT(env.seq(zara) == zaraSeq);
+        }
+
+        {
+            testcase("Nested RPC Validator Negatives");
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{bogie, 1}}));
+            env.close();
+
+            {
+                Json::Value jv;
+                jv[jss::tx_json][jss::Account] = alice.human();
+                jv[jss::tx_json][jss::TransactionType] = jss::AccountSet;
+                jv[jss::tx_json][jss::Fee] = (3 * baseFee).jsonClipped();
+                jv[jss::tx_json][jss::Sequence] = env.seq(alice);
+                jv[jss::tx_json][jss::SigningPubKey] = "";
+
+                auto& signersList = jv[jss::tx_json][sfSigners.getJsonName()];
+                auto& signer0 = signersList[0u][sfSigner.getJsonName()];
+                signer0[jss::Account] = becky.human();
+                signer0[jss::SigningPubKey] = strHex(becky.pk().slice());
+                signer0[sfTxnSignature.getJsonName()] = "DEADBEEF";
+
+                auto& nestedSigners = signer0[sfSigners.getJsonName()];
+                auto& nested0 = nestedSigners[0u][sfSigner.getJsonName()];
+                nested0[jss::Account] = bogie.human();
+                nested0[jss::SigningPubKey] = strHex(bogie.pk().slice());
+                nested0[sfTxnSignature.getJsonName()] = "DEADBEEF";
+
+                auto const jrr =
+                    env.rpc("json", "submit_multisigned", to_string(jv));
+                BEAST_EXPECT(jrr[jss::result][jss::status] == "error");
+                BEAST_EXPECT(
+                    jrr[jss::result][jss::error_message] ==
+                    "Signers array may only contain valid Signer entries.");
+            }
+
+            {
+                Json::Value jv;
+                jv[jss::tx_json][jss::Account] = alice.human();
+                jv[jss::tx_json][jss::TransactionType] = jss::AccountSet;
+                jv[jss::tx_json][jss::Fee] = (3 * baseFee).jsonClipped();
+                jv[jss::tx_json][jss::Sequence] = env.seq(alice);
+                jv[jss::tx_json][jss::SigningPubKey] = "";
+
+                auto& signersList = jv[jss::tx_json][sfSigners.getJsonName()];
+                auto* current = &signersList[0u][sfSigner.getJsonName()];
+                (*current)[jss::Account] = becky.human();
+
+                Account const accts[] = {cheri, daria, edgar};
+                for (auto const& acct : accts)
+                {
+                    auto& nested = (*current)[sfSigners.getJsonName()];
+                    current = &nested[0u][sfSigner.getJsonName()];
+                    (*current)[jss::Account] = acct.human();
+                }
+
+                auto& nested = (*current)[sfSigners.getJsonName()];
+                current = &nested[0u][sfSigner.getJsonName()];
+                (*current)[jss::Account] = fiona.human();
+
+                auto& deepNested = (*current)[sfSigners.getJsonName()];
+                auto& leaf = deepNested[0u][sfSigner.getJsonName()];
+                leaf[jss::Account] = bogie.human();
+                leaf[jss::SigningPubKey] = strHex(bogie.pk().slice());
+                leaf[sfTxnSignature.getJsonName()] = "DEADBEEF";
+
+                auto const jrr =
+                    env.rpc("json", "submit_multisigned", to_string(jv));
+                BEAST_EXPECT(jrr[jss::result][jss::status] == "error");
+                BEAST_EXPECT(
+                    jrr[jss::result][jss::error_message] ==
+                    "Signers array may only contain valid Signer entries.");
+            }
+
+            {
+                Json::Value jv;
+                jv[jss::tx_json][jss::Account] = alice.human();
+                jv[jss::tx_json][jss::TransactionType] = jss::AccountSet;
+                jv[jss::tx_json][jss::Fee] = (3 * baseFee).jsonClipped();
+                jv[jss::tx_json][jss::Sequence] = env.seq(alice);
+                jv[jss::tx_json][jss::SigningPubKey] = "";
+
+                auto& signersList = jv[jss::tx_json][sfSigners.getJsonName()];
+                auto& signer0 = signersList[0u][sfSigner.getJsonName()];
+                signer0[jss::Account] = becky.human();
+
+                auto& nestedSigners = signer0[sfSigners.getJsonName()];
+                auto& nested0 = nestedSigners[0u][sfSigner.getJsonName()];
+                nested0[jss::Account] = bogie.human();
+                nested0[sfTxnSignature.getJsonName()] = "DEADBEEF";
+
+                auto const jrr =
+                    env.rpc("json", "submit_multisigned", to_string(jv));
+                BEAST_EXPECT(jrr[jss::result][jss::status] == "error");
+                BEAST_EXPECT(
+                    jrr[jss::result][jss::error_message] ==
+                    "Signers array may only contain valid Signer entries.");
+            }
+        }
+    }
+
+    void
     test_signerListSetFlags(FeatureBitset features)
     {
         using namespace test::jtx;
@@ -2715,6 +3247,30 @@ public:
             BEAST_EXPECT(!isNestedSigner(signer));
             BEAST_EXPECT(!isValidSignerEntry(signer));
         }
+
+        {
+            STObject signer(sfSigner);
+            signer.setAccountID(sfAccount, haunt.id());
+            signer.setFieldVL(sfSigningPubKey, Blob(33, 0x02));
+            signer.applyTemplateFromSField(sfSigner);
+
+            BEAST_EXPECT(countPresentFields(signer) == 2);
+            BEAST_EXPECT(!isLeafSigner(signer));
+            BEAST_EXPECT(!isNestedSigner(signer));
+            BEAST_EXPECT(!isValidSignerEntry(signer));
+        }
+
+        {
+            STObject signer(sfSigner);
+            signer.setAccountID(sfAccount, jinni.id());
+            signer.setFieldVL(sfTxnSignature, Blob(64, 0xAA));
+            signer.applyTemplateFromSField(sfSigner);
+
+            BEAST_EXPECT(countPresentFields(signer) == 2);
+            BEAST_EXPECT(!isLeafSigner(signer));
+            BEAST_EXPECT(!isNestedSigner(signer));
+            BEAST_EXPECT(!isValidSignerEntry(signer));
+        }
     }
 
     void
@@ -2734,6 +3290,7 @@ public:
         testAll(all - featureNestedMultiSign);
         testAll(all);
 
+        test_nestedMultiSignEdgeCases(all);
         test_signerListSetFlags(all);
         test_countPresentFields();
 
