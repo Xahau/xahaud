@@ -31,6 +31,8 @@
 
 namespace ripple {
 
+#define LEDGER_NAMESPACE2(value1, value2) (uint16_t(value1) << 8) | value2
+
 /** Type-specific prefix for calculating ledger indices.
 
     The identifier for a given object within the ledger is calculated based
@@ -80,14 +82,14 @@ enum class LedgerNameSpace : std::uint16_t {
     UNL_REPORT = 'R',
     CRON = 'L',
     AMM = 'A',
-    BRIDGE = 'H',
+    BRIDGE = LEDGER_NAMESPACE2(0x01, 'H'),
     XCHAIN_CLAIM_ID = 'Q',
     XCHAIN_CREATE_ACCOUNT_CLAIM_ID = 'K',
-    DID = 'I',
-    ORACLE = 'R',
+    DID = LEDGER_NAMESPACE2(0x01, 'I'),
+    ORACLE = LEDGER_NAMESPACE2(0x01, 'R'),
     MPTOKEN_ISSUANCE = '~',
     MPTOKEN = 't',
-    CREDENTIAL = 'D',
+    CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
 
     // No longer used or supported. Left here to reserve the space

@@ -870,6 +870,17 @@ Import::preclaim(PreclaimContext const& ctx)
     if (!ctx.tx.isFieldPresent(sfBlob))
         return tefINTERNAL;
 
+    if (ctx.tx.isFieldPresent(sfIssuer) &&
+        ctx.view.rules().enabled(fixImportIssuer))
+    {
+        auto const sleIssuer = ctx.view.read(keylet::account(ctx.tx[sfIssuer]));
+        if (!sleIssuer)
+            return tecNO_ISSUER;
+
+        if (sleIssuer->isFieldPresent(sfAMMID))
+            return tecNO_PERMISSION;
+    }
+
     // parse blob as json
     auto const xpop = syntaxCheckXPOP(ctx.tx.getFieldVL(sfBlob), ctx.j);
 
@@ -1121,7 +1132,7 @@ Import::doRegularKey(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
 
     JLOG(ctx_.journal.trace()) << "Import: doRegularKey acc: " << id;
 
-    if (stpTrans.getFieldU16(sfTransactionType) != ttREGULAR_KEY_SET)
+    if (stpTrans.getTxnType() != ttREGULAR_KEY_SET)
     {
         JLOG(ctx_.journal.warn())
             << "Import: doRegularKey called on non-regular key transaction.";
