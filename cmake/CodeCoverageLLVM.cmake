@@ -76,12 +76,16 @@ function(setup_target_for_coverage_llvm)
   set(_profdata    "${PROJECT_BINARY_DIR}/${Cov_NAME}.profdata")
 
   # Resolve binary path: accept either an absolute path or a bare target name
-  # (resolved against PROJECT_BINARY_DIR).
+  # (resolved against PROJECT_BINARY_DIR). Splice the resolved path back into
+  # Cov_EXECUTABLE so the run command invokes it via absolute path - bare
+  # names aren't on PATH and the build dir isn't `.` either.
   list(GET Cov_EXECUTABLE 0 _exec_name)
   if(IS_ABSOLUTE "${_exec_name}")
     set(_binary "${_exec_name}")
   else()
     set(_binary "${PROJECT_BINARY_DIR}/${_exec_name}")
+    list(REMOVE_AT Cov_EXECUTABLE 0)
+    list(PREPEND Cov_EXECUTABLE "${_binary}")
   endif()
 
   # llvm-cov takes a single -ignore-filename-regex; OR our excludes together.
