@@ -464,3 +464,16 @@ jobs:
           verbose: true
           plugins: noop
           use_oidc: true
+
+      - name: Export server definitions
+        if: matrix.job_type == 'build' && matrix.compiler_id == 'gcc-13-libstdcxx'
+        run: |
+          ${{ env.build_dir }}/rippled --definitions | python3 -m json.tool > server_definitions.json
+
+      - name: Upload server definitions
+        if: matrix.job_type == 'build' && matrix.compiler_id == 'gcc-13-libstdcxx'
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-definitions
+          path: server_definitions.json
+          archive: false
