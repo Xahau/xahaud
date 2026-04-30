@@ -2247,6 +2247,9 @@ LedgerMaster::makeFetchPack(
         if (request->has_seq())
             reply.set_seq(request->seq());
 
+        if (request->has_requestid())
+            reply.set_requestid(request->requestid());
+
         reply.set_ledgerhash(request->ledgerhash());
         reply.set_type(protocol::TMGetObjectByHash::otFETCH_PACK);
 
