@@ -380,6 +380,7 @@ function(setup_target_for_coverage_gcovr)
         ${GCOVR_PATH}
         --gcov-executable ${GCOV_TOOL}
         --gcov-ignore-parse-errors=negative_hits.warn_once_per_file
+        --gcov-ignore-parse-errors=suspicious_hits.warn_once_per_file
         -r ${BASEDIR}
         ${GCOVR_ADDITIONAL_ARGS}
         ${GCOVR_EXCLUDE_ARGS}

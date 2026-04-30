@@ -57,8 +57,9 @@ jobs:
                   "cc": "gcc-11",
                   "cxx": "g++-11",
                   "compiler_version": 11,
-                  "stdlib": "libstdcxx",
-                  "configuration": "Debug"
+                  "stdlib": "default",
+                  "configuration": "Debug",
+                  "job_type": "build"
               },
               {
                   "compiler_id": "gcc-13-libstdcxx",
@@ -66,8 +67,20 @@ jobs:
                   "cc": "gcc-13",
                   "cxx": "g++-13",
                   "compiler_version": 13,
-                  "stdlib": "libstdcxx",
-                  "configuration": "Debug"
+                  "stdlib": "default",
+                  "configuration": "Debug",
+                  "job_type": "build"
+              },
+              {
+                  "compiler_id": "gcc-13-libstdcxx",
+                  "compiler": "gcc",
+                  "cc": "gcc-13",
+                  "cxx": "g++-13",
+                  "gcov": "gcov-13",
+                  "compiler_version": 13,
+                  "stdlib": "default",
+                  "configuration": "Debug",
+                  "job_type": "coverage"
               },
               {
                   "compiler_id": "clang-14-libstdcxx-gcc11",
@@ -77,7 +90,8 @@ jobs:
                   "compiler_version": 14,
                   "stdlib": "libstdcxx",
                   "clang_gcc_toolchain": 11,
-                  "configuration": "Debug"
+                  "configuration": "Debug",
+                  "job_type": "build"
               },
               {
                   "compiler_id": "clang-16-libstdcxx-gcc13",
@@ -87,7 +101,8 @@ jobs:
                   "compiler_version": 16,
                   "stdlib": "libstdcxx",
                   "clang_gcc_toolchain": 13,
-                  "configuration": "Debug"
+                  "configuration": "Debug",
+                  "job_type": "build"
               },
               {
                   "compiler_id": "clang-17-libcxx",
@@ -96,7 +111,8 @@ jobs:
                   "cxx": "clang++-17",
                   "compiler_version": 17,
                   "stdlib": "libcxx",
-                  "configuration": "Debug"
+                  "configuration": "Debug",
+                  "job_type": "build"
               },
               {
                   # Clang 18 - testing if it's faster than Clang 17 with libc++
@@ -107,14 +123,16 @@ jobs:
                   "cxx": "clang++-18",
                   "compiler_version": 18,
                   "stdlib": "libcxx",
-                  "configuration": "Debug"
+                  "configuration": "Debug",
+                  "job_type": "build"
               }
           ]
           
           # Minimal matrix for PRs and feature branches
           minimal_matrix = [
               full_matrix[1],  # gcc-13 (middle-ground gcc)
-              full_matrix[2]   # clang-14 (mature, stable clang)
+              full_matrix[2],  # gcc-13 coverage
+              full_matrix[3]   # clang-14 (mature, stable clang)
           ]
           
           # Determine which matrix to use based on the target branch
@@ -189,14 +207,21 @@ jobs:
           # Select the appropriate matrix
           if use_full:
               if force_full:
-                  print(f"Using FULL matrix (6 configs) - forced by [ci-nix-full-matrix] tag")
+                  print(f"Using FULL matrix (7 configs) - forced by [ci-nix-full-matrix] tag")
               else:
-                  print(f"Using FULL matrix (6 configs) - targeting main branch")
+                  print(f"Using FULL matrix (7 configs) - targeting main branch")
               matrix = full_matrix
           else:
-              print(f"Using MINIMAL matrix (2 configs) - feature branch/PR")
+              print(f"Using MINIMAL matrix (3 configs) - feature branch/PR")
               matrix = minimal_matrix
-          
+
+          # Add runs_on based on job_type
+          for entry in matrix:
+              if entry.get("job_type") == "coverage":
+                  entry["runs_on"] = '["self-hosted", "generic", 24.04]'
+              else:
+                  entry["runs_on"] = '["self-hosted", "generic", 20.04]'
+
           # Output the matrix as JSON
           output = json.dumps({"include": matrix})
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
@@ -204,7 +229,10 @@ jobs:
 
   build:
     needs: matrix-setup
-    runs-on: [self-hosted, generic, 20.04]
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    permissions:
+      id-token: write
+      contents: read
     container:
       image: ubuntu:24.04
       volumes:
@@ -233,7 +261,7 @@ jobs:
           apt-get install -y software-properties-common
           add-apt-repository ppa:ubuntu-toolchain-r/test -y
           apt-get update
-          apt-get install -y python3 python-is-python3 pipx
+          apt-get install -y git python3 python-is-python3 pipx
           pipx ensurepath
           apt-get install -y cmake ninja-build ${{ matrix.cc }} ${{ matrix.cxx }} ccache
           apt-get install -y perl # for openssl build
@@ -304,6 +332,12 @@ jobs:
           pipx install "conan>=2.0,<3"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
+          # Install gcovr for coverage jobs
+          if [ "${{ matrix.job_type }}" = "coverage" ]; then
+            pipx install "gcovr>=7,<9"
+            apt-get install -y curl lcov
+          fi
+
       - name: Check environment
         run: |
           echo "PATH:"
@@ -313,6 +347,13 @@ jobs:
           which ${{ matrix.cc }} && ${{ matrix.cc }} --version || echo "${{ matrix.cc }} not found"
           which ${{ matrix.cxx }} && ${{ matrix.cxx }} --version || echo "${{ matrix.cxx }} not found"
           which ccache && ccache --version || echo "ccache not found"
+
+          # Check gcovr for coverage jobs
+          if [ "${{ matrix.job_type }}" = "coverage" ]; then
+            which gcov && gcov --version || echo "gcov not found"
+            which gcovr && gcovr --version || echo "gcovr not found"
+          fi
+
           echo "---- Full Environment ----"
           env
 
@@ -340,6 +381,7 @@ jobs:
           gha_cache_enabled: 'false' # Disable caching for self hosted runner
 
       - name: Build
+        if: matrix.job_type == 'build'
         uses: ./.github/actions/xahau-ga-build
         with:
           generator: Ninja
@@ -354,7 +396,27 @@ jobs:
           clang_gcc_toolchain: ${{ matrix.clang_gcc_toolchain || '' }}
           ccache_max_size: '100G'
 
+      - name: Build (Coverage)
+        if: matrix.job_type == 'coverage'
+        uses: ./.github/actions/xahau-ga-build
+        with:
+          generator: Ninja
+          configuration: ${{ matrix.configuration }}
+          build_dir: ${{ env.build_dir }}
+          cc: ${{ matrix.cc }}
+          cxx: ${{ matrix.cxx }}
+          gcov: ${{ matrix.gcov }}
+          compiler-id: ${{ matrix.compiler_id }}
+          cache_version: ${{ env.CACHE_VERSION }}
+          main_branch: ${{ env.MAIN_BRANCH_NAME }}
+          stdlib: ${{ matrix.stdlib }}
+          # Coverage builds are slower due to instrumentation; use fewer parallel jobs to avoid flakiness
+          cmake-args: '-Dcoverage=ON -Dcoverage_format=xml -Dcoverage_test_parallelism=$(($(nproc)/2)) -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS="-O0" -DCMAKE_C_FLAGS="-O0"'
+          cmake-target: 'coverage'
+          ccache_max_size: '100G'
+
       - name: Set artifact name
+        if: matrix.job_type == 'build'
         id: set-artifact-name
         run: |
           ARTIFACT_NAME="build-output-nix-${{ github.run_id }}-${{ matrix.compiler }}-${{ matrix.configuration }}"
@@ -367,6 +429,7 @@ jobs:
           ls -la ${{ env.build_dir }} || echo "Build directory not found or empty"
 
       - name: Run tests
+        if: matrix.job_type == 'build'
         run: |
           # Ensure the binary exists before trying to run
           if [ -f "${{ env.build_dir }}/rippled" ]; then
@@ -375,3 +438,29 @@ jobs:
              echo "Error: rippled executable not found in ${{ env.build_dir }}"
              exit 1
           fi
+
+      # Coverage-specific steps
+      - name: Move coverage report
+        if: matrix.job_type == 'coverage'
+        shell: bash
+        run: |
+          mv "${{ env.build_dir }}/coverage.xml" ./
+
+      - name: Archive coverage report
+        if: matrix.job_type == 'coverage'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage.xml
+          path: coverage.xml
+          retention-days: 30
+
+      - name: Upload coverage report
+        if: matrix.job_type == 'coverage'
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          fail_ci_if_error: true
+          disable_search: true
+          verbose: true
+          plugins: noop
+          use_oidc: true

@@ -36,8 +36,6 @@
 #define KEYLET_EMITTED 22
 #define KEYLET_NFT_OFFER 23
 #define KEYLET_HOOK_DEFINITION 24
-#define KEYLET_HOOK_STATE_DIR 25
-#define KEYLET_CRON 26
 
 #define COMPARE_EQUAL 1U
 #define COMPARE_LESS 2U
@@ -47,9 +45,6 @@
 #include "extern.h"
 #include "sfcodes.h"
 #include "macro.h"
-#include "tts.h"
-
-#include "ls_flags.h"
-#include "tx_flags.h"
+#include "types.h"
 
 #endif

@@ -140,8 +140,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         bool skipTests = false,
         bool const testFlag = false,
         bool const badNetID = false,
-        uint32_t const expectedOwnerCount =
-            10 /** testFlag ? 10 : 14 (default) */)
+        uint32_t const expectedOwnerCount = 14 /** case for testFlag=false */)
     {
         using namespace jtx;
 
@@ -250,9 +249,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             genesisAccRoot->getFieldAmount(sfBalance) ==
             XahauGenesis::GenesisAmount);
         BEAST_EXPECT(
-            genesisAccRoot->getFieldU32(sfOwnerCount) == !testFlag
-                ? expectedOwnerCount
-                : 14);
+            genesisAccRoot->getFieldU32(sfOwnerCount) == expectedOwnerCount);
 
         // ensure the definitions are correctly set
         {
@@ -595,7 +592,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
             false,
             true,
             {},
-            3 /* IRR,IRD,IMC */ + members.size() + tables.size());
+            2 /*Hook objects *2 */ + 3 /* IRR,IRD,IMC HookStates */ +
+                members.size());
 
         env.close();
         env.close();
@@ -2327,7 +2325,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             {
                 BEAST_EXPECT(
                     root->getFieldU32(sfOwnerCount) ==
-                    mc * 2 + 2 + paramsCount);
+                    (mc * 2 + 2 + paramsCount));
                 BEAST_EXPECT(root->getFieldU32(sfFlags) & lsfDisableMaster);
                 BEAST_EXPECT(root->getAccountID(sfRegularKey) == noAccount());
             }

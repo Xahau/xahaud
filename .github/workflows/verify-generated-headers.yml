@@ -18,6 +18,10 @@ jobs:
             generator: bash ./hook/generate_sfcodes.sh
           - target: hook/tts.h
             generator: ./hook/generate_tts.sh
+          - target: hook/ls_flags.h
+            generator: ./hook/generate_lsflags.sh
+          - target: hook/tx_flags.h
+            generator: ./hook/generate_txflags.sh
     runs-on: ubuntu-24.04
     env:
       CLANG_VERSION: 18
