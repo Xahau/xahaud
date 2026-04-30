@@ -2,9 +2,7 @@ name: Nix - GA Runner
 
 on:
   push:
-    # TEMP: coverage-llm added so direct pushes to the branch fire CI while
-    # we iterate on the llvm-cov pipeline. Revert before merging to dev.
-    branches: ["dev", "candidate", "release", "coverage-llm"]
+    branches: ["dev", "candidate", "release"]
   pull_request:
     branches: ["**"]
     types: [opened, synchronize, reopened, labeled, unlabeled]
