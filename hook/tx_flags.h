@@ -115,3 +115,8 @@ enum AMMClawbackFlags : uint32_t {
 enum BridgeModifyFlags : uint32_t {
     tfClearAccountCreateAmount = 0x00010000,
 };
+
+enum ConsensusEntropyFlags : uint32_t {
+    tfEntropyCommit = 0x00000001,  // entry is a commitment in commitSet
+    tfEntropyReveal = 0x00000002,  // entry is a reveal in entropySet
+};
