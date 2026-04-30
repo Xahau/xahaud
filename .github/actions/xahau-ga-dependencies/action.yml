@@ -116,6 +116,14 @@ runs:
         [conf]
         tools.build:compiler_executables={"c": "/usr/bin/${{ inputs.cc }}", "cpp": "/usr/bin/${{ inputs.cxx }}"}
         EOF
+
+          # gRPC 1.50.1 trips clang-19+ -Werror=missing-template-arg-list-after-template-kw.
+          # Same workaround as the macOS branch below, but only for clang where the flag exists.
+          if [ "${{ inputs.compiler }}" = "clang" ]; then
+            cat >> ~/.conan2/profiles/default <<EOF
+        tools.build:cxxflags=["-Wno-missing-template-arg-list-after-template-kw"]
+        EOF
+          fi
         fi
 
         # Add macOS-specific conf if needed
