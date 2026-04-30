@@ -2,6 +2,14 @@ name: build
 description: 'Builds the project with ccache integration'
 
 inputs:
+  cmake-target:
+    description: 'CMake target to build'
+    required: false
+    default: all
+  cmake-args:
+    description: 'Additional CMake arguments'
+    required: false
+    default: null
   generator:
     description: 'CMake generator to use'
     required: true
@@ -20,14 +28,22 @@ inputs:
     description: 'C++ compiler to use'
     required: false
     default: ''
+  gcov:
+    description: 'Gcov to use'
+    required: false
+    default: ''
   compiler-id:
-    description: 'Unique identifier for compiler/version combination used for cache keys'
+    description: 'Unique identifier: compiler-version-stdlib[-gccversion] (e.g. clang-14-libstdcxx-gcc11, gcc-13-libstdcxx)'
     required: false
     default: ''
   cache_version:
     description: 'Cache version for invalidation'
     required: false
     default: '1'
+  gha_cache_enabled:
+    description: 'Whether to use actions/cache (disable for self-hosted with volume mounts)'
+    required: false
+    default: 'true'
   ccache_enabled:
     description: 'Whether to use ccache'
     required: false
@@ -36,6 +52,30 @@ inputs:
     description: 'Main branch name for restore keys'
     required: false
     default: 'dev'
+  stdlib:
+    description: 'C++ standard library to use (default = compiler default, e.g. GCC always uses libstdc++)'
+    required: true
+    type: choice
+    options:
+      - default
+      - libstdcxx
+      - libcxx
+  clang_gcc_toolchain:
+    description: 'GCC version to use for Clang toolchain (e.g. 11, 13)'
+    required: false
+    default: ''
+  ccache_max_size:
+    description: 'Maximum ccache size'
+    required: false
+    default: '2G'
+  ccache_hash_dir:
+    description: 'Whether to include directory paths in hash'
+    required: false
+    default: 'true'
+  ccache_compiler_check:
+    description: 'How to check compiler for changes'
+    required: false
+    default: 'content'
 
 runs:
   using: 'composite'
@@ -48,17 +88,32 @@ runs:
         SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr -c 'a-zA-Z0-9_.-' '-')
         echo "name=${SAFE_BRANCH}" >> $GITHUB_OUTPUT
 
-    - name: Restore ccache directory
+    - name: Configure ccache
       if: inputs.ccache_enabled == 'true'
-      id: ccache-restore
-      uses: actions/cache/restore@v4
-      with:
-        path: ~/.ccache
-        key: ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ steps.safe-branch.outputs.name }}
-        restore-keys: |
-          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-${{ inputs.main_branch }}
-          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-${{ inputs.configuration }}-
-          ${{ runner.os }}-ccache-v${{ inputs.cache_version }}-${{ inputs.compiler-id }}-
+      shell: bash
+      run: |
+        # Create cache directories
+        mkdir -p ~/.ccache-cache
+
+        # Keep config separate from cache_dir so configs aren't swapped when CCACHE_DIR changes between steps
+        mkdir -p ~/.config/ccache
+        export CCACHE_CONFIGPATH="$HOME/.config/ccache/ccache.conf"
+        echo "CCACHE_CONFIGPATH=$CCACHE_CONFIGPATH" >> $GITHUB_ENV
+
+        # Configure ccache settings AFTER cache restore (prevents stale cached config)
+        ccache --set-config=max_size=${{ inputs.ccache_max_size }}
+        ccache --set-config=hash_dir=${{ inputs.ccache_hash_dir }}
+        ccache --set-config=compiler_check=${{ inputs.ccache_compiler_check }}
+        ccache --set-config=cache_dir="$HOME/.ccache-cache"
+        echo "CCACHE_DIR=$HOME/.ccache-cache" >> $GITHUB_ENV
+        echo "📦 using ~/.ccache-cache as ccache cache directory"
+
+        # Print config for verification
+        echo "=== ccache configuration ==="
+        ccache -p
+
+        # Zero statistics before the build
+        ccache -z
 
     - name: Configure project
       shell: bash
@@ -74,34 +129,102 @@ runs:
         if [ -n "${{ inputs.cxx }}" ]; then
           export CXX="${{ inputs.cxx }}"
         fi
-        
-        # Configure ccache launcher args
-        CCACHE_ARGS=""
+
+        if [ -n "${{ inputs.gcov }}" ]; then
+          ln -sf /usr/bin/${{ inputs.gcov }} /usr/local/bin/gcov
+        fi
+
+        # Create wrapper toolchain that overlays ccache on top of Conan's toolchain
+        # This enables ccache for the main app build without affecting Conan dependency builds
         if [ "${{ inputs.ccache_enabled }}" = "true" ]; then
-          CCACHE_ARGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+          cat > wrapper_toolchain.cmake <<'EOF'
+        # Include Conan's generated toolchain first (sets compiler, flags, etc.)
+        # Note: CMAKE_CURRENT_LIST_DIR is the directory containing this wrapper (.build/)
+        include(${CMAKE_CURRENT_LIST_DIR}/build/generators/conan_toolchain.cmake)
+
+        # Overlay ccache configuration for main application build
+        # This does NOT affect Conan dependency builds (already completed)
+        set(CMAKE_C_COMPILER_LAUNCHER ccache CACHE STRING "C compiler launcher" FORCE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER ccache CACHE STRING "C++ compiler launcher" FORCE)
+        EOF
+          TOOLCHAIN_FILE="wrapper_toolchain.cmake"
+          echo "✅ Created wrapper toolchain with ccache enabled"
+        else
+          TOOLCHAIN_FILE="build/generators/conan_toolchain.cmake"
+          echo "ℹ️  Using Conan toolchain directly (ccache disabled)"
+        fi
+
+        # Configure C++ standard library if specified
+        # libstdcxx used for clang-14/16 to work around missing lexicographical_compare_three_way in libc++
+        # libcxx can be used with clang-17+ which has full C++20 support
+        # Note: -stdlib flag is Clang-specific, GCC always uses libstdc++
+        CMAKE_CXX_FLAGS=""
+        if [[ "${{ inputs.cxx }}" == clang* ]]; then
+          # Only Clang needs the -stdlib flag
+          if [ "${{ inputs.stdlib }}" = "libstdcxx" ]; then
+            CMAKE_CXX_FLAGS="-stdlib=libstdc++"
+          elif [ "${{ inputs.stdlib }}" = "libcxx" ]; then
+            CMAKE_CXX_FLAGS="-stdlib=libc++"
+          fi
+        fi
+        # GCC always uses libstdc++ and doesn't need/support the -stdlib flag
+        
+        # Configure GCC toolchain for Clang if specified
+        if [ -n "${{ inputs.clang_gcc_toolchain }}" ] && [[ "${{ inputs.cxx }}" == clang* ]]; then
+          # Extract Clang version from compiler executable name (e.g., clang++-14 -> 14)
+          clang_version=$(echo "${{ inputs.cxx }}" | grep -oE '[0-9]+$')
+          
+          # Clang 16+ supports --gcc-install-dir (precise path specification)
+          # Clang <16 only has --gcc-toolchain (uses discovery heuristics)
+          if [ -n "$clang_version" ] && [ "$clang_version" -ge "16" ]; then
+            # Clang 16+ uses --gcc-install-dir (canonical, precise)
+            CMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/${{ inputs.clang_gcc_toolchain }}"
+          else
+            # Clang 14-15 uses --gcc-toolchain (deprecated but necessary)
+            # Note: This still uses discovery, so we hide newer GCC versions in the workflow
+            CMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS --gcc-toolchain=/usr"
+          fi
         fi
         
         # Run CMake configure
+        # Note: conanfile.py hardcodes 'build/generators' as the output path.
+        # If we're in a 'build' folder, Conan detects this and uses just 'generators/'
+        # If we're in '.build' (non-standard), Conan adds the full 'build/generators/'
+        # So we get: .build/build/generators/ with our non-standard folder name
         cmake .. \
           -G "${{ inputs.generator }}" \
-          $CCACHE_ARGS \
-          -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake \
-          -DCMAKE_BUILD_TYPE=${{ inputs.configuration }}
+          ${CMAKE_CXX_FLAGS:+-DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"} \
+          -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${TOOLCHAIN_FILE} \
+          -DCMAKE_BUILD_TYPE=${{ inputs.configuration }} \
+          -Dtests=TRUE \
+          -Dxrpld=TRUE \
+          ${{ inputs.cmake-args }}
+
+    - name: Show ccache config before build
+      if: inputs.ccache_enabled == 'true'
+      shell: bash
+      run: |
+        echo "=========================================="
+        echo "ccache configuration before build"
+        echo "=========================================="
+        ccache -p
+        echo ""
 
     - name: Build project
       shell: bash
       run: |
         cd ${{ inputs.build_dir }}
-        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc)
+
+        # Check for verbose build flag in commit message
+        VERBOSE_FLAG=""
+        if echo "${XAHAU_GA_COMMIT_MSG}" | grep -q '\[ci-ga-cmake-verbose\]'; then
+          echo "🔊 [ci-ga-cmake-verbose] detected - enabling verbose output"
+          VERBOSE_FLAG="-- -v"
+        fi
+
+        cmake --build . --config ${{ inputs.configuration }} --parallel $(nproc) --target ${{ inputs.cmake-target }} ${VERBOSE_FLAG}
 
     - name: Show ccache statistics
       if: inputs.ccache_enabled == 'true'
       shell: bash
       run: ccache -s
-
-    - name: Save ccache directory
-      if: inputs.ccache_enabled == 'true'
-      uses: actions/cache/save@v4
-      with:
-        path: ~/.ccache
-        key: ${{ steps.ccache-restore.outputs.cache-primary-key }}

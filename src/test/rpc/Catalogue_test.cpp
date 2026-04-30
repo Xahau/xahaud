@@ -17,13 +17,13 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/protocol/jss.h>
+#include <test/jtx.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/jss.h>
 #include <boost/filesystem.hpp>
 #include <chrono>
 #include <fstream>
-#include <test/jtx.h>
 #include <thread>
 
 namespace ripple {
@@ -316,7 +316,7 @@ class Catalogue_test : public beast::unit_test::suite
         // Create a new environment for loading with unique port
         Env loadEnv{
             *this,
-            test::jtx::envconfig(test::jtx::port_increment, 3),
+            test::jtx::envconfig(),
             features,
         };
 

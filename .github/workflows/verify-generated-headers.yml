@@ -1,0 +1,54 @@
+name: Verify Generated Hook Headers
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify-generated-headers:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: hook/error.h
+            generator: ./hook/generate_error.sh
+          - target: hook/extern.h
+            generator: ./hook/generate_extern.sh
+          - target: hook/sfcodes.h
+            generator: bash ./hook/generate_sfcodes.sh
+          - target: hook/tts.h
+            generator: ./hook/generate_tts.sh
+          - target: hook/ls_flags.h
+            generator: ./hook/generate_lsflags.sh
+          - target: hook/tx_flags.h
+            generator: ./hook/generate_txflags.sh
+    runs-on: ubuntu-24.04
+    env:
+      CLANG_VERSION: 18
+    name: ${{ matrix.target }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          codename=$( lsb_release --codename --short )
+          sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null <<EOF
+          deb http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-${CLANG_VERSION} main
+          deb-src http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-${CLANG_VERSION} main
+          EOF
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add
+          sudo apt-get update
+          sudo apt-get install clang-format-${CLANG_VERSION}
+          sudo ln -sf /usr/bin/clang-format-${CLANG_VERSION} /usr/local/bin/clang-format
+
+      - name: Verify ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          chmod +x hook/generate_*.sh || true
+
+          tmp=$(mktemp)
+          trap 'rm -f "$tmp"' EXIT
+
+          ${{ matrix.generator }} > "$tmp"
+          diff -u ${{ matrix.target }} "$tmp"

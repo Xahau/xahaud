@@ -17,116 +17,33 @@
 */
 //==============================================================================
 
-#include <ripple/app/paths/AccountCurrencies.h>
-#include <ripple/basics/contract.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/core/JobQueue.h>
-#include <ripple/json/json_reader.h>
-#include <ripple/json/to_string.h>
-#include <ripple/protocol/STParsedJSON.h>
-#include <ripple/protocol/TxFlags.h>
-#include <ripple/protocol/jss.h>
-#include <ripple/resource/Fees.h>
-#include <ripple/rpc/Context.h>
-#include <ripple/rpc/RPCHandler.h>
-#include <ripple/rpc/impl/RPCHelpers.h>
-#include <ripple/rpc/impl/Tuning.h>
+#include <test/jtx.h>
+#include <test/jtx/envconfig.h>
+#include <xrpld/app/paths/AccountCurrencies.h>
+#include <xrpld/app/paths/Pathfinder.h>
+#include <xrpld/app/paths/RippleLineCache.h>
+#include <xrpld/core/JobQueue.h>
+#include <xrpld/rpc/Context.h>
+#include <xrpld/rpc/RPCHandler.h>
+#include <xrpld/rpc/detail/RPCHelpers.h>
+#include <xrpld/rpc/detail/Tuning.h>
+#include <xrpl/basics/contract.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/json/to_string.h>
+#include <xrpl/protocol/STParsedJSON.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/jss.h>
+#include <xrpl/resource/Fees.h>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
-#include <test/jtx.h>
-#include <test/jtx/envconfig.h>
 #include <thread>
 
 namespace ripple {
 namespace test {
 
 //------------------------------------------------------------------------------
-
-namespace detail {
-
-void
-stpath_append_one(STPath& st, jtx::Account const& account)
-{
-    st.push_back(STPathElement({account.id(), std::nullopt, std::nullopt}));
-}
-
-template <class T>
-std::enable_if_t<std::is_constructible<jtx::Account, T>::value>
-stpath_append_one(STPath& st, T const& t)
-{
-    stpath_append_one(st, jtx::Account{t});
-}
-
-void
-stpath_append_one(STPath& st, jtx::IOU const& iou)
-{
-    st.push_back(STPathElement({iou.account.id(), iou.currency, std::nullopt}));
-}
-
-void
-stpath_append_one(STPath& st, STPathElement const& pe)
-{
-    st.push_back(pe);
-}
-
-void
-stpath_append_one(STPath& st, jtx::BookSpec const& book)
-{
-    st.push_back(STPathElement({std::nullopt, book.currency, book.account}));
-}
-
-template <class T, class... Args>
-void
-stpath_append(STPath& st, T const& t, Args const&... args)
-{
-    stpath_append_one(st, t);
-    if constexpr (sizeof...(args) > 0)
-        stpath_append(st, args...);
-}
-
-template <class... Args>
-void
-stpathset_append(STPathSet& st, STPath const& p, Args const&... args)
-{
-    st.push_back(p);
-    if constexpr (sizeof...(args) > 0)
-        stpathset_append(st, args...);
-}
-
-}  // namespace detail
-
-template <class... Args>
-STPath
-stpath(Args const&... args)
-{
-    STPath st;
-    detail::stpath_append(st, args...);
-    return st;
-}
-
-template <class... Args>
-bool
-same(STPathSet const& st1, Args const&... args)
-{
-    STPathSet st2;
-    detail::stpathset_append(st2, args...);
-    if (st1.size() != st2.size())
-        return false;
-
-    for (auto const& p : st2)
-    {
-        if (std::find(st1.begin(), st1.end(), p) == st1.end())
-            return false;
-    }
-    return true;
-}
-
-bool
-equal(STAmount const& sa1, STAmount const& sa2)
-{
-    return sa1 == sa2 && sa1.issue().account == sa2.issue().account;
-}
 
 Json::Value
 rpf(jtx::Account const& src, jtx::Account const& dst, std::uint32_t num_src)
@@ -156,17 +73,6 @@ rpf(jtx::Account const& src, jtx::Account const& dst, std::uint32_t num_src)
 
     return jv;
 }
-
-// Issue path element
-auto
-IPE(Issue const& iss)
-{
-    return STPathElement(
-        STPathElement::typeCurrency | STPathElement::typeIssuer,
-        xrpAccount(),
-        iss.currency,
-        iss.account);
-};
 
 //------------------------------------------------------------------------------
 
@@ -667,6 +573,164 @@ public:
             stpath("dan"),
             stpath("carol")));
         BEAST_EXPECT(equal(sa, Account("alice")["USD"](5)));
+    }
+
+    Json::Value
+    six_path_append_request_result()
+    {
+        using namespace jtx;
+        Env env = pathTestEnv();
+
+        Account A1{"A1"};
+        Account A2{"A2"};
+        Account G1{"G1"};
+        Account G2{"G2"};
+        Account M1{"M1"};
+        Account M2{"M2"};
+        Account M3{"M3"};
+        Account M4{"M4"};
+        Account M5{"M5"};
+        Account M6{"M6"};
+        Account MM{"MM"};
+
+        env.fund(XRP(1000), A1, A2, G1, G2, M1, M2, M3, M4, M5, M6, MM);
+        env.close();
+
+        env.trust(G1["HKD"](2000), A1);
+        env.trust(G2["HKD"](2000), A2);
+
+        env.trust(G1["HKD"](100000), M1, M2, M3, M4, M5, M6, MM);
+        env.trust(G2["HKD"](100000), M1, M2, M3, M4, M5, M6, MM);
+        env.close();
+
+        env(pay(G1, A1, G1["HKD"](1000)));
+
+        env(pay(G1, M1, G1["HKD"](10)));
+        env(pay(G1, M2, G1["HKD"](10)));
+        env(pay(G1, M3, G1["HKD"](10)));
+        env(pay(G1, M4, G1["HKD"](10)));
+        env(pay(G1, M5, G1["HKD"](10)));
+        env(pay(G1, M6, G1["HKD"](10)));
+        env(pay(G1, MM, G1["HKD"](1000)));
+
+        env(pay(G2, M1, G2["HKD"](10)));
+        env(pay(G2, M2, G2["HKD"](10)));
+        env(pay(G2, M3, G2["HKD"](10)));
+        env(pay(G2, M4, G2["HKD"](10)));
+        env(pay(G2, M5, G2["HKD"](10)));
+        env(pay(G2, M6, G2["HKD"](10)));
+        env(pay(G2, MM, G2["HKD"](1000)));
+        env.close();
+
+        env(offer(MM, G1["HKD"](1000), G2["HKD"](100)));
+        env.close();
+
+        return find_paths_request(
+            env, A1, A2, A2["HKD"](60), std::nullopt, G1["HKD"].currency);
+    }
+
+    void
+    pathfind_paths_computed_never_exceeds_six()
+    {
+        testcase("pathfind paths_computed never exceeds six");
+
+        auto const result = six_path_append_request_result();
+        BEAST_EXPECT(result.isMember(jss::alternatives));
+        if (!result.isMember(jss::alternatives))
+            return;
+
+        BEAST_EXPECT(result[jss::alternatives].isArray());
+        if (!result[jss::alternatives].isArray())
+            return;
+
+        bool sawPathsComputed = false;
+        for (auto const& alt : result[jss::alternatives])
+        {
+            if (!alt.isMember(jss::paths_computed))
+                continue;
+            sawPathsComputed = true;
+            BEAST_EXPECT(alt[jss::paths_computed].isArray());
+            if (alt[jss::paths_computed].isArray())
+                BEAST_EXPECT(alt[jss::paths_computed].size() <= 6);
+        }
+        BEAST_EXPECT(sawPathsComputed);
+    }
+
+    void
+    pathfind_can_return_six_paths_with_append()
+    {
+        testcase("pathfind can return six paths with append");
+        using namespace jtx;
+        Env env = pathTestEnv();
+
+        Account A1{"A1"};
+        Account A2{"A2"};
+        Account G1{"G1"};
+        Account G2{"G2"};
+        Account M1{"M1"};
+        Account M2{"M2"};
+        Account M3{"M3"};
+        Account M4{"M4"};
+        Account M5{"M5"};
+        Account M6{"M6"};
+        Account MM{"MM"};
+
+        env.fund(XRP(1000), A1, A2, G1, G2, M1, M2, M3, M4, M5, M6, MM);
+        env.close();
+
+        env.trust(G1["HKD"](2000), A1);
+        env.trust(G2["HKD"](2000), A2);
+
+        env.trust(G1["HKD"](100000), M1, M2, M3, M4, M5, M6, MM);
+        env.trust(G2["HKD"](100000), M1, M2, M3, M4, M5, M6, MM);
+        env.close();
+
+        env(pay(G1, A1, G1["HKD"](1000)));
+
+        env(pay(G1, M1, G1["HKD"](10)));
+        env(pay(G1, M2, G1["HKD"](10)));
+        env(pay(G1, M3, G1["HKD"](10)));
+        env(pay(G1, M4, G1["HKD"](10)));
+        env(pay(G1, M5, G1["HKD"](10)));
+        env(pay(G1, M6, G1["HKD"](10)));
+        env(pay(G1, MM, G1["HKD"](1000)));
+
+        env(pay(G2, M1, G2["HKD"](10)));
+        env(pay(G2, M2, G2["HKD"](10)));
+        env(pay(G2, M3, G2["HKD"](10)));
+        env(pay(G2, M4, G2["HKD"](10)));
+        env(pay(G2, M5, G2["HKD"](10)));
+        env(pay(G2, M6, G2["HKD"](10)));
+        env(pay(G2, MM, G2["HKD"](1000)));
+        env.close();
+
+        env(offer(MM, G1["HKD"](1000), G2["HKD"](100)));
+        env.close();
+
+        auto cache = std::make_shared<RippleLineCache>(
+            env.current(), env.app().journal("RippleLineCache"));
+        Pathfinder pf(
+            cache,
+            A1.id(),
+            A2.id(),
+            G1["HKD"].currency,
+            std::nullopt,
+            A2["HKD"](60),
+            std::nullopt,
+            env.app());
+
+        BEAST_EXPECT(pf.findPaths(7));
+        pf.computePathRanks(5);
+
+        STPath fullLiquidityPath;
+        auto bestPaths =
+            pf.getBestPaths(5, fullLiquidityPath, STPathSet{}, A1.id());
+        BEAST_EXPECT(bestPaths.size() == 5);
+        BEAST_EXPECT(!fullLiquidityPath.empty());
+
+        if (!fullLiquidityPath.empty())
+            bestPaths.push_back(fullLiquidityPath);
+        BEAST_EXPECT(bestPaths.size() == 6);
     }
 
     void
@@ -1477,6 +1541,8 @@ public:
         path_find_04();
         path_find_05();
         path_find_06();
+        pathfind_paths_computed_never_exceeds_six();
+        pathfind_can_return_six_paths_with_append();
     }
 };
 

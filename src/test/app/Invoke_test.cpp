@@ -17,8 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/jss.h>
 #include <test/jtx.h>
+#include <test/jtx/AMM.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 namespace test {
@@ -167,6 +168,27 @@ class Invoke_test : public beast::unit_test::suite
                 invoke::dest(bob),
                 fee(feeDrops),
                 ter(tecNO_TARGET));
+        }
+
+        // tecNO_PERMISSION
+        // issuer is an AMM account
+        {
+            test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
+
+            auto const alice = Account("alice");
+            auto const issuer = Account("issuer");
+            auto const USD = issuer["USD"];
+            env.fund(XRP(1000), alice, issuer);
+            env.close();
+
+            AMM amm(env, issuer, XRP(100), USD(100));
+
+            BEAST_EXPECT(amm.ammExists());
+
+            env(invoke::invoke(alice),
+                invoke::dest(amm.ammAccount()),
+                ter(tecNO_PERMISSION));
+            env.close();
         }
     }
 

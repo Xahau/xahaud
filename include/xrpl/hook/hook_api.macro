@@ -1,0 +1,682 @@
+// int32_t _g(uint32_t guard_id, uint32_t maxiter);
+HOOK_API_DEFINITION(
+  int32_t, _g, (uint32_t, uint32_t),
+  uint256{})
+
+// int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+HOOK_API_DEFINITION(
+  int64_t, accept, (uint32_t, uint32_t, int64_t),
+  uint256{})
+// function accept(error_msg: string, error_code: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, accept, (JSValue, JSValue),
+  uint256{})
+
+// int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+HOOK_API_DEFINITION(
+  int64_t, rollback, (uint32_t, uint32_t, int64_t),
+  uint256{})
+// function rollback(error_msg: string, error_code: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, rollback, (JSValue, JSValue),
+  uint256{})
+
+// int64_t util_raddr(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+HOOK_API_DEFINITION(
+  int64_t, util_raddr, (uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function util_raddr(acc_id:string): string
+JSHOOK_API_DEFINITION(
+  JSValue, util_raddr, (JSValue),
+  uint256{})
+
+// int64_t util_accid(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+HOOK_API_DEFINITION(
+  int64_t, util_accid, (uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function util_accid(acc_id:string): string
+JSHOOK_API_DEFINITION(
+  JSValue, util_accid, (JSValue),
+  uint256{})
+
+// int64_t util_verify(uint32_t dread_ptr, uint32_t dread_len, uint32_t sread_ptr, uint32_t sread_len, uint32_t kread_ptr, uint32_t kread_len);
+HOOK_API_DEFINITION(
+  int64_t, util_verify, (uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function util_verify(data:string, sig: string, pubkey: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, util_verify, (JSValue, JSValue, JSValue),
+  uint256{})
+
+// int64_t util_sha512h(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+HOOK_API_DEFINITION(
+  int64_t, util_sha512h, (uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function util_sha512h(data: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, util_sha512h, (JSValue),
+  uint256{})
+
+// int64_t util_keylet(uint32_t write_ptr, uint32_t write_len, uint32_t keylet_type, uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f);
+HOOK_API_DEFINITION(
+  int64_t, util_keylet, (uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function util_keylet(keylet_type: number, keylet_data: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, util_keylet, (JSValue, JSValue),
+  uint256{})
+
+// int64_t sto_validate(uint32_t tread_ptr, uint32_t tread_len);
+HOOK_API_DEFINITION(
+  int64_t, sto_validate, (uint32_t, uint32_t),
+  uint256{})
+// function sto_validate(sto: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, sto_validate, (JSValue),
+  uint256{})
+
+// int64_t sto_subfield(uint32_t read_ptr, uint32_t read_len, uint32_t field_id);
+HOOK_API_DEFINITION(
+  int64_t, sto_subfield, (uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function sto_subfield(sto: string, field_id: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, sto_subfield, (JSValue, JSValue),
+  uint256{})
+
+// int64_t sto_subarray(uint32_t read_ptr, uint32_t read_len, uint32_t array_id);
+HOOK_API_DEFINITION(
+  int64_t, sto_subarray, (uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function sto_subarray(sto: string, array_id: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, sto_subarray, (JSValue, JSValue),
+  uint256{})
+
+// int64_t sto_emplace(uint32_t write_ptr, uint32_t write_len, uint32_t sread_ptr, uint32_t sread_len, uint32_t fread_ptr, uint32_t fread_len, uint32_t field_id);
+HOOK_API_DEFINITION(
+  int64_t, sto_emplace, (uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function sto_emplace(sto: string, field_bytes: number, field_id: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, sto_emplace, (JSValue, JSValue, JSValue),
+  uint256{})
+
+// int64_t sto_erase(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len, uint32_t field_id);
+HOOK_API_DEFINITION(
+  int64_t, sto_erase, (uint32_t, uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function sto_erase(sto: string, field_id: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, sto_erase, (JSValue, JSValue),
+  uint256{})
+
+// int64_t etxn_burden();
+HOOK_API_DEFINITION(
+  int64_t, etxn_burden, (),
+  uint256{})
+// function etxn_burden(): number
+JSHOOK_API_DEFINITION(
+  JSValue, etxn_burden, (),
+  uint256{})
+
+// int64_t etxn_details(uint32_t write_ptr, uint32_t write_len);
+HOOK_API_DEFINITION(
+  int64_t, etxn_details, (uint32_t, uint32_t),
+  uint256{})
+// function etxn_details(): number
+JSHOOK_API_DEFINITION(
+  JSValue, etxn_details, (),
+  uint256{})
+
+// int64_t etxn_fee_base(uint32_t read_ptr, uint32_t read_len);
+HOOK_API_DEFINITION(
+  int64_t, etxn_fee_base, (uint32_t, uint32_t),
+  uint256{})
+// function etxn_fee_base(txblob: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, etxn_fee_base, (JSValue),
+  uint256{})
+
+// int64_t etxn_reserve(uint32_t count);
+HOOK_API_DEFINITION(
+  int64_t, etxn_reserve, (uint32_t),
+  uint256{})
+// function etxn_reserve(count: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, etxn_reserve, (JSValue),
+  uint256{})
+
+// int64_t etxn_generation();
+HOOK_API_DEFINITION(
+  int64_t, etxn_generation, (),
+  uint256{})
+// function etxn_generation(): number
+JSHOOK_API_DEFINITION(
+  JSValue, etxn_generation, (),
+  uint256{})
+
+// int64_t etxn_nonce(uint32_t write_ptr, uint32_t write_len);
+HOOK_API_DEFINITION(
+  int64_t, etxn_nonce, (uint32_t, uint32_t),
+  uint256{})
+// function etxn_nonce(): number
+JSHOOK_API_DEFINITION(
+  JSValue, etxn_nonce, (),
+  uint256{})
+
+// int64_t emit(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+HOOK_API_DEFINITION(
+  int64_t, emit, (uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function emit(txn: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, emit, (JSValue),
+  uint256{})
+
+// int64_t float_set(int32_t exponent, int64_t mantissa);
+HOOK_API_DEFINITION(
+  int64_t, float_set, (int32_t, int64_t),
+  uint256{})
+// function float_set(e: number, m: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_set, (JSValue, JSValue),
+  uint256{})
+
+// int64_t float_multiply(int64_t float1, int64_t float2);
+HOOK_API_DEFINITION(
+  int64_t, float_multiply, (int64_t, int64_t),
+  uint256{})
+// function float_multiply(f1: number, f2: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_multiply, (JSValue, JSValue),
+  uint256{})
+
+// int64_t float_mulratio(int64_t float1, uint32_t round_up, uint32_t numerator, uint32_t denominator);
+HOOK_API_DEFINITION(
+  int64_t, float_mulratio, (int64_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function float_mulratio(f1: number, round_up: number, numerator: number, denominator: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_mulratio, (JSValue, JSValue, JSValue, JSValue),
+  uint256{})
+
+// int64_t float_negate(int64_t float1);
+HOOK_API_DEFINITION(
+  int64_t, float_negate, (int64_t),
+  uint256{})
+// function float_negate(f1: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_negate, (JSValue),
+  uint256{})
+
+// int64_t float_compare(int64_t float1, int64_t float2, uint32_t mode);
+HOOK_API_DEFINITION(
+  int64_t, float_compare, (int64_t, int64_t, uint32_t),
+  uint256{})
+// function float_compare(f1: number, f2: number, mode: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_compare, (JSValue, JSValue, JSValue),
+  uint256{})
+
+// int64_t float_sum(int64_t float1, int64_t float2);
+HOOK_API_DEFINITION(
+  int64_t, float_sum, (int64_t, int64_t),
+  uint256{})
+// function float_sum(f1: number, f2: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_sum, (JSValue, JSValue),
+  uint256{})
+
+// int64_t float_sto(uint32_t write_ptr, uint32_t write_len, uint32_t cread_ptr, uint32_t cread_len, uint32_t iread_ptr, uint32_t iread_len, int64_t float1, uint32_t field_code);
+HOOK_API_DEFINITION(
+  int64_t, float_sto, (uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, int64_t, uint32_t),
+  uint256{})
+// function float_sto(cur: string, isu: string, float1: number, field_code: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_sto, (JSValue, JSValue, JSValue, JSValue),
+  uint256{})
+
+// int64_t float_sto_set(uint32_t read_ptr, uint32_t read_len);
+HOOK_API_DEFINITION(
+  int64_t, float_sto_set, (uint32_t, uint32_t),
+  uint256{})
+// function float_sto_set(buf: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_sto_set, (JSValue),
+  uint256{})
+
+// int64_t float_invert(int64_t float1);
+HOOK_API_DEFINITION(
+  int64_t, float_invert, (int64_t),
+  uint256{})
+// function float_invert(f1: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_invert, (JSValue),
+  uint256{})
+
+// int64_t float_divide(int64_t float1, int64_t float2);
+HOOK_API_DEFINITION(
+  int64_t, float_divide, (int64_t, int64_t),
+  uint256{})
+// function float_divide(f1: number, f2: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_divide, (JSValue, JSValue),
+  uint256{})
+
+// int64_t float_one();
+HOOK_API_DEFINITION(
+  int64_t, float_one, (),
+  uint256{})
+// function float_one(): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_one, (),
+  uint256{})
+
+// int64_t float_mantissa(int64_t float1);
+HOOK_API_DEFINITION(
+  int64_t, float_mantissa, (int64_t),
+  uint256{})
+// function float_mantissa(f1: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_mantissa, (JSValue),
+  uint256{})
+
+// int64_t float_sign(int64_t float1);
+HOOK_API_DEFINITION(
+  int64_t, float_sign, (int64_t),
+  uint256{})
+// function float_sign(f1: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_sign, (JSValue),
+  uint256{})
+
+// int64_t float_int(int64_t float1, uint32_t decimal_places, uint32_t abs);
+HOOK_API_DEFINITION(
+  int64_t, float_int, (int64_t, uint32_t, uint32_t),
+  uint256{})
+// function float_int(f1: number, decimal_places: number, abs: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_int, (JSValue, JSValue, JSValue),
+  uint256{})
+
+// int64_t float_log(int64_t float1);
+HOOK_API_DEFINITION(
+  int64_t, float_log, (int64_t),
+  uint256{})
+// function float_log(f1: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_log, (JSValue),
+  uint256{})
+
+// int64_t float_root(int64_t float1, uint32_t n);
+HOOK_API_DEFINITION(
+  int64_t, float_root, (int64_t, uint32_t),
+  uint256{})
+// function float_root(f1: number, n: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, float_root, (JSValue, JSValue),
+  uint256{})
+
+// int64_t fee_base();
+HOOK_API_DEFINITION(
+  int64_t, fee_base, (),
+  uint256{})
+// function fee_base(): number
+JSHOOK_API_DEFINITION(
+  JSValue, fee_base, (),
+  uint256{})
+
+// int64_t ledger_seq();
+HOOK_API_DEFINITION(
+  int64_t, ledger_seq, (),
+  uint256{})
+// function ledger_seq(): number
+JSHOOK_API_DEFINITION(
+  JSValue, ledger_seq, (),
+  uint256{})
+
+// int64_t ledger_last_time();
+HOOK_API_DEFINITION(
+  int64_t, ledger_last_time, (),
+  uint256{})
+// function ledger_last_time(): number
+JSHOOK_API_DEFINITION(
+  JSValue, ledger_last_time, (),
+  uint256{})
+
+// int64_t ledger_last_hash(uint32_t write_ptr, uint32_t write_len);
+HOOK_API_DEFINITION(
+  int64_t, ledger_last_hash, (uint32_t, uint32_t),
+  uint256{})
+// function ledger_last_hash(): number
+JSHOOK_API_DEFINITION(
+  JSValue, ledger_last_hash, (),
+  uint256{})
+
+// int64_t ledger_nonce(uint32_t write_ptr, uint32_t write_len);
+HOOK_API_DEFINITION(
+  int64_t, ledger_nonce, (uint32_t, uint32_t),
+  uint256{})
+// function ledger_nonce(): number
+JSHOOK_API_DEFINITION(
+  JSValue, ledger_nonce, (),
+  uint256{})
+
+// int64_t ledger_keylet(uint32_t write_ptr, uint32_t write_len, uint32_t lread_ptr, uint32_t lread_len, uint32_t hread_ptr, uint32_t hread_len);
+HOOK_API_DEFINITION(
+  int64_t, ledger_keylet, (uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function ledger_keylet(low: string, high: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, ledger_keylet, (JSValue, JSValue),
+  uint256{})
+
+// int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
+HOOK_API_DEFINITION(
+  int64_t, hook_account, (uint32_t, uint32_t),
+  uint256{})
+// function hook_account(): number
+JSHOOK_API_DEFINITION(
+  JSValue, hook_account, (),
+  uint256{})
+
+// int64_t hook_hash(uint32_t write_ptr, uint32_t write_len, int32_t hook_no);
+HOOK_API_DEFINITION(
+  int64_t, hook_hash, (uint32_t, uint32_t, int32_t),
+  uint256{})
+// function hook_hash(hook_no: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, hook_hash, (JSValue),
+  uint256{})
+
+// int64_t hook_param_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len, uint32_t hread_ptr, uint32_t hread_len);
+HOOK_API_DEFINITION(
+  int64_t, hook_param_set, (uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function hook_param_set(value: string, key: string, hash: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, hook_param_set, (JSValue, JSValue, JSValue),
+  uint256{})
+
+// int64_t hook_param(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+HOOK_API_DEFINITION(
+  int64_t, hook_param, (uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function hook_param(key: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, hook_param, (JSValue),
+  uint256{})
+
+// int64_t hook_again();
+HOOK_API_DEFINITION(
+  int64_t, hook_again, (),
+  uint256{})
+// function hook_again(): number
+JSHOOK_API_DEFINITION(
+  JSValue, hook_again, (),
+  uint256{})
+
+// int64_t hook_skip(uint32_t read_ptr, uint32_t read_len, uint32_t flags);
+HOOK_API_DEFINITION(
+  int64_t, hook_skip, (uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function hook_skip(hhash: string, flags: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, hook_skip, (JSValue, JSValue),
+  uint256{})
+
+// int64_t hook_pos();
+HOOK_API_DEFINITION(
+  int64_t, hook_pos, (),
+  uint256{})
+// function hook_pos(): number
+JSHOOK_API_DEFINITION(
+  JSValue, hook_pos, (),
+  uint256{})
+
+// int64_t slot(uint32_t write_ptr, uint32_t write_len, uint32_t slot);
+HOOK_API_DEFINITION(
+  int64_t, slot, (uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function slot(slot_no: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, slot, (JSValue),
+  uint256{})
+
+// int64_t slot_clear(uint32_t slot);
+HOOK_API_DEFINITION(
+  int64_t, slot_clear, (uint32_t),
+  uint256{})
+// function slot_clear(slot_no: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, slot_clear, (JSValue),
+  uint256{})
+
+// int64_t slot_count(uint32_t slot);
+HOOK_API_DEFINITION(
+  int64_t, slot_count, (uint32_t),
+  uint256{})
+// function slot_count(slot_no: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, slot_count, (JSValue),
+  uint256{})
+
+// int64_t slot_set(uint32_t read_ptr, uint32_t read_len, uint32_t slot);
+HOOK_API_DEFINITION(
+  int64_t, slot_set, (uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function slot_set(kl: string, slot_no: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, slot_set, (JSValue, JSValue),
+  uint256{})
+
+// int64_t slot_size(uint32_t slot);
+HOOK_API_DEFINITION(
+  int64_t, slot_size, (uint32_t),
+  uint256{})
+// function slot_size(slot_no: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, slot_size, (JSValue),
+  uint256{})
+
+// int64_t slot_subarray(uint32_t parent_slot, uint32_t array_id, uint32_t new_slot);
+HOOK_API_DEFINITION(
+  int64_t, slot_subarray, (uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function slot_subarray(parent_slot_no: number, array_id: number, new_slot: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, slot_subarray, (JSValue, JSValue, JSValue),
+  uint256{})
+
+// int64_t slot_subfield(uint32_t parent_slot, uint32_t field_id, uint32_t new_slot);
+HOOK_API_DEFINITION(
+  int64_t, slot_subfield, (uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function slot_subfield(parent_slot_no: number, field_id: number, new_slot: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, slot_subfield, (JSValue, JSValue, JSValue),
+  uint256{})
+
+// int64_t slot_type(uint32_t slot_no, uint32_t flags);
+HOOK_API_DEFINITION(
+  int64_t, slot_type, (uint32_t, uint32_t),
+  uint256{})
+// function slot_type(slot_no: number, flags: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, slot_type, (JSValue, JSValue),
+  uint256{})
+
+// int64_t slot_float(uint32_t slot_no);
+HOOK_API_DEFINITION(
+  int64_t, slot_float, (uint32_t),
+  uint256{})
+// function slot_float(slot_no: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, slot_float, (JSValue),
+  uint256{})
+
+// int64_t state_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len);
+HOOK_API_DEFINITION(
+  int64_t, state_set, (uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function state_set(val: string, key: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, state_set, (JSValue, JSValue),
+  uint256{})
+
+// int64_t state_foreign_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len, uint32_t nread_ptr, uint32_t nread_len, uint32_t aread_ptr, uint32_t aread_len);
+HOOK_API_DEFINITION(
+  int64_t, state_foreign_set, (uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function state_foreign_set(val: string, key: string, ns: string, accid: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, state_foreign_set, (JSValue, JSValue, JSValue, JSValue),
+  uint256{})
+
+// int64_t state(uint32_t write_ptr, uint32_t write_len, uint32_t kread_ptr, uint32_t kread_len);
+HOOK_API_DEFINITION(
+  int64_t, state, (uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function state(key: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, state, (JSValue),
+  uint256{})
+
+// int64_t state_foreign(uint32_t write_ptr, uint32_t write_len, uint32_t kread_ptr, uint32_t kread_len, uint32_t nread_ptr, uint32_t nread_len, uint32_t aread_ptr, uint32_t aread_len);
+HOOK_API_DEFINITION(
+  int64_t, state_foreign, (uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function state_foreign(key: string, ns: string, accid: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, state_foreign, (JSValue, JSValue, JSValue),
+  uint256{})
+
+// int64_t trace(uint32_t mread_ptr, uint32_t mread_len, uint32_t dread_ptr, uint32_t dread_len, uint32_t as_hex);
+HOOK_API_DEFINITION(
+  int64_t, trace, (uint32_t, uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function trace(msg: string, data: string, as_hex: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, trace, (JSValue, JSValue, JSValue),
+  uint256{})
+
+// int64_t trace_num(uint32_t read_ptr, uint32_t read_len, int64_t number);
+HOOK_API_DEFINITION(
+  int64_t, trace_num, (uint32_t, uint32_t, int64_t),
+  uint256{})
+
+// int64_t trace_float(uint32_t read_ptr, uint32_t read_len, int64_t float1);
+HOOK_API_DEFINITION(
+  int64_t, trace_float, (uint32_t, uint32_t, int64_t),
+  uint256{})
+
+// int64_t otxn_burden();
+HOOK_API_DEFINITION(
+  int64_t, otxn_burden, (),
+  uint256{})
+// function otxn_burden(): number
+JSHOOK_API_DEFINITION(
+  JSValue, otxn_burden, (),
+  uint256{})
+
+// int64_t otxn_field(uint32_t write_ptr, uint32_t write_len, uint32_t field_id);
+HOOK_API_DEFINITION(
+  int64_t, otxn_field, (uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function otxn_field(field_id: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, otxn_field, (JSValue),
+  uint256{})
+
+// int64_t otxn_generation();
+HOOK_API_DEFINITION(
+  int64_t, otxn_generation, (),
+  uint256{})
+// function otxn_generation(): number
+JSHOOK_API_DEFINITION(
+  JSValue, otxn_generation, (),
+  uint256{})
+
+// int64_t otxn_id(uint32_t write_ptr, uint32_t write_len, uint32_t flags);
+HOOK_API_DEFINITION(
+  int64_t, otxn_id, (uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function otxn_id(flags: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, otxn_id, (JSValue),
+  uint256{})
+
+// int64_t otxn_type();
+HOOK_API_DEFINITION(
+  int64_t, otxn_type, (),
+  uint256{})
+// function otxn_type(): number
+JSHOOK_API_DEFINITION(
+  JSValue, otxn_type, (),
+  uint256{})
+
+// int64_t otxn_slot(uint32_t slot_no);
+HOOK_API_DEFINITION(
+  int64_t, otxn_slot, (uint32_t),
+  uint256{})
+// function otxn_slot(slot_no: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, otxn_slot, (JSValue),
+  uint256{})
+
+// int64_t otxn_param(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+HOOK_API_DEFINITION(
+  int64_t, otxn_param, (uint32_t, uint32_t, uint32_t, uint32_t),
+  uint256{})
+// function otxn_param(param_key: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, otxn_param, (JSValue),
+  uint256{})
+
+// int64_t meta_slot(uint32_t slot_no);
+HOOK_API_DEFINITION(
+  int64_t, meta_slot, (uint32_t),
+  uint256{})
+// function meta_slot(slot_no: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, meta_slot, (JSValue),
+  uint256{})
+
+// int64_t xpop_slot(uint32_t slot_no_tx, uint32_t slot_no_meta);
+HOOK_API_DEFINITION(
+  int64_t, xpop_slot, (uint32_t, uint32_t),
+  featureHooksUpdate1)
+// function xpop_slot(slot_no_tx: number, slot_no_meta: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, xpop_slot, (JSValue, JSValue),
+  uint256{})
+
+// int64_t prepare(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+HOOK_API_DEFINITION(
+  int64_t, prepare, (uint32_t, uint32_t, uint32_t, uint32_t),
+  featureHooksUpdate2)
+// function prepare(tmpl: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, prepare, (JSValue),
+  uint256{})
+
+// function otxn_json(): number
+JSHOOK_API_DEFINITION(
+  JSValue, otxn_json, (),
+  uint256{})
+
+// function slot_json(slot_no: number): number
+JSHOOK_API_DEFINITION(
+  JSValue, slot_json, (JSValue),
+  uint256{})
+
+// function sto_to_json(sto_in: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, sto_to_json, (JSValue),
+  uint256{})
+
+// function sto_from_json(json_in: string): number
+JSHOOK_API_DEFINITION(
+  JSValue, sto_from_json, (JSValue),
+  uint256{})

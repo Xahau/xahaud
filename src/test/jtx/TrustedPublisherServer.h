@@ -19,12 +19,13 @@
 #ifndef RIPPLE_TEST_TRUSTED_PUBLISHER_SERVER_H_INCLUDED
 #define RIPPLE_TEST_TRUSTED_PUBLISHER_SERVER_H_INCLUDED
 
-#include <ripple/basics/base64.h>
-#include <ripple/basics/random.h>
-#include <ripple/basics/strHex.h>
-#include <ripple/protocol/PublicKey.h>
-#include <ripple/protocol/SecretKey.h>
-#include <ripple/protocol/Sign.h>
+#include <test/jtx/envconfig.h>
+#include <xrpl/basics/base64.h>
+#include <xrpl/basics/random.h>
+#include <xrpl/basics/strHex.h>
+#include <xrpl/protocol/PublicKey.h>
+#include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/Sign.h>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -34,7 +35,6 @@
 #include <boost/beast/ssl.hpp>
 #include <boost/beast/version.hpp>
 #include <boost/lexical_cast.hpp>
-#include <test/jtx/envconfig.h>
 
 #include <memory>
 #include <thread>
@@ -218,9 +218,8 @@ public:
         getList_ = [blob = blob, sig, manifest, version](int interval) {
             // Build the contents of a version 1 format UNL file
             std::stringstream l;
-            l << "{\"blob\":\"" << blob << "\""
-              << ",\"signature\":\"" << sig << "\""
-              << ",\"manifest\":\"" << manifest << "\""
+            l << "{\"blob\":\"" << blob << "\"" << ",\"signature\":\"" << sig
+              << "\"" << ",\"manifest\":\"" << manifest << "\""
               << ",\"refresh_interval\": " << interval
               << ",\"version\":" << version << '}';
             return l.str();
@@ -255,15 +254,14 @@ public:
             std::stringstream l;
             for (auto const& info : blobInfo)
             {
-                l << "{\"blob\":\"" << info.blob << "\""
-                  << ",\"signature\":\"" << info.signature << "\"},";
+                l << "{\"blob\":\"" << info.blob << "\"" << ",\"signature\":\""
+                  << info.signature << "\"},";
             }
             std::string blobs = l.str();
             blobs.pop_back();
             l.str(std::string());
             l << "{\"blobs_v2\": [ " << blobs << "],\"manifest\":\"" << manifest
-              << "\""
-              << ",\"refresh_interval\": " << interval
+              << "\"" << ",\"refresh_interval\": " << interval
               << ",\"version\":" << (version + 1) << '}';
             return l.str();
         };
@@ -575,7 +573,7 @@ private:
                 if (ec)
                     break;
 
-                auto path = req.target();  //.to_string();
+                std::string_view const path = req.target();  //.to_string();
                 res.insert("Server", "TrustedPublisherServer");
                 res.version(req.version());
                 res.keep_alive(req.keep_alive());

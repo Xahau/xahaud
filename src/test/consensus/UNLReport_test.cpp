@@ -17,22 +17,22 @@
 */
 //==============================================================================
 
-#include <ripple/app/consensus/RCLValidations.h>
-#include <ripple/app/ledger/Ledger.h>
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/app/misc/HashRouter.h>
-#include <ripple/app/misc/NegativeUNLVote.h>
-#include <ripple/app/misc/ValidatorList.h>
-#include <ripple/app/tx/apply.h>
-#include <ripple/basics/Log.h>
-#include <ripple/basics/StringUtilities.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/core/ConfigSections.h>
-#include <ripple/ledger/View.h>
-#include <ripple/protocol/Feature.h>
-#include <string>
 #include <test/csf.h>
 #include <test/jtx.h>
+#include <xrpld/app/consensus/RCLValidations.h>
+#include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/NegativeUNLVote.h>
+#include <xrpld/app/misc/ValidatorList.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpld/ledger/View.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/basics/StringUtilities.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/Feature.h>
+#include <string>
 #include <vector>
 
 namespace ripple {
@@ -350,6 +350,32 @@ class UNLReport_test : public beast::unit_test::suite
                     view.rawTxInsert(txID, std::move(s), nullptr);
                     return true;
                 });
+
+            // close the ledger
+            env.close();
+
+            BEAST_EXPECT(isImportVL(env, ivlKeys[0]) == true);
+            BEAST_EXPECT(isImportVL(env, ivlKeys[1]) == false);
+            BEAST_EXPECT(isActiveValidator(env, vlKeys[0]) == true);
+
+            // now test unrecognised keys that are already present in the ledger
+            // object (flap fix)
+            l = std::make_shared<Ledger>(
+                *l, env.app().timeKeeper().closeTime());
+
+            // insert a ttUNL_REPORT pseudo into the open ledger
+            env.app().openLedger().modify(
+                [&](OpenView& view, beast::Journal j) -> bool {
+                    STTx tx = createUNLRTx(l->seq(), ivlKeys[1], vlKeys[0]);
+                    uint256 txID = tx.getTransactionID();
+                    auto s = std::make_shared<ripple::Serializer>();
+                    tx.add(*s);
+                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    view.rawTxInsert(txID, std::move(s), nullptr);
+                    return true;
+                });
+
+            BEAST_EXPECT(hasUNLReport(env) == true);
 
             // close the ledger
             env.close();
@@ -1199,11 +1225,11 @@ applyAndTestUNLRResult(jtx::Env& env, OpenView& view, STTx const& tx, bool pass)
 {
     auto res = apply(env.app(), view, tx, ApplyFlags::tapNONE, env.journal);
     if (pass)
-        return res.first == tesSUCCESS;
+        return res.ter == tesSUCCESS;
     else
-        return res.first == tefFAILURE || res.first == temDISABLED ||
-            res.first == temMALFORMED ||
-            res.first == telIMPORT_VL_KEY_NOT_RECOGNISED;
+        return res.ter == tefFAILURE || res.ter == temDISABLED ||
+            res.ter == temMALFORMED ||
+            res.ter == telIMPORT_VL_KEY_NOT_RECOGNISED;
 }
 
 bool

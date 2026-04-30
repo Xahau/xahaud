@@ -12,8 +12,6 @@ accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
 extern int64_t
 rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
 
-// UTIL
-
 extern int64_t
 util_raddr(
     uint32_t write_ptr,
@@ -56,8 +54,6 @@ util_keylet(
     uint32_t e,
     uint32_t f);
 
-// STO
-
 extern int64_t
 sto_validate(uint32_t tread_ptr, uint32_t tread_len);
 
@@ -85,10 +81,8 @@ sto_erase(
     uint32_t read_len,
     uint32_t field_id);
 
-// EMITTED TXN
-
 extern int64_t
-etxn_burden(void);
+etxn_burden();
 
 extern int64_t
 etxn_details(uint32_t write_ptr, uint32_t write_len);
@@ -100,7 +94,7 @@ extern int64_t
 etxn_reserve(uint32_t count);
 
 extern int64_t
-etxn_generation(void);
+etxn_generation();
 
 extern int64_t
 etxn_nonce(uint32_t write_ptr, uint32_t write_len);
@@ -111,8 +105,6 @@ emit(
     uint32_t write_len,
     uint32_t read_ptr,
     uint32_t read_len);
-
-// FLOAT
 
 extern int64_t
 float_set(int32_t exponent, int64_t mantissa);
@@ -157,7 +149,7 @@ extern int64_t
 float_divide(int64_t float1, int64_t float2);
 
 extern int64_t
-float_one(void);
+float_one();
 
 extern int64_t
 float_mantissa(int64_t float1);
@@ -174,16 +166,14 @@ float_log(int64_t float1);
 extern int64_t
 float_root(int64_t float1, uint32_t n);
 
-// LEDGER
+extern int64_t
+fee_base();
 
 extern int64_t
-fee_base(void);
+ledger_seq();
 
 extern int64_t
-ledger_seq(void);
-
-extern int64_t
-ledger_last_time(void);
+ledger_last_time();
 
 extern int64_t
 ledger_last_hash(uint32_t write_ptr, uint32_t write_len);
@@ -199,8 +189,6 @@ ledger_keylet(
     uint32_t lread_len,
     uint32_t hread_ptr,
     uint32_t hread_len);
-
-// HOOK
 
 extern int64_t
 hook_account(uint32_t write_ptr, uint32_t write_len);
@@ -225,15 +213,13 @@ hook_param(
     uint32_t read_len);
 
 extern int64_t
-hook_again(void);
+hook_again();
 
 extern int64_t
 hook_skip(uint32_t read_ptr, uint32_t read_len, uint32_t flags);
 
 extern int64_t
-hook_pos(void);
-
-// SLOT
+hook_pos();
 
 extern int64_t
 slot(uint32_t write_ptr, uint32_t write_len, uint32_t slot);
@@ -261,8 +247,6 @@ slot_type(uint32_t slot_no, uint32_t flags);
 
 extern int64_t
 slot_float(uint32_t slot_no);
-
-// STATE
 
 extern int64_t
 state_set(
@@ -300,8 +284,6 @@ state_foreign(
     uint32_t aread_ptr,
     uint32_t aread_len);
 
-// TRACE
-
 extern int64_t
 trace(
     uint32_t mread_ptr,
@@ -316,22 +298,20 @@ trace_num(uint32_t read_ptr, uint32_t read_len, int64_t number);
 extern int64_t
 trace_float(uint32_t read_ptr, uint32_t read_len, int64_t float1);
 
-// OTXN
-
 extern int64_t
-otxn_burden(void);
+otxn_burden();
 
 extern int64_t
 otxn_field(uint32_t write_ptr, uint32_t write_len, uint32_t field_id);
 
 extern int64_t
-otxn_generation(void);
+otxn_generation();
 
 extern int64_t
 otxn_id(uint32_t write_ptr, uint32_t write_len, uint32_t flags);
 
 extern int64_t
-otxn_type(void);
+otxn_type();
 
 extern int64_t
 otxn_slot(uint32_t slot_no);
@@ -346,9 +326,15 @@ otxn_param(
 extern int64_t
 meta_slot(uint32_t slot_no);
 
-// featureHooks1
+extern int64_t
+xpop_slot(uint32_t slot_no_tx, uint32_t slot_no_meta);
 
-extern int64_t xpop_slot(uint32_t, uint32_t);
+extern int64_t
+prepare(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len);
 
 #define HOOK_EXTERN
 #endif  // HOOK_EXTERN

@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/jss.h>
-#include <functional>
 #include <test/jtx.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/jss.h>
+#include <functional>
 #include <vector>
 
 namespace ripple {
@@ -69,7 +69,6 @@ class Hooks_test : public beast::unit_test::suite
             sfHookAccount,
             sfEmittedTxn,
             sfHook,
-            sfHookDefinition,
             sfHookParameter,
             sfHookGrant,
             sfEmitDetails,
