@@ -56,6 +56,21 @@ public:
     operator()(Env&, JTx& jtx) const;
 };
 
+/** Sets the optional ClaimCurrency on a JTx. */
+class claimCurrency
+{
+private:
+    Issue claimCurrency_;
+
+public:
+    explicit claimCurrency(Issue const& issue) : claimCurrency_(issue)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
 }  // namespace reward
 
 }  // namespace jtx

@@ -31,6 +31,7 @@
 // If you add an amendment here, then do not forget to increment `numFeatures`
 // in include/xrpl/protocol/Feature.h.
 
+XRPL_FEATURE(IOURewardClaim,             Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (IOULockedBalanceInvariant,  Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (ImportIssuer,               Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(HookAPISerializedType240,   Supported::yes, VoteBehavior::DefaultNo)

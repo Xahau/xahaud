@@ -2151,7 +2151,8 @@ Transactor::operator()()
 
         bool const has240819 = view().rules().enabled(fix240819);
         bool const has240911 = view().rules().enabled(fix240911);
-
+        bool const hasIOURewardClaim =
+            view().rules().enabled(featureIOURewardClaim);
         auto const& sfRewardFields =
             *(ripple::SField::knownCodeToField.at(917511 - has240819));
 
@@ -2161,11 +2162,92 @@ Transactor::operator()()
             SField const& metaType = node.getFName();
             uint16_t nodeType = node.getFieldU16(sfLedgerEntryType);
 
-            // we only care about ltACCOUNT_ROOT objects being modified or
-            // created
-            if (nodeType != ltACCOUNT_ROOT || metaType == sfDeletedNode)
+            // we only care about ltACCOUNT_ROOT and ltRIPPLE_STATE objects
+            // being modified or created
+            if ((nodeType != ltACCOUNT_ROOT && nodeType != ltRIPPLE_STATE) ||
+                metaType == sfDeletedNode)
                 continue;
 
+            // ltRippleState
+            if (nodeType == ltRIPPLE_STATE)
+            {
+                if (!hasIOURewardClaim)
+                    continue;
+
+                if (!node.isFieldPresent(sfPreviousFields) ||
+                    !node.isFieldPresent(sfLedgerIndex))
+                    continue;
+                auto sle = view().peek(
+                    Keylet{ltRIPPLE_STATE, node.getFieldH256(sfLedgerIndex)});
+                if (!sle)
+                    continue;
+                STObject& previousFields = (const_cast<STObject&>(node))
+                                               .getField(sfPreviousFields)
+                                               .downcast<STObject>();
+                if (!previousFields.isFieldPresent(sfBalance))
+                    continue;
+
+                auto balance = previousFields.getFieldAmount(sfBalance);
+
+                if (balance.native())
+                    continue;
+
+                SField const* sfRewardFields[] = {&sfLowReward, &sfHighReward};
+                for (auto const* sfRewardFieldPtr : sfRewardFields)
+                {
+                    auto const& sfRewardField = *sfRewardFieldPtr;
+
+                    if (!sle->isFieldPresent(sfRewardField))
+                        continue;
+
+                    auto balance_ = balance;
+                    if (sfRewardField == sfHighReward)
+                        balance_.negate();
+
+                    if (balance_.negative())
+                        balance_.clear();
+
+                    auto& reward = sle->peekFieldObject(sfRewardField);
+                    uint32_t lgrLast = reward.getFieldU32(sfRewardLgrLast);
+                    uint32_t lgrElapsed = lgrCur - lgrLast;
+
+                    // update even in cases such as overflow or underflow.
+                    reward.setFieldU32(sfRewardLgrLast, lgrCur);
+
+                    // overflow safety
+                    if (lgrElapsed > lgrCur || lgrElapsed == 0)
+                        continue;
+
+                    auto accum =
+                        reward.getFieldAmount(sfTrustLineRewardAccumulator);
+
+                    STAmount accumNew;
+                    try
+                    {
+                        accumNew = accum +
+                            multiply(balance_,
+                                     STAmount(((uint64_t)lgrElapsed)),
+                                     balance_.issue());
+                    }
+                    catch (std::exception const&)
+                    {
+                        // Overflow detected, skip this reward calculation
+                        continue;
+                    }
+
+                    // check for overflow(<) and underflow(=)
+                    if (accumNew <= accum)
+                        continue;
+
+                    reward.setFieldAmount(
+                        sfTrustLineRewardAccumulator, accumNew);
+                }
+
+                view().update(sle);
+                continue;
+            }
+
+            // ltAccountRoot
             if (!node.isFieldPresent(sfRewardFields) ||
                 !node.isFieldPresent(sfLedgerIndex))
                 continue;

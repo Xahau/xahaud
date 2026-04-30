@@ -524,6 +524,15 @@ public:
 };
 
 Json::Value
+getStaticServerDefinitions()
+{
+    static const Definitions defs{};
+    Json::Value ret = defs();
+    ret[jss::hash] = to_string(defs.getHash());
+    return ret;
+}
+
+Json::Value
 doServerDefinitions(RPC::JsonContext& context)
 {
     auto& params = context.params;

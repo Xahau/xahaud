@@ -24,6 +24,7 @@
 #include <xrpld/core/TimeKeeper.h>
 #include <xrpld/net/RPCCall.h>
 #include <xrpld/rpc/RPCHandler.h>
+#include <xrpld/rpc/handlers/Handlers.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/contract.h>
@@ -387,7 +388,8 @@ run(int argc, char** argv)
          po::value<std::string>(),
          "Specify the range of present ledgers for testing purposes. Min and "
          "max values are comma separated.")(
-            "version", "Display the build version.");
+            "version", "Display the build version.")(
+            "definitions", "Output server definitions as JSON and exit.");
 
     po::options_description data("Ledger/Data Options");
     data.add_options()("import", importText.c_str())(
@@ -526,6 +528,13 @@ run(int argc, char** argv)
 #ifdef GIT_BRANCH
         std::cout << "Git build branch: " << GIT_BRANCH << std::endl;
 #endif
+        return 0;
+    }
+
+    if (vm.count("definitions"))
+    {
+        auto defs = getStaticServerDefinitions();
+        std::cout << Json::FastWriter().write(defs);
         return 0;
     }
 
