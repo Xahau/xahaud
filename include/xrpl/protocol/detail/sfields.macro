@@ -367,7 +367,7 @@ UNTYPED_SFIELD(sfMajority,               OBJECT,    18)
 UNTYPED_SFIELD(sfDisabledValidator,      OBJECT,    19)
 UNTYPED_SFIELD(sfEmittedTxn,             OBJECT,    20)
 UNTYPED_SFIELD(sfHookExecution,          OBJECT,    21)
-UNTYPED_SFIELD(sfHookDefinition,         OBJECT,    22)
+                                                 // 22 unused
 UNTYPED_SFIELD(sfHookParameter,          OBJECT,    23)
 UNTYPED_SFIELD(sfHookGrant,              OBJECT,    24)
 UNTYPED_SFIELD(sfVoteEntry,              OBJECT,    25)

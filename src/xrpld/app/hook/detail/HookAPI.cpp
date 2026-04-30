@@ -2655,7 +2655,7 @@ HookAPI::meta_slot(uint32_t slot_into) const
 Expected<std::pair<uint32_t, uint32_t>, HookReturnCode>
 HookAPI::xpop_slot(uint32_t slot_into_tx, uint32_t slot_into_meta) const
 {
-    if (hookCtx.applyCtx.tx.getFieldU16(sfTransactionType) != ttIMPORT)
+    if (hookCtx.applyCtx.tx.getTxnType() != ttIMPORT)
         return Unexpected(PREREQUISITE_NOT_MET);
 
     if (slot_into_tx > hook_api::max_slots ||

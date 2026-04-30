@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <test/jtx/AMM.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
@@ -298,6 +299,28 @@ struct ClaimReward_test : public beast::unit_test::suite
 
             auto tx = reward::claim(alice);
             env(tx, reward::issuer(issuer), ter(tecNO_ISSUER));
+            env.close();
+        }
+
+        // tecNO_PERMISSION
+        // issuer is an AMM account
+        {
+            test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
+
+            auto const alice = Account("alice");
+            auto const issuer = Account("issuer");
+            auto const USD = issuer["USD"];
+
+            env.fund(XRP(1000), alice, issuer);
+            env.close();
+
+            AMM amm(env, issuer, XRP(100), USD(100));
+
+            BEAST_EXPECT(amm.ammExists());
+
+            env(reward::claim(alice),
+                reward::issuer(amm.ammAccount()),
+                ter(tecNO_PERMISSION));
             env.close();
         }
     }

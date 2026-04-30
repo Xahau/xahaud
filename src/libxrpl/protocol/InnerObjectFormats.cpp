@@ -87,19 +87,6 @@ InnerObjectFormats::InnerObjectFormats()
          {sfEmittedTxnID, soeREQUIRED},
          {sfEmitNonce, soeOPTIONAL}});
 
-    add(sfHookDefinition.jsonName,
-        sfHookDefinition.getCode(),
-        {{sfCreateCode, soeREQUIRED},
-         {sfHookNamespace, soeREQUIRED},
-         {sfHookParameters, soeREQUIRED},
-         {sfHookOn, soeOPTIONAL},
-         {sfHookOnIncoming, soeOPTIONAL},
-         {sfHookOnOutgoing, soeOPTIONAL},
-         {sfHookCanEmit, soeOPTIONAL},
-         {sfHookApiVersion, soeREQUIRED},
-         {sfFlags, soeREQUIRED},
-         {sfFee, soeREQUIRED}});
-
     add(sfHook.jsonName,
         sfHook.getCode(),
         {{sfHookHash, soeOPTIONAL},
