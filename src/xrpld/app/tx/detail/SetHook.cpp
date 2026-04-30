@@ -425,7 +425,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::NAMESPACE_MISSING << ")["
                     << HS_ACC()
-                    << "]: Malformed transaction: SetHook sfHookDefinition "
+                    << "]: Malformed transaction: SetHook ltHookDefinition "
                        "must contain sfHookNamespace.";
                 return false;
             }
@@ -2001,7 +2001,7 @@ SetHook::setHook()
         // sfHookHash, sfHookNamespace, sfHookOn, sfHookOnOutgoing,
         // sfHookOnIncoming, sfHookCanEmit sfHookApiVersion, sfFlags: free
 
-        // sfHookDefinition is not reserved because it is an unowned object,
+        // ltHookDefinition is not reserved because it is an unowned object,
         // rather the uploader is billed via fee according to the following:
         // sfCreateCode:     5000 drops per byte
         // sfHookParameters: 5000 drops per byte

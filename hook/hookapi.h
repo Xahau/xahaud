@@ -49,4 +49,7 @@
 #include "macro.h"
 #include "tts.h"
 
+#include "ls_flags.h"
+#include "tx_flags.h"
+
 #endif

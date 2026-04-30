@@ -54,6 +54,7 @@ add_library(xrpl.imports.main INTERFACE)
 target_link_libraries(xrpl.imports.main
   INTERFACE
     LibArchive::LibArchive
+    magic_enum::magic_enum
     OpenSSL::Crypto
     Ripple::boost
     wasmedge::wasmedge

@@ -32,7 +32,7 @@
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <boost/algorithm/string.hpp>
-#include <magic/magic_enum.h>
+#include <magic_enum.hpp>
 #include <sstream>
 
 #define MAGIC_ENUM(x, _min, _max)               \
