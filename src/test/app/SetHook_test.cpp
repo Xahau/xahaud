@@ -696,6 +696,7 @@ public:
 
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
+        bool const hasHookGas = env.current()->rules().enabled(featureHookGas);
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -756,6 +757,10 @@ public:
              })
         {
             if (!hasHookCanEmit && key == jss::HookCanEmit)
+                continue;
+
+            if (!hasHookGas &&
+                (key == jss::HookCallbackGas || key == jss::HookWeakGas))
                 continue;
 
             Json::Value iv;
@@ -904,6 +909,7 @@ public:
         bool const fixNS = env.current()->rules().enabled(fixNSDelete);
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
+        bool const hasHookGas = env.current()->rules().enabled(featureHookGas);
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -941,6 +947,10 @@ public:
              })
         {
             if (!hasHookCanEmit && key == jss::HookCanEmit)
+                continue;
+
+            if (!hasHookGas &&
+                (key == jss::HookCallbackGas || key == jss::HookWeakGas))
                 continue;
 
             Json::Value iv;
@@ -1753,6 +1763,7 @@ public:
 
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
+        bool const hasHookGas = env.current()->rules().enabled(featureHookGas);
 
         auto const bob = Account{"bob"};
         env.fund(XRP(10000), bob);
@@ -1838,7 +1849,7 @@ public:
             Json::Value iv;
             iv[jss::CreateCode] = strHex(accept_wasm);
             iv[jss::HookNamespace] = to_string(uint256{beast::zero});
-            iv[jss::HookApiVersion] = 1U;
+            iv[jss::HookApiVersion] = hasHookGas ? 2U : 1U;
             iv[jss::HookOn] =
                 "00000000000000000000000000000000000000000000000000000000000000"
                 "00";
@@ -1850,7 +1861,7 @@ public:
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
             env(jv,
-                M("HSO Create operation must contain valid api version"),
+                M("HSO Create operation must contain valid api version or > 1"),
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
@@ -15490,6 +15501,18 @@ public:
             fee(XRP(1)),
             ter(temMALFORMED));
         env.close();
+
+        for (auto fieldName :
+             {sfHookCallbackGas.jsonName, sfHookWeakGas.jsonName})
+        {
+            Json::Value jvh = hso(gas_accept_with_cbak_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 1;
+            jvh[fieldName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook disabled"),
+                HSFEE,
+                ter(temDISABLED));
+        }
     }
 
     void
@@ -15503,6 +15526,50 @@ public:
         env.fund(XRP(10000), alice);
         env.close();
 
+        {
+            // Invalid installation
+            // sfHookCallbackGas is present but api version is not 1
+            Json::Value jvh = hso(gas_accept_with_cbak_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 0;
+            jvh[sfHookCallbackGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook creation"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+        {
+            // Invalid installation
+            // sfHookCallbackGas is present but value is 0
+            Json::Value jvh = hso(gas_accept_with_cbak_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 2;
+            jvh[sfHookCallbackGas.jsonName] = 0;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook creation"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+        {
+            // Invalid installation
+            // sfHookWeakGas is present but api version is not 1
+            Json::Value jvh = hso(gas_accept_with_cbak_wasm, collectFlag);
+            jvh[jss::HookApiVersion] = 0;
+            jvh[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook creation"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+        {
+            // Invalid installation
+            // sfHookWeakGas is present but value is 0
+            Json::Value jvh = hso(gas_accept_with_cbak_wasm, collectFlag);
+            jvh[jss::HookApiVersion] = 2;
+            jvh[sfHookWeakGas.jsonName] = 0;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook creation"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
         {
             // Invalid installation
             // sfHookCallbackGas is present but cbak is not in the hook
@@ -16742,20 +16809,23 @@ public:
 
         // Gas-type Hook tests
         testGasTypeHookDisabled(features);
-        testGasTypeHookCreation(features);
-        testGasTypeHookInstallation(features);
-        testGasTypeHookUpdate(features);
-        testGasTypeHookWeakGas(features);
-        testGasTypeHookCbakGas(features);
-        testGasTypeHookRejects_gFunction(features);
-        testGasExecutionSufficient(features);
-        testMultipleGasHooksSharedPool(features);
-        testGasTypeHookHostFunctionValidation(features);
-        testGasTypeHookExportErrors(features);
-        testGasTypeHookImportErrors(features);
-        testGasTypeHookMemoryValidation(features);
-        testGasTypeHookExportedMemoryPageLimit(features);
-        testGasTypeHookNonFunctionImportRejection(features);
+        if ((features & featureHookGas).count() > 0)
+        {
+            testGasTypeHookCreation(features);
+            testGasTypeHookInstallation(features);
+            testGasTypeHookUpdate(features);
+            testGasTypeHookWeakGas(features);
+            testGasTypeHookCbakGas(features);
+            testGasTypeHookRejects_gFunction(features);
+            testGasExecutionSufficient(features);
+            testMultipleGasHooksSharedPool(features);
+            testGasTypeHookHostFunctionValidation(features);
+            testGasTypeHookExportErrors(features);
+            testGasTypeHookImportErrors(features);
+            testGasTypeHookMemoryValidation(features);
+            testGasTypeHookExportedMemoryPageLimit(features);
+            testGasTypeHookNonFunctionImportRejection(features);
+        }
     }
 
 public:
@@ -16765,8 +16835,9 @@ public:
         using namespace test::jtx;
         static FeatureBitset const all{supported_amendments()};
 
-        static std::array<FeatureBitset, 7> const feats{
+        static std::array<FeatureBitset, 8> const feats{
             all,
+            all - featureHookGas,
             all - fixXahauV2,
             all - fixXahauV1 - fixXahauV2,
             all - fixXahauV1 - fixXahauV2 - fixNSDelete,
@@ -17007,7 +17078,8 @@ SETHOOK_TEST(2, false)
 SETHOOK_TEST(3, false)
 SETHOOK_TEST(4, false)
 SETHOOK_TEST(5, false)
-SETHOOK_TEST(6, true)
+SETHOOK_TEST(6, false)
+SETHOOK_TEST(7, true)
 
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook0, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook1, app, ripple, 2);
@@ -17016,6 +17088,7 @@ BEAST_DEFINE_TESTSUITE_PRIO(SetHook3, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook4, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook5, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook6, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHook7, app, ripple, 2);
 }  // namespace test
 }  // namespace ripple
 #undef M

@@ -948,12 +948,14 @@ SetHook::preflight(PreflightContext const& ctx)
                 name != sfHookCanEmit && name != sfHookCallbackGas &&
                 name != sfHookWeakGas)
             {
+                // LCOV_EXCL_START
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
                     << HS_ACC()
                     << "]: Malformed transaction: SetHook sfHook contains "
                        "invalid field.";
                 return temMALFORMED;
+                // LCOV_EXCL_STOP
             }
         }
 
