@@ -107,6 +107,11 @@ jobs:
           compiler: apple-clang
           compiler_version: ${{ steps.detect-compiler.outputs.compiler_version }}
           stdlib: libcxx
+          # Preserves the prior unconditional macOS workaround that lived
+          # in xahau-ga-dependencies/action.yml before the matrix-driven
+          # conan_deps_cxxflags refactor. grpc 1.50.1 trips this on Apple
+          # Clang on the GHA macOS runners. Drop when grpc is bumped.
+          conan_deps_cxxflags: '["-Wno-missing-template-arg-list-after-template-kw"]'
           # grpc 1.50.1 trips this on newer Apple Clang (clang-19+ frontend).
           # Drop when grpc is bumped past the fix.
           conan_deps_cxxflags: '["-Wno-missing-template-arg-list-after-template-kw"]'
