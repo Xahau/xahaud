@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/tx/detail/ClaimReward.h>
 #include <xrpld/core/Config.h>
@@ -60,6 +61,57 @@ ClaimReward::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
+    if (ctx.tx.isFieldPresent(sfClaimCurrency))
+    {
+        // IOU RewardClaim
+        if (!ctx.rules.enabled(featureIOURewardClaim))
+            return temDISABLED;
+
+        auto const claimAsset = ctx.tx[sfClaimCurrency];
+        bool const isMPT = claimAsset.holds<MPTIssue>();
+
+        if (isMPT)
+        {
+            JLOG(ctx.j.debug()) << "ClaimReward: MPT is not supported yet.";
+            return temMALFORMED;
+        }
+
+        auto const claimIssue = claimAsset.get<Issue>();
+        if (claimIssue.account == beast::zero || isXRP(claimIssue.currency))
+            return temMALFORMED;
+
+        if (claimIssue.account == ctx.tx.getAccountID(sfAccount))
+            return temMALFORMED;
+    }
+
+    if (ctx.rules.enabled(featureXahauGenesis) &&
+        ctx.rules.enabled(featureIOURewardClaim) &&
+        ctx.tx.isFieldPresent(sfIssuer))
+    {
+        static auto const genesisAccountId = calcAccountID(
+            generateKeyPair(
+                KeyType::secp256k1, generateSeed("masterpassphrase"))
+                .first);
+        auto const issuer = ctx.tx.getAccountID(sfIssuer);
+        if (ctx.tx.isFieldPresent(sfClaimCurrency))
+        {
+            if (issuer == genesisAccountId)
+            {
+                JLOG(ctx.j.debug()) << "ClaimReward (IOU): Issuer cannot "
+                                       "be the Genesis account";
+                return temBAD_ISSUER;
+            }
+        }
+        else
+        {
+            if (issuer != genesisAccountId)
+            {
+                JLOG(ctx.j.debug()) << "ClaimReward (XAH): Issuer must be "
+                                       "the Genesis account";
+                return temBAD_ISSUER;
+            }
+        }
+    }
     return preflight2(ctx);
 }
 
@@ -82,9 +134,61 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
     if ((issuer && isOptOut) || (!issuer && !isOptOut))
         return temMALFORMED;
 
-    if (issuer && !ctx.view.exists(keylet::account(*issuer)))
-        return tecNO_ISSUER;
+    if (issuer)
+    {
+        auto const sleIssuer = ctx.view.read(keylet::account(*issuer));
+        if (!sleIssuer)
+            return tecNO_ISSUER;
 
+        if (sleIssuer->isFieldPresent(sfAMMID))
+            return tecNO_PERMISSION;
+
+        if (ctx.view.rules().enabled(featureIOURewardClaim))
+        {
+            auto const& sleHook = ctx.view.read(keylet::hook(*issuer));
+            if (!sleHook || !sleHook->isFieldPresent(sfHooks) ||
+                sleHook->getFieldArray(sfHooks).empty())
+                return tecNO_TARGET;
+
+            bool hasClaimRewardHook = false;
+            auto const& hooks = sleHook->getFieldArray(sfHooks);
+            for (auto const& hook : hooks)
+            {
+                if (!hook.isFieldPresent(sfHookHash))
+                    return tefINTERNAL;  // LCOV_EXCL_LINE
+                auto const& hash = hook.getFieldH256(sfHookHash);
+                auto const& sleDef =
+                    ctx.view.read(keylet::hookDefinition(hash));
+                if (!sleDef)
+                    return tefINTERNAL;  // LCOV_EXCL_LINE
+
+                auto const& hookOn =
+                    hook::getHookOn(hook, sleDef, sfHookOnIncoming);
+                if (hook::canHook(ttCLAIM_REWARD, hookOn))
+                {
+                    hasClaimRewardHook = true;
+                    break;
+                }
+            }
+            if (!hasClaimRewardHook)
+                return tecNO_TARGET;
+        }
+    }
+
+    if (ctx.tx.isFieldPresent(sfClaimCurrency))
+    {
+        auto const claimCurrency = ctx.tx[sfClaimCurrency];
+        bool const isMPT = claimCurrency.holds<MPTIssue>();
+
+        if (isMPT)
+            return tefINTERNAL;
+
+        auto const claimIssue = claimCurrency.get<Issue>();
+
+        if (!ctx.view.exists(
+                keylet::line(id, claimIssue.account, claimIssue.currency)))
+            return tecNO_LINE;
+    }
     return tesSUCCESS;
 }
 
@@ -98,6 +202,61 @@ ClaimReward::doApply()
     std::optional<uint32_t> flags = ctx_.tx[~sfFlags];
 
     bool isOptOut = flags && *flags == tfOptOut;
+
+    uint32_t lgrCur = view().seq();
+    uint32_t lgrFirst = lgrCur;
+    uint32_t lgrLast = lgrCur;
+    uint64_t accumulator = 0ULL;
+    uint32_t rewardTime = std::chrono::duration_cast<std::chrono::seconds>(
+                              ctx_.app.getLedgerMaster()
+                                  .getValidatedLedger()
+                                  ->info()
+                                  .parentCloseTime.time_since_epoch())
+                              .count();
+
+    if (ctx_.tx.isFieldPresent(sfClaimCurrency))
+    {
+        auto const claimCurrency = ctx_.tx[sfClaimCurrency];
+        bool const isMPT = claimCurrency.holds<MPTIssue>();
+
+        if (isMPT)
+            return tefINTERNAL;
+
+        auto const claimIssue = claimCurrency.get<Issue>();
+
+        auto lineSle = view().peek(
+            keylet::line(account_, claimIssue.account, claimIssue.currency));
+        if (!lineSle)
+            return tefINTERNAL;
+
+        bool const isHigh = account_ > claimIssue.account;
+        auto const& rewardField = isHigh ? sfHighReward : sfLowReward;
+
+        if (isOptOut)
+        {
+            if (lineSle->isFieldPresent(rewardField))
+                lineSle->makeFieldAbsent(rewardField);
+        }
+        else
+        {
+            auto const& rewardAccumulatorField =
+                lineSle->getFieldAmount(isHigh ? sfHighLimit : sfLowLimit)
+                    .zeroed();
+
+            // all actual rewards are handled by the hook on the sfIssuer
+            // the tt just resets the counters
+            auto& reward = lineSle->peekFieldObject(rewardField);
+            reward.setFieldU32(sfRewardLgrFirst, lgrFirst);
+            reward.setFieldU32(sfRewardLgrLast, lgrLast);
+            reward.setFieldAmount(
+                sfTrustLineRewardAccumulator, rewardAccumulatorField);
+            reward.setFieldU32(sfRewardTime, rewardTime);
+        }
+
+        view().update(lineSle);
+        return tesSUCCESS;
+    }
+
     if (isOptOut)
     {
         if (sle->isFieldPresent(sfRewardLgrFirst))
@@ -113,18 +272,10 @@ ClaimReward::doApply()
     {
         // all actual rewards are handled by the hook on the sfIssuer
         // the tt just resets the counters
-        uint32_t lgrCur = view().seq();
-        sle->setFieldU32(sfRewardLgrFirst, lgrCur);
-        sle->setFieldU32(sfRewardLgrLast, lgrCur);
-        sle->setFieldU64(sfRewardAccumulator, 0ULL);
-        sle->setFieldU32(
-            sfRewardTime,
-            std::chrono::duration_cast<std::chrono::seconds>(
-                ctx_.app.getLedgerMaster()
-                    .getValidatedLedger()
-                    ->info()
-                    .parentCloseTime.time_since_epoch())
-                .count());
+        sle->setFieldU32(sfRewardLgrFirst, lgrFirst);
+        sle->setFieldU32(sfRewardLgrLast, lgrLast);
+        sle->setFieldU64(sfRewardAccumulator, accumulator);
+        sle->setFieldU32(sfRewardTime, rewardTime);
     }
 
     view().update(sle);

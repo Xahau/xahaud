@@ -1878,6 +1878,13 @@ class MPToken_test : public beast::unit_test::suite
                   [jss::Amount] = mpt.getJson(JsonOptions::none);
                 test(jv, sfAmounts.jsonName.c_str());
             }
+            // ClaimReward
+            {
+                Json::Value jv = reward::claim(alice);
+                jv[sfClaimCurrency.jsonName][jss::mpt_issuance_id] =
+                    to_string(issue);
+                test(jv, sfClaimCurrency.jsonName.c_str());
+            }
         }
         for (const auto& str : txWithAmounts)
             printf("%s\n", str.c_str());

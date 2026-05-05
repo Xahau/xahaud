@@ -32,7 +32,7 @@
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <boost/algorithm/string.hpp>
-#include <magic/magic_enum.h>
+#include <magic_enum.hpp>
 #include <sstream>
 
 #define MAGIC_ENUM(x, _min, _max)               \
@@ -522,6 +522,15 @@ public:
         return defs;
     }
 };
+
+Json::Value
+getStaticServerDefinitions()
+{
+    static const Definitions defs{};
+    Json::Value ret = defs();
+    ret[jss::hash] = to_string(defs.getHash());
+    return ret;
+}
 
 Json::Value
 doServerDefinitions(RPC::JsonContext& context)

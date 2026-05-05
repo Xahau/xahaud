@@ -398,6 +398,8 @@ LEDGER_ENTRY(ltRIPPLE_STATE, 0x0072, RippleState, state, ({
     {sfHighQualityOut,       soeOPTIONAL},
     {sfLockedBalance,        soeOPTIONAL},
     {sfLockCount,            soeOPTIONAL},
+    {sfHighReward,           soeOPTIONAL},
+    {sfLowReward,            soeOPTIONAL},
 }))
 
 /** The ledger object which lists the network's fee settings.

@@ -550,6 +550,7 @@ TRANSACTION(ttIMPORT, 97, Import, ({
   * from a specified hook */
 TRANSACTION(ttCLAIM_REWARD, 98, ClaimReward, ({
     {sfIssuer, soeOPTIONAL},
+    {sfClaimCurrency, soeOPTIONAL},
 }))
 
 /** This transaction invokes a hook, providing arbitrary data. Essentially as a 0 drop payment. **/
