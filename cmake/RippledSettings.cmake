@@ -35,15 +35,18 @@ if(is_gcc OR is_clang)
   if(NOT coverage_tool MATCHES "^(gcov|llvm)$")
     message(FATAL_ERROR "coverage_tool must be 'gcov' or 'llvm', got '${coverage_tool}'")
   endif()
-  if(coverage AND coverage_tool STREQUAL "llvm" AND NOT is_clang)
-    message(FATAL_ERROR "coverage_tool=llvm requires Clang (got ${CMAKE_CXX_COMPILER_ID})")
-  endif()
   set(coverage_extra_args "" CACHE STRING
     "Additional arguments to pass to gcovr (gcov tool only).")
   set(coverage_test "" CACHE STRING
     "On gcc & clang, the specific unit test(s) to run for coverage. Default is all tests.")
   if(coverage_test AND NOT coverage)
     set(coverage ON CACHE BOOL "gcc/clang only" FORCE)
+  endif()
+  # Validate after coverage_test may have flipped coverage on, otherwise
+  # `-Dcoverage_tool=llvm -Dcoverage_test=Foo` on gcc would silently slip
+  # past the Clang guard and produce a broken instrumentation combo.
+  if(coverage AND coverage_tool STREQUAL "llvm" AND NOT is_clang)
+    message(FATAL_ERROR "coverage_tool=llvm requires Clang (got ${CMAKE_CXX_COMPILER_ID})")
   endif()
   option(wextra "compile with extra gcc/clang warnings enabled" ON)
 else()

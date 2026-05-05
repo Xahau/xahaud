@@ -32,7 +32,10 @@ function(_find_llvm_cov_tools)
     list(PREPEND _cov_names "llvm-cov-${_major}")
   endif()
 
-  if(APPLE)
+  # Only delegate to xcrun when the *compiler* is AppleClang. On macOS with
+  # Homebrew/system clang-N, xcrun would resolve to Xcode's llvm tools which
+  # could be a different version - exactly the mismatch we want to avoid.
+  if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
     execute_process(COMMAND xcrun -f llvm-profdata
       OUTPUT_VARIABLE _pd_xcrun OUTPUT_STRIP_TRAILING_WHITESPACE
       ERROR_QUIET RESULT_VARIABLE _pd_rc)
