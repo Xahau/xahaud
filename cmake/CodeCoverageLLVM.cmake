@@ -59,7 +59,7 @@ function(_find_llvm_cov_tools)
 endfunction()
 
 function(setup_target_for_coverage_llvm)
-  set(oneValueArgs NAME FORMAT BASE_DIRECTORY)
+  set(oneValueArgs NAME FORMAT)
   set(multiValueArgs EXCLUDE EXECUTABLE EXECUTABLE_ARGS DEPENDENCIES)
   cmake_parse_arguments(Cov "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
