@@ -109,7 +109,7 @@ jobs:
           stdlib: libcxx
           # grpc 1.50.1 trips clang-19+ -Werror=missing-template-arg-list-after-template-kw
           # on Apple Clang. Drop when grpc is bumped past the fix.
-          conan_deps_cxxflags: '["-Wno-missing-template-arg-list-after-template-kw"]'
+          conan_deps_cxxflags: '{"grpc/*":["-Wno-missing-template-arg-list-after-template-kw"]}'
 
       - name: Build
         uses: ./.github/actions/xahau-ga-build
