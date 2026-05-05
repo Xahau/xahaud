@@ -86,15 +86,31 @@ getLedgerWithRetry(const LedgerRetryParams& params)
     }
 }
 
-// envconfig with pinned_type set so catalogue_load passes the
-// config guard. Uses rwdb for in-process speed (allowed in standalone).
+// Options for catalogueEnvconfig. Use designated initializers at call sites
+// so each test reads as a small diff against the default — easy to scan and
+// trivially extensible (add fields here, no call-site churn).
+//   catalogueEnvconfig()                              // happy path
+//   catalogueEnvconfig({.withPinnedType = false})     // exercise guard
+struct CatalogueEnvOpts
+{
+    // Set [node_db] pinned_type=rwdb so catalogue_load passes its guard.
+    // false → omit pinned_type entirely (drives the rejection path).
+    bool withPinnedType = true;
+
+    // [node_db] online_delete value (lifetime of rotating store, in ledgers).
+    std::string onlineDelete = "256";
+};
+
+// envconfig with pinned_type set so catalogue_load passes the config guard.
+// Uses rwdb for in-process speed (allowed in standalone).
 inline std::unique_ptr<Config>
-catalogueEnvconfig()
+catalogueEnvconfig(CatalogueEnvOpts const& opts = {})
 {
     auto cfg = test::jtx::envconfig();
     auto& nodeDb = cfg->section(ConfigSection::nodeDatabase());
-    nodeDb.set("pinned_type", "rwdb");
-    nodeDb.set("online_delete", "256");
+    if (opts.withPinnedType)
+        nodeDb.set("pinned_type", "rwdb");
+    nodeDb.set("online_delete", opts.onlineDelete);
     return cfg;
 }
 
@@ -288,6 +304,23 @@ class Catalogue_test : public beast::unit_test::suite
         testcase("catalogue_load: Invalid parameters");
         using namespace test::jtx;
         Env env{*this, catalogueEnvconfig(), features};
+
+        // Missing [node_db] pinned_type — catalogue_load rejects up front so
+        // loaded data isn't lost on the next rotation. Use a separate Env
+        // because this guard fires before any input_file parsing.
+        {
+            Env envNoPin{
+                *this, catalogueEnvconfig({.withPinnedType = false}), features};
+            Json::Value params{Json::objectValue};
+            params[jss::input_file] = "/tmp/anything.catl";
+            auto const result =
+                envNoPin.client().invoke("catalogue_load", params)[jss::result];
+            BEAST_EXPECT(result[jss::error] == "invalidParams");
+            BEAST_EXPECT(result[jss::status] == "error");
+            BEAST_EXPECT(
+                result[jss::error_message].asString().find("pinned_type") !=
+                std::string::npos);
+        }
 
         // No parameters
         {
