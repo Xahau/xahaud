@@ -119,6 +119,7 @@ test.rpc > xrpld.core
 test.rpc > xrpld.net
 test.rpc > xrpld.overlay
 test.rpc > xrpld.rpc
+test.rpc > xrpld.shamap
 test.rpc > xrpl.hook
 test.rpc > xrpl.json
 test.rpc > xrpl.protocol
