@@ -23,6 +23,9 @@
 #if !defined(XRPL_FIX)
 #error "undefined macro: XRPL_FIX"
 #endif
+#if !defined(XRPL_RETIRE)
+#error "undefined macro: XRPL_RETIRE"
+#endif
 
 // clang-format off
 
@@ -57,16 +60,16 @@ XRPL_FIX    (DisallowIncomingV1,         Supported::yes, VoteBehavior::DefaultYe
 XRPL_FEATURE(XChainBridge,               Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FEATURE(AMM,                        Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (ReducedOffersV1,            Supported::yes, VoteBehavior::DefaultYes)
-XRPL_FEATURE(HooksUpdate2,               Supported::yes, VoteBehavior::DefaultNo);
-XRPL_FEATURE(HookOnV2,                   Supported::yes, VoteBehavior::DefaultNo);
-XRPL_FIX    (HookAPI20251128,            Supported::yes, VoteBehavior::DefaultYes);
-XRPL_FIX    (CronStacking,               Supported::yes, VoteBehavior::DefaultYes);
-XRPL_FEATURE(ExtendedHookState,          Supported::yes, VoteBehavior::DefaultNo);
-XRPL_FIX    (InvalidTxFlags,             Supported::yes, VoteBehavior::DefaultYes);
-XRPL_FEATURE(Cron,                       Supported::yes, VoteBehavior::DefaultNo);
-XRPL_FEATURE(IOUIssuerWeakTSH,           Supported::yes, VoteBehavior::DefaultNo);
-XRPL_FEATURE(DeepFreeze,                 Supported::yes, VoteBehavior::DefaultNo);
-XRPL_FIX    (ProvisionalDoubleThreading, Supported::yes, VoteBehavior::DefaultYes);
+XRPL_FEATURE(HooksUpdate2,               Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FEATURE(HookOnV2,                   Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FIX    (HookAPI20251128,            Supported::yes, VoteBehavior::DefaultYes)
+XRPL_FIX    (CronStacking,               Supported::yes, VoteBehavior::DefaultYes)
+XRPL_FEATURE(ExtendedHookState,          Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FIX    (InvalidTxFlags,             Supported::yes, VoteBehavior::DefaultYes)
+XRPL_FEATURE(Cron,                       Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FEATURE(IOUIssuerWeakTSH,           Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FEATURE(DeepFreeze,                 Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FIX    (ProvisionalDoubleThreading, Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(Clawback,                   Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (RewardClaimFlags,           Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(HookCanEmit,                Supported::yes, VoteBehavior::DefaultNo)
@@ -149,5 +152,25 @@ XRPL_FIX    (NFTokenNegOffer,       Supported::yes, VoteBehavior::Obsolete)
 XRPL_FIX    (NFTokenDirV1,          Supported::yes, VoteBehavior::Obsolete)
 XRPL_FEATURE(NonFungibleTokensV1,   Supported::yes, VoteBehavior::Obsolete)
 XRPL_FEATURE(CryptoConditionsSuite, Supported::yes, VoteBehavior::Obsolete)
+
+// The following amendments have been active for at least two years. Their
+// pre-amendment code has been removed and the identifiers are deprecated.
+// All known amendments and amendments that may appear in a validated
+// ledger must be registered either here or above with the "active" amendments
+XRPL_RETIRE(MultiSign)
+XRPL_RETIRE(TrustSetAuth)
+XRPL_RETIRE(FeeEscalation)
+XRPL_RETIRE(PayChan)
+XRPL_RETIRE(CryptoConditions)
+XRPL_RETIRE(TickSize)
+XRPL_RETIRE(fix1368)
+XRPL_RETIRE(Escrow)
+XRPL_RETIRE(fix1373)
+XRPL_RETIRE(EnforceInvariants)
+XRPL_RETIRE(SortedDirectories)
+XRPL_RETIRE(fix1201)
+XRPL_RETIRE(fix1512)
+XRPL_RETIRE(fix1523)
+XRPL_RETIRE(fix1528)
 
 // clang-format on
