@@ -72,19 +72,6 @@ jobs:
                   "job_type": "build"
               },
               {
-                  "compiler_id": "gcc-13-libstdcxx",
-                  "compiler": "gcc",
-                  "cc": "gcc-13",
-                  "cxx": "g++-13",
-                  "gcov": "gcov-13",
-                  "compiler_version": 13,
-                  "stdlib": "default",
-                  "configuration": "Debug",
-                  "job_type": "coverage",
-                  "coverage_tool": "gcov",
-                  "coverage_format": "xml"
-              },
-              {
                   # Latest stable Clang for the most accurate source-based
                   # coverage mapping (newer language features, fewer bugs in
                   # llvm-cov region inference). Pulled from apt.llvm.org since
@@ -153,9 +140,8 @@ jobs:
           # Minimal matrix for PRs and feature branches
           minimal_matrix = [
               full_matrix[1],  # gcc-13 (middle-ground gcc)
-              full_matrix[2],  # gcc-13 coverage
-              full_matrix[3],  # clang-20 llvm-cov coverage
-              full_matrix[4]   # clang-14 (mature, stable clang)
+              full_matrix[2],  # clang-20 llvm-cov coverage
+              full_matrix[3]   # clang-14 (mature, stable clang)
           ]
           
           # Determine which matrix to use based on the target branch
@@ -230,19 +216,13 @@ jobs:
           # Select the appropriate matrix
           if use_full:
               if force_full:
-                  print(f"Using FULL matrix (7 configs) - forced by [ci-nix-full-matrix] tag")
+                  print(f"Using FULL matrix (7 configs (build x6 + clang-20 llvm-cov coverage)) - forced by [ci-nix-full-matrix] tag")
               else:
-                  print(f"Using FULL matrix (7 configs) - targeting main branch")
+                  print(f"Using FULL matrix (7 configs (build x6 + clang-20 llvm-cov coverage)) - targeting main branch")
               matrix = full_matrix
           else:
               print(f"Using MINIMAL matrix (3 configs) - feature branch/PR")
               matrix = minimal_matrix
-
-          # TEMP (coverage-llm branch): narrow the matrix to just the new
-          # clang-20 llvm-cov coverage row so we can iterate on it without
-          # burning runners on the rest. MUST be reverted before merging.
-          matrix = [e for e in matrix if e.get("coverage_tool") == "llvm"]
-          print(f"TEMP override: matrix narrowed to {len(matrix)} llvm-cov row(s)")
 
           # Add runs_on based on job_type
           for entry in matrix:
