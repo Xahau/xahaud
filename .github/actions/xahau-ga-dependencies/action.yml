@@ -50,6 +50,10 @@ inputs:
     options:
       - libstdcxx
       - libcxx
+  conan_deps_cxxflags:
+    description: 'Extra cxxflags applied to Conan dependency builds only (NOT the rippled build). JSON list, e.g. ["-Wno-foo","-Wno-bar"]. Maps to Conan tools.build:cxxflags.'
+    required: false
+    default: '[]'
 
 outputs:
   cache-hit:
@@ -105,7 +109,12 @@ runs:
         os=${{ inputs.os }}
         EOF
 
-        # Add buildenv and conf sections for Linux (not needed for macOS)
+        # [buildenv] + [conf] sections.
+        # Linux pins compiler executables; macOS uses the system toolchain.
+        # conan_deps_cxxflags (matrix-driven) optionally adds tools.build:cxxflags
+        # for Conan dependency builds only - typically grpc workarounds for
+        # newer clang's stricter diagnostics. Does NOT affect the rippled build.
+        NEED_CONF=0
         if [ "${{ inputs.os }}" = "Linux" ] && [ -n "${{ inputs.cc }}" ]; then
           cat >> ~/.conan2/profiles/default <<EOF
 
@@ -116,24 +125,15 @@ runs:
         [conf]
         tools.build:compiler_executables={"c": "/usr/bin/${{ inputs.cc }}", "cpp": "/usr/bin/${{ inputs.cxx }}"}
         EOF
-
-          # gRPC 1.50.1 trips clang-19+ -Werror=missing-template-arg-list-after-template-kw.
-          # Same workaround as the macOS branch below, but only for clang where the flag exists.
-          if [ "${{ inputs.compiler }}" = "clang" ]; then
-            cat >> ~/.conan2/profiles/default <<EOF
-        tools.build:cxxflags=["-Wno-missing-template-arg-list-after-template-kw"]
-        EOF
-          fi
+          NEED_CONF=1
         fi
 
-        # Add macOS-specific conf if needed
-        if [ "${{ inputs.os }}" = "Macos" ]; then
-          cat >> ~/.conan2/profiles/default <<EOF
-
-        [conf]
-        # Workaround for gRPC with newer Apple Clang
-        tools.build:cxxflags=["-Wno-missing-template-arg-list-after-template-kw"]
-        EOF
+        if [ "${{ inputs.conan_deps_cxxflags }}" != "[]" ] && [ -n "${{ inputs.conan_deps_cxxflags }}" ]; then
+          if [ "$NEED_CONF" = "0" ]; then
+            echo "" >> ~/.conan2/profiles/default
+            echo "[conf]" >> ~/.conan2/profiles/default
+          fi
+          echo 'tools.build:cxxflags=${{ inputs.conan_deps_cxxflags }}' >> ~/.conan2/profiles/default
         fi
 
         # Display profile for verification

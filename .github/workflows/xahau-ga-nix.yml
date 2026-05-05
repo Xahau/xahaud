@@ -98,7 +98,11 @@ jobs:
                   "configuration": "Debug",
                   "job_type": "coverage",
                   "coverage_tool": "llvm",
-                  "coverage_format": "lcov"
+                  "coverage_format": "lcov",
+                  # grpc 1.50.1 uses `Foo::template Bar(...)` without an
+                  # angle-bracket arg list; clang-19+ promoted that to
+                  # -Werror. Drop when grpc is bumped past the fix.
+                  "conan_deps_cxxflags": ["-Wno-missing-template-arg-list-after-template-kw"]
               },
               {
                   "compiler_id": "clang-14-libstdcxx-gcc11",
@@ -427,6 +431,7 @@ jobs:
           cc: ${{ matrix.cc }}
           cxx: ${{ matrix.cxx }}
           stdlib: ${{ matrix.stdlib }}
+          conan_deps_cxxflags: ${{ matrix.conan_deps_cxxflags && toJson(matrix.conan_deps_cxxflags) || '[]' }}
           gha_cache_enabled: 'false' # Disable caching for self hosted runner
 
       - name: Build
