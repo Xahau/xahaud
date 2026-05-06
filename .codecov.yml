@@ -4,3 +4,16 @@ coverage:
       default:
         target: 60%
         threshold: 2%
+    patch:
+      default:
+        target: auto
+        threshold: 0%
+        paths:
+          # PeerImp is historically hard to exercise in the current unit-test
+          # harness. Keep this list narrow; new testable code should remain
+          # covered by the default patch gate.
+          - "!src/xrpld/overlay/detail/PeerImp.cpp"
+      historically-untested:
+        target: 0%
+        paths:
+          - "src/xrpld/overlay/detail/PeerImp.cpp"
