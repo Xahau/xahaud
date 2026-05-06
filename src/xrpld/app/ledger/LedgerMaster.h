@@ -366,6 +366,9 @@ private:
 
     std::recursive_mutex mCompleteLock;
     RangeSet<std::uint32_t> mCompleteLedgers;
+
+    // When both locks are needed, take mCompleteLock before mPinnedLock.
+    std::mutex mPinnedLock;
     RangeSet<std::uint32_t> mPinnedLedgers;  // Track pinned ledger ranges
     bool mPinnedMergedToComplete{
         false};  // One-shot: pinned merged into mCompleteLedgers

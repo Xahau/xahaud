@@ -463,7 +463,7 @@ LedgerMaster::storeLedger(std::shared_ptr<Ledger const> ledger, bool pin)
     {
         uint32_t seq = ledger->info().seq;
         {
-            std::lock_guard sl(mCompleteLock);
+            std::lock_guard sl(mPinnedLock);
             mPinnedLedgers.insert(range(seq, seq));
         }
         JLOG(m_journal.info()) << "Pinned ledger : " << seq;
@@ -524,7 +524,8 @@ LedgerMaster::haveLedger(std::uint32_t seq)
 void
 LedgerMaster::clearLedger(std::uint32_t seq)
 {
-    std::lock_guard sl(mCompleteLock);
+    std::lock_guard cl(mCompleteLock);
+    std::lock_guard pl(mPinnedLock);
 
     // Don't clear pinned ledgers
     if (boost::icl::contains(mPinnedLedgers, seq))
@@ -540,14 +541,14 @@ LedgerMaster::clearLedger(std::uint32_t seq)
 bool
 LedgerMaster::isPinned(std::uint32_t seq)
 {
-    std::lock_guard sl(mCompleteLock);
+    std::lock_guard sl(mPinnedLock);
     return boost::icl::contains(mPinnedLedgers, seq);
 }
 
 void
 LedgerMaster::unpinLedger(std::uint32_t seq)
 {
-    std::lock_guard sl(mCompleteLock);
+    std::lock_guard sl(mPinnedLock);
     mPinnedLedgers.erase(range(seq, seq));
 }
 
@@ -887,7 +888,8 @@ LedgerMaster::setFullLedger(
     pendSaveValidated(app_, ledger, isSynchronous, isCurrent);
 
     {
-        std::lock_guard ml(mCompleteLock);
+        std::lock_guard cl(mCompleteLock);
+        std::lock_guard pl(mPinnedLock);
         // One-time merge of pinned ranges into mCompleteLedgers.
         // For NORMAL/NETWORK startup, this fires on the first validated
         // ledger (network quorum). For LOAD/standalone, the merge
@@ -1352,7 +1354,7 @@ LedgerMaster::findNewLedgersToPublish(
     // Solution: Only publish the most recent validated ledger (which needs
     // publishing) and skip all intermediate pinned ledgers (already on disk).
     {
-        std::lock_guard sll(mCompleteLock);
+        std::lock_guard sll(mPinnedLock);
         RangeSet<std::uint32_t> pinnedExceptLast = mPinnedLedgers;
         // Remove the most recent from the pinned set so we always publish it
         if (boost::icl::contains(pinnedExceptLast, valSeq))
@@ -1388,7 +1390,7 @@ LedgerMaster::findNewLedgersToPublish(
             {
                 bool canSkip;
                 {
-                    std::lock_guard sll(mCompleteLock);
+                    std::lock_guard sll(mPinnedLock);
                     canSkip = detail::canSkipPinnedGap(
                         pubSeq, interval.first(), mPinnedLedgers);
                 }
@@ -1751,7 +1753,7 @@ LedgerMaster::getCompleteLedgers()
 std::string
 LedgerMaster::getPinnedLedgers()
 {
-    std::lock_guard sl(mCompleteLock);
+    std::lock_guard sl(mPinnedLock);
     return to_string(mPinnedLedgers);
 }
 
@@ -1765,14 +1767,15 @@ LedgerMaster::getCompleteLedgersRangeSet()
 RangeSet<std::uint32_t>
 LedgerMaster::getPinnedLedgersRangeSet()
 {
-    std::lock_guard sl(mCompleteLock);
+    std::lock_guard sl(mPinnedLock);
     return mPinnedLedgers;
 }
 
 void
 LedgerMaster::setPinnedLedgersRangeSet(const RangeSet<std::uint32_t>& range_set)
 {
-    std::lock_guard sl(mCompleteLock);
+    std::lock_guard cl(mCompleteLock);
+    std::lock_guard pl(mPinnedLock);
     if (!mPinnedLedgers.empty())
     {
         Throw<std::runtime_error>(
@@ -1968,15 +1971,19 @@ LedgerMaster::setLedgerRangePresent(
     std::uint32_t maxV,
     bool pin)
 {
-    std::lock_guard sl(mCompleteLock);
-    mCompleteLedgers.insert(range(minV, maxV));
-
     if (pin)
     {
+        std::lock_guard cl(mCompleteLock);
+        std::lock_guard pl(mPinnedLock);
+        mCompleteLedgers.insert(range(minV, maxV));
         mPinnedLedgers.insert(range(minV, maxV));
         JLOG(m_journal.info())
             << "Pinned ledger range: " << minV << " - " << maxV;
+        return;
     }
+
+    std::lock_guard cl(mCompleteLock);
+    mCompleteLedgers.insert(range(minV, maxV));
 }
 
 void
@@ -1996,7 +2003,8 @@ LedgerMaster::getCacheHitRate()
 void
 LedgerMaster::clearPriorLedgers(LedgerIndex seq)
 {
-    std::lock_guard sl(mCompleteLock);
+    std::lock_guard cl(mCompleteLock);
+    std::lock_guard pl(mPinnedLock);
     if (seq <= 0)
         return;
 

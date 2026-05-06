@@ -571,8 +571,14 @@ public:
     deleteLedgersInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        std::optional<std::size_t> limit = std::nullopt) override
+        std::optional<std::size_t> rowLimit = std::nullopt) override
     {
+        XRPL_ASSERT(
+            minSeq <= maxSeq,
+            "RWDBDatabase::deleteLedgersInRange : minSeq <= maxSeq");
+        XRPL_ASSERT(
+            !rowLimit || *rowLimit > 0,
+            "RWDBDatabase::deleteLedgersInRange : rowLimit must be positive");
         std::unique_lock<std::shared_mutex> lock(mutex_);
         auto it = ledgers_.lower_bound(minSeq);
         auto end = ledgers_.upper_bound(maxSeq);
@@ -580,7 +586,7 @@ public:
         std::size_t count = 0;
         while (it != end)
         {
-            if (limit && count >= *limit)
+            if (rowLimit && count >= *rowLimit)
                 break;
 
             ledgerHashToSeq_.erase(it->second.info.hash);
@@ -594,8 +600,15 @@ public:
     deleteTransactionsInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        std::optional<std::size_t> limit = std::nullopt) override
+        std::optional<std::size_t> rowLimit = std::nullopt) override
     {
+        XRPL_ASSERT(
+            minSeq <= maxSeq,
+            "RWDBDatabase::deleteTransactionsInRange : minSeq <= maxSeq");
+        XRPL_ASSERT(
+            !rowLimit || *rowLimit > 0,
+            "RWDBDatabase::deleteTransactionsInRange : rowLimit must be "
+            "positive");
         if (!useTxTables_)
             return 0;
 
@@ -612,7 +625,7 @@ public:
             auto txIt = it->second.transactions.begin();
             while (txIt != it->second.transactions.end())
             {
-                if (limit && count >= *limit)
+                if (rowLimit && count >= *rowLimit)
                     return count;
 
                 transactionMap_.erase(txIt->first);
@@ -628,8 +641,16 @@ public:
     deleteAccountTransactionsInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        std::optional<std::size_t> limit = std::nullopt) override
+        std::optional<std::size_t> rowLimit = std::nullopt) override
     {
+        XRPL_ASSERT(
+            minSeq <= maxSeq,
+            "RWDBDatabase::deleteAccountTransactionsInRange : minSeq <= "
+            "maxSeq");
+        XRPL_ASSERT(
+            !rowLimit || *rowLimit > 0,
+            "RWDBDatabase::deleteAccountTransactionsInRange : rowLimit must be "
+            "positive");
         if (!useTxTables_)
             return 0;
 
@@ -644,10 +665,10 @@ public:
             while (txIt != txEnd)
             {
                 std::size_t toDelete = txIt->second.size();
-                if (limit && count + toDelete > *limit)
+                if (rowLimit && count + toDelete > *rowLimit)
                 {
                     // Partial deletion from this ledger
-                    toDelete = *limit - count;
+                    toDelete = *rowLimit - count;
                     txIt->second.resize(txIt->second.size() - toDelete);
                     count += toDelete;
                     return count;

@@ -157,28 +157,21 @@ deleteBeforeLedgerSeq(
             << ledgerSeq << ";";
 }
 
-void
-deleteRange(
-    soci::session& session,
-    TableType type,
-    LedgerIndex minSeq,
-    LedgerIndex maxSeq)
-{
-    session << "DELETE FROM " << to_string(type)
-            << " WHERE LedgerSeq >= " << minSeq
-            << " AND LedgerSeq <= " << maxSeq << ";";
-}
-
 std::size_t
 deleteRange(
     soci::session& session,
     TableType type,
     LedgerIndex minSeq,
     LedgerIndex maxSeq,
-    std::optional<std::size_t> limit)
+    std::optional<std::size_t> rowLimit)
 {
+    XRPL_ASSERT(
+        minSeq <= maxSeq, "ripple::detail::deleteRange : minSeq <= maxSeq");
+    XRPL_ASSERT(
+        !rowLimit || *rowLimit > 0,
+        "ripple::detail::deleteRange : rowLimit must be positive");
     std::string sql;
-    if (limit)
+    if (rowLimit)
     {
         // SQLite doesn't support DELETE...LIMIT unless compiled with
         // SQLITE_ENABLE_UPDATE_DELETE_LIMIT. Use subquery workaround.
@@ -186,7 +179,7 @@ deleteRange(
             " WHERE rowid IN (SELECT rowid FROM " + to_string(type) +
             " WHERE LedgerSeq >= " + std::to_string(minSeq) +
             " AND LedgerSeq <= " + std::to_string(maxSeq) +
-            " ORDER BY LedgerSeq ASC LIMIT " + std::to_string(*limit) + ");";
+            " ORDER BY LedgerSeq ASC LIMIT " + std::to_string(*rowLimit) + ");";
     }
     else
     {

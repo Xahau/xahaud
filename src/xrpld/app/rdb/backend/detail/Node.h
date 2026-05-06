@@ -103,21 +103,6 @@ deleteBeforeLedgerSeq(
     LedgerIndex ledgerSeq);
 
 /**
- * @brief deleteRange Deletes all entries in given table
- *        for the ledgers within the specified range (inclusive).
- * @param session Session with database.
- * @param type Table ID from which entries will be deleted.
- * @param minSeq Minimum ledger sequence (inclusive).
- * @param maxSeq Maximum ledger sequence (inclusive).
- */
-void
-deleteRange(
-    soci::session& session,
-    TableType type,
-    LedgerIndex minSeq,
-    LedgerIndex maxSeq);
-
-/**
  * @brief deleteRange Deletes entries in given table
  *        for the ledgers within the specified range (inclusive)
  *        with an optional limit on the number of rows to delete.
@@ -125,7 +110,7 @@ deleteRange(
  * @param type Table ID from which entries will be deleted.
  * @param minSeq Minimum ledger sequence (inclusive).
  * @param maxSeq Maximum ledger sequence (inclusive).
- * @param limit Optional limit on number of rows to delete.
+ * @param rowLimit Optional limit on number of rows to delete.
  * @return Number of rows actually deleted.
  */
 std::size_t
@@ -134,7 +119,7 @@ deleteRange(
     TableType type,
     LedgerIndex minSeq,
     LedgerIndex maxSeq,
-    std::optional<std::size_t> limit);
+    std::optional<std::size_t> rowLimit);
 
 /**
  * @brief getRows Returns number of rows in given table.

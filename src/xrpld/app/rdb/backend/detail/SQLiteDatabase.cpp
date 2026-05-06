@@ -87,19 +87,19 @@ public:
     deleteLedgersInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        std::optional<std::size_t> limit = std::nullopt) override;
+        std::optional<std::size_t> rowLimit = std::nullopt) override;
 
     std::size_t
     deleteTransactionsInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        std::optional<std::size_t> limit = std::nullopt) override;
+        std::optional<std::size_t> rowLimit = std::nullopt) override;
 
     std::size_t
     deleteAccountTransactionsInRange(
         LedgerIndex minSeq,
         LedgerIndex maxSeq,
-        std::optional<std::size_t> limit = std::nullopt) override;
+        std::optional<std::size_t> rowLimit = std::nullopt) override;
 
     std::size_t
     getTransactionCount() override;
@@ -971,42 +971,42 @@ std::size_t
 SQLiteDatabaseImp::deleteLedgersInRange(
     LedgerIndex minSeq,
     LedgerIndex maxSeq,
-    std::optional<std::size_t> limit)
+    std::optional<std::size_t> rowLimit)
 {
     if (!existsLedger())
         return 0;
 
     auto db = checkoutLedger();
     return detail::deleteRange(
-        *db, detail::TableType::Ledgers, minSeq, maxSeq, limit);
+        *db, detail::TableType::Ledgers, minSeq, maxSeq, rowLimit);
 }
 
 std::size_t
 SQLiteDatabaseImp::deleteTransactionsInRange(
     LedgerIndex minSeq,
     LedgerIndex maxSeq,
-    std::optional<std::size_t> limit)
+    std::optional<std::size_t> rowLimit)
 {
     if (!existsTransaction())
         return 0;
 
     auto db = checkoutTransaction();
     return detail::deleteRange(
-        *db, detail::TableType::Transactions, minSeq, maxSeq, limit);
+        *db, detail::TableType::Transactions, minSeq, maxSeq, rowLimit);
 }
 
 std::size_t
 SQLiteDatabaseImp::deleteAccountTransactionsInRange(
     LedgerIndex minSeq,
     LedgerIndex maxSeq,
-    std::optional<std::size_t> limit)
+    std::optional<std::size_t> rowLimit)
 {
     if (!existsTransaction())
         return 0;
 
     auto db = checkoutTransaction();
     return detail::deleteRange(
-        *db, detail::TableType::AccountTransactions, minSeq, maxSeq, limit);
+        *db, detail::TableType::AccountTransactions, minSeq, maxSeq, rowLimit);
 }
 
 void
