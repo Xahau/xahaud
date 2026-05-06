@@ -42,6 +42,12 @@ fclear(Account const& account, std::uint32_t off)
     return fset(account, 0, off);
 }
 
+/** AccountSet that atomically replaces sfSigningPolicy with `policy`.
+    A value of 0 will cause the field to be removed from AccountRoot.
+ */
+Json::Value
+signing_policy(Account const& account, std::uint32_t policy);
+
 namespace detail {
 
 class flags_helper

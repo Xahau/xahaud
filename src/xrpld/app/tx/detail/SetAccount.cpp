@@ -25,6 +25,7 @@
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/Quality.h>
+#include <xrpl/protocol/SigningPolicy.h>
 #include <xrpl/protocol/st.h>
 
 namespace ripple {
@@ -195,6 +196,23 @@ SetAccount::preflight(PreflightContext const& ctx)
             scale > hook::maxHookStateScale())  // Min: 1, Max: 16 (256
                                                 // * 16 = 4096 bytes)
             return temMALFORMED;
+    }
+
+    // SigningPolicy is settable as a single atomic bitmask field on
+    // AccountSet, gated on featureNestedMultiSign.
+    if (tx.isFieldPresent(sfSigningPolicy))
+    {
+        if (!ctx.rules.enabled(featureNestedMultiSign))
+            return temDISABLED;
+
+        std::uint32_t const policy = tx.getFieldU32(sfSigningPolicy);
+        constexpr std::uint32_t kValidMask = pfApplyPoliciesAllMultiSign |
+            sigpol::acceptsBelowMask | sigpol::permitsSelfMask;
+        if (policy & ~kValidMask)
+        {
+            JLOG(j.trace()) << "SetAccount: SigningPolicy has unknown bits.";
+            return temINVALID_FLAG;
+        }
     }
 
     return preflight2(ctx);
@@ -651,6 +669,25 @@ SetAccount::doApply()
     {
         JLOG(j_.trace()) << "set allow clawback";
         uFlagsOut |= lsfAllowTrustLineClawback;
+    }
+
+    //
+    // SigningPolicy: atomic full-bitmask replacement. Caller supplies the
+    // desired final mask; zero clears the field. Gated on
+    // featureNestedMultiSign (preflight already enforced this).
+    //
+    if (tx.isFieldPresent(sfSigningPolicy))
+    {
+        std::uint32_t const policy = tx.getFieldU32(sfSigningPolicy);
+        if (policy == 0)
+        {
+            if (sle->isFieldPresent(sfSigningPolicy))
+                sle->makeFieldAbsent(sfSigningPolicy);
+        }
+        else
+        {
+            sle->setFieldU32(sfSigningPolicy, policy);
+        }
     }
 
     if (uFlagsIn != uFlagsOut)

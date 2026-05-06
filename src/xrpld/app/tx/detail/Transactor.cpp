@@ -39,6 +39,7 @@
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/STTx.h>
+#include <xrpl/protocol/SigningPolicy.h>
 #include <xrpl/protocol/UintTypes.h>
 #include <functional>
 #include <limits>
@@ -1009,25 +1010,52 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
     int const maxDepth =
         allowNested ? nestedMultiSignMaxDepth : legacyMultiSignMaxDepth;
 
+    // Per-account signing policy. Read the txn account's policy to seed the
+    // path. Default-zero (or amendment off) means no new behaviors are
+    // permitted: legacy flat multi-sign holds and any nested-only mechanism
+    // (cycles, nested intermediaries, master-disabled signers in nested
+    // context) requires explicit opt-in by every participant.
+    auto const sleRoot = ctx.view.read(keylet::account(id));
+    std::uint32_t const rootPolicy =
+        (allowNested && sleRoot && sleRoot->isFieldPresent(sfSigningPolicy))
+        ? sleRoot->getFieldU32(sfSigningPolicy)
+        : 0u;
+    bool const applyAtDepth1 = (rootPolicy & pfApplyPoliciesAllMultiSign) != 0;
+    std::uint32_t const initialPathCap =
+        sigpol::permitsSelfToCapabilities(rootPolicy);
+    std::uint32_t const rootAcceptsBelowCaps =
+        sigpol::acceptsBelowToCapabilities(rootPolicy);
+
     // Nested multi-sign is dynamic account delegation: a parent SignerList
     // authorizes signer accounts, not a frozen set of leaf keys. A nested
     // signer contributes when that signer account's current on-ledger
     // SignerList is satisfied by the transaction evidence.
     //
-    // ancestors tracks the current proof path. An authorized signer entry that
-    // points back to an ancestor is unavailable on that path and may cause the
-    // local quorum to be cycle-adjusted below.
+    // The proof tree is bounded by a per-edge policy intersection model:
+    //   pathCap_root  = root.permitsSelf
+    //   pathCap_child = pathCap_parent
+    //                 ∩ (parent.acceptsBelow ∩ child.permitsSelf)
+    // capability is gated at each edge by pathCap.
+    //
+    // ancestors tracks the current proof path. An authorized signer entry
+    // that points back to an ancestor is unavailable on that path and may
+    // cause the local quorum to be cycle-adjusted below; both behaviors
+    // require explicit policy consent on the cycle axis.
     std::function<NotTEC(
-        AccountID const&, STArray const&, int, std::set<AccountID>)>
+        AccountID const&,
+        std::uint32_t,
+        STArray const&,
+        int,
+        std::set<AccountID>,
+        std::uint32_t)>
         validateSigners;
 
     validateSigners = [&](AccountID const& acc,
+                          std::uint32_t accAcceptsBelowCaps,
                           STArray const& signers,
                           int depth,
-                          std::set<AccountID> ancestors) -> NotTEC {
-        // Cycle detection is handled per authorized edge in the loop below,
-        // rather than by failing the delegated account outright.
-
+                          std::set<AccountID> ancestors,
+                          std::uint32_t pathCap) -> NotTEC {
         if (depth > maxDepth)
         {
             JLOG(ctx.j.trace())
@@ -1106,11 +1134,55 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                 return tefBAD_SIGNATURE;
             }
 
+            // Read the signer's account and policy. Phantom signers have no
+            // AccountRoot and therefore no permitsSelf policy; setting
+            // signerPermitsSelfCaps to capAllMask means "phantom adds no
+            // additional restriction at this edge." It does NOT mean the
+            // phantom opted into anything -- the inherited path cap and
+            // parent's acceptsBelow consent still govern. (Phantoms cannot
+            // create cycles -- no SignerList -- and have no master to
+            // disable, so the cycle and disabled-master axes don't apply
+            // to them as leaves either.)
+            auto sleTxSignerRoot = ctx.view.read(keylet::account(signer));
+            std::uint32_t const signerPolicy =
+                (allowNested && sleTxSignerRoot &&
+                 sleTxSignerRoot->isFieldPresent(sfSigningPolicy))
+                ? sleTxSignerRoot->getFieldU32(sfSigningPolicy)
+                : 0u;
+            std::uint32_t const signerPermitsSelfCaps = sleTxSignerRoot
+                ? sigpol::permitsSelfToCapabilities(signerPolicy)
+                : sigpol::capAllMask;
+            std::uint32_t const signerAcceptsBelowCaps =
+                sigpol::acceptsBelowToCapabilities(signerPolicy);
+
+            // Per-edge effective capability cap.
+            std::uint32_t const edgeCap =
+                accAcceptsBelowCaps & signerPermitsSelfCaps;
+            std::uint32_t const newPathCap = pathCap & edgeCap;
+
+            // Whether the leaf-shape policy gates apply at this edge.
+            // Always true at depth >= 2 (nested context). At depth 1 only
+            // when the txn account explicitly opted in via
+            // pfApplyPoliciesAllMultiSign.
+            bool const policyEnforced = (depth >= 2) || applyAtDepth1;
+
             // The signer is authorized by acc, but is already in the current
             // proof path. Treat that cyclic ancestor edge as unavailable for
             // this path; do not recurse into it and do not count its weight.
+            // Including a cyclic edge requires explicit policy consent on
+            // the cycle axis (otherwise the proof relies on undisclosed
+            // semantics).
             if (ancestors.count(signer))
             {
+                if (allowNested &&
+                    !sigpol::hasCapability(
+                        newPathCap, sigpol::capCycleAdjustedQuorum))
+                {
+                    JLOG(ctx.j.trace())
+                        << "checkMultiSign: Cyclic signer " << signer
+                        << " requires cycle-handling policy consent.";
+                    return tefBAD_SIGNATURE;
+                }
                 JLOG(ctx.j.trace())
                     << "checkMultiSign: Skipping cyclic signer: " << signer;
                 continue;
@@ -1119,10 +1191,28 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
 
             if (isNestedSigner(signerEntry))
             {
+                // Nested intermediaries are a feature introduced by
+                // featureNestedMultiSign. They are always policy-gated at
+                // every depth -- the mechanism cannot be silently invoked.
+                if (!sigpol::hasCapability(newPathCap, sigpol::capNested))
+                {
+                    JLOG(ctx.j.trace())
+                        << "checkMultiSign: Nested signer " << signer
+                        << " requires nested-multisign policy consent "
+                           "(parent.acceptsBelowNested ∩ "
+                           "child.permitsSelfNested at this edge).";
+                    return tefBAD_SIGNATURE;
+                }
+
                 STArray const& nestedSigners =
                     signerEntry.getFieldArray(sfSigners);
                 NotTEC result = validateSigners(
-                    signer, nestedSigners, depth + 1, ancestors);
+                    signer,
+                    signerAcceptsBelowCaps,
+                    nestedSigners,
+                    depth + 1,
+                    ancestors,
+                    newPathCap);
                 if (!isTesSuccess(result))
                     return result;
 
@@ -1155,24 +1245,31 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
                     ? signer
                     : calcAccountID(PublicKey(makeSlice(spk)));
 
-                auto sleTxSignerRoot = ctx.view.read(keylet::account(signer));
-
                 if (signingAcctIDFromPubKey == signer)
                 {
-                    // Either Phantom or Master. Phantoms automatically pass.
+                    // Either Phantom or Master. Phantoms (no on-ledger
+                    // record) are unconditionally allowed at any depth --
+                    // they have no master to disable, so the
+                    // disabled-master capability axis does not apply.
                     if (sleTxSignerRoot)
                     {
                         // Master Key. Account may not have asfDisableMaster
-                        // set.
+                        // set unless the policy at this edge explicitly
+                        // allows disabled-master signers in this context.
                         std::uint32_t const signerAccountFlags =
                             sleTxSignerRoot->getFieldU32(sfFlags);
 
                         if (signerAccountFlags & lsfDisableMaster)
                         {
-                            JLOG(ctx.j.trace())
-                                << "checkMultiSign: Signer " << signer
-                                << " has lsfDisableMaster set.";
-                            return tefMASTER_DISABLED;
+                            if (!(policyEnforced &&
+                                  sigpol::hasCapability(
+                                      newPathCap, sigpol::capDisabledMaster)))
+                            {
+                                JLOG(ctx.j.trace())
+                                    << "checkMultiSign: Signer " << signer
+                                    << " has lsfDisableMaster set.";
+                                return tefMASTER_DISABLED;
+                            }
                         }
                     }
                 }
@@ -1226,15 +1323,17 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
             return tefINTERNAL;
         }
 
-        // Dynamic delegation still requires the delegated account's own policy
-        // to be satisfied. The only adjustment is for authorized ancestor edges
-        // that cannot be used without circular proof. If those cyclic edges
-        // make the configured quorum unreachable, require all remaining
-        // non-cyclic weight.
+        // Dynamic delegation still requires the delegated account's own
+        // policy to be satisfied. The only adjustment is for authorized
+        // ancestor edges that cannot be used without circular proof.
+        // Adjusting the configured quorum requires explicit consent (acc's
+        // permitsSelf, already incorporated into pathCap when the parent
+        // descended into acc); without it, the original quorum stands.
         uint32_t cycleAdjustedQuorum = quorum;
         uint32_t const maxAchievable = totalWeight - cyclicWeight;
 
-        if (cyclicWeight > 0 && maxAchievable < quorum)
+        if (allowNested && cyclicWeight > 0 && maxAchievable < quorum &&
+            sigpol::hasCapability(pathCap, sigpol::capCycleAdjustedQuorum))
         {
             JLOG(ctx.j.warn()) << "checkMultiSign: Cycle-adjusted quorum for "
                                << acc << ": " << quorum << " -> "
@@ -1263,7 +1362,8 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
 
     STArray const& entries(ctx.tx.getFieldArray(sfSigners));
 
-    NotTEC result = validateSigners(id, entries, 1, {});
+    NotTEC result = validateSigners(
+        id, rootAcceptsBelowCaps, entries, 1, {}, initialPathCap);
     if (!isTesSuccess(result))
     {
         JLOG(ctx.j.trace())

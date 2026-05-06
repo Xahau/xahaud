@@ -18,6 +18,7 @@
 #include <test/jtx.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/SigningPolicy.h>
 #include <xrpl/protocol/jss.h>
 
 namespace ripple {
@@ -1736,6 +1737,43 @@ public:
             acc12);
         env.close();
 
+        // Default opt-in helper for nested-multisign scenarios. Sets nested
+        // + cycle bits in both directions. The existing nested tests were
+        // written assuming nested + cycle handling are available; they were
+        // NOT written assuming master-disabled-in-nested-context is
+        // available -- that's a new capability covered by test_signingPolicy
+        // and intentionally NOT enabled here. Likewise no
+        // pfApplyPoliciesAllMultiSign (depth-1 signers retain legacy
+        // flat behavior).
+        constexpr std::uint32_t kNestedWithCycling = pfAcceptsBelowNested |
+            pfAcceptsBelowCycleAdjustedQuorum | pfPermitsSelfNested |
+            pfPermitsSelfCycleAdjustedQuorum;
+        auto optInNestedWithCycling = [&env](auto const&... accts) {
+            (env(signing_policy(accts, kNestedWithCycling)), ...);
+            env.close();
+        };
+
+        if (features[featureNestedMultiSign])
+        {
+            optInNestedWithCycling(
+                alice,
+                becky,
+                cheri,
+                daria,
+                edgar,
+                fiona,
+                grace,
+                henry,
+                f1,
+                f2,
+                f3,
+                phase,
+                jinni,
+                acc10,
+                acc11,
+                acc12);
+        }
+
         auto const baseFee = env.current()->fees().base;
 
         if (!features[featureNestedMultiSign])
@@ -2167,6 +2205,7 @@ public:
 
             env.fund(XRP(1000), onyx, nova, ruby);
             env.close();
+            optInNestedWithCycling(onyx, nova, ruby);
 
             // Set up signer lists FIRST (before disabling master keys)
             // ruby: {jade, nova} with quorum 2
@@ -2225,6 +2264,7 @@ public:
 
             env.fund(XRP(1000), alpha, beta, gamma);
             env.close();
+            optInNestedWithCycling(alpha, beta, gamma);
 
             // Set up pure cycle signer lists FIRST
             env(signers(alpha, 1, {{beta, 1}}));
@@ -2429,6 +2469,7 @@ public:
 
             env.fund(XRP(1000), omega, sigma);
             env.close();
+            optInNestedWithCycling(omega, sigma);
 
             // Reset alice and becky signer lists
             env(signers(alice, jtx::none));
@@ -2634,6 +2675,16 @@ public:
         Account const fiona{"fiona", KeyType::ed25519};
         env.fund(XRP(1000), alice, becky, cheri, daria, edgar, fiona);
         env.close();
+
+        // Default opt-in for nested + cycle bits (see test_nestedMultiSign).
+        constexpr std::uint32_t kNestedWithCycling = pfAcceptsBelowNested |
+            pfAcceptsBelowCycleAdjustedQuorum | pfPermitsSelfNested |
+            pfPermitsSelfCycleAdjustedQuorum;
+        auto optInNestedWithCycling = [&env](auto const&... accts) {
+            (env(signing_policy(accts, kNestedWithCycling)), ...);
+            env.close();
+        };
+        optInNestedWithCycling(alice, becky, cheri, daria, edgar, fiona);
 
         auto const baseFee = env.current()->fees().base;
 
@@ -3021,6 +3072,7 @@ public:
             Account const wren{"wren", KeyType::ed25519};
             env.fund(XRP(1000), zara, yara, xena, wren);
             env.close();
+            optInNestedWithCycling(zara, yara, xena, wren);
 
             env(signers(zara, 1, {{yara, 1}}));
             env(signers(yara, 2, {{xena, 1}, {wren, 1}}));
@@ -3145,6 +3197,401 @@ public:
                     jrr[jss::result][jss::error_message] ==
                     "Signers array may only contain valid Signer entries.");
             }
+        }
+    }
+
+    void
+    test_signingPolicy(FeatureBitset features)
+    {
+        // Per-account signing policy gates new nested-multisign behaviors.
+        // The matrix covers:
+        //  (a) pre-amendment: setting sfSigningPolicy must fail temDISABLED
+        //  (b) post-amendment, default policy (zero):
+        //      flat multisign still works, nested attempt fails for lack
+        //      of consent on either side
+        //  (c) one-sided opt-in (parent accepts, child doesn't, or vice
+        //      versa): nested still fails
+        //  (d) two-sided opt-in: nested succeeds
+        //  (e) cycle requires cycle-handling consent: a cyclic edge in the
+        //      proof without it fails tefBAD_SIGNATURE
+        //  (f) master-disabled signer in nested context requires
+        //      disabled-master consent on the path
+        //  (g) pfApplyPoliciesAllMultiSign on the txn account: depth-1
+        //      flat-multisign signers also become subject to the policy
+        //      intersection (e.g. master-disabled signers at depth 1 are
+        //      now rejected unless disabled-master is permitted)
+        //  (h) unknown bits in SigningPolicy => temINVALID_FLAG
+
+        using namespace jtx;
+
+        // (a) Pre-amendment: SigningPolicy must be rejected.
+        {
+            testcase("SigningPolicy pre-amendment is temDISABLED");
+            Env env{*this, features - featureNestedMultiSign};
+            Account const alice{"alice", KeyType::secp256k1};
+            env.fund(XRP(1000), alice);
+            env.close();
+            env(signing_policy(alice, pfPermitsSelfNested), ter(temDISABLED));
+            env.close();
+        }
+
+        if (!features[featureNestedMultiSign])
+            return;
+
+        // (h) Unknown bits => temINVALID_FLAG.
+        {
+            testcase("SigningPolicy unknown bits are temINVALID_FLAG");
+            Env env{*this, features};
+            Account const alice{"alice", KeyType::secp256k1};
+            env.fund(XRP(1000), alice);
+            env.close();
+            constexpr std::uint32_t bogusBit = 0x80000000;
+            env(signing_policy(alice, bogusBit), ter(temINVALID_FLAG));
+            env.close();
+        }
+
+        // SigningPolicy=0 must remove the field from AccountRoot (not
+        // persist as a zero-valued field).
+        {
+            testcase("SigningPolicy=0 removes the field");
+            Env env{*this, features};
+            Account const alice{"alice", KeyType::secp256k1};
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            // Set a nonzero policy, then clear it.
+            env(signing_policy(alice, pfPermitsSelfNested));
+            env.close();
+            {
+                auto const sle = env.le(alice);
+                BEAST_EXPECT(sle && sle->isFieldPresent(sfSigningPolicy));
+                BEAST_EXPECT(
+                    sle &&
+                    sle->getFieldU32(sfSigningPolicy) == pfPermitsSelfNested);
+            }
+
+            env(signing_policy(alice, 0));
+            env.close();
+            {
+                auto const sle = env.le(alice);
+                BEAST_EXPECT(sle && !sle->isFieldPresent(sfSigningPolicy));
+            }
+        }
+
+        // Setting SigningPolicy twice replaces the value (no OR-merge with
+        // any prior bits). This is the atomic-bitmask contract.
+        {
+            testcase("SigningPolicy is replacement, not OR-merge");
+            Env env{*this, features};
+            Account const alice{"alice", KeyType::secp256k1};
+            env.fund(XRP(1000), alice);
+            env.close();
+
+            // First set: nested only.
+            env(signing_policy(alice, pfPermitsSelfNested));
+            env.close();
+
+            // Second set: cycle only. Result must be exactly cycle, not
+            // nested|cycle.
+            env(signing_policy(alice, pfPermitsSelfCycleAdjustedQuorum));
+            env.close();
+
+            auto const sle = env.le(alice);
+            BEAST_EXPECT(sle && sle->isFieldPresent(sfSigningPolicy));
+            BEAST_EXPECT(
+                sle &&
+                sle->getFieldU32(sfSigningPolicy) ==
+                    pfPermitsSelfCycleAdjustedQuorum);
+        }
+
+        constexpr std::uint32_t kNested =
+            pfAcceptsBelowNested | pfPermitsSelfNested;
+        constexpr std::uint32_t kCycle = pfAcceptsBelowCycleAdjustedQuorum |
+            pfPermitsSelfCycleAdjustedQuorum;
+        constexpr std::uint32_t kDisabledMaster =
+            pfAcceptsBelowDisabledMaster | pfPermitsSelfDisabledMaster;
+
+        // (b) Default policy: flat works, nested rejected.
+        {
+            testcase("Default policy: flat works, nested rejected");
+            Env env{*this, features};
+            Account const alice{"alice", KeyType::secp256k1};
+            Account const becky{"becky", KeyType::ed25519};
+            env.fund(XRP(1000), alice, becky);
+            env.close();
+
+            // flat multisign with becky as signer (default policy) works
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{bogie, 1}}));
+            env.close();
+            auto const baseFee = env.current()->fees().base;
+            env(noop(alice), msig(becky), fee(2 * baseFee));
+            env.close();
+
+            // nested attempt fails: neither alice nor becky have consented
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(becky, msigner(bogie))}),
+                fee(3 * baseFee),
+                ter(tefBAD_SIGNATURE));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
+
+        // (c) One-sided opt-in: nested still rejected.
+        {
+            testcase("One-sided opt-in: parent only");
+            Env env{*this, features};
+            Account const alice{"alice", KeyType::secp256k1};
+            Account const becky{"becky", KeyType::ed25519};
+            env.fund(XRP(1000), alice, becky);
+            env.close();
+            env(signing_policy(alice, kNested));  // alice acceptsBelowNested,
+                                                  // but no permitsSelf...
+            // and becky has no permitsSelfNested.
+            env.close();
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{bogie, 1}}));
+            env.close();
+
+            auto const baseFee = env.current()->fees().base;
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(becky, msigner(bogie))}),
+                fee(3 * baseFee),
+                ter(tefBAD_SIGNATURE));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
+
+        {
+            testcase("One-sided opt-in: child only");
+            Env env{*this, features};
+            Account const alice{"alice", KeyType::secp256k1};
+            Account const becky{"becky", KeyType::ed25519};
+            env.fund(XRP(1000), alice, becky);
+            env.close();
+            env(signing_policy(becky, kNested));  // child permits, but parent
+                                                  // doesn't accept
+            env.close();
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{bogie, 1}}));
+            env.close();
+
+            auto const baseFee = env.current()->fees().base;
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(becky, msigner(bogie))}),
+                fee(3 * baseFee),
+                ter(tefBAD_SIGNATURE));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
+
+        // (d) Two-sided opt-in succeeds.
+        {
+            testcase("Two-sided opt-in: nested succeeds");
+            Env env{*this, features};
+            Account const alice{"alice", KeyType::secp256k1};
+            Account const becky{"becky", KeyType::ed25519};
+            env.fund(XRP(1000), alice, becky);
+            env.close();
+            env(signing_policy(alice, kNested));
+            env(signing_policy(becky, kNested));
+            env.close();
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{bogie, 1}}));
+            env.close();
+
+            auto const baseFee = env.current()->fees().base;
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(becky, msigner(bogie))}),
+                fee(3 * baseFee));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+        }
+
+        // (e) Cycle without cycle-handling consent => tefBAD_SIGNATURE.
+        // Use a 3-account chain so the cycle is between non-txn-account
+        // signers (STTx rejects the txn account appearing in any proof
+        // entry, so the cycle itself cannot include alice directly).
+        // Structure: alice -> becky -> cheri -> becky (cycle).
+        {
+            testcase("Cyclic edge without cycle consent => tefBAD_SIGNATURE");
+            Env env{*this, features};
+            Account const alice{"alice", KeyType::secp256k1};
+            Account const becky{"becky", KeyType::ed25519};
+            Account const cheri{"cheri", KeyType::secp256k1};
+            env.fund(XRP(1000), alice, becky, cheri);
+            env.close();
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{cheri, 1}}));
+            // cheri's signer list includes becky (cycle) and bogie (escape).
+            env(signers(cheri, 1, {{becky, 1}, {bogie, 1}}));
+            env.close();
+
+            // Two-sided nested consent everywhere, but no cycle consent.
+            env(signing_policy(alice, kNested));
+            env(signing_policy(becky, kNested));
+            env(signing_policy(cheri, kNested));
+            env.close();
+
+            // Proof includes becky (cyclic) under cheri. Without cycle
+            // policy consent the cyclic edge is rejected.
+            auto const baseFee = env.current()->fees().base;
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(
+                    becky, msigner(cheri, msigner(becky), msigner(bogie)))}),
+                fee(5 * baseFee),
+                ter(tefBAD_SIGNATURE));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
+
+        // Same setup, but now everyone consents to cycle handling. becky
+        // is skipped as cyclic, bogie satisfies cheri's cycle-adjusted
+        // quorum, becky satisfies alice's quorum.
+        {
+            testcase("Cyclic edge with cycle consent succeeds (skip)");
+            Env env{*this, features};
+            Account const alice{"alice", KeyType::secp256k1};
+            Account const becky{"becky", KeyType::ed25519};
+            Account const cheri{"cheri", KeyType::secp256k1};
+            env.fund(XRP(1000), alice, becky, cheri);
+            env.close();
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{cheri, 1}}));
+            env(signers(cheri, 1, {{becky, 1}, {bogie, 1}}));
+            env.close();
+
+            env(signing_policy(alice, kNested | kCycle));
+            env(signing_policy(becky, kNested | kCycle));
+            env(signing_policy(cheri, kNested | kCycle));
+            env.close();
+
+            auto const baseFee = env.current()->fees().base;
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(
+                    becky, msigner(cheri, msigner(becky), msigner(bogie)))}),
+                fee(5 * baseFee));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+        }
+
+        // (f) Master-disabled signer in nested context requires
+        // disabled-master consent.
+        // Note: disabling master on an account requires the account to have
+        // an alternative signing path first (regular key or signer list);
+        // we give cheri a phantom signer list before disabling master.
+        {
+            testcase(
+                "Nested master-disabled signer without disabled-master "
+                "consent => tefMASTER_DISABLED");
+            Env env{*this, features};
+            Account const alice{"alice", KeyType::secp256k1};
+            Account const becky{"becky", KeyType::ed25519};
+            Account const cheri{"cheri", KeyType::secp256k1};
+            env.fund(XRP(1000), alice, becky, cheri);
+            env.close();
+
+            // Set up signer lists FIRST (so cheri's master can be disabled).
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{cheri, 1}}));
+            env(signers(cheri, 1, {{bogie, 1}}));
+            env.close();
+
+            // Two-sided nested consent everywhere, but no disabled-master.
+            env(signing_policy(alice, kNested));
+            env(signing_policy(becky, kNested));
+            env(signing_policy(cheri, kNested));
+            env.close();
+
+            // Disable cheri's master.
+            env(fset(cheri, asfDisableMaster), sig(cheri));
+            env.close();
+
+            auto const baseFee = env.current()->fees().base;
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(becky, msigner(cheri))}),
+                fee(3 * baseFee),
+                ter(tefMASTER_DISABLED));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        }
+
+        {
+            testcase(
+                "Nested master-disabled signer with disabled-master consent "
+                "succeeds");
+            Env env{*this, features};
+            Account const alice{"alice", KeyType::secp256k1};
+            Account const becky{"becky", KeyType::ed25519};
+            Account const cheri{"cheri", KeyType::secp256k1};
+            env.fund(XRP(1000), alice, becky, cheri);
+            env.close();
+
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{cheri, 1}}));
+            env(signers(cheri, 1, {{bogie, 1}}));
+            env.close();
+
+            env(signing_policy(alice, kNested | kDisabledMaster));
+            env(signing_policy(becky, kNested | kDisabledMaster));
+            env(signing_policy(cheri, kNested | kDisabledMaster));
+            env.close();
+
+            env(fset(cheri, asfDisableMaster), sig(cheri));
+            env.close();
+
+            auto const baseFee = env.current()->fees().base;
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice),
+                msig({msigner(becky, msigner(cheri))}),
+                fee(3 * baseFee));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
+        }
+
+        // (g) pfApplyPoliciesAllMultiSign extends policy enforcement to
+        // depth 1. Without it, depth-1 master-disabled signers behave per
+        // legacy (rejected). With it, they need disabled-master consent.
+        {
+            testcase(
+                "applyPoliciesAllMultiSign + disabled-master consent "
+                "permits flat master-disabled signer");
+            Env env{*this, features};
+            Account const alice{"alice", KeyType::secp256k1};
+            Account const becky{"becky", KeyType::ed25519};
+            env.fund(XRP(1000), alice, becky);
+            env.close();
+
+            // Set up signer lists FIRST (so becky's master can be disabled).
+            env(signers(alice, 1, {{becky, 1}}));
+            env(signers(becky, 1, {{bogie, 1}}));
+            env.close();
+
+            env(signing_policy(
+                alice, pfApplyPoliciesAllMultiSign | kDisabledMaster));
+            env(signing_policy(becky, kDisabledMaster));
+            env.close();
+
+            env(fset(becky, asfDisableMaster), sig(becky));
+            env.close();
+
+            auto const baseFee = env.current()->fees().base;
+            std::uint32_t aliceSeq = env.seq(alice);
+            env(noop(alice), msig(becky), fee(2 * baseFee));
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == aliceSeq + 1);
         }
     }
 
@@ -3292,6 +3739,7 @@ public:
         testAll(all);
 
         test_nestedMultiSignEdgeCases(all);
+        test_signingPolicy(all);
         test_signerListSetFlags(all);
         test_countPresentFields();
 

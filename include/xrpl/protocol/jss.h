@@ -123,6 +123,7 @@ JSS(Signers);                  // field.
 JSS(HookStateData);            // field.
 JSS(HookStateKey);             // field.
 JSS(EmitDetails);              // field.
+JSS(SigningPolicy);            // field.
 JSS(SigningPubKey);            // field.
 JSS(Subject);                  // in: Credential transactions
 JSS(TakerGets);                // field.

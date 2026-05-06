@@ -37,6 +37,16 @@ fset(Account const& account, std::uint32_t on, std::uint32_t off)
     return jv;
 }
 
+Json::Value
+signing_policy(Account const& account, std::uint32_t policy)
+{
+    Json::Value jv;
+    jv[jss::Account] = account.human();
+    jv[jss::TransactionType] = jss::AccountSet;
+    jv[jss::SigningPolicy] = policy;
+    return jv;
+}
+
 void
 flags::operator()(Env& env) const
 {
