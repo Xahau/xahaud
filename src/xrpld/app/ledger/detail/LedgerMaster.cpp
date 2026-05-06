@@ -524,8 +524,7 @@ LedgerMaster::haveLedger(std::uint32_t seq)
 void
 LedgerMaster::clearLedger(std::uint32_t seq)
 {
-    std::lock_guard cl(mCompleteLock);
-    std::lock_guard pl(mPinnedLock);
+    std::scoped_lock lock(mCompleteLock, mPinnedLock);
 
     // Don't clear pinned ledgers
     if (boost::icl::contains(mPinnedLedgers, seq))
@@ -888,8 +887,7 @@ LedgerMaster::setFullLedger(
     pendSaveValidated(app_, ledger, isSynchronous, isCurrent);
 
     {
-        std::lock_guard cl(mCompleteLock);
-        std::lock_guard pl(mPinnedLock);
+        std::scoped_lock lock(mCompleteLock, mPinnedLock);
         // One-time merge of pinned ranges into mCompleteLedgers.
         // For NORMAL/NETWORK startup, this fires on the first validated
         // ledger (network quorum). For LOAD/standalone, the merge
@@ -1774,8 +1772,7 @@ LedgerMaster::getPinnedLedgersRangeSet()
 void
 LedgerMaster::setPinnedLedgersRangeSet(const RangeSet<std::uint32_t>& range_set)
 {
-    std::lock_guard cl(mCompleteLock);
-    std::lock_guard pl(mPinnedLock);
+    std::scoped_lock lock(mCompleteLock, mPinnedLock);
     if (!mPinnedLedgers.empty())
     {
         Throw<std::runtime_error>(
@@ -1973,8 +1970,7 @@ LedgerMaster::setLedgerRangePresent(
 {
     if (pin)
     {
-        std::lock_guard cl(mCompleteLock);
-        std::lock_guard pl(mPinnedLock);
+        std::scoped_lock lock(mCompleteLock, mPinnedLock);
         mCompleteLedgers.insert(range(minV, maxV));
         mPinnedLedgers.insert(range(minV, maxV));
         JLOG(m_journal.info())
@@ -2003,8 +1999,7 @@ LedgerMaster::getCacheHitRate()
 void
 LedgerMaster::clearPriorLedgers(LedgerIndex seq)
 {
-    std::lock_guard cl(mCompleteLock);
-    std::lock_guard pl(mPinnedLock);
+    std::scoped_lock lock(mCompleteLock, mPinnedLock);
     if (seq <= 0)
         return;
 
