@@ -257,6 +257,7 @@ TYPED_SFIELD(sfPrice,                    AMOUNT,    28)
 TYPED_SFIELD(sfSignatureReward,          AMOUNT,    29)
 TYPED_SFIELD(sfMinAccountCreateAmount,   AMOUNT,    30)
 TYPED_SFIELD(sfLPTokenBalance,           AMOUNT,    31)
+TYPED_SFIELD(sfTrustLineRewardAccumulator,AMOUNT,   99)
 
 // variable length (common)
 TYPED_SFIELD(sfPublicKey,                VL,         1)
@@ -340,6 +341,7 @@ TYPED_SFIELD(sfLockingChainIssue,        ISSUE,      1)
 TYPED_SFIELD(sfIssuingChainIssue,        ISSUE,      2)
 TYPED_SFIELD(sfAsset,                    ISSUE,      3)
 TYPED_SFIELD(sfAsset2,                   ISSUE,      4)
+TYPED_SFIELD(sfClaimCurrency,            ISSUE,      5)
 
 // bridge
 TYPED_SFIELD(sfXChainBridge,             XCHAIN_BRIDGE, 1)
@@ -386,6 +388,8 @@ UNTYPED_SFIELD(sfImportVLKey,            OBJECT,    94)
 UNTYPED_SFIELD(sfActiveValidator,        OBJECT,    95)
 UNTYPED_SFIELD(sfGenesisMint,            OBJECT,    96)
 UNTYPED_SFIELD(sfRemark,                 OBJECT,    97)
+UNTYPED_SFIELD(sfHighReward,             OBJECT,    98)
+UNTYPED_SFIELD(sfLowReward,              OBJECT,    99)
 
 // array of objects (common)
 // ARRAY/1 is reserved for end of array
