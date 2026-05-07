@@ -279,7 +279,7 @@ private:
             auto const seq1 = env.seq(alice);
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow(alice, bob, XRP(10));
+            auto createTx = escrow::create(alice, bob, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -288,7 +288,7 @@ private:
             env.close();
 
             // cancel escrow
-            env(cancel(alice, alice, seq1), ter(tesSUCCESS));
+            env(escrow::cancel(alice, alice, seq1), ter(tesSUCCESS));
             env.close();
 
             // verify touch
@@ -308,7 +308,7 @@ private:
             auto const seq1 = env.seq(alice);
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow(alice, bob, XRP(10));
+            auto createTx = escrow::create(alice, bob, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -317,7 +317,7 @@ private:
             env.close();
 
             // cancel escrow
-            env(cancel(bob, alice, seq1), ter(tesSUCCESS));
+            env(escrow::cancel(bob, alice, seq1), ter(tesSUCCESS));
             env.close();
 
             // verify touch
@@ -345,7 +345,7 @@ private:
         // create escrow
         NetClock::time_point const finishTime = env.now() + 1s;
         NetClock::time_point const cancelTime = env.now() + 2s;
-        auto createTx = escrow(alice, bob, XRP(10));
+        auto createTx = escrow::create(alice, bob, XRP(10));
         createTx[sfFinishAfter.jsonName] =
             finishTime.time_since_epoch().count();
         createTx[sfCancelAfter.jsonName] =
@@ -378,14 +378,14 @@ private:
             // create escrow
             auto const seq1 = env.seq(alice);
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow(alice, bob, XRP(10));
+            auto createTx = escrow::create(alice, bob, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
             env.close();
 
             // finish escrow
-            env(finish(alice, alice, seq1), ter(tesSUCCESS));
+            env(escrow::finish(alice, alice, seq1), ter(tesSUCCESS));
             env.close();
 
             // verify touch
@@ -404,14 +404,14 @@ private:
             // create escrow
             auto const seq1 = env.seq(alice);
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow(alice, bob, XRP(10));
+            auto createTx = escrow::create(alice, bob, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
             env.close();
 
             // finish escrow
-            env(finish(bob, alice, seq1), ter(tesSUCCESS));
+            env(escrow::finish(bob, alice, seq1), ter(tesSUCCESS));
             env.close();
 
             // verify touch

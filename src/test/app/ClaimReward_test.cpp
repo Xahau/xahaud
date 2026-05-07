@@ -1002,8 +1002,8 @@ public:
 
                 if (hasEscrow)
                 {
-                    env(escrow(user, user, gw["USD"](2000)),
-                        finish_time(env.now() + 1s),
+                    env(escrow::create(user, user, gw["USD"](2000)),
+                        escrow::finish_time(env.now() + 1s),
                         fee(XRP(1)));
                     env.close();
                 }
