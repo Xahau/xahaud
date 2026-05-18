@@ -542,6 +542,124 @@ public:
     }
 
     void
+    testRangeDeletionOperations(
+        std::string const& backend,
+        std::unique_ptr<Config> config)
+    {
+        testcase("Range deletion operations - " + backend);
+
+        using namespace test::jtx;
+        config->LEDGER_HISTORY = 1000;
+
+        Env env(*this, std::move(config));
+        auto& db = env.app().getRelationalDatabase();
+
+        Account alice("alice");
+        Account bob("bob");
+
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        auto* sqliteDb = getInterface(db);
+        BEAST_EXPECT(sqliteDb != nullptr);
+        if (!sqliteDb)
+            return;
+
+        // Create 5 ledgers with transactions
+        for (int i = 0; i < 5; ++i)
+        {
+            env(pay(alice, bob, XRP(100 + i)));
+            env.close();
+        }
+
+        auto minSeq = sqliteDb->getMinLedgerSeq();
+        auto maxSeq = sqliteDb->getMaxLedgerSeq();
+        BEAST_EXPECT(minSeq && maxSeq);
+        if (!minSeq || !maxSeq)
+            return;
+
+        auto initialTxCount = sqliteDb->getTransactionCount();
+        auto initialAcctTxCount = sqliteDb->getAccountTransactionCount();
+
+        // Use a range that covers ledgers with transactions
+        // (funded ledger + 5 payment ledgers = sequences 3..7 typically)
+        LedgerIndex rangeStart = *minSeq;
+        LedgerIndex rangeEnd = *maxSeq;
+
+        // Test deleteTransactionsInRange with limit — ensures forward
+        // progress (no infinite loop on partial deletes)
+        {
+            std::size_t totalDeleted = 0;
+            std::size_t iterations = 0;
+            std::size_t const limit = 2;
+
+            while (true)
+            {
+                auto deleted = sqliteDb->deleteTransactionsInRange(
+                    rangeStart, rangeEnd, limit);
+                if (deleted == 0)
+                    break;
+                totalDeleted += deleted;
+                ++iterations;
+                // Safety: prevent infinite loop in case of bug
+                if (iterations > initialTxCount + 1)
+                {
+                    fail(
+                        "deleteTransactionsInRange: too many iterations, "
+                        "possible infinite loop");
+                    break;
+                }
+            }
+            BEAST_EXPECT(totalDeleted > 0);
+            BEAST_EXPECT(totalDeleted <= initialTxCount);
+            auto afterTxCount = sqliteDb->getTransactionCount();
+            BEAST_EXPECT(afterTxCount == initialTxCount - totalDeleted);
+        }
+
+        // Test deleteAccountTransactionsInRange with limit
+        {
+            std::size_t totalDeleted = 0;
+            std::size_t iterations = 0;
+            std::size_t const limit = 2;
+
+            while (true)
+            {
+                auto deleted = sqliteDb->deleteAccountTransactionsInRange(
+                    rangeStart, rangeEnd, limit);
+                if (deleted == 0)
+                    break;
+                totalDeleted += deleted;
+                ++iterations;
+                if (iterations > initialAcctTxCount + 1)
+                {
+                    fail(
+                        "deleteAccountTransactionsInRange: too many "
+                        "iterations, possible infinite loop");
+                    break;
+                }
+            }
+            BEAST_EXPECT(totalDeleted > 0);
+            BEAST_EXPECT(totalDeleted <= initialAcctTxCount);
+            auto afterAcctTxCount = sqliteDb->getAccountTransactionCount();
+            BEAST_EXPECT(afterAcctTxCount == initialAcctTxCount - totalDeleted);
+        }
+
+        // Test deleteLedgersInRange
+        auto initialLedgerCount = sqliteDb->getLedgerCountMinMax();
+        auto ledgersDeleted =
+            sqliteDb->deleteLedgersInRange(rangeStart + 1, rangeEnd - 1);
+        BEAST_EXPECT(ledgersDeleted > 0);
+        auto afterLedgerCount = sqliteDb->getLedgerCountMinMax();
+        BEAST_EXPECT(
+            afterLedgerCount.numberOfRows ==
+            initialLedgerCount.numberOfRows - ledgersDeleted);
+
+        // Test range deletion with no matching range
+        auto emptyDeleted = sqliteDb->deleteLedgersInRange(999999, 999999);
+        BEAST_EXPECT(emptyDeleted == 0);
+    }
+
+    void
     testDatabaseSpaceOperations(
         std::string const& backend,
         std::unique_ptr<Config> config)
@@ -744,6 +862,7 @@ public:
             testAccountTransactionOperations(backend, makeConfig(backend));
             testAccountTransactionPaging(backend, makeConfig(backend));
             testDeletionOperations(backend, makeConfig(backend));
+            testRangeDeletionOperations(backend, makeConfig(backend));
             testDatabaseSpaceOperations(backend, makeConfig(backend));
             testTransactionMinLedgerSeq(backend, makeConfig(backend));
         }

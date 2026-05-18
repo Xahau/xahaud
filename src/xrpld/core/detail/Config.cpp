@@ -1077,6 +1077,57 @@ Config::loadFromString(std::string const& fileContents)
             }
         }
     }
+
+    // DatabasePinned validation (applies to all modes including standalone)
+    auto db_section = section(ConfigSection::nodeDatabase());
+    if (db_section.exists("pinned_type"))
+    {
+        // Ensure base type is specified
+        if (!db_section.exists("type"))
+        {
+            Throw<std::runtime_error>(
+                "type must be specified when using pinned_type");
+        }
+
+        // Ensure pinned_path is specified for filesystem-backed types.
+        // In-memory backends (rwdb) don't need a path.
+        auto pinnedTypeForPath = get(db_section, "pinned_type", "");
+        boost::algorithm::to_lower(pinnedTypeForPath);
+        bool const needsPath =
+            pinnedTypeForPath != "rwdb" && pinnedTypeForPath != "memory";
+        if (needsPath && !db_section.exists("pinned_path"))
+        {
+            Throw<std::runtime_error>(
+                "pinned_path is required when pinned_type is set");
+        }
+
+        // Ensure online_delete is set (pinning without deletion is
+        // redundant)
+        if (auto delete_interval = get(db_section, "online_delete", 0);
+            delete_interval == 0)
+        {
+            Throw<std::runtime_error>(
+                "pinned_type requires online_delete (pinning without "
+                "deletion is redundant)");
+        }
+
+        // In non-standalone mode, require a durable backend.
+        // Standalone mode is unrestricted (tests use rwdb, etc).
+        if (!RUN_STANDALONE)
+        {
+            auto pinnedType = get(db_section, "pinned_type", "");
+            boost::algorithm::to_lower(pinnedType);
+            if (pinnedType != "nudb" && pinnedType != "rocksdb")
+            {
+                Throw<std::runtime_error>(
+                    "pinned_type must be a durable backend (NuDB or "
+                    "RocksDB), got '" +
+                    pinnedType +
+                    "'. Non-durable backends lose pinned data on "
+                    "restart.");
+            }
+        }
+    }
 }
 
 boost::filesystem::path

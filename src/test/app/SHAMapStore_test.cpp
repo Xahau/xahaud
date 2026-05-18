@@ -22,10 +22,14 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/NodeStoreScheduler.h>
 #include <xrpld/app/misc/SHAMapStore.h>
+#include <xrpld/app/misc/SHAMapStoreImp.h>
+#include <xrpld/app/misc/detail/OnlineDeleteRanges.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
+#include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/jss.h>
+#include <boost/filesystem.hpp>
 
 namespace ripple {
 namespace test {
@@ -48,6 +52,25 @@ class SHAMapStore_test : public beast::unit_test::suite
     {
         cfg = onlineDelete(std::move(cfg));
         cfg->section(ConfigSection::nodeDatabase()).set("advisory_delete", "1");
+        return cfg;
+    }
+
+    static auto
+    pinnedPersistent(
+        std::unique_ptr<Config> cfg,
+        std::string const& dbPath,
+        std::string const& nodePath,
+        std::string const& pinnedPath)
+    {
+        cfg = onlineDelete(std::move(cfg));
+        cfg->legacy("database_path", dbPath);
+        cfg->overwrite(SECTION_RELATIONAL_DB, "backend", "sqlite");
+
+        auto& section = cfg->section(ConfigSection::nodeDatabase());
+        section.set("type", "rwdb");
+        section.set("path", nodePath);
+        section.set("pinned_type", "nudb");
+        section.set("pinned_path", pinnedPath);
         return cfg;
     }
 
@@ -649,12 +672,190 @@ public:
     }
 
     void
+    testPinnedRangeRestoreRequiresPinnedData()
+    {
+        testcase("pinned range restore requires pinned data");
+
+        using namespace jtx;
+
+        beast::temp_dir tempDir;
+        auto const tempPath = boost::filesystem::path(tempDir.path());
+        auto const dbPath = (tempPath / "db").string();
+        auto const nodePath = (tempPath / "node").string();
+        auto const pinnedPath = (tempPath / "pinned").string();
+
+        boost::filesystem::create_directories(dbPath);
+        boost::filesystem::create_directories(nodePath);
+        boost::filesystem::create_directories(pinnedPath);
+
+        {
+            Env env(
+                *this,
+                envconfig(pinnedPersistent, dbPath, nodePath, pinnedPath));
+
+            RangeSet<std::uint32_t> ranges;
+            ranges.insert(range(100u, 200u));
+            env.app().getSHAMapStore().setPinnedRanges(ranges);
+
+            NodeStoreScheduler scheduler(env.app().getJobQueue());
+            auto const journal = env.app().journal("SHAMapStoreTest");
+
+            try
+            {
+                SHAMapStoreImp restoreCheck(env.app(), scheduler, journal);
+                restoreCheck.start();
+                fail(
+                    "Expected startup failure for stale persisted pinned "
+                    "ranges");
+            }
+            catch (std::runtime_error const& e)
+            {
+                BEAST_EXPECT(
+                    std::string(e.what()).find(
+                        "Persisted pinned interval 100-200") !=
+                    std::string::npos);
+            }
+        }
+    }
+
+    // Helper: compare two RangeSet<uint32_t> for set-equality. The
+    // test cares about which sequences are in the result, not the
+    // particular interval representation.
+    static bool
+    sameRanges(
+        RangeSet<std::uint32_t> const& a,
+        RangeSet<std::uint32_t> const& b)
+    {
+        return a == b;
+    }
+
+    void
+    testComputeOnlineDeleteTargets()
+    {
+        // detail::computeOnlineDeleteTargets is the lifted interval
+        // arithmetic used by SHAMapStoreImp::clearSqlRanges to decide
+        // which ledger sequences to actually delete during online
+        // delete. The base window is [minSeq, lastRotated - 1] and
+        // pinned ranges are subtracted from it. The result must:
+        //   (a) be empty when the base is empty or fully pinned,
+        //   (b) preserve all pinned seqs (they survive rotation),
+        //   (c) cover every non-pinned seq in the base.
+        // Lifting the math out keeps the contract testable without
+        // standing up a full SHAMapStoreImp + database fixture.
+        testcase("detail::computeOnlineDeleteTargets");
+
+        using detail::computeOnlineDeleteTargets;
+
+        // Empty base window (minSeq >= lastRotated): no work.
+        {
+            RangeSet<std::uint32_t> empty;
+            BEAST_EXPECT(computeOnlineDeleteTargets(100, 100, empty).empty());
+            BEAST_EXPECT(computeOnlineDeleteTargets(101, 100, empty).empty());
+        }
+
+        // No pins: the entire base window is the target.
+        {
+            RangeSet<std::uint32_t> empty;
+            RangeSet<std::uint32_t> expected;
+            expected.insert(range(50u, 99u));  // [50, 100-1]
+            BEAST_EXPECT(sameRanges(
+                computeOnlineDeleteTargets(50, 100, empty), expected));
+        }
+
+        // Pins fully cover the base window: nothing to delete. This
+        // is the bug the pinning feature exists to prevent — pinned
+        // ranges getting silently rotated away.
+        {
+            RangeSet<std::uint32_t> pinned;
+            pinned.insert(range(50u, 99u));
+            BEAST_EXPECT(computeOnlineDeleteTargets(50, 100, pinned).empty());
+        }
+
+        // Pins extend beyond the base window: still nothing to delete.
+        {
+            RangeSet<std::uint32_t> pinned;
+            pinned.insert(range(0u, 1000u));
+            BEAST_EXPECT(computeOnlineDeleteTargets(50, 100, pinned).empty());
+        }
+
+        // Pins cover only the leading section of the base. Result is
+        // the trailing remainder.
+        {
+            RangeSet<std::uint32_t> pinned;
+            pinned.insert(range(50u, 70u));
+            RangeSet<std::uint32_t> expected;
+            expected.insert(range(71u, 99u));
+            BEAST_EXPECT(sameRanges(
+                computeOnlineDeleteTargets(50, 100, pinned), expected));
+        }
+
+        // Pins cover only the trailing section. Result is leading.
+        {
+            RangeSet<std::uint32_t> pinned;
+            pinned.insert(range(80u, 99u));
+            RangeSet<std::uint32_t> expected;
+            expected.insert(range(50u, 79u));
+            BEAST_EXPECT(sameRanges(
+                computeOnlineDeleteTargets(50, 100, pinned), expected));
+        }
+
+        // Pins cut a hole in the middle. Result is two disjoint
+        // intervals — both get deleted, the hole is preserved.
+        {
+            RangeSet<std::uint32_t> pinned;
+            pinned.insert(range(60u, 80u));
+            RangeSet<std::uint32_t> expected;
+            expected.insert(range(50u, 59u));
+            expected.insert(range(81u, 99u));
+            BEAST_EXPECT(sameRanges(
+                computeOnlineDeleteTargets(50, 100, pinned), expected));
+        }
+
+        // Multiple disjoint pinned ranges all inside the base. Result
+        // is the base minus all pinned holes.
+        {
+            RangeSet<std::uint32_t> pinned;
+            pinned.insert(range(55u, 60u));
+            pinned.insert(range(70u, 75u));
+            pinned.insert(range(90u, 95u));
+            RangeSet<std::uint32_t> expected;
+            expected.insert(range(50u, 54u));
+            expected.insert(range(61u, 69u));
+            expected.insert(range(76u, 89u));
+            expected.insert(range(96u, 99u));
+            BEAST_EXPECT(sameRanges(
+                computeOnlineDeleteTargets(50, 100, pinned), expected));
+        }
+
+        // Pinned ranges entirely outside the base window: no effect.
+        {
+            RangeSet<std::uint32_t> pinned;
+            pinned.insert(range(0u, 49u));
+            pinned.insert(range(100u, 200u));
+            RangeSet<std::uint32_t> expected;
+            expected.insert(range(50u, 99u));
+            BEAST_EXPECT(sameRanges(
+                computeOnlineDeleteTargets(50, 100, pinned), expected));
+        }
+
+        // Single-sequence base window with a single-sequence pin
+        // matching exactly: empty result.
+        {
+            RangeSet<std::uint32_t> pinned;
+            pinned.insert(range(99u, 99u));
+            BEAST_EXPECT(computeOnlineDeleteTargets(99, 100, pinned).empty());
+        }
+    }
+
+    void
     run() override
     {
+        testComputeOnlineDeleteTargets();
         testClear();
         testAutomatic();
         testCanDelete();
         testRotate();
+        testPinnedRangeRestoreRequiresPinnedData();
     }
 };
 

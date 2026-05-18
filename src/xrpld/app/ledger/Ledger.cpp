@@ -1044,7 +1044,8 @@ pendSaveValidated(
     Application& app,
     std::shared_ptr<Ledger const> const& ledger,
     bool isSynchronous,
-    bool isCurrent)
+    bool isCurrent,
+    std::function<void(bool)> callback)
 {
     if (!app.getHashRouter().setFlags(ledger->info().hash, SF_SAVED))
     {
@@ -1056,6 +1057,8 @@ pendSaveValidated(
         {
             // Either we don't need it to be finished
             // or it is finished
+            if (callback)
+                callback(true);
             return true;
         }
     }
@@ -1069,6 +1072,8 @@ pendSaveValidated(
         JLOG(stream) << "Pend save with seq in pending saves "
                      << ledger->info().seq;
 
+        if (callback)
+            callback(true);
         return true;
     }
 
@@ -1077,15 +1082,20 @@ pendSaveValidated(
         app.getJobQueue().addJob(
             isCurrent ? jtPUBLEDGER : jtPUBOLDLEDGER,
             std::to_string(ledger->seq()),
-            [&app, ledger, isCurrent]() {
-                saveValidatedLedger(app, ledger, isCurrent);
+            [&app, ledger, isCurrent, callback]() {
+                bool success = saveValidatedLedger(app, ledger, isCurrent);
+                if (callback)
+                    callback(success);
             }))
     {
         return true;
     }
 
     // The JobQueue won't do the Job.  Do the save synchronously.
-    return saveValidatedLedger(app, ledger, isCurrent);
+    bool success = saveValidatedLedger(app, ledger, isCurrent);
+    if (callback)
+        callback(success);
+    return success;
 }
 
 void
