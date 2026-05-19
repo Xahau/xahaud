@@ -40,7 +40,7 @@ echo '
 #include <vector>
 namespace ripple {
 namespace test {
-std::map<std::string, std::vector<uint8_t>> wasm = {' > $OUTPUT_FILE
+inline std::map<std::string, std::vector<uint8_t>> wasm = {' > $OUTPUT_FILE
 COUNTER="0"
 cat $INPUT_FILE | tr '\n' '\f' | 
         grep -Po 'R"\[test\.hook\](.*?)\[test\.hook\]"' | 
