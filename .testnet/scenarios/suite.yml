@@ -12,6 +12,7 @@ defaults:
       Protocol: debug
       Peer: debug
       LedgerConsensus: debug
+      ConsensusExtensions: debug
       NetworkOPs: info
     env:
       XAHAU_RESOURCE_PER_PORT: "1"
