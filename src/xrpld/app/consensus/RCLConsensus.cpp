@@ -262,8 +262,10 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
         wirePosition.exportSignaturesHash =
             proposalExportSignaturesHash(prop.exportsignatures());
 
-    // Serialize full ExtendedPosition (includes RNG leaves and export
-    // signature digest)
+    ce().attachParticipantDiagnostics(wirePosition);
+
+    // Serialize full ExtendedPosition (includes RNG leaves, export signature
+    // digest, and signed diagnostics)
     Serializer positionData;
     wirePosition.add(positionData);
     auto const posSlice = positionData.slice();

@@ -59,6 +59,8 @@ struct ExtendedPosition
     std::optional<uint256> entropySetHash;
     std::optional<uint256> exportSigSetHash;
     std::optional<uint256> exportSignaturesHash;
+    // Signed diagnostic only: not a quorum input and not part of operator==.
+    std::optional<uint256> observedParticipantsHash;
 
     // === Per-Validator Leaves (unique per proposer) ===
     std::optional<uint256> myCommitment;
@@ -166,7 +168,8 @@ struct ExtendedPosition
         // Wire compatibility: if no extensions, emit exactly 32 bytes
         // so legacy nodes that expect a plain uint256 work unchanged.
         if (!commitSetHash && !entropySetHash && !exportSigSetHash &&
-            !exportSignaturesHash && !myCommitment && !myReveal)
+            !exportSignaturesHash && !observedParticipantsHash &&
+            !myCommitment && !myReveal)
             return;
 
         std::uint8_t flags = 0;
@@ -182,6 +185,8 @@ struct ExtendedPosition
             flags |= 0x10;
         if (exportSignaturesHash)
             flags |= 0x20;
+        if (observedParticipantsHash)
+            flags |= 0x40;
         s.add8(flags);
 
         if (commitSetHash)
@@ -196,6 +201,8 @@ struct ExtendedPosition
             s.addBitString(*exportSigSetHash);
         if (exportSignaturesHash)
             s.addBitString(*exportSignaturesHash);
+        if (observedParticipantsHash)
+            s.addBitString(*observedParticipantsHash);
     }
     //@@end rng-extended-position-serialize
 
@@ -212,6 +219,8 @@ struct ExtendedPosition
             ret["export_sig_set"] = to_string(*exportSigSetHash);
         if (exportSignaturesHash)
             ret["export_signatures"] = to_string(*exportSignaturesHash);
+        if (observedParticipantsHash)
+            ret["observed_participants"] = to_string(*observedParticipantsHash);
         return ret;
     }
 
@@ -241,13 +250,13 @@ struct ExtendedPosition
         std::uint8_t flags = sit.get8();
 
         // Reject unknown flag bits (reduces wire malleability)
-        if (flags & 0xC0)
+        if (flags & 0x80)
             return std::nullopt;
 
         // Validate exact byte count for the flagged fields.
         // Each flag bit indicates a 32-byte uint256.
         int fieldCount = 0;
-        for (int i = 0; i < 6; ++i)
+        for (int i = 0; i < 7; ++i)
             if (flags & (1 << i))
                 ++fieldCount;
 
@@ -266,6 +275,8 @@ struct ExtendedPosition
             pos.exportSigSetHash = sit.get256();
         if (flags & 0x20)
             pos.exportSignaturesHash = sit.get256();
+        if (flags & 0x40)
+            pos.observedParticipantsHash = sit.get256();
 
         return pos;
     }

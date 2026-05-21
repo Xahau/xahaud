@@ -17,6 +17,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace ripple {
@@ -120,6 +121,9 @@ private:
 
     // Recent proposers intersected with the active UNL (liveness hint)
     hash_set<NodeID> likelyParticipants_;
+    std::optional<uint256> observedParticipantsHash_;
+    std::size_t observedParticipantsCount_ = 0;
+    std::string observedParticipantsBitmapBin_;
 
     // Current consensus mode (set by adaptor at round start)
     ConsensusMode mode_{ConsensusMode::observing};
@@ -273,6 +277,36 @@ public:
     /// Fetch any sidecar sets from a peer's position if needed.
     void
     fetchSidecarsIfNeeded(ExtendedPosition const& peerPos);
+
+    template <class PeerPositions>
+    void
+    recordParticipantDiagnostics(
+        ConsensusMode mode,
+        PeerPositions const& peerPositions)
+    {
+        std::vector<NodeID> peerNodeIds;
+        peerNodeIds.reserve(peerPositions.size());
+        for (auto const& entry : peerPositions)
+            peerNodeIds.push_back(entry.first);
+        recordParticipantDiagnostics(mode, std::move(peerNodeIds));
+    }
+
+    void
+    recordParticipantDiagnostics(
+        ConsensusMode mode,
+        std::vector<NodeID> peerNodeIds);
+
+    void
+    attachParticipantDiagnostics(ExtendedPosition& pos) const;
+
+    std::size_t
+    observedParticipantCount() const;
+
+    std::optional<uint256>
+    observedParticipantsHash() const;
+
+    std::string const&
+    observedParticipantsBitmapBin() const;
 
     void
     cacheConsensusTxSet(RCLTxSet const& txns);

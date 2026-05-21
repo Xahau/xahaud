@@ -98,6 +98,27 @@ Be careful with `prevProposers`: in the generic consensus code it is peer-only.
 When checking whether the previous round had enough active participants, count
 our own proposer slot if this node is proposing.
 
+## Participant Diagnostics
+
+Proposals may carry a signed `observedParticipantsHash` for debugging active-UNL
+visibility during RNG/Export rounds. The hash represents the active validators
+this node has observed participating in the current establish round, including
+self when proposing. It also commits to the active validator view used by the
+node, so mismatched fallback/configured views do not collapse to the same
+diagnostic hash merely because they have the same size.
+
+Local diagnostics also log the same observed set as a canonical binary bitmap
+over the sorted active validator view. The bitmap is not sent on the wire; the
+signed proposal field remains the hash.
+
+This field is diagnostic only:
+
+- It is covered by the proposal signature and duplicate-suppression identity.
+- It does not participate in `ExtendedPosition::operator==`.
+- It does not lower the active validator quorum denominator.
+- It is intended to explain timing/degraded-network cases where commits,
+  reveals, or sidecar hashes arrive late or asymmetrically.
+
 ## RNG Commit/Reveal Principles
 
 RNG proceeds through establish sub-states:

@@ -66,6 +66,7 @@ class ExtendedPosition_test : public beast::unit_test::suite
             BEAST_EXPECT(!deserialized->entropySetHash);
             BEAST_EXPECT(!deserialized->exportSigSetHash);
             BEAST_EXPECT(!deserialized->exportSignaturesHash);
+            BEAST_EXPECT(!deserialized->observedParticipantsHash);
         }
 
         // Position with commitment
@@ -94,6 +95,34 @@ class ExtendedPosition_test : public beast::unit_test::suite
             BEAST_EXPECT(!deserialized->myReveal);
         }
 
+        // Position with diagnostic participant hash only
+        {
+            auto const txSet = makeHash("txset-participants");
+            auto const participants = makeHash("participants");
+
+            ExtendedPosition pos{txSet};
+            pos.observedParticipantsHash = participants;
+
+            Serializer s;
+            pos.add(s);
+
+            // 32 (txSet) + 1 (flags) + 32 (participant hash) = 65
+            BEAST_EXPECT(s.getDataLength() == 65);
+
+            SerialIter sit(s.slice());
+            auto deserialized =
+                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
+
+            BEAST_EXPECT(deserialized.has_value());
+            if (!deserialized)
+                return;
+            BEAST_EXPECT(deserialized->txSetHash == txSet);
+            BEAST_EXPECT(
+                deserialized->observedParticipantsHash == participants);
+            BEAST_EXPECT(!deserialized->myCommitment);
+            BEAST_EXPECT(!deserialized->myReveal);
+        }
+
         // Position with all fields
         {
             auto const txSet = makeHash("txset-c");
@@ -101,6 +130,7 @@ class ExtendedPosition_test : public beast::unit_test::suite
             auto const entropySet = makeHash("entropyset-c");
             auto const exportSigSet = makeHash("exportsigset-c");
             auto const exportSigs = makeHash("exportsigs-c");
+            auto const participants = makeHash("participants-c");
             auto const commit = makeHash("commit-c");
             auto const reveal = makeHash("reveal-c");
 
@@ -109,14 +139,15 @@ class ExtendedPosition_test : public beast::unit_test::suite
             pos.entropySetHash = entropySet;
             pos.exportSigSetHash = exportSigSet;
             pos.exportSignaturesHash = exportSigs;
+            pos.observedParticipantsHash = participants;
             pos.myCommitment = commit;
             pos.myReveal = reveal;
 
             Serializer s;
             pos.add(s);
 
-            // 32 + 1 + 6*32 = 225
-            BEAST_EXPECT(s.getDataLength() == 225);
+            // 32 + 1 + 7*32 = 257
+            BEAST_EXPECT(s.getDataLength() == 257);
 
             SerialIter sit(s.slice());
             auto deserialized =
@@ -130,6 +161,8 @@ class ExtendedPosition_test : public beast::unit_test::suite
             BEAST_EXPECT(deserialized->entropySetHash == entropySet);
             BEAST_EXPECT(deserialized->exportSigSetHash == exportSigSet);
             BEAST_EXPECT(deserialized->exportSignaturesHash == exportSigs);
+            BEAST_EXPECT(
+                deserialized->observedParticipantsHash == participants);
             BEAST_EXPECT(deserialized->myCommitment == commit);
             BEAST_EXPECT(deserialized->myReveal == reveal);
         }
@@ -359,7 +392,7 @@ class ExtendedPosition_test : public beast::unit_test::suite
             auto const txSet = makeHash("txset-unkflags");
             Serializer s;
             s.addBitString(txSet);
-            s.add8(0x41);  // bit 6 is unknown, bit 0 = commitSetHash
+            s.add8(0x81);  // bit 7 is unknown, bit 0 = commitSetHash
             s.addBitString(makeHash("commitset-unkflags"));
             SerialIter sit(s.slice());
             auto result =
@@ -431,6 +464,10 @@ class ExtendedPosition_test : public beast::unit_test::suite
 
         // Same txSetHash, different export signature digest -> still equal
         b.exportSignaturesHash = makeHash("export-sigs-eq");
+        BEAST_EXPECT(a == b);
+
+        // Same txSetHash, different participant diagnostics -> still equal
+        b.observedParticipantsHash = makeHash("participants-eq");
         BEAST_EXPECT(a == b);
 
         // Different txSetHash -> not equal

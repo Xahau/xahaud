@@ -59,6 +59,23 @@ ConsensusExtensions::ConsensusExtensions(Application& app, beast::Journal j)
 
 namespace {
 
+std::string
+buildObservedParticipantBitmap(
+    std::vector<NodeID> const& activeSorted,
+    hash_set<NodeID> const& observed)
+{
+    std::string bitmapBin;
+    bitmapBin.reserve(activeSorted.size());
+
+    for (std::size_t i = 0; i < activeSorted.size(); ++i)
+    {
+        bool const seen = observed.count(activeSorted[i]) != 0;
+        bitmapBin.push_back(seen ? '1' : '0');
+    }
+
+    return bitmapBin;
+}
+
 ConsensusExtensions::ActiveValidatorView
 buildActiveValidatorView(
     Application& app,
@@ -817,6 +834,9 @@ ConsensusExtensions::clearRngState()
     consensusExportTxns_.clear();
     consensusTxSetHash_.reset();
     pendingRngFetches_.clear();
+    observedParticipantsHash_.reset();
+    observedParticipantsCount_ = 0;
+    observedParticipantsBitmapBin_.clear();
     exportSigGateStarted_ = false;
     exportSigGateStart_ = {};
     exportSigConvergenceFailed_ = false;
@@ -1333,6 +1353,104 @@ ConsensusExtensions::fetchSidecarsIfNeeded(ExtendedPosition const& peerPos)
     fetchRngSetIfNeeded(peerPos.commitSetHash, SidecarKind::commit);
     fetchRngSetIfNeeded(peerPos.entropySetHash, SidecarKind::reveal);
     fetchRngSetIfNeeded(peerPos.exportSigSetHash, SidecarKind::exportSig);
+}
+
+void
+ConsensusExtensions::recordParticipantDiagnostics(
+    ConsensusMode mode,
+    std::vector<NodeID> peerNodeIds)
+{
+    auto const view = activeValidatorView();
+    hash_set<NodeID> observed;
+    observed.reserve(peerNodeIds.size() + 1);
+
+    for (auto const& nodeId : peerNodeIds)
+    {
+        if (view->containsNode(nodeId))
+            observed.insert(nodeId);
+    }
+
+    auto const& valKeys = app_.getValidatorKeys();
+    if (mode == ConsensusMode::proposing && valKeys.nodeID != beast::zero &&
+        view->containsNode(valKeys.nodeID))
+    {
+        observed.insert(valKeys.nodeID);
+    }
+
+    std::vector<NodeID> activeSorted(
+        view->nodeIds.begin(), view->nodeIds.end());
+    std::sort(activeSorted.begin(), activeSorted.end());
+    std::vector<NodeID> observedSorted(observed.begin(), observed.end());
+    std::sort(observedSorted.begin(), observedSorted.end());
+    auto bitmapBin = buildObservedParticipantBitmap(activeSorted, observed);
+
+    Serializer s(512);
+    if (view->sourceLedgerHash)
+        s.addBitString(*view->sourceLedgerHash);
+    else
+    {
+        uint256 noSource;
+        noSource.zero();
+        s.addBitString(noSource);
+    }
+    s.add32(static_cast<std::uint32_t>(view->size()));
+    for (auto const& nodeId : activeSorted)
+        s.addBitString(nodeId);
+    s.add32(static_cast<std::uint32_t>(observedSorted.size()));
+    for (auto const& nodeId : observedSorted)
+        s.addBitString(nodeId);
+
+    auto const hash = s.getSHA512Half();
+    bool const changed = !observedParticipantsHash_ ||
+        *observedParticipantsHash_ != hash ||
+        observedParticipantsCount_ != observedSorted.size() ||
+        observedParticipantsBitmapBin_ != bitmapBin;
+
+    observedParticipantsHash_ = hash;
+    observedParticipantsCount_ = observedSorted.size();
+    observedParticipantsBitmapBin_ = std::move(bitmapBin);
+
+    if (changed)
+    {
+        JLOG(j_.debug()) << "STALLDIAG: observed-active-participants"
+                         << " count=" << observedParticipantsCount_
+                         << " activeView=" << view->size()
+                         << " quorum=" << quorumThreshold() << " hash=" << hash
+                         << " source="
+                         << (view->fromUNLReport ? "UNLReport"
+                                                 : "trusted-fallback")
+                         << " mode=" << to_string(mode)
+                         << " peerPositions=" << peerNodeIds.size()
+                         << " bitmap=" << observedParticipantsBitmapBin_;
+    }
+}
+
+void
+ConsensusExtensions::attachParticipantDiagnostics(ExtendedPosition& pos) const
+{
+    if (!rngEnabledThisRound_ && !exportEnabledThisRound_)
+        return;
+
+    if (observedParticipantsHash_)
+        pos.observedParticipantsHash = observedParticipantsHash_;
+}
+
+std::size_t
+ConsensusExtensions::observedParticipantCount() const
+{
+    return observedParticipantsCount_;
+}
+
+std::optional<uint256>
+ConsensusExtensions::observedParticipantsHash() const
+{
+    return observedParticipantsHash_;
+}
+
+std::string const&
+ConsensusExtensions::observedParticipantsBitmapBin() const
+{
+    return observedParticipantsBitmapBin_;
 }
 
 void
@@ -1870,6 +1988,13 @@ ConsensusExtensions::appendJson(Json::Value& ret) const
     rng["any_reveals"] = hasAnyReveals();
     rng["reveals"] = static_cast<Int>(pendingRevealCount());
     rng["likely_participants"] = static_cast<Int>(expectedProposerCount());
+    rng["observed_active_participants"] =
+        static_cast<Int>(observedParticipantCount());
+    if (observedParticipantsHash_)
+    {
+        rng["observed_participants"] = to_string(*observedParticipantsHash_);
+        rng["observed_participants_bitmap"] = observedParticipantsBitmapBin_;
+    }
 
     ret["rng"] = std::move(rng);
 }
@@ -1890,6 +2015,10 @@ ConsensusExtensions::logPosition(
                     << " entropySetHash="
                     << (pos.entropySetHash ? to_string(*pos.entropySetHash)
                                            : std::string{"none"})
+                    << " observedParticipantsHash="
+                    << (pos.observedParticipantsHash
+                            ? to_string(*pos.observedParticipantsHash)
+                            : std::string{"none"})
                     << " myCommitment=" << (pos.myCommitment ? "yes" : "no")
                     << " myReveal=" << (pos.myReveal ? "yes" : "no");
 }

@@ -43,6 +43,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
     // crash between commit and reveal.
 
     bool const isRngEnabled = ext.rngEnabled();
+    bool const isExportEnabled = ext.exportEnabled();
 
     JLOG(ext.j_.trace()) << "RNGGATE: phaseEstablish prevSeq="
                          << (static_cast<std::uint32_t>(ctx.buildSeq) - 1)
@@ -51,6 +52,20 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                          << " phase=establish"
                          << " mode=" << to_string(ctx.mode)
                          << " roundMs=" << ctx.roundTime.count();
+
+    if (isRngEnabled || isExportEnabled)
+    {
+        if constexpr (requires {
+                          ext.recordParticipantDiagnostics(
+                              ctx.mode, ctx.peerPositions);
+                      })
+        {
+            // Diagnostic only: this records the active-UNL participants visible
+            // to this node so proposals can carry a signed hash for debugging
+            // timing/degraded-network cases. It is not a quorum denominator.
+            ext.recordParticipantDiagnostics(ctx.mode, ctx.peerPositions);
+        }
+    }
 
     if (isRngEnabled)
     {
@@ -112,6 +127,23 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 << " minReveals=" << (minReveals ? "yes" : "no")
                 << " anyReveals=" << (anyReveals ? "yes" : "no")
                 << " likelyParticipants=" << std::to_string(likelyParticipants);
+
+            if constexpr (requires {
+                              ext.observedParticipantCount();
+                              ext.observedParticipantsHash();
+                              ext.observedParticipantsBitmapBin();
+                          })
+            {
+                auto const observedHash = ext.observedParticipantsHash();
+                JLOG(ext.j_.debug())
+                    << "STALLDIAG: participant-diagnostics"
+                    << " observedActiveParticipants="
+                    << ext.observedParticipantCount()
+                    << " observedParticipantsHash="
+                    << (observedHash ? to_string(*observedHash)
+                                     : std::string{"none"})
+                    << " bitmap=" << ext.observedParticipantsBitmapBin();
+            }
         };
         auto publishEntropySet = [&]() {
             auto entropySetHash = ext.buildEntropySet(buildSeq);
