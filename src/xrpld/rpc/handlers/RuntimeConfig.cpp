@@ -19,48 +19,11 @@
 
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
-#include <xrpld/overlay/detail/TrafficCount.h>
 #include <xrpld/rpc/Context.h>
 
+#include <vector>
+
 namespace ripple {
-
-namespace {
-// Map user-friendly names to TrafficCount::category values.
-// Only the commonly useful categories are exposed; extend as needed.
-std::optional<std::size_t>
-categoryFromName(std::string const& name)
-{
-    static std::unordered_map<std::string, std::size_t> const map = {
-        {"proposal", TrafficCount::category::proposal},
-        {"validation", TrafficCount::category::validation},
-        {"transaction", TrafficCount::category::transaction},
-        {"manifests", TrafficCount::category::manifests},
-        {"ledger_data", TrafficCount::category::ld_share},
-        {"get_ledger", TrafficCount::category::gl_get},
-    };
-    auto it = map.find(name);
-    if (it != map.end())
-        return it->second;
-    return std::nullopt;
-}
-
-std::string
-categoryToName(std::size_t cat)
-{
-    static std::unordered_map<std::size_t, std::string> const map = {
-        {TrafficCount::category::proposal, "proposal"},
-        {TrafficCount::category::validation, "validation"},
-        {TrafficCount::category::transaction, "transaction"},
-        {TrafficCount::category::manifests, "manifests"},
-        {TrafficCount::category::ld_share, "ledger_data"},
-        {TrafficCount::category::gl_get, "get_ledger"},
-    };
-    auto it = map.find(cat);
-    if (it != map.end())
-        return it->second;
-    return std::to_string(cat);
-}
-}  // namespace
 
 Json::Value
 doRuntimeConfig(RPC::JsonContext& context)
@@ -111,24 +74,29 @@ doRuntimeConfig(RPC::JsonContext& context)
             if (v.isMember("message_types"))
             {
                 auto const& mts = v["message_types"];
-                cfg.messageCategories.emplace();  // set to empty = "all"
-                if (mts.isArray())
+                if (!mts.isArray())
                 {
-                    for (auto const& mt : mts)
-                    {
-                        auto const name = mt.asString();
-                        auto cat = categoryFromName(name);
-                        if (!cat)
-                        {
-                            Json::Value err{Json::objectValue};
-                            err["error"] = "invalidParams";
-                            err["error_message"] =
-                                "Unknown message_type: " + name;
-                            return err;
-                        }
-                        cfg.messageCategories->insert(*cat);
-                    }
+                    Json::Value err{Json::objectValue};
+                    err["error"] = "invalidParams";
+                    err["error_message"] = "message_types must be an array";
+                    return err;
                 }
+
+                std::vector<std::string> names;
+                for (auto const& mt : mts)
+                    names.push_back(mt.asString());
+
+                std::string error;
+                auto cats =
+                    runtimeConfigMessageCategoriesFromNames(names, error);
+                if (!cats)
+                {
+                    Json::Value err{Json::objectValue};
+                    err["error"] = "invalidParams";
+                    err["error_message"] = error;
+                    return err;
+                }
+                cfg.messageCategories = *cats;
             }
             rc.setConfig(target, cfg);
         }
@@ -175,7 +143,7 @@ doRuntimeConfig(RPC::JsonContext& context)
         {
             Json::Value types{Json::arrayValue};
             for (auto cat : *cfg.messageCategories)
-                types.append(categoryToName(cat));
+                types.append(runtimeConfigMessageCategoryName(cat));
             entry["message_types"] = types;
         }
         configs[target] = entry;

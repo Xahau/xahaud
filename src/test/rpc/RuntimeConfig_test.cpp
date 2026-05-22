@@ -22,10 +22,37 @@
 #include <xrpld/overlay/detail/TrafficCount.h>
 #include <xrpl/protocol/jss.h>
 
+#include <cstdlib>
+#include <optional>
+#include <string>
+
 namespace ripple {
 
 class RuntimeConfig_test : public beast::unit_test::suite
 {
+    class EnvVarGuard
+    {
+    public:
+        EnvVarGuard(char const* name, char const* value) : name_(name)
+        {
+            if (auto const* old = std::getenv(name))
+                old_ = old;
+            setenv(name, value, 1);
+        }
+
+        ~EnvVarGuard()
+        {
+            if (old_)
+                setenv(name_, old_->c_str(), 1);
+            else
+                unsetenv(name_);
+        }
+
+    private:
+        char const* name_;
+        std::optional<std::string> old_;
+    };
+
     // Helper to call runtime_config RPC with JSON params
     Json::Value
     runtimeConfig(test::jtx::Env& env, Json::Value const& params)
@@ -266,6 +293,71 @@ class RuntimeConfig_test : public beast::unit_test::suite
     }
 
     void
+    testMessageTypeAliases()
+    {
+        testcase("Message type aliases expand to multiple categories");
+        using namespace test::jtx;
+        Env env{*this};
+
+        Json::Value params;
+        params["set"] = Json::objectValue;
+        params["set"]["*"] = Json::objectValue;
+        params["set"]["*"]["send_delay_ms"] = 100;
+        params["set"]["*"]["message_types"] = Json::arrayValue;
+        params["set"]["*"]["message_types"].append("candidate_set_fetch");
+        auto result = runtimeConfig(env, params);
+
+        auto const& global = result["configs"]["*"];
+        BEAST_EXPECT(global.isMember("message_types"));
+        BEAST_EXPECT(global["message_types"].size() == 4);
+
+        auto cfg = env.app().getRuntimeConfig().getConfig("*");
+        if (!BEAST_EXPECT(cfg.has_value()))
+            return;
+
+        BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::gl_tsc_get));
+        BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::gl_tsc_share));
+        BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::ld_tsc_get));
+        BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::ld_tsc_share));
+        BEAST_EXPECT(!cfg->appliesTo(TrafficCount::category::proposal));
+    }
+
+    void
+    testEnvMessageTypeFilter()
+    {
+        testcase("XAHAU_RUNTIME_CONFIG parses message_types");
+
+        EnvVarGuard guard{
+            "XAHAU_RUNTIME_CONFIG",
+            R"({"*":{"send_delay_ms":100,"message_types":["candidate_set_fetch"]}})"};
+
+        RuntimeConfig rc;
+        auto cfg = rc.getConfig("*");
+        if (!BEAST_EXPECT(cfg.has_value()))
+            return;
+
+        BEAST_EXPECT(rc.active());
+        BEAST_EXPECT(cfg->sendDelayMs == 100);
+        BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::gl_tsc_get));
+        BEAST_EXPECT(cfg->appliesTo(TrafficCount::category::ld_tsc_share));
+        BEAST_EXPECT(!cfg->appliesTo(TrafficCount::category::proposal));
+    }
+
+    void
+    testInvalidEnvMessageType()
+    {
+        testcase("Invalid XAHAU_RUNTIME_CONFIG message_types are ignored");
+
+        EnvVarGuard guard{
+            "XAHAU_RUNTIME_CONFIG",
+            R"({"*":{"send_delay_ms":100,"message_types":["not_a_category"]}})"};
+
+        RuntimeConfig rc;
+        BEAST_EXPECT(!rc.active());
+        BEAST_EXPECT(!rc.getConfig("*").has_value());
+    }
+
+    void
     testMessageTypeFilterEmpty()
     {
         testcase("No message type filter means all");
@@ -310,6 +402,25 @@ class RuntimeConfig_test : public beast::unit_test::suite
         BEAST_EXPECT(result.isMember("error"));
         BEAST_EXPECT(result["error"].asString() == "invalidParams");
         // Config should NOT have been applied
+        BEAST_EXPECT(!env.app().getRuntimeConfig().active());
+    }
+
+    void
+    testInvalidMessageTypesShape()
+    {
+        testcase("Non-array message_types returns error");
+        using namespace test::jtx;
+        Env env{*this};
+
+        Json::Value params;
+        params["set"] = Json::objectValue;
+        params["set"]["*"] = Json::objectValue;
+        params["set"]["*"]["send_delay_ms"] = 100;
+        params["set"]["*"]["message_types"] = "proposal";
+        auto result = runtimeConfig(env, params);
+
+        BEAST_EXPECT(result.isMember("error"));
+        BEAST_EXPECT(result["error"].asString() == "invalidParams");
         BEAST_EXPECT(!env.app().getRuntimeConfig().active());
     }
 
@@ -515,8 +626,12 @@ public:
         testClearAll();
         testPerPeerWithoutGlobal();
         testMessageTypeFilter();
+        testMessageTypeAliases();
+        testEnvMessageTypeFilter();
+        testInvalidEnvMessageType();
         testMessageTypeFilterEmpty();
         testInvalidMessageType();
+        testInvalidMessageTypesShape();
         testDropPctClamping();
         testRngClaimDropPct();
         testRngClaimDropPctClamping();

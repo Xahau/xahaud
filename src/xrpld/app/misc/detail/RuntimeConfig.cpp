@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/misc/RuntimeConfig.h>
+#include <xrpld/overlay/detail/TrafficCount.h>
 
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_value.h>
@@ -25,12 +26,148 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <exception>
 #include <mutex>
+#include <optional>
+#include <set>
 #include <string>
+#include <vector>
 
 namespace ripple {
 
 namespace {
+using CategorySet = std::set<std::size_t>;
+
+struct CategoryAlias
+{
+    char const* name;
+    std::vector<std::size_t> categories;
+};
+
+std::vector<CategoryAlias> const&
+categoryAliases()
+{
+    using C = TrafficCount::category;
+    static std::vector<CategoryAlias> const aliases = {
+        {"base", {C::base}},
+        {"cluster", {C::cluster}},
+        {"overlay", {C::overlay}},
+        {"proposal", {C::proposal}},
+        {"validation", {C::validation}},
+        {"transaction", {C::transaction}},
+        {"manifests", {C::manifests}},
+        {"validator_list", {C::validatorlist}},
+        {"validatorlist", {C::validatorlist}},
+
+        {"have_set", {C::get_set, C::share_set}},
+        {"set_get", {C::get_set}},
+        {"set_share", {C::share_set}},
+
+        {"candidate_set_fetch",
+         {C::gl_tsc_get, C::gl_tsc_share, C::ld_tsc_get, C::ld_tsc_share}},
+        {"candidate_set_request", {C::gl_tsc_get}},
+        {"candidate_set_reply", {C::ld_tsc_share}},
+
+        {"ledger_data",
+         {C::ld_tsc_get,
+          C::ld_tsc_share,
+          C::ld_txn_get,
+          C::ld_txn_share,
+          C::ld_asn_get,
+          C::ld_asn_share,
+          C::ld_get,
+          C::ld_share}},
+        {"ledger_data_tsc_get", {C::ld_tsc_get}},
+        {"ledger_data_tsc_share", {C::ld_tsc_share}},
+        {"ledger_data_txn_get", {C::ld_txn_get}},
+        {"ledger_data_txn_share", {C::ld_txn_share}},
+        {"ledger_data_asn_get", {C::ld_asn_get}},
+        {"ledger_data_asn_share", {C::ld_asn_share}},
+        {"ledger_data_get", {C::ld_get}},
+        {"ledger_data_share", {C::ld_share}},
+
+        {"get_ledger",
+         {C::gl_tsc_get,
+          C::gl_tsc_share,
+          C::gl_txn_get,
+          C::gl_txn_share,
+          C::gl_asn_get,
+          C::gl_asn_share,
+          C::gl_get,
+          C::gl_share}},
+        {"get_ledger_tsc_get", {C::gl_tsc_get}},
+        {"get_ledger_tsc_share", {C::gl_tsc_share}},
+        {"get_ledger_txn_get", {C::gl_txn_get}},
+        {"get_ledger_txn_share", {C::gl_txn_share}},
+        {"get_ledger_asn_get", {C::gl_asn_get}},
+        {"get_ledger_asn_share", {C::gl_asn_share}},
+        {"get_ledger_get", {C::gl_get}},
+        {"get_ledger_share", {C::gl_share}},
+
+        {"get_object",
+         {C::share_hash_ledger,
+          C::get_hash_ledger,
+          C::share_hash_tx,
+          C::get_hash_tx,
+          C::share_hash_txnode,
+          C::get_hash_txnode,
+          C::share_hash_asnode,
+          C::get_hash_asnode,
+          C::share_cas_object,
+          C::get_cas_object,
+          C::share_fetch_pack,
+          C::get_fetch_pack,
+          C::get_transactions,
+          C::share_hash,
+          C::get_hash}},
+        {"get_object_fetch_pack", {C::share_fetch_pack, C::get_fetch_pack}},
+        {"get_object_fetch_pack_get", {C::get_fetch_pack}},
+        {"get_object_fetch_pack_share", {C::share_fetch_pack}},
+        {"get_object_get", {C::get_hash}},
+        {"get_object_share", {C::share_hash}},
+        {"get_object_transactions", {C::get_transactions}},
+
+        {"proof_path", {C::proof_path_request, C::proof_path_response}},
+        {"proof_path_request", {C::proof_path_request}},
+        {"proof_path_response", {C::proof_path_response}},
+        {"replay_delta", {C::replay_delta_request, C::replay_delta_response}},
+        {"replay_delta_request", {C::replay_delta_request}},
+        {"replay_delta_response", {C::replay_delta_response}},
+        {"have_transactions", {C::have_transactions}},
+        {"requested_transactions", {C::requested_transactions}},
+    };
+    return aliases;
+}
+
+std::optional<CategorySet>
+categoriesForName(std::string const& name)
+{
+    for (auto const& alias : categoryAliases())
+    {
+        if (name == alias.name)
+            return CategorySet{
+                alias.categories.begin(), alias.categories.end()};
+    }
+
+    if (!name.empty() &&
+        std::all_of(name.begin(), name.end(), [](unsigned char c) {
+            return std::isdigit(c);
+        }))
+    {
+        try
+        {
+            auto const cat = static_cast<std::size_t>(std::stoull(name));
+            if (cat <= TrafficCount::category::unknown)
+                return CategorySet{cat};
+        }
+        catch (std::exception const&)
+        {
+        }
+    }
+
+    return std::nullopt;
+}
+
 std::optional<bool>
 parseBoolEnv(char const* env)
 {
@@ -51,7 +188,7 @@ parseBoolEnv(char const* env)
     return std::nullopt;
 }
 
-ConfigVals
+std::optional<ConfigVals>
 parseConfigVals(Json::Value const& v)
 {
     ConfigVals cfg;
@@ -73,9 +210,55 @@ parseConfigVals(Json::Value const& v)
         cfg.rngPollMs = std::max(50, v["rng_poll_ms"].asInt());
     if (v.isMember("no_export_sig"))
         cfg.noExportSig = v["no_export_sig"].asBool();
+    if (v.isMember("message_types"))
+    {
+        if (!v["message_types"].isArray())
+            return std::nullopt;
+
+        std::vector<std::string> names;
+        for (auto const& mt : v["message_types"])
+            names.push_back(mt.asString());
+
+        std::string error;
+        auto cats = runtimeConfigMessageCategoriesFromNames(names, error);
+        if (!cats)
+            return std::nullopt;
+        cfg.messageCategories = *cats;
+    }
     return cfg;
 }
 }  // namespace
+
+std::optional<std::set<std::size_t>>
+runtimeConfigMessageCategoriesFromNames(
+    std::vector<std::string> const& names,
+    std::string& error)
+{
+    CategorySet result;
+    for (auto const& name : names)
+    {
+        auto cats = categoriesForName(name);
+        if (!cats)
+        {
+            error = "Unknown message_type: " + name;
+            return std::nullopt;
+        }
+        result.insert(cats->begin(), cats->end());
+    }
+    return result;
+}
+
+std::string
+runtimeConfigMessageCategoryName(std::size_t category)
+{
+    for (auto const& alias : categoryAliases())
+    {
+        if (alias.categories.size() == 1 &&
+            alias.categories.front() == category)
+            return alias.name;
+    }
+    return std::to_string(category);
+}
 
 RuntimeConfig::RuntimeConfig()
 {
@@ -88,7 +271,10 @@ RuntimeConfig::RuntimeConfig()
         {
             std::unique_lock lock(mutex_);
             for (auto const& target : root.getMemberNames())
-                configs_[target] = parseConfigVals(root[target]);
+            {
+                if (auto cfg = parseConfigVals(root[target]))
+                    configs_[target] = *cfg;
+            }
             rebuildMerged();
             updateActive();
         }
