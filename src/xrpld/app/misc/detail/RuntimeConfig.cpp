@@ -18,7 +18,6 @@
 //==============================================================================
 
 #include <xrpld/app/misc/RuntimeConfig.h>
-#include <xrpld/overlay/detail/TrafficCount.h>
 
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_value.h>
@@ -44,10 +43,66 @@ struct CategoryAlias
     std::vector<std::size_t> categories;
 };
 
+namespace traffic_category {
+// Keep RuntimeConfig independent from xrpld.overlay. These values mirror
+// TrafficCount::category; RuntimeConfig_test compares aliases against the real
+// enum so drift is caught without creating an app.misc -> overlay dependency.
+enum : std::size_t {
+    base = 0,
+    cluster = 1,
+    overlay = 2,
+    manifests = 3,
+    transaction = 4,
+    proposal = 5,
+    validation = 6,
+    validatorlist = 7,
+    get_set = 8,
+    share_set = 9,
+    ld_tsc_get = 10,
+    ld_tsc_share = 11,
+    ld_txn_get = 12,
+    ld_txn_share = 13,
+    ld_asn_get = 14,
+    ld_asn_share = 15,
+    ld_get = 16,
+    ld_share = 17,
+    gl_tsc_share = 18,
+    gl_tsc_get = 19,
+    gl_txn_share = 20,
+    gl_txn_get = 21,
+    gl_asn_share = 22,
+    gl_asn_get = 23,
+    gl_share = 24,
+    gl_get = 25,
+    share_hash_ledger = 26,
+    get_hash_ledger = 27,
+    share_hash_tx = 28,
+    get_hash_tx = 29,
+    share_hash_txnode = 30,
+    get_hash_txnode = 31,
+    share_hash_asnode = 32,
+    get_hash_asnode = 33,
+    share_cas_object = 34,
+    get_cas_object = 35,
+    share_fetch_pack = 36,
+    get_fetch_pack = 37,
+    get_transactions = 38,
+    share_hash = 39,
+    get_hash = 40,
+    proof_path_request = 41,
+    proof_path_response = 42,
+    replay_delta_request = 43,
+    replay_delta_response = 44,
+    have_transactions = 45,
+    requested_transactions = 46,
+    unknown = 47,
+};
+}  // namespace traffic_category
+
 std::vector<CategoryAlias> const&
 categoryAliases()
 {
-    using C = TrafficCount::category;
+    namespace C = traffic_category;
     static std::vector<CategoryAlias> const aliases = {
         {"base", {C::base}},
         {"cluster", {C::cluster}},
@@ -157,7 +212,7 @@ categoriesForName(std::string const& name)
         try
         {
             auto const cat = static_cast<std::size_t>(std::stoull(name));
-            if (cat <= TrafficCount::category::unknown)
+            if (cat <= traffic_category::unknown)
                 return CategorySet{cat};
         }
         catch (std::exception const&)
