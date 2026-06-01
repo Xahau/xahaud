@@ -109,8 +109,10 @@ Export::doApply()
     // get the transaction relayed/broadcast to all validators.
     if (view().open())
     {
-        JLOG(j_.info()) << "Export: open ledger at " << currentSeq
-                        << " -> tesSUCCESS (provisional)";
+        JLOG(j_.info()) << "Export: open ledger apply"
+                        << " ledgerSeq=" << currentSeq << " txHash=" << txId
+                        << " result=tesSUCCESS"
+                        << " provisional=yes";
         return tesSUCCESS;
     }
 
@@ -173,8 +175,11 @@ Export::doApply()
             }
             else
             {
-                JLOG(j_.warn()) << "Export: upgrade verify failed for tx "
-                                << txId << " — removing invalid sig";
+                JLOG(j_.warn())
+                    << "Export: upgrade verify failed"
+                    << " txHash=" << txId << " signer=" << calcNodeID(valPK)
+                    << " ledgerSeq=" << currentSeq
+                    << " action=remove-invalid-sig";
                 collector.removeSignature(txId, valPK, sigBuf);
             }
         }
@@ -227,9 +232,12 @@ Export::doApply()
                     ctx_.app.getConsensusExtensions()
                         .exportSigCollector()
                         .clear(txId);
-                    JLOG(j_.info()) << "Export: LLS expired at ledger "
-                                    << currentSeq << " sigs=" << sigCount << "/"
-                                    << threshold << " -> tecEXPORT_EXPIRED";
+                    JLOG(j_.info())
+                        << "Export: last ledger expired"
+                        << " txHash=" << txId << " ledgerSeq=" << currentSeq
+                        << " lastLedgerSequence=" << lls << " sigs=" << sigCount
+                        << " threshold=" << threshold << " unlSize=" << unlSize
+                        << " result=tecEXPORT_EXPIRED";
                     return tecEXPORT_EXPIRED;
                 }
             }
@@ -237,12 +245,13 @@ Export::doApply()
             upgradeUnverifiedForNextRound();
 
             JLOG(j_.info())
-                << "Export: not enough sigs at ledger " << currentSeq
+                << "Export: insufficient signatures"
+                << " txHash=" << txId << " ledgerSeq=" << currentSeq
                 << " sigs=" << sigCount << " threshold=" << threshold
                 << " unlSize=" << unlSize << " exportSigConvergenceFailed="
                 << (consensusExtensions.exportSigConvergenceFailed() ? "yes"
                                                                      : "no")
-                << " -> terRETRY_EXPORT";
+                << " result=terRETRY_EXPORT";
             return terRETRY_EXPORT;
         }
     }
@@ -338,8 +347,9 @@ Export::doApply()
     auto* avi = dynamic_cast<ApplyViewImpl*>(&view());
     if (!avi)
     {
-        JLOG(j_.fatal()) << "Export: cannot write ExportResult metadata "
-                         << "(view is not ApplyViewImpl)";
+        JLOG(j_.fatal()) << "Export: cannot write ExportResult metadata"
+                         << " txHash=" << txId << " ledgerSeq=" << currentSeq
+                         << " reason=view-not-ApplyViewImpl";
         return tefINTERNAL;
     }
     avi->setExportResultMetaData(std::move(exportResult));
@@ -347,10 +357,12 @@ Export::doApply()
     // Clean up the collector.
     ctx_.app.getConsensusExtensions().exportSigCollector().clear(txId);
 
-    JLOG(j_.info()) << "Export: success at ledger " << currentSeq
-                    << (ctx_.app.config().standalone() ? " (standalone)"
-                                                       : " (quorum met)")
-                    << " -> tesSUCCESS";
+    JLOG(j_.info()) << "Export: success"
+                    << " txHash=" << txId << " ledgerSeq=" << currentSeq
+                    << " signers=" << signers.size() << " mode="
+                    << (ctx_.app.config().standalone() ? "standalone"
+                                                       : "network")
+                    << " result=tesSUCCESS";
 
     return tesSUCCESS;
 }

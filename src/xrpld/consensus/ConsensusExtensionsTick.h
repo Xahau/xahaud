@@ -3,6 +3,7 @@
 
 #include <xrpld/consensus/ConsensusTypes.h>
 #include <xrpl/basics/Log.h>
+#include <chrono>
 
 namespace ripple {
 
@@ -44,12 +45,18 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
     bool const isRngEnabled = ext.rngEnabled();
     bool const isExportEnabled = ext.exportEnabled();
+    auto const toMs = [](auto duration) {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(duration)
+            .count();
+    };
 
-    JLOG(ext.j_.trace()) << "RNGGATE: phaseEstablish prevSeq="
+    JLOG(ext.j_.trace()) << "RNGGATE: phaseEstablish"
+                         << " buildSeq=" << ctx.buildSeq << " prevSeq="
                          << (static_cast<std::uint32_t>(ctx.buildSeq) - 1)
-                         << " ext.rngEnabled=" << (isRngEnabled ? "yes" : "no")
+                         << " rngEnabled=" << (isRngEnabled ? "yes" : "no")
+                         << " exportEnabled="
+                         << (isExportEnabled ? "yes" : "no")
                          << " estState=" << static_cast<int>(ext.estState_)
-                         << " phase=establish"
                          << " mode=" << to_string(ctx.mode)
                          << " roundMs=" << ctx.roundTime.count();
 
@@ -87,7 +94,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             auto const participants = ctx.peerPositions.size() + 1;
             JLOG(ext.j_.debug())
                 << "STALLDIAG: " << reason << " state=" << estStateName()
-                << " phase=establish"
+                << " buildSeq=" << buildSeq << " phase=establish"
                 << " mode=" << to_string(ctx.mode)
                 << " roundMs=" << ctx.roundTime.count()
                 << " convergePct=" << ctx.convergePercent
@@ -108,6 +115,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 << " entropySetHash="
                 << (ourPos.entropySetHash ? to_string(*ourPos.entropySetHash)
                                           : std::string{"none"})
+                << " exportSigSetHash="
+                << (ourPos.exportSigSetHash
+                        ? to_string(*ourPos.exportSigSetHash)
+                        : std::string{"none"})
                 << " myCommitment=" << (ourPos.myCommitment ? "yes" : "no")
                 << " myReveal=" << (ourPos.myReveal ? "yes" : "no");
 
@@ -142,7 +153,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     << " observedParticipantsHash="
                     << (observedHash ? to_string(*observedHash)
                                      : std::string{"none"})
-                    << " bitmap=" << ext.observedParticipantsBitmapBin();
+                    << " bitmapBin=" << ext.observedParticipantsBitmapBin();
             }
         };
         auto publishEntropySet = [&]() {
@@ -152,8 +163,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 *newPos.entropySetHash == entropySetHash)
             {
                 JLOG(ext.j_.debug())
-                    << "RNG: entropySet already published hash="
-                    << entropySetHash;
+                    << "RNG: entropySet already published"
+                    << " buildSeq=" << buildSeq << " hash=" << entropySetHash;
                 return;
             }
 
@@ -173,11 +184,18 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             if (ctx.mode == ConsensusMode::proposing)
                 ctx.propose();
 
-            JLOG(ext.j_.debug()) << "RNG: built entropySet";
+            JLOG(ext.j_.debug())
+                << "RNG: published entropySet"
+                << " buildSeq=" << buildSeq << " hash=" << entropySetHash
+                << " proposing="
+                << (ctx.mode == ConsensusMode::proposing ? "yes" : "no");
         };
 
-        JLOG(ext.j_.trace()) << "RNG: phaseEstablish estState="
-                             << static_cast<int>(ext.estState_);
+        JLOG(ext.j_.trace())
+            << "RNG: phaseEstablish"
+            << " buildSeq=" << buildSeq << " estState=" << estStateName()
+            << " roundMs=" << ctx.roundTime.count()
+            << " mode=" << to_string(ctx.mode);
 
         // Bootstrap fast-path: if the previous round didn't have
         // enough proposers for RNG to have succeeded, the network
@@ -200,9 +218,11 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             if (previousParticipants < threshold)
             {
                 JLOG(ext.j_.debug())
-                    << "RNG: bootstrap skip (previousParticipants="
-                    << previousParticipants << " < threshold=" << threshold
-                    << ", prevProposers=" << ctx.prevProposers << ")";
+                    << "RNG: bootstrap skip"
+                    << " previousParticipants=" << previousParticipants
+                    << " threshold=" << threshold
+                    << " prevProposers=" << ctx.prevProposers
+                    << " buildSeq=" << buildSeq;
                 rngBootstrapSkip = true;
             }
         }
@@ -232,7 +252,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 ext.estState_ = EstablishState::ConvergingCommit;
                 ext.commitHashConflictStart_ = {};
                 JLOG(ext.j_.debug()) << "RNG: transitioned to ConvergingCommit"
-                                     << " commitSet=" << commitSetHash;
+                                     << " buildSeq=" << buildSeq
+                                     << " commitSetHash=" << commitSetHash
+                                     << " commits=" << ext.pendingCommitCount()
+                                     << " quorum=" << ext.quorumThreshold();
                 return {};  // Wait for next tick
             }
 
@@ -262,9 +285,11 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
                 if (impossible)
                 {
-                    JLOG(ext.j_.debug())
-                        << "RNG: skipping commit wait (participants="
-                        << participants << " < threshold=" << threshold << ")";
+                    JLOG(ext.j_.debug()) << "RNG: skipping commit wait"
+                                         << " reason=impossible-quorum"
+                                         << " participants=" << participants
+                                         << " threshold=" << threshold
+                                         << " buildSeq=" << buildSeq;
                     logRngDiag("rng-commit-wait-impossible-quorum");
                     // Fall through to close with zero entropy
                 }
@@ -287,9 +312,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     if (commits >= quorum)
                     {
                         JLOG(ext.j_.info())
-                            << "RNG: commit timeout but have quorum ("
-                            << commits << "/" << quorum
-                            << "), proceeding with partial set";
+                            << "RNG: commit timeout with quorum"
+                            << " buildSeq=" << buildSeq
+                            << " commits=" << commits << " quorum=" << quorum
+                            << " roundMs=" << ctx.roundTime.count()
+                            << " timeoutMs="
+                            << ctx.parms.rngPIPELINE_TIMEOUT.count();
                         // Jump to the same path as ext.hasQuorumOfCommits
                         auto commitSetHash = ext.buildCommitSet(buildSeq);
                         auto newPos = ctx.getPosition();
@@ -301,8 +329,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         ext.commitHashConflictStart_ = {};
                         JLOG(ext.j_.debug())
                             << "RNG: transitioned to ConvergingCommit"
-                            << " commitSet=" << commitSetHash
-                            << " (timeout fallback)";
+                            << " reason=timeout-with-quorum"
+                            << " buildSeq=" << buildSeq
+                            << " commitSetHash=" << commitSetHash
+                            << " commits=" << commits << " quorum=" << quorum;
                         return {};
                     }
                     logRngDiag("rng-commit-timeout-below-quorum");
@@ -392,8 +422,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         ctx.propose();
 
                     JLOG(ext.j_.debug())
-                        << "RNG: refreshed commitSetHash after merge to "
-                        << refreshedHash;
+                        << "RNG: refreshed commitSetHash"
+                        << " reason=merge"
+                        << " buildSeq=" << buildSeq << " oldHash="
+                        << (previousHash ? to_string(*previousHash)
+                                         : std::string{"none"})
+                        << " newHash=" << refreshedHash;
                 }
 
                 // Re-check after refreshing our own hash.
@@ -407,8 +441,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         // window so benign ordering/fetch races can settle.
                         ext.commitHashConflictStart_ = nowSteady;
                         JLOG(ext.j_.warn())
-                            << "RNG: conflicting commitSetHash detected; "
-                               "waiting briefly for convergence/fetch";
+                            << "RNG: conflicting commitSetHash detected"
+                            << " buildSeq=" << buildSeq << " deadlineMs="
+                            << toMs(ctx.parms.rngREVEAL_TIMEOUT)
+                            << " action=wait-for-fetch";
                         logRngDiag("rng-commit-conflict-start");
                         return {};
                     }
@@ -421,11 +457,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         // waiting. This preserves the fast path when peers
                         // converge after a short delay.
                         JLOG(ext.j_.debug())
-                            << "RNG: commitSetHash still conflicting after "
-                            << std::chrono::duration_cast<
-                                   std::chrono::milliseconds>(conflictElapsed)
-                                   .count()
-                            << "ms; staying in ConvergingCommit";
+                            << "RNG: commitSetHash conflict wait"
+                            << " buildSeq=" << buildSeq
+                            << " elapsedMs=" << toMs(conflictElapsed)
+                            << " deadlineMs="
+                            << toMs(ctx.parms.rngREVEAL_TIMEOUT)
+                            << " state=ConvergingCommit";
                         logRngDiag("rng-commit-conflict-wait");
                         return {};
                     }
@@ -441,8 +478,11 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         std::chrono::milliseconds{1};
                     ext.commitHashConflictStart_ = {};
                     JLOG(ext.j_.warn())
-                        << "RNG: commitSetHash conflict persisted; forcing "
-                           "zero-entropy fallback";
+                        << "RNG: commitSetHash conflict timeout"
+                        << " buildSeq=" << buildSeq
+                        << " elapsedMs=" << toMs(conflictElapsed)
+                        << " deadlineMs=" << toMs(ctx.parms.rngREVEAL_TIMEOUT)
+                        << " action=zero-entropy-fallback";
                     logRngDiag("rng-commit-conflict-timeout-fallback");
                     return {};
                 }
@@ -469,7 +509,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             //@@end rng-reveal-transition
             ext.revealPhaseStart_ = ctx.nowSteady;
             JLOG(ext.j_.debug()) << "RNG: transitioned to ConvergingReveal"
-                                 << " reveal=" << ext.getEntropySecret();
+                                 << " buildSeq=" << buildSeq
+                                 << " reveal=" << ext.getEntropySecret()
+                                 << " reveals=" << ext.pendingRevealCount();
 
             // Fast path:
             // If all required reveals are already present at transition
@@ -481,9 +523,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 publishEntropySet();
                 ext.entropySetPublished_ = true;
                 ext.entropyPublishStart_ = ctx.nowSteady;
-                JLOG(ext.j_.debug())
-                    << "RNG: fast-path published entropySet, waiting for "
-                       "peer observation";
+                JLOG(ext.j_.debug()) << "RNG: fast-path published entropySet"
+                                     << " buildSeq=" << buildSeq
+                                     << " action=wait-for-peer-observation";
                 logRngDiag("rng-reveal-fast-path-entropy-published-wait");
                 return {};
             }
@@ -511,14 +553,19 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 JLOG(ext.j_.debug())
                     << "STALLDIAG: rng-reveal-gate-open"
                     << " revealConsensus=" << (revealConsensus ? "yes" : "no")
-                    << " timeout=" << (timeout ? "yes" : "no") << " elapsedMs="
-                    << std::chrono::duration_cast<std::chrono::milliseconds>(
-                           elapsed)
-                           .count();
+                    << " timeout=" << (timeout ? "yes" : "no")
+                    << " elapsedMs=" << toMs(elapsed)
+                    << " deadlineMs=" << toMs(ctx.parms.rngREVEAL_TIMEOUT)
+                    << " buildSeq=" << buildSeq;
                 if (timeout && !ext.hasAnyReveals())
                 {
                     ext.setEntropyFailed();
-                    JLOG(ext.j_.warn()) << "RNG: entropy failed (no reveals)";
+                    JLOG(ext.j_.warn())
+                        << "RNG: entropy failed"
+                        << " reason=no-reveals"
+                        << " buildSeq=" << buildSeq
+                        << " elapsedMs=" << toMs(elapsed)
+                        << " deadlineMs=" << toMs(ctx.parms.rngREVEAL_TIMEOUT);
                     logRngDiag("rng-reveal-timeout-no-reveals");
                 }
                 else
@@ -534,10 +581,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 JLOG(ext.j_.debug())
                     << "STALLDIAG: rng-reveal-gate-blocked"
                     << " revealConsensus=" << (revealConsensus ? "yes" : "no")
-                    << " timeout=" << (timeout ? "yes" : "no") << " elapsedMs="
-                    << std::chrono::duration_cast<std::chrono::milliseconds>(
-                           elapsed)
-                           .count();
+                    << " timeout=" << (timeout ? "yes" : "no")
+                    << " elapsedMs=" << toMs(elapsed)
+                    << " deadlineMs=" << toMs(ctx.parms.rngREVEAL_TIMEOUT)
+                    << " buildSeq=" << buildSeq;
                 logRngDiag("rng-reveal-wait");
                 return {};
             }
@@ -570,8 +617,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         ext.entropySetPublished_ = true;
                         ext.entropyPublishStart_ = ctx.nowSteady;
                         JLOG(ext.j_.debug())
-                            << "RNG: entropySet first published, waiting "
-                               "for peer observation";
+                            << "RNG: entropySet first published"
+                            << " buildSeq=" << buildSeq
+                            << " hash=" << *ourPos.entropySetHash
+                            << " action=wait-for-peer-observation";
                         logRngDiag("rng-entropy-hash-first-publish-wait");
                         return {};
                     }
@@ -654,9 +703,11 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             if (ctx.mode == ConsensusMode::proposing)
                                 ctx.propose();
                             JLOG(ext.j_.debug())
-                                << "RNG: refreshed entropySetHash after "
-                                   "merge to "
-                                << refreshedHash;
+                                << "RNG: refreshed entropySetHash"
+                                << " reason=merge"
+                                << " buildSeq=" << buildSeq
+                                << " oldHash=" << *ourPos.entropySetHash
+                                << " newHash=" << refreshedHash;
                         }
 
                         // Re-check against the current local hash.  Any peer
@@ -671,8 +722,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         fullObservation())
                     {
                         JLOG(ext.j_.debug())
-                            << "RNG: entropySetHash conflict ignored after "
-                               "quorum alignment"
+                            << "RNG: entropySetHash conflict ignored"
+                            << " reason=quorum-aligned"
+                            << " buildSeq=" << buildSeq
                             << " alignedParticipants="
                             << (entropyState.aligned + 1)
                             << " quorum=" << entropyQuorum
@@ -690,17 +742,15 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         if (entropyElapsed <= entropyDeadline)
                         {
                             JLOG(ext.j_.debug())
-                                << "RNG: entropySetHash conflict, waiting "
-                                << std::chrono::duration_cast<
-                                       std::chrono::milliseconds>(
-                                       entropyElapsed)
-                                       .count()
-                                << "ms / "
-                                << std::chrono::duration_cast<
-                                       std::chrono::milliseconds>(
-                                       entropyDeadline)
-                                       .count()
-                                << "ms";
+                                << "RNG: entropySetHash conflict wait"
+                                << " buildSeq=" << buildSeq
+                                << " elapsedMs=" << toMs(entropyElapsed)
+                                << " deadlineMs=" << toMs(entropyDeadline)
+                                << " alignedParticipants="
+                                << (entropyState.aligned + 1)
+                                << " quorum=" << entropyQuorum
+                                << " peersSeen=" << entropyState.peersSeen
+                                << " txConverged=" << entropyState.txConverged;
                             logRngDiag("rng-entropy-hash-conflict-wait");
                             return {};
                         }
@@ -709,9 +759,16 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         ext.setEntropyFailed();
                         clearEntropyHash();
                         JLOG(ext.j_.warn())
-                            << "RNG: entropySetHash conflict persisted "
-                               "past deadline, falling back to zero "
-                               "entropy";
+                            << "RNG: entropySetHash conflict timeout"
+                            << " buildSeq=" << buildSeq
+                            << " elapsedMs=" << toMs(entropyElapsed)
+                            << " deadlineMs=" << toMs(entropyDeadline)
+                            << " action=zero-entropy-fallback"
+                            << " alignedParticipants="
+                            << (entropyState.aligned + 1)
+                            << " quorum=" << entropyQuorum
+                            << " peersSeen=" << entropyState.peersSeen
+                            << " txConverged=" << entropyState.txConverged;
                         logRngDiag("rng-entropy-hash-conflict-timeout");
                     }
 
@@ -735,30 +792,37 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             JLOG(ext.j_.debug())
                                 << "RNG: waiting for entropySetHash quorum "
                                    "alignment"
+                                << " buildSeq=" << buildSeq
                                 << " alignedParticipants="
                                 << (entropyState.aligned + 1)
                                 << " quorum=" << entropyQuorum
                                 << " peersSeen=" << entropyState.peersSeen
-                                << " txConverged=" << entropyState.txConverged;
+                                << " txConverged=" << entropyState.txConverged
+                                << " elapsedMs=" << toMs(entropyElapsed)
+                                << " deadlineMs=" << toMs(entropyDeadline);
                             logRngDiag("rng-entropy-hash-quorum-wait");
                             return {};
                         }
                         ext.setEntropyFailed();
                         clearEntropyHash();
                         JLOG(ext.j_.warn())
-                            << "RNG: entropySetHash quorum alignment missing "
-                               "within deadline, falling back to zero"
+                            << "RNG: entropySetHash quorum alignment timeout"
+                            << " buildSeq=" << buildSeq
+                            << " action=zero-entropy-fallback"
                             << " alignedParticipants="
                             << (entropyState.aligned + 1)
                             << " quorum=" << entropyQuorum
                             << " peersSeen=" << entropyState.peersSeen
-                            << " txConverged=" << entropyState.txConverged;
+                            << " txConverged=" << entropyState.txConverged
+                            << " elapsedMs=" << toMs(entropyElapsed)
+                            << " deadlineMs=" << toMs(entropyDeadline);
                         logRngDiag("rng-entropy-hash-quorum-timeout");
                     }
 
                     JLOG(ext.j_.debug())
-                        << "RNG: entropy gate — aligned="
-                        << entropyState.aligned
+                        << "RNG: entropy gate"
+                        << " buildSeq=" << buildSeq
+                        << " aligned=" << entropyState.aligned
                         << " alignedParticipants=" << (entropyState.aligned + 1)
                         << " quorum=" << entropyQuorum
                         << " peersSeen=" << entropyState.peersSeen
@@ -852,6 +916,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             JLOG(ext.j_.debug())
                                 << "RNG: explicit-final entropy alignment "
                                    "insufficient"
+                                << " buildSeq=" << buildSeq
                                 << " alignedParticipants="
                                 << alignedParticipants
                                 << " required=" << requiredEntropyAligned
@@ -861,8 +926,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     else
                     {
                         JLOG(ext.j_.debug())
-                            << "RNG: explicit-final waiting on local "
-                               "entropySetHash";
+                            << "RNG: explicit-final waiting"
+                            << " reason=missing-local-entropySetHash"
+                            << " buildSeq=" << buildSeq;
                     }
                 }
 
@@ -901,13 +967,15 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             // this set arrives back from the network.
                             ctx.cacheAndShareTxSet(*synthSet);
                             JLOG(ext.j_.debug())
-                                << "RNG: cached explicit-final txSet="
-                                << synthHash;
+                                << "RNG: cached explicit-final txSet"
+                                << " buildSeq=" << buildSeq
+                                << " txSet=" << synthHash;
                             ctx.updatePosition(newPos);
                             ctx.propose();
                             JLOG(ext.j_.debug())
-                                << "RNG: explicit final proposal txSet="
-                                << synthHash;
+                                << "RNG: explicit final proposal"
+                                << " buildSeq=" << buildSeq
+                                << " txSet=" << synthHash;
                             logRngDiag("rng-explicit-final-proposed");
                         }
                     }
@@ -929,7 +997,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         reason = "entropy-not-aligned";
                     JLOG(ext.j_.debug())
                         << "STALLDIAG: rng-explicit-final-skipped"
-                        << " reason=" << reason
+                        << " reason=" << reason << " buildSeq=" << buildSeq
                         << " mode=" << to_string(ctx.mode) << " sent="
                         << (ext.explicitFinalProposalSent_ ? "yes" : "no");
                 }
@@ -940,8 +1008,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
     {
         JLOG(ext.j_.debug())
             << "RNGGATE: skipping RNG substates"
+            << " buildSeq=" << ctx.buildSeq
             << " prevSeq=" << (static_cast<std::uint32_t>(ctx.buildSeq) - 1)
-            << " phase=establish"
             << " mode=" << to_string(ctx.mode);
     }
     //@@end rng-phase-establish-substates
@@ -998,18 +1066,22 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     {
                         JLOG(ext.j_.debug())
                             << "Export: bounded wait for advertised "
-                               "exportSigSet "
-                               "fetch/merge"
-                            << " peerSets=" << peerSets;
+                               "exportSigSet fetch/merge"
+                            << " buildSeq=" << ctx.buildSeq
+                            << " peerSets=" << peerSets
+                            << " elapsedMs=" << toMs(elapsed)
+                            << " deadlineMs=" << toMs(deadline);
                         return {};
                     }
 
                     ext.setExportSigConvergenceFailed();
                     JLOG(ext.j_.warn())
-                        << "Export: advertised exportSigSet did not converge "
-                           "locally within bounded safety window; exports "
-                           "will retry or expire"
-                        << " peerSets=" << peerSets;
+                        << "Export: advertised exportSigSet fetch timeout"
+                        << " buildSeq=" << ctx.buildSeq
+                        << " peerSets=" << peerSets
+                        << " elapsedMs=" << toMs(elapsed)
+                        << " deadlineMs=" << toMs(deadline)
+                        << " action=retry-or-expire";
                 }
             }
             else if (ext.hasConsensusExportTxns())
@@ -1025,14 +1097,21 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 {
                     JLOG(ext.j_.debug())
                         << "Export: bounded wait for exportSigSet "
-                           "advertisement";
+                           "advertisement"
+                        << " buildSeq=" << ctx.buildSeq
+                        << " elapsedMs=" << toMs(elapsed)
+                        << " deadlineMs=" << toMs(deadline)
+                        << " candidateExportTxns=yes";
                     return {};
                 }
 
                 ext.setExportSigConvergenceFailed();
                 JLOG(ext.j_.warn())
-                    << "Export: no exportSigSet advertisement within bounded "
-                       "safety window; exports will retry or expire";
+                    << "Export: exportSigSet advertisement timeout"
+                    << " buildSeq=" << ctx.buildSeq
+                    << " elapsedMs=" << toMs(elapsed)
+                    << " deadlineMs=" << toMs(deadline)
+                    << " action=retry-or-expire";
             }
         }
 
@@ -1054,7 +1133,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     ctx.propose();
 
                 JLOG(ext.j_.debug())
-                    << "Export: published exportSigSetHash=" << exportHash;
+                    << "Export: published exportSigSetHash"
+                    << " buildSeq=" << buildSeqExport << " hash=" << exportHash;
             }
             //@@end export-publish-sigset-hash
 
@@ -1066,9 +1146,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             {
                 if (startExportSigGate() || publishedNewHash)
                 {
-                    JLOG(ext.j_.debug())
-                        << "Export: exportSigSet published, waiting for peer "
-                           "observation";
+                    JLOG(ext.j_.debug()) << "Export: exportSigSet published"
+                                         << " buildSeq=" << buildSeqExport
+                                         << " hash=" << exportHash
+                                         << " action=wait-for-peer-observation";
                     return {};
                 }
 
@@ -1136,9 +1217,13 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         if (ctx.mode == ConsensusMode::proposing)
                             ctx.propose();
                         JLOG(ext.j_.debug())
-                            << "Export: refreshed exportSigSetHash after merge "
-                               "to "
-                            << refreshedHash;
+                            << "Export: refreshed exportSigSetHash"
+                            << " reason=merge"
+                            << " buildSeq=" << buildSeqExport << " oldHash="
+                            << (current.exportSigSetHash
+                                    ? to_string(*current.exportSigSetHash)
+                                    : std::string{"none"})
+                            << " newHash=" << refreshedHash;
                     }
 
                     exportState = inspectExportPeers(ctx.getPosition(), true);
@@ -1148,8 +1233,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     fullObservation())
                 {
                     JLOG(ext.j_.info())
-                        << "Export: exportSigSetHash conflict ignored after "
-                           "quorum alignment"
+                        << "Export: exportSigSetHash conflict ignored"
+                        << " reason=quorum-aligned"
+                        << " buildSeq=" << buildSeqExport
                         << " alignedParticipants=" << (exportState.aligned + 1)
                         << " quorum=" << exportQuorum
                         << " peersSeen=" << exportState.peersSeen
@@ -1167,26 +1253,31 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         JLOG(ext.j_.debug())
                             << "Export: waiting for exportSigSet quorum "
                                "alignment"
+                            << " buildSeq=" << buildSeqExport
                             << " alignedParticipants="
                             << (exportState.aligned + 1)
                             << " quorum=" << exportQuorum
                             << " peersSeen=" << exportState.peersSeen
                             << " txConverged=" << exportState.txConverged
                             << " conflict="
-                            << (exportState.conflict ? "yes" : "no");
+                            << (exportState.conflict ? "yes" : "no")
+                            << " elapsedMs=" << toMs(elapsed)
+                            << " deadlineMs=" << toMs(deadline);
                         return {};
                     }
 
                     ext.setExportSigConvergenceFailed();
                     JLOG(ext.j_.warn())
-                        << "Export: exportSigSet quorum alignment missing "
-                           "within deadline; exports will retry or expire"
+                        << "Export: exportSigSet quorum alignment timeout"
+                        << " buildSeq=" << buildSeqExport
+                        << " action=retry-or-expire"
                         << " alignedParticipants=" << (exportState.aligned + 1)
                         << " quorum=" << exportQuorum
                         << " peersSeen=" << exportState.peersSeen
                         << " txConverged=" << exportState.txConverged
-                        << " conflict="
-                        << (exportState.conflict ? "yes" : "no");
+                        << " conflict=" << (exportState.conflict ? "yes" : "no")
+                        << " elapsedMs=" << toMs(elapsed)
+                        << " deadlineMs=" << toMs(deadline);
                 }
             }
             //@@end export-sigset-conflict-wait

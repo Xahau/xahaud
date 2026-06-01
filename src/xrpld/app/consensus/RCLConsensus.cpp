@@ -1089,9 +1089,12 @@ RCLConsensus::Adaptor::preStartRound(
     ce().setExportEnabledThisRound(
         prevLgr.ledger_->rules().enabled(featureExport));
 
-    JLOG(j_.trace()) << "RNGGATE: preStartRound prevSeq=" << prevLgr.seq()
-                     << " rulesEnabled=" << ce().rngEnabled()
-                     << " exportEnabled=" << ce().exportEnabled();
+    JLOG(j_.trace()) << "RNGGATE: preStartRound"
+                     << " prevSeq=" << prevLgr.seq()
+                     << " buildSeq=" << (prevLgr.seq() + 1)
+                     << " rngEnabled=" << (ce().rngEnabled() ? "yes" : "no")
+                     << " exportEnabled="
+                     << (ce().exportEnabled() ? "yes" : "no");
 
     // We have a key, we do not want out of sync validations after a restart
     // and are not amendment blocked.
@@ -1187,7 +1190,9 @@ RCLConsensus::Adaptor::updateOperatingMode(std::size_t const positions) const
     if (!positions && app_.getOPs().isFull())
     {
         JLOG(j_.warn()) << "STARTDIAG: updateOperatingMode demoting"
-                        << " FULL->CONNECTED positions=" << positions;
+                        << " from=FULL"
+                        << " to=CONNECTED"
+                        << " positions=" << positions;
         app_.getOPs().setMode(OperatingMode::CONNECTED);
     }
 }
@@ -1239,7 +1244,9 @@ RclConsensusLogger::~RclConsensusLogger()
     {
         boost::algorithm::trim(line);
         if (!line.empty())
+        {
             JLOG(j_.debug()) << header_ << line << ".";
+        }
     }
     JLOG(j_.debug()) << header_ << "Total duration: " << duration.count()
                      << "ms.";

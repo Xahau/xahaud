@@ -826,7 +826,8 @@ Consensus<Adaptor>::peerProposalInternal(
 
     if (newPeerProp.prevLedger() != prevLedgerID_)
     {
-        JLOG(j_.info()) << "STARTDIAG: peerProposal REJECTED prevLedger"
+        JLOG(j_.info()) << "STARTDIAG: peerProposal rejected"
+                        << " reason=prevLedger-mismatch"
                         << " peer=" << newPeerProp.nodeID()
                         << " theirPrev=" << newPeerProp.prevLedger()
                         << " ourPrev=" << prevLedgerID_
@@ -878,7 +879,7 @@ Consensus<Adaptor>::peerProposalInternal(
         else
         {
             currPeerPositions_.emplace(peerID, newPeerPos);
-            JLOG(j_.info()) << "STARTDIAG: peerProposal ACCEPTED"
+            JLOG(j_.info()) << "STARTDIAG: peerProposal accepted"
                             << " peer=" << peerID
                             << " peerPositions=" << currPeerPositions_.size()
                             << " seq=" << newPeerProp.proposeSeq()
@@ -1616,8 +1617,7 @@ Consensus<Adaptor>::phaseEstablish(
 
     JLOG(j_.info()) << "STARTDIAG: converge cutoff"
                     << " peerPositions=" << currPeerPositions_.size()
-                    << " roundTime=" << result_->roundTime.read().count()
-                    << "ms"
+                    << " roundMs=" << result_->roundTime.read().count()
                     << " mode=" << to_string(mode_.get());
     JLOG(j_.info()) << "Converge cutoff (" << currPeerPositions_.size()
                     << " participants)";
@@ -2001,8 +2001,7 @@ Consensus<Adaptor>::haveConsensus(
                     << " total=" << (agree + disagree)
                     << " peerPositions=" << currPeerPositions_.size()
                     << " prevProposers=" << prevProposers_
-                    << " roundTime=" << result_->roundTime.read().count()
-                    << "ms"
+                    << " roundMs=" << result_->roundTime.read().count()
                     << " mode=" << to_string(mode_.get());
     JLOG(j_.trace()) << "STALLDIAG: haveConsensus-self"
                      << " position=" << ourPosition << " closeTime="
@@ -2079,7 +2078,11 @@ Consensus<Adaptor>::haveConsensus(
                          << " state=No"
                          << " agree=" << agree << " disagree=" << disagree
                          << " total=" << (agree + disagree)
-                         << " finished=" << currentFinished;
+                         << " finished=" << currentFinished
+                         << " peerPositions=" << currPeerPositions_.size()
+                         << " prevProposers=" << prevProposers_
+                         << " roundMs=" << result_->roundTime.read().count()
+                         << " mode=" << to_string(mode_.get());
         CLOG(clog) << "No consensus. ";
         return false;
     }
@@ -2115,7 +2118,15 @@ Consensus<Adaptor>::haveConsensus(
     // without us.
     if (result_->state == ConsensusState::MovedOn)
     {
-        JLOG(j_.warn()) << "STALLDIAG: haveConsensus-result state=MovedOn";
+        JLOG(j_.warn()) << "STALLDIAG: haveConsensus-result"
+                        << " state=MovedOn"
+                        << " agree=" << agree << " disagree=" << disagree
+                        << " total=" << (agree + disagree)
+                        << " finished=" << currentFinished
+                        << " peerPositions=" << currPeerPositions_.size()
+                        << " prevProposers=" << prevProposers_
+                        << " roundMs=" << result_->roundTime.read().count()
+                        << " mode=" << to_string(mode_.get());
         JLOG(j_.error()) << "Unable to reach consensus";
         JLOG(j_.error()) << Json::Compact{getJson(true)};
         CLOG(clog) << "Unable to reach consensus "

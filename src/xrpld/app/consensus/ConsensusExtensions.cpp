@@ -152,9 +152,10 @@ buildExportTxnLookup(SHAMap const& txns, beast::Journal j)
         }
         catch (std::exception const& e)
         {
-            JLOG(j.warn()) << "Export: failed to parse candidate tx "
-                           << item->key()
-                           << " while building lookup: " << e.what();
+            JLOG(j.warn()) << "Export: failed to parse candidate tx"
+                           << " itemKey=" << item->key()
+                           << " context=build-export-lookup"
+                           << " error=" << e.what();
         }
     });
     return exportTxns;
@@ -185,6 +186,21 @@ currentClosedLedgerSeq(Application& app)
     return 0;
 }
 
+char const*
+sidecarKindName(ConsensusExtensions::SidecarKind kind)
+{
+    switch (kind)
+    {
+        case ConsensusExtensions::SidecarKind::commit:
+            return "commit";
+        case ConsensusExtensions::SidecarKind::reveal:
+            return "reveal";
+        case ConsensusExtensions::SidecarKind::exportSig:
+            return "exportSig";
+    }
+    return "unknown";
+}
+
 bool
 verifyExportSignatureAgainstTx(
     STTx const& exportTx,
@@ -196,8 +212,9 @@ verifyExportSignatureAgainstTx(
 {
     if (!exportTx.isFieldPresent(sfExportedTxn))
     {
-        JLOG(j.warn()) << "Export: cannot verify sig for tx " << txHash
-                       << " from " << source << " (missing sfExportedTxn)";
+        JLOG(j.warn()) << "Export: cannot verify sig"
+                       << " txHash=" << txHash << " source=" << source
+                       << " reason=missing-sfExportedTxn";
         return false;
     }
 
@@ -216,16 +233,20 @@ verifyExportSignatureAgainstTx(
         auto const sigData = buildMultiSigningData(innerTx, signerAcctID);
         if (!verify(validator, sigData.slice(), sigSlice))
         {
-            JLOG(j.warn()) << "Export: invalid multisign sig for tx " << txHash
-                           << " from " << source << " — rejected";
+            JLOG(j.warn()) << "Export: invalid multisign sig"
+                           << " txHash=" << txHash << " source=" << source
+                           << " validator=" << calcNodeID(validator)
+                           << " reason=signature-verify-failed";
             return false;
         }
         return true;
     }
     catch (std::exception const& e)
     {
-        JLOG(j.warn()) << "Export: failed to verify sig for tx " << txHash
-                       << " from " << source << ": " << e.what();
+        JLOG(j.warn()) << "Export: failed to verify sig"
+                       << " txHash=" << txHash << " source=" << source
+                       << " validator=" << calcNodeID(validator)
+                       << " error=" << e.what();
         return false;
     }
 }
@@ -285,10 +306,12 @@ ConsensusExtensions::setExpectedProposers(hash_set<NodeID> proposers)
         if (includeSelf)
             filtered.insert(app_.getValidatorKeys().nodeID);
         likelyParticipants_ = std::move(filtered);
-        JLOG(j_.trace()) << "RNG: likelyParticipants from recent proposers: "
-                         << likelyParticipants_.size() << " (filtered from "
-                         << proposers.size() << ", includeSelf=" << includeSelf
-                         << ")";
+        JLOG(j_.trace()) << "RNG: likelyParticipants"
+                         << " source=recent-proposers"
+                         << " count=" << likelyParticipants_.size()
+                         << " input=" << proposers.size()
+                         << " includeSelf=" << (includeSelf ? "yes" : "no")
+                         << " activeValidators=" << validatorView->size();
         return;
     }
 
@@ -298,14 +321,20 @@ ConsensusExtensions::setExpectedProposers(hash_set<NodeID> proposers)
     if (validatorView->size() > 0)
     {
         likelyParticipants_ = validatorView->nodeIds;
-        JLOG(j_.trace()) << "RNG: likelyParticipants from active UNL: "
-                         << likelyParticipants_.size();
+        JLOG(j_.trace()) << "RNG: likelyParticipants"
+                         << " source=active-validator-view"
+                         << " count=" << likelyParticipants_.size()
+                         << " activeValidators=" << validatorView->size()
+                         << " viewSource="
+                         << (validatorView->fromUNLReport ? "UNLReport"
+                                                          : "trusted-fallback");
         return;
     }
 
     // No data at all (shouldn't happen — cacheUNLReport falls back to
     // trusted keys). Leave empty; diagnostics will show no liveness hint.
-    JLOG(j_.warn()) << "RNG: no likelyParticipants available";
+    JLOG(j_.warn()) << "RNG: likelyParticipants unavailable"
+                    << " reason=empty-active-validator-view";
 }
 
 std::size_t
@@ -344,12 +373,13 @@ ConsensusExtensions::hasQuorumOfCommits() const
                 nodeIdToKey_.count(nid) > 0 && commitProofs_.count(nid) > 0;
         });
     bool result = static_cast<std::size_t>(proofedCommitCount) >= threshold;
-    JLOG(j_.trace()) << "RNG: hasQuorumOfCommits? " << proofedCommitCount << "/"
-                     << threshold << " -> " << (result ? "YES" : "no")
-                     << " (pending=" << pendingCommits_.size()
-                     << ", activeUNL=" << validatorView->size()
-                     << ", likelyParticipants=" << likelyParticipants_.size()
-                     << ")";
+    JLOG(j_.trace()) << "RNG: commit quorum check"
+                     << " proofedCommits=" << proofedCommitCount
+                     << " threshold=" << threshold
+                     << " result=" << (result ? "yes" : "no")
+                     << " pendingCommits=" << pendingCommits_.size()
+                     << " activeValidators=" << validatorView->size()
+                     << " likelyParticipants=" << likelyParticipants_.size();
     return result;
 }
 
@@ -383,9 +413,12 @@ ConsensusExtensions::hasMinimumReveals() const
                 pendingCommits_.count(nid) > 0 && commitProofs_.count(nid) > 0;
         });
     bool result = revealCount >= expected;
-    JLOG(j_.trace()) << "RNG: hasMinimumReveals? " << revealCount << "/"
-                     << expected << " -> " << (result ? "YES" : "no")
-                     << " (pending=" << pendingReveals_.size() << ")";
+    JLOG(j_.trace()) << "RNG: reveal quorum check"
+                     << " reveals=" << revealCount << " expected=" << expected
+                     << " result=" << (result ? "yes" : "no")
+                     << " pendingReveals=" << pendingReveals_.size()
+                     << " pendingCommits=" << pendingCommits_.size()
+                     << " activeValidators=" << validatorView->size();
     return result;
 }
 
@@ -563,6 +596,7 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
     map->setUnbacked();
 
     auto const validatorView = activeValidatorView();
+    std::size_t entryCount = 0;
     // NOTE: avoid structured bindings in for-loops containing lambdas —
     // clang-14 (CI) rejects capturing them (P2036R3 not implemented).
     for (auto const& entry : pendingCommits_)
@@ -600,6 +634,7 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
         sidecar.add(s);
         map->addItem(
             SHAMapNodeType::tnSIDECAR, make_shamapitem(itemKey, s.slice()));
+        ++entryCount;
     }
 
     map = map->snapShot(false);
@@ -608,8 +643,11 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
     auto const hash = map->getHash().as_uint256();
     app_.getInboundTransactions().giveSet(hash, map, false);
 
-    JLOG(j_.debug()) << "RNG: built commitSet SHAMap hash=" << hash
-                     << " entries=" << pendingCommits_.size();
+    JLOG(j_.debug()) << "RNG: built commitSet SHAMap"
+                     << " hash=" << hash << " seq=" << seq
+                     << " entries=" << entryCount
+                     << " pendingCommits=" << pendingCommits_.size()
+                     << " activeValidators=" << validatorView->size();
     return hash;
     //@@end rng-build-commit-set
 }
@@ -625,6 +663,7 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
     map->setUnbacked();
 
     auto const validatorView = activeValidatorView();
+    std::size_t entryCount = 0;
     // NOTE: avoid structured bindings — clang-14 can't capture them (P2036R3).
     for (auto const& entry : pendingReveals_)
     {
@@ -663,6 +702,7 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
         sidecar.add(s);
         map->addItem(
             SHAMapNodeType::tnSIDECAR, make_shamapitem(itemKey, s.slice()));
+        ++entryCount;
     }
 
     map = map->snapShot(false);
@@ -671,8 +711,11 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
     auto const hash = map->getHash().as_uint256();
     app_.getInboundTransactions().giveSet(hash, map, false);
 
-    JLOG(j_.debug()) << "RNG: built entropySet SHAMap hash=" << hash
-                     << " entries=" << pendingReveals_.size();
+    JLOG(j_.debug()) << "RNG: built entropySet SHAMap"
+                     << " hash=" << hash << " seq=" << seq
+                     << " entries=" << entryCount
+                     << " pendingReveals=" << pendingReveals_.size()
+                     << " activeValidators=" << validatorView->size();
     return hash;
     //@@end rng-build-entropy-set
 }
@@ -728,8 +771,11 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
     auto const hash = map->getHash().as_uint256();
     app_.getInboundTransactions().giveSet(hash, map, false);
 
-    JLOG(j_.debug()) << "Export: built exportSigSet SHAMap hash=" << hash
-                     << " entries=" << entryCount;
+    JLOG(j_.debug()) << "Export: built exportSigSet SHAMap"
+                     << " hash=" << hash << " seq=" << seq
+                     << " entries=" << entryCount
+                     << " candidateExportTxns=" << consensusExportTxns_.size()
+                     << " activeValidators=" << validatorView->size();
     return hash;
 }
 
@@ -865,7 +911,8 @@ ConsensusExtensions::cacheUNLReport(
         activeValidatorView_ = std::move(view);
     }
 
-    JLOG(j_.trace()) << "RNG: cacheUNLReport size=" << size << " source="
+    JLOG(j_.trace()) << "RNG: cached active validator view"
+                     << " activeValidators=" << size << " source="
                      << (fromUNLReport ? "UNLReport" : "trusted-fallback");
 }
 
@@ -940,8 +987,8 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
         pendingRngFetches_.erase(kindIt);
     //@@end handle-acquired-sidecar-entry
 
-    JLOG(j_.debug()) << "RNGFETCH: handle acquired hash=" << hash
-                     << " kind=" << static_cast<int>(kind)
+    JLOG(j_.debug()) << "RNGFETCH: handle acquired"
+                     << " hash=" << hash << " kind=" << sidecarKindName(kind)
                      << " pending-after-erase=" << pendingRngFetches_.size();
 
     // Dispatch by kind — no content-sniffing needed.
@@ -1015,10 +1062,11 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                         if (txIt == exportTxns.end())
                         {
                             JLOG(j_.debug())
-                                << "Export: SHAMap merge — cannot verify "
-                                   "sig for tx "
-                                << txHash << " (not in " << txSource
-                                << ") — skipped";
+                                << "Export: SHAMap merge skipped"
+                                << " reason=tx-not-found"
+                                << " kind=" << sidecarKindName(kind)
+                                << " hash=" << hash << " txHash=" << txHash
+                                << " txSource=" << txSource;
                             return;
                         }
 
@@ -1039,15 +1087,15 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                     catch (std::exception const& e)
                     {
                         JLOG(j_.warn())
-                            << "Export: SHAMap merge — failed to parse "
-                               "entry: "
-                            << e.what();
+                            << "Export: SHAMap merge parse failed"
+                            << " kind=" << sidecarKindName(kind)
+                            << " hash=" << hash << " error=" << e.what();
                     }
                 });
-            JLOG(j_.info()) << "Export: merged " << merged
-                            << " verified entries from peer exportSigSet "
-                               "hash="
-                            << hash;
+            JLOG(j_.info()) << "Export: merged peer exportSigSet"
+                            << " hash=" << hash << " entriesMerged=" << merged
+                            << " txSource=" << txSource
+                            << " currentClosedSeq=" << currentSeq;
             return;
         }
     }
@@ -1061,14 +1109,17 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 
     if (!setKind)
     {
-        JLOG(j_.warn()) << "RNGFETCH: acquired set " << hash
-                        << " has no recognizable RNG kind";
+        JLOG(j_.warn()) << "RNGFETCH: acquired set rejected"
+                        << " hash=" << hash << " kind=" << sidecarKindName(kind)
+                        << " reason=unrecognized-rng-kind";
         return;
     }
 
     bool const isCommitSet = *setKind == RngSetKind::commit;
-    JLOG(j_.debug()) << "RNGFETCH: classified hash=" << hash
-                     << " kind=" << (isCommitSet ? "commitSet" : "entropySet");
+    JLOG(j_.debug()) << "RNGFETCH: classified"
+                     << " hash=" << hash << " setKind="
+                     << (isCommitSet ? "commitSet" : "entropySet")
+                     << " fetchKind=" << sidecarKindName(kind);
 
     // Union-merge: diff against our local set and add any entries we're
     // missing. Unlike normal txSets which use avalanche voting to resolve
@@ -1107,8 +1158,12 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 
             if (!isUNLReportMember(nodeId))
             {
-                JLOG(j_.debug()) << "RNG: rejecting non-UNL entry from "
-                                 << nodeId << " in acquired set";
+                JLOG(j_.debug())
+                    << "RNG: rejecting acquired entry"
+                    << " reason=non-active-validator"
+                    << " kind=" << (isCommitSet ? "commit" : "reveal")
+                    << " source=" << sourceTag << " node=" << nodeId
+                    << " hash=" << hash;
                 return;
             }
 
@@ -1119,15 +1174,21 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             if (!trustedMaster)
             {
                 JLOG(j_.warn())
-                    << "RNG: rejecting untrusted signing key for " << nodeId
-                    << " in acquired set (" << sourceTag << ")";
+                    << "RNG: rejecting acquired entry"
+                    << " reason=untrusted-signing-key"
+                    << " kind=" << (isCommitSet ? "commit" : "reveal")
+                    << " source=" << sourceTag << " node=" << nodeId
+                    << " hash=" << hash;
                 return;
             }
             if (calcNodeID(*trustedMaster) != nodeId)
             {
                 JLOG(j_.warn())
-                    << "RNG: rejecting node/key identity mismatch for "
-                    << nodeId << " in acquired set (" << sourceTag << ")";
+                    << "RNG: rejecting acquired entry"
+                    << " reason=node-key-mismatch"
+                    << " kind=" << (isCommitSet ? "commit" : "reveal")
+                    << " source=" << sourceTag << " node=" << nodeId
+                    << " hash=" << hash;
                 return;
             }
 
@@ -1137,16 +1198,23 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                 auto const proofBlob = sidecar.getFieldVL(sfBlob);
                 if (!verifyProof(proofBlob, pubKey, digest, isCommitSet))
                 {
-                    JLOG(j_.warn()) << "RNG: invalid proof from " << nodeId
-                                    << " in acquired set (" << sourceTag << ")";
+                    JLOG(j_.warn())
+                        << "RNG: rejecting acquired entry"
+                        << " reason=invalid-proof"
+                        << " kind=" << (isCommitSet ? "commit" : "reveal")
+                        << " source=" << sourceTag << " node=" << nodeId
+                        << " hash=" << hash;
                     return;
                 }
                 parsedProof = deserializeProof(proofBlob);
                 if (!parsedProof)
                 {
                     JLOG(j_.warn())
-                        << "RNG: rejecting malformed proof from " << nodeId
-                        << " in acquired set (" << sourceTag << ")";
+                        << "RNG: rejecting acquired entry"
+                        << " reason=malformed-proof"
+                        << " kind=" << (isCommitSet ? "commit" : "reveal")
+                        << " source=" << sourceTag << " node=" << nodeId
+                        << " hash=" << hash;
                     return;
                 }
             }
@@ -1155,9 +1223,11 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                 // Commit entries must carry a verifiable proposal proof.
                 // Without this, an attacker could inject arbitrary digests
                 // for trusted node IDs via fetched sets.
-                JLOG(j_.warn())
-                    << "RNG: rejecting proofless commit entry from " << nodeId
-                    << " in acquired set (" << sourceTag << ")";
+                JLOG(j_.warn()) << "RNG: rejecting acquired entry"
+                                << " reason=missing-commit-proof"
+                                << " kind=commit"
+                                << " source=" << sourceTag << " node=" << nodeId
+                                << " hash=" << hash;
                 return;
             }
 
@@ -1173,8 +1243,11 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             if (expectedSeq && seq != *expectedSeq)
             {
                 JLOG(j_.debug())
-                    << "RNG: rejecting out-of-round entry from " << nodeId
-                    << " in acquired set (" << sourceTag << "), seq=" << seq
+                    << "RNG: rejecting acquired entry"
+                    << " reason=out-of-round"
+                    << " kind=" << (isCommitSet ? "commit" : "reveal")
+                    << " source=" << sourceTag << " node=" << nodeId
+                    << " hash=" << hash << " seq=" << seq
                     << " expected=" << *expectedSeq
                     << (rngRoundSeq_ ? " (active-round)" : " (closed+1)");
                 return;
@@ -1197,17 +1270,23 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                 auto const commitIt = pendingCommits_.find(nodeId);
                 if (commitIt == pendingCommits_.end())
                 {
-                    JLOG(j_.debug()) << "RNG: rejecting reveal from " << nodeId
-                                     << " in acquired set (" << sourceTag
-                                     << ") without commitment";
+                    JLOG(j_.debug())
+                        << "RNG: rejecting acquired entry"
+                        << " reason=reveal-without-commitment"
+                        << " kind=reveal"
+                        << " source=" << sourceTag << " node=" << nodeId
+                        << " hash=" << hash << " seq=" << seq;
                     return;
                 }
                 auto const expectedCommit = sha512Half(digest, pubKey, seq);
                 if (expectedCommit != commitIt->second)
                 {
-                    JLOG(j_.warn()) << "RNG: rejecting reveal from " << nodeId
-                                    << " in acquired set (" << sourceTag
-                                    << ") that does not match commitment";
+                    JLOG(j_.warn())
+                        << "RNG: rejecting acquired entry"
+                        << " reason=reveal-commitment-mismatch"
+                        << " kind=reveal"
+                        << " source=" << sourceTag << " node=" << nodeId
+                        << " hash=" << hash << " seq=" << seq;
                     return;
                 }
             }
@@ -1224,10 +1303,13 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                 }
                 else if (parsedProof)
                 {
-                    JLOG(j_.debug()) << "RNG: commit proof from " << nodeId
-                                     << " has non-zero proposeSeq="
-                                     << parsedProof->proposeSeq
-                                     << "; not caching for commitSet rebuild";
+                    JLOG(j_.debug())
+                        << "RNG: commit proof not cached"
+                        << " reason=nonzero-propose-seq"
+                        << " source=" << sourceTag << " node=" << nodeId
+                        << " hash=" << hash
+                        << " proposeSeq=" << parsedProof->proposeSeq
+                        << " seq=" << seq;
                 }
             }
             else if (parsedProof)
@@ -1236,14 +1318,17 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             }
             ++merged;
 
-            JLOG(j_.trace())
-                << "RNG: merged " << (isCommitSet ? "commit" : "reveal")
-                << " from " << nodeId;
+            JLOG(j_.trace()) << "RNG: merged acquired entry"
+                             << " kind=" << (isCommitSet ? "commit" : "reveal")
+                             << " source=" << sourceTag << " node=" << nodeId
+                             << " hash=" << hash << " seq=" << seq;
         }
         catch (std::exception const& ex)
         {
-            JLOG(j_.warn()) << "RNG: failed to parse entry from acquired set ("
-                            << sourceTag << "): " << ex.what();
+            JLOG(j_.warn()) << "RNG: acquired entry parse failed"
+                            << " kind=" << (isCommitSet ? "commit" : "reveal")
+                            << " source=" << sourceTag << " hash=" << hash
+                            << " error=" << ex.what();
         }
     };
 
@@ -1269,9 +1354,11 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             });
     }
 
-    JLOG(j_.info()) << "RNGFETCH: merged " << merged << " entries from "
-                    << (isCommitSet ? "commitSet" : "entropySet")
-                    << " hash=" << hash;
+    JLOG(j_.info()) << "RNGFETCH: merged acquired set"
+                    << " hash=" << hash
+                    << " kind=" << (isCommitSet ? "commit" : "reveal")
+                    << " setKind=" << (isCommitSet ? "commitSet" : "entropySet")
+                    << " entriesMerged=" << merged;
 }
 //@@end handle-acquired-sidecar
 
@@ -1282,26 +1369,41 @@ ConsensusExtensions::fetchRngSetIfNeeded(
 {
     if (!hash)
     {
-        JLOG(j_.trace()) << "RNGFETCH: skip reason=no-hash";
+        JLOG(j_.trace()) << "RNGFETCH: skip"
+                         << " kind=" << sidecarKindName(kind)
+                         << " reason=no-hash";
         return;
     }
     if (*hash == uint256{})
     {
-        JLOG(j_.trace()) << "RNGFETCH: skip reason=zero-hash";
+        JLOG(j_.trace()) << "RNGFETCH: skip"
+                         << " kind=" << sidecarKindName(kind)
+                         << " hash=" << *hash << " reason=zero-hash";
         return;
     }
 
     // Check if we already have this set
     if (commitSetMap_ && commitSetMap_->getHash().as_uint256() == *hash)
     {
-        JLOG(j_.trace()) << "RNGFETCH: skip reason=already-local-commit hash="
-                         << *hash;
+        JLOG(j_.trace()) << "RNGFETCH: skip"
+                         << " kind=" << sidecarKindName(kind)
+                         << " hash=" << *hash << " reason=already-local-commit";
         return;
     }
     if (entropySetMap_ && entropySetMap_->getHash().as_uint256() == *hash)
     {
-        JLOG(j_.trace()) << "RNGFETCH: skip reason=already-local-entropy hash="
-                         << *hash;
+        JLOG(j_.trace()) << "RNGFETCH: skip"
+                         << " kind=" << sidecarKindName(kind)
+                         << " hash=" << *hash
+                         << " reason=already-local-entropy";
+        return;
+    }
+    if (exportSigSetMap_ && exportSigSetMap_->getHash().as_uint256() == *hash)
+    {
+        JLOG(j_.trace()) << "RNGFETCH: skip"
+                         << " kind=" << sidecarKindName(kind)
+                         << " hash=" << *hash
+                         << " reason=already-local-exportSig";
         return;
     }
 
@@ -1313,12 +1415,15 @@ ConsensusExtensions::fetchRngSetIfNeeded(
         if (auto existing = app_.getInboundTransactions().getSet(*hash, false))
         {
             JLOG(j_.debug())
-                << "RNGFETCH: pending fetch completed, merging hash=" << *hash;
+                << "RNGFETCH: pending fetch completed"
+                << " kind=" << sidecarKindName(kind) << " hash=" << *hash;
             onAcquiredSidecarSet(existing);
         }
         else
         {
-            JLOG(j_.debug()) << "RNGFETCH: still pending hash=" << *hash;
+            JLOG(j_.debug())
+                << "RNGFETCH: still pending"
+                << " kind=" << sidecarKindName(kind) << " hash=" << *hash;
         }
         return;
     }
@@ -1326,7 +1431,9 @@ ConsensusExtensions::fetchRngSetIfNeeded(
     // Check if InboundTransactions already has it
     if (auto existing = app_.getInboundTransactions().getSet(*hash, false))
     {
-        JLOG(j_.debug()) << "RNGFETCH: local cache hit, merging hash=" << *hash;
+        JLOG(j_.debug()) << "RNGFETCH: local cache hit"
+                         << " kind=" << sidecarKindName(kind)
+                         << " hash=" << *hash;
         // Record the kind so onAcquiredSidecarSet can look it up.
         pendingRngFetches_.emplace(*hash, kind);
         onAcquiredSidecarSet(existing);
@@ -1336,13 +1443,15 @@ ConsensusExtensions::fetchRngSetIfNeeded(
     // Trusted proposals advertise the sidecar root; acquisition is
     // content-addressed, so peers can only supply nodes matching that root.
     // Per-leaf trust/schema checks happen when the completed map is merged.
-    JLOG(j_.debug()) << "RNGFETCH: triggering network fetch hash=" << *hash;
+    JLOG(j_.debug()) << "RNGFETCH: triggering network fetch"
+                     << " kind=" << sidecarKindName(kind) << " hash=" << *hash;
     pendingRngFetches_.emplace(*hash, kind);
     if (auto immediate = app_.getInboundTransactions().getSet(
             *hash, true, InboundSetKind::sidecar))
     {
-        JLOG(j_.debug()) << "RNGFETCH: immediate fetch hit, merging hash="
-                         << *hash;
+        JLOG(j_.debug()) << "RNGFETCH: immediate fetch hit"
+                         << " kind=" << sidecarKindName(kind)
+                         << " hash=" << *hash;
         onAcquiredSidecarSet(immediate);
     }
 }
@@ -1421,7 +1530,7 @@ ConsensusExtensions::recordParticipantDiagnostics(
                                                  : "trusted-fallback")
                          << " mode=" << to_string(mode)
                          << " peerPositions=" << peerNodeIds.size()
-                         << " bitmap=" << observedParticipantsBitmapBin_;
+                         << " bitmapBin=" << observedParticipantsBitmapBin_;
     }
 }
 
@@ -1506,9 +1615,10 @@ ConsensusExtensions::verifyPendingExportSigs(
 
     if (upgraded > 0)
     {
-        JLOG(j_.debug()) << "Export: upgraded " << upgraded
-                         << " proposal signatures against consensus tx set "
-                         << txns.id();
+        JLOG(j_.debug()) << "Export: upgraded proposal signatures"
+                         << " upgraded=" << upgraded << " txSet=" << txns.id()
+                         << " seq=" << seq << " candidateExportTxns="
+                         << consensusExportTxns_.size();
     }
     return upgraded;
 }
@@ -1516,10 +1626,14 @@ ConsensusExtensions::verifyPendingExportSigs(
 void
 ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
 {
-    JLOG(j_.info()) << "RNG: injectEntropy seq=" << seq
-                    << " commits=" << pendingCommits_.size()
+    JLOG(j_.info()) << "RNG: injectEntropy"
+                    << " seq=" << seq << " commits=" << pendingCommits_.size()
                     << " reveals=" << pendingReveals_.size()
-                    << " failed=" << entropyFailed_;
+                    << " failed=" << (entropyFailed_ ? "yes" : "no")
+                    << " quorum=" << quorumThreshold() << " entropySetHash="
+                    << (entropySetMap_
+                            ? to_string(entropySetMap_->getHash().as_uint256())
+                            : std::string{"none"});
 
     uint256 finalEntropy;
     bool hasEntropy = false;
@@ -1532,8 +1646,8 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
         // so that Hook APIs (dice/random) work for testing.
         finalEntropy = sha512Half(std::string("standalone-entropy"), seq);
         hasEntropy = true;
-        JLOG(j_.info()) << "RNG: Standalone synthetic entropy " << finalEntropy
-                        << " for ledger " << seq;
+        JLOG(j_.info()) << "RNG: standalone synthetic entropy"
+                        << " seq=" << seq << " entropy=" << finalEntropy;
     }
     else if (shouldZeroEntropy())
     {
@@ -1543,9 +1657,12 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
         // or sub-quorum reveals (too easily influenced by a minority).
         finalEntropy.zero();
         hasEntropy = true;
-        JLOG(j_.warn()) << "RNG: Injecting ZERO entropy (fallback) for ledger "
-                        << seq << " (reveals=" << pendingReveals_.size()
-                        << " threshold=" << quorumThreshold() << ")";
+        JLOG(j_.warn()) << "RNG: injecting ZERO entropy"
+                        << " seq=" << seq << " reason=fallback"
+                        << " reveals=" << pendingReveals_.size()
+                        << " threshold=" << quorumThreshold()
+                        << " entropyFailed=" << (entropyFailed_ ? "yes" : "no")
+                        << " hasEntropySet=" << (entropySetMap_ ? "yes" : "no");
     }
     else if (entropySetMap_)
     {
@@ -1593,9 +1710,11 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
             finalEntropy = sha512Half(s.slice());
             hasEntropy = true;
 
-            JLOG(j_.info()) << "RNG: Injecting entropy " << finalEntropy
-                            << " from " << sorted.size() << " reveals"
-                            << " (from entropySetMap) for ledger " << seq;
+            JLOG(j_.info())
+                << "RNG: injecting entropy"
+                << " seq=" << seq << " entropy=" << finalEntropy
+                << " entropyCount=" << sorted.size() << " source=entropySetMap"
+                << " entropySetHash=" << entropySetMap_->getHash().as_uint256();
         }
     }
     //@@end rng-inject-entropy-selection
@@ -1645,9 +1764,9 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
             });
         if (alreadyPresent)
         {
-            JLOG(j_.debug())
-                << "RNG: entropy pseudo-tx already present, skip duplicate "
-                << txID;
+            JLOG(j_.debug()) << "RNG: entropy pseudo-tx already present"
+                             << " txHash=" << txID << " seq=" << seq
+                             << " action=skip-duplicate";
         }
         else
         {
@@ -1673,16 +1792,21 @@ ConsensusExtensions::harvestRngData(
     uint256 const& prevLedger,
     Slice const& signature)
 {
-    JLOG(j_.trace()) << "RNG: harvestRngData from " << nodeId
+    JLOG(j_.trace()) << "RNG: harvestRngData"
+                     << " node=" << nodeId
                      << " commit=" << (position.myCommitment ? "yes" : "no")
-                     << " reveal=" << (position.myReveal ? "yes" : "no");
+                     << " reveal=" << (position.myReveal ? "yes" : "no")
+                     << " proposeSeq=" << proposeSeq
+                     << " prevLedger=" << prevLedger;
 
     //@@start rng-harvest-trust-and-reveal-verification
     // Reject data from validators not in the active UNL
     if (!isUNLReportMember(nodeId))
     {
-        JLOG(j_.trace()) << "RNG: rejecting data from non-UNL validator "
-                         << nodeId;
+        JLOG(j_.trace()) << "RNG: rejecting proposal data"
+                         << " reason=non-active-validator"
+                         << " node=" << nodeId << " proposeSeq=" << proposeSeq
+                         << " prevLedger=" << prevLedger;
         return;
     }
 
@@ -1699,7 +1823,10 @@ ConsensusExtensions::harvestRngData(
                     *cfg->rngClaimDropPctX100)
                 {
                     JLOG(j_.warn())
-                        << "RNG: TESTING dropping claim from " << nodeId;
+                        << "RNG: TESTING dropping claim"
+                        << " node=" << nodeId
+                        << " dropPctX100=" << *cfg->rngClaimDropPctX100
+                        << " proposeSeq=" << proposeSeq;
                     return;
                 }
             }
@@ -1718,8 +1845,9 @@ ConsensusExtensions::harvestRngData(
         if (!inserted && it->second != *position.myCommitment)
         {
             JLOG(j_.warn())
-                << "Validator " << nodeId << " changed commitment from "
-                << it->second << " to " << *position.myCommitment;
+                << "RNG: validator changed commitment"
+                << " node=" << nodeId << " proposeSeq=" << proposeSeq
+                << " old=" << it->second << " new=" << *position.myCommitment;
             it->second = *position.myCommitment;
 
             // commitProofs_ stores seq=0 proofs. If a validator changes its
@@ -1734,8 +1862,10 @@ ConsensusExtensions::harvestRngData(
         }
         else if (inserted)
         {
-            JLOG(j_.trace()) << "Harvested commitment from " << nodeId << ": "
-                             << *position.myCommitment;
+            JLOG(j_.trace())
+                << "RNG: harvested commitment"
+                << " node=" << nodeId << " proposeSeq=" << proposeSeq
+                << " commitment=" << *position.myCommitment;
         }
     }
     //@@end rng-harvest-commit
@@ -1749,8 +1879,11 @@ ConsensusExtensions::harvestRngData(
         {
             // No commitment on record — cannot verify. Ignore to prevent
             // grinding attacks where a validator skips the commit phase.
-            JLOG(j_.warn()) << "RNG: rejecting reveal from " << nodeId
-                            << " (no commitment on record)";
+            JLOG(j_.warn())
+                << "RNG: rejecting reveal"
+                << " reason=no-commitment"
+                << " node=" << nodeId << " proposeSeq=" << proposeSeq
+                << " prevLedger=" << prevLedger;
             return;
         }
 
@@ -1758,8 +1891,11 @@ ConsensusExtensions::harvestRngData(
         auto const prevLgr = app_.getLedgerMaster().getLedgerByHash(prevLedger);
         if (!prevLgr)
         {
-            JLOG(j_.warn()) << "RNG: cannot verify reveal from " << nodeId
-                            << " (prevLedger not available)";
+            JLOG(j_.warn())
+                << "RNG: cannot verify reveal"
+                << " reason=prev-ledger-unavailable"
+                << " node=" << nodeId << " proposeSeq=" << proposeSeq
+                << " prevLedger=" << prevLedger;
             return;
         }
 
@@ -1768,8 +1904,12 @@ ConsensusExtensions::harvestRngData(
 
         if (calculated != commitIt->second)
         {
-            JLOG(j_.warn()) << "RNG: fraudulent reveal from " << nodeId
-                            << " (does not match commitment)";
+            JLOG(j_.warn())
+                << "RNG: rejecting reveal"
+                << " reason=commitment-mismatch"
+                << " node=" << nodeId << " proposeSeq=" << proposeSeq
+                << " seq=" << seq << " expected=" << commitIt->second
+                << " calculated=" << calculated;
             return;
         }
 
@@ -1777,14 +1917,18 @@ ConsensusExtensions::harvestRngData(
             pendingReveals_.emplace(nodeId, *position.myReveal);
         if (!inserted && it->second != *position.myReveal)
         {
-            JLOG(j_.warn()) << "Validator " << nodeId << " changed reveal from "
-                            << it->second << " to " << *position.myReveal;
+            JLOG(j_.warn())
+                << "RNG: validator changed reveal"
+                << " node=" << nodeId << " proposeSeq=" << proposeSeq
+                << " old=" << it->second << " new=" << *position.myReveal;
             it->second = *position.myReveal;
         }
         else if (inserted)
         {
-            JLOG(j_.trace()) << "Harvested reveal from " << nodeId << ": "
-                             << *position.myReveal;
+            JLOG(j_.trace())
+                << "RNG: harvested reveal"
+                << " node=" << nodeId << " proposeSeq=" << proposeSeq
+                << " seq=" << seq << " reveal=" << *position.myReveal;
         }
     }
     //@@end rng-harvest-reveal-verification
@@ -2015,6 +2159,13 @@ ConsensusExtensions::logPosition(
                     << " entropySetHash="
                     << (pos.entropySetHash ? to_string(*pos.entropySetHash)
                                            : std::string{"none"})
+                    << " exportSigSetHash="
+                    << (pos.exportSigSetHash ? to_string(*pos.exportSigSetHash)
+                                             : std::string{"none"})
+                    << " exportSignaturesHash="
+                    << (pos.exportSignaturesHash
+                            ? to_string(*pos.exportSignaturesHash)
+                            : std::string{"none"})
                     << " observedParticipantsHash="
                     << (pos.observedParticipantsHash
                             ? to_string(*pos.observedParticipantsHash)
@@ -2040,9 +2191,13 @@ ConsensusExtensions::harvestExportSignatures(
     // surface.  Honest validators attach at most maxPendingExports sigs.
     if (exportSignatures.size() > ExportLimits::maxPendingExports)
     {
-        JLOG(j_.warn()) << "Export: rejecting proposal with "
-                        << exportSignatures.size() << " export sigs (max "
-                        << +ExportLimits::maxPendingExports << ")";
+        JLOG(j_.warn()) << "Export: rejecting proposal signatures"
+                        << " reason=too-many"
+                        << " source=" << source
+                        << " count=" << exportSignatures.size()
+                        << " max=" << +ExportLimits::maxPendingExports
+                        << " sender=" << calcNodeID(senderPK)
+                        << " prevLedger=" << proposalPrevLedger;
         return 0;
     }
 
@@ -2082,8 +2237,11 @@ ConsensusExtensions::harvestExportSignatures(
         if (PublicKey{pkSlice} != senderPK)
         {
             JLOG(j_.warn())
-                << "Export: rejecting sigs from proposal — embedded pubkey "
-                   "does not match sender";
+                << "Export: rejecting proposal signatures"
+                << " reason=embedded-pubkey-mismatch"
+                << " source=" << source << " sender=" << calcNodeID(senderPK)
+                << " embedded=" << calcNodeID(PublicKey{pkSlice})
+                << " prevLedger=" << proposalPrevLedger;
             return 0;
         }
     }
@@ -2125,8 +2283,11 @@ ConsensusExtensions::harvestExportSignatures(
         auto const txIt = exportTxns.find(txHash);
         if (txIt == exportTxns.end())
         {
-            JLOG(j_.debug()) << "Export: storing unverified sig for tx "
-                             << txHash << " (not in open ledger yet)";
+            JLOG(j_.debug()) << "Export: storing unverified sig"
+                             << " txHash=" << txHash << " source=" << source
+                             << " signer=" << calcNodeID(senderPK)
+                             << " reason=tx-not-in-open-ledger"
+                             << " currentClosedSeq=" << currentSeq;
             Buffer sigBuf(sigSlice.data(), sigSlice.size());
             exportSigCollector_.addUnverifiedSignature(
                 txHash, senderPK, sigBuf, currentSeq);
@@ -2146,8 +2307,12 @@ ConsensusExtensions::harvestExportSignatures(
 
     if (stored > 0)
     {
-        JLOG(j_.debug()) << "Export: harvested " << stored << " sigs from "
-                         << source;
+        JLOG(j_.debug()) << "Export: harvested proposal signatures"
+                         << " stored=" << stored
+                         << " advertised=" << exportSignatures.size()
+                         << " source=" << source
+                         << " sender=" << calcNodeID(senderPK)
+                         << " currentClosedSeq=" << currentSeq;
     }
     return stored;
 }
@@ -2193,10 +2358,13 @@ ConsensusExtensions::decoratePosition(
 {
     if (!proposing || !prevLedger->rules().enabled(featureConsensusEntropy))
     {
-        JLOG(j_.debug()) << "RNG: decoratePosition skipped (proposing="
-                         << proposing << " amendment="
-                         << prevLedger->rules().enabled(featureConsensusEntropy)
-                         << ")";
+        JLOG(j_.debug())
+            << "RNG: decoratePosition skipped"
+            << " proposing=" << (proposing ? "yes" : "no") << " amendment="
+            << (prevLedger->rules().enabled(featureConsensusEntropy) ? "yes"
+                                                                     : "no")
+            << " prevLedgerSeq=" << prevLedger->info().seq
+            << " prevLedger=" << prevLedger->info().hash;
         return;
     }
 
@@ -2215,8 +2383,10 @@ ConsensusExtensions::decoratePosition(
     pendingCommits_[valKeys.nodeID] = *pos.myCommitment;
     nodeIdToKey_.insert_or_assign(valKeys.nodeID, valKeys.keys->publicKey);
 
-    JLOG(j_.info()) << "RNG: decoratePosition bootstrap seq="
-                    << (prevLedger->info().seq + 1)
+    JLOG(j_.info()) << "RNG: decoratePosition bootstrap"
+                    << " seq=" << (prevLedger->info().seq + 1)
+                    << " prevLedger=" << prevLedger->info().hash
+                    << " node=" << valKeys.nodeID
                     << " commitment=" << *pos.myCommitment;
 }
 //@@end rng-bootstrap-commitment
@@ -2243,8 +2413,8 @@ ConsensusExtensions::attachExportSignatures(
             {
                 if (cfg->noExportSig && *cfg->noExportSig)
                 {
-                    JLOG(j_.debug())
-                        << "Export: noExportSig=true, skipping sigs";
+                    JLOG(j_.debug()) << "Export: skipping proposal signatures"
+                                     << " reason=runtime-config-noExportSig";
                     return;
                 }
             }
@@ -2273,8 +2443,9 @@ ConsensusExtensions::attachExportSignatures(
         if (attached >= ExportLimits::maxPendingExports)
         {
             JLOG(j_.debug())
-                << "Export: proposal signature attachment cap reached (max "
-                << +ExportLimits::maxPendingExports << ")";
+                << "Export: proposal signature attachment cap reached"
+                << " max=" << +ExportLimits::maxPendingExports
+                << " openLedgerSeq=" << openLedger->info().seq;
             break;
         }
 
@@ -2304,8 +2475,10 @@ ConsensusExtensions::attachExportSignatures(
             }
             catch (std::exception const& e)
             {
-                JLOG(j_.warn()) << "Export: failed to sign inner tx " << txHash
-                                << ": " << e.what();
+                JLOG(j_.warn()) << "Export: failed to sign inner tx"
+                                << " txHash=" << txHash
+                                << " openLedgerSeq=" << openLedger->info().seq
+                                << " error=" << e.what();
             }
         }
         //@@end export-compute-proposal-sig
@@ -2326,8 +2499,12 @@ ConsensusExtensions::attachExportSignatures(
             exportSigCollector_.addVerifiedSignature(
                 txHash, valPK, sigBuf, openLedger->info().seq);
 
-        JLOG(j_.debug()) << "Export: attached sig for " << txHash
-                         << " to proposal (sigLen=" << sigBuf.size() << ")";
+        JLOG(j_.debug()) << "Export: attached proposal signature"
+                         << " txHash=" << txHash
+                         << " signer=" << calcNodeID(valPK)
+                         << " openLedgerSeq=" << openLedger->info().seq
+                         << " sigLen=" << sigBuf.size()
+                         << " attached=" << +attached;
     }
 }
 //@@end export-sig-attachment
@@ -2347,7 +2524,10 @@ ConsensusExtensions::decorateMessage(
     {
         pendingReveals_[valKeys.nodeID] = *signedPosition.myReveal;
         nodeIdToKey_.insert_or_assign(valKeys.nodeID, valKeys.keys->publicKey);
-        JLOG(j_.trace()) << "RNG: self-seeded reveal for " << valKeys.nodeID;
+        JLOG(j_.trace()) << "RNG: self-seeded reveal"
+                         << " node=" << valKeys.nodeID
+                         << " proposeSeq=" << proposal.proposeSeq()
+                         << " prevLedger=" << proposal.prevLedger();
     }
 
     // Store our own proposal proof for embedding in SHAMap entries.
