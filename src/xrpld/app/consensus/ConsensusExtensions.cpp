@@ -485,11 +485,11 @@ ConsensusExtensions::buildExplicitFinalProposalTxSet(
     RCLTxSet const& txns,
     LedgerIndex seq)
 {
-    JLOG(j_.debug()) << "RNGFINAL: build synthetic txset"
+    JLOG(j_.debug()) << "RNGFINAL: build synthetic txSet"
                      << " baseTxSet=" << txns.id() << " seq=" << seq
                      << " commits=" << pendingCommits_.size()
                      << " reveals=" << pendingReveals_.size()
-                     << " failed=" << entropyFailed_;
+                     << " entropyFailed=" << (entropyFailed_ ? "yes" : "no");
 
     uint256 finalEntropy;
     bool hasEntropy = false;
@@ -540,7 +540,7 @@ ConsensusExtensions::buildExplicitFinalProposalTxSet(
 
     if (!hasEntropy)
     {
-        JLOG(j_.debug()) << "RNGFINAL: no entropy available for synthetic txset"
+        JLOG(j_.debug()) << "RNGFINAL: no entropy available for synthetic txSet"
                          << " baseTxSet=" << txns.id() << " seq=" << seq;
         return std::nullopt;
     }
@@ -562,8 +562,8 @@ ConsensusExtensions::buildExplicitFinalProposalTxSet(
     auto const txID = tx.getTransactionID();
     if (txns.exists(txID))
     {
-        JLOG(j_.debug()) << "RNGFINAL: pseudo-tx already in base set"
-                         << " txid=" << txID << " txSet=" << txns.id();
+        JLOG(j_.debug()) << "RNGFINAL: pseudo-tx already in base txSet"
+                         << " txHash=" << txID << " baseTxSet=" << txns.id();
         return txns;
     }
 
@@ -575,9 +575,9 @@ ConsensusExtensions::buildExplicitFinalProposalTxSet(
     auto const hash = syntheticSet.id();
     app_.getInboundTransactions().giveSet(hash, syntheticSet.map_, false);
 
-    JLOG(j_.debug()) << "RNGFINAL: built synthetic txset"
-                     << " hash=" << hash << " baseTxSet=" << txns.id()
-                     << " txid=" << txID << " entropyCount=" << entropyCount;
+    JLOG(j_.debug()) << "RNGFINAL: built synthetic txSet"
+                     << " syntheticTxSet=" << hash << " baseTxSet=" << txns.id()
+                     << " txHash=" << txID << " entropyCount=" << entropyCount;
 
     return syntheticSet;
 }
@@ -1629,7 +1629,7 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
     JLOG(j_.info()) << "RNG: injectEntropy"
                     << " seq=" << seq << " commits=" << pendingCommits_.size()
                     << " reveals=" << pendingReveals_.size()
-                    << " failed=" << (entropyFailed_ ? "yes" : "no")
+                    << " entropyFailed=" << (entropyFailed_ ? "yes" : "no")
                     << " quorum=" << quorumThreshold() << " entropySetHash="
                     << (entropySetMap_
                             ? to_string(entropySetMap_->getHash().as_uint256())
