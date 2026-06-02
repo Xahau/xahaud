@@ -39,5 +39,6 @@ tests:
     network:
       log_levels:
         LedgerConsensus: trace
+        ConsensusExtensions: trace
 
   # Export scenarios: see export-suite.yml

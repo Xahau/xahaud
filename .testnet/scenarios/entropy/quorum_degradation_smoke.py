@@ -51,17 +51,21 @@ async def scenario(ctx, log):
 
     log(f"3/5 entropy summary: {degraded_zero} zero")
 
-    # Log checks tied to actual transition mechanics:
-    # - seq=1 proposals are emitted once commit-set phase is entered
+    # Log checks tied to current transition mechanics:
+    # - commit-set SHAMap publication is the observable output of entering the
+    #   commit sidecar phase
     # - ConvergingCommit transition is the gateway out of seq=0-only behavior
-    # - establish gate blocked indicates tx-consensus/pause prevented accept
+    # - reason=impossible-quorum is the explicit degraded-window fallback path
     ctx.log_level("LedgerConsensus", "trace")
+    ctx.log_level("ConsensusExtensions", "trace")
     op = await ctx.sleep(6, name="stall_window")
 
     ctx.assert_not_log(
         r"RNG: transitioned to ConvergingCommit", within=op.window, nodes=[0, 1, 2]
     )
-    ctx.assert_not_log(r"RNG: propose seq=1", within=op.window, nodes=[0, 1, 2])
+    ctx.assert_not_log(
+        r"RNG: built commitSet SHAMap", within=op.window, nodes=[0, 1, 2]
+    )
 
     gate_blocked = ctx.search_logs(
         r"STALLDIAG: establish gate blocked reason=(pause|no-tx-consensus)",
@@ -70,8 +74,12 @@ async def scenario(ctx, log):
     )
     log(f"3/5: establish gate-blocked logs in 6s: {gate_blocked.count}")
 
-    skips = ctx.search_logs(r"RNG: bootstrap skip", within=op.window, nodes=[0, 1, 2])
-    log(f"3/5: RNG bootstrap skips in 6s: {skips.count}")
+    impossible = ctx.search_logs(
+        r"RNG: skipping commit wait reason=impossible-quorum",
+        within=op.window,
+        nodes=[0, 1, 2],
+    )
+    log(f"3/5: RNG impossible-quorum skips in 6s: {impossible.count}")
 
     # --- Recovery: restart nodes, verify ledger advancement ---
     ctx.start_node(3)
