@@ -1,5 +1,5 @@
 """:descr: Submit ttEXPORT with 2 nodes suppressing export sigs, verify it
-retries via terRETRY_EXPORT until LLS expiry (not enough sigs for quorum).
+retries via terRETRY_EXPORT until LLS expiry (insufficient signatures).
 
 Nodes 3 and 4 have XAHAUD_NO_EXPORT_SIG=1, so only 3/5 nodes provide
 export signatures. With 80% quorum = ceil(5*0.8) = 4 required, the
@@ -33,6 +33,7 @@ async def scenario(ctx, log):
     log("Nodes 3,4 have XAHAUD_NO_EXPORT_SIG=1 (3/5 sigs, need 4)")
 
     # --- Submit ttEXPORT (should retry then expire -- only 3/5 sigs) ---
+    export_start = ctx.mark("export-degradation-submit-start")
     result = await ctx.submit_and_wait(
         {
             "TransactionType": "Export",
@@ -55,6 +56,7 @@ async def scenario(ctx, log):
         alice.wallet,
         timeout=60,
     )
+    export_end = ctx.mark("export-degradation-submit-end")
 
     final_seq = ctx.validated_ledger_index(0)
     engine_result = result.get("engine_result", "")
@@ -72,6 +74,20 @@ async def scenario(ctx, log):
         log(f"WARNING: expected tecEXPORT_EXPIRED, got {engine_result}")
 
     log(f"Export failed as expected ({engine_result})")
+
+    retry_logs = ctx.assert_log(
+        r"Export: insufficient signatures .*result=terRETRY_EXPORT",
+        since=export_start,
+        until=export_end,
+    )
+    log(f"Export insufficient-signature retries: {retry_logs.count}")
+
+    expired_logs = ctx.assert_log(
+        r"Export: last ledger expired .*result=tecEXPORT_EXPIRED",
+        since=export_start,
+        until=export_end,
+    )
+    log(f"Export LLS expiry logs: {expired_logs.count}")
 
     # No shadow ticket should exist (export never reached quorum)
     assert_shadow_ticket(ctx, alice.address, log, expect_exists=False)
