@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from xahaud_scripts.testnet.config import feature_name_to_hash
+
 
 async def require_export(ctx, log):
-    """Wait for first ledger and assert Export amendment is enabled."""
+    """Wait for first ledger and assert Export is enabled."""
     await ctx.wait_for_ledger_close(timeout=120)
-    feature = ctx.feature_check("Export", node_id=0)
+    feature = ctx.feature_check(feature_name_to_hash("Export"), node_id=0)
     if not feature or not feature.get("enabled", False):
         raise AssertionError(f"Export not enabled: {feature}")
-    log("Export amendment enabled")
+    log("Export enabled")
 
 
 def find_export_txns(ctx, seq):

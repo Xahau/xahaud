@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
+from helpers import require_entropy
+
 
 async def scenario(ctx, log):
-    await ctx.wait_for_ledger_close(timeout=120)
-
-    feature = ctx.feature_check("ConsensusEntropy", node_id=0)
-    if not feature or not feature.get("enabled", False):
-        raise AssertionError(f"ConsensusEntropy not enabled: {feature}")
+    await require_entropy(ctx, log)
 
     await ctx.wait_for_ledgers(1, node_id=0, timeout=60)
     log("Baseline OK")

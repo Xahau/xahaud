@@ -2,6 +2,7 @@ defaults:
   network:
     node_count: 5
     launcher: tmux
+    find_ports: true
     slave_delay: 0.2
     features:
       - ConsensusEntropy

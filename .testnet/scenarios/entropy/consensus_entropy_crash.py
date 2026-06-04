@@ -6,14 +6,16 @@ to crash as the amendment activates without its support.
     x-testnet run --scenario-script consensus_entropy_crash.py
 """
 
+from helpers import CONSENSUS_ENTROPY_FEATURE
+
 
 async def scenario(ctx, log):
     await ctx.wait_for_ledger_close()
-    ctx.feature("ConsensusEntropy", vetoed=False, exclude_nodes=[4])
+    ctx.feature(CONSENSUS_ENTROPY_FEATURE, vetoed=False, exclude_nodes=[4])
 
     log("Waiting for ConsensusEntropy to be voted for...")
     await ctx.wait_for_feature(
-        "ConsensusEntropy",
+        CONSENSUS_ENTROPY_FEATURE,
         check=lambda s: not s.get("vetoed"),
         exclude_nodes=[4],
         timeout=60,
