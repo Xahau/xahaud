@@ -1,4 +1,15 @@
+codecov:
+  require_ci_to_pass: true
+
+comment:
+  behavior: default
+  layout: reach,diff,flags,tree,reach
+  show_carryforward_flags: false
+
 coverage:
+  range: "60..80"
+  precision: 1
+  round: nearest
   status:
     project:
       default:
@@ -7,7 +18,7 @@ coverage:
     patch:
       default:
         target: auto
-        threshold: 0%
+        threshold: 2%
         paths:
           # PeerImp is historically hard to exercise in the current unit-test
           # harness. Keep this list narrow; new testable code should remain
@@ -17,3 +28,19 @@ coverage:
         target: 0%
         paths:
           - "src/xrpld/overlay/detail/PeerImp.cpp"
+    changes: false
+
+github_checks:
+  annotations: true
+
+parsers:
+  cobertura:
+    partials_as_hits: true
+    handle_missing_conditions : true
+
+slack_app: false
+
+ignore:
+  - "src/test/"
+  - "include/xrpl/beast/test/"
+  - "include/xrpl/beast/unit_test/"

@@ -21,6 +21,7 @@
 #define RIPPLE_APP_RDB_BACKEND_SQLITEDATABASE_H_INCLUDED
 
 #include <xrpld/app/rdb/RelationalDatabase.h>
+#include <xrpl/basics/RangeSet.h>
 
 namespace ripple {
 
@@ -294,6 +295,47 @@ public:
      */
     virtual uint32_t
     getKBUsedTransaction() = 0;
+
+    /**
+     * @brief deleteLedgersInRange Deletes ledgers within the specified range.
+     * @param minSeq Minimum ledger sequence (inclusive).
+     * @param maxSeq Maximum ledger sequence (inclusive).
+     * @param rowLimit Optional limit on number of rows to delete.
+     * @return Number of rows deleted.
+     */
+    virtual std::size_t
+    deleteLedgersInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> rowLimit = std::nullopt) = 0;
+
+    /**
+     * @brief deleteTransactionsInRange Deletes transactions within the
+     *        specified ledger sequence range.
+     * @param minSeq Minimum ledger sequence (inclusive).
+     * @param maxSeq Maximum ledger sequence (inclusive).
+     * @param rowLimit Optional limit on number of rows to delete.
+     * @return Number of rows deleted.
+     */
+    virtual std::size_t
+    deleteTransactionsInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> rowLimit = std::nullopt) = 0;
+
+    /**
+     * @brief deleteAccountTransactionsInRange Deletes account transactions
+     *        within the specified ledger sequence range.
+     * @param minSeq Minimum ledger sequence (inclusive).
+     * @param maxSeq Maximum ledger sequence (inclusive).
+     * @param rowLimit Optional limit on number of rows to delete.
+     * @return Number of rows deleted.
+     */
+    virtual std::size_t
+    deleteAccountTransactionsInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> rowLimit = std::nullopt) = 0;
 
     /**
      * @brief Closes the ledger database

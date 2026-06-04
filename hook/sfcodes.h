@@ -221,6 +221,7 @@
 #define sfProvider ((7U << 16U) + 30U)
 #define sfMPTokenMetadata ((7U << 16U) + 31U)
 #define sfCredentialType ((7U << 16U) + 32U)
+#define sfHookName ((7U << 16U) + 97U)
 #define sfRemarkValue ((7U << 16U) + 98U)
 #define sfRemarkName ((7U << 16U) + 99U)
 #define sfAccount ((8U << 16U) + 1U)

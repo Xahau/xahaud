@@ -11,11 +11,11 @@ echo "START BUILDING (HOST)"
 echo "Cleaning previously built binary"
 rm -f release-build/xahaud
 
-BUILD_CORES=$(echo "scale=0 ; `nproc` / 1.337" | bc)
+BUILD_CORES=$(echo "scale=0 ; $(nproc) / 1.337" | bc)
 
 if [[ "$GITHUB_REPOSITORY" == "" ]]; then
   #Default
-  BUILD_CORES=${BUILD_CORES:-8} 
+  BUILD_CORES=${BUILD_CORES:-8}
 fi
 
 # Ensure still works outside of GH Actions by setting these to /dev/null
@@ -31,21 +31,19 @@ echo "-- GITHUB_SHA:        $GITHUB_SHA"
 echo "-- GITHUB_RUN_NUMBER: $GITHUB_RUN_NUMBER"
 echo "-- CONTAINER_NAME:    $CONTAINER_NAME"
 
-which docker 2> /dev/null 2> /dev/null
-if [ "$?" -eq "1" ]
-then
+which docker 2>/dev/null 2>/dev/null
+if [ "$?" -eq "1" ]; then
   echo 'Docker not found. Install it first.'
   exit 1
 fi
 
-stat .git 2> /dev/null 2> /dev/null
-if [ "$?" -eq "1" ]
-then
+stat .git 2>/dev/null 2>/dev/null
+if [ "$?" -eq "1" ]; then
   echo 'Run this inside the source directory. (.git dir not found).'
   exit 1
 fi
 
-STATIC_CONTAINER=$(docker ps -a | grep $CONTAINER_NAME |wc -l)
+STATIC_CONTAINER=$(docker ps -a | grep $CONTAINER_NAME | wc -l)
 
 CACHE_VOLUME_NAME="xahau-release-builder-cache"
 
@@ -57,13 +55,14 @@ if false; then
   docker stop $CONTAINER_NAME
 else
   echo "No static container, build on temp container"
-  rm -rf release-build;
-  mkdir -p release-build;
+  rm -rf release-build
+  mkdir -p release-build
 
   docker volume create $CACHE_VOLUME_NAME
 
   # Create inline Dockerfile with environment setup for build-full.sh
-  DOCKERFILE_CONTENT=$(cat <<'DOCKERFILE_EOF'
+  DOCKERFILE_CONTENT=$(
+    cat <<'DOCKERFILE_EOF'
 FROM ghcr.io/phusion/holy-build-box:4.0.1-amd64
 
 ARG BUILD_CORES=8
@@ -218,7 +217,7 @@ RUN /hbb_exe/activate-exec bash -c "ccache -M 100G && \
     ln -s ../../bin/ccache /usr/lib64/ccache/c++"
 
 DOCKERFILE_EOF
-)
+  )
 
   # Build custom Docker image
   IMAGE_NAME="xahaud-builder:latest"
@@ -228,14 +227,14 @@ DOCKERFILE_EOF
   if [[ "$GITHUB_REPOSITORY" == "" ]]; then
     # Non GH, local building
     echo "Non-GH runner, local building, temp container"
-    docker run -i --user 0:$(id -g) --rm -v /data/builds:/data/builds -v `pwd`:/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
+    docker run -i --user 0:$(id -g) --rm -v /data/builds:/data/builds -v $(pwd):/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
   else
     # GH Action, runner
     echo "GH Action, runner, clean & re-create create persistent container"
     docker rm -f $CONTAINER_NAME
-    echo "echo 'Stopping container: $CONTAINER_NAME'" >> "$JOB_CLEANUP_SCRIPT"
-    echo "docker stop --time=15 \"$CONTAINER_NAME\" || echo 'Failed to stop container or container not running'" >> "$JOB_CLEANUP_SCRIPT"
-    docker run -di --user 0:$(id -g) --name $CONTAINER_NAME -v /data/builds:/data/builds -v `pwd`:/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash
+    echo "echo 'Stopping container: $CONTAINER_NAME'" >>"$JOB_CLEANUP_SCRIPT"
+    echo "docker stop --time=15 \"$CONTAINER_NAME\" || echo 'Failed to stop container or container not running'" >>"$JOB_CLEANUP_SCRIPT"
+    docker run -di --user 0:$(id -g) --name $CONTAINER_NAME -v /data/builds:/data/builds -v $(pwd):/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash
     docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
     docker stop $CONTAINER_NAME
   fi

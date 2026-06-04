@@ -293,6 +293,7 @@ TYPED_SFIELD(sfAssetClass,               VL,        29)
 TYPED_SFIELD(sfProvider,                 VL,        30)
 TYPED_SFIELD(sfMPTokenMetadata,          VL,        31)
 TYPED_SFIELD(sfCredentialType,           VL,        32)
+TYPED_SFIELD(sfHookName,                 VL,        97)
 TYPED_SFIELD(sfRemarkValue,              VL,        98)
 TYPED_SFIELD(sfRemarkName,               VL,        99)
 
