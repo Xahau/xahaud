@@ -76,65 +76,66 @@ buildObservedParticipantBitmap(
     return bitmapBin;
 }
 
-ConsensusExtensions::ActiveValidatorView
-buildActiveValidatorView(
-    Application& app,
-    std::shared_ptr<Ledger const> const& prevLedger)
+//@@start active-validator-view-build
+ActiveValidatorViewSource
+buildActiveValidatorViewSource(
+    std::shared_ptr<Ledger const> const& sourceLedger)
 {
-    ConsensusExtensions::ActiveValidatorView view;
+    ActiveValidatorViewSource source;
 
-    // Prefer the consensus parent ledger so all validators evaluate the round
-    // against the same frozen UNLReport, not a local latest-validated ledger.
-    auto const sourceLedger =
-        prevLedger ? prevLedger : app.getLedgerMaster().getValidatedLedger();
-    if (sourceLedger)
+    if (!sourceLedger)
+        return source;
+
+    source.sourceLedgerHash = sourceLedger->info().hash;
+
+    if (auto const sle = sourceLedger->read(keylet::UNLReport()))
     {
-        view.sourceLedgerHash = sourceLedger->info().hash;
-
-        if (auto const sle = sourceLedger->read(keylet::UNLReport()))
+        if (sle->isFieldPresent(sfActiveValidators))
         {
-            if (sle->isFieldPresent(sfActiveValidators))
+            hash_set<PublicKey> reportKeys;
+            for (auto const& obj : sle->getFieldArray(sfActiveValidators))
             {
-                for (auto const& obj : sle->getFieldArray(sfActiveValidators))
-                {
-                    auto const pk = obj.getFieldVL(sfPublicKey);
-                    if (!publicKeyType(makeSlice(pk)))
-                        continue;
+                auto const pk = obj.getFieldVL(sfPublicKey);
+                if (!publicKeyType(makeSlice(pk)))
+                    continue;
 
-                    PublicKey const masterKey{makeSlice(pk)};
-                    view.insertMaster(masterKey);
-                }
-                view.fromUNLReport = !view.masterKeys.empty();
+                reportKeys.insert(PublicKey{makeSlice(pk)});
             }
+
+            if (!reportKeys.empty())
+                source.unlReportMasterKeys = std::move(reportKeys);
         }
     }
 
-    if (view.masterKeys.empty())
-    {
-        // Fallback exists for early ledgers and dev/test networks before the
-        // report object is available. It is deliberately the configured trusted
-        // master-key set so manifest signing keys still resolve through trust.
-        for (auto const& masterKey : app.validators().getTrustedMasterKeys())
-            view.insertMaster(masterKey);
+    // UNLReport records recently active validators; NegativeUNL is the separate
+    // ledger policy overlay that core consensus applies to quorum.
+    source.negativeUNLEnabled =
+        sourceLedger->rules().enabled(featureNegativeUNL);
+    if (source.negativeUNLEnabled)
+        source.negativeUNL = sourceLedger->negativeUNL();
 
-        // Some standalone/dev configurations trust local validation implicitly.
-        // insertMaster() makes this idempotent if self is already trusted.
-        auto const& valKeys = app.getValidatorKeys();
-        if (valKeys.keys && valKeys.nodeID != beast::zero)
-            view.insertMaster(valKeys.keys->masterPublicKey);
-    }
-
-    if (sourceLedger && sourceLedger->rules().enabled(featureNegativeUNL))
-    {
-        // UNLReport records recently active validators; NegativeUNL is the
-        // separate ledger policy overlay that core consensus applies to quorum.
-        // Apply it to either source so sidecar quorum matches that policy.
-        for (auto const& masterKey : sourceLedger->negativeUNL())
-            view.eraseMaster(masterKey);
-    }
-
-    return view;
+    return source;
 }
+
+ActiveValidatorViewFallback
+buildActiveValidatorViewFallback(Application& app)
+{
+    ActiveValidatorViewFallback fallback;
+
+    // Fallback exists for early ledgers and dev/test networks before the report
+    // object is available. It is deliberately the configured trusted master-key
+    // set so manifest signing keys still resolve through trust.
+    fallback.trustedMasterKeys = app.validators().getTrustedMasterKeys();
+
+    // Some standalone/dev configurations trust local validation implicitly. The
+    // builder dedupes this if self is already in the trusted set.
+    auto const& valKeys = app.getValidatorKeys();
+    if (valKeys.keys && valKeys.nodeID != beast::zero)
+        fallback.localMasterKey = valKeys.keys->masterPublicKey;
+
+    return fallback;
+}
+//@@end active-validator-view-build
 
 using ExportTxnLookup = hash_map<uint256, std::shared_ptr<STTx const>>;
 
@@ -935,8 +936,13 @@ ConsensusExtensions::ActiveValidatorViewPtr
 ConsensusExtensions::makeActiveValidatorView(
     std::shared_ptr<Ledger const> const& prevLedger) const
 {
-    return std::make_shared<ActiveValidatorView const>(
-        buildActiveValidatorView(app_, prevLedger));
+    // Prefer the consensus parent ledger so all validators evaluate the round
+    // against the same frozen UNLReport, not a local latest-validated ledger.
+    auto const sourceLedger =
+        prevLedger ? prevLedger : app_.getLedgerMaster().getValidatedLedger();
+    return std::make_shared<ActiveValidatorView const>(buildActiveValidatorView(
+        buildActiveValidatorViewSource(sourceLedger),
+        buildActiveValidatorViewFallback(app_)));
 }
 
 bool

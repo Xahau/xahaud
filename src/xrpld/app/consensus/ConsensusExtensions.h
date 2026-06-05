@@ -1,6 +1,7 @@
 #ifndef RIPPLE_APP_CONSENSUS_CONSENSUSEXTENSIONS_H_INCLUDED
 #define RIPPLE_APP_CONSENSUS_CONSENSUSEXTENSIONS_H_INCLUDED
 
+#include <xrpld/app/consensus/ActiveValidatorView.h>
 #include <xrpld/app/consensus/RCLCxLedger.h>
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpld/app/consensus/RCLCxTx.h>
@@ -45,47 +46,7 @@ public:
     // Type of sidecar set, known at fetch time from proposal context.
     enum class SidecarKind : uint8_t { commit, reveal, exportSig };
 
-    struct ActiveValidatorView
-    {
-        hash_set<PublicKey> masterKeys;
-        hash_set<NodeID> nodeIds;
-        std::optional<uint256> sourceLedgerHash;
-        bool fromUNLReport = false;
-
-        // Export paths receive validator keys; RNG sidecars identify
-        // validators by NodeID. Keep both indexes in lockstep.
-        void
-        insertMaster(PublicKey const& masterKey)
-        {
-            masterKeys.insert(masterKey);
-            nodeIds.insert(calcNodeID(masterKey));
-        }
-
-        void
-        eraseMaster(PublicKey const& masterKey)
-        {
-            masterKeys.erase(masterKey);
-            nodeIds.erase(calcNodeID(masterKey));
-        }
-
-        std::size_t
-        size() const
-        {
-            return masterKeys.size();
-        }
-
-        bool
-        containsMaster(PublicKey const& masterKey) const
-        {
-            return masterKeys.count(masterKey) > 0;
-        }
-
-        bool
-        containsNode(NodeID const& nodeId) const
-        {
-            return nodeIds.count(nodeId) > 0;
-        }
-    };
+    using ActiveValidatorView = ripple::ActiveValidatorView;
     using ActiveValidatorViewPtr = std::shared_ptr<ActiveValidatorView const>;
 
 private:

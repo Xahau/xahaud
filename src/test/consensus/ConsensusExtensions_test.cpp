@@ -17,6 +17,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <xrpld/app/consensus/ActiveValidatorView.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
@@ -352,6 +353,63 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             keys.emplace_back(makeSlice(*pkHex));
         }
         return keys;
+    }
+
+    void
+    testActiveValidatorViewBuilderPrefersUNLReport()
+    {
+        testcase("Active validator view builder prefers UNLReport");
+
+        auto const keys = makeValidatorKeys();
+        ActiveValidatorViewSource source;
+        source.sourceLedgerHash = makeHash("active-validator-view-source");
+        source.unlReportMasterKeys.emplace();
+        source.unlReportMasterKeys->insert(keys[0]);
+        source.negativeUNLEnabled = true;
+        source.negativeUNL.insert(keys[1]);
+
+        ActiveValidatorViewFallback fallback;
+        fallback.trustedMasterKeys.insert(keys[1]);
+        fallback.localMasterKey = keys[1];
+
+        auto const view = buildActiveValidatorView(source, fallback);
+        BEAST_EXPECT(view.fromUNLReport);
+        BEAST_EXPECT(view.sourceLedgerHash == source.sourceLedgerHash);
+        BEAST_EXPECT(view.size() == 1);
+        BEAST_EXPECT(view.containsMaster(keys[0]));
+        BEAST_EXPECT(!view.containsMaster(keys[1]));
+        BEAST_EXPECT(view.containsNode(calcNodeID(keys[0])));
+    }
+
+    void
+    testActiveValidatorViewBuilderFallback()
+    {
+        testcase("Active validator view builder fallback");
+
+        auto const keys = makeValidatorKeys();
+        ActiveValidatorViewSource source;
+        source.sourceLedgerHash = makeHash("active-validator-view-fallback");
+
+        ActiveValidatorViewFallback fallback;
+        fallback.trustedMasterKeys.insert(keys[0]);
+        fallback.trustedMasterKeys.insert(keys[1]);
+        fallback.localMasterKey = keys[1];
+
+        auto const view = buildActiveValidatorView(source, fallback);
+        BEAST_EXPECT(!view.fromUNLReport);
+        BEAST_EXPECT(view.sourceLedgerHash == source.sourceLedgerHash);
+        BEAST_EXPECT(view.size() == 2);
+        BEAST_EXPECT(view.containsMaster(keys[0]));
+        BEAST_EXPECT(view.containsMaster(keys[1]));
+
+        source.negativeUNLEnabled = true;
+        source.negativeUNL.insert(keys[0]);
+
+        auto const negativeView = buildActiveValidatorView(source, fallback);
+        BEAST_EXPECT(!negativeView.fromUNLReport);
+        BEAST_EXPECT(negativeView.size() == 1);
+        BEAST_EXPECT(!negativeView.containsMaster(keys[0]));
+        BEAST_EXPECT(negativeView.containsMaster(keys[1]));
     }
 
     void
@@ -712,6 +770,8 @@ public:
     void
     run() override
     {
+        testActiveValidatorViewBuilderPrefersUNLReport();
+        testActiveValidatorViewBuilderFallback();
         testActiveValidatorViewAppliesNegativeUNL();
         testExportSigGateRequiresQuorumAlignment();
         testRngEntropyGateRequiresFullObservation();
