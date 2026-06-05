@@ -174,6 +174,8 @@ struct HookResult
         false;  // hook_again allows strong pre-apply to nominate
                 // additional weak post-apply execution
     std::shared_ptr<STObject const> provisionalMeta;
+    std::set<AccountID>
+        foreignStateGrantCache;  // add found grants here to avoid rechecking
 };
 
 class HookExecutor;

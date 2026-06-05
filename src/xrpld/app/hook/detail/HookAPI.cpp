@@ -1920,88 +1920,103 @@ HookAPI::state_foreign_set(
     if (hookCtx.result.foreignStateSetDisabled)
         return Unexpected(PREVIOUS_FAILURE_PREVENTS_RETRY);
 
-    // first check if we've already modified this state
-    auto cacheEntry = lookup_state_cache(account, ns, key);
-    if (cacheEntry && cacheEntry->get().first)
-    {
-        // if a cache entry already exists and it has already been modified
-        // don't check grants again
-        if (auto ret = set_state_cache(account, ns, key, data, true);
-            !ret.has_value())
-            return Unexpected(ret.error());
+    bool const hasFix = hookCtx.applyCtx.view().rules().enabled(fixHookMap);
 
-        return data.size();
+    if (!hasFix)
+    {
+        // first check if we've already modified this state
+        auto cacheEntry = lookup_state_cache(account, ns, key);
+        if (cacheEntry && cacheEntry->get().first)
+        {
+            // if a cache entry already exists and it has already been modified
+            // don't check grants again
+            if (auto ret = set_state_cache(account, ns, key, data, true);
+                !ret.has_value())
+                return Unexpected(ret.error());
+
+            return data.size();
+        }
     }
-
-    // cache miss or cache was present but entry was not marked as previously
-    // modified therefore before continuing we need to check grants
-    auto const sle =
-        hookCtx.applyCtx.view().read(ripple::keylet::hook(account));
-    if (!sle)
-        return Unexpected(INTERNAL_ERROR);
-
-    bool found_auth = false;
-
-    // we do this by iterating the hooks installed on the foreign account and in
-    // turn their grants and namespaces
-    auto const& hooks = sle->getFieldArray(sfHooks);
-    for (auto const& hookObj : hooks)
+    // check if we've used a grant to modify this state entry before, if not
+    // look up possible grants
+    if (!hasFix ||
+        hookCtx.result.foreignStateGrantCache.find(account) ==
+            hookCtx.result.foreignStateGrantCache.end())
     {
-        // skip blank entries
-        if (!hookObj.isFieldPresent(sfHookHash))
-            continue;
+        auto const sle =
+            hookCtx.applyCtx.view().read(ripple::keylet::hook(account));
+        if (!sle)
+            return Unexpected(INTERNAL_ERROR);
 
-        if (!hookObj.isFieldPresent(sfHookGrants))
-            continue;
+        bool found_auth = false;
 
-        auto const& hookGrants = hookObj.getFieldArray(sfHookGrants);
-
-        if (hookGrants.size() < 1)
-            continue;
-
-        // the grant allows the hook to modify the granter's namespace only
-        if (hookObj.isFieldPresent(sfHookNamespace))
+        // we do this by iterating the hooks installed on the foreign account
+        // and in turn their grants and namespaces
+        auto const& hooks = sle->getFieldArray(sfHooks);
+        for (auto const& hookObj : hooks)
         {
-            if (hookObj.getFieldH256(sfHookNamespace) != ns)
+            // skip blank entries
+            if (!hookObj.isFieldPresent(sfHookHash))
                 continue;
-        }
-        else
-        {
-            // fetch the hook definition
-            auto const def =
-                hookCtx.applyCtx.view().read(ripple::keylet::hookDefinition(
-                    hookObj.getFieldH256(sfHookHash)));
-            if (!def)  // should never happen except in a rare race condition
-                continue;
-            if (def->getFieldH256(sfHookNamespace) != ns)
-                continue;
-        }
 
-        // this is expensive search so we'll disallow after one failed attempt
-        for (auto const& hookGrantObj : hookGrants)
-        {
-            bool hasAuthorizedField = hookGrantObj.isFieldPresent(sfAuthorize);
+            if (!hookObj.isFieldPresent(sfHookGrants))
+                continue;
 
-            if (hookGrantObj.getFieldH256(sfHookHash) ==
-                    hookCtx.result.hookHash &&
-                (!hasAuthorizedField ||
-                 hookGrantObj.getAccountID(sfAuthorize) ==
-                     hookCtx.result.account))
+            auto const& hookGrants = hookObj.getFieldArray(sfHookGrants);
+
+            if (hookGrants.size() < 1)
+                continue;
+
+            // the grant allows the hook to modify the granter's namespace only
+            if (hookObj.isFieldPresent(sfHookNamespace))
             {
-                found_auth = true;
-                break;
+                if (hookObj.getFieldH256(sfHookNamespace) != ns)
+                    continue;
             }
+            else
+            {
+                // fetch the hook definition
+                auto const def =
+                    hookCtx.applyCtx.view().read(ripple::keylet::hookDefinition(
+                        hookObj.getFieldH256(sfHookHash)));
+                if (!def)  // should never happen except in a rare race
+                           // condition
+                    continue;
+                if (def->getFieldH256(sfHookNamespace) != ns)
+                    continue;
+            }
+
+            // this is expensive search so we'll disallow after one failed
+            // attempt
+            for (auto const& hookGrantObj : hookGrants)
+            {
+                bool hasAuthorizedField =
+                    hookGrantObj.isFieldPresent(sfAuthorize);
+
+                if (hookGrantObj.getFieldH256(sfHookHash) ==
+                        hookCtx.result.hookHash &&
+                    (!hasAuthorizedField ||
+                     hookGrantObj.getAccountID(sfAuthorize) ==
+                         hookCtx.result.account))
+                {
+                    found_auth = true;
+                    break;
+                }
+            }
+
+            if (found_auth)
+                break;
         }
 
-        if (found_auth)
-            break;
-    }
+        if (!found_auth)
+        {
+            // hook only gets one attempt
+            hookCtx.result.foreignStateSetDisabled = true;
+            return Unexpected(NOT_AUTHORIZED);
+        }
 
-    if (!found_auth)
-    {
-        // hook only gets one attempt
-        hookCtx.result.foreignStateSetDisabled = true;
-        return Unexpected(NOT_AUTHORIZED);
+        // add the grant to the cache
+        hookCtx.result.foreignStateGrantCache.emplace(account);
     }
 
     if (auto ret = set_state_cache(account, ns, key, data, true);
