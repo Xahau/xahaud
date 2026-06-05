@@ -1940,7 +1940,7 @@ HookAPI::state_foreign_set(
     // check if we've used a grant to modify this state entry before, if not
     // look up possible grants
     if (!hasFix ||
-        hookCtx.result.foreignStateGrantCache.find(account) ==
+        hookCtx.result.foreignStateGrantCache.find({account, ns}) ==
             hookCtx.result.foreignStateGrantCache.end())
     {
         auto const sle =
@@ -2016,7 +2016,7 @@ HookAPI::state_foreign_set(
         }
 
         // add the grant to the cache
-        hookCtx.result.foreignStateGrantCache.emplace(account);
+        hookCtx.result.foreignStateGrantCache.emplace(account, ns);
     }
 
     if (auto ret = set_state_cache(account, ns, key, data, true);
