@@ -4,8 +4,79 @@
 #include <xrpld/consensus/ConsensusTypes.h>
 #include <xrpl/basics/Log.h>
 #include <chrono>
+#include <cstddef>
 
 namespace ripple {
+
+namespace detail {
+
+struct SidecarPeerAlignment
+{
+    bool localPublished = false;
+    bool conflict = false;
+    std::size_t aligned = 0;
+    std::size_t peersSeen = 0;
+    std::size_t txConverged = 0;
+
+    std::size_t
+    alignedParticipants() const
+    {
+        return aligned + (localPublished ? 1 : 0);
+    }
+
+    bool
+    quorumAligned(std::size_t quorum) const
+    {
+        return alignedParticipants() >= quorum;
+    }
+
+    bool
+    fullObservation() const
+    {
+        return peersSeen == txConverged;
+    }
+};
+
+template <class PeerPositions, class Position, class GetHash, class OnMismatch>
+SidecarPeerAlignment
+inspectTxConvergedSidecarPeers(
+    PeerPositions const& peerPositions,
+    Position const& pos,
+    GetHash getHash,
+    OnMismatch onMismatch)
+{
+    SidecarPeerAlignment state;
+    auto const localHash = getHash(pos);
+    if (!localHash)
+        return state;
+
+    state.localPublished = true;
+    for (auto const& [_, peerPos] : peerPositions)
+    {
+        auto const& pp = peerPos.proposal().position();
+        if (!(pp == pos))
+            continue;  // not tx-converged
+        ++state.txConverged;
+
+        auto const peerHash = getHash(pp);
+        if (!peerHash)
+            continue;  // peer hasn't published this sidecar hash yet
+        ++state.peersSeen;
+
+        if (*peerHash == *localHash)
+        {
+            ++state.aligned;
+            continue;
+        }
+
+        state.conflict = true;
+        onMismatch(peerHash);
+    }
+
+    return state;
+}
+
+}  // namespace detail
 
 /// Shared RNG sub-state machine and export sig convergence gate.
 ///
@@ -625,51 +696,30 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         return {};
                     }
 
-                    struct EntropyPeerState
-                    {
-                        bool conflict = false;
-                        std::size_t aligned = 0;
-                        std::size_t peersSeen = 0;
-                        std::size_t txConverged = 0;
-                    };
-
                     // Phase 2: check peer agreement.  Extension hashes do not
                     // participate in tx-set equality, so a different
                     // entropySetHash is an RNG-side disagreement to resolve or
                     // zero out, not something that should block ordinary
                     // tx-set consensus indefinitely.
-                    auto inspectEntropyPeers =
-                        [&](auto const& pos,
-                            bool fetchMismatches) -> EntropyPeerState {
-                        EntropyPeerState state;
-                        for (auto const& [_, peerPos] : ctx.peerPositions)
-                        {
-                            auto const& pp = peerPos.proposal().position();
-                            if (!(pp == pos))
-                                continue;  // not tx-converged
-                            ++state.txConverged;
-                            if (!pp.entropySetHash)
-                                continue;  // peer hasn't published yet
-                            ++state.peersSeen;
-                            if (*pp.entropySetHash == *pos.entropySetHash)
-                            {
-                                ++state.aligned;
-                                continue;
-                            }
-
-                            state.conflict = true;
-                            if (fetchMismatches)
-                                ext.fetchRngSetIfNeeded(
-                                    pp.entropySetHash,
-                                    Ext::SidecarKind::reveal);
-                        }
-                        return state;
+                    auto inspectEntropyPeers = [&](auto const& pos,
+                                                   bool fetchMismatches) {
+                        return detail::inspectTxConvergedSidecarPeers(
+                            ctx.peerPositions,
+                            pos,
+                            [](auto const& position) {
+                                return position.entropySetHash;
+                            },
+                            [&](auto const& hash) {
+                                if (fetchMismatches)
+                                    ext.fetchRngSetIfNeeded(
+                                        hash, Ext::SidecarKind::reveal);
+                            });
                     };
 
                     auto entropyState = inspectEntropyPeers(ourPos, true);
                     auto const entropyQuorum = ext.quorumThreshold();
                     auto quorumAligned = [&] {
-                        return entropyState.aligned + 1 >= entropyQuorum;
+                        return entropyState.quorumAligned(entropyQuorum);
                     };
                     auto fullObservation = [&] {
                         // Local quorum alignment is not enough if some
@@ -677,8 +727,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         // entropy sidecar hash yet. Otherwise one node can
                         // accept non-zero from an asymmetric local view while
                         // the rest of the network times out to zero.
-                        return entropyState.peersSeen ==
-                            entropyState.txConverged;
+                        return entropyState.fullObservation();
                     };
                     auto clearEntropyHash = [&] {
                         auto failedPos = ctx.getPosition();
@@ -726,7 +775,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             << " reason=quorum-aligned"
                             << " buildSeq=" << buildSeq
                             << " alignedParticipants="
-                            << (entropyState.aligned + 1)
+                            << entropyState.alignedParticipants()
                             << " quorum=" << entropyQuorum
                             << " peersSeen=" << entropyState.peersSeen
                             << " txConverged=" << entropyState.txConverged;
@@ -747,7 +796,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                                 << " elapsedMs=" << toMs(entropyElapsed)
                                 << " deadlineMs=" << toMs(entropyDeadline)
                                 << " alignedParticipants="
-                                << (entropyState.aligned + 1)
+                                << entropyState.alignedParticipants()
                                 << " quorum=" << entropyQuorum
                                 << " peersSeen=" << entropyState.peersSeen
                                 << " txConverged=" << entropyState.txConverged;
@@ -765,7 +814,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             << " deadlineMs=" << toMs(entropyDeadline)
                             << " action=zero-entropy-fallback"
                             << " alignedParticipants="
-                            << (entropyState.aligned + 1)
+                            << entropyState.alignedParticipants()
                             << " quorum=" << entropyQuorum
                             << " peersSeen=" << entropyState.peersSeen
                             << " txConverged=" << entropyState.txConverged;
@@ -794,7 +843,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                                    "alignment"
                                 << " buildSeq=" << buildSeq
                                 << " alignedParticipants="
-                                << (entropyState.aligned + 1)
+                                << entropyState.alignedParticipants()
                                 << " quorum=" << entropyQuorum
                                 << " peersSeen=" << entropyState.peersSeen
                                 << " txConverged=" << entropyState.txConverged
@@ -810,7 +859,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             << " buildSeq=" << buildSeq
                             << " action=zero-entropy-fallback"
                             << " alignedParticipants="
-                            << (entropyState.aligned + 1)
+                            << entropyState.alignedParticipants()
                             << " quorum=" << entropyQuorum
                             << " peersSeen=" << entropyState.peersSeen
                             << " txConverged=" << entropyState.txConverged
@@ -823,7 +872,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << "RNG: entropy gate"
                         << " buildSeq=" << buildSeq
                         << " aligned=" << entropyState.aligned
-                        << " alignedParticipants=" << (entropyState.aligned + 1)
+                        << " alignedParticipants="
+                        << entropyState.alignedParticipants()
                         << " quorum=" << entropyQuorum
                         << " peersSeen=" << entropyState.peersSeen
                         << " txConverged=" << entropyState.txConverged
@@ -1153,55 +1203,31 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     return {};
                 }
 
-                struct ExportPeerState
-                {
-                    bool conflict = false;
-                    std::size_t aligned = 0;
-                    std::size_t peersSeen = 0;
-                    std::size_t txConverged = 0;
-                };
-
-                auto inspectExportPeers =
-                    [&](auto const& pos,
-                        bool fetchMismatches) -> ExportPeerState {
-                    ExportPeerState state;
-                    if (!pos.exportSigSetHash)
-                        return state;
-
-                    for (auto const& [_, peerPos] : ctx.peerPositions)
-                    {
-                        auto const& pp = peerPos.proposal().position();
-                        if (!(pp == pos))
-                            continue;  // not tx-converged
-                        ++state.txConverged;
-                        if (!pp.exportSigSetHash)
-                            continue;  // peer hasn't published yet
-                        ++state.peersSeen;
-                        if (*pp.exportSigSetHash == *pos.exportSigSetHash)
-                        {
-                            ++state.aligned;
-                            continue;
-                        }
-
-                        state.conflict = true;
-                        if (fetchMismatches)
-                            ext.fetchRngSetIfNeeded(
-                                pp.exportSigSetHash,
-                                Ext::SidecarKind::exportSig);
-                    }
-                    return state;
+                auto inspectExportPeers = [&](auto const& pos,
+                                              bool fetchMismatches) {
+                    return detail::inspectTxConvergedSidecarPeers(
+                        ctx.peerPositions,
+                        pos,
+                        [](auto const& position) {
+                            return position.exportSigSetHash;
+                        },
+                        [&](auto const& hash) {
+                            if (fetchMismatches)
+                                ext.fetchRngSetIfNeeded(
+                                    hash, Ext::SidecarKind::exportSig);
+                        });
                 };
 
                 auto exportState = inspectExportPeers(ctx.getPosition(), true);
                 auto const exportQuorum = ext.exportSigQuorumThreshold();
                 auto quorumAligned = [&] {
-                    return exportState.aligned + 1 >= exportQuorum;
+                    return exportState.quorumAligned(exportQuorum);
                 };
                 auto fullObservation = [&] {
                     // Export success changes ledger effects too. Require a
                     // full view of tx-converged peers before treating a local
                     // quorum as safe enough to succeed in this ledger.
-                    return exportState.peersSeen == exportState.txConverged;
+                    return exportState.fullObservation();
                 };
 
                 if (exportState.conflict && !quorumAligned())
@@ -1236,7 +1262,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << "Export: exportSigSetHash conflict ignored"
                         << " reason=quorum-aligned"
                         << " buildSeq=" << buildSeqExport
-                        << " alignedParticipants=" << (exportState.aligned + 1)
+                        << " alignedParticipants="
+                        << exportState.alignedParticipants()
                         << " quorum=" << exportQuorum
                         << " peersSeen=" << exportState.peersSeen
                         << " txConverged=" << exportState.txConverged;
@@ -1255,7 +1282,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                                "alignment"
                             << " buildSeq=" << buildSeqExport
                             << " alignedParticipants="
-                            << (exportState.aligned + 1)
+                            << exportState.alignedParticipants()
                             << " quorum=" << exportQuorum
                             << " peersSeen=" << exportState.peersSeen
                             << " txConverged=" << exportState.txConverged
@@ -1271,7 +1298,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << "Export: exportSigSet quorum alignment timeout"
                         << " buildSeq=" << buildSeqExport
                         << " action=retry-or-expire"
-                        << " alignedParticipants=" << (exportState.aligned + 1)
+                        << " alignedParticipants="
+                        << exportState.alignedParticipants()
                         << " quorum=" << exportQuorum
                         << " peersSeen=" << exportState.peersSeen
                         << " txConverged=" << exportState.txConverged

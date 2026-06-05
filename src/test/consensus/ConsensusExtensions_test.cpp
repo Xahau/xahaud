@@ -356,6 +356,55 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testSidecarPeerAlignmentHelper()
+    {
+        testcase("Sidecar peer alignment helper");
+
+        ExportTickHarness harness;
+        auto const localHash = makeHash("sidecar-local");
+        auto const conflictHash = makeHash("sidecar-conflict");
+        harness.position.exportSigSetHash = localHash;
+        harness.addPeer(1, localHash);
+        harness.addPeer(2, conflictHash);
+        harness.addPeer(3, std::nullopt);
+        harness.addPeer(4, localHash, makeHash("other-tx-set"));
+
+        std::vector<uint256> fetched;
+        auto const state = detail::inspectTxConvergedSidecarPeers(
+            harness.peers,
+            harness.position,
+            [](auto const& position) { return position.exportSigSetHash; },
+            [&](auto const& hash) {
+                if (hash)
+                    fetched.push_back(*hash);
+            });
+
+        BEAST_EXPECT(state.localPublished);
+        BEAST_EXPECT(state.conflict);
+        BEAST_EXPECT(state.aligned == 1);
+        BEAST_EXPECT(state.alignedParticipants() == 2);
+        BEAST_EXPECT(state.peersSeen == 2);
+        BEAST_EXPECT(state.txConverged == 3);
+        BEAST_EXPECT(state.quorumAligned(2));
+        BEAST_EXPECT(!state.quorumAligned(3));
+        BEAST_EXPECT(!state.fullObservation());
+        BEAST_EXPECT(fetched.size() == 1);
+        if (!fetched.empty())
+            BEAST_EXPECT(fetched.front() == conflictHash);
+
+        harness.position.exportSigSetHash.reset();
+        auto const unpublishedState = detail::inspectTxConvergedSidecarPeers(
+            harness.peers,
+            harness.position,
+            [](auto const& position) { return position.exportSigSetHash; },
+            [](auto const&) {});
+        BEAST_EXPECT(!unpublishedState.localPublished);
+        BEAST_EXPECT(unpublishedState.alignedParticipants() == 0);
+        BEAST_EXPECT(!unpublishedState.quorumAligned(1));
+        BEAST_EXPECT(unpublishedState.fullObservation());
+    }
+
+    void
     testActiveValidatorViewBuilderPrefersUNLReport()
     {
         testcase("Active validator view builder prefers UNLReport");
@@ -770,6 +819,7 @@ public:
     void
     run() override
     {
+        testSidecarPeerAlignmentHelper();
         testActiveValidatorViewBuilderPrefersUNLReport();
         testActiveValidatorViewBuilderFallback();
         testActiveValidatorViewAppliesNegativeUNL();
