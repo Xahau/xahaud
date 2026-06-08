@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/consensus/ConsensusExtensions.h>
+#include <xrpld/app/consensus/ExportSignatureHarvester.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
@@ -137,8 +138,6 @@ buildActiveValidatorViewFallback(Application& app)
 }
 //@@end active-validator-view-build
 
-using ExportTxnLookup = hash_map<uint256, std::shared_ptr<STTx const>>;
-
 ExportTxnLookup
 buildExportTxnLookup(SHAMap const& txns, beast::Journal j)
 {
@@ -200,56 +199,6 @@ sidecarKindName(ConsensusExtensions::SidecarKind kind)
             return "exportSig";
     }
     return "unknown";
-}
-
-bool
-verifyExportSignatureAgainstTx(
-    STTx const& exportTx,
-    PublicKey const& validator,
-    Slice sigSlice,
-    uint256 const& txHash,
-    beast::Journal j,
-    char const* source)
-{
-    if (!exportTx.isFieldPresent(sfExportedTxn))
-    {
-        JLOG(j.warn()) << "Export: cannot verify sig"
-                       << " txHash=" << txHash << " source=" << source
-                       << " reason=missing-sfExportedTxn";
-        return false;
-    }
-
-    try
-    {
-        auto const& exportedObj = const_cast<STTx&>(exportTx)
-                                      .peekAtField(sfExportedTxn)
-                                      .downcast<STObject>();
-
-        Serializer innerSer;
-        exportedObj.add(innerSer);
-        SerialIter sit(innerSer.slice());
-        STTx innerTx(std::ref(sit));
-
-        auto const signerAcctID = calcAccountID(validator);
-        auto const sigData = buildMultiSigningData(innerTx, signerAcctID);
-        if (!verify(validator, sigData.slice(), sigSlice))
-        {
-            JLOG(j.warn()) << "Export: invalid multisign sig"
-                           << " txHash=" << txHash << " source=" << source
-                           << " validator=" << calcNodeID(validator)
-                           << " reason=signature-verify-failed";
-            return false;
-        }
-        return true;
-    }
-    catch (std::exception const& e)
-    {
-        JLOG(j.warn()) << "Export: failed to verify sig"
-                       << " txHash=" << txHash << " source=" << source
-                       << " validator=" << calcNodeID(validator)
-                       << " error=" << e.what();
-        return false;
-    }
 }
 
 }  // namespace
@@ -2193,134 +2142,27 @@ ConsensusExtensions::harvestExportSignatures(
     if (exportSignatures.empty())
         return 0;
 
-    // Cap the number of export sig entries per proposal to bound DoS
-    // surface.  Honest validators attach at most maxPendingExports sigs.
-    if (exportSignatures.size() > ExportLimits::maxPendingExports)
-    {
-        JLOG(j_.warn()) << "Export: rejecting proposal signatures"
-                        << " reason=too-many"
-                        << " source=" << source
-                        << " count=" << exportSignatures.size()
-                        << " max=" << +ExportLimits::maxPendingExports
-                        << " sender=" << calcNodeID(senderPK)
-                        << " prevLedger=" << proposalPrevLedger;
-        return 0;
-    }
-
-    // Bind export sig pubkeys to the proposal sender.  Validators only
-    // sign for themselves (see decorateMessage), so every blob's embedded
-    // pubkey must match the proposal's nodepubkey.  Reject the entire
-    // proposal's export sigs on any mismatch — a single impersonation
-    // attempt means the sender is malicious.
-    //
-    // Two-pass: validate all blobs first, then commit — ensures no partial
-    // state if a later blob fails the sender binding check.
     auto const validatorView = activeValidatorView();
     // Proposal ingress is outside the consensus mutex, so take a snapshot of
     // the shared active view and reject trusted-but-inactive signers here.
-    if (!isActiveValidator(senderPK, *validatorView))
-        return 0;
-
-    // The active view is pinned to one parent ledger. Do not let a proposal
-    // for another parent feed signatures into this round's export collector;
-    // build, merge, and apply all count against this same parent-ledger view.
-    if (validatorView->sourceLedgerHash)
-    {
-        if (proposalPrevLedger != *validatorView->sourceLedgerHash)
-            return 0;
-    }
-
-    // Pass 1: validate all blobs.
-    for (auto const& blob : exportSignatures)
-    {
-        if (blob.size() < 65)
-            continue;
-
-        auto const pkSlice = makeSlice(blob).substr(32, 33);
-        if (!publicKeyType(pkSlice))
-            continue;
-
-        if (PublicKey{pkSlice} != senderPK)
-        {
-            JLOG(j_.warn())
-                << "Export: rejecting proposal signatures"
-                << " reason=embedded-pubkey-mismatch"
-                << " source=" << source << " sender=" << calcNodeID(senderPK)
-                << " embedded=" << calcNodeID(PublicKey{pkSlice})
-                << " prevLedger=" << proposalPrevLedger;
-            return 0;
-        }
-    }
-
-    // Pass 2: opportunistically verify using the open ledger. The consensus
-    // candidate tx set later upgrades still-unverified signatures before
-    // they can enter an exportSigSetHash; early open-ledger verification is
-    // still gated by the candidate tx hash before sidecar publication.
     auto const exportTxns = buildOpenLedgerExportTxnLookup(app_);
     auto const currentSeq = currentClosedLedgerSeq(app_);
-    std::size_t stored = 0;
 
-    for (auto const& blob : exportSignatures)
-    {
-        // Each entry: txnHash (32) + validator pubkey (33) + sig (var)
-        if (blob.size() < 65)
-            continue;
-
-        uint256 txHash;
-        std::memcpy(txHash.data(), blob.data(), 32);
-
-        if (blob.size() <= 65)
-        {
-            // Pubkey-only entry (no real signature) - skip.
-            // Only verified sigs are stored in the collector.
-            continue;
-        }
-
-        // Skip if we already have a verified sig for this validator.
-        if (exportSigCollector_.hasVerifiedSignature(txHash, senderPK))
-            continue;
-
-        auto const fullSlice = makeSlice(blob);
-        auto const sigSlice = fullSlice.substr(65);
-
-        // If the ttEXPORT isn't in the open ledger yet, keep only a trusted
-        // unverified cache. The consensus tx set is the authoritative source
-        // for promotion into quorum material.
-        auto const txIt = exportTxns.find(txHash);
-        if (txIt == exportTxns.end())
-        {
-            JLOG(j_.debug()) << "Export: storing unverified sig"
-                             << " txHash=" << txHash << " source=" << source
-                             << " signer=" << calcNodeID(senderPK)
-                             << " reason=tx-not-in-open-ledger"
-                             << " currentClosedSeq=" << currentSeq;
-            Buffer sigBuf(sigSlice.data(), sigSlice.size());
-            exportSigCollector_.addUnverifiedSignature(
-                txHash, senderPK, sigBuf, currentSeq);
-            ++stored;
-            continue;
-        }
-
-        if (!verifyExportSignatureAgainstTx(
-                *txIt->second, senderPK, sigSlice, txHash, j_, "open ledger"))
-            continue;
-
-        Buffer sigBuf(sigSlice.data(), sigSlice.size());
-        exportSigCollector_.addVerifiedSignature(
-            txHash, senderPK, sigBuf, currentSeq);
-        ++stored;
-    }
-
-    if (stored > 0)
-    {
-        JLOG(j_.debug()) << "Export: harvested proposal signatures"
-                         << " stored=" << stored
-                         << " advertised=" << exportSignatures.size()
-                         << " source=" << source
-                         << " sender=" << calcNodeID(senderPK)
-                         << " currentClosedSeq=" << currentSeq;
-    }
-    return stored;
+    return ripple::harvestExportSignatures(
+        ExportSignatureHarvestInput{
+            senderPK,
+            proposalPrevLedger,
+            exportSignatures,
+            validatorView->sourceLedgerHash,
+            [this, validatorView](PublicKey const& pk) {
+                return isActiveValidator(pk, *validatorView);
+            },
+            exportTxns,
+            currentSeq,
+            source,
+            ExportLimits::maxPendingExports},
+        exportSigCollector_,
+        j_);
 }
 
 //@@start peer-harvest-export-sigs
