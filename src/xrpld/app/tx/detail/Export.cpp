@@ -5,6 +5,7 @@
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
+#include <xrpld/app/tx/detail/ExportSignatureUpgrader.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/basics/Log.h>
@@ -153,34 +154,15 @@ Export::doApply()
         // Closed-ledger apply must not create new current-round quorum
         // material. These upgrades are retained for a retrying export, where
         // the sidecar alignment gate can publish and converge them first.
-        auto& collector = consensusExtensions.exportSigCollector();
-        auto const unverified = collector.unverifiedSignatures(txId);
-        for (auto const& [valPK, sigBuf] : unverified)
-        {
-            // Upgrade only active-view signatures; inactive trusted signatures
-            // may stay cached, but they must not become quorum material.
-            if (!isActiveSigner(valPK))
-                continue;
-
-            auto const signerAcctID = calcAccountID(valPK);
-            auto const sigData = buildMultiSigningData(innerTx, signerAcctID);
-            if (verify(
-                    valPK,
-                    sigData.slice(),
-                    Slice(sigBuf.data(), sigBuf.size())))
-            {
-                collector.upgradeSignature(txId, valPK, sigBuf, currentSeq);
-            }
-            else
-            {
-                JLOG(j_.warn())
-                    << "Export: upgrade verify failed"
-                    << " txHash=" << txId << " signer=" << calcNodeID(valPK)
-                    << " ledgerSeq=" << currentSeq
-                    << " action=remove-invalid-sig";
-                collector.removeSignature(txId, valPK, sigBuf);
-            }
-        }
+        // Upgrade only active-view signatures; inactive trusted signatures may
+        // stay cached, but they must not become quorum material.
+        ExportSignatureUpgrader::upgradeUnverifiedSignatures(
+            consensusExtensions.exportSigCollector(),
+            innerTx,
+            txId,
+            currentSeq,
+            isActiveSigner,
+            j_);
     };
 
     // Atomic quorum check + snapshot for network mode.
