@@ -27,6 +27,7 @@
 #include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/digest.h>
 
+#include <cstdint>
 #include <cstring>
 #include <set>
 
@@ -68,9 +69,14 @@ makeExportedPayment(AccountID const& src, AccountID const& dst)
 }
 
 Buffer
-makeInvalidSignature()
+makeInvalidSignature(std::uint8_t first = 1)
 {
-    std::uint8_t bytes[] = {1, 2, 3, 4, 5};
+    std::uint8_t bytes[] = {
+        first,
+        static_cast<std::uint8_t>(first + 1),
+        static_cast<std::uint8_t>(first + 2),
+        static_cast<std::uint8_t>(first + 3),
+        static_cast<std::uint8_t>(first + 4)};
     return Buffer(bytes, sizeof(bytes));
 }
 
@@ -142,9 +148,59 @@ public:
     }
 
     void
+    testInvalidRemovalRequiresStoredBufferMatch()
+    {
+        testcase("invalid removal requires stored buffer match");
+
+        auto const invalidSigner = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const innerTx = makeExportedPayment(
+            calcAccountID(invalidSigner.first), calcAccountID(dst.first));
+        auto const txHash = makeHash("export-upgrade-race");
+
+        auto invalidSig = makeInvalidSignature();
+        auto replacementSig = makeInvalidSignature(20);
+
+        ExportSigCollector collector;
+        collector.addUnverifiedSignature(
+            txHash, invalidSigner.first, invalidSig, 7);
+
+        bool mutated = false;
+        auto stats = ExportSignatureUpgrader::upgradeUnverifiedSignatures(
+            collector,
+            innerTx,
+            txHash,
+            12,
+            [&](PublicKey const& pk) {
+                if (pk == invalidSigner.first && !mutated)
+                {
+                    mutated = true;
+                    collector.addUnverifiedSignature(
+                        txHash, invalidSigner.first, replacementSig, 12);
+                }
+                return true;
+            },
+            nullJournal());
+
+        BEAST_EXPECT(mutated);
+        BEAST_EXPECT(stats.inspected == 1);
+        BEAST_EXPECT(stats.upgraded == 0);
+        BEAST_EXPECT(stats.removedInvalid == 0);
+        BEAST_EXPECT(
+            !collector.hasVerifiedSignature(txHash, invalidSigner.first));
+
+        auto const unverified = collector.unverifiedSignatures(txHash);
+        auto const it = unverified.find(invalidSigner.first);
+        BEAST_EXPECT(it != unverified.end());
+        if (it != unverified.end())
+            BEAST_EXPECT(it->second == replacementSig);
+    }
+
+    void
     run() override
     {
         testUpgradeFiltersAndRemovesInvalid();
+        testInvalidRemovalRequiresStoredBufferMatch();
     }
 };
 
