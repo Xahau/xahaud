@@ -241,6 +241,30 @@ public:
     }
 
     void
+    testMapsNonceFailureToInternalError()
+    {
+        testcase("maps nonce failure to internal error");
+
+        auto const exporter = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const innerTx = makeExportedPayment(
+            calcAccountID(exporter.first), calcAccountID(dst.first));
+        auto const serialized = serialize(innerTx);
+
+        auto const result = hook::XportWrapperBuilder::build(makeInput(
+            Slice(serialized.data(), serialized.size()),
+            calcAccountID(exporter.first),
+            21337,
+            [] {
+                return Expected<uint256, hook_api::hook_return_code>{
+                    Unexpected(hook_api::TOO_MANY_NONCES)};
+            }));
+
+        BEAST_EXPECT(!result);
+        BEAST_EXPECT(result.error() == hook_api::INTERNAL_ERROR);
+    }
+
+    void
     testRejectsFeeFailure()
     {
         testcase("rejects fee failure");
@@ -273,6 +297,7 @@ public:
     {
         testBuildsWrapper();
         testRejectsInvalidInputs();
+        testMapsNonceFailureToInternalError();
         testRejectsFeeFailure();
     }
 };

@@ -52,7 +52,7 @@ build(Input const& input)
 
     auto nonce = input.generateNonce();
     if (!nonce)
-        return Unexpected(nonce.error());
+        return Unexpected(hook_api::INTERNAL_ERROR);
 
     Serializer innerSer;
     innerTx->add(innerSer);
