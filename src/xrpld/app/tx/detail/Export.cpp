@@ -4,20 +4,18 @@
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Feature.h>
-#include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Indexes.h>
-#include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
-#include <algorithm>
 
 namespace ripple {
 
@@ -256,8 +254,7 @@ Export::doApply()
         }
     }
 
-    STArray signers(sfSigners);
-
+    ExportResultBuilder::SignatureSnapshot signatures;
     if (ctx_.app.config().standalone())
     {
         // Standalone mode: no consensus proposals, so we sign
@@ -267,71 +264,24 @@ Export::doApply()
         {
             auto const& pk = valKeys.keys->publicKey;
             auto const& sk = valKeys.keys->secretKey;
-            auto const signerAcctID = calcAccountID(pk);
-
-            auto const sigData = buildMultiSigningData(innerTx, signerAcctID);
-            auto const sig = ripple::sign(pk, sk, sigData.slice());
-
-            STObject signer(sfSigner);
-            signer.setAccountID(sfAccount, signerAcctID);
-            signer.setFieldVL(sfSigningPubKey, pk.slice());
-            signer.setFieldVL(sfTxnSignature, sig);
-            signers.push_back(std::move(signer));
+            signatures.emplace(
+                pk, ExportResultBuilder::signExportedTxn(innerTx, pk, sk));
         }
     }
     else
     {
         // Network mode: use the atomically-snapshotted sigs from
         // the quorum check above.
-        for (auto const& [valPK, sigBuf] : *collectedSigs)
-        {
-            if (sigBuf.size() == 0)
-                continue;  // pubkey-only, no real signature
-
-            STObject signer(sfSigner);
-            signer.setAccountID(sfAccount, calcAccountID(valPK));
-            signer.setFieldVL(sfSigningPubKey, valPK.slice());
-            signer.setFieldVL(
-                sfTxnSignature, Slice(sigBuf.data(), sigBuf.size()));
-            signers.push_back(std::move(signer));
-        }
+        signatures = *collectedSigs;
     }
 
-    // Sort signers by AccountID (required by XRPL multisign).
-    std::sort(
-        signers.begin(),
-        signers.end(),
-        [](STObject const& a, STObject const& b) {
-            return a.getAccountID(sfAccount) < b.getAccountID(sfAccount);
-        });
-
-    // Build the multisigned tx.  Use sfExportedTxn as the field type
-    // so it nests properly in ExportResult metadata as readable JSON.
-    STObject multiSigned(sfExportedTxn);
-    {
-        // Copy all non-signing fields from innerTx, then we'll add
-        // signing fields (empty SigningPubKey + Signers) below.
-        Serializer s;
-        innerTx.addWithoutSigningFields(s);
-        SerialIter sit(s.slice());
-        multiSigned.set(sit);
-    }
-
-    // Set empty SigningPubKey (indicates multisigned).
-    multiSigned.setFieldVL(sfSigningPubKey, Slice{});
-
-    if (signers.size() > 0)
-        multiSigned.setFieldArray(sfSigners, signers);
-
-    // Compute the signed tx hash for the shadow ticket.
-    // getHash(transactionID) includes ALL fields (Signers etc.),
-    // matching what STTx::getTransactionID() produces.
-    auto const signedTxHash = multiSigned.getHash(HashPrefix::transactionID);
+    auto assembled =
+        ExportResultBuilder::assemble(innerTx, signatures, currentSeq, txId);
 
     // Create the shadow ticket with the signed tx hash.
     {
         TER ter = ExportLedgerOps::createShadowTicket(
-            view(), account, innerTx, signedTxHash, j_);
+            view(), account, innerTx, assembled.signedTxHash, j_);
         if (!isTesSuccess(ter))
             return ter;
     }
@@ -339,11 +289,6 @@ Export::doApply()
     // Write the export result to metadata.  The multisigned tx is
     // stored as sfExportedTxn (OBJECT) so it renders as readable
     // JSON in metadata, not an opaque hex blob.
-    STObject exportResult(sfExportResult);
-    exportResult.setFieldU32(sfLedgerSequence, currentSeq);
-    exportResult.setFieldH256(sfTransactionHash, txId);
-    exportResult.set(std::move(multiSigned));
-
     auto* avi = dynamic_cast<ApplyViewImpl*>(&view());
     if (!avi)
     {
@@ -352,14 +297,14 @@ Export::doApply()
                          << " reason=view-not-ApplyViewImpl";
         return tefINTERNAL;
     }
-    avi->setExportResultMetaData(std::move(exportResult));
+    avi->setExportResultMetaData(std::move(assembled.metadata));
 
     // Clean up the collector.
     ctx_.app.getConsensusExtensions().exportSigCollector().clear(txId);
 
     JLOG(j_.info()) << "Export: success"
                     << " txHash=" << txId << " ledgerSeq=" << currentSeq
-                    << " signers=" << signers.size() << " mode="
+                    << " signers=" << assembled.signerCount << " mode="
                     << (ctx_.app.config().standalone() ? "standalone"
                                                        : "network")
                     << " result=tesSUCCESS";
