@@ -69,6 +69,124 @@ class RuntimeConfig_test : public beast::unit_test::suite
     }
 
     void
+    testConfigValsMergedDirect()
+    {
+        testcase("ConfigVals direct merge");
+
+        ConfigVals global;
+        global.sendDelayMs = 100;
+        global.sendDropPctX100 = 250;
+        global.bootstrapFastStart = false;
+        global.messageCategories =
+            std::set<std::size_t>{TrafficCount::category::proposal};
+
+        ConfigVals peer;
+        peer.sendDelayMs = 500;
+        peer.explicitFinalProposal = true;
+        peer.messageCategories = std::set<std::size_t>{};
+
+        auto const merged = global.merged(peer);
+        BEAST_EXPECT(merged.sendDelayMs == 500);
+        BEAST_EXPECT(merged.sendDropPctX100 == 250);
+        BEAST_EXPECT(merged.bootstrapFastStart.has_value());
+        BEAST_EXPECT(*merged.bootstrapFastStart == false);
+        BEAST_EXPECT(merged.explicitFinalProposal.has_value());
+        BEAST_EXPECT(*merged.explicitFinalProposal == true);
+        BEAST_EXPECT(merged.messageCategories.has_value());
+        BEAST_EXPECT(merged.messageCategories->empty());
+        BEAST_EXPECT(merged.appliesTo(TrafficCount::category::proposal));
+        BEAST_EXPECT(merged.appliesTo(TrafficCount::category::validation));
+    }
+
+    void
+    testRuntimeConfigDirectEffectiveView()
+    {
+        testcase("RuntimeConfig direct effective view");
+
+        RuntimeConfig rc;
+        rc.clearAllConfigs();
+
+        ConfigVals global;
+        global.sendDelayMs = 100;
+        global.sendDropPctX100 = 1000;
+        rc.setConfig("*", global);
+
+        ConfigVals peer;
+        peer.sendDelayMs = 500;
+        rc.setConfig("10.0.0.2:51235", peer);
+
+        auto peerCfg = rc.getConfig("10.0.0.2:51235");
+        if (!BEAST_EXPECT(peerCfg.has_value()))
+            return;
+        BEAST_EXPECT(peerCfg->sendDelayMs == 500);
+        BEAST_EXPECT(peerCfg->sendDropPctX100 == 1000);
+        BEAST_EXPECT(rc.active());
+
+        ConfigVals newGlobal;
+        newGlobal.sendDropPctX100 = 2500;
+        rc.setConfig("*", newGlobal);
+
+        peerCfg = rc.getConfig("10.0.0.2:51235");
+        if (!BEAST_EXPECT(peerCfg.has_value()))
+            return;
+        BEAST_EXPECT(peerCfg->sendDelayMs == 500);
+        BEAST_EXPECT(peerCfg->sendDropPctX100 == 2500);
+
+        auto otherCfg = rc.getConfig("10.0.0.3:51235");
+        if (!BEAST_EXPECT(otherCfg.has_value()))
+            return;
+        BEAST_EXPECT(!otherCfg->sendDelayMs.has_value());
+        BEAST_EXPECT(otherCfg->sendDropPctX100 == 2500);
+
+        rc.clearConfig("*");
+        peerCfg = rc.getConfig("10.0.0.2:51235");
+        if (!BEAST_EXPECT(peerCfg.has_value()))
+            return;
+        BEAST_EXPECT(peerCfg->sendDelayMs == 500);
+        BEAST_EXPECT(!peerCfg->sendDropPctX100.has_value());
+        BEAST_EXPECT(!rc.getConfig("10.0.0.3:51235").has_value());
+
+        rc.clearConfig("10.0.0.2:51235");
+        BEAST_EXPECT(!rc.active());
+        BEAST_EXPECT(!rc.getConfig("10.0.0.2:51235").has_value());
+    }
+
+    void
+    testRuntimeConfigDirectInactiveEntries()
+    {
+        testcase("RuntimeConfig direct inactive entries");
+
+        RuntimeConfig rc;
+        rc.clearAllConfigs();
+
+        ConfigVals global;
+        global.sendDelayMs = 0;
+        global.sendDropPctX100 = 0;
+        rc.setConfig("*", global);
+
+        BEAST_EXPECT(!rc.active());
+        auto cfg = rc.getConfig("10.0.0.1:51235");
+        if (!BEAST_EXPECT(cfg.has_value()))
+            return;
+        BEAST_EXPECT(!cfg->active());
+
+        ConfigVals peer;
+        peer.noExportSig = false;
+        rc.setConfig("10.0.0.2:51235", peer);
+
+        BEAST_EXPECT(rc.active());
+        cfg = rc.getConfig("10.0.0.2:51235");
+        if (!BEAST_EXPECT(cfg.has_value()))
+            return;
+        BEAST_EXPECT(cfg->noExportSig.has_value());
+        BEAST_EXPECT(*cfg->noExportSig == false);
+
+        rc.clearAllConfigs();
+        BEAST_EXPECT(!rc.active());
+        BEAST_EXPECT(!rc.getConfig("*").has_value());
+    }
+
+    void
     testGetEmpty()
     {
         testcase("GET empty config");
@@ -619,6 +737,9 @@ public:
     void
     run() override
     {
+        testConfigValsMergedDirect();
+        testRuntimeConfigDirectEffectiveView();
+        testRuntimeConfigDirectInactiveEntries();
         testGetEmpty();
         testSetGlobal();
         testSetPerPeer();
