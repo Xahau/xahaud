@@ -1,6 +1,7 @@
 // Implementation of decoupled Hook APIs for emit and related helpers.
 
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/hook/detail/XportWrapperBuilder.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
@@ -1261,106 +1262,28 @@ HookAPI::xport(Slice const& txBlob) const
     if (hookCtx.export_count >= hookCtx.expected_export_count)
         return Unexpected(TOO_MANY_EXPORTED_TXN);
 
-    // Parse and validate the inner (cross-chain) transaction.
-    std::shared_ptr<STTx const> innerTx;
-    try
-    {
-        SerialIter sit(txBlob);
-        innerTx = std::make_shared<STTx const>(sit);
-    }
-    catch (std::exception const& e)
-    {
-        JLOG(j.trace()) << "HookExport[" << HC_ACC() << "]: Failed "
-                        << e.what();
-        return Unexpected(EXPORT_FAILURE);
-    }
+    auto const burdenResult = etxn_burden();
+    auto built = XportWrapperBuilder::build(XportWrapperBuilder::Input{
+        txBlob,
+        hookCtx.result.account,
+        app.config().NETWORK_ID,
+        view.info().seq,
+        applyCtx.tx.getTransactionID(),
+        hookCtx.result.hookHash,
+        hookCtx.result.hasCallback,
+        static_cast<uint32_t>(etxn_generation()),
+        burdenResult ? static_cast<uint64_t>(*burdenResult) : 1ULL,
+        [this]() { return etxn_nonce(); },
+        [this](Slice const& serializedWrapper) {
+            return etxn_fee_base(serializedWrapper);
+        },
+        j});
+    if (!built)
+        return Unexpected(built.error());
 
-    if (auto ter = ExportLedgerOps::validateExportAccount(
-            *innerTx, hookCtx.result.account, j);
-        !isTesSuccess(ter))
-        return Unexpected(EXPORT_FAILURE);
-
-    if (auto ter = ExportLedgerOps::validateNetworkID(
-            *innerTx, app.config().NETWORK_ID, j);
-        !isTesSuccess(ter))
-        return Unexpected(EXPORT_FAILURE);
-
-    if (auto ter = ExportLedgerOps::validateTicketSequence(*innerTx, j);
-        !isTesSuccess(ter))
-        return Unexpected(EXPORT_FAILURE);
-
-    // Construct a ttEXPORT wrapping the inner tx, with EmitDetails,
-    // and push onto the emitted txn queue. This flows through the
-    // normal emitted txn path (emitted dir → TxQ injection → open
-    // ledger → retriable Export transactor).
-    uint32_t const ledgerSeq = view.info().seq;
-
-    // Generate a nonce for the emitted ttEXPORT wrapper.
-    auto nonce = etxn_nonce();
-    if (!nonce.has_value())
-        return Unexpected(INTERNAL_ERROR);
-
-    // Serialize inner tx as sfExportedTxn object.
-    Serializer innerSer;
-    innerTx->add(innerSer);
-
-    // Build the ttEXPORT wrapper as an STObject first so we can
-    // compute the fee, set it, then construct the STTx from the
-    // final serialised bytes.  This avoids mutating the STTx after
-    // construction (which would leave a stale cached txid — see
-    // the tefNONDIR_EMIT check in Transactor::preclaim).
-    //
-    // The fee field is a fixed 9 bytes regardless of value, so
-    // patching it on the STObject doesn't change the serialised size.
-    STObject exportObj(sfGeneric);
-    {
-        exportObj.setFieldU16(sfTransactionType, ttEXPORT);
-        exportObj[sfAccount] = hookCtx.result.account;
-        exportObj[sfSequence] = 0u;
-        exportObj.setFieldVL(sfSigningPubKey, Blob{});
-        exportObj[sfFirstLedgerSequence] = ledgerSeq + 1;
-        exportObj[sfLastLedgerSequence] = ledgerSeq + 5;
-        exportObj[sfFee] = STAmount{0};
-
-        // sfExportedTxn inner object
-        SerialIter sit(innerSer.slice());
-        exportObj.set(std::make_unique<STObject>(sit, sfExportedTxn));
-
-        // sfEmitDetails
-        STObject emitDetails(sfEmitDetails);
-        emitDetails.setFieldU32(
-            sfEmitGeneration, static_cast<uint32_t>(etxn_generation()));
-        {
-            auto const burdenResult = etxn_burden();
-            emitDetails.setFieldU64(
-                sfEmitBurden,
-                burdenResult ? static_cast<uint64_t>(*burdenResult) : 1ULL);
-        }
-        emitDetails.setFieldH256(
-            sfEmitParentTxnID, applyCtx.tx.getTransactionID());
-        emitDetails.setFieldH256(sfEmitNonce, *nonce);
-        emitDetails.setFieldH256(sfEmitHookHash, hookCtx.result.hookHash);
-        if (hookCtx.result.hasCallback)
-            emitDetails.setAccountID(sfEmitCallback, hookCtx.result.account);
-        exportObj.set(std::move(emitDetails));
-
-        // Compute fee from serialised size and patch it in.
-        Serializer feeSer;
-        exportObj.add(feeSer);
-        auto feeResult = etxn_fee_base(feeSer.slice());
-        if (!feeResult)
-        {
-            JLOG(j.trace()) << "HookExport[" << HC_ACC()
-                            << "]: Fee calculation failed for ttEXPORT wrapper";
-            return Unexpected(EXPORT_FAILURE);
-        }
-        exportObj[sfFee] = STAmount{static_cast<uint64_t>(*feeResult)};
-    }
-
-    // Construct the STTx from the finalised STObject bytes.
-    Serializer exportSer;
-    exportObj.add(exportSer);
-    STTx exportStx(SerialIter{exportSer.slice()});
+    auto builtValue = std::move(built.value());
+    auto innerTxHash = builtValue.innerTxHash;
+    auto exportStx = std::move(builtValue.wrapperTx);
 
     // Preflight the wrapper.
     auto preflightResult = ripple::preflight(
@@ -1393,7 +1316,7 @@ HookAPI::xport(Slice const& txBlob) const
 
     // Return the inner tx hash — this is what the hook author cares
     // about (the cross-chain transaction they built).
-    return innerTx->getTransactionID();
+    return innerTxHash;
 }
 
 Expected<uint64_t, HookReturnCode>
