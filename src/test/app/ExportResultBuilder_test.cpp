@@ -165,10 +165,53 @@ public:
     }
 
     void
+    testBuildMultiSignedExportedTxnDirect()
+    {
+        testcase("builds multisigned exported transaction directly");
+
+        auto const signerA = randomKeyPair(KeyType::secp256k1);
+        auto const signerB = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const innerTx = makeExportedPayment(
+            calcAccountID(signerA.first), calcAccountID(dst.first));
+
+        ExportResultBuilder::SignatureSnapshot signatures;
+        signatures.emplace(signerB.first, Buffer{});
+        signatures.emplace(
+            signerA.first,
+            ExportResultBuilder::signExportedTxn(
+                innerTx, signerA.first, signerA.second));
+
+        auto multiSigned = ExportResultBuilder::buildMultiSignedExportedTxn(
+            innerTx, signatures);
+        BEAST_EXPECT(multiSigned.getFieldVL(sfSigningPubKey).empty());
+        BEAST_EXPECT(multiSigned.isFieldPresent(sfSigners));
+
+        auto const& signers = multiSigned.getFieldArray(sfSigners);
+        BEAST_EXPECT(signers.size() == 1);
+        if (signers.size() == 1)
+        {
+            BEAST_EXPECT(
+                signers[0].getAccountID(sfAccount) ==
+                calcAccountID(signerA.first));
+            BEAST_EXPECT(
+                makeSlice(signers[0].getFieldVL(sfSigningPubKey)) ==
+                signerA.first.slice());
+        }
+
+        ExportResultBuilder::SignatureSnapshot none;
+        auto unsignedMulti =
+            ExportResultBuilder::buildMultiSignedExportedTxn(innerTx, none);
+        BEAST_EXPECT(unsignedMulti.getFieldVL(sfSigningPubKey).empty());
+        BEAST_EXPECT(!unsignedMulti.isFieldPresent(sfSigners));
+    }
+
+    void
     run() override
     {
         testAssemblesSignedMetadata();
         testSkipsEmptySignatures();
+        testBuildMultiSignedExportedTxnDirect();
     }
 };
 

@@ -85,6 +85,21 @@ makeExportTx(STObject const& inner, AccountID const& account)
     return std::make_shared<STTx const>(makeSTTx(exportObj));
 }
 
+std::shared_ptr<STTx const>
+makeExportTxWithoutInner(AccountID const& account)
+{
+    STObject exportObj(sfGeneric);
+    exportObj.setFieldU16(sfTransactionType, ttEXPORT);
+    exportObj.setAccountID(sfAccount, account);
+    exportObj.setFieldU32(sfSequence, 0);
+    exportObj.setFieldVL(sfSigningPubKey, Blob{});
+    exportObj.setFieldU32(sfFirstLedgerSequence, 2);
+    exportObj.setFieldU32(sfLastLedgerSequence, 6);
+    exportObj.setFieldAmount(sfFee, XRPAmount{0});
+
+    return std::make_shared<STTx const>(makeSTTx(exportObj));
+}
+
 std::string
 makeBlob(uint256 const& txHash, PublicKey const& pk, Slice sig)
 {
@@ -151,6 +166,32 @@ public:
         ExportSigCollector collector;
 
         auto input = makeInput(blobs, lookup);
+        BEAST_EXPECT(harvestExportSignatures(input, collector, journal()) == 0);
+        BEAST_EXPECT(!collector.hasUnverifiedSignatures());
+        BEAST_EXPECT(collector.signatureCount(txHash) == 0);
+    }
+
+    void
+    testIgnoresEmptyAndMalformedEntries()
+    {
+        testcase("ignores empty and malformed entries");
+
+        auto const txHash = makeHash("malformed");
+        std::string invalidPubkeyBlob;
+        invalidPubkeyBlob.append(
+            reinterpret_cast<char const*>(txHash.data()), txHash.size());
+        invalidPubkeyBlob.append(33, '\0');
+        invalidPubkeyBlob.append("sig", 3);
+
+        std::vector<std::string> const blobs{
+            "",
+            std::string(64, 'x'),
+            makeBlob(txHash, sender_.first, Slice{}),
+            invalidPubkeyBlob};
+        ExportTxnLookup lookup;
+        ExportSigCollector collector;
+
+        auto input = makeInput(blobs, lookup, true, prevLedger_);
         BEAST_EXPECT(harvestExportSignatures(input, collector, journal()) == 0);
         BEAST_EXPECT(!collector.hasUnverifiedSignatures());
         BEAST_EXPECT(collector.signatureCount(txHash) == 0);
@@ -244,13 +285,60 @@ public:
     }
 
     void
+    testRejectsInvalidOpenLedgerSignatures()
+    {
+        testcase("rejects invalid open-ledger signatures");
+
+        auto const senderAccount = calcAccountID(sender_.first);
+        auto const dstAccount = calcAccountID(other_.first);
+        auto const innerObj = makeExportedPayment(senderAccount, dstAccount);
+        auto const exportTx = makeExportTx(innerObj, senderAccount);
+        auto const txHash = exportTx->getTransactionID();
+
+        ExportTxnLookup lookup;
+        lookup.emplace(txHash, exportTx);
+        std::vector<std::string> const blobs{
+            makeBlob(txHash, sender_.first, Slice("bad-sig", 7))};
+        ExportSigCollector collector;
+
+        auto input = makeInput(blobs, lookup, true, prevLedger_);
+        BEAST_EXPECT(harvestExportSignatures(input, collector, journal()) == 0);
+        BEAST_EXPECT(!collector.hasUnverifiedSignatures());
+        BEAST_EXPECT(collector.signatureCount(txHash) == 0);
+    }
+
+    void
+    testRejectsOpenLedgerTxWithoutExportedTxn()
+    {
+        testcase("rejects open-ledger tx without exported transaction");
+
+        auto const senderAccount = calcAccountID(sender_.first);
+        auto const exportTx = makeExportTxWithoutInner(senderAccount);
+        auto const txHash = exportTx->getTransactionID();
+
+        ExportTxnLookup lookup;
+        lookup.emplace(txHash, exportTx);
+        std::vector<std::string> const blobs{
+            makeBlob(txHash, sender_.first, Slice("sig", 3))};
+        ExportSigCollector collector;
+
+        auto input = makeInput(blobs, lookup, true, prevLedger_);
+        BEAST_EXPECT(harvestExportSignatures(input, collector, journal()) == 0);
+        BEAST_EXPECT(!collector.hasUnverifiedSignatures());
+        BEAST_EXPECT(collector.signatureCount(txHash) == 0);
+    }
+
+    void
     run() override
     {
         testRejectsTooManyEntries();
+        testIgnoresEmptyAndMalformedEntries();
         testRejectsInactiveOrWrongParent();
         testRejectsPubkeyMismatchAtomically();
         testMissingTxStoresUnverified();
         testOpenLedgerTxStoresVerifiedAndSkipsDuplicate();
+        testRejectsInvalidOpenLedgerSignatures();
+        testRejectsOpenLedgerTxWithoutExportedTxn();
     }
 };
 

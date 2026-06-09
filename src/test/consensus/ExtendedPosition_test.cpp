@@ -23,6 +23,7 @@
 #include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/digest.h>
 #include <cstring>
+#include <sstream>
 
 namespace ripple {
 namespace test {
@@ -400,6 +401,19 @@ class ExtendedPosition_test : public beast::unit_test::suite
             BEAST_EXPECT(!result.has_value());
         }
 
+        // Size says extended payload, but no flag byte remains. This accepts
+        // the legacy hash and ignores the inconsistent advertised size.
+        {
+            auto const txSet = makeHash("txset-missing-flags");
+            Serializer s;
+            s.addBitString(txSet);
+            SerialIter sit(s.slice());
+            auto result = ExtendedPosition::fromSerialIter(sit, 33);
+            BEAST_EXPECT(result.has_value());
+            if (result)
+                BEAST_EXPECT(result->txSetHash == txSet);
+        }
+
         // Trailing extra bytes after valid fields
         {
             auto const txSet = makeHash("txset-trailing");
@@ -473,6 +487,17 @@ class ExtendedPosition_test : public beast::unit_test::suite
         // Different txSetHash -> not equal
         ExtendedPosition c{txSet2};
         BEAST_EXPECT(a != c);
+
+        BEAST_EXPECT(a == txSet);
+        BEAST_EXPECT(txSet == a);
+        BEAST_EXPECT(!(a != txSet));
+        BEAST_EXPECT(!(txSet != a));
+        BEAST_EXPECT(a != txSet2);
+        BEAST_EXPECT(txSet2 != a);
+
+        a.updateTxSet(txSet2);
+        BEAST_EXPECT(a == txSet2);
+        BEAST_EXPECT(a != b);
     }
 
     void
@@ -496,6 +521,54 @@ class ExtendedPosition_test : public beast::unit_test::suite
         BEAST_EXPECT(digest != proposalExportSignaturesHash(mutated));
     }
 
+    void
+    testStringJsonAndHash()
+    {
+        testcase("String, JSON, and hash helpers");
+
+        auto const txSet = makeHash("txset-json");
+        auto const commitSet = makeHash("commitset-json");
+        auto const entropySet = makeHash("entropyset-json");
+        auto const exportSigSet = makeHash("exportsigset-json");
+        auto const exportSigs = makeHash("exportsigs-json");
+        auto const participants = makeHash("participants-json");
+
+        ExtendedPosition pos{txSet};
+        pos.commitSetHash = commitSet;
+        pos.entropySetHash = entropySet;
+        pos.exportSigSetHash = exportSigSet;
+        pos.exportSignaturesHash = exportSigs;
+        pos.observedParticipantsHash = participants;
+
+        BEAST_EXPECT(to_string(pos) == to_string(txSet));
+
+        std::ostringstream os;
+        os << pos;
+        BEAST_EXPECT(os.str() == to_string(txSet));
+
+        auto const json = pos.getJson();
+        BEAST_EXPECT(json["tx_set"].asString() == to_string(txSet));
+        BEAST_EXPECT(json["commit_set"].asString() == to_string(commitSet));
+        BEAST_EXPECT(json["entropy_set"].asString() == to_string(entropySet));
+        BEAST_EXPECT(
+            json["export_sig_set"].asString() == to_string(exportSigSet));
+        BEAST_EXPECT(
+            json["export_signatures"].asString() == to_string(exportSigs));
+        BEAST_EXPECT(
+            json["observed_participants"].asString() ==
+            to_string(participants));
+
+        auto const fullHash = sha512Half(pos);
+        auto withDifferentLeaf = pos;
+        withDifferentLeaf.myCommitment = makeHash("commitment-json");
+        BEAST_EXPECT(fullHash != sha512Half(withDifferentLeaf));
+
+        auto sameTxDifferentSidecar = pos;
+        sameTxDifferentSidecar.entropySetHash = makeHash("entropyset-other");
+        BEAST_EXPECT(pos == sameTxDifferentSidecar);
+        BEAST_EXPECT(sha512Half(pos) != sha512Half(sameTxDifferentSidecar));
+    }
+
 public:
     void
     run() override
@@ -506,6 +579,7 @@ public:
         testMalformedPayload();
         testEquality();
         testExportSignatureDigest();
+        testStringJsonAndHash();
     }
 };
 

@@ -53,6 +53,29 @@ class RuntimeConfig_test : public beast::unit_test::suite
         std::optional<std::string> old_;
     };
 
+    class EnvVarUnsetGuard
+    {
+    public:
+        explicit EnvVarUnsetGuard(char const* name) : name_(name)
+        {
+            if (auto const* old = std::getenv(name))
+                old_ = old;
+            unsetenv(name);
+        }
+
+        ~EnvVarUnsetGuard()
+        {
+            if (old_)
+                setenv(name_, old_->c_str(), 1);
+            else
+                unsetenv(name_);
+        }
+
+    private:
+        char const* name_;
+        std::optional<std::string> old_;
+    };
+
     // Helper to call runtime_config RPC with JSON params
     Json::Value
     runtimeConfig(test::jtx::Env& env, Json::Value const& params)
@@ -184,6 +207,131 @@ class RuntimeConfig_test : public beast::unit_test::suite
         rc.clearAllConfigs();
         BEAST_EXPECT(!rc.active());
         BEAST_EXPECT(!rc.getConfig("*").has_value());
+    }
+
+    void
+    testRuntimeConfigDirectRawAndCategoryHelpers()
+    {
+        testcase("RuntimeConfig direct raw map and category helpers");
+
+        std::string error;
+        auto cats = runtimeConfigMessageCategoriesFromNames(
+            {"proposal", "validation"}, error);
+        BEAST_EXPECT(cats.has_value());
+        if (cats)
+        {
+            BEAST_EXPECT(cats->count(TrafficCount::category::proposal) == 1);
+            BEAST_EXPECT(cats->count(TrafficCount::category::validation) == 1);
+        }
+        BEAST_EXPECT(error.empty());
+
+        cats = runtimeConfigMessageCategoriesFromNames(
+            {"candidate_set_fetch"}, error);
+        BEAST_EXPECT(cats.has_value());
+        if (cats)
+        {
+            BEAST_EXPECT(cats->count(TrafficCount::category::gl_tsc_get) == 1);
+            BEAST_EXPECT(
+                cats->count(TrafficCount::category::gl_tsc_share) == 1);
+            BEAST_EXPECT(cats->count(TrafficCount::category::ld_tsc_get) == 1);
+            BEAST_EXPECT(
+                cats->count(TrafficCount::category::ld_tsc_share) == 1);
+        }
+
+        auto const numeric = std::to_string(TrafficCount::category::proposal);
+        cats = runtimeConfigMessageCategoriesFromNames({numeric}, error);
+        BEAST_EXPECT(cats.has_value());
+        if (cats)
+            BEAST_EXPECT(cats->count(TrafficCount::category::proposal) == 1);
+
+        cats = runtimeConfigMessageCategoriesFromNames({"not_real"}, error);
+        BEAST_EXPECT(!cats);
+        BEAST_EXPECT(error == "Unknown message_type: not_real");
+
+        BEAST_EXPECT(
+            runtimeConfigMessageCategoryName(
+                TrafficCount::category::proposal) == "proposal");
+        BEAST_EXPECT(
+            runtimeConfigMessageCategoryName(
+                TrafficCount::category::unknown + 100) ==
+            std::to_string(TrafficCount::category::unknown + 100));
+
+        RuntimeConfig rc;
+        rc.clearAllConfigs();
+
+        ConfigVals global;
+        global.sendDelayMs = 10;
+        rc.setConfig("*", global);
+
+        ConfigVals peer;
+        peer.bootstrapFastStart = true;
+        rc.setConfig("10.0.0.4:51235", peer);
+
+        auto raw = rc.getAllConfigs();
+        BEAST_EXPECT(raw.size() == 2);
+        BEAST_EXPECT(raw["*"].sendDelayMs == 10);
+        BEAST_EXPECT(raw["10.0.0.4:51235"].bootstrapFastStart.has_value());
+    }
+
+    void
+    testRuntimeConfigIndividualEnvVars()
+    {
+        testcase("RuntimeConfig individual env vars");
+
+        EnvVarUnsetGuard runtimeJson{"XAHAU_RUNTIME_CONFIG"};
+        EnvVarGuard sendDelay{"XAHAU_SEND_DELAY_MS", "12"};
+        EnvVarGuard jitter{"XAHAU_SEND_DELAY_JITTER_MS", "3"};
+        EnvVarGuard drop{"XAHAU_SEND_DROP_PCT", "4.5"};
+        EnvVarGuard rngDrop{"XAHAU_RNG_CLAIM_DROP_PCT", "6.25"};
+        EnvVarGuard explicitFinal{"XAHAUD_EXPLICIT_FINAL_PROPOSAL", "off"};
+        EnvVarGuard bootstrap{"XAHAUD_BOOTSTRAP_FAST_START", "yes"};
+        EnvVarGuard rngPoll{"XAHAU_RNG_POLL_MS", "5"};
+        EnvVarGuard noExportSig{"XAHAUD_NO_EXPORT_SIG", "0"};
+
+        RuntimeConfig rc;
+        auto cfg = rc.getConfig("*");
+        if (!BEAST_EXPECT(cfg.has_value()))
+            return;
+
+        BEAST_EXPECT(rc.active());
+        BEAST_EXPECT(cfg->sendDelayMs == 12);
+        BEAST_EXPECT(cfg->sendDelayJitterMs == 3);
+        BEAST_EXPECT(cfg->sendDropPctX100 == 450);
+        BEAST_EXPECT(cfg->rngClaimDropPctX100 == 625);
+        BEAST_EXPECT(cfg->explicitFinalProposal.has_value());
+        BEAST_EXPECT(*cfg->explicitFinalProposal == false);
+        BEAST_EXPECT(cfg->bootstrapFastStart.has_value());
+        BEAST_EXPECT(*cfg->bootstrapFastStart == true);
+        BEAST_EXPECT(cfg->rngPollMs == 50);
+        BEAST_EXPECT(cfg->noExportSig.has_value());
+        BEAST_EXPECT(*cfg->noExportSig == false);
+    }
+
+    void
+    testRuntimeConfigJsonEnvMergesTargets()
+    {
+        testcase("RuntimeConfig JSON env config");
+
+        EnvVarGuard runtimeJson{
+            "XAHAU_RUNTIME_CONFIG",
+            R"({"*":{"send_delay_ms":100,"message_types":["proposal"]},)"
+            R"("10.0.0.5:51235":{"send_drop_pct":2.5,"message_types":[]}})"};
+
+        RuntimeConfig rc;
+        auto global = rc.getConfig("*");
+        if (!BEAST_EXPECT(global.has_value()))
+            return;
+        BEAST_EXPECT(global->sendDelayMs == 100);
+        BEAST_EXPECT(global->appliesTo(TrafficCount::category::proposal));
+        BEAST_EXPECT(!global->appliesTo(TrafficCount::category::validation));
+
+        auto peer = rc.getConfig("10.0.0.5:51235");
+        if (!BEAST_EXPECT(peer.has_value()))
+            return;
+        BEAST_EXPECT(peer->sendDelayMs == 100);
+        BEAST_EXPECT(peer->sendDropPctX100 == 250);
+        BEAST_EXPECT(peer->appliesTo(TrafficCount::category::proposal));
+        BEAST_EXPECT(peer->appliesTo(TrafficCount::category::validation));
     }
 
     void
@@ -740,6 +888,9 @@ public:
         testConfigValsMergedDirect();
         testRuntimeConfigDirectEffectiveView();
         testRuntimeConfigDirectInactiveEntries();
+        testRuntimeConfigDirectRawAndCategoryHelpers();
+        testRuntimeConfigIndividualEnvVars();
+        testRuntimeConfigJsonEnvMergesTargets();
         testGetEmpty();
         testSetGlobal();
         testSetPerPeer();

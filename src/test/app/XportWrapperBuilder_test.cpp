@@ -61,13 +61,16 @@ STTx
 makeExportedPayment(
     AccountID const& src,
     AccountID const& dst,
-    std::optional<std::uint32_t> networkID = std::nullopt)
+    std::optional<std::uint32_t> networkID = std::nullopt,
+    std::optional<std::uint32_t> ticketSequence = 1,
+    std::uint32_t sequence = 0)
 {
     STObject obj(sfExportedTxn);
     obj.setFieldU16(sfTransactionType, ttPAYMENT);
     obj.setFieldU32(sfFlags, tfFullyCanonicalSig);
-    obj.setFieldU32(sfSequence, 0);
-    obj.setFieldU32(sfTicketSequence, 1);
+    obj.setFieldU32(sfSequence, sequence);
+    if (ticketSequence)
+        obj.setFieldU32(sfTicketSequence, *ticketSequence);
     obj.setFieldU32(sfFirstLedgerSequence, 2);
     obj.setFieldU32(sfLastLedgerSequence, 6);
     obj.setFieldAmount(sfAmount, XRPAmount{1000000});
@@ -176,6 +179,32 @@ public:
     }
 
     void
+    testBuildsWrapperWithoutCallback()
+    {
+        testcase("builds xport wrapper without callback");
+
+        auto const exporter = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const innerTx = makeExportedPayment(
+            calcAccountID(exporter.first), calcAccountID(dst.first));
+        auto const serialized = serialize(innerTx);
+
+        auto input = makeInput(
+            Slice(serialized.data(), serialized.size()),
+            calcAccountID(exporter.first));
+        input.hasCallback = false;
+
+        auto const result = hook::XportWrapperBuilder::build(input);
+        BEAST_EXPECT(result);
+        if (!result)
+            return;
+
+        auto const& emitDetails =
+            result->wrapperTx.peekAtField(sfEmitDetails).downcast<STObject>();
+        BEAST_EXPECT(!emitDetails.isFieldPresent(sfEmitCallback));
+    }
+
+    void
     testRejectsInvalidInputs()
     {
         testcase("rejects invalid inputs");
@@ -241,6 +270,108 @@ public:
                 result.error() == ::hook_api::hook_return_code::EXPORT_FAILURE);
             BEAST_EXPECT(!nonceCalled);
         }
+
+        {
+            bool nonceCalled = false;
+            auto const result = hook::XportWrapperBuilder::build(makeInput(
+                Slice(serialized.data(), serialized.size()),
+                calcAccountID(exporter.first),
+                0,
+                [&nonceCalled] {
+                    nonceCalled = true;
+                    return Expected<uint256, ::hook_api::hook_return_code>{
+                        makeHash("nonce")};
+                }));
+            BEAST_EXPECT(!result);
+            BEAST_EXPECT(
+                result.error() == ::hook_api::hook_return_code::EXPORT_FAILURE);
+            BEAST_EXPECT(!nonceCalled);
+        }
+
+        {
+            auto const noTicketTx = makeExportedPayment(
+                calcAccountID(exporter.first),
+                calcAccountID(dst.first),
+                std::nullopt,
+                std::nullopt);
+            auto const serializedNoTicket = serialize(noTicketTx);
+            bool nonceCalled = false;
+            auto const result = hook::XportWrapperBuilder::build(makeInput(
+                Slice(serializedNoTicket.data(), serializedNoTicket.size()),
+                calcAccountID(exporter.first),
+                21337,
+                [&nonceCalled] {
+                    nonceCalled = true;
+                    return Expected<uint256, ::hook_api::hook_return_code>{
+                        makeHash("nonce")};
+                }));
+            BEAST_EXPECT(!result);
+            BEAST_EXPECT(
+                result.error() == ::hook_api::hook_return_code::EXPORT_FAILURE);
+            BEAST_EXPECT(!nonceCalled);
+        }
+
+        {
+            auto const sequencedTicketTx = makeExportedPayment(
+                calcAccountID(exporter.first),
+                calcAccountID(dst.first),
+                std::nullopt,
+                1,
+                9);
+            auto const serializedSequencedTicket = serialize(sequencedTicketTx);
+            bool nonceCalled = false;
+            auto const result = hook::XportWrapperBuilder::build(makeInput(
+                Slice(
+                    serializedSequencedTicket.data(),
+                    serializedSequencedTicket.size()),
+                calcAccountID(exporter.first),
+                21337,
+                [&nonceCalled] {
+                    nonceCalled = true;
+                    return Expected<uint256, ::hook_api::hook_return_code>{
+                        makeHash("nonce")};
+                }));
+            BEAST_EXPECT(!result);
+            BEAST_EXPECT(
+                result.error() == ::hook_api::hook_return_code::EXPORT_FAILURE);
+            BEAST_EXPECT(!nonceCalled);
+        }
+    }
+
+    void
+    testRejectsMissingCallbacks()
+    {
+        testcase("rejects missing callbacks");
+
+        auto const exporter = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const innerTx = makeExportedPayment(
+            calcAccountID(exporter.first), calcAccountID(dst.first));
+        auto const serialized = serialize(innerTx);
+
+        {
+            auto input = makeInput(
+                Slice(serialized.data(), serialized.size()),
+                calcAccountID(exporter.first));
+            input.generateNonce = {};
+
+            auto const result = hook::XportWrapperBuilder::build(input);
+            BEAST_EXPECT(!result);
+            BEAST_EXPECT(
+                result.error() == ::hook_api::hook_return_code::INTERNAL_ERROR);
+        }
+
+        {
+            auto input = makeInput(
+                Slice(serialized.data(), serialized.size()),
+                calcAccountID(exporter.first));
+            input.calculateFee = {};
+
+            auto const result = hook::XportWrapperBuilder::build(input);
+            BEAST_EXPECT(!result);
+            BEAST_EXPECT(
+                result.error() == ::hook_api::hook_return_code::EXPORT_FAILURE);
+        }
     }
 
     void
@@ -301,7 +432,9 @@ public:
     run() override
     {
         testBuildsWrapper();
+        testBuildsWrapperWithoutCallback();
         testRejectsInvalidInputs();
+        testRejectsMissingCallbacks();
         testMapsNonceFailureToInternalError();
         testRejectsFeeFailure();
     }

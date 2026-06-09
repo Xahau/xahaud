@@ -19,6 +19,7 @@
 #include <xrpld/app/misc/ExportSigCollector.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/digest.h>
 #include <cstring>
 
@@ -123,6 +124,106 @@ public:
     }
 
     void
+    testSnapshotsAndFilteredCounts()
+    {
+        testcase("snapshots and filtered counts use verified signatures only");
+
+        auto const other = randomKeyPair(KeyType::secp256k1).first;
+        ExportSigCollector collector;
+        auto const tx = makeHash("snapshot-filtered");
+        auto const verifiedSig = makeSignature(20);
+        auto const unverifiedSig = makeSignature(30);
+
+        BEAST_EXPECT(!collector.hasVerifiedSignature(tx, validator_));
+        BEAST_EXPECT(collector.unverifiedSignatures(tx).empty());
+        BEAST_EXPECT(!collector.checkQuorumAndSnapshot(tx, 1));
+
+        collector.addVerifiedSignature(tx, validator_, verifiedSig, 10);
+        collector.addUnverifiedSignature(tx, other, unverifiedSig, 11);
+
+        BEAST_EXPECT(collector.hasVerifiedSignature(tx, validator_));
+        BEAST_EXPECT(!collector.hasVerifiedSignature(tx, other));
+        BEAST_EXPECT(collector.signatureCount(tx) == 1);
+        BEAST_EXPECT(collector.signatureCount(tx, [&](PublicKey const& pk) {
+            return pk == validator_;
+        }) == 1);
+        BEAST_EXPECT(collector.signatureCount(tx, [&](PublicKey const& pk) {
+            return pk == other;
+        }) == 0);
+
+        auto unverified = collector.unverifiedSignatures(tx);
+        BEAST_EXPECT(unverified.size() == 1);
+        BEAST_EXPECT(unverified.count(other) == 1);
+
+        auto snapshot = collector.snapshot();
+        BEAST_EXPECT(snapshot.size() == 1);
+        BEAST_EXPECT(snapshot[tx].count(validator_) == 1);
+        BEAST_EXPECT(snapshot[tx].count(other) == 0);
+
+        auto sigSnapshot = collector.snapshotWithSigs();
+        BEAST_EXPECT(sigSnapshot[tx].size() == 1);
+        BEAST_EXPECT(sigSnapshot[tx][validator_] == verifiedSig);
+
+        auto filteredSnapshot = collector.snapshotWithSigs(
+            [&](PublicKey const& pk) { return pk == other; });
+        BEAST_EXPECT(filteredSnapshot.empty());
+
+        BEAST_EXPECT(!collector.checkQuorumAndSnapshot(tx, 2));
+        auto quorum = collector.checkQuorumAndSnapshot(tx, 1);
+        BEAST_EXPECT(quorum.has_value());
+        if (quorum)
+        {
+            BEAST_EXPECT(quorum->size() == 1);
+            BEAST_EXPECT((*quorum)[validator_] == verifiedSig);
+        }
+
+        collector.upgradeSignature(tx, other, makeSignature(31), 12);
+        BEAST_EXPECT(collector.signatureCount(tx) == 1);
+
+        collector.upgradeSignature(tx, other, unverifiedSig, 12);
+        BEAST_EXPECT(!collector.hasUnverifiedSignatures());
+        BEAST_EXPECT(collector.signatureCount(tx) == 2);
+
+        auto filteredQuorum = collector.checkQuorumAndSnapshot(
+            tx, 1, [&](PublicKey const& pk) { return pk == other; });
+        BEAST_EXPECT(filteredQuorum.has_value());
+        if (filteredQuorum)
+            BEAST_EXPECT((*filteredQuorum)[other] == unverifiedSig);
+
+        collector.clear(tx);
+        BEAST_EXPECT(collector.signatureCount(tx) == 0);
+        BEAST_EXPECT(collector.snapshot().empty());
+    }
+
+    void
+    testStandaloneAndRoundState()
+    {
+        testcase("standalone signatures and round state");
+
+        ExportSigCollector collector;
+        auto const tx = makeHash("standalone-round");
+
+        collector.addStandaloneSignature(tx, validator_, 10);
+        BEAST_EXPECT(collector.hasVerifiedSignature(tx, validator_));
+        BEAST_EXPECT(collector.signatureCount(tx) == 1);
+        BEAST_EXPECT(!collector.hasUnverifiedSignatures());
+
+        auto snapshot = collector.snapshot();
+        BEAST_EXPECT(snapshot.size() == 1);
+        BEAST_EXPECT(snapshot[tx].count(validator_) == 1);
+
+        auto sigSnapshot = collector.snapshotWithSigs();
+        BEAST_EXPECT(sigSnapshot.size() == 1);
+        BEAST_EXPECT(sigSnapshot[tx].count(validator_) == 1);
+        BEAST_EXPECT(sigSnapshot[tx][validator_].empty());
+
+        BEAST_EXPECT(collector.markSent(tx));
+        BEAST_EXPECT(!collector.markSent(tx));
+        collector.clearRound();
+        BEAST_EXPECT(collector.markSent(tx));
+    }
+
+    void
     testClearAll()
     {
         testcase("clear all signatures and round state");
@@ -152,6 +253,8 @@ public:
         testCleanupUsesFirstSeenSeq();
         testUpgradeSetsFirstSeenSeq();
         testRemoveInvalidUnverifiedSignature();
+        testSnapshotsAndFilteredCounts();
+        testStandaloneAndRoundState();
         testClearAll();
     }
 };
