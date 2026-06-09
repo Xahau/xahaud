@@ -23,6 +23,7 @@
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/OpenLedger.h>
+#include <xrpld/app/tx/detail/URIToken.h>
 #include <xrpld/ledger/ApplyView.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/hook/Enum.h>
@@ -231,9 +232,10 @@ SetHook::inferOperation(STObject const& hookSetObj)
            hookSetObj.isFieldPresent(sfHookOnIncoming))) &&
         !hookSetObj.isFieldPresent(sfHookCanEmit) &&
         !hookSetObj.isFieldPresent(sfHookApiVersion) &&
-        !hookSetObj.isFieldPresent(sfFlags) &&
+        !hookSetObj.isFieldPresent(sfHookName) &&
         !hookSetObj.isFieldPresent(sfHookCallbackGas) &&
-        !hookSetObj.isFieldPresent(sfHookWeakGas))
+        !hookSetObj.isFieldPresent(sfHookWeakGas) &&
+        !hookSetObj.isFieldPresent(sfFlags))
         return hsoNOOP;
 
     uint32_t flags = hookSetObj.isFieldPresent(sfFlags)
@@ -270,6 +272,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 hookSetObj.isFieldPresent(sfHookOnIncoming) ||
                 hookSetObj.isFieldPresent(sfHookCanEmit) ||
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
+                hookSetObj.isFieldPresent(sfHookName) ||
                 hookSetObj.isFieldPresent(sfHookCallbackGas) ||
                 hookSetObj.isFieldPresent(sfHookWeakGas) ||
                 !hookSetObj.isFieldPresent(sfFlags) ||
@@ -305,6 +308,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 hookSetObj.isFieldPresent(sfHookCanEmit) ||
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
                 hookSetObj.isFieldPresent(sfHookNamespace) ||
+                hookSetObj.isFieldPresent(sfHookName) ||
                 hookSetObj.isFieldPresent(sfHookCallbackGas) ||
                 hookSetObj.isFieldPresent(sfHookWeakGas) ||
                 !hookSetObj.isFieldPresent(sfFlags))
@@ -606,6 +610,14 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 // pass
             }
 
+            // validate sfHookName
+            if (hookSetObj.isFieldPresent(sfHookName))
+            {
+                auto name = hookSetObj.getFieldVL(sfHookName);
+                if (!validateHookName(name, ctx.j))
+                    return false;
+            }
+
             // finally validate web assembly byte code
             {
                 if (!hookSetObj.isFieldPresent(sfCreateCode))
@@ -755,6 +767,23 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             return false;
         }
     }
+}
+
+bool
+SetHook::validateHookName(Blob const& name, beast::Journal const& j)
+{
+    if (name.size() != 0 && (name.size() < 4 || 16 < name.size()))
+    {
+        JLOG(j.trace())
+            << "sfHookName must be between 8 and 32 hex characters.";
+        return false;
+    }
+    if (!URIToken::validateUTF8(name))
+    {
+        JLOG(j.trace()) << "sfHookName must be a valid UTF-8 string.";
+        return false;
+    }
+    return true;
 }
 
 // Note that if fee calculation causes an overflow then INITIAL_XRP is returned
@@ -931,6 +960,10 @@ SetHook::preflight(PreflightContext const& ctx)
             hookSetObj.isFieldPresent(sfHookCanEmit))
             return temDISABLED;
 
+        if (!ctx.rules.enabled(featureNamedHooks) &&
+            hookSetObj.isFieldPresent(sfHookName))
+            return temDISABLED;
+
         if (!ctx.rules.enabled(featureHookGas) &&
             (hookSetObj.isFieldPresent(sfHookCallbackGas) ||
              hookSetObj.isFieldPresent(sfHookWeakGas)))
@@ -945,8 +978,8 @@ SetHook::preflight(PreflightContext const& ctx)
                 name != sfHookOn && name != sfHookOnOutgoing &&
                 name != sfHookOnIncoming && name != sfHookGrants &&
                 name != sfHookApiVersion && name != sfFlags &&
-                name != sfHookCanEmit && name != sfHookCallbackGas &&
-                name != sfHookWeakGas)
+                name != sfHookCanEmit && name != sfHookName &&
+                name != sfHookCallbackGas && name != sfHookWeakGas)
             {
                 // LCOV_EXCL_START
                 JLOG(ctx.j.trace())
@@ -1544,6 +1577,8 @@ SetHook::setHook()
         std::optional<uint256> newHookCanEmit;
         std::optional<uint256> defHookCanEmit;
 
+        std::optional<Blob> newHookName;
+
         std::optional<uint32_t> oldHookWeakGas;
         std::optional<uint32_t> newHookWeakGas;
         std::optional<uint32_t> defHookWeakGas;
@@ -1620,7 +1655,6 @@ SetHook::setHook()
 
             if (oldDefSLE && oldDefSLE->isFieldPresent(sfHookCanEmit))
                 defHookCanEmit = oldDefSLE->getFieldH256(sfHookCanEmit);
-
             if (oldHook && oldHook->get().isFieldPresent(sfHookCanEmit))
                 oldHookCanEmit = oldHook->get().getFieldH256(sfHookCanEmit);
             else if (defHookCanEmit)
@@ -1674,6 +1708,9 @@ SetHook::setHook()
                 newNamespace = hookSetObj->get().getFieldH256(sfHookNamespace);
                 newDirKeylet = keylet::hookStateDir(account_, *newNamespace);
             }
+
+            if (hookSetObj->get().isFieldPresent(sfHookName))
+                newHookName = hookSetObj->get().getFieldVL(sfHookName);
 
             if (hookSetObj->get().isFieldPresent(sfHookCallbackGas))
                 newHookCallbackGas =
@@ -1802,6 +1839,9 @@ SetHook::setHook()
                     newHook.setFieldH256(
                         sfHookNamespace,
                         oldHook->get().getFieldH256(sfHookNamespace));
+                if (oldHook->get().isFieldPresent(sfHookName))
+                    newHook.setFieldVL(
+                        sfHookName, oldHook->get().getFieldVL(sfHookName));
 
                 // set the namespace if it differs from the definition namespace
                 if (newNamespace)
@@ -1864,6 +1904,20 @@ SetHook::setHook()
                     }
                     else
                         newHook.setFieldH256(sfHookCanEmit, *newHookCanEmit);
+                }
+
+                // set the hookname field on ltHook when it is explicitly
+                // provided
+                if (newHookName)
+                {
+                    if (newHookName->size() == 0)
+                    {
+                        newHook.makeFieldAbsent(sfHookName);
+                    }
+                    else
+                    {
+                        newHook.setFieldVL(sfHookName, *newHookName);
+                    }
                 }
 
                 auto const defVersion =
@@ -2119,6 +2173,12 @@ SetHook::setHook()
                             newHook.setFieldArray(sfHookGrants, grants);
                     }
 
+                    if (hookSetObj->get().isFieldPresent(sfHookName) &&
+                        hookSetObj->get().getFieldVL(sfHookName).size() > 0)
+                        newHook.setFieldVL(
+                            sfHookName,
+                            hookSetObj->get().getFieldVL(sfHookName));
+
                     slesToInsert.emplace(keylet, newHookDef);
                     newHook.setFieldH256(sfHookHash, *createHookHash);
 
@@ -2270,6 +2330,11 @@ SetHook::setHook()
                       *defHookCanEmit == *newHookCanEmit))
                     newHook.setFieldH256(sfHookCanEmit, *newHookCanEmit);
 
+                // set the hookname field on ltHook when it is explicitly
+                // provided
+                if (newHookName && newHookName->size() > 0)
+                    newHook.setFieldVL(sfHookName, *newHookName);
+
                 auto const defVersion =
                     newDefSLE->getFieldU16(sfHookApiVersion);
 
@@ -2347,8 +2412,8 @@ SetHook::setHook()
         // sfParameters: 1 reserve PER entry
         // sfGrants are: 1 reserve PER entry
         // sfHookHash, sfHookNamespace, sfHookOn, sfHookOnOutgoing,
-        // sfHookOnIncoming, sfHookCanEmit, sfHookApiVersion, sfHookCallbackGas,
-        // sfHookWeakGas, sfFlags: free
+        // sfHookOnIncoming, sfHookCanEmit, sfHookApiVersion,
+        // sfFlags, sfHookName, sfHookCallbackGas, sfHookWeakGas: free
 
         // ltHookDefinition is not reserved because it is an unowned object,
         // rather the uploader is billed via fee according to the following:

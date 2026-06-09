@@ -24,6 +24,7 @@
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
+#include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpld/core/Config.h>
@@ -151,6 +152,16 @@ preflight1(PreflightContext const& ctx)
             // state in the local instance.
             return telNON_LOCAL_EMITTED_TXN;
         }
+    }
+
+    if (ctx.tx.isFieldPresent(sfHookName))
+    {
+        if (!ctx.rules.enabled(featureHooks) ||
+            !ctx.rules.enabled(featureNamedHooks))
+            return temMALFORMED;
+
+        if (!SetHook::validateHookName(ctx.tx.getFieldVL(sfHookName), ctx.j))
+            return temMALFORMED;
     }
 
     auto const spk = ctx.tx.getSigningPubKey();
@@ -287,8 +298,24 @@ Transactor::calculateHookChainFee(
         // at the same ledger the fee calculation for it can no longer occur
         if (!hookDef)
         {
+            // LCOV_EXCL_START
             printf("calculateHookChainFee edge case\n");
             continue;
+            // LCOV_EXCL_STOP
+        }
+
+        std::optional<Blob> requiredHookName;
+        if (hookObj.isFieldPresent(sfHookName) &&
+            hookObj.getFieldVL(sfHookName).size() > 0)
+            requiredHookName = hookObj.getFieldVL(sfHookName);
+
+        if (requiredHookName)
+        {
+            // need to specify same hook name in the transaction
+            if (!tx.isFieldPresent(sfHookName))
+                continue;
+            if (*requiredHookName != tx.getFieldVL(sfHookName))
+                continue;
         }
 
         uint32_t flags = 0;
@@ -1422,16 +1449,34 @@ Transactor::executeHookChain(
 
         if (hookSkips.find(hookHash) != hookSkips.end())
         {
+            // LCOV_EXCL_START
             JLOG(j_.trace()) << "HookInfo: Skipping " << hookHash;
             continue;
+            // LCOV_EXCL_STOP
         }
 
         auto const& hookDef =
             ctx_.view().peek(keylet::hookDefinition(hookHash));
         if (!hookDef)
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn()) << "HookError[]: Failure: hook def missing (send)";
             continue;
+            // LCOV_EXCL_STOP
+        }
+
+        std::optional<Blob> requiredHookName;
+        if (hookObj.isFieldPresent(sfHookName) &&
+            hookObj.getFieldVL(sfHookName).size() > 0)
+            requiredHookName = hookObj.getFieldVL(sfHookName);
+
+        if (requiredHookName)
+        {
+            // need to specify same hook name in the transaction
+            if (!ctx_.tx.isFieldPresent(sfHookName))
+                continue;
+            if (*requiredHookName != ctx_.tx.getFieldVL(sfHookName))
+                continue;
         }
 
         // check if the hook can fire

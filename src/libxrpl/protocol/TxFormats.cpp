@@ -48,6 +48,7 @@ TxFormats::TxFormats()
         {sfFirstLedgerSequence, soeOPTIONAL},
         {sfNetworkID, soeOPTIONAL},
         {sfHookParameters, soeOPTIONAL},
+        {sfHookName, soeOPTIONAL},
         {sfHookGas, soeOPTIONAL},
     };
 

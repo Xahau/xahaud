@@ -76,6 +76,7 @@ JSS(Holder);              // field.
 JSS(HookApiVersion);      // field
 JSS(HookCanEmit);         // field
 JSS(HookHash);            // field
+JSS(HookName);            // field
 JSS(HookNamespace);       // field
 JSS(HookOn);              // field
 JSS(HookOnIncoming);      // field

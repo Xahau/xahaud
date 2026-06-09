@@ -111,7 +111,7 @@ issueFromJson(Json::Value const& v)
     }
 
     auto const currency = to_currency(curStr.asString());
-    if (currency == badCurrency() || currency == noCurrency())
+    if (isBadCurrency(currency) || currency == noCurrency())
     {
         Throw<Json::error>("issueFromJson currency must be a valid currency");
     }

@@ -269,32 +269,6 @@ private:
 
         {
             Json::Value a = Json::arrayValue;
-            a[0U] = "hash";
-            Json::Value v = Json::objectValue;
-            v[jss::nth] = 257;
-            v[jss::isVLEncoded] = false;
-            v[jss::isSerialized] = false;
-            v[jss::isSigningField] = false;
-            v[jss::type] = "Hash256";
-            a[1U] = v;
-            ret[jss::FIELDS][i++] = a;
-        }
-
-        {
-            Json::Value a = Json::arrayValue;
-            a[0U] = "index";
-            Json::Value v = Json::objectValue;
-            v[jss::nth] = 258;
-            v[jss::isVLEncoded] = false;
-            v[jss::isSerialized] = false;
-            v[jss::isSigningField] = false;
-            v[jss::type] = "Hash256";
-            a[1U] = v;
-            ret[jss::FIELDS][i++] = a;
-        }
-
-        {
-            Json::Value a = Json::arrayValue;
             a[0U] = "taker_gets_funded";
             Json::Value v = Json::objectValue;
             v[jss::nth] = 258;
@@ -326,22 +300,23 @@ private:
 
             Json::Value innerObj = Json::objectValue;
 
-            uint32_t fc = code & 0xFFU;
-            uint32_t tc = code >> 16U;
+            uint32_t type = f->fieldType;
 
-            innerObj[jss::nth] = fc;
+            innerObj[jss::nth] = f->fieldValue;
 
             innerObj[jss::isVLEncoded] =
-                (tc == 7U /* Blob       */ || tc == 8U /* AccountID  */ ||
-                 tc == 19U /* Vector256  */);
+                (type == 7U /* Blob       */ || type == 8U /* AccountID  */ ||
+                 type == 19U /* Vector256  */);
 
             innerObj[jss::isSerialized] =
-                (tc <
-                 10000); /* TRANSACTION, LEDGER_ENTRY, VALIDATION, METADATA */
+                (type < 10000 && f->fieldName != "hash" &&
+                 f->fieldName !=
+                     "index"); /* hash, index, TRANSACTION, LEDGER_ENTRY,
+                                  VALIDATION, METADATA */
 
             innerObj[jss::isSigningField] = f->shouldInclude(false);
 
-            innerObj[jss::type] = type_map[tc];
+            innerObj[jss::type] = type_map[type];
 
             Json::Value innerArray = Json::arrayValue;
             innerArray[0U] = f->fieldName;

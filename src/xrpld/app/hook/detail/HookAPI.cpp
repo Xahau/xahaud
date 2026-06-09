@@ -5,285 +5,8 @@
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpl/protocol/STParsedJSON.h>
-#include <cfenv>
 
 namespace hook {
-namespace hook_float {
-
-// power of 10 LUT for fast integer math
-static int64_t power_of_ten[19] = {
-    1LL,
-    10LL,
-    100LL,
-    1000LL,
-    10000LL,
-    100000LL,
-    1000000LL,
-    10000000LL,
-    100000000LL,
-    1000000000LL,
-    10000000000LL,
-    100000000000LL,
-    1000000000000LL,
-    10000000000000LL,
-    100000000000000LL,
-    1000000000000000LL,  // 15
-    10000000000000000LL,
-    100000000000000000LL,
-    1000000000000000000LL,
-};
-
-using namespace hook_api;
-static int64_t const minMantissa = 1000000000000000ull;
-static int64_t const maxMantissa = 9999999999999999ull;
-static int32_t const minExponent = -96;
-static int32_t const maxExponent = 80;
-
-inline Expected<int32_t, HookReturnCode>
-get_exponent(int64_t float1)
-{
-    if (float1 < 0)
-        return Unexpected(INVALID_FLOAT);
-    if (float1 == 0)
-        return 0;
-    uint64_t float_in = (uint64_t)float1;
-    float_in >>= 54U;
-    float_in &= 0xFFU;
-    return ((int32_t)float_in) - 97;
-}
-
-inline Expected<uint64_t, HookReturnCode>
-get_mantissa(int64_t float1)
-{
-    if (float1 < 0)
-        return Unexpected(INVALID_FLOAT);
-    if (float1 == 0)
-        return 0;
-    float1 -= ((((uint64_t)float1) >> 54U) << 54U);
-    return float1;
-}
-
-inline bool
-is_negative(int64_t float1)
-{
-    return ((float1 >> 62U) & 1ULL) == 0;
-}
-
-inline int64_t
-invert_sign(int64_t float1)
-{
-    int64_t r = (int64_t)(((uint64_t)float1) ^ (1ULL << 62U));
-    return r;
-}
-
-inline int64_t
-set_sign(int64_t float1, bool set_negative)
-{
-    bool neg = is_negative(float1);
-    if ((neg && set_negative) || (!neg && !set_negative))
-        return float1;
-
-    return invert_sign(float1);
-}
-
-inline Expected<uint64_t, HookReturnCode>
-set_mantissa(int64_t float1, uint64_t mantissa)
-{
-    if (mantissa > maxMantissa)
-        return Unexpected(MANTISSA_OVERSIZED);
-    if (mantissa < minMantissa)
-        return Unexpected(MANTISSA_UNDERSIZED);
-    return float1 - get_mantissa(float1).value() + mantissa;
-}
-
-inline Expected<uint64_t, HookReturnCode>
-set_exponent(int64_t float1, int32_t exponent)
-{
-    if (exponent > maxExponent)
-        return Unexpected(EXPONENT_OVERSIZED);
-    if (exponent < minExponent)
-        return Unexpected(EXPONENT_UNDERSIZED);
-
-    uint64_t exp = (exponent + 97);
-    exp <<= 54U;
-    float1 &= ~(0xFFLL << 54);
-    float1 += (int64_t)exp;
-    return float1;
-}
-
-inline Expected<uint64_t, HookReturnCode>
-make_float(ripple::IOUAmount& amt)
-{
-    int64_t man_out = amt.mantissa();
-    int64_t float_out = 0;
-    bool neg = man_out < 0;
-    if (neg)
-        man_out *= -1;
-
-    float_out = set_sign(float_out, neg);
-    auto const mantissa = set_mantissa(float_out, (uint64_t)man_out);
-    if (!mantissa)
-        // TODO: This change requires the amendment.
-        // return Unexpected(mantissa.error());
-        float_out = mantissa.error();
-    else
-        float_out = mantissa.value();
-    auto const exponent = set_exponent(float_out, amt.exponent());
-    if (!exponent)
-        return Unexpected(exponent.error());
-    float_out = exponent.value();
-    return float_out;
-}
-
-inline Expected<uint64_t, HookReturnCode>
-make_float(uint64_t mantissa, int32_t exponent, bool neg)
-{
-    if (mantissa == 0)
-        return 0;
-    if (mantissa > maxMantissa)
-        return Unexpected(MANTISSA_OVERSIZED);
-    if (mantissa < minMantissa)
-        return Unexpected(MANTISSA_UNDERSIZED);
-    if (exponent > maxExponent)
-        return Unexpected(EXPONENT_OVERSIZED);
-    if (exponent < minExponent)
-        return Unexpected(EXPONENT_UNDERSIZED);
-    int64_t out = 0;
-
-    auto const m = set_mantissa(out, mantissa);
-    if (!m)
-        return m.error();
-    out = m.value();
-
-    auto const e = set_exponent(out, exponent);
-    if (!e)
-        return e.error();
-    out = e.value();
-
-    out = set_sign(out, neg);
-    return out;
-}
-
-/**
- * This function normalizes the mantissa and exponent passed, if it can.
- * It returns the XFL and mutates the supplied manitssa and exponent.
- * If a negative mantissa is provided then the returned XFL has the negative
- * flag set. If there is an overflow error return XFL_OVERFLOW. On underflow
- * returns canonical 0
- */
-template <typename T>
-inline Expected<uint64_t, HookReturnCode>
-normalize_xfl(T& man, int32_t& exp, bool neg = false)
-{
-    if (man == 0)
-        return 0;
-
-    if (man == std::numeric_limits<int64_t>::min())
-        man++;
-
-    constexpr bool sman = std::is_same<T, int64_t>::value;
-    static_assert(sman || std::is_same<T, uint64_t>());
-
-    if constexpr (sman)
-    {
-        if (man < 0)
-        {
-            man *= -1LL;
-            neg = true;
-        }
-    }
-
-    // mantissa order
-    std::feclearexcept(FE_ALL_EXCEPT);
-    int32_t mo = log10(man);
-    // defensively ensure log10 produces a sane result; we'll borrow the
-    // overflow error code if it didn't
-    if (std::fetestexcept(FE_INVALID))
-        return Unexpected(XFL_OVERFLOW);
-
-    int32_t adjust = 15 - mo;
-
-    if (adjust > 0)
-    {
-        // defensive check
-        if (adjust > 18)
-            return 0;
-        man *= power_of_ten[adjust];
-        exp -= adjust;
-    }
-    else if (adjust < 0)
-    {
-        // defensive check
-        if (-adjust > 18)
-            return Unexpected(XFL_OVERFLOW);
-        man /= power_of_ten[-adjust];
-        exp -= adjust;
-    }
-
-    if (man == 0)
-    {
-        exp = 0;
-        return 0;
-    }
-
-    // even after adjustment the mantissa can be outside the range by one place
-    // improving the math above would probably alleviate the need for these
-    // branches
-    if (man < minMantissa)
-    {
-        if (man == minMantissa - 1LL)
-            man += 1LL;
-        else
-        {
-            man *= 10LL;
-            exp--;
-        }
-    }
-
-    if (man > maxMantissa)
-    {
-        if (man == maxMantissa + 1LL)
-            man -= 1LL;
-        else
-        {
-            man /= 10LL;
-            exp++;
-        }
-    }
-
-    if (exp < minExponent)
-    {
-        man = 0;
-        exp = 0;
-        return 0;
-    }
-
-    if (man == 0)
-    {
-        exp = 0;
-        return 0;
-    }
-
-    if (exp > maxExponent)
-        return Unexpected(XFL_OVERFLOW);
-
-    auto const ret = make_float((uint64_t)man, exp, neg);
-    if constexpr (sman)
-    {
-        if (neg)
-            man *= -1LL;
-    }
-
-    if (!ret)
-        return ret.error();
-
-    return ret;
-}
-
-const int64_t float_one_internal =
-    make_float(1000000000000000ull, -15, false).value();
-
-}  // namespace hook_float
 
 using namespace ripple;
 using namespace hook_float;
@@ -1178,7 +901,7 @@ HookAPI::etxn_details(uint8_t* out_ptr) const
 
     auto hash = etxn_nonce();
     if (!hash.has_value())
-        return INTERNAL_ERROR;
+        return Unexpected(INTERNAL_ERROR);
 
     memcpy(out, hash->data(), 32);
 
@@ -1273,7 +996,7 @@ HookAPI::float_set(int32_t exponent, int64_t mantissa) const
     {
         if (normalized.error() == XFL_OVERFLOW)
             return Unexpected(INVALID_FLOAT);
-        return normalized.error();
+        return Unexpected(normalized.error());
     }
     if (normalized.value() == 0)
         return Unexpected(INVALID_FLOAT);
@@ -1321,7 +1044,7 @@ HookAPI::float_mulratio(
 
     auto const result = make_float((uint64_t)man1, exp1, is_negative(float1));
     if (!result)
-        return result.error();
+        return Unexpected(result.error());
     return result;
 }
 
@@ -1932,7 +1655,7 @@ HookAPI::hook_hash(int32_t hook_no) const
     return hook.getFieldH256(sfHookHash);
 }
 
-Expected<int64_t, HookReturnCode>
+Expected<uint64_t, HookReturnCode>
 HookAPI::hook_again() const
 {
     if (hookCtx.result.executeAgainAsWeak)
@@ -1941,7 +1664,7 @@ HookAPI::hook_again() const
     if (hookCtx.result.isStrong)
     {
         hookCtx.result.executeAgainAsWeak = true;
-        return 1;
+        return 1ULL;
     }
 
     return Unexpected(PREREQUISITE_NOT_MET);
@@ -2607,7 +2330,7 @@ HookAPI::slot_float(uint32_t slot_no) const
             normalized = ret.value();
         }
 
-        if (normalized == EXPONENT_UNDERSIZED)
+        if (normalized == (int64_t)EXPONENT_UNDERSIZED)
             /* exponent undersized (underflow) */
             return 0;  // return 0 in this case
         return normalized;
@@ -3134,8 +2857,8 @@ HookAPI::set_state_cache(
 // including header bytes (and footer bytes in the event of array or object)
 // negative indicates error
 inline Expected<
-    int32_t,
-    HookAPI::parse_error>
+    uint32_t,
+    HookAPI::STOParseErrorCode>
 HookAPI::get_stobject_length(
     unsigned char* start,   // in - begin iterator
     unsigned char* maxptr,  // in - end iterator
@@ -3148,6 +2871,7 @@ HookAPI::get_stobject_length(
     int recursion_depth)  // used internally
     const
 {
+    using enum HookAPI::STOParseErrorCode;
     if (recursion_depth > 10)
         return Unexpected(pe_excessive_nesting);
 
@@ -3156,7 +2880,7 @@ HookAPI::get_stobject_length(
         : STI_VECTOR256;
 
     if (type > max_sti_type)
-        return pe_unknown_type_early;
+        return Unexpected(pe_unknown_type_early);
 
     unsigned char* end = maxptr;
     unsigned char* upto = start;
@@ -3216,7 +2940,7 @@ HookAPI::get_stobject_length(
     // not supported types
     if (type == STI_NUMBER || type == STI_UINT96 || type == STI_UINT192 ||
         type == STI_UINT384 || type == STI_UINT512)
-        return pe_unknown_type_early;
+        return Unexpected(pe_unknown_type_early);
 
     bool is_vl =
         (type == STI_ACCOUNT || type == STI_VL ||
@@ -3286,7 +3010,7 @@ HookAPI::get_stobject_length(
                 length = 20;
                 break;
             default:
-                return -1;
+                return Unexpected(pe_unknown_type_late);
         }
     }
     else if (type == STI_AMOUNT) /* AMOUNT */
@@ -3308,7 +3032,7 @@ HookAPI::get_stobject_length(
                 int flag = *(upto + length++);
                 // flag shoud be 0x01 or 0x10 or 0x20 or those union
                 if (flag == 0 || flag & ~(0x01 | 0x10 | 0x20))
-                    return pe_unexpected_end;
+                    return Unexpected(pe_unexpected_end);
                 if (flag & 0x01)  // account
                     length += 20;
                 if (flag & 0x10)  // currency
@@ -3329,10 +3053,10 @@ HookAPI::get_stobject_length(
             else if (lastflag == 0x00)
                 break;  // end byte
             else
-                return pe_unexpected_end;
+                return Unexpected(pe_unexpected_end);
         }
         if (upto >= end)
-            return pe_unexpected_end;
+            return Unexpected(pe_unexpected_end);
     }
     else if (type == STI_ISSUE)
     {

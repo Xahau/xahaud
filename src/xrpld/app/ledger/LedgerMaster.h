@@ -139,6 +139,9 @@ public:
     RangeSet<std::uint32_t>
     getPinnedLedgersRangeSet();
 
+    void
+    setPinnedLedgersRangeSet(const RangeSet<std::uint32_t>& range_set);
+
     /** Apply held transactions to the open ledger
         This is normally called as we close the ledger.
         The open ledger remains open to handle new transactions
@@ -204,6 +207,10 @@ public:
     haveLedger(std::uint32_t seq);
     void
     clearLedger(std::uint32_t seq);
+    bool
+    isPinned(std::uint32_t seq);
+    void
+    unpinLedger(std::uint32_t seq);
     bool
     isValidated(ReadView const& ledger);
     bool
@@ -359,7 +366,12 @@ private:
 
     std::recursive_mutex mCompleteLock;
     RangeSet<std::uint32_t> mCompleteLedgers;
+
+    // When both locks are needed, acquire them together with std::scoped_lock.
+    std::mutex mPinnedLock;
     RangeSet<std::uint32_t> mPinnedLedgers;  // Track pinned ledger ranges
+    bool mPinnedMergedToComplete{
+        false};  // One-shot: pinned merged into mCompleteLedgers
 
     // Publish thread is running.
     bool mAdvanceThread{false};

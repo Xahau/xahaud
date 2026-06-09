@@ -22,6 +22,7 @@
 
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/nodestore/Manager.h>
+#include <xrpl/basics/RangeSet.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <optional>
 
@@ -60,6 +61,9 @@ public:
     /** Highest ledger that may be deleted. */
     virtual LedgerIndex
     setCanDelete(LedgerIndex canDelete) = 0;
+
+    virtual void
+    setPinnedRanges(RangeSet<std::uint32_t> const& ranges) = 0;
 
     /** Whether advisory delete is enabled. */
     virtual bool

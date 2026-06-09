@@ -102,6 +102,7 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookOnOutgoing, soeOPTIONAL},
          {sfHookCanEmit, soeOPTIONAL},
          {sfHookApiVersion, soeOPTIONAL},
+         {sfHookName, soeOPTIONAL},
          {sfHookCallbackGas, soeOPTIONAL},
          {sfHookWeakGas, soeOPTIONAL},
          {sfFlags, soeOPTIONAL}});

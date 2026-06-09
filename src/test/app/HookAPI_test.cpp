@@ -50,6 +50,7 @@ private:
     }
 
 public:
+    using enum hook_api::hook_return_code;
     void
     test_accept(FeatureBitset features)
     {
@@ -4514,6 +4515,249 @@ public:
     }
 
     void
+    testHookFloat(FeatureBitset features)
+    {
+        // testcase("Test hook float");
+        using namespace jtx;
+        using namespace hook::hook_float;
+
+        {
+            // get_exponent
+            testcase << "get_exponent";
+            BEAST_EXPECT(get_exponent(-1).error() == INVALID_FLOAT);
+            BEAST_EXPECT(get_exponent(0).value() == 0);
+            // 1234567891000000 * 10^(-5)
+            BEAST_EXPECT(get_exponent(6270245249190730432).value() == -5);
+        }
+
+        {
+            // get_mantissa
+            testcase << "get_mantissa";
+            BEAST_EXPECT(get_mantissa(-1).error() == INVALID_FLOAT);
+            BEAST_EXPECT(get_mantissa(0).value() == 0);
+            // 1234567891000000 * 10^(-5)
+            BEAST_EXPECT(
+                get_mantissa(6270245249190730432).value() == 1234567891000000);
+        }
+
+        {
+            // is_negative
+            testcase << "is_negative";
+            // 1234567891000000 * 10^(-5)
+            BEAST_EXPECT(is_negative(6270245249190730432) == false);
+            // -1234567891000000 * 10^(-5)
+            BEAST_EXPECT(is_negative(1658559230763342528) == true);
+        }
+
+        {
+            // invert_sign
+            testcase << "invert_sign";
+            BEAST_EXPECT(
+                invert_sign(6270245249190730432) == 1658559230763342528);
+            BEAST_EXPECT(
+                invert_sign(1658559230763342528) == 6270245249190730432);
+        }
+
+        {
+            // set_sign
+            testcase << "set_sign";
+            BEAST_EXPECT(
+                set_sign(6270245249190730432, true) == 1658559230763342528);
+            BEAST_EXPECT(
+                set_sign(1658559230763342528, false) == 6270245249190730432);
+            BEAST_EXPECT(
+                set_sign(6270245249190730432, false) == 6270245249190730432);
+            BEAST_EXPECT(
+                set_sign(1658559230763342528, true) == 1658559230763342528);
+        }
+
+        {
+            // set_mantissa
+            testcase << "set_mantissa";
+
+            BEAST_EXPECT(
+                set_mantissa(6270245249190730432, maxMantissa + 1).error() ==
+                MANTISSA_OVERSIZED);
+            BEAST_EXPECT(
+                set_mantissa(6270245249190730432, minMantissa - 1).error() ==
+                MANTISSA_UNDERSIZED);
+
+            BEAST_EXPECT(
+                set_mantissa(6270245249190730432, 1234567891000000).value() ==
+                6270245249190730432);
+            BEAST_EXPECT(
+                set_mantissa(1658559230763342528, 1234567891000000).value() ==
+                1658559230763342528);
+
+            BEAST_EXPECT(
+                set_mantissa(6270245249190730432, 1098765432100000).value() ==
+                6270109446731830432);
+            BEAST_EXPECT(
+                set_mantissa(1658559230763342528, 1098765432100000).value() ==
+                1658423428304442528);
+        }
+
+        {
+            // set_exponent
+            testcase << "set_exponent";
+            BEAST_EXPECT(
+                set_exponent(6270245249190730432, maxExponent + 1).error() ==
+                EXPONENT_OVERSIZED);
+            BEAST_EXPECT(
+                set_exponent(6270245249190730432, minExponent - 1).error() ==
+                EXPONENT_UNDERSIZED);
+
+            BEAST_EXPECT(
+                set_exponent(6270245249190730432, 40).value() ==
+                7080893182117419712);
+            BEAST_EXPECT(
+                set_exponent(6270245249190730432, -40).value() ==
+                5639741301358860992);
+        }
+
+        {
+            // make_float
+            testcase << "make_float";
+
+            BEAST_EXPECT(make_float(0, -5, false).value() == 0);
+
+            // invalid mantissa
+            BEAST_EXPECT(
+                make_float(maxMantissa + 1, -5, false).error() ==
+                MANTISSA_OVERSIZED);
+            BEAST_EXPECT(
+                make_float(minMantissa - 1, -5, false).error() ==
+                MANTISSA_UNDERSIZED);
+
+            // invalid exponent
+            BEAST_EXPECT(
+                make_float(1234567891000000, maxExponent + 1, false).error() ==
+                EXPONENT_OVERSIZED);
+            BEAST_EXPECT(
+                make_float(1234567891000000, minExponent - 1, false).error() ==
+                EXPONENT_UNDERSIZED);
+
+            BEAST_EXPECT(
+                make_float(1234567891000000, -5, false).value() ==
+                6270245249190730432);
+            BEAST_EXPECT(
+                make_float(1234567891000000, -5, true).value() ==
+                1658559230763342528);
+        }
+
+        {
+            // normalize_xfl
+            testcase << "normalize_xfl";
+
+            {
+                // zero
+                uint64_t mantissa = 0;
+                int32_t exponent = -5;
+
+                BEAST_EXPECT(
+                    normalize_xfl(mantissa, exponent, false).value() == 0);
+                BEAST_EXPECT(mantissa == 0);
+                BEAST_EXPECT(exponent == -5);
+            }
+
+            {
+                // scale the mantissa up into the canonical range
+                uint64_t mantissa = 12345;
+                int32_t exponent = 0;
+
+                BEAST_EXPECT(
+                    normalize_xfl(mantissa, exponent, false).value() ==
+                    make_float(1234500000000000ULL, -11, false).value());
+                BEAST_EXPECT(mantissa == 1234500000000000ULL);
+                BEAST_EXPECT(exponent == -11);
+            }
+
+            {
+                // scale the mantissa down into the canonical range
+                uint64_t mantissa = 1234567891000000000ULL;
+                int32_t exponent = -5;
+
+                BEAST_EXPECT(
+                    normalize_xfl(mantissa, exponent, false).value() ==
+                    make_float(1234567891000000ULL, -2, false).value());
+                BEAST_EXPECT(mantissa == 1234567891000000ULL);
+                BEAST_EXPECT(exponent == -2);
+            }
+
+            {
+                // explicit negative sign
+                uint64_t mantissa = 12345;
+                int32_t exponent = 0;
+
+                BEAST_EXPECT(
+                    normalize_xfl(mantissa, exponent, true).value() ==
+                    make_float(1234500000000000ULL, -11, true).value());
+                BEAST_EXPECT(mantissa == 1234500000000000ULL);
+                BEAST_EXPECT(exponent == -11);
+            }
+
+            {
+                // signed negative mantissa
+                int64_t mantissa = -12345;
+                int32_t exponent = 0;
+
+                BEAST_EXPECT(
+                    normalize_xfl(mantissa, exponent).value() ==
+                    make_float(1234500000000000ULL, -11, true).value());
+                BEAST_EXPECT(mantissa == -1234500000000000LL);
+                BEAST_EXPECT(exponent == -11);
+            }
+
+            {
+                // signed minimum is adjusted before taking the absolute value
+                int64_t mantissa = std::numeric_limits<int64_t>::min();
+                int32_t exponent = 0;
+
+                BEAST_EXPECT(
+                    normalize_xfl(mantissa, exponent).value() ==
+                    make_float(9223372036854775ULL, 3, true).value());
+                BEAST_EXPECT(mantissa == -9223372036854775LL);
+                BEAST_EXPECT(exponent == 3);
+            }
+
+            {
+                // one below the minimum mantissa is rounded into range
+                uint64_t mantissa = minMantissa - 1;
+                int32_t exponent = -5;
+
+                BEAST_EXPECT(
+                    normalize_xfl(mantissa, exponent, false).value() ==
+                    make_float(minMantissa, -5, false).value());
+                BEAST_EXPECT(mantissa == minMantissa);
+                BEAST_EXPECT(exponent == -5);
+            }
+
+            {
+                // underflow returns canonical zero
+                uint64_t mantissa = 1;
+                int32_t exponent = minExponent;
+
+                BEAST_EXPECT(
+                    normalize_xfl(mantissa, exponent, false).value() == 0);
+                BEAST_EXPECT(mantissa == 0);
+                BEAST_EXPECT(exponent == 0);
+            }
+
+            {
+                // exponent overflow is reported
+                uint64_t mantissa = minMantissa;
+                int32_t exponent = maxExponent + 1;
+
+                BEAST_EXPECT(
+                    normalize_xfl(mantissa, exponent, false).error() ==
+                    XFL_OVERFLOW);
+                BEAST_EXPECT(mantissa == minMantissa);
+                BEAST_EXPECT(exponent == maxExponent + 1);
+            }
+        }
+    }
+
+    void
     testWithFeatures(FeatureBitset features)
     {
         using namespace test::jtx;
@@ -4615,6 +4859,7 @@ public:
     {
         using namespace test::jtx;
         testWithFeatures(supported_amendments());
+        testHookFloat(supported_amendments());
     }
 };
 

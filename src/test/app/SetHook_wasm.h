@@ -34111,6 +34111,193 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
      }},
 
     /* ==== WASM: 100 ==== */
+    {R"[test.hook](
+                #include <stdint.h>
+                extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+                extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+                extern int64_t emit     (uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+                extern int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
+                extern int64_t etxn_reserve(uint32_t);
+                extern int64_t etxn_fee_base (uint32_t read_ptr, uint32_t read_len);
+                extern int64_t etxn_details (uint32_t write_ptr, uint32_t write_len);
+                extern int64_t ledger_seq (void);
+
+                #define SBUF(x) (uint32_t)x,sizeof(x)
+                // clang-format off
+                    uint8_t txn[229] =
+                    {
+                        /* size, upto, field name               */
+                        /*    3,    0, tt = Invoke              */   0x12U, 0x00U, 0x63U,
+                        /*    5,    3, flags                    */   0x22U, 0x00U, 0x00U, 0x00U, 0x00U,
+                        /*    5,    8, sequence                 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                        /*    6,   13, firstledgersequence      */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
+                        /*    6,   19, lastledgersequence       */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
+                        /*    9,   25, fee                      */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                        /*   35,   34, signingpubkey            */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                        /*   22,   69, account                  */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                        /*  116,   91, emit details             */ 
+                        /*    0,  229,                          */ 
+                    };
+                    // clang-format on
+
+                    // TX BUILDER
+                    #define FLAGS_OUT (txn + 4U)
+                    #define FLS_OUT (txn + 15U)
+                    #define LLS_OUT (txn + 21U)
+                    #define FEE_OUT (txn + 26U)
+                    #define ACCOUNT_OUT (txn + 71U)
+                    #define EMIT_OUT (txn + 91U)
+
+                    #define FLIP_ENDIAN_32(value)                                                  \
+                      (uint32_t)(((value & 0xFFU) << 24) | ((value & 0xFF00U) << 8) |              \
+                                  ((value & 0xFF0000U) >> 8) | ((value & 0xFF000000U) >> 24))
+
+                    #define SET_UINT32(ptr, value) *((uint32_t *)(ptr)) = FLIP_ENDIAN_32(value);
+
+                    #define SET_NATIVE_AMOUNT(ptr, amount)                                         \
+                      do {                                                                         \
+                        uint8_t *b = (ptr);                                                        \
+                        *b++ = 0b01000000 + ((amount >> 56) & 0b00111111);                         \
+                        *b++ = (amount >> 48) & 0xFFU;                                             \
+                        *b++ = (amount >> 40) & 0xFFU;                                             \
+                        *b++ = (amount >> 32) & 0xFFU;                                             \
+                        *b++ = (amount >> 24) & 0xFFU;                                             \
+                        *b++ = (amount >> 16) & 0xFFU;                                             \
+                        *b++ = (amount >> 8) & 0xFFU;                                              \
+                        *b++ = (amount >> 0) & 0xFFU;                                              \
+                      } while (0)
+
+                    #define PREPARE_TXN()                                                          \
+                      do {                                                                         \
+                        etxn_reserve(1);                                                           \
+                        uint32_t fls = (uint32_t)ledger_seq() + 1;                                 \
+                        SET_UINT32(FLS_OUT, fls);                                                  \
+                        SET_UINT32(LLS_OUT, fls + 4);                                              \
+                        hook_account(ACCOUNT_OUT, 20);                                             \
+                        etxn_details(EMIT_OUT, 138U);                                              \
+                        int64_t fee = etxn_fee_base(SBUF(txn));                                    \
+                        SET_NATIVE_AMOUNT(FEE_OUT, fee);                                           \
+                      } while (0)
+
+
+                    int64_t cbak(uint32_t r)
+                    {
+                        _g(1,1);
+                        return accept(0,0,0);
+                    }
+
+                    int64_t hook(uint32_t reserved)
+                    {
+                        _g(1,1);
+                        PREPARE_TXN(); 
+                        uint8_t emithash[32]; 
+                        int64_t emit_result = emit(SBUF(emithash), SBUF(txn)); 
+                        if (emit_result < 0)
+                            return rollback(SBUF("Emit failed."), __LINE__);
+                        return accept(SBUF("Emit succeeded."), __LINE__);
+                    }
+        )[test.hook]",
+     {
+         0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x25U,
+         0x06U, 0x60U, 0x02U, 0x7FU, 0x7FU, 0x01U, 0x7FU, 0x60U, 0x03U, 0x7FU,
+         0x7FU, 0x7EU, 0x01U, 0x7EU, 0x60U, 0x01U, 0x7FU, 0x01U, 0x7EU, 0x60U,
+         0x00U, 0x01U, 0x7EU, 0x60U, 0x02U, 0x7FU, 0x7FU, 0x01U, 0x7EU, 0x60U,
+         0x04U, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x01U, 0x7EU, 0x02U, 0x8FU, 0x01U,
+         0x09U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x02U, 0x5FU, 0x67U, 0x00U, 0x00U,
+         0x03U, 0x65U, 0x6EU, 0x76U, 0x06U, 0x61U, 0x63U, 0x63U, 0x65U, 0x70U,
+         0x74U, 0x00U, 0x01U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x0CU, 0x65U, 0x74U,
+         0x78U, 0x6EU, 0x5FU, 0x72U, 0x65U, 0x73U, 0x65U, 0x72U, 0x76U, 0x65U,
+         0x00U, 0x02U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x0AU, 0x6CU, 0x65U, 0x64U,
+         0x67U, 0x65U, 0x72U, 0x5FU, 0x73U, 0x65U, 0x71U, 0x00U, 0x03U, 0x03U,
+         0x65U, 0x6EU, 0x76U, 0x0CU, 0x68U, 0x6FU, 0x6FU, 0x6BU, 0x5FU, 0x61U,
+         0x63U, 0x63U, 0x6FU, 0x75U, 0x6EU, 0x74U, 0x00U, 0x04U, 0x03U, 0x65U,
+         0x6EU, 0x76U, 0x0CU, 0x65U, 0x74U, 0x78U, 0x6EU, 0x5FU, 0x64U, 0x65U,
+         0x74U, 0x61U, 0x69U, 0x6CU, 0x73U, 0x00U, 0x04U, 0x03U, 0x65U, 0x6EU,
+         0x76U, 0x0DU, 0x65U, 0x74U, 0x78U, 0x6EU, 0x5FU, 0x66U, 0x65U, 0x65U,
+         0x5FU, 0x62U, 0x61U, 0x73U, 0x65U, 0x00U, 0x04U, 0x03U, 0x65U, 0x6EU,
+         0x76U, 0x04U, 0x65U, 0x6DU, 0x69U, 0x74U, 0x00U, 0x05U, 0x03U, 0x65U,
+         0x6EU, 0x76U, 0x08U, 0x72U, 0x6FU, 0x6CU, 0x6CU, 0x62U, 0x61U, 0x63U,
+         0x6BU, 0x00U, 0x01U, 0x03U, 0x03U, 0x02U, 0x02U, 0x02U, 0x05U, 0x03U,
+         0x01U, 0x00U, 0x02U, 0x06U, 0x27U, 0x06U, 0x7FU, 0x01U, 0x41U, 0x90U,
+         0x8AU, 0x04U, 0x0BU, 0x7FU, 0x00U, 0x41U, 0x82U, 0x0AU, 0x0BU, 0x7FU,
+         0x00U, 0x41U, 0x80U, 0x08U, 0x0BU, 0x7FU, 0x00U, 0x41U, 0x90U, 0x8AU,
+         0x04U, 0x0BU, 0x7FU, 0x00U, 0x41U, 0x80U, 0x08U, 0x0BU, 0x7FU, 0x00U,
+         0x41U, 0x80U, 0x08U, 0x0BU, 0x07U, 0x0FU, 0x02U, 0x04U, 0x63U, 0x62U,
+         0x61U, 0x6BU, 0x00U, 0x09U, 0x04U, 0x68U, 0x6FU, 0x6FU, 0x6BU, 0x00U,
+         0x0AU, 0x0AU, 0xA8U, 0x83U, 0x00U, 0x02U, 0x99U, 0x80U, 0x00U, 0x00U,
+         0x41U, 0x01U, 0x41U, 0x01U, 0x10U, 0x80U, 0x80U, 0x80U, 0x80U, 0x00U,
+         0x1AU, 0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x81U, 0x80U,
+         0x80U, 0x80U, 0x00U, 0x0BU, 0x88U, 0x83U, 0x00U, 0x02U, 0x03U, 0x7FU,
+         0x01U, 0x7EU, 0x23U, 0x80U, 0x80U, 0x80U, 0x80U, 0x00U, 0x41U, 0x20U,
+         0x6BU, 0x22U, 0x01U, 0x24U, 0x80U, 0x80U, 0x80U, 0x80U, 0x00U, 0x41U,
+         0x01U, 0x41U, 0x01U, 0x10U, 0x80U, 0x80U, 0x80U, 0x80U, 0x00U, 0x1AU,
+         0x41U, 0x01U, 0x10U, 0x82U, 0x80U, 0x80U, 0x80U, 0x00U, 0x1AU, 0x41U,
+         0x00U, 0x10U, 0x83U, 0x80U, 0x80U, 0x80U, 0x00U, 0xA7U, 0x22U, 0x02U,
+         0x41U, 0x05U, 0x6AU, 0x22U, 0x03U, 0x41U, 0x18U, 0x74U, 0x20U, 0x03U,
+         0x41U, 0x08U, 0x74U, 0x41U, 0x80U, 0x80U, 0xFCU, 0x07U, 0x71U, 0x72U,
+         0x20U, 0x03U, 0x41U, 0x08U, 0x76U, 0x41U, 0x80U, 0xFEU, 0x03U, 0x71U,
+         0x20U, 0x03U, 0x41U, 0x18U, 0x76U, 0x72U, 0x72U, 0x36U, 0x02U, 0x95U,
+         0x88U, 0x80U, 0x80U, 0x00U, 0x41U, 0x00U, 0x20U, 0x02U, 0x41U, 0x01U,
+         0x6AU, 0x22U, 0x03U, 0x41U, 0x18U, 0x74U, 0x20U, 0x03U, 0x41U, 0x08U,
+         0x74U, 0x41U, 0x80U, 0x80U, 0xFCU, 0x07U, 0x71U, 0x72U, 0x20U, 0x03U,
+         0x41U, 0x08U, 0x76U, 0x41U, 0x80U, 0xFEU, 0x03U, 0x71U, 0x20U, 0x03U,
+         0x41U, 0x18U, 0x76U, 0x72U, 0x72U, 0x36U, 0x02U, 0x8FU, 0x88U, 0x80U,
+         0x80U, 0x00U, 0x41U, 0xC7U, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U, 0x14U,
+         0x10U, 0x84U, 0x80U, 0x80U, 0x80U, 0x00U, 0x1AU, 0x41U, 0xDBU, 0x88U,
+         0x80U, 0x80U, 0x00U, 0x41U, 0x8AU, 0x01U, 0x10U, 0x85U, 0x80U, 0x80U,
+         0x80U, 0x00U, 0x1AU, 0x41U, 0x00U, 0x41U, 0x80U, 0x88U, 0x80U, 0x80U,
+         0x00U, 0x41U, 0xE5U, 0x01U, 0x10U, 0x86U, 0x80U, 0x80U, 0x80U, 0x00U,
+         0x22U, 0x04U, 0x3CU, 0x00U, 0xA1U, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U,
+         0x00U, 0x20U, 0x04U, 0x42U, 0x08U, 0x88U, 0x3CU, 0x00U, 0xA0U, 0x88U,
+         0x80U, 0x80U, 0x00U, 0x41U, 0x00U, 0x20U, 0x04U, 0x42U, 0x10U, 0x88U,
+         0x3CU, 0x00U, 0x9FU, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U, 0x00U, 0x20U,
+         0x04U, 0x42U, 0x18U, 0x88U, 0x3CU, 0x00U, 0x9EU, 0x88U, 0x80U, 0x80U,
+         0x00U, 0x41U, 0x00U, 0x20U, 0x04U, 0x42U, 0x20U, 0x88U, 0x3CU, 0x00U,
+         0x9DU, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U, 0x00U, 0x20U, 0x04U, 0x42U,
+         0x28U, 0x88U, 0x3CU, 0x00U, 0x9CU, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U,
+         0x00U, 0x20U, 0x04U, 0x42U, 0x30U, 0x88U, 0x3CU, 0x00U, 0x9BU, 0x88U,
+         0x80U, 0x80U, 0x00U, 0x41U, 0x00U, 0x20U, 0x04U, 0x42U, 0x38U, 0x88U,
+         0xA7U, 0x41U, 0x3FU, 0x71U, 0x41U, 0xC0U, 0x00U, 0x72U, 0x3AU, 0x00U,
+         0x9AU, 0x88U, 0x80U, 0x80U, 0x00U, 0x02U, 0x40U, 0x02U, 0x40U, 0x20U,
+         0x01U, 0x41U, 0x20U, 0x41U, 0x80U, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U,
+         0xE5U, 0x01U, 0x10U, 0x87U, 0x80U, 0x80U, 0x80U, 0x00U, 0x42U, 0x7FU,
+         0x55U, 0x0DU, 0x00U, 0x41U, 0xE5U, 0x89U, 0x80U, 0x80U, 0x00U, 0x41U,
+         0x0DU, 0x42U, 0xD3U, 0x00U, 0x10U, 0x88U, 0x80U, 0x80U, 0x80U, 0x00U,
+         0x21U, 0x04U, 0x0CU, 0x01U, 0x0BU, 0x41U, 0xF2U, 0x89U, 0x80U, 0x80U,
+         0x00U, 0x41U, 0x10U, 0x42U, 0xD4U, 0x00U, 0x10U, 0x81U, 0x80U, 0x80U,
+         0x80U, 0x00U, 0x21U, 0x04U, 0x0BU, 0x20U, 0x01U, 0x41U, 0x20U, 0x6AU,
+         0x24U, 0x80U, 0x80U, 0x80U, 0x80U, 0x00U, 0x20U, 0x04U, 0x0BU, 0x0BU,
+         0x90U, 0x02U, 0x02U, 0x00U, 0x41U, 0x80U, 0x08U, 0x0BU, 0xE5U, 0x01U,
+         0x12U, 0x00U, 0x63U, 0x22U, 0x00U, 0x00U, 0x00U, 0x00U, 0x24U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U, 0x20U,
+         0x1BU, 0x00U, 0x00U, 0x00U, 0x00U, 0x68U, 0x40U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x73U, 0x21U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x81U,
+         0x14U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+         0x41U, 0xE5U, 0x09U, 0x0BU, 0x1DU, 0x45U, 0x6DU, 0x69U, 0x74U, 0x20U,
+         0x66U, 0x61U, 0x69U, 0x6CU, 0x65U, 0x64U, 0x2EU, 0x00U, 0x45U, 0x6DU,
+         0x69U, 0x74U, 0x20U, 0x73U, 0x75U, 0x63U, 0x63U, 0x65U, 0x65U, 0x64U,
+         0x65U, 0x64U, 0x2EU, 0x00U,
+     }},
+
+    /* ==== WASM: 101 ==== */
     {R"[test.hook.gas](
                     (module
                     (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34145,7 +34332,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 101 ==== */
+    /* ==== WASM: 102 ==== */
     {R"[test.hook.gas](
                     (module
                     (type (;0;) (func (param i32 i32) (result i32)))
@@ -34180,7 +34367,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x10U, 0x01U, 0x0BU,
      }},
 
-    /* ==== WASM: 102 ==== */
+    /* ==== WASM: 103 ==== */
     {R"[test.hook.gas](
                     (module
                     (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34234,7 +34421,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x0BU,
      }},
 
-    /* ==== WASM: 103 ==== */
+    /* ==== WASM: 104 ==== */
     {R"[test.hook.gas](
                 (module
                 (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34262,7 +34449,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 104 ==== */
+    /* ==== WASM: 105 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34285,7 +34472,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 105 ==== */
+    /* ==== WASM: 106 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34314,7 +34501,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 106 ==== */
+    /* ==== WASM: 107 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34341,7 +34528,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 107 ==== */
+    /* ==== WASM: 108 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34367,7 +34554,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 108 ==== */
+    /* ==== WASM: 109 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34394,7 +34581,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 109 ==== */
+    /* ==== WASM: 110 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34421,7 +34608,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 110 ==== */
+    /* ==== WASM: 111 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34449,7 +34636,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x1AU, 0x0BU,
      }},
 
-    /* ==== WASM: 111 ==== */
+    /* ==== WASM: 112 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34478,7 +34665,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x1AU, 0x41U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 112 ==== */
+    /* ==== WASM: 113 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34514,7 +34701,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 113 ==== */
+    /* ==== WASM: 114 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34550,7 +34737,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 114 ==== */
+    /* ==== WASM: 115 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34588,7 +34775,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x42U, 0x00U, 0x10U, 0x00U, 0x1AU, 0x41U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 115 ==== */
+    /* ==== WASM: 116 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32) (result i64)))
@@ -34607,7 +34794,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x06U, 0x01U, 0x04U, 0x00U, 0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 116 ==== */
+    /* ==== WASM: 117 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -34636,7 +34823,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 117 ==== */
+    /* ==== WASM: 118 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32) (result i32)))
@@ -34659,7 +34846,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 118 ==== */
+    /* ==== WASM: 119 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64)))
@@ -34682,7 +34869,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 119 ==== */
+    /* ==== WASM: 120 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i32)))
@@ -34705,7 +34892,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x04U, 0x00U, 0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 120 ==== */
+    /* ==== WASM: 121 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32) (result i64)))
@@ -34729,7 +34916,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x41U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 121 ==== */
+    /* ==== WASM: 122 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64 i32) (result i64)))
@@ -34752,7 +34939,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x01U, 0x04U, 0x00U, 0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 122 ==== */
+    /* ==== WASM: 123 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i64 i32 i64) (result i64)))
@@ -34775,7 +34962,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x04U, 0x00U, 0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 123 ==== */
+    /* ==== WASM: 124 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i64 i64 i64 i64 i64 i64) (result i64)))
@@ -34799,7 +34986,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x42U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 124 ==== */
+    /* ==== WASM: 125 ==== */
     {R"[test.hook.gas](
             #include <stdint.h>
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -35016,7 +35203,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x63U, 0x33U, 0x36U, 0x35U, 0x29U,
      }},
 
-    /* ==== WASM: 125 ==== */
+    /* ==== WASM: 126 ==== */
     {R"[test.hook.gas](
                     (module
                     (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -35061,7 +35248,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x10U, 0x00U, 0x0BU, 0x0BU,
      }},
 
-    /* ==== WASM: 126 ==== */
+    /* ==== WASM: 127 ==== */
     {R"[test.hook.gas](
                     (module
                     (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -35107,7 +35294,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x01U, 0x10U, 0x00U, 0x0BU, 0x0BU,
      }},
 
-    /* ==== WASM: 127 ==== */
+    /* ==== WASM: 128 ==== */
     {R"[test.hook.gas](
                     (module
                     (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -35134,7 +35321,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 128 ==== */
+    /* ==== WASM: 129 ==== */
     {R"[test.hook.gas](
                     (module
                     (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -35161,7 +35348,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 129 ==== */
+    /* ==== WASM: 130 ==== */
     {R"[test.hook.gas](
                     (module
                     (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -35188,7 +35375,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 130 ==== */
+    /* ==== WASM: 131 ==== */
     {R"[test.hook.gas](
                     (module
                     (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -35215,7 +35402,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 131 ==== */
+    /* ==== WASM: 132 ==== */
     {R"[test.hook.gas](
             (module
               (type (;0;) (func (param i32 i32 i64) (result i64)))
@@ -35241,7 +35428,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x00U, 0x0BU,
      }},
 
-    /* ==== WASM: 132 ==== */
+    /* ==== WASM: 133 ==== */
     {R"[test.hook.gas](
             #include <stdint.h>
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -35291,7 +35478,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x33U, 0x36U, 0x35U, 0x29U,
      }},
 
-    /* ==== WASM: 133 ==== */
+    /* ==== WASM: 134 ==== */
     {R"[test.hook.gas](
             #include <stdint.h>
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -35348,7 +35535,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x36U, 0x35U, 0x29U,
      }},
 
-    /* ==== WASM: 134 ==== */
+    /* ==== WASM: 135 ==== */
     {R"[test.hook.gas](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
@@ -35403,7 +35590,7 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x33U, 0x36U, 0x35U, 0x29U,
      }},
 
-    /* ==== WASM: 135 ==== */
+    /* ==== WASM: 136 ==== */
     {R"[test.hook.gas](
             #include <stdint.h>
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);

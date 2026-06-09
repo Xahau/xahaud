@@ -11,6 +11,9 @@ APPLY_HOOK="$SCRIPT_DIR/../include/xrpl/hook/hook_api.macro"
     echo '// Generated using generate_extern.sh'
     echo '#include <stdint.h>'
     echo '#ifndef HOOK_EXTERN'
+    echo '#ifdef __cplusplus'
+    echo 'extern "C" {'
+    echo '#endif'
     echo
     awk '
         function trim(s) {
@@ -46,6 +49,9 @@ APPLY_HOOK="$SCRIPT_DIR/../include/xrpl/hook/hook_api.macro"
         }
     ' "$APPLY_HOOK"
 
+    echo '#ifdef __cplusplus'
+    echo '}'
+    echo '#endif'
     echo '#define HOOK_EXTERN'
     echo '#endif  // HOOK_EXTERN'
 } | (
