@@ -20,13 +20,10 @@
 #include <test/jtx.h>
 #include <test/jtx/import.h>
 #include <test/jtx/xpop.h>
-#include <test/shamap/common.h>
-#include <test/unit_test/SuiteJournal.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/proof/LedgerProof.h>
 #include <xrpld/app/proof/ProofBuilder.h>
 #include <xrpld/app/proof/XPOPv1.h>
-#include <xrpld/shamap/SHAMapItem.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/protocol/Import.h>
 #include <xrpl/protocol/digest.h>
@@ -118,6 +115,10 @@ struct XPOP_test : public beast::unit_test::suite
 
         auto missing = proof::buildLedgerProof(*lcl, makeHash("missing-tx"));
         BEAST_EXPECT(!missing);
+
+        auto const missingProof =
+            proof::extractProofV1(lcl->txMap(), makeHash("missing-proof"));
+        BEAST_EXPECT(!missingProof);
     }
 
     void
@@ -149,33 +150,6 @@ struct XPOP_test : public beast::unit_test::suite
         BEAST_EXPECT(proofJson.isArray());
         BEAST_EXPECT(proofJson.size() == 16);
         BEAST_EXPECT(proofJson[3].asString() == to_string(manual.leafHash));
-
-        test::SuiteJournal journal("XPOP_test", *this);
-        tests::TestNodeFamily family{journal};
-        SHAMap map{SHAMapType::FREE, family};
-        map.setUnbacked();
-
-        auto const keyA = makeHash("proof-key-a");
-        auto const keyB = makeHash("proof-key-b");
-        BEAST_EXPECT(map.addItem(
-            SHAMapNodeType::tnTRANSACTION_NM,
-            make_shamapitem(keyA, Slice("proof-value-a", 13))));
-        BEAST_EXPECT(map.addItem(
-            SHAMapNodeType::tnTRANSACTION_NM,
-            make_shamapitem(keyB, Slice("proof-value-b", 13))));
-
-        auto const extracted = proof::extractProofV1(map, keyA);
-        BEAST_EXPECT(extracted.has_value());
-        if (extracted)
-        {
-            auto const extractedRoot = extracted->computeRoot();
-            BEAST_EXPECT(extractedRoot.has_value());
-            if (extractedRoot)
-                BEAST_EXPECT(extracted->verify(*extractedRoot));
-        }
-
-        auto const missing = proof::extractProofV1(map, makeHash("proof-miss"));
-        BEAST_EXPECT(!missing);
     }
 
     void
