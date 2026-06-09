@@ -181,7 +181,8 @@ struct XPOP_test : public beast::unit_test::suite
             });
 
         // Build XPOP using the test helper.
-        auto const xpop = xpop::buildTestXPOP(env, txHash, 3);
+        auto const xpopCtx = xpop::TestXPOPContext::create(3);
+        auto const xpop = xpopCtx.buildXPOP(*lcl, txHash);
         BEAST_EXPECT(!xpop.isNull());
 
         // Verify structure.
@@ -221,6 +222,45 @@ struct XPOP_test : public beast::unit_test::suite
         BEAST_EXPECT(unl.isMember(jss::blob));
         BEAST_EXPECT(unl.isMember(jss::signature));
         BEAST_EXPECT(unl.isMember(jss::version));
+
+        auto const encoded = proof::xpopToHex(xpop);
+        BEAST_EXPECT(!encoded.empty());
+        BEAST_EXPECT(strUnHex(encoded).has_value());
+
+        auto const missing = proof::buildXPOPv1(
+            *lcl,
+            makeHash("missing-xpop-tx"),
+            std::vector<proof::ValidatorKeys>{},
+            xpopCtx.vlData);
+        BEAST_EXPECT(missing.isNull());
+    }
+
+    void
+    testBuildXPOPv1WithoutMerkleProof()
+    {
+        testcase("Build XPOP v1 without merkle proof");
+
+        auto const xpopCtx = jtx::xpop::TestXPOPContext::create(0);
+
+        proof::LedgerProof lp;
+        lp.ledgerIndex = 17;
+        lp.totalCoins = 12345;
+        lp.parentHash = makeHash("xpop-parent");
+        lp.txRoot = makeHash("xpop-tx-root");
+        lp.accountRoot = makeHash("xpop-account-root");
+        lp.parentCloseTime = 100;
+        lp.closeTime = 200;
+        lp.closeTimeResolution = 10;
+        lp.closeFlags = 1;
+        lp.txBlob = Blob{0x12, 0x00, 0x00};
+        lp.metaBlob = Blob{0x01, 0x02};
+
+        auto const xpop = proof::buildXPOPv1(
+            lp, std::vector<proof::ValidatorKeys>{}, xpopCtx.vlData);
+        BEAST_EXPECT(!xpop.isNull());
+        BEAST_EXPECT(xpop[jss::transaction][jss::proof].isArray());
+        BEAST_EXPECT(xpop[jss::transaction][jss::proof].size() == 0);
+        BEAST_EXPECT(xpop[jss::validation][jss::data].size() == 0);
 
         auto const encoded = proof::xpopToHex(xpop);
         BEAST_EXPECT(!encoded.empty());
@@ -346,6 +386,7 @@ struct XPOP_test : public beast::unit_test::suite
         testBuildLedgerProof();
         testProofBuilderEdgeCases();
         testBuildXPOPv1();
+        testBuildXPOPv1WithoutMerkleProof();
         testMerkleProofVerification();
         testImportWithGeneratedXPOP();
     }
