@@ -172,6 +172,53 @@ public:
     }
 
     void
+    testEmptyInputAndDirectVerification()
+    {
+        testcase("empty input and direct verification");
+
+        std::vector<std::string> const empty;
+        ExportTxnLookup lookup;
+        ExportSigCollector collector;
+
+        auto input = makeInput(empty, lookup, true, prevLedger_);
+        BEAST_EXPECT(harvestExportSignatures(input, collector, journal()) == 0);
+
+        auto const senderAccount = calcAccountID(sender_.first);
+        auto const dstAccount = calcAccountID(other_.first);
+        auto const innerObj = makeExportedPayment(senderAccount, dstAccount);
+        auto const innerTx = makeSTTx(innerObj);
+        auto const sigData = buildMultiSigningData(innerTx, senderAccount);
+        auto const sig = sign(sender_.first, sender_.second, sigData.slice());
+        auto const exportTx = makeExportTx(innerObj, senderAccount);
+        auto const txHash = exportTx->getTransactionID();
+
+        BEAST_EXPECT(verifyExportSignatureAgainstTx(
+            *exportTx,
+            sender_.first,
+            Slice(sig.data(), sig.size()),
+            txHash,
+            journal(),
+            source_));
+
+        BEAST_EXPECT(!verifyExportSignatureAgainstTx(
+            *exportTx,
+            sender_.first,
+            Slice("bad-sig", 7),
+            txHash,
+            journal(),
+            source_));
+
+        auto const noInner = makeExportTxWithoutInner(senderAccount);
+        BEAST_EXPECT(!verifyExportSignatureAgainstTx(
+            *noInner,
+            sender_.first,
+            Slice(sig.data(), sig.size()),
+            noInner->getTransactionID(),
+            journal(),
+            source_));
+    }
+
+    void
     testIgnoresEmptyAndMalformedEntries()
     {
         testcase("ignores empty and malformed entries");
@@ -332,6 +379,7 @@ public:
     run() override
     {
         testRejectsTooManyEntries();
+        testEmptyInputAndDirectVerification();
         testIgnoresEmptyAndMalformedEntries();
         testRejectsInactiveOrWrongParent();
         testRejectsPubkeyMismatchAtomically();

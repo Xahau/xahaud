@@ -248,6 +248,39 @@ public:
     }
 
     void
+    testDefensiveNoOps()
+    {
+        testcase("defensive no-op paths");
+
+        ExportSigCollector collector;
+        auto const missingTx = makeHash("missing-defensive");
+        auto const standaloneTx = makeHash("standalone-defensive");
+        auto const sig = makeSignature(40);
+
+        collector.upgradeSignature(missingTx, validator_, sig, 10);
+        BEAST_EXPECT(collector.signatureCount(missingTx) == 0);
+        BEAST_EXPECT(!collector.removeSignature(missingTx, validator_, sig));
+        BEAST_EXPECT(!collector.checkQuorumAndSnapshot(missingTx, 1));
+        BEAST_EXPECT(collector.signatureCount(missingTx, [](PublicKey const&) {
+            return true;
+        }) == 0);
+
+        collector.addStandaloneSignature(standaloneTx, validator_, 10);
+        collector.upgradeSignature(standaloneTx, validator_, Buffer{}, 11);
+        BEAST_EXPECT(collector.signatureCount(standaloneTx) == 1);
+        BEAST_EXPECT(collector.snapshotWithSigs()
+                         .at(standaloneTx)
+                         .at(validator_)
+                         .empty());
+
+        auto filtered =
+            collector.snapshotWithSigs([](PublicKey const&) { return false; });
+        BEAST_EXPECT(filtered.empty());
+        BEAST_EXPECT(!collector.checkQuorumAndSnapshot(
+            standaloneTx, 1, [](PublicKey const&) { return false; }));
+    }
+
+    void
     run() override
     {
         testCleanupUsesFirstSeenSeq();
@@ -256,6 +289,7 @@ public:
         testSnapshotsAndFilteredCounts();
         testStandaloneAndRoundState();
         testClearAll();
+        testDefensiveNoOps();
     }
 };
 
