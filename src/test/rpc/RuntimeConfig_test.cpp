@@ -98,27 +98,48 @@ class RuntimeConfig_test : public beast::unit_test::suite
 
         ConfigVals global;
         global.sendDelayMs = 100;
+        global.sendDelayJitterMs = 10;
         global.sendDropPctX100 = 250;
+        global.rngClaimDropPctX100 = 750;
         global.bootstrapFastStart = false;
+        global.rngPollMs = 250;
+        global.noExportSig = false;
         global.messageCategories =
             std::set<std::size_t>{TrafficCount::category::proposal};
 
         ConfigVals peer;
         peer.sendDelayMs = 500;
+        peer.sendDelayJitterMs = 25;
         peer.explicitFinalProposal = true;
+        peer.rngPollMs = 75;
+        peer.noExportSig = true;
         peer.messageCategories = std::set<std::size_t>{};
 
         auto const merged = global.merged(peer);
         BEAST_EXPECT(merged.sendDelayMs == 500);
+        BEAST_EXPECT(merged.sendDelayJitterMs == 25);
         BEAST_EXPECT(merged.sendDropPctX100 == 250);
+        BEAST_EXPECT(merged.rngClaimDropPctX100 == 750);
         BEAST_EXPECT(merged.bootstrapFastStart.has_value());
         BEAST_EXPECT(*merged.bootstrapFastStart == false);
         BEAST_EXPECT(merged.explicitFinalProposal.has_value());
         BEAST_EXPECT(*merged.explicitFinalProposal == true);
+        BEAST_EXPECT(merged.rngPollMs == 75);
+        BEAST_EXPECT(merged.noExportSig.has_value());
+        BEAST_EXPECT(*merged.noExportSig == true);
         BEAST_EXPECT(merged.messageCategories.has_value());
         BEAST_EXPECT(merged.messageCategories->empty());
         BEAST_EXPECT(merged.appliesTo(TrafficCount::category::proposal));
         BEAST_EXPECT(merged.appliesTo(TrafficCount::category::validation));
+
+        ConfigVals inactive;
+        inactive.sendDelayMs = 0;
+        inactive.sendDelayJitterMs = 0;
+        inactive.sendDropPctX100 = 0;
+        inactive.rngClaimDropPctX100 = 0;
+        BEAST_EXPECT(!inactive.active());
+        inactive.explicitFinalProposal = false;
+        BEAST_EXPECT(inactive.active());
     }
 
     void
@@ -314,24 +335,63 @@ class RuntimeConfig_test : public beast::unit_test::suite
 
         EnvVarGuard runtimeJson{
             "XAHAU_RUNTIME_CONFIG",
-            R"({"*":{"send_delay_ms":100,"message_types":["proposal"]},)"
-            R"("10.0.0.5:51235":{"send_drop_pct":2.5,"message_types":[]}})"};
+            R"({"*":{"send_delay_ms":100,"send_delay_jitter_ms":20,)"
+            R"("send_drop_pct":1.25,"rng_claim_drop_pct":3.5,)"
+            R"("explicit_final_proposal":true,"bootstrap_fast_start":false,)"
+            R"("rng_poll_ms":5,"no_export_sig":true,)"
+            R"("message_types":["proposal"]},)"
+            R"("10.0.0.5:51235":{"send_delay_ms":200,)"
+            R"("send_drop_pct":2.5,"rng_claim_drop_pct":4.5,)"
+            R"("explicit_final_proposal":false,"bootstrap_fast_start":true,)"
+            R"("rng_poll_ms":125,"no_export_sig":false,)"
+            R"("message_types":[]}})"};
 
         RuntimeConfig rc;
         auto global = rc.getConfig("*");
         if (!BEAST_EXPECT(global.has_value()))
             return;
         BEAST_EXPECT(global->sendDelayMs == 100);
+        BEAST_EXPECT(global->sendDelayJitterMs == 20);
+        BEAST_EXPECT(global->sendDropPctX100 == 125);
+        BEAST_EXPECT(global->rngClaimDropPctX100 == 350);
+        BEAST_EXPECT(global->explicitFinalProposal.has_value());
+        BEAST_EXPECT(*global->explicitFinalProposal == true);
+        BEAST_EXPECT(global->bootstrapFastStart.has_value());
+        BEAST_EXPECT(*global->bootstrapFastStart == false);
+        BEAST_EXPECT(global->rngPollMs == 50);
+        BEAST_EXPECT(global->noExportSig.has_value());
+        BEAST_EXPECT(*global->noExportSig == true);
         BEAST_EXPECT(global->appliesTo(TrafficCount::category::proposal));
         BEAST_EXPECT(!global->appliesTo(TrafficCount::category::validation));
 
         auto peer = rc.getConfig("10.0.0.5:51235");
         if (!BEAST_EXPECT(peer.has_value()))
             return;
-        BEAST_EXPECT(peer->sendDelayMs == 100);
+        BEAST_EXPECT(peer->sendDelayMs == 200);
+        BEAST_EXPECT(peer->sendDelayJitterMs == 20);
         BEAST_EXPECT(peer->sendDropPctX100 == 250);
+        BEAST_EXPECT(peer->rngClaimDropPctX100 == 450);
+        BEAST_EXPECT(peer->explicitFinalProposal.has_value());
+        BEAST_EXPECT(*peer->explicitFinalProposal == false);
+        BEAST_EXPECT(peer->bootstrapFastStart.has_value());
+        BEAST_EXPECT(*peer->bootstrapFastStart == true);
+        BEAST_EXPECT(peer->rngPollMs == 125);
+        BEAST_EXPECT(peer->noExportSig.has_value());
+        BEAST_EXPECT(*peer->noExportSig == false);
         BEAST_EXPECT(peer->appliesTo(TrafficCount::category::proposal));
         BEAST_EXPECT(peer->appliesTo(TrafficCount::category::validation));
+    }
+
+    void
+    testRuntimeConfigInvalidJsonEnvIgnored()
+    {
+        testcase("Invalid XAHAU_RUNTIME_CONFIG JSON is ignored");
+
+        EnvVarGuard runtimeJson{"XAHAU_RUNTIME_CONFIG", R"([])"};
+
+        RuntimeConfig rc;
+        BEAST_EXPECT(!rc.active());
+        BEAST_EXPECT(!rc.getConfig("*").has_value());
     }
 
     void
@@ -891,6 +951,7 @@ public:
         testRuntimeConfigDirectRawAndCategoryHelpers();
         testRuntimeConfigIndividualEnvVars();
         testRuntimeConfigJsonEnvMergesTargets();
+        testRuntimeConfigInvalidJsonEnvIgnored();
         testGetEmpty();
         testSetGlobal();
         testSetPerPeer();
