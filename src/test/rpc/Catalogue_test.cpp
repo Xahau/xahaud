@@ -17,16 +17,104 @@
 */
 //==============================================================================
 
-#include <ripple/app/ledger/LedgerMaster.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/protocol/jss.h>
+#include <test/jtx.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/beast/utility/temp_dir.h>
+#include <xrpl/protocol/jss.h>
 #include <boost/filesystem.hpp>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
-#include <test/jtx.h>
+#include <grpc/impl/codegen/compression_types.h>
 #include <thread>
 
 namespace ripple {
+
+namespace {
+
+// Parameters for polling ledger retrieval
+struct LedgerRetryParams
+{
+    test::jtx::Env& env;
+    std::uint32_t seq = 0;
+    std::chrono::milliseconds pollInterval = std::chrono::milliseconds(500);
+    std::chrono::milliseconds maxWaitTime = std::chrono::milliseconds(10000);
+    bool requireValidated = false;
+};
+
+// Poll for ledger availability with retry logic
+// Returns nullptr if ledger cannot be retrieved within the timeout period
+std::shared_ptr<Ledger const>
+getLedgerWithRetry(const LedgerRetryParams& params)
+{
+    auto start = std::chrono::steady_clock::now();
+
+    while (true)
+    {
+        // First try to get the hash for this sequence
+        auto hash = params.env.app().getLedgerMaster().getHashBySeq(params.seq);
+
+        if (hash.isNonZero())
+        {
+            // Hash found, now try to get the ledger
+            auto ledger =
+                params.env.app().getLedgerMaster().getLedgerByHash(hash);
+
+            if (ledger)
+            {
+                // If we don't require validation, or if it's already validated,
+                // return it
+                if (!params.requireValidated || ledger->info().validated)
+                {
+                    return ledger;
+                }
+                // Otherwise continue polling until it becomes validated
+            }
+        }
+
+        // Check if we've exceeded the timeout
+        auto elapsed = std::chrono::steady_clock::now() - start;
+        if (elapsed >= params.maxWaitTime)
+        {
+            return nullptr;
+        }
+
+        // Wait before next attempt
+        std::this_thread::sleep_for(params.pollInterval);
+    }
+}
+
+// Options for catalogueEnvconfig. Use designated initializers at call sites
+// so each test reads as a small diff against the default — easy to scan and
+// trivially extensible (add fields here, no call-site churn).
+//   catalogueEnvconfig()                              // happy path
+//   catalogueEnvconfig({.withPinnedType = false})     // exercise guard
+struct CatalogueEnvOpts
+{
+    // Set [node_db] pinned_type=rwdb so catalogue_load passes its guard.
+    // false → omit pinned_type entirely (drives the rejection path).
+    bool withPinnedType = true;
+
+    // [node_db] online_delete value (lifetime of rotating store, in ledgers).
+    std::string onlineDelete = "256";
+};
+
+// envconfig with pinned_type set so catalogue_load passes the config guard.
+// Uses rwdb for in-process speed (allowed in standalone).
+inline std::unique_ptr<Config>
+catalogueEnvconfig(CatalogueEnvOpts const& opts = {})
+{
+    auto cfg = test::jtx::envconfig();
+    auto& nodeDb = cfg->section(ConfigSection::nodeDatabase());
+    if (opts.withPinnedType)
+        nodeDb.set("pinned_type", "rwdb");
+    nodeDb.set("online_delete", opts.onlineDelete);
+    return cfg;
+}
+
+}  // anonymous namespace
 
 #pragma pack(push, 1)  // pack the struct tightly
 struct TestCATLHeader
@@ -215,7 +303,24 @@ class Catalogue_test : public beast::unit_test::suite
     {
         testcase("catalogue_load: Invalid parameters");
         using namespace test::jtx;
-        Env env{*this, envconfig(), features};
+        Env env{*this, catalogueEnvconfig(), features};
+
+        // Missing [node_db] pinned_type — catalogue_load rejects up front so
+        // loaded data isn't lost on the next rotation. Use a separate Env
+        // because this guard fires before any input_file parsing.
+        {
+            Env envNoPin{
+                *this, catalogueEnvconfig({.withPinnedType = false}), features};
+            Json::Value params{Json::objectValue};
+            params[jss::input_file] = "/tmp/anything.catl";
+            auto const result =
+                envNoPin.client().invoke("catalogue_load", params)[jss::result];
+            BEAST_EXPECT(result[jss::error] == "invalidParams");
+            BEAST_EXPECT(result[jss::status] == "error");
+            BEAST_EXPECT(
+                result[jss::error_message].asString().find("pinned_type") !=
+                std::string::npos);
+        }
 
         // No parameters
         {
@@ -253,6 +358,42 @@ class Catalogue_test : public beast::unit_test::suite
             BEAST_EXPECT(result[jss::error] == "internal");
             BEAST_EXPECT(result[jss::status] == "error");
         }
+
+        // Header has min_ledger > max_ledger
+        {
+            boost::filesystem::path tempDir =
+                boost::filesystem::temp_directory_path() /
+                boost::filesystem::unique_path();
+            boost::filesystem::create_directories(tempDir);
+
+            auto cataloguePath = (tempDir / "invalid-range.catl").string();
+
+            TestCATLHeader header;
+            header.min_ledger = 20;
+            header.max_ledger = 10;
+            header.version = 1;
+            header.network_id = env.app().config().NETWORK_ID;
+            header.filesize = sizeof(TestCATLHeader);
+
+            std::ofstream outfile(
+                cataloguePath.c_str(), std::ios::out | std::ios::binary);
+            BEAST_EXPECT(outfile.good());
+            outfile.write(
+                reinterpret_cast<char const*>(&header), sizeof(header));
+            outfile.close();
+
+            Json::Value params{Json::objectValue};
+            params[jss::input_file] = cataloguePath;
+            auto const result =
+                env.client().invoke("catalogue_load", params)[jss::result];
+            BEAST_EXPECT(result[jss::error] == "invalidParams");
+            BEAST_EXPECT(result[jss::status] == "error");
+            BEAST_EXPECT(
+                result[jss::error_message].asString().find(
+                    "min_ledger must be <= max_ledger") != std::string::npos);
+
+            boost::filesystem::remove_all(tempDir);
+        }
     }
 
     void
@@ -262,8 +403,24 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment and test data
-        Env env{*this, envconfig(), features};
+        Env env{*this, catalogueEnvconfig(), nullptr, beast::severities::kNone};
         prepareLedgerData(env, 5);
+
+        auto noop = [](test::jtx::Env& env,
+                       std::string partition,
+                       std::string severity) {
+            Json::Value params{Json::objectValue};
+            params[jss::severity] = severity;
+            params[jss::partition] = partition;
+            // env.client().invoke("log_level", params);
+        };
+
+        // Create journal for debugging
+        auto j = env.app().logs().journal("Catalogue_test");
+        noop(env, "CatalogueTools", "trace");
+        noop(env, "Catalogue_test", "trace");
+
+        JLOG(j.trace()) << "Test environment created, prepared ledger data";
 
         // Store some key state information before catalogue creation
         auto const sourceLedger = env.closed();
@@ -273,6 +430,9 @@ class Catalogue_test : public beast::unit_test::suite
             Account("charlie").id(),
             Account("bob").id(),
             Currency(to_currency("EUR")));
+
+        JLOG(j.trace()) << "Source ledger seq: " << sourceLedger->info().seq
+                        << " hash: " << sourceLedger->info().hash;
 
         // Get original state entries
         auto const bobAcct = sourceLedger->read(bobKeylet);
@@ -302,6 +462,10 @@ class Catalogue_test : public beast::unit_test::suite
         // First create a catalogue
         uint32_t minLedger = 3;
         uint32_t maxLedger = sourceLedger->info().seq;
+
+        JLOG(j.trace()) << "Creating catalogue from ledger " << minLedger
+                        << " to " << maxLedger;
+
         {
             Json::Value params{Json::objectValue};
             params[jss::min_ledger] = minLedger;
@@ -311,27 +475,43 @@ class Catalogue_test : public beast::unit_test::suite
             auto const result =
                 env.client().invoke("catalogue_create", params)[jss::result];
             BEAST_EXPECT(result[jss::status] == jss::success);
+
+            JLOG(j.trace()) << "Catalogue created: " << result.toStyledString();
         }
 
-        // Create a new environment for loading with unique port
+        // Create a new environment for loading the catalogue
+        // We use a separate environment with incremented ports to avoid
+        // conflicts Note: The default RWDB backend works fine - the key insight
+        // is that pinned ledgers bypass the cache, so we need to poll for
+        // availability as the async publishAcqLedger jobs complete
         Env loadEnv{
             *this,
-            test::jtx::envconfig(test::jtx::port_increment, 3),
+            catalogueEnvconfig(),
             features,
         };
+
+        noop(loadEnv, "CatalogueTools", "trace");
+        noop(loadEnv, "Catalogue_test", "trace");
+
+        // Create journal for load environment
+        auto loadJ = loadEnv.app().logs().journal("Catalogue_test");
 
         // Now load the catalogue
         Json::Value params{Json::objectValue};
         params[jss::input_file] = cataloguePath;
 
+        JLOG(loadJ.trace()) << "Loading catalogue from " << cataloguePath;
+
         auto const result =
             loadEnv.client().invoke("catalogue_load", params)[jss::result];
+
+        JLOG(loadJ.trace())
+            << "Catalogue load result: " << result.toStyledString();
 
         BEAST_EXPECT(result[jss::status] == jss::success);
         BEAST_EXPECT(result[jss::ledger_min] == minLedger);
         BEAST_EXPECT(result[jss::ledger_max] == maxLedger);
         BEAST_EXPECT(result[jss::ledger_count] == (maxLedger - minLedger + 1));
-
         // Verify complete_ledgers reflects loaded ledgers
         auto const newCompleteLedgers =
             loadEnv.app().getLedgerMaster().getCompleteLedgers();
@@ -346,19 +526,35 @@ class Catalogue_test : public beast::unit_test::suite
         // Compare all ledgers from 3 to 16 inclusive
         for (std::uint32_t seq = 3; seq <= 16; ++seq)
         {
-            auto const sourceLedger =
-                env.app().getLedgerMaster().getLedgerByHash(
-                    env.app().getLedgerMaster().getHashBySeq(seq));
+            JLOG(j.trace()) << "Comparing ledger " << seq;
 
-            auto const loadedLedger =
-                loadEnv.app().getLedgerMaster().getLedgerByHash(
-                    loadEnv.app().getLedgerMaster().getHashBySeq(seq));
+            // Get the source ledger (doesn't need to be validated)
+            auto const sourceLedger = getLedgerWithRetry(
+                {.env = env,
+                 .seq = seq,
+                 .pollInterval = std::chrono::milliseconds(100),
+                 .maxWaitTime = std::chrono::milliseconds(5000),
+                 .requireValidated = false});
+
+            // Get the loaded ledger (must be validated)
+            auto const loadedLedger = getLedgerWithRetry(
+                {.env = loadEnv,
+                 .seq = seq,
+                 .pollInterval = std::chrono::milliseconds(500),
+                 .maxWaitTime = std::chrono::milliseconds(30000),
+                 .requireValidated = true});
 
             if (!sourceLedger || !loadedLedger)
             {
+                JLOG(j.trace())
+                    << "Failed to get ledger " << seq
+                    << " source: " << (sourceLedger ? "ok" : "missing")
+                    << " loaded: " << (loadedLedger ? "ok" : "missing");
                 BEAST_EXPECT(false);  // Test failure
                 continue;
             }
+
+            JLOG(j.trace()) << "Got both ledgers for seq " << seq;
 
             // Check basic ledger properties
             BEAST_EXPECT(sourceLedger->info().seq == loadedLedger->info().seq);
@@ -404,6 +600,10 @@ class Catalogue_test : public beast::unit_test::suite
             std::size_t sourceCount = std::ranges::distance(sourceLedger->sles);
             std::size_t loadedCount = std::ranges::distance(loadedLedger->sles);
 
+            JLOG(j.trace())
+                << "Ledger " << seq << " SLE count - source: " << sourceCount
+                << " loaded: " << loadedCount;
+
             BEAST_EXPECT(sourceCount == loadedCount);
 
             // Check existence of imported keylets
@@ -411,6 +611,13 @@ class Catalogue_test : public beast::unit_test::suite
             {
                 auto const key = sle->key();
                 bool exists = loadedLedger->exists(keylet::unchecked(key));
+
+                if (!exists)
+                {
+                    JLOG(j.trace())
+                        << "Ledger " << seq << " missing key: " << key;
+                }
+
                 BEAST_EXPECT(exists);
 
                 // If it exists, check the serialized form matches
@@ -421,6 +628,13 @@ class Catalogue_test : public beast::unit_test::suite
                     sle->add(s1);
                     loadedSle->add(s2);
                     bool serializedEqual = (s1.peekData() == s2.peekData());
+
+                    if (!serializedEqual)
+                    {
+                        JLOG(j.trace())
+                            << "Ledger " << seq << " mismatch for key: " << key;
+                    }
+
                     BEAST_EXPECT(serializedEqual);
                 }
             }
@@ -429,9 +643,19 @@ class Catalogue_test : public beast::unit_test::suite
             for (auto const& sle : loadedLedger->sles)
             {
                 auto const key = sle->key();
-                BEAST_EXPECT(sourceLedger->exists(keylet::unchecked(key)));
+                bool exists = sourceLedger->exists(keylet::unchecked(key));
+
+                if (!exists)
+                {
+                    JLOG(j.trace())
+                        << "Ledger " << seq << " extra key in loaded: " << key;
+                }
+
+                BEAST_EXPECT(exists);
             }
         }
+
+        JLOG(j.trace()) << "Ledger comparison complete";
 
         auto const loadedBobAcct = loadedLedger->read(bobKeylet);
         auto const loadedCharlieAcct = loadedLedger->read(charlieKeylet);
@@ -523,10 +747,11 @@ class Catalogue_test : public beast::unit_test::suite
             // Try to load catalogue in environment with different network ID
             Env env2{
                 *this,
-                envconfig([](std::unique_ptr<Config> cfg) {
+                [&]() {
+                    auto cfg = catalogueEnvconfig();
                     cfg->NETWORK_ID = 456;
                     return cfg;
-                }),
+                }(),
                 features,
             };
 
@@ -553,7 +778,7 @@ class Catalogue_test : public beast::unit_test::suite
         // Create environment and test data
         Env env{
             *this,
-            envconfig(),
+            catalogueEnvconfig(),
             features,
             nullptr,
             beast::severities::kDisabled,
@@ -650,7 +875,7 @@ class Catalogue_test : public beast::unit_test::suite
         // Create environment and test data
         Env env{
             *this,
-            envconfig(),
+            catalogueEnvconfig(),
             features,
             nullptr,
             beast::severities::kDisabled,
@@ -729,7 +954,7 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment and test data
-        Env env{*this, envconfig(), features};
+        Env env{*this, catalogueEnvconfig(), features};
         prepareLedgerData(env, 5);
 
         boost::filesystem::path tempDir =
@@ -818,7 +1043,7 @@ class Catalogue_test : public beast::unit_test::suite
         using namespace test::jtx;
 
         // Create environment
-        Env env{*this, envconfig(), features};
+        Env env{*this, catalogueEnvconfig(), features};
 
         boost::filesystem::path tempDir =
             boost::filesystem::temp_directory_path() /

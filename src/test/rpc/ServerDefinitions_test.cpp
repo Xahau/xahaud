@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <ripple/app/misc/AmendmentTable.h>
-#include <ripple/beast/unit_test.h>
-#include <ripple/json/json_reader.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/jss.h>
 #include <test/jtx.h>
+#include <xrpld/app/misc/AmendmentTable.h>
+#include <xrpl/beast/unit_test.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 
@@ -55,9 +55,9 @@ public:
 
         using namespace test::jtx;
 
+        Env env(*this);
+        auto const result = env.rpc("server_definitions");
         {
-            Env env(*this);
-            auto const result = env.rpc("server_definitions");
             BEAST_EXPECT(!result[jss::result].isMember(jss::error));
             BEAST_EXPECT(result[jss::result].isMember(jss::FIELDS));
             BEAST_EXPECT(result[jss::result].isMember(jss::LEDGER_ENTRY_TYPES));
@@ -70,6 +70,38 @@ public:
             BEAST_EXPECT(result[jss::result].isMember(jss::TYPES));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
             BEAST_EXPECT(result[jss::result][jss::status] == "success");
+        }
+
+        // check exception SFields
+        {
+            auto const fieldExists = [&](std::string name) {
+                for (auto& field : result[jss::result][jss::FIELDS])
+                {
+                    if (field[0u].asString() == name)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            BEAST_EXPECT(fieldExists("Generic"));
+            BEAST_EXPECT(fieldExists("Invalid"));
+            BEAST_EXPECT(fieldExists("ObjectEndMarker"));
+            BEAST_EXPECT(fieldExists("ArrayEndMarker"));
+            BEAST_EXPECT(fieldExists("taker_gets_funded"));
+            BEAST_EXPECT(fieldExists("taker_pays_funded"));
+            BEAST_EXPECT(fieldExists("hash"));
+            BEAST_EXPECT(fieldExists("index"));
+        }
+
+        // verify no duplicate field names in FIELDS array
+        {
+            std::set<std::string> fieldNames;
+            for (auto const& field : result[jss::result][jss::FIELDS])
+            {
+                auto const name = field[0u].asString();
+                BEAST_EXPECT(fieldNames.insert(name).second);
+            }
         }
     }
 

@@ -1,4 +1,25 @@
 # This feature requires Git >= 2.24
 # To use it by default in git blame:
 # git config blame.ignoreRevsFile .git-blame-ignore-revs
+# Format first-party source according to .clang-format
 50760c693510894ca368e90369b0cc2dabfd07f3
+# Reintroduce Clang-Format & Levelization
+da1d20d6d5d862716125d60899b80fab5302954a
+# Consolidate external libraries
+da1d20d6d5d862716125d60899b80fab5302954a
+# Rename .hpp to .h
+0345a2645d0f5ad900f4fbbcaff96040d3a887fc
+# Format formerly .hpp files
+5a227dc719016e10045e17c9396ad401118044f1
+# Rewrite includes
+e61880699997398f5a746e6c4034edc7632661f5
+# Move CMake directory (#4997)
+e47b1c1b3b97c3f6d11858ee02f463596e29e7f0
+# Rearrange sources (#4997)
+bfafa2bb39e562901736d656806bd700c3699a2f
+# Rewrite includes (#4997)
+e61880699997398f5a746e6c4034edc7632661f5
+# Recompute loops (#4997)
+d25b5dcd568bb96c18e347d55fac10fe901a1bfb
+# Reformat code with clang-format-18
+02749feea88ce61c1f7eeb2d61a57d8ecf07ab11

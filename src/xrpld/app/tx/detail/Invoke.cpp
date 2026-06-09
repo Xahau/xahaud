@@ -1,0 +1,119 @@
+//------------------------------------------------------------------------------
+/*
+    This file is part of rippled: https://github.com/ripple/rippled
+    Copyright (c) 2012, 2013 Ripple Labs Inc.
+
+    Permission to use, copy, modify, and/or distribute this software for any
+    purpose  with  or without fee is hereby granted, provided that the above
+    copyright notice and this permission notice appear in all copies.
+
+    THE  SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+    WITH  REGARD  TO  THIS  SOFTWARE  INCLUDING  ALL  IMPLIED  WARRANTIES  OF
+    MERCHANTABILITY  AND  FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+    ANY  SPECIAL ,  DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+    WHATSOEVER  RESULTING  FROM  LOSS  OF USE, DATA OR PROFITS, WHETHER IN AN
+    ACTION  OF  CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+*/
+//==============================================================================
+
+#include <xrpld/app/tx/detail/Invoke.h>
+#include <xrpld/ledger/View.h>
+#include <xrpl/basics/Log.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/st.h>
+
+namespace ripple {
+
+TxConsequences
+Invoke::makeTxConsequences(PreflightContext const& ctx)
+{
+    return TxConsequences{ctx.tx, TxConsequences::normal};
+}
+
+NotTEC
+Invoke::preflight(PreflightContext const& ctx)
+{
+    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
+        return ret;
+
+    auto& tx = ctx.tx;
+
+    if (tx.getFieldVL(sfBlob).size() > (128 * 1024))
+    {
+        JLOG(ctx.j.warn()) << "Invoke: blob was more than 128kib "
+                           << tx.getTransactionID();
+        return temMALFORMED;
+    }
+
+    return preflight2(ctx);
+}
+
+TER
+Invoke::preclaim(PreclaimContext const& ctx)
+{
+    if (!ctx.view.rules().enabled(featureHooks))
+        return temDISABLED;
+
+    auto const id = ctx.tx[sfAccount];
+
+    auto const sle = ctx.view.read(keylet::account(id));
+    if (!sle)
+        return terNO_ACCOUNT;
+
+    if (ctx.tx.isFieldPresent(sfDestination))
+    {
+        auto const sleDest =
+            ctx.view.read(keylet::account(ctx.tx[sfDestination]));
+        if (!sleDest)
+            return tecNO_TARGET;
+
+        if (sleDest->isFieldPresent(sfAMMID))
+            return tecNO_PERMISSION;
+    }
+
+    return tesSUCCESS;
+}
+
+TER
+Invoke::doApply()
+{
+    // everything happens in the hooks!
+    return tesSUCCESS;
+}
+
+XRPAmount
+Invoke::calculateBaseFee(ReadView const& view, STTx const& tx)
+{
+    XRPAmount extraFee{0};
+
+    if (tx.isFieldPresent(sfBlob))
+        extraFee +=
+            XRPAmount{static_cast<XRPAmount>(tx.getFieldVL(sfBlob).size())};
+
+    // old code (prior to fixXahauV1)
+    if (!view.rules().enabled(fixXahauV1))
+    {
+        if (tx.isFieldPresent(sfHookParameters))
+        {
+            uint64_t paramBytes = 0;
+            auto const& params = tx.getFieldArray(sfHookParameters);
+            for (auto const& param : params)
+            {
+                paramBytes +=
+                    (param.isFieldPresent(sfHookParameterName)
+                         ? param.getFieldVL(sfHookParameterName).size()
+                         : 0) +
+                    (param.isFieldPresent(sfHookParameterValue)
+                         ? param.getFieldVL(sfHookParameterValue).size()
+                         : 0);
+            }
+            extraFee += XRPAmount{static_cast<XRPAmount>(paramBytes)};
+        }
+    }
+
+    return Transactor::calculateBaseFee(view, tx) + extraFee;
+}
+
+}  // namespace ripple

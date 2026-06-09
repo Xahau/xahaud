@@ -15,26 +15,30 @@ class Xrpl(ConanFile):
         'coverage': [True, False],
         'fPIC': [True, False],
         'jemalloc': [True, False],
-        'reporting': [True, False],
         'rocksdb': [True, False],
         'shared': [True, False],
         'static': [True, False],
         'tests': [True, False],
         'unity': [True, False],
+        'xrpld': [True, False],
         'with_wasmedge': [True, False],
         'tool_requires_b2': [True, False],
     }
 
     requires = [
         'date/3.0.3',
-        'libarchive/3.6.0',
-        'lz4/1.9.4',
         'grpc/1.50.1',
+        'libarchive/3.7.6',
+        'magic_enum/0.9.5',
         'nudb/2.0.8',
         'openssl/3.6.0',
-        'protobuf/3.21.12',
         'soci/4.0.3@xahaud/stable',
+        'xxhash/0.8.2',
         'zlib/1.3.1',
+    ]
+
+    tool_requires = [
+        'protobuf/3.21.12',
     ]
 
     default_options = {
@@ -42,16 +46,15 @@ class Xrpl(ConanFile):
         'coverage': False,
         'fPIC': True,
         'jemalloc': False,
-        'reporting': False,
         'rocksdb': True,
         'shared': False,
         'static': True,
-        'tests': True,
+        'tests': False,
         'unity': False,
+        'xrpld': False,
         'with_wasmedge': True,
         'tool_requires_b2': False,
 
-        'cassandra-cpp-driver/*:shared': False,
         'date/*:header_only': False,
         'grpc/*:shared': False,
         'grpc/*:secure': True,
@@ -70,7 +73,6 @@ class Xrpl(ConanFile):
         'libarchive/*:with_pcreposix': False,
         'libarchive/*:with_xattr': False,
         'libarchive/*:with_zlib': False,
-        'libpq/*:shared': False,
         'lz4/*:shared': False,
         'openssl/*:shared': False,
         'protobuf/*:shared': False,
@@ -86,10 +88,11 @@ class Xrpl(ConanFile):
         'soci/*:shared': False,
         'soci/*:with_sqlite3': True,
         'soci/*:with_boost': True,
+        'xxhash/*:shared': False,
     }
 
     def set_version(self):
-        path = f'{self.recipe_folder}/src/ripple/protocol/impl/BuildInfo.cpp'
+        path = f'{self.recipe_folder}/src/libxrpl/protocol/BuildInfo.cpp'
         regex = r'versionString\s?=\s?\"(.*)\"'
         with open(path, 'r') as file:
             matches = (re.search(regex, line) for line in file)
@@ -98,7 +101,6 @@ class Xrpl(ConanFile):
 
     def build_requirements(self):
         # These provide build tools (protoc, grpc plugins) that run during build
-        self.tool_requires('protobuf/3.21.12')
         self.tool_requires('grpc/1.50.1')
         # Explicitly require b2 (e.g. for building from source for glibc compatibility)
         if self.options.tool_requires_b2:
@@ -110,24 +112,28 @@ class Xrpl(ConanFile):
 
     def requirements(self):
         # Force sqlite3 version to avoid conflicts with soci
-        self.requires('sqlite3/3.42.0', override=True)
+        self.requires('sqlite3/3.47.0', override=True)
         # Force our custom snappy build for all dependencies
         self.requires('snappy/1.1.10@xahaud/stable', override=True)
         # Force boost version for all dependencies to avoid conflicts
         self.requires('boost/1.86.0', override=True)
+        self.requires('lz4/1.10.0', force=True)
 
         if self.options.with_wasmedge:
             self.requires('wasmedge/0.11.2@xahaud/stable')
         if self.options.jemalloc:
-            self.requires('jemalloc/5.2.1')
-        if self.options.reporting:
-            self.requires('cassandra-cpp-driver/2.15.3')
-            self.requires('libpq/13.6')
+            self.requires('jemalloc/5.3.0')
         if self.options.rocksdb:
-            self.requires('rocksdb/6.27.3')
+            self.requires('rocksdb/6.29.5')
 
     exports_sources = (
-        'CMakeLists.txt', 'Builds/*', 'bin/getRippledInfo', 'src/*', 'cfg/*'
+        'CMakeLists.txt',
+        'bin/getRippledInfo',
+        'cfg/*',
+        'cmake/*',
+        'external/*',
+        'include/*',
+        'src/*',
     )
 
     def layout(self):
@@ -143,11 +149,11 @@ class Xrpl(ConanFile):
         tc.variables['assert'] = self.options.assertions
         tc.variables['coverage'] = self.options.coverage
         tc.variables['jemalloc'] = self.options.jemalloc
-        tc.variables['reporting'] = self.options.reporting
         tc.variables['rocksdb'] = self.options.rocksdb
         tc.variables['BUILD_SHARED_LIBS'] = self.options.shared
         tc.variables['static'] = self.options.static
         tc.variables['unity'] = self.options.unity
+        tc.variables['xrpld'] = self.options.xrpld
         tc.generate()
 
     def build(self):
@@ -164,9 +170,27 @@ class Xrpl(ConanFile):
     def package_info(self):
         libxrpl = self.cpp_info.components['libxrpl']
         libxrpl.libs = [
-            'libxrpl_core.a',
-            'libed25519.a',
-            'libsecp256k1.a',
+            'xrpl',
+            'xrpl.libpb',
+            'ed25519',
+            'secp256k1',
         ]
-        libxrpl.includedirs = ['include']
-        libxrpl.requires = ['boost::boost']
+        # TODO: Fix the protobufs to include each other relative to
+        # `include/`, not `include/ripple/proto/`.
+        libxrpl.includedirs = ['include', 'include/ripple/proto']
+        libxrpl.requires = [
+            'boost::boost',
+            'date::date',
+            'grpc::grpc++',
+            'libarchive::libarchive',
+            'lz4::lz4',
+            'nudb::nudb',
+            'openssl::crypto',
+            'protobuf::libprotobuf',
+            'soci::soci',
+            'sqlite3::sqlite',
+            'xxhash::xxhash',
+            'zlib::zlib',
+        ]
+        if self.options.rocksdb:
+            libxrpl.requires.append('rocksdb::librocksdb')

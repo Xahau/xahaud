@@ -20,11 +20,11 @@
 #include <test/nodestore/TestBase.h>
 #include <test/unit_test/SuiteJournal.h>
 
-#include <ripple/basics/BasicConfig.h>
-#include <ripple/basics/ByteUtilities.h>
-#include <ripple/beast/utility/temp_dir.h>
-#include <ripple/nodestore/DummyScheduler.h>
-#include <ripple/nodestore/Manager.h>
+#include <xrpld/nodestore/DummyScheduler.h>
+#include <xrpld/nodestore/Manager.h>
+#include <xrpl/basics/BasicConfig.h>
+#include <xrpl/basics/ByteUtilities.h>
+#include <xrpl/beast/utility/temp_dir.h>
 
 #include <memory>
 #include <sstream>
@@ -130,7 +130,7 @@ public:
         for (auto const& size : validSizes)
         {
             beast::temp_dir tempDir;
-            auto params = createSection(tempDir.path(), to_string(size));
+            auto params = createSection(tempDir.path(), std::to_string(size));
 
             BEAST_EXPECT(testBackendFunctionality(params, size));
         }

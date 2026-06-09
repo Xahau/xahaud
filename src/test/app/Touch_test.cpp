@@ -18,14 +18,15 @@
 */
 //==============================================================================
 
-#include <ripple/app/hook/Enum.h>
-#include <ripple/app/misc/TxQ.h>
-#include <ripple/app/tx/apply.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/PayChan.h>
-#include <ripple/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
+#include <test/jtx/TestHelpers.h>
+#include <xrpld/app/misc/TxQ.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpl/hook/Enum.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/PayChan.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 namespace test {
@@ -206,19 +207,25 @@ private:
         test::jtx::Env env{*this, envconfig(), features};
 
         auto const alice = Account("alice");
-        auto const issuer = Account("issuer");
-        env.fund(XRP(1000), alice, issuer);
+        auto const issuer = Account::master;
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        env(hook(issuer, {{hso(jtx::genesis::AcceptHook)}}, 0), fee(XRP(1)));
         env.close();
 
         // claim reward
-        env(reward::claim(alice), reward::issuer(issuer), ter(tesSUCCESS));
+        env(reward::claim(alice),
+            reward::issuer(issuer),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
         env.close();
 
         // verify touch
         validateTouch(env, alice, {"ClaimReward", "tesSUCCESS"});
         auto const tt = env.current()->rules().enabled(featureTouch)
             ? "ClaimReward"
-            : "AccountSet";
+            : "SetHook";
         validateTouch(env, issuer, {tt, "tesSUCCESS"});
     }
 
@@ -270,7 +277,7 @@ private:
             auto const seq1 = env.seq(alice);
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(alice, bob, XRP(10));
+            auto createTx = escrow(alice, bob, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -279,7 +286,7 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(alice, alice, seq1), ter(tesSUCCESS));
+            env(cancel(alice, alice, seq1), ter(tesSUCCESS));
             env.close();
 
             // verify touch
@@ -299,7 +306,7 @@ private:
             auto const seq1 = env.seq(alice);
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(alice, bob, XRP(10));
+            auto createTx = escrow(alice, bob, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -308,7 +315,7 @@ private:
             env.close();
 
             // cancel escrow
-            env(escrow::cancel(bob, alice, seq1), ter(tesSUCCESS));
+            env(cancel(bob, alice, seq1), ter(tesSUCCESS));
             env.close();
 
             // verify touch
@@ -336,7 +343,7 @@ private:
         // create escrow
         NetClock::time_point const finishTime = env.now() + 1s;
         NetClock::time_point const cancelTime = env.now() + 2s;
-        auto createTx = escrow::create(alice, bob, XRP(10));
+        auto createTx = escrow(alice, bob, XRP(10));
         createTx[sfFinishAfter.jsonName] =
             finishTime.time_since_epoch().count();
         createTx[sfCancelAfter.jsonName] =
@@ -369,14 +376,14 @@ private:
             // create escrow
             auto const seq1 = env.seq(alice);
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(alice, bob, XRP(10));
+            auto createTx = escrow(alice, bob, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
             env.close();
 
             // finish escrow
-            env(escrow::finish(alice, alice, seq1), ter(tesSUCCESS));
+            env(finish(alice, alice, seq1), ter(tesSUCCESS));
             env.close();
 
             // verify touch
@@ -395,14 +402,14 @@ private:
             // create escrow
             auto const seq1 = env.seq(alice);
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(alice, bob, XRP(10));
+            auto createTx = escrow(alice, bob, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
             env.close();
 
             // finish escrow
-            env(escrow::finish(bob, alice, seq1), ter(tesSUCCESS));
+            env(finish(bob, alice, seq1), ter(tesSUCCESS));
             env.close();
 
             // verify touch
@@ -879,9 +886,9 @@ private:
     }
 
     void
-    testSignersListSet(FeatureBitset features)
+    testSignerListSet(FeatureBitset features)
     {
-        testcase("signers list set");
+        testcase("signer list set");
 
         using namespace test::jtx;
         using namespace std::literals;
@@ -894,7 +901,7 @@ private:
         env.fund(XRP(1000), alice, signer1, signer2);
         env.close();
 
-        // signers list set
+        // signer list set
         env(signers(alice, 2, {{signer1, 1}, {signer2, 1}}), ter(tesSUCCESS));
         env.close();
 
@@ -1383,7 +1390,7 @@ private:
         testPaymentChannelFund(features);
         testSetHook(features);
         testSetRegularKey(features);
-        testSignersListSet(features);
+        testSignerListSet(features);
         testTicketCreate(features);
         testTrustSet(features);
         testURITokenMint(features);

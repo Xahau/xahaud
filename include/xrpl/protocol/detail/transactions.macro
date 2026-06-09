@@ -1,0 +1,608 @@
+//------------------------------------------------------------------------------
+/*
+    This file is part of rippled: https://github.com/ripple/rippled
+    Copyright (c) 2024 Ripple Labs Inc.
+
+    Permission to use, copy, modify, and/or distribute this software for any
+    purpose  with  or without fee is hereby granted, provided that the above
+    copyright notice and this permission notice appear in all copies.
+
+    THE  SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+    WITH  REGARD  TO  THIS  SOFTWARE  INCLUDING  ALL  IMPLIED  WARRANTIES  OF
+    MERCHANTABILITY  AND  FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+    ANY  SPECIAL ,  DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+    WHATSOEVER  RESULTING  FROM  LOSS  OF USE, DATA OR PROFITS, WHETHER IN AN
+    ACTION  OF  CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+*/
+//==============================================================================
+
+#if !defined(TRANSACTION)
+#error "undefined macro: TRANSACTION"
+#endif
+
+/**
+ * TRANSACTION(tag, value, name, fields)
+ *
+ * You must define a transactor class in the `ripple` namespace named `name`,
+ * and include its header in `src/xrpld/app/tx/detail/applySteps.cpp`.
+ */
+
+/** This transaction type executes a payment. */
+TRANSACTION(ttPAYMENT, 0, Payment, ({
+    {sfDestination, soeREQUIRED},
+    {sfAmount, soeREQUIRED, soeMPTSupported},
+    {sfSendMax, soeOPTIONAL, soeMPTSupported},
+    {sfPaths, soeDEFAULT},
+    {sfInvoiceID, soeOPTIONAL},
+    {sfDestinationTag, soeOPTIONAL},
+    {sfDeliverMin, soeOPTIONAL, soeMPTSupported},
+    {sfCredentialIDs, soeOPTIONAL},
+}))
+
+/** This transaction type creates an escrow object. */
+TRANSACTION(ttESCROW_CREATE, 1, EscrowCreate, ({
+    {sfDestination, soeREQUIRED},
+    {sfAmount, soeREQUIRED},
+    {sfCondition, soeOPTIONAL},
+    {sfCancelAfter, soeOPTIONAL},
+    {sfFinishAfter, soeOPTIONAL},
+    {sfDestinationTag, soeOPTIONAL},
+}))
+
+/** This transaction type completes an existing escrow. */
+TRANSACTION(ttESCROW_FINISH, 2, EscrowFinish, ({
+    {sfOwner, soeREQUIRED},
+    {sfOfferSequence, soeOPTIONAL},
+    {sfEscrowID, soeOPTIONAL},  // keylet as alternative to offerseq
+    {sfFulfillment, soeOPTIONAL},
+    {sfCondition, soeOPTIONAL},
+    {sfCredentialIDs, soeOPTIONAL},
+}))
+
+
+/** This transaction type adjusts various account settings. */
+TRANSACTION(ttACCOUNT_SET, 3, AccountSet, ({
+    {sfEmailHash, soeOPTIONAL},
+    {sfWalletLocator, soeOPTIONAL},
+    {sfWalletSize, soeOPTIONAL},
+    {sfMessageKey, soeOPTIONAL},
+    {sfDomain, soeOPTIONAL},
+    {sfTransferRate, soeOPTIONAL},
+    {sfSetFlag, soeOPTIONAL},
+    {sfClearFlag, soeOPTIONAL},
+    {sfTickSize, soeOPTIONAL},
+    {sfNFTokenMinter, soeOPTIONAL},
+    {sfHookStateScale, soeOPTIONAL},
+}))
+
+/** This transaction type cancels an existing escrow. */
+TRANSACTION(ttESCROW_CANCEL, 4, EscrowCancel, ({
+    {sfOwner, soeREQUIRED},
+    {sfOfferSequence, soeOPTIONAL},
+    {sfEscrowID, soeOPTIONAL},  // keylet as alternative to offerseq
+}))
+
+/** This transaction type sets or clears an account's "regular key". */
+TRANSACTION(ttREGULAR_KEY_SET, 5, SetRegularKey, ({
+    {sfRegularKey, soeOPTIONAL},
+}))
+
+// 6 deprecated
+
+/** This transaction type creates an offer to trade one asset for another. */
+TRANSACTION(ttOFFER_CREATE, 7, OfferCreate, ({
+    {sfTakerPays, soeREQUIRED},
+    {sfTakerGets, soeREQUIRED},
+    {sfExpiration, soeOPTIONAL},
+    {sfOfferSequence, soeOPTIONAL},
+    {sfOfferID, soeOPTIONAL},  // keylet as alternative to offerseq
+}))
+
+/** This transaction type cancels existing offers to trade one asset for another. */
+TRANSACTION(ttOFFER_CANCEL, 8, OfferCancel, ({
+    {sfOfferSequence, soeOPTIONAL},
+    {sfOfferID, soeOPTIONAL},  // keylet as alternative to offerseq
+}))
+
+// 9 deprecated
+
+/** This transaction type creates a new set of tickets. */
+TRANSACTION(ttTICKET_CREATE, 10, TicketCreate, ({
+    {sfTicketCount, soeREQUIRED},
+}))
+
+// 11 deprecated
+
+/** This transaction type modifies the signer list associated with an account. */
+// The SignerEntries are optional because a SignerList is deleted by
+// setting the SignerQuorum to zero and omitting SignerEntries.
+TRANSACTION(ttSIGNER_LIST_SET, 12, SignerListSet, ({
+    {sfSignerQuorum, soeREQUIRED},
+    {sfSignerEntries, soeOPTIONAL},
+}))
+
+/** This transaction type creates a new unidirectional XRP payment channel. */
+TRANSACTION(ttPAYCHAN_CREATE, 13, PaymentChannelCreate, ({
+    {sfDestination, soeREQUIRED},
+    {sfAmount, soeREQUIRED},
+    {sfSettleDelay, soeREQUIRED},
+    {sfPublicKey, soeREQUIRED},
+    {sfCancelAfter, soeOPTIONAL},
+    {sfDestinationTag, soeOPTIONAL},
+}))
+
+/** This transaction type funds an existing unidirectional XRP payment channel. */
+TRANSACTION(ttPAYCHAN_FUND, 14, PaymentChannelFund, ({
+    {sfChannel, soeREQUIRED},
+    {sfAmount, soeREQUIRED},
+    {sfExpiration, soeOPTIONAL},
+}))
+
+/** This transaction type submits a claim against an existing unidirectional payment channel. */
+TRANSACTION(ttPAYCHAN_CLAIM, 15, PaymentChannelClaim, ({
+    {sfChannel, soeREQUIRED},
+    {sfAmount, soeOPTIONAL},
+    {sfBalance, soeOPTIONAL},
+    {sfSignature, soeOPTIONAL},
+    {sfPublicKey, soeOPTIONAL},
+    {sfCredentialIDs, soeOPTIONAL},
+}))
+
+/** This transaction type creates a new check. */
+TRANSACTION(ttCHECK_CREATE, 16, CheckCreate, ({
+    {sfDestination, soeREQUIRED},
+    {sfSendMax, soeREQUIRED},
+    {sfExpiration, soeOPTIONAL},
+    {sfDestinationTag, soeOPTIONAL},
+    {sfInvoiceID, soeOPTIONAL},
+}))
+
+/** This transaction type cashes an existing check. */
+TRANSACTION(ttCHECK_CASH, 17, CheckCash, ({
+    {sfCheckID, soeREQUIRED},
+    {sfAmount, soeOPTIONAL},
+    {sfDeliverMin, soeOPTIONAL},
+}))
+
+/** This transaction type cancels an existing check. */
+TRANSACTION(ttCHECK_CANCEL, 18, CheckCancel, ({
+    {sfCheckID, soeREQUIRED},
+}))
+
+/** This transaction type grants or revokes authorization to transfer funds. */
+TRANSACTION(ttDEPOSIT_PREAUTH, 19, DepositPreauth, ({
+    {sfAuthorize, soeOPTIONAL},
+    {sfUnauthorize, soeOPTIONAL},
+    {sfAuthorizeCredentials, soeOPTIONAL},
+    {sfUnauthorizeCredentials, soeOPTIONAL},
+}))
+
+/** This transaction type modifies a trustline between two accounts. */
+TRANSACTION(ttTRUST_SET, 20, TrustSet, ({
+    {sfLimitAmount, soeOPTIONAL},
+    {sfQualityIn, soeOPTIONAL},
+    {sfQualityOut, soeOPTIONAL},
+}))
+
+/** This transaction type deletes an existing account. */
+TRANSACTION(ttACCOUNT_DELETE, 21, AccountDelete, ({
+    {sfDestination, soeREQUIRED},
+    {sfDestinationTag, soeOPTIONAL},
+    {sfCredentialIDs, soeOPTIONAL},
+}))
+
+/** This transaction type installs a hook. */
+TRANSACTION(ttHOOK_SET, 22, SetHook, ({
+    {sfHooks, soeREQUIRED},
+}))
+
+/** This transaction mints a new NFT. */
+TRANSACTION(ttNFTOKEN_MINT, 25, NFTokenMint, ({
+    {sfNFTokenTaxon, soeREQUIRED},
+    {sfTransferFee, soeOPTIONAL},
+    {sfIssuer, soeOPTIONAL},
+    {sfURI, soeOPTIONAL},
+    {sfAmount, soeOPTIONAL},
+    {sfDestination, soeOPTIONAL},
+    {sfExpiration, soeOPTIONAL},
+}))
+
+/** This transaction burns (i.e. destroys) an existing NFT. */
+TRANSACTION(ttNFTOKEN_BURN, 26, NFTokenBurn, ({
+    {sfNFTokenID, soeREQUIRED},
+    {sfOwner, soeOPTIONAL},
+}))
+
+/** This transaction creates a new offer to buy or sell an NFT. */
+TRANSACTION(ttNFTOKEN_CREATE_OFFER, 27, NFTokenCreateOffer, ({
+    {sfNFTokenID, soeREQUIRED},
+    {sfAmount, soeREQUIRED},
+    {sfDestination, soeOPTIONAL},
+    {sfOwner, soeOPTIONAL},
+    {sfExpiration, soeOPTIONAL},
+}))
+
+/** This transaction cancels an existing offer to buy or sell an existing NFT. */
+TRANSACTION(ttNFTOKEN_CANCEL_OFFER, 28, NFTokenCancelOffer, ({
+    {sfNFTokenOffers, soeREQUIRED},
+}))
+
+/** This transaction accepts an existing offer to buy or sell an existing  NFT. */
+TRANSACTION(ttNFTOKEN_ACCEPT_OFFER, 29, NFTokenAcceptOffer, ({
+    {sfNFTokenBuyOffer, soeOPTIONAL},
+    {sfNFTokenSellOffer, soeOPTIONAL},
+    {sfNFTokenBrokerFee, soeOPTIONAL},
+}))
+
+/** This transaction claws back issued tokens. */
+TRANSACTION(ttCLAWBACK, 30, Clawback, ({
+    {sfAmount, soeREQUIRED, soeMPTSupported},
+    {sfHolder, soeOPTIONAL},
+}))
+
+/** This transaction claws back tokens from an AMM pool. */
+TRANSACTION(ttAMM_CLAWBACK, 31, AMMClawback, ({
+    {sfHolder, soeREQUIRED},
+    {sfAsset, soeREQUIRED},
+    {sfAsset2, soeREQUIRED},
+    {sfAmount, soeOPTIONAL},
+}))
+
+/** This transaction type creates an AMM instance */
+TRANSACTION(ttAMM_CREATE, 35, AMMCreate, ({
+    {sfAmount, soeREQUIRED},
+    {sfAmount2, soeREQUIRED},
+    {sfTradingFee, soeREQUIRED},
+}))
+
+/** This transaction type deposits into an AMM instance */
+TRANSACTION(ttAMM_DEPOSIT, 36, AMMDeposit, ({
+    {sfAsset, soeREQUIRED},
+    {sfAsset2, soeREQUIRED},
+    {sfAmount, soeOPTIONAL},
+    {sfAmount2, soeOPTIONAL},
+    {sfEPrice, soeOPTIONAL},
+    {sfLPTokenOut, soeOPTIONAL},
+    {sfTradingFee, soeOPTIONAL},
+}))
+
+/** This transaction type withdraws from an AMM instance */
+TRANSACTION(ttAMM_WITHDRAW, 37, AMMWithdraw, ({
+    {sfAsset, soeREQUIRED},
+    {sfAsset2, soeREQUIRED},
+    {sfAmount, soeOPTIONAL},
+    {sfAmount2, soeOPTIONAL},
+    {sfEPrice, soeOPTIONAL},
+    {sfLPTokenIn, soeOPTIONAL},
+}))
+
+/** This transaction type votes for the trading fee */
+TRANSACTION(ttAMM_VOTE, 38, AMMVote, ({
+    {sfAsset, soeREQUIRED},
+    {sfAsset2, soeREQUIRED},
+    {sfTradingFee, soeREQUIRED},
+}))
+
+/** This transaction type bids for the auction slot */
+TRANSACTION(ttAMM_BID, 39, AMMBid, ({
+    {sfAsset, soeREQUIRED},
+    {sfAsset2, soeREQUIRED},
+    {sfBidMin, soeOPTIONAL},
+    {sfBidMax, soeOPTIONAL},
+    {sfAuthAccounts, soeOPTIONAL},
+}))
+
+/** This transaction type deletes AMM in the empty state */
+TRANSACTION(ttAMM_DELETE, 40, AMMDelete, ({
+    {sfAsset, soeREQUIRED},
+    {sfAsset2, soeREQUIRED},
+}))
+
+/** This transaction mints/burns/buys/sells a URI TOKEN */
+TRANSACTION(ttURITOKEN_MINT, 45, URITokenMint, ({
+    {sfURI, soeREQUIRED},
+    {sfDigest, soeOPTIONAL},
+    {sfAmount, soeOPTIONAL},
+    {sfDestination, soeOPTIONAL},
+}))
+
+TRANSACTION(ttURITOKEN_BURN, 46, URITokenBurn, ({
+    {sfURITokenID, soeREQUIRED},
+}))
+
+TRANSACTION(ttURITOKEN_BUY, 47, URITokenBuy, ({
+    {sfURITokenID, soeREQUIRED},
+    {sfAmount, soeREQUIRED},
+}))
+
+TRANSACTION(ttURITOKEN_CREATE_SELL_OFFER, 48, URITokenCreateSellOffer, ({
+    {sfURITokenID, soeREQUIRED},
+    {sfAmount, soeREQUIRED},
+    {sfDestination, soeOPTIONAL},
+}))
+
+TRANSACTION(ttURITOKEN_CANCEL_SELL_OFFER, 49, URITokenCancelSellOffer, ({
+    {sfURITokenID, soeREQUIRED},
+}))
+
+/** This transactions creates a crosschain sequence number */
+TRANSACTION(ttXCHAIN_CREATE_CLAIM_ID, 50, XChainCreateClaimID, ({
+    {sfXChainBridge, soeREQUIRED},
+    {sfSignatureReward, soeREQUIRED},
+    {sfOtherChainSource, soeREQUIRED},
+}))
+
+/** This transactions initiates a crosschain transaction */
+TRANSACTION(ttXCHAIN_COMMIT, 51, XChainCommit, ({
+    {sfXChainBridge, soeREQUIRED},
+    {sfXChainClaimID, soeREQUIRED},
+    {sfAmount, soeREQUIRED},
+    {sfOtherChainDestination, soeOPTIONAL},
+}))
+
+/** This transaction completes a crosschain transaction */
+TRANSACTION(ttXCHAIN_CLAIM, 52, XChainClaim, ({
+    {sfXChainBridge, soeREQUIRED},
+    {sfXChainClaimID, soeREQUIRED},
+    {sfDestination, soeREQUIRED},
+    {sfDestinationTag, soeOPTIONAL},
+    {sfAmount, soeREQUIRED},
+}))
+
+/** This transaction initiates a crosschain account create transaction */
+TRANSACTION(ttXCHAIN_ACCOUNT_CREATE_COMMIT, 53, XChainAccountCreateCommit, ({
+    {sfXChainBridge, soeREQUIRED},
+    {sfDestination, soeREQUIRED},
+    {sfAmount, soeREQUIRED},
+    {sfSignatureReward, soeREQUIRED},
+}))
+
+/** This transaction adds an attestation to a claim */
+TRANSACTION(ttXCHAIN_ADD_CLAIM_ATTESTATION, 54, XChainAddClaimAttestation, ({
+    {sfXChainBridge, soeREQUIRED},
+
+    {sfAttestationSignerAccount, soeREQUIRED},
+    {sfPublicKey, soeREQUIRED},
+    {sfSignature, soeREQUIRED},
+    {sfOtherChainSource, soeREQUIRED},
+    {sfAmount, soeREQUIRED},
+    {sfAttestationRewardAccount, soeREQUIRED},
+    {sfWasLockingChainSend, soeREQUIRED},
+
+    {sfXChainClaimID, soeREQUIRED},
+    {sfDestination, soeOPTIONAL},
+}))
+
+/** This transaction adds an attestation to an account */
+TRANSACTION(ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION, 55, XChainAddAccountCreateAttestation, ({
+    {sfXChainBridge, soeREQUIRED},
+
+    {sfAttestationSignerAccount, soeREQUIRED},
+    {sfPublicKey, soeREQUIRED},
+    {sfSignature, soeREQUIRED},
+    {sfOtherChainSource, soeREQUIRED},
+    {sfAmount, soeREQUIRED},
+    {sfAttestationRewardAccount, soeREQUIRED},
+    {sfWasLockingChainSend, soeREQUIRED},
+
+    {sfXChainAccountCreateCount, soeREQUIRED},
+    {sfDestination, soeREQUIRED},
+    {sfSignatureReward, soeREQUIRED},
+}))
+
+/** This transaction modifies a sidechain */
+TRANSACTION(ttXCHAIN_MODIFY_BRIDGE, 56, XChainModifyBridge, ({
+    {sfXChainBridge, soeREQUIRED},
+    {sfSignatureReward, soeOPTIONAL},
+    {sfMinAccountCreateAmount, soeOPTIONAL},
+}))
+
+/** This transactions creates a sidechain */
+TRANSACTION(ttXCHAIN_CREATE_BRIDGE, 57, XChainCreateBridge, ({
+    {sfXChainBridge, soeREQUIRED},
+    {sfSignatureReward, soeREQUIRED},
+    {sfMinAccountCreateAmount, soeOPTIONAL},
+}))
+
+/** This transaction type creates or updates a DID */
+TRANSACTION(ttDID_SET, 58, DIDSet, ({
+    {sfDIDDocument, soeOPTIONAL},
+    {sfURI, soeOPTIONAL},
+    {sfData, soeOPTIONAL},
+}))
+
+/** This transaction type deletes a DID */
+TRANSACTION(ttDID_DELETE, 59, DIDDelete, ({}))
+
+/** This transaction type creates an Oracle instance */
+TRANSACTION(ttORACLE_SET, 60, OracleSet, ({
+    {sfOracleDocumentID, soeREQUIRED},
+    {sfProvider, soeOPTIONAL},
+    {sfURI, soeOPTIONAL},
+    {sfAssetClass, soeOPTIONAL},
+    {sfLastUpdateTime, soeREQUIRED},
+    {sfPriceDataSeries, soeREQUIRED},
+}))
+
+/** This transaction type deletes an Oracle instance */
+TRANSACTION(ttORACLE_DELETE, 61, OracleDelete, ({
+    {sfOracleDocumentID, soeREQUIRED},
+}))
+
+/** This transaction type fixes a problem in the ledger state */
+TRANSACTION(ttLEDGER_STATE_FIX, 62, LedgerStateFix, ({
+    {sfLedgerFixType, soeREQUIRED},
+    {sfOwner, soeOPTIONAL},
+}))
+
+/** This transaction type creates a MPTokensIssuance instance */
+TRANSACTION(ttMPTOKEN_ISSUANCE_CREATE, 63, MPTokenIssuanceCreate, ({
+    {sfAssetScale, soeOPTIONAL},
+    {sfTransferFee, soeOPTIONAL},
+    {sfMaximumAmount, soeOPTIONAL},
+    {sfMPTokenMetadata, soeOPTIONAL},
+}))
+
+/** This transaction type destroys a MPTokensIssuance instance */
+TRANSACTION(ttMPTOKEN_ISSUANCE_DESTROY, 64, MPTokenIssuanceDestroy, ({
+    {sfMPTokenIssuanceID, soeREQUIRED},
+}))
+
+/** This transaction type sets flags on a MPTokensIssuance or MPToken instance */
+TRANSACTION(ttMPTOKEN_ISSUANCE_SET, 65, MPTokenIssuanceSet, ({
+    {sfMPTokenIssuanceID, soeREQUIRED},
+    {sfHolder, soeOPTIONAL},
+}))
+
+/** This transaction type authorizes a MPToken instance */
+TRANSACTION(ttMPTOKEN_AUTHORIZE, 66, MPTokenAuthorize, ({
+    {sfMPTokenIssuanceID, soeREQUIRED},
+    {sfHolder, soeOPTIONAL},
+}))
+
+/** This transaction type create an Credential instance */
+TRANSACTION(ttCREDENTIAL_CREATE, 67, CredentialCreate, ({
+    {sfSubject, soeREQUIRED},
+    {sfCredentialType, soeREQUIRED},
+    {sfExpiration, soeOPTIONAL},
+    {sfURI, soeOPTIONAL},
+}))
+
+/** This transaction type accept an Credential object */
+TRANSACTION(ttCREDENTIAL_ACCEPT, 68, CredentialAccept, ({
+    {sfIssuer, soeREQUIRED},
+    {sfCredentialType, soeREQUIRED},
+}))
+
+/** This transaction type delete an Credential object */
+TRANSACTION(ttCREDENTIAL_DELETE, 69, CredentialDelete, ({
+    {sfSubject, soeOPTIONAL},
+    {sfIssuer, soeOPTIONAL},
+    {sfCredentialType, soeREQUIRED},
+}))
+
+/** This transaction type modify a NFToken */
+TRANSACTION(ttNFTOKEN_MODIFY, 70, NFTokenModify, ({
+    {sfNFTokenID, soeREQUIRED},
+    {sfOwner, soeOPTIONAL},
+    {sfURI, soeOPTIONAL},
+}))
+
+/** This transaction type creates or modifies a Permissioned Domain */
+TRANSACTION(ttPERMISSIONED_DOMAIN_SET, 71, PermissionedDomainSet, ({
+    {sfDomainID, soeOPTIONAL},
+    {sfAcceptedCredentials, soeREQUIRED},
+}))
+
+/** This transaction type deletes a Permissioned Domain */
+TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
+    {sfDomainID, soeREQUIRED},
+}))
+
+/* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
+TRANSACTION(ttCRON, 92, Cron, ({
+    {sfOwner, soeREQUIRED},
+    {sfLedgerSequence, soeREQUIRED},
+}))
+
+/* Sechedule an alarm for later */
+TRANSACTION(ttCRON_SET, 93, CronSet, ({
+    {sfDelaySeconds, soeOPTIONAL},
+    {sfRepeatCount, soeOPTIONAL},
+    {sfStartTime, soeOPTIONAL},
+}))
+
+/* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
+TRANSACTION(ttREMARKS_SET, 94, SetRemarks, ({
+    {sfObjectID, soeREQUIRED},
+    {sfRemarks, soeREQUIRED},
+}))
+
+/* A payment transactor that delivers only the exact amounts specified, creating accounts and TLs as needed 
+  * that the sender pays for. */
+TRANSACTION(ttREMIT, 95, Remit, ({
+    {sfDestination, soeREQUIRED},
+    {sfAmounts, soeOPTIONAL},
+    {sfURITokenIDs, soeOPTIONAL},
+    {sfMintURIToken, soeOPTIONAL},
+    {sfInvoiceID, soeOPTIONAL},
+    {sfDestinationTag, soeOPTIONAL},
+    {sfBlob, soeOPTIONAL},
+    {sfInform, soeOPTIONAL},
+}))
+
+/** This transaction can only be used by the genesis account, which is controlled exclusively by
+  * rewards/governance hooks, to print new XRP to be delivered directly to an array of destinations,
+  * according to reward schedule */
+TRANSACTION(ttGENESIS_MINT, 96, GenesisMint, ({
+    {sfGenesisMints, soeREQUIRED},
+}))
+
+/** This transaction accepts a proof of burn from an external network as a basis
+  * for minting according to featureImport */
+TRANSACTION(ttIMPORT, 97, Import, ({
+    {sfBlob, soeREQUIRED},
+    {sfIssuer, soeOPTIONAL},
+}))
+
+/** This transaction resets accumulator/counters and claims a reward for holding an average balance
+  * from a specified hook */
+TRANSACTION(ttCLAIM_REWARD, 98, ClaimReward, ({
+    {sfIssuer, soeOPTIONAL},
+    {sfClaimCurrency, soeOPTIONAL},
+}))
+
+/** This transaction invokes a hook, providing arbitrary data. Essentially as a 0 drop payment. **/
+TRANSACTION(ttINVOKE, 99, Invoke, ({
+    {sfBlob, soeOPTIONAL},
+    {sfDestination, soeOPTIONAL},
+    {sfInvoiceID, soeOPTIONAL},
+    {sfDestinationTag, soeOPTIONAL},
+}))
+
+/** This system-generated transaction type is used to update the status of the various amendments.
+
+    For details, see: https://xrpl.org/amendments.html
+ */
+TRANSACTION(ttAMENDMENT, 100, EnableAmendment, ({
+    {sfLedgerSequence, soeREQUIRED},
+    {sfAmendment, soeREQUIRED},
+}))
+
+/** This system-generated transaction type is used to update the network's fee settings.
+    For details, see: https://xrpl.org/fee-voting.html
+ */
+TRANSACTION(ttFEE, 101, SetFee, ({
+    {sfLedgerSequence, soeOPTIONAL},
+    // Old version uses raw numbers
+    {sfBaseFee, soeOPTIONAL},
+    {sfReferenceFeeUnits, soeOPTIONAL},
+    {sfReserveBase, soeOPTIONAL},
+    {sfReserveIncrement, soeOPTIONAL},
+    // New version uses Amounts
+    {sfBaseFeeDrops, soeOPTIONAL},
+    {sfReserveBaseDrops, soeOPTIONAL},
+    {sfReserveIncrementDrops, soeOPTIONAL},
+}))
+
+/** This system-generated transaction type is used to update the network's negative UNL
+
+    For details, see: https://xrpl.org/negative-unl.html
+ */
+TRANSACTION(ttUNL_MODIFY, 102, UNLModify, ({
+    {sfUNLModifyDisabling, soeREQUIRED},
+    {sfLedgerSequence, soeREQUIRED},
+    {sfUNLModifyValidator, soeREQUIRED},
+}))
+
+TRANSACTION(ttEMIT_FAILURE, 103, EmitFailure, ({
+    {sfLedgerSequence, soeREQUIRED},
+    {sfTransactionHash, soeREQUIRED},
+}))
+
+TRANSACTION(ttUNL_REPORT, 104, UNLReport, ({
+    {sfLedgerSequence, soeREQUIRED},
+    {sfActiveValidator, soeOPTIONAL},
+    {sfImportVLKey, soeOPTIONAL},
+}))

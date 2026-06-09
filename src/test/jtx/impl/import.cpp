@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#include <ripple/json/json_reader.h>
-#include <ripple/json/json_writer.h>
-#include <ripple/protocol/jss.h>
 #include <test/jtx/import.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/json/json_writer.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 namespace test {
@@ -44,7 +44,7 @@ import(jtx::Account const& account, Json::Value const& xpop)
 void
 issuer::operator()(Env& env, JTx& jt) const
 {
-    jt.jv[sfIssuer.jsonName] = issuer_.human();
+    jt.jv[sfIssuer.jsonName] = to_string(issuer_);
 }
 
 Json::Value

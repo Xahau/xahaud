@@ -11,11 +11,11 @@ echo "START BUILDING (HOST)"
 echo "Cleaning previously built binary"
 rm -f release-build/xahaud
 
-BUILD_CORES=$(echo "scale=0 ; `nproc` / 1.337" | bc)
+BUILD_CORES=$(echo "scale=0 ; $(nproc) / 1.337" | bc)
 
 if [[ "$GITHUB_REPOSITORY" == "" ]]; then
   #Default
-  BUILD_CORES=${BUILD_CORES:-8} 
+  BUILD_CORES=${BUILD_CORES:-8}
 fi
 
 # Ensure still works outside of GH Actions by setting these to /dev/null
@@ -31,21 +31,19 @@ echo "-- GITHUB_SHA:        $GITHUB_SHA"
 echo "-- GITHUB_RUN_NUMBER: $GITHUB_RUN_NUMBER"
 echo "-- CONTAINER_NAME:    $CONTAINER_NAME"
 
-which docker 2> /dev/null 2> /dev/null
-if [ "$?" -eq "1" ]
-then
+which docker 2>/dev/null 2>/dev/null
+if [ "$?" -eq "1" ]; then
   echo 'Docker not found. Install it first.'
   exit 1
 fi
 
-stat .git 2> /dev/null 2> /dev/null
-if [ "$?" -eq "1" ]
-then
+stat .git 2>/dev/null 2>/dev/null
+if [ "$?" -eq "1" ]; then
   echo 'Run this inside the source directory. (.git dir not found).'
   exit 1
 fi
 
-STATIC_CONTAINER=$(docker ps -a | grep $CONTAINER_NAME |wc -l)
+STATIC_CONTAINER=$(docker ps -a | grep $CONTAINER_NAME | wc -l)
 
 CACHE_VOLUME_NAME="xahau-release-builder-cache"
 
@@ -57,13 +55,14 @@ if false; then
   docker stop $CONTAINER_NAME
 else
   echo "No static container, build on temp container"
-  rm -rf release-build;
-  mkdir -p release-build;
+  rm -rf release-build
+  mkdir -p release-build
 
   docker volume create $CACHE_VOLUME_NAME
 
   # Create inline Dockerfile with environment setup for build-full.sh
-  DOCKERFILE_CONTENT=$(cat <<'DOCKERFILE_EOF'
+  DOCKERFILE_CONTENT=$(
+    cat <<'DOCKERFILE_EOF'
 FROM ghcr.io/phusion/holy-build-box:4.0.1-amd64
 
 ARG BUILD_CORES=8
@@ -82,6 +81,7 @@ RUN /hbb_exe/activate-exec bash -c "dnf install -y epel-release && \
         python3 python3-pip \
         ccache \
         ninja-build \
+        mold \
         patch \
         glibc-devel glibc-static \
         libxml2-devel \
@@ -94,7 +94,7 @@ RUN /hbb_exe/activate-exec bash -c "dnf install -y epel-release && \
 
 # Install Conan 2 and CMake
 RUN /hbb_exe/activate-exec pip3 install "conan>=2.0,<3.0" && \
-    /hbb_exe/activate-exec wget -q https://github.com/Kitware/CMake/releases/download/v3.23.1/cmake-3.23.1-linux-x86_64.tar.gz -O cmake.tar.gz && \
+    /hbb_exe/activate-exec wget -q https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-linux-x86_64.tar.gz -O cmake.tar.gz && \
     mkdir cmake && \
     tar -xzf cmake.tar.gz --strip-components=1 -C cmake && \
     rm cmake.tar.gz
@@ -195,6 +195,7 @@ ENV PATH=/usr/local/bin:$PATH
 RUN /hbb_exe/activate-exec bash -c "ccache -M 100G && \
     ccache -o cache_dir=/cache/ccache && \
     ccache -o compiler_check=content && \
+    ccache -o direct_mode=true && \
     mkdir -p ~/.conan2 /cache/conan2 /cache/conan2_download /cache/conan2_sources && \
     echo 'core.cache:storage_path=/cache/conan2' > ~/.conan2/global.conf && \
     echo 'core.download:download_cache=/cache/conan2_download' >> ~/.conan2/global.conf && \
@@ -211,10 +212,12 @@ RUN /hbb_exe/activate-exec bash -c "ccache -M 100G && \
     echo '' >> ~/.conan2/profiles/default && \
     echo '[conf]' >> ~/.conan2/profiles/default && \
     echo '# Force building from source for packages with binary compatibility issues' >> ~/.conan2/profiles/default && \
-    echo '*:tools.system.package_manager:mode=build' >> ~/.conan2/profiles/default"
+    echo '*:tools.system.package_manager:mode=build' >> ~/.conan2/profiles/default && \
+    ln -s ../../bin/ccache /usr/lib64/ccache/g++ && \
+    ln -s ../../bin/ccache /usr/lib64/ccache/c++"
 
 DOCKERFILE_EOF
-)
+  )
 
   # Build custom Docker image
   IMAGE_NAME="xahaud-builder:latest"
@@ -224,14 +227,14 @@ DOCKERFILE_EOF
   if [[ "$GITHUB_REPOSITORY" == "" ]]; then
     # Non GH, local building
     echo "Non-GH runner, local building, temp container"
-    docker run -i --user 0:$(id -g) --rm -v /data/builds:/data/builds -v `pwd`:/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
+    docker run -i --user 0:$(id -g) --rm -v /data/builds:/data/builds -v $(pwd):/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
   else
     # GH Action, runner
     echo "GH Action, runner, clean & re-create create persistent container"
     docker rm -f $CONTAINER_NAME
-    echo "echo 'Stopping container: $CONTAINER_NAME'" >> "$JOB_CLEANUP_SCRIPT"
-    echo "docker stop --time=15 \"$CONTAINER_NAME\" || echo 'Failed to stop container or container not running'" >> "$JOB_CLEANUP_SCRIPT"
-    docker run -di --user 0:$(id -g) --name $CONTAINER_NAME -v /data/builds:/data/builds -v `pwd`:/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash
+    echo "echo 'Stopping container: $CONTAINER_NAME'" >>"$JOB_CLEANUP_SCRIPT"
+    echo "docker stop --time=15 \"$CONTAINER_NAME\" || echo 'Failed to stop container or container not running'" >>"$JOB_CLEANUP_SCRIPT"
+    docker run -di --user 0:$(id -g) --name $CONTAINER_NAME -v /data/builds:/data/builds -v $(pwd):/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash
     docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
     docker stop $CONTAINER_NAME
   fi

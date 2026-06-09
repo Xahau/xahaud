@@ -18,16 +18,20 @@
 */
 //==============================================================================
 
-#include <ripple/app/hook/Enum.h>
-#include <ripple/app/misc/HashRouter.h>
-#include <ripple/app/misc/TxQ.h>
-#include <ripple/app/tx/apply.h>
-#include <ripple/basics/StringUtilities.h>
-#include <ripple/protocol/Feature.h>
-#include <ripple/protocol/PayChan.h>
-#include <ripple/protocol/jss.h>
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
+#include <test/jtx/AMM.h>
+#include <test/jtx/Oracle.h>
+#include <test/jtx/TestHelpers.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/TxQ.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/NFTokenUtils.h>
+#include <xrpl/basics/StringUtilities.h>
+#include <xrpl/hook/Enum.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/PayChan.h>
+#include <xrpl/protocol/jss.h>
 #include <vector>
 
 namespace ripple {
@@ -853,6 +857,391 @@ private:
         }
     }
 
+    // clang-format off
+    // AMM
+    // | otxn | tsh | Bid | Create | Delete | Clawback | Deposit | Vote | Withdraw |
+    // |   A  |  I  |  -  |    W   |    W   |     W    |    W    |   -  |     W    |
+    // |   A  |  H  |  -  |    -   |    -   |     W    |    -    |   -  |     -    |
+    // clang-format on
+    void
+    testAMMBidTSH(FeatureBitset features)
+    {
+        using namespace test::jtx;
+        using namespace std::literals;
+        testcase("amm bid tsh");
+
+        // otxn: account
+        // tsh issuer
+        // w/s: none
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("gw");
+            auto const account = Account("alice");
+            auto const USD = issuer["USD"];
+
+            env.fund(XRP(30'000), issuer, account);
+            env.close();
+            env.trust(USD(30'000), account);
+            env.close();
+            env(pay(issuer, account, USD(10'000)));
+            env.close();
+
+            // create AMM
+            AMM ammAlice(env, account, XRP(10'000), USD(10'000));
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // bid
+            ammAlice.bid({
+                .account = account,
+                .bidMin = 100,
+            });
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshNONE, __LINE__);
+        }
+    }
+
+    // AMMCreate
+    void
+    testAMMCreateTSH(FeatureBitset features)
+    {
+        using namespace test::jtx;
+        using namespace std::literals;
+        testcase("amm create tsh");
+
+        // otxn: account
+        // tsh issuer
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("gw");
+            auto const account = Account("alice");
+            auto const USD = issuer["USD"];
+
+            env.fund(XRP(30'000), issuer, account);
+            env.close();
+            env.trust(USD(30'000), account);
+            env.close();
+            env(pay(issuer, account, USD(10'000)));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // create AMM
+            AMM ammAlice(env, account, XRP(10'000), USD(10'000));
+
+            // verify tsh hook triggered
+            if (features[featureIOUIssuerWeakTSH])
+            {
+                auto const expected = testStrong ? tshNONE : tshWEAK;
+                testTSHStrongWeak(env, expected, __LINE__);
+            }
+            else
+            {
+                testTSHStrongWeak(env, tshNONE, __LINE__);
+            }
+        }
+    }
+
+    // AMMDelete
+    void
+    testAMMDeleteTSH(FeatureBitset features)
+    {
+        using namespace test::jtx;
+        using namespace std::literals;
+        testcase("amm delete tsh");
+
+        // otxn: account
+        // tsh issuer, holder
+        // w/s: none
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env(
+                *this,
+                envconfig([](std::unique_ptr<Config> cfg) {
+                    cfg->FEES.reference_fee = XRPAmount(1);
+                    return cfg;
+                }),
+                features);
+
+            auto const issuer = Account("gw");
+            auto const account = Account("alice");
+            auto const bob = Account("bob");
+            auto const USD = issuer["USD"];
+
+            env.fund(XRP(20'000), issuer, account, bob);
+            env.close();
+            env.trust(USD(10'000), account);
+            env.close();
+            env(pay(issuer, account, USD(10'000)));
+            env.close();
+
+            AMM amm(env, account, XRP(10'000), USD(10'000));
+            for (auto i = 0; i < maxDeletableAMMTrustLines + 10; ++i)
+            {
+                Account const a{std::to_string(i)};
+                env.fund(XRP(1'000), a);
+                env(trust(a, STAmount{amm.lptIssue(), 10'000}));
+                // set tsh collect
+                if (!testStrong)
+                    env(fset(a, asfTshCollect));
+                // set tsh hook
+                setTSHHook(env, a, testStrong);
+            }
+            amm.withdrawAll(account);
+            BEAST_EXPECT(amm.ammExists());
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // delete
+            amm.ammDelete(bob);
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshNONE, __LINE__);
+        }
+    }
+
+    // AMMClawback
+    void
+    testAMMClawbackTSH(FeatureBitset features)
+    {
+        using namespace test::jtx;
+        using namespace std::literals;
+        testcase("amm clawback tsh");
+
+        // otxn: account
+        // tsh holder
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("gw");
+            auto const account = Account("alice");
+            auto const USD = issuer["USD"];
+
+            env.fund(XRP(30'000), issuer, account);
+            env.close();
+            env(fset(issuer, asfAllowTrustLineClawback));
+            env.close();
+            env.trust(USD(30'000), account);
+            env.close();
+            env(pay(issuer, account, USD(30'000)));
+            env.close();
+
+            // create AMM
+            AMM ammAlice(env, account, XRP(10'000), USD(10'000));
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // clawback
+            env(amm::ammClawback(issuer, account, USD, XRP, USD(1000)));
+            env.close();
+
+            // verify tsh hook triggered
+            if (features[featureIOUIssuerWeakTSH])
+            {
+                auto const expected = testStrong ? tshNONE : tshWEAK;
+                testTSHStrongWeak(env, expected, __LINE__);
+            }
+            else
+            {
+                testTSHStrongWeak(env, tshNONE, __LINE__);
+            }
+        }
+    }
+
+    // AMMDeposit
+    void
+    testAMMDepositTSH(FeatureBitset features)
+    {
+        using namespace test::jtx;
+        using namespace std::literals;
+        testcase("amm deposit tsh");
+
+        // otxn: account
+        // tsh issuer
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("gw");
+            auto const account = Account("alice");
+            auto const USD = issuer["USD"];
+
+            env.fund(XRP(30'000), issuer, account);
+            env.close();
+            env.trust(USD(30'000), account);
+            env.close();
+            env(pay(issuer, account, USD(30'000)));
+            env.close();
+
+            // create AMM
+            AMM ammAlice(env, account, XRP(10'000), USD(10'000));
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // deposit
+            ammAlice.deposit(account, 10);
+
+            // verify tsh hook triggered
+            if (features[featureIOUIssuerWeakTSH])
+            {
+                auto const expected = testStrong ? tshNONE : tshWEAK;
+                testTSHStrongWeak(env, expected, __LINE__);
+            }
+            else
+            {
+                testTSHStrongWeak(env, tshNONE, __LINE__);
+            }
+        }
+    }
+
+    // AMMVote
+    void
+    testAMMVoteTSH(FeatureBitset features)
+    {
+        using namespace test::jtx;
+        using namespace std::literals;
+        testcase("amm vote tsh");
+
+        // otxn: account
+        // tsh issuer
+        // w/s: none
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("gw");
+            auto const account = Account("alice");
+            auto const USD = issuer["USD"];
+
+            env.fund(XRP(30'000), issuer, account);
+            env.close();
+            env.trust(USD(30'000), account);
+            env.close();
+            env(pay(issuer, account, USD(30'000)));
+            env.close();
+
+            // create AMM
+            AMM ammAlice(env, account, XRP(10'000), USD(10'000));
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // vote
+            ammAlice.vote(account, 100);
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshNONE, __LINE__);
+        }
+    }
+
+    // AMMWithdraw
+    void
+    testAMMWithdrawTSH(FeatureBitset features)
+    {
+        using namespace test::jtx;
+        using namespace std::literals;
+        testcase("amm withdraw tsh");
+
+        // otxn: account
+        // tsh issuer
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("gw");
+            auto const account = Account("alice");
+            auto const USD = issuer["USD"];
+
+            env.fund(XRP(30'000), issuer, account);
+            env.close();
+            env.trust(USD(30'000), account);
+            env.close();
+            env(pay(issuer, account, USD(30'000)));
+            env.close();
+
+            // create AMM
+            AMM ammAlice(env, account, XRP(10'000), USD(10'000));
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // withdraw
+            ammAlice.withdraw(account, 100);
+
+            // verify tsh hook triggered
+            if (features[featureIOUIssuerWeakTSH])
+            {
+                auto const expected = testStrong ? tshNONE : tshWEAK;
+                testTSHStrongWeak(env, expected, __LINE__);
+            }
+            else
+            {
+                testTSHStrongWeak(env, tshNONE, __LINE__);
+            }
+        }
+    }
+
     // Check
     // | otxn | tsh | cancel |  create  | cash  |
     // |   A  |  A  |   S    |    S     |  N/A  |
@@ -1258,8 +1647,12 @@ private:
                 features};
 
             auto const account = Account("alice");
-            auto const issuer = Account("issuer");
-            env.fund(XRP(1000), account, issuer);
+            auto const issuer = Account::master;
+            env.fund(XRP(1000), account);
+            env.close();
+
+            env(hook(issuer, {{hso(jtx::genesis::AcceptHook)}}, 0),
+                fee(XRP(1)));
             env.close();
 
             // set tsh collect
@@ -1291,8 +1684,8 @@ private:
                 features};
 
             auto const account = Account("alice");
-            auto const issuer = Account("issuer");
-            env.fund(XRP(1000), account, issuer);
+            auto const issuer = Account::master;
+            env.fund(XRP(1000), account);
             env.close();
 
             // set tsh collect
@@ -1315,12 +1708,14 @@ private:
     }
 
     void
-    testClawbackTSH(FeatureBitset features)
+    testClawbackTSH(FeatureBitset _features)
     {
         testcase("clawback tsh");
 
         using namespace test::jtx;
         using namespace std::literals;
+
+        auto const features = _features | featureMPTokensV1;
 
         // otxn: IOU issuer
         // tsh issuer
@@ -1396,6 +1791,70 @@ private:
             auto const expected = testStrong ? tshNONE : tshWEAK;
             testTSHStrongWeak(env, expected, __LINE__);
         }
+
+        // otxn: MPT issuer
+        // tsh holder
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const holder = Account("bob");
+
+            MPTTester mptIssuer(env, issuer, {.holders = {holder}});
+
+            // issuer creates issuance
+            mptIssuer.create(
+                {.ownerCount = 1, .holderCount = 0, .flags = tfMPTCanClawback});
+
+            // holder creates a MPToken
+            mptIssuer.authorize({.account = holder});
+
+            // issuer pays holder 100 tokens
+            mptIssuer.pay(issuer, holder, 100);
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, holder);
+
+            // set tsh hook
+            setTSHHook(env, holder, testStrong);
+
+            // clawback
+            mptIssuer.claw(issuer, holder, 1);
+
+            // verify tsh hook triggered
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+    }
+
+    void
+    testCredentialCreateTSH(FeatureBitset features)
+    {
+        testcase("credential create tsh");
+
+        BEAST_EXPECT(!features[featureCredentials]);
+    }
+
+    void
+    testCredentialAcceptTSH(FeatureBitset features)
+    {
+        testcase("credential accept tsh");
+
+        BEAST_EXPECT(!features[featureCredentials]);
+    }
+
+    void
+    testCredentialDeleteTSH(FeatureBitset features)
+    {
+        testcase("credential delete tsh");
+
+        BEAST_EXPECT(!features[featureCredentials]);
     }
 
     // DepositPreauth
@@ -1478,6 +1937,31 @@ private:
         }
     }
 
+    void
+    testDIDSetTSH(FeatureBitset features)
+    {
+        testcase("did set tsh");
+
+        BEAST_EXPECT(!features[featureDID]);
+    }
+
+    void
+    testDIDDeleteTSH(FeatureBitset features)
+    {
+        testcase("did delete tsh");
+
+        BEAST_EXPECT(!features[featureDID]);
+    }
+
+    void
+    testEmitFailureTSH(FeatureBitset features)
+    {
+        testcase("emit failure tsh");
+
+        // pseudo transaction
+        pass();
+    }
+
     // Escrow
     // | otxn  | tsh | cancel | cancel(id) |  create  | finish | finish(id)
     // |   A   |  A  |    S   |     S      |     S    |    S   |     S
@@ -1519,7 +2003,7 @@ private:
             auto const seq1 = env.seq(account);
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -1535,9 +2019,7 @@ private:
             setTSHHook(env, account, testStrong);
 
             // cancel escrow
-            env(escrow::cancel(account, account, seq1),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(cancel(account, account, seq1), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1566,7 +2048,7 @@ private:
             auto const seq1 = env.seq(account);
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -1582,9 +2064,7 @@ private:
             setTSHHook(env, dest, testStrong);
 
             // cancel escrow
-            env(escrow::cancel(account, account, seq1),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(cancel(account, account, seq1), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1617,7 +2097,7 @@ private:
             auto const seq1 = env.seq(account);
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -1633,9 +2113,7 @@ private:
             setTSHHook(env, dest, testStrong);
 
             // cancel escrow
-            env(escrow::cancel(dest, account, seq1),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(cancel(dest, account, seq1), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1661,7 +2139,7 @@ private:
             auto const seq1 = env.seq(account);
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -1677,9 +2155,7 @@ private:
             setTSHHook(env, account, testStrong);
 
             // cancel escrow
-            env(escrow::cancel(dest, account, seq1),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(cancel(dest, account, seq1), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1715,7 +2191,7 @@ private:
             auto const seq1 = env.seq(account);
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, USD(10));
+            auto createTx = escrow(account, dest, USD(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -1731,9 +2207,7 @@ private:
             setTSHHook(env, gw, testStrong);
 
             // cancel escrow
-            env(escrow::cancel(account, account, seq1),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(cancel(account, account, seq1), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1776,7 +2250,7 @@ private:
             uint256 const escrowId{getEscrowIndex(account, env.seq(account))};
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -1795,13 +2269,13 @@ private:
             Json::Value tx;
             if (!env.current()->rules().enabled(fixXahauV1))
             {
-                tx = escrow::cancel(account, account, 0);
+                tx = cancel(account, account, 0);
             }
             else
             {
-                tx = escrow::cancel(account, account);
+                tx = cancel(account, account);
             }
-            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1830,7 +2304,7 @@ private:
             uint256 const escrowId{getEscrowIndex(account, env.seq(account))};
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -1849,13 +2323,13 @@ private:
             Json::Value tx;
             if (!env.current()->rules().enabled(fixXahauV1))
             {
-                tx = escrow::cancel(account, account, 0);
+                tx = cancel(account, account, 0);
             }
             else
             {
-                tx = escrow::cancel(account, account);
+                tx = cancel(account, account);
             }
-            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1888,7 +2362,7 @@ private:
             uint256 const escrowId{getEscrowIndex(account, env.seq(account))};
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -1907,13 +2381,13 @@ private:
             Json::Value tx;
             if (!env.current()->rules().enabled(fixXahauV1))
             {
-                tx = escrow::cancel(dest, account, 0);
+                tx = cancel(dest, account, 0);
             }
             else
             {
-                tx = escrow::cancel(dest, account);
+                tx = cancel(dest, account);
             }
-            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -1939,7 +2413,7 @@ private:
             uint256 const escrowId{getEscrowIndex(account, env.seq(account))};
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -1959,13 +2433,13 @@ private:
             Json::Value tx;
             if (!fixV1)
             {
-                tx = escrow::cancel(dest, account, 0);
+                tx = cancel(dest, account, 0);
             }
             else
             {
-                tx = escrow::cancel(dest, account);
+                tx = cancel(dest, account);
             }
-            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2004,7 +2478,7 @@ private:
             uint256 const escrowId{getEscrowIndex(account, env.seq(account))};
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, USD(10));
+            auto createTx = escrow(account, dest, USD(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -2023,13 +2497,13 @@ private:
             Json::Value tx;
             if (!env.current()->rules().enabled(fixXahauV1))
             {
-                tx = escrow::cancel(account, account, 0);
+                tx = cancel(account, account, 0);
             }
             else
             {
-                tx = escrow::cancel(account, account);
+                tx = cancel(account, account);
             }
-            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2078,7 +2552,7 @@ private:
             // create escrow
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -2115,7 +2589,7 @@ private:
             // create escrow
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -2162,7 +2636,7 @@ private:
             // create escrow
             NetClock::time_point const finishTime = env.now() + 1s;
             NetClock::time_point const cancelTime = env.now() + 2s;
-            auto createTx = escrow::create(account, dest, USD(10));
+            auto createTx = escrow(account, dest, USD(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             createTx[sfCancelAfter.jsonName] =
@@ -2209,7 +2683,7 @@ private:
             // create escrow
             auto const seq1 = env.seq(account);
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
@@ -2223,9 +2697,7 @@ private:
             setTSHHook(env, account, testStrong);
 
             // finish escrow
-            env(escrow::finish(account, account, seq1),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(finish(account, account, seq1), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2250,7 +2722,7 @@ private:
             // create escrow
             auto const seq1 = env.seq(account);
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
@@ -2264,9 +2736,7 @@ private:
             setTSHHook(env, dest, testStrong);
 
             // finish escrow
-            env(escrow::finish(account, account, seq1),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(finish(account, account, seq1), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2291,7 +2761,7 @@ private:
             // create escrow
             auto const seq1 = env.seq(account);
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
@@ -2305,9 +2775,7 @@ private:
             setTSHHook(env, dest, testStrong);
 
             // finish escrow
-            env(escrow::finish(dest, account, seq1),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(finish(dest, account, seq1), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2332,7 +2800,7 @@ private:
             // create escrow
             auto const seq1 = env.seq(account);
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
@@ -2346,9 +2814,7 @@ private:
             setTSHHook(env, account, testStrong);
 
             // finish escrow
-            env(escrow::finish(dest, account, seq1),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(finish(dest, account, seq1), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2383,7 +2849,7 @@ private:
             // create escrow
             auto const seq1 = env.seq(account);
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(account, dest, USD(10));
+            auto createTx = escrow(account, dest, USD(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
@@ -2397,9 +2863,7 @@ private:
             setTSHHook(env, gw, testStrong);
 
             // finish escrow
-            env(escrow::finish(account, account, seq1),
-                fee(XRP(1)),
-                ter(tesSUCCESS));
+            env(finish(account, account, seq1), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2441,7 +2905,7 @@ private:
             // create escrow
             uint256 const escrowId{getEscrowIndex(account, env.seq(account))};
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
@@ -2458,13 +2922,13 @@ private:
             Json::Value tx;
             if (!env.current()->rules().enabled(fixXahauV1))
             {
-                tx = escrow::finish(account, account, 0);
+                tx = finish(account, account, 0);
             }
             else
             {
-                tx = escrow::finish(account, account);
+                tx = finish(account, account);
             }
-            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2489,7 +2953,7 @@ private:
             // create escrow
             uint256 const escrowId{getEscrowIndex(account, env.seq(account))};
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
@@ -2507,13 +2971,13 @@ private:
             Json::Value tx;
             if (!fixV1)
             {
-                tx = escrow::finish(account, account, 0);
+                tx = finish(account, account, 0);
             }
             else
             {
-                tx = escrow::finish(account, account);
+                tx = finish(account, account);
             }
-            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2541,7 +3005,7 @@ private:
             // create escrow
             uint256 const escrowId{getEscrowIndex(account, env.seq(account))};
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
@@ -2558,13 +3022,13 @@ private:
             Json::Value tx;
             if (!env.current()->rules().enabled(fixXahauV1))
             {
-                tx = escrow::finish(dest, account, 0);
+                tx = finish(dest, account, 0);
             }
             else
             {
-                tx = escrow::finish(dest, account);
+                tx = finish(dest, account);
             }
-            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2589,7 +3053,7 @@ private:
             // create escrow
             uint256 const escrowId{getEscrowIndex(account, env.seq(account))};
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(account, dest, XRP(10));
+            auto createTx = escrow(account, dest, XRP(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
@@ -2607,13 +3071,13 @@ private:
             Json::Value tx;
             if (!fixV1)
             {
-                tx = escrow::finish(dest, account, 0);
+                tx = finish(dest, account, 0);
             }
             else
             {
-                tx = escrow::finish(dest, account);
+                tx = finish(dest, account);
             }
-            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2651,7 +3115,7 @@ private:
             // create escrow
             uint256 const escrowId{getEscrowIndex(account, env.seq(account))};
             NetClock::time_point const finishTime = env.now() + 1s;
-            auto createTx = escrow::create(account, dest, USD(10));
+            auto createTx = escrow(account, dest, USD(10));
             createTx[sfFinishAfter.jsonName] =
                 finishTime.time_since_epoch().count();
             env(createTx, ter(tesSUCCESS));
@@ -2669,13 +3133,13 @@ private:
             Json::Value tx;
             if (!fixV1)
             {
-                tx = escrow::finish(dest, account, 0);
+                tx = finish(dest, account, 0);
             }
             else
             {
-                tx = escrow::finish(dest, account);
+                tx = finish(dest, account);
             }
-            env(tx, escrow::escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2688,6 +3152,15 @@ private:
                 testTSHStrongWeak(env, tshNONE, __LINE__);
             }
         }
+    }
+
+    void
+    testEnableAmendmentTSH(FeatureBitset features)
+    {
+        testcase("enable amendment tsh");
+
+        // pseudo transaction
+        pass();
     }
 
     // GenesisMint
@@ -3060,6 +3533,1223 @@ private:
         }
     }
 
+    // from FixNFTokenPageLinks_test.cpp
+    // A helper function that generates 96 nfts packed into three pages
+    // of 32 each.  Returns a sorted vector of the NFTokenIDs packed into
+    // the pages.
+    std::vector<uint256>
+    genPackedTokens(test::jtx::Env& env, test::jtx::Account const& owner)
+    {
+        using namespace test::jtx;
+
+        std::vector<uint256> nfts;
+        nfts.reserve(96);
+
+        // We want to create fully packed NFT pages.  This is a little
+        // tricky since the system currently in place is inclined to
+        // assign consecutive tokens to only 16 entries per page.
+        //
+        // By manipulating the internal form of the taxon we can force
+        // creation of NFT pages that are completely full.  This lambda
+        // tells us the taxon value we should pass in in order for the
+        // internal representation to match the passed in value.
+        auto internalTaxon = [this, &env](
+                                 Account const& acct,
+                                 std::uint32_t taxon) -> std::uint32_t {
+            std::uint32_t tokenSeq = [this, &env, &acct]() {
+                auto const le = env.le(acct);
+                if (BEAST_EXPECT(le))
+                    return le->at(~sfMintedNFTokens).value_or(0u);
+                return 0u;
+            }();
+
+            // If fixNFTokenRemint amendment is on, we must
+            // add FirstNFTokenSequence.
+            if (env.current()->rules().enabled(fixNFTokenRemint))
+                tokenSeq += env.le(acct)
+                                ->at(~sfFirstNFTokenSequence)
+                                .value_or(env.seq(acct));
+
+            return toUInt32(nft::cipheredTaxon(tokenSeq, nft::toTaxon(taxon)));
+        };
+
+        for (std::uint32_t i = 0; i < 96; ++i)
+        {
+            // In order to fill the pages we use the taxon to break them
+            // into groups of 16 entries.  By having the internal
+            // representation of the taxon go...
+            //   0, 3, 2, 5, 4, 7...
+            // in sets of 16 NFTs we can get each page to be fully
+            // populated.
+            std::uint32_t const intTaxon = (i / 16) + (i & 0b10000 ? 2 : 0);
+            uint32_t const extTaxon = internalTaxon(owner, intTaxon);
+            nfts.push_back(
+                token::getNextID(env, owner, extTaxon, tfTransferable));
+            env(token::mint(owner, extTaxon), txflags(tfTransferable));
+            env.close();
+        }
+
+        // Sort the NFTs so they are listed in storage order, not
+        // creation order.
+        std::sort(nfts.begin(), nfts.end());
+
+        // Verify that the owner does indeed have exactly three pages
+        // of NFTs with 32 entries in each page.
+        {
+            Json::Value params;
+            params[jss::account] = owner.human();
+            auto resp = env.rpc("json", "account_objects", to_string(params));
+
+            Json::Value const& acctObjs =
+                resp[jss::result][jss::account_objects];
+
+            int pageCount = 0;
+            for (Json::UInt i = 0; i < acctObjs.size(); ++i)
+            {
+                if (BEAST_EXPECT(
+                        acctObjs[i].isMember(sfNFTokens.jsonName) &&
+                        acctObjs[i][sfNFTokens.jsonName].isArray()))
+                {
+                    BEAST_EXPECT(acctObjs[i][sfNFTokens.jsonName].size() == 32);
+                    ++pageCount;
+                }
+            }
+            // If this check fails then the internal NFT directory logic
+            // has changed.
+            BEAST_EXPECT(pageCount == 3);
+        }
+        return nfts;
+    };
+
+    void
+    testLedgerStateFixTSH(FeatureBitset features)
+    {
+        testcase("ledger state fix tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // otxn: account
+        // tsh account
+        // w/s: strong
+
+        // otxn: account
+        // tsh owner
+        // w/s: weak
+        for (auto const& [testStrong, testOtxnAccount] :
+             std::vector<std::pair<bool, bool>>{
+                 {true, true}, {false, true}, {true, false}, {false, false}})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features - fixNFTokenPageLinks};
+
+            Account const alice("alice");
+            Account const bob("bob");
+            Account const carol("carol");
+            Account const daria("daria");
+
+            Account const& hook = testOtxnAccount ? daria : alice;
+
+            env.fund(XRP(1000), alice, bob, carol, daria);
+
+            //**********************************************************************
+            // Step 1A: Create damaged NFToken directories:
+            //   o One where there is only one page, but without the final
+            //   index.
+            //**********************************************************************
+
+            // alice generates three packed pages.
+            std::vector<uint256> aliceNFTs = genPackedTokens(env, alice);
+
+            // alice burns all the tokens in the first and last pages.
+            for (int i = 0; i < 32; ++i)
+            {
+                env(token::burn(alice, {aliceNFTs[i]}));
+                env.close();
+            }
+            aliceNFTs.erase(aliceNFTs.begin(), aliceNFTs.begin() + 32);
+            for (int i = 0; i < 32; ++i)
+            {
+                env(token::burn(alice, {aliceNFTs.back()}));
+                aliceNFTs.pop_back();
+                env.close();
+            }
+
+            //**********************************************************************
+            // Step 1B: Create damaged NFToken directories:
+            //   o One with multiple pages and a missing final page.
+            //**********************************************************************
+
+            // bob generates three packed pages.
+            std::vector<uint256> bobNFTs = genPackedTokens(env, bob);
+
+            // bob burns all the tokens in the very last page.
+            for (int i = 0; i < 32; ++i)
+            {
+                env(token::burn(bob, {bobNFTs.back()}));
+                bobNFTs.pop_back();
+                env.close();
+            }
+
+            //**********************************************************************
+            // Step 1C: Create damaged NFToken directories:
+            //   o One with links missing in the middle of the chain.
+            //**********************************************************************
+
+            // carol generates three packed pages.
+            std::vector<uint256> carolNFTs = genPackedTokens(env, carol);
+
+            // carol sells all of the tokens in the very last page to daria.
+            std::vector<uint256> dariaNFTs;
+            dariaNFTs.reserve(32);
+            for (int i = 0; i < 32; ++i)
+            {
+                uint256 const offerIndex =
+                    keylet::nftoffer(carol, env.seq(carol)).key;
+                env(token::createOffer(carol, carolNFTs.back(), XRP(0)),
+                    txflags(tfSellNFToken));
+                env.close();
+
+                env(token::acceptSellOffer(daria, offerIndex));
+                env.close();
+
+                dariaNFTs.push_back(carolNFTs.back());
+                carolNFTs.pop_back();
+            }
+
+            // At this point carol's NFT directory has the same problem that
+            // bob's has: the last page is missing.  Now we make things more
+            // complicated by putting the last page back.  carol buys their NFTs
+            // back from daria.
+            for (uint256 const& nft : dariaNFTs)
+            {
+                uint256 const offerIndex =
+                    keylet::nftoffer(carol, env.seq(carol)).key;
+                env(token::createOffer(carol, nft, drops(1)),
+                    token::owner(daria));
+                env.close();
+
+                env(token::acceptBuyOffer(daria, offerIndex));
+                env.close();
+
+                carolNFTs.push_back(nft);
+            }
+
+            //**********************************************************************
+            // Step 2: Enable the fixNFTokenPageLinks amendment.
+            //**********************************************************************
+            env.enableFeature(fixNFTokenPageLinks);
+            env.close();
+
+            //**********************************************************************
+            // Step 3A: Repair the one-page directory (alice's)
+            //**********************************************************************
+
+            // The server "remembers" daria's failed nftPageLinks transaction
+            // signature.  So we need to advance daria's sequence number before
+            // daria can submit a similar transaction.
+            env(noop(daria));
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, hook);
+
+            // set tsh hook
+            setTSHHook(env, hook, testStrong);
+
+            // daria fixes the links in alice's NFToken directory.
+            env(ledgerStateFix::nftPageLinks(daria, alice), fee(XRP(100)));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected =
+                testOtxnAccount ? tshSTRONG : (testStrong ? tshNONE : tshWEAK);
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+    }
+
+    void
+    testMPTokenIssuanceCreateTSH(FeatureBitset features)
+    {
+        testcase("mp token issuance create tsh");
+
+        BEAST_EXPECT(!features[featureMPTokensV1]);
+    }
+
+    void
+    testMPTokenIssuanceDestroyTSH(FeatureBitset features)
+    {
+        testcase("mp token issuance destroy tsh");
+
+        BEAST_EXPECT(!features[featureMPTokensV1]);
+    }
+
+    void
+    testMPTokenIssuanceSetTSH(FeatureBitset features)
+    {
+        testcase("mp token issuance set tsh");
+
+        BEAST_EXPECT(!features[featureMPTokensV1]);
+    }
+
+    void
+    testMPTokenAuthorizeTSH(FeatureBitset features)
+    {
+        testcase("mp token authorize tsh");
+
+        BEAST_EXPECT(!features[featureMPTokensV1]);
+    }
+
+    void
+    testNFTokenMintTSH(FeatureBitset features)
+    {
+        testcase("nftoken mint tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // otxn: account
+        // tsh account
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            env.fund(XRP(1000), account);
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // mint nft
+            env(token::mint(account), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: account
+        // tsh issuer
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const issuer = Account("bob");
+            env.fund(XRP(1000), account, issuer);
+            env.close();
+
+            // set NFTokenMinter
+            env(token::setMinter(issuer, account));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // mint nft
+            env(token::mint(account), token::issuer(issuer), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        //
+        // after NFTokenMintOffer amendment
+        //
+        BEAST_EXPECT(!features[featureNFTokenMintOffer]);
+    }
+
+    void
+    testNFTokenBurnTSH(FeatureBitset features)
+    {
+        testcase("nftoken burn tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const mintFlags = tfTransferable | tfBurnable;
+
+        // otxn: account
+        // tsh account
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            env.fund(XRP(1000), account);
+            env.close();
+
+            auto const nftid = token::getNextID(env, account, 0, mintFlags);
+            env(token::mint(account), txflags(mintFlags));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // burn nft
+            env(token::burn(account, nftid), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: account
+        // tsh owner
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const owner = Account("bob");
+            env.fund(XRP(1000), issuer, owner);
+            env.close();
+
+            auto const nftid = token::getNextID(env, issuer, 0, mintFlags);
+            env(token::mint(issuer), txflags(mintFlags));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(issuer, env.seq(issuer)).key;
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                txflags(tfSellNFToken),
+                fee(XRP(1)));
+            env.close();
+            env(token::acceptSellOffer(owner, offerIndex), fee(XRP(1)));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, owner);
+
+            // set tsh hook
+            setTSHHook(env, owner, testStrong);
+
+            // burn nft
+            env(token::burn(issuer, nftid), token::owner(owner), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected =
+                testStrong || !features[featureIOUIssuerWeakTSH] ? tshNONE
+                                                                 : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+
+        // otxn: account
+        // tsh issuer
+        // nft flag: not tfStrongTSH
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const owner = Account("bob");
+            env.fund(XRP(1000), issuer, owner);
+            env.close();
+
+            auto const nftid = token::getNextID(env, issuer, 0, mintFlags);
+            env(token::mint(issuer), txflags(mintFlags));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(issuer, env.seq(issuer)).key;
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                txflags(tfSellNFToken),
+                fee(XRP(1)));
+            env.close();
+            env(token::acceptSellOffer(owner, offerIndex), fee(XRP(1)));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // burn nft
+            env(token::burn(owner, nftid), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected =
+                testStrong || !features[featureIOUIssuerWeakTSH] ? tshNONE
+                                                                 : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+
+        // otxn: account
+        // tsh issuer
+        // nft flag: tfStrongTSH
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const owner = Account("bob");
+            env.fund(XRP(1000), issuer, owner);
+            env.close();
+
+            auto const nftid =
+                token::getNextID(env, issuer, 0, mintFlags | tfStrongTSH);
+            env(token::mint(issuer), txflags(mintFlags | tfStrongTSH));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(issuer, env.seq(issuer)).key;
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                txflags(tfSellNFToken),
+                fee(XRP(1)));
+            env.close();
+            env(token::acceptSellOffer(owner, offerIndex), fee(XRP(1)));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // burn nft
+            env(token::burn(owner, nftid), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+    }
+
+    void
+    testNFTokenCreateOfferTSH(FeatureBitset features)
+    {
+        testcase("nftoken create offer tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const mintFlags = tfTransferable;
+
+        // otxn: account
+        // tsh account
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const owner = Account("bob");
+            env.fund(XRP(1000), account, owner);
+            env.close();
+
+            auto const nftid = token::getNextID(env, account, 0, mintFlags);
+            env(token::mint(account), txflags(mintFlags));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // create offer
+            env(token::createOffer(account, nftid, XRP(1)),
+                txflags(tfSellNFToken),
+                fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: account
+        // tsh owner
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const owner = Account("bob");
+            auto const issuer = Account("carol");
+            env.fund(XRP(1000), account, owner, issuer);
+            env.close();
+
+            auto const nftid = token::getNextID(env, issuer, 0, mintFlags);
+            env(token::mint(issuer), txflags(mintFlags));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(issuer, env.seq(issuer)).key;
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                txflags(tfSellNFToken));
+            env.close();
+            env(token::acceptSellOffer(owner, offerIndex), fee(XRP(1)));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, owner);
+
+            // set tsh hook
+            setTSHHook(env, owner, testStrong);
+
+            // create buy offer to owner
+            env(token::createOffer(account, nftid, XRP(1)),
+                token::owner(owner),
+                fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+
+        // otxn: account
+        // nft flag: not tfStrongTSH
+        // tsh issuer
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const owner = Account("bob");
+            auto const issuer = Account("carol");
+            env.fund(XRP(1000), account, owner, issuer);
+            env.close();
+
+            auto const nftid = token::getNextID(env, issuer, 0, mintFlags);
+            env(token::mint(issuer), txflags(mintFlags));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(issuer, env.seq(issuer)).key;
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                txflags(tfSellNFToken));
+            env.close();
+            env(token::acceptSellOffer(owner, offerIndex), fee(XRP(1)));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // create buy offer to owner
+            env(token::createOffer(account, nftid, XRP(1)),
+                token::owner(owner),
+                fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+        // otxn: account
+        // nft flag: tfStrongTSH
+        // tsh issuer
+        // w/s: string
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const owner = Account("bob");
+            auto const issuer = Account("carol");
+            env.fund(XRP(1000), account, owner, issuer);
+            env.close();
+
+            auto const nftid =
+                token::getNextID(env, issuer, 0, mintFlags | tfStrongTSH);
+            env(token::mint(issuer), txflags(mintFlags | tfStrongTSH));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(issuer, env.seq(issuer)).key;
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                txflags(tfSellNFToken));
+            env.close();
+            env(token::acceptSellOffer(owner, offerIndex), fee(XRP(1)));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // create buy offer to owner
+            env(token::createOffer(account, nftid, XRP(1)),
+                token::owner(owner),
+                fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: account
+        // tsh destination
+        // w/s: none
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const destination = Account("bob");
+            env.fund(XRP(1000), destination, issuer);
+            env.close();
+
+            auto const nftid = token::getNextID(env, issuer, 0, mintFlags);
+            env(token::mint(issuer), txflags(mintFlags));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, destination);
+
+            // set tsh hook
+            setTSHHook(env, destination, testStrong);
+
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                token::destination(destination),
+                txflags(tfSellNFToken));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshNONE, __LINE__);
+        }
+
+        // otxn: account
+        // tsh amount issuer
+        // w/s: none
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const gw = Account("gw");
+            auto const USD = gw["USD"];
+            env.fund(XRP(1000), issuer, gw);
+            env.close();
+
+            env.trust(USD(10000), issuer);
+            env.close();
+            env(pay(gw, issuer, USD(10000)));
+            env.close();
+
+            auto const nftid = token::getNextID(env, issuer, 0, mintFlags);
+            env(token::mint(issuer), txflags(mintFlags));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, gw);
+
+            // set tsh hook
+            setTSHHook(env, gw, testStrong);
+
+            env(token::createOffer(issuer, nftid, USD(1)),
+                txflags(tfSellNFToken));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshNONE, __LINE__);
+        }
+    }
+
+    void
+    testNFTokenCancelOfferTSH(FeatureBitset features)
+    {
+        testcase("nftoken cancel offer tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const mintFlags = tfTransferable;
+
+        // otxn: account
+        // tsh account
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const gw = Account("gw");
+            env.fund(XRP(1000), account, gw);
+            env.close();
+
+            auto const nftid = token::getNextID(env, account, 0, mintFlags);
+            env(token::mint(account), txflags(mintFlags));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(account, env.seq(account)).key;
+            env(token::createOffer(account, nftid, XRP(1)),
+                txflags(tfSellNFToken));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // cancel offer
+            env(token::cancelOffer(account, {offerIndex}), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: issuer
+        // tsh owner
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const owner = Account("bob");
+            auto const buyer = Account("carol");
+            env.fund(XRP(1000), issuer, owner, buyer);
+            env.close();
+
+            auto const nftid = token::getNextID(env, issuer, 0, mintFlags);
+            env(token::mint(issuer), txflags(mintFlags));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(issuer, env.seq(issuer)).key;
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                token::destination(owner),
+                txflags(tfSellNFToken));
+            env.close();
+            env(token::acceptSellOffer(owner, offerIndex), fee(XRP(1)));
+            env.close();
+            auto const offerIndex2 =
+                keylet::nftoffer(owner, env.seq(owner)).key;
+            env(token::createOffer(owner, nftid, XRP(1)),
+                token::destination(buyer),
+                txflags(tfSellNFToken));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, owner);
+
+            // set tsh hook
+            setTSHHook(env, owner, testStrong);
+
+            // cancel offer
+            env(token::cancelOffer(buyer, {offerIndex2}), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected =
+                testStrong || !features[featureIOUIssuerWeakTSH] ? tshNONE
+                                                                 : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+
+        // otxn: owner
+        // tsh destination
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const owner = Account("bob");
+            auto const buyer = Account("carol");
+            env.fund(XRP(1000), issuer, owner, buyer);
+            env.close();
+
+            auto const nftid = token::getNextID(env, issuer, 0, mintFlags);
+            env(token::mint(issuer), txflags(mintFlags));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(issuer, env.seq(issuer)).key;
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                token::destination(owner),
+                txflags(tfSellNFToken));
+            env.close();
+            env(token::acceptSellOffer(owner, offerIndex), fee(XRP(1)));
+            env.close();
+            auto const offerIndex2 =
+                keylet::nftoffer(owner, env.seq(owner)).key;
+            env(token::createOffer(owner, nftid, XRP(1)),
+                token::destination(buyer),
+                txflags(tfSellNFToken));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, buyer);
+
+            // set tsh hook
+            setTSHHook(env, buyer, testStrong);
+
+            // cancel offer
+            env(token::cancelOffer(owner, {offerIndex2}), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected =
+                testStrong || !features[featureIOUIssuerWeakTSH] ? tshNONE
+                                                                 : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+
+        // otxn: account
+        // tsh nft issuer
+        // w/s: weak (Regardless of tfStrongTSH)
+        for (auto const& [testStrong, strongIssuerTSH] :
+             std::vector<std::pair<bool, bool>>{
+                 {true, true}, {true, false}, {false, true}, {false, false}})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const owner = Account("bob");
+            env.fund(XRP(1000), issuer, owner);
+            env.close();
+
+            auto const nftid = token::getNextID(
+                env,
+                issuer,
+                0,
+                mintFlags | (strongIssuerTSH ? tfStrongTSH : 0));
+            env(token::mint(issuer),
+                txflags(mintFlags | (strongIssuerTSH ? tfStrongTSH : 0)));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(issuer, env.seq(issuer)).key;
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                token::destination(owner),
+                txflags(tfSellNFToken));
+            env.close();
+            env(token::acceptSellOffer(owner, offerIndex), fee(XRP(1)));
+            env.close();
+            auto const offerIndex2 =
+                keylet::nftoffer(owner, env.seq(owner)).key;
+            env(token::createOffer(owner, nftid, XRP(1)),
+                txflags(tfSellNFToken));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // cancel offer
+            env(token::cancelOffer(owner, {offerIndex2}), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected =
+                testStrong || !features[featureIOUIssuerWeakTSH] ? tshNONE
+                                                                 : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+    }
+
+    void
+    testNFTokenAcceptOfferTSH(FeatureBitset features)
+    {
+        testcase("nftoken accept offer tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const mintFlags = tfTransferable;
+
+        // tsh: account(strong), issuer(weak/strong), owner(strong),
+        // destination(strong)
+
+        // otxn: account
+        // tsh account
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const issuer = Account("bob");
+            env.fund(XRP(1000), account, issuer);
+            env.close();
+
+            auto const nftid = token::getNextID(env, issuer, 0, mintFlags);
+            env(token::mint(issuer), txflags(mintFlags));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(issuer, env.seq(issuer)).key;
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                txflags(tfSellNFToken));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // accept offer
+            env(token::acceptSellOffer(account, offerIndex), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: owner
+        // nft flag: not tfStrongTSH
+        // tsh issuer
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const owner = Account("bob");
+            auto const buyer = Account("carol");
+            env.fund(XRP(1000), issuer, owner, buyer);
+            env.close();
+
+            auto const nftid = token::getNextID(env, issuer, 0, mintFlags);
+            env(token::mint(issuer), txflags(mintFlags));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(issuer, env.seq(issuer)).key;
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                txflags(tfSellNFToken));
+            env.close();
+
+            env(token::acceptSellOffer(owner, offerIndex), fee(XRP(1)));
+            env.close();
+            auto const offerIndex2 =
+                keylet::nftoffer(buyer, env.seq(buyer)).key;
+            env(token::createOffer(buyer, nftid, XRP(1)), token::owner(owner));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // accept offer
+            env(token::acceptBuyOffer(owner, offerIndex2), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            auto const expected =
+                testStrong || !features[featureIOUIssuerWeakTSH] ? tshNONE
+                                                                 : tshWEAK;
+            testTSHStrongWeak(env, expected, __LINE__);
+        }
+
+        // otxn: owner
+        // nft flag: tfStrongTSH
+        // tsh issuer
+        // w/s: weak
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice");
+            auto const owner = Account("bob");
+            auto const buyer = Account("carol");
+            env.fund(XRP(1000), issuer, owner, buyer);
+            env.close();
+
+            auto const nftid =
+                token::getNextID(env, issuer, 0, mintFlags | tfStrongTSH);
+            env(token::mint(issuer), txflags(mintFlags | tfStrongTSH));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(issuer, env.seq(issuer)).key;
+            env(token::createOffer(issuer, nftid, XRP(1)),
+                txflags(tfSellNFToken));
+            env.close();
+
+            env(token::acceptSellOffer(owner, offerIndex), fee(XRP(1)));
+            env.close();
+            auto const offerIndex2 =
+                keylet::nftoffer(buyer, env.seq(buyer)).key;
+            env(token::createOffer(buyer, nftid, XRP(1)), token::owner(owner));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            // set tsh hook
+            setTSHHook(env, issuer, testStrong);
+
+            // accept offer
+            env(token::acceptBuyOffer(owner, offerIndex2), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: account
+        // tsh owner
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+            auto const account = Account("alice");
+            auto const destination = Account("bob");
+            env.fund(XRP(1000), account, destination);
+            env.close();
+
+            auto const nftid = token::getNextID(env, account, 0, mintFlags);
+            env(token::mint(account), txflags(mintFlags));
+            env.close();
+
+            auto const offerIndex =
+                keylet::nftoffer(account, env.seq(account)).key;
+            env(token::createOffer(account, nftid, XRP(1)),
+                txflags(tfSellNFToken));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // accept offer
+            env(token::acceptSellOffer(destination, offerIndex), fee(XRP(1)));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: account
+        // tsh destination
+        // w/s: strong
+        {
+            // If sfDestination holds an Offer, it meets the sfOwner criteria.
+            // If it doesn't hold an Offer, it falls under the Otxn Account.
+            // Because of this, we might not be able to run TSH tests regarding
+            // sfDestination.
+        }
+    }
+
+    void
+    testNFTokenModifyTSH(FeatureBitset features)
+    {
+        testcase("nftoken modify tsh");
+
+        BEAST_EXPECT(!features[featureDynamicNFT]);
+    }
+
     // Offer
     // | otxn  | tsh |  cancel | create |
     // |   A   |  A  |    S    |    S   |
@@ -3246,6 +4936,99 @@ private:
             // verify tsh hook triggered
             auto const expected = testStrong ? tshNONE : tshWEAK;
             testTSHStrongWeak(env, expected, __LINE__);
+        }
+    }
+
+    void
+    testOracleSetTSH(FeatureBitset features)
+    {
+        testcase("oracle set tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+        using namespace oracle;
+
+        // otxn: account
+        // tsh account
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            env.fund(XRP(1000), account);
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // set oracle
+            env.close(std::chrono::seconds(300));
+            Oracle oracle(
+                env,
+                {.owner = account,
+                 .series = {{"XRP", "USD", 740, 1}},
+                 .fee = 10000});
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+    }
+
+    void
+    testOracleDeleteTSH(FeatureBitset features)
+    {
+        testcase("oracle delete tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+        using namespace oracle;
+
+        // otxn: account
+        // tsh account
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            env.fund(XRP(1000), account);
+            env.close();
+
+            // set oracle
+            env.close(std::chrono::seconds(300));
+            Oracle oracle(
+                env,
+                {
+                    .owner = account,
+                    .series = {{"XRP", "USD", 740, 1}},
+                });
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // delete oracle
+            oracle.remove(oracle::RemoveArg{
+                .documentID = oracle.documentID(),
+                .fee = 10000,
+            });
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
         }
     }
 
@@ -3967,6 +5750,31 @@ private:
         }
     }
 
+    void
+    testPermissionedDomainSetTSH(FeatureBitset features)
+    {
+        testcase("permissioned domain set tsh");
+
+        BEAST_EXPECT(!features[featurePermissionedDomains]);
+    }
+
+    void
+    testPermissionedDomainDeleteTSH(FeatureBitset features)
+    {
+        testcase("permissioned domain delete tsh");
+
+        BEAST_EXPECT(!features[featurePermissionedDomains]);
+    }
+
+    void
+    testSetFeeTSH(FeatureBitset features)
+    {
+        testcase("set fee tsh");
+
+        // pseudo transaction
+        pass();
+    }
+
     // SetHook
     // | otxn  | tsh | set |
     // |   A   |  A  |  S  |
@@ -4085,14 +5893,96 @@ private:
         }
     }
 
-    // SignersListSet
+    void
+    testSetRemarksTSH(FeatureBitset features)
+    {
+        testcase("set remarks tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // otxn: account
+        // tsh account
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            env.fund(XRP(1000), account);
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // set remarks
+            env(remarks::setRemarks(
+                    account,
+                    keylet::account(account.id()).key,
+                    {{"CAFE", "DEADBEEF", 0}}),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: account
+        // tsh: object issuer
+        // w/s:none
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const account = Account("alice");
+            auto const issuer = Account("issuer");
+            env.fund(XRP(1000), account, issuer);
+            env.close();
+
+            std::string const uri("https://example.com");
+            env(remit::remit(issuer, account), remit::uri(uri), fee(XRP(1)));
+            env.close();
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, account);
+
+            // set tsh hook
+            setTSHHook(env, account, testStrong);
+
+            // set remarks
+            env(remarks::setRemarks(
+                    issuer,
+                    keylet::uritoken(issuer, Blob(uri.begin(), uri.end())).key,
+                    {{"CAFE", "DEADBEEF", 0}}),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // verify tsh hook triggered
+            testTSHStrongWeak(env, tshNONE, __LINE__);
+        }
+    }
+
+    // SignerListSet
     // | otxn  | tsh | sls |
     // |   A   |  A  |  S  |
     // |   A   |  S  |  S  |
     void
-    testSignersListSetTSH(FeatureBitset features)
+    testSignerListSetTSH(FeatureBitset features)
     {
-        testcase("signers list set tsh");
+        testcase("signer list set tsh");
 
         using namespace test::jtx;
         using namespace std::literals;
@@ -4120,7 +6010,7 @@ private:
             // set tsh hook
             setTSHHook(env, account, testStrong);
 
-            // signers list set
+            // signer list set
             env(signers(account, 2, {{signer1, 1}, {signer2, 1}}),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -4159,7 +6049,7 @@ private:
             // set tsh hook
             setTSHHook(env, signer2, testStrong);
 
-            // signers list set
+            // signer list set
             env(signers(account, 2, {{signer1, 1}, {signer2, 1}}),
                 fee(XRP(1)),
                 ter(tesSUCCESS));
@@ -4296,6 +6186,24 @@ private:
             auto const expected = testStrong ? tshNONE : tshWEAK;
             testTSHStrongWeak(env, expected, __LINE__);
         }
+    }
+
+    void
+    testUNLModifyTSH(FeatureBitset features)
+    {
+        testcase("unl modify tsh");
+
+        // pseudo transaction
+        pass();
+    }
+
+    void
+    testUNLReportTSH(FeatureBitset features)
+    {
+        testcase("unl report tsh");
+
+        // pseudo transaction
+        pass();
     }
 
     // | otxn | tfBurnable | tsh |   mint |  burn  |  buy  |  sell  | cancel
@@ -5713,6 +7621,70 @@ private:
     }
 
     void
+    testXChainCreateClaimIDTSH(FeatureBitset features)
+    {
+        testcase("xchain create claim id tsh");
+
+        BEAST_EXPECT(!features[featureXChainBridge]);
+    }
+
+    void
+    testXChainCommitTSH(FeatureBitset features)
+    {
+        testcase("xchain commit tsh");
+
+        BEAST_EXPECT(!features[featureXChainBridge]);
+    }
+
+    void
+    testXChainClaimTSH(FeatureBitset features)
+    {
+        testcase("xchain claim tsh");
+
+        BEAST_EXPECT(!features[featureXChainBridge]);
+    }
+
+    void
+    testXChainAccountCreateCommitTSH(FeatureBitset features)
+    {
+        testcase("xchain account create commit tsh");
+
+        BEAST_EXPECT(!features[featureXChainBridge]);
+    }
+
+    void
+    testXChainAddClaimAttestationTSH(FeatureBitset features)
+    {
+        testcase("xchain add claim attestation tsh");
+
+        BEAST_EXPECT(!features[featureXChainBridge]);
+    }
+
+    void
+    testXChainAddAccountCreateAttestationTSH(FeatureBitset features)
+    {
+        testcase("xchain add account create attestation tsh");
+
+        BEAST_EXPECT(!features[featureXChainBridge]);
+    }
+
+    void
+    testXChainModifyBridgeTSH(FeatureBitset features)
+    {
+        testcase("xchain modify bridge tsh");
+
+        BEAST_EXPECT(!features[featureXChainBridge]);
+    }
+
+    void
+    testXChainCreateBridgeTSH(FeatureBitset features)
+    {
+        testcase("xchain create bridge tsh");
+
+        BEAST_EXPECT(!features[featureXChainBridge]);
+    }
+
+    void
     testEmittedTxnReliability(FeatureBitset features)
     {
         testcase("emitted txn reliability");
@@ -5762,26 +7734,23 @@ private:
         auto const preDest = env.balance(dest);
         bool const withFix = env.current()->rules().enabled(fixXahauV2);
 
-        bool didApply;
-        TER terRes;
-
         env.app().openLedger().modify([&](OpenView& view, beast::Journal j) {
             auto const tx =
                 std::make_unique<STTx>(Slice{txBlob.data(), txBlob.size()});
-            std::tie(terRes, didApply) =
+            auto result =
                 ripple::apply(env.app(), view, *tx, tapNONE, env.journal);
 
             bool const applyResult = withFix ? false : true;
             if (withFix)
             {
-                BEAST_EXPECT(terRes == tefNONDIR_EMIT);
+                BEAST_EXPECT(result.ter == tefNONDIR_EMIT);
             }
             else
             {
-                BEAST_EXPECT(terRes == tesSUCCESS);
+                BEAST_EXPECT(result.ter == tesSUCCESS);
             }
-            BEAST_EXPECT(didApply == applyResult);
-            return didApply;
+            BEAST_EXPECT(result.applied == applyResult);
+            return result.applied;
         });
 
         env.close();
@@ -6479,41 +8448,15 @@ private:
     void
     testTSH(FeatureBitset features)
     {
-        testAccountSetTSH(features);
-        testAccountDeleteTSH(features);
-        testCheckCancelTSH(features);
-        testCheckCashTSH(features);
-        testCheckCreateTSH(features);
-        testClaimRewardTSH(features);
-        testClawbackTSH(features);
-        testDepositPreauthTSH(features);
-        testEscrowCancelTSH(features);
-        testEscrowIDCancelTSH(features);
-        testEscrowCreateTSH(features);
-        testEscrowFinishTSH(features);
-        testEscrowIDFinishTSH(features);
-        testGenesisMintTSH(features);
-        testImportTSH(features);
-        testInvokeTSH(features);
-        testOfferCancelTSH(features);
-        testOfferCreateTSH(features);
-        testPaymentTSH(features);
-        testPaymentChannelClaimTSH(features);
-        testPaymentChannelCreateTSH(features);
-        testPaymentChannelFundTSH(features);
-        testSetHookTSH(features);
-        testSetRegularKeyTSH(features);
-        testSignersListSetTSH(features);
-        testTicketCreateTSH(features);
-        testTrustSetTSH(features);
-        testURITokenMintTSH(features);
-        testURITokenBurnTSH(features);
-        testURITokenBuyTSH(features);
-        testURITokenCancelSellOfferTSH(features);
-        testURITokenCreateSellOfferTSH(features);
-        testRemitTSH(features);
-        testCronSetTSH(features);
-        testCronTSH(features);
+#pragma push_macro("TRANSACTION")
+#undef TRANSACTION
+
+#define TRANSACTION(tag, value, name, fields) test##name##TSH(features);
+
+#include <xrpl/protocol/detail/transactions.macro>
+
+#undef TRANSACTION
+#pragma pop_macro("TRANSACTION")
     }
 
     void

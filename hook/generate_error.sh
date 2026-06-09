@@ -4,12 +4,12 @@ set -eu
 SCRIPT_DIR=$(dirname "$0")
 SCRIPT_DIR=$(cd "$SCRIPT_DIR" && pwd)
 
-ENUM_FILE="$SCRIPT_DIR/../src/ripple/app/hook/Enum.h"
+ENUM_FILE="$SCRIPT_DIR/../include/xrpl/hook/Enum.h"
 
 echo '// For documentation please see: https://xrpl-hooks.readme.io/reference/'
 echo '// Generated using generate_error.sh'
 echo '#ifndef HOOK_ERROR_CODES'
-sed -n '/enum hook_return_code/,/};/p' "$ENUM_FILE" |
+sed -n '/enum class hook_return_code/,/};/p' "$ENUM_FILE" |
     awk '
         function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
         function rtrim(s) { sub(/[[:space:]]+$/, "", s); return s }
@@ -31,7 +31,7 @@ sed -n '/enum hook_return_code/,/};/p' "$ENUM_FILE" |
 
         {
             line = $0
-            if (line ~ /enum[[:space:]]+hook_return_code/)
+            if (line ~ /enum[[:space:]]+class[[:space:]]+hook_return_code/)
                 next
             if (line ~ /^[[:space:]]*\{/)
                 next

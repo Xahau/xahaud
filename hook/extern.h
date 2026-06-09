@@ -2,6 +2,9 @@
 // Generated using generate_extern.sh
 #include <stdint.h>
 #ifndef HOOK_EXTERN
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 extern int32_t __attribute__((noduplicate))
 _g(uint32_t guard_id, uint32_t maxiter);
@@ -82,7 +85,7 @@ sto_erase(
     uint32_t field_id);
 
 extern int64_t
-etxn_burden(void);
+etxn_burden();
 
 extern int64_t
 etxn_details(uint32_t write_ptr, uint32_t write_len);
@@ -94,7 +97,7 @@ extern int64_t
 etxn_reserve(uint32_t count);
 
 extern int64_t
-etxn_generation(void);
+etxn_generation();
 
 extern int64_t
 etxn_nonce(uint32_t write_ptr, uint32_t write_len);
@@ -149,7 +152,7 @@ extern int64_t
 float_divide(int64_t float1, int64_t float2);
 
 extern int64_t
-float_one(void);
+float_one();
 
 extern int64_t
 float_mantissa(int64_t float1);
@@ -167,13 +170,13 @@ extern int64_t
 float_root(int64_t float1, uint32_t n);
 
 extern int64_t
-fee_base(void);
+fee_base();
 
 extern int64_t
-ledger_seq(void);
+ledger_seq();
 
 extern int64_t
-ledger_last_time(void);
+ledger_last_time();
 
 extern int64_t
 ledger_last_hash(uint32_t write_ptr, uint32_t write_len);
@@ -213,13 +216,13 @@ hook_param(
     uint32_t read_len);
 
 extern int64_t
-hook_again(void);
+hook_again();
 
 extern int64_t
 hook_skip(uint32_t read_ptr, uint32_t read_len, uint32_t flags);
 
 extern int64_t
-hook_pos(void);
+hook_pos();
 
 extern int64_t
 slot(uint32_t write_ptr, uint32_t write_len, uint32_t slot);
@@ -299,19 +302,19 @@ extern int64_t
 trace_float(uint32_t read_ptr, uint32_t read_len, int64_t float1);
 
 extern int64_t
-otxn_burden(void);
+otxn_burden();
 
 extern int64_t
 otxn_field(uint32_t write_ptr, uint32_t write_len, uint32_t field_id);
 
 extern int64_t
-otxn_generation(void);
+otxn_generation();
 
 extern int64_t
 otxn_id(uint32_t write_ptr, uint32_t write_len, uint32_t flags);
 
 extern int64_t
-otxn_type(void);
+otxn_type();
 
 extern int64_t
 otxn_slot(uint32_t slot_no);
@@ -329,5 +332,15 @@ meta_slot(uint32_t slot_no);
 extern int64_t
 xpop_slot(uint32_t slot_no_tx, uint32_t slot_no_meta);
 
+extern int64_t
+prepare(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len);
+
+#ifdef __cplusplus
+}
+#endif
 #define HOOK_EXTERN
 #endif  // HOOK_EXTERN
