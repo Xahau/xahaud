@@ -20,15 +20,31 @@
 #include <test/jtx.h>
 #include <test/jtx/import.h>
 #include <test/jtx/xpop.h>
+#include <test/shamap/common.h>
+#include <test/unit_test/SuiteJournal.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/proof/LedgerProof.h>
 #include <xrpld/app/proof/ProofBuilder.h>
 #include <xrpld/app/proof/XPOPv1.h>
+#include <xrpld/shamap/SHAMapItem.h>
+#include <xrpl/basics/StringUtilities.h>
 #include <xrpl/protocol/Import.h>
+#include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
+#include <cstring>
 
 namespace ripple {
 namespace test {
+
+namespace {
+
+uint256
+makeHash(char const* label)
+{
+    return sha512Half(Slice(label, std::strlen(label)));
+}
+
+}  // namespace
 
 struct XPOP_test : public beast::unit_test::suite
 {
@@ -99,6 +115,67 @@ struct XPOP_test : public beast::unit_test::suite
             auto const computedHash = lp->computeLedgerHash();
             BEAST_EXPECT(computedHash == lcl->info().hash);
         }
+
+        auto missing = proof::buildLedgerProof(*lcl, makeHash("missing-tx"));
+        BEAST_EXPECT(!missing);
+    }
+
+    void
+    testProofBuilderEdgeCases()
+    {
+        testcase("ProofBuilder edge cases");
+
+        proof::MerkleProof empty;
+        BEAST_EXPECT(!empty.computeRoot());
+        BEAST_EXPECT(!empty.verify(makeHash("root")));
+        BEAST_EXPECT(empty.toJsonV1().isNull());
+
+        proof::MerkleProof manual;
+        manual.key = makeHash("manual-key");
+        manual.leafHash = makeHash("manual-leaf");
+
+        proof::ProofNode leafParent;
+        leafParent.targetBranch = 3;
+        leafParent.isLeafParent = true;
+        leafParent.branches[0] = makeHash("manual-sibling-0");
+        manual.path.push_back(leafParent);
+
+        auto const computedRoot = manual.computeRoot();
+        BEAST_EXPECT(computedRoot.has_value());
+        if (computedRoot)
+            BEAST_EXPECT(manual.verify(*computedRoot));
+
+        auto const proofJson = manual.toJsonV1();
+        BEAST_EXPECT(proofJson.isArray());
+        BEAST_EXPECT(proofJson.size() == 16);
+        BEAST_EXPECT(proofJson[3].asString() == to_string(manual.leafHash));
+
+        test::SuiteJournal journal("XPOP_test", *this);
+        tests::TestNodeFamily family{journal};
+        SHAMap map{SHAMapType::FREE, family};
+        map.setUnbacked();
+
+        auto const keyA = makeHash("proof-key-a");
+        auto const keyB = makeHash("proof-key-b");
+        BEAST_EXPECT(map.addItem(
+            SHAMapNodeType::tnTRANSACTION_NM,
+            make_shamapitem(keyA, Slice("proof-value-a", 13))));
+        BEAST_EXPECT(map.addItem(
+            SHAMapNodeType::tnTRANSACTION_NM,
+            make_shamapitem(keyB, Slice("proof-value-b", 13))));
+
+        auto const extracted = proof::extractProofV1(map, keyA);
+        BEAST_EXPECT(extracted.has_value());
+        if (extracted)
+        {
+            auto const extractedRoot = extracted->computeRoot();
+            BEAST_EXPECT(extractedRoot.has_value());
+            if (extractedRoot)
+                BEAST_EXPECT(extracted->verify(*extractedRoot));
+        }
+
+        auto const missing = proof::extractProofV1(map, makeHash("proof-miss"));
+        BEAST_EXPECT(!missing);
     }
 
     void
@@ -170,6 +247,10 @@ struct XPOP_test : public beast::unit_test::suite
         BEAST_EXPECT(unl.isMember(jss::blob));
         BEAST_EXPECT(unl.isMember(jss::signature));
         BEAST_EXPECT(unl.isMember(jss::version));
+
+        auto const encoded = proof::xpopToHex(xpop);
+        BEAST_EXPECT(!encoded.empty());
+        BEAST_EXPECT(strUnHex(encoded).has_value());
     }
 
     void
@@ -289,6 +370,7 @@ struct XPOP_test : public beast::unit_test::suite
     run() override
     {
         testBuildLedgerProof();
+        testProofBuilderEdgeCases();
         testBuildXPOPv1();
         testMerkleProofVerification();
         testImportWithGeneratedXPOP();
