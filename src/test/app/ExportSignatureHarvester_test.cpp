@@ -19,11 +19,11 @@
 #include <xrpld/app/consensus/ExportSignatureHarvester.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test.h>
-#include <xrpl/protocol/SecretKey.h>
-#include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/STAmount.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
+#include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/digest.h>
@@ -145,15 +145,13 @@ public:
         testcase("rejects too many entries");
 
         auto const txHash = makeHash("too-many");
-        auto const blob =
-            makeBlob(txHash, sender_.first, Slice("sig", 3));
+        auto const blob = makeBlob(txHash, sender_.first, Slice("sig", 3));
         std::vector<std::string> const blobs{blob, blob, blob};
         ExportTxnLookup lookup;
         ExportSigCollector collector;
 
         auto input = makeInput(blobs, lookup);
-        BEAST_EXPECT(
-            harvestExportSignatures(input, collector, journal()) == 0);
+        BEAST_EXPECT(harvestExportSignatures(input, collector, journal()) == 0);
         BEAST_EXPECT(!collector.hasUnverifiedSignatures());
         BEAST_EXPECT(collector.signatureCount(txHash) == 0);
     }
@@ -194,8 +192,7 @@ public:
         ExportSigCollector collector;
 
         auto input = makeInput(blobs, lookup, true, prevLedger_);
-        BEAST_EXPECT(
-            harvestExportSignatures(input, collector, journal()) == 0);
+        BEAST_EXPECT(harvestExportSignatures(input, collector, journal()) == 0);
         BEAST_EXPECT(!collector.hasUnverifiedSignatures());
         BEAST_EXPECT(collector.signatureCount(txHash) == 0);
     }
@@ -212,8 +209,7 @@ public:
         ExportSigCollector collector;
 
         auto input = makeInput(blobs, lookup, true, prevLedger_);
-        BEAST_EXPECT(
-            harvestExportSignatures(input, collector, journal()) == 1);
+        BEAST_EXPECT(harvestExportSignatures(input, collector, journal()) == 1);
         BEAST_EXPECT(collector.hasUnverifiedSignatures());
         BEAST_EXPECT(collector.signatureCount(txHash) == 0);
     }
@@ -227,10 +223,8 @@ public:
         auto const dstAccount = calcAccountID(other_.first);
         auto const innerObj = makeExportedPayment(senderAccount, dstAccount);
         auto const innerTx = makeSTTx(innerObj);
-        auto const sigData =
-            buildMultiSigningData(innerTx, senderAccount);
-        auto const sig =
-            sign(sender_.first, sender_.second, sigData.slice());
+        auto const sigData = buildMultiSigningData(innerTx, senderAccount);
+        auto const sig = sign(sender_.first, sender_.second, sigData.slice());
         auto const exportTx = makeExportTx(innerObj, senderAccount);
         auto const txHash = exportTx->getTransactionID();
 
@@ -241,13 +235,11 @@ public:
         ExportSigCollector collector;
 
         auto input = makeInput(blobs, lookup, true, prevLedger_);
-        BEAST_EXPECT(
-            harvestExportSignatures(input, collector, journal()) == 1);
+        BEAST_EXPECT(harvestExportSignatures(input, collector, journal()) == 1);
         BEAST_EXPECT(!collector.hasUnverifiedSignatures());
         BEAST_EXPECT(collector.signatureCount(txHash) == 1);
 
-        BEAST_EXPECT(
-            harvestExportSignatures(input, collector, journal()) == 0);
+        BEAST_EXPECT(harvestExportSignatures(input, collector, journal()) == 0);
         BEAST_EXPECT(collector.signatureCount(txHash) == 1);
     }
 

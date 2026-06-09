@@ -19,10 +19,10 @@
 
 #include <xrpld/app/consensus/ExportSignatureHarvester.h>
 #include <xrpl/protocol/AccountID.h>
-#include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
+#include <xrpl/protocol/Sign.h>
 
 #include <cstring>
 
@@ -119,13 +119,12 @@ harvestExportSignatures(
 
         if (PublicKey{pkSlice} != input.senderPK)
         {
-            JLOG(j.warn())
-                << "Export: rejecting proposal signatures"
-                << " reason=embedded-pubkey-mismatch"
-                << " source=" << input.source
-                << " sender=" << calcNodeID(input.senderPK)
-                << " embedded=" << calcNodeID(PublicKey{pkSlice})
-                << " prevLedger=" << input.proposalPrevLedger;
+            JLOG(j.warn()) << "Export: rejecting proposal signatures"
+                           << " reason=embedded-pubkey-mismatch"
+                           << " source=" << input.source
+                           << " sender=" << calcNodeID(input.senderPK)
+                           << " embedded=" << calcNodeID(PublicKey{pkSlice})
+                           << " prevLedger=" << input.proposalPrevLedger;
             return 0;
         }
     }
@@ -152,13 +151,12 @@ harvestExportSignatures(
         auto const txIt = input.exportTxns.find(txHash);
         if (txIt == input.exportTxns.end())
         {
-            JLOG(j.debug()) << "Export: storing unverified sig"
-                            << " txHash=" << txHash
-                            << " source=" << input.source
-                            << " signer=" << calcNodeID(input.senderPK)
-                            << " reason=tx-not-in-open-ledger"
-                            << " currentClosedSeq="
-                            << input.currentClosedSeq;
+            JLOG(j.debug())
+                << "Export: storing unverified sig"
+                << " txHash=" << txHash << " source=" << input.source
+                << " signer=" << calcNodeID(input.senderPK)
+                << " reason=tx-not-in-open-ledger"
+                << " currentClosedSeq=" << input.currentClosedSeq;
             Buffer sigBuf(sigSlice.data(), sigSlice.size());
             collector.addUnverifiedSignature(
                 txHash, input.senderPK, sigBuf, input.currentClosedSeq);
