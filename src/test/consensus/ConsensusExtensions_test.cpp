@@ -120,10 +120,20 @@ struct FakeExtensions
     bool exportOn{true};
     bool entropyFailed{false};
     std::size_t exportQuorum{4};
+    std::size_t commits{4};
+    std::size_t reveals{4};
+    bool commitQuorum{true};
+    bool minimumReveals{true};
+    bool anyReveals{true};
+    bool sendExplicitFinal{false};
     uint256 exportHash{makeHash("local-export-sig-set")};
+    uint256 commitHash{makeHash("local-commit-set")};
     uint256 entropyHash{makeHash("local-entropy-set")};
+    std::optional<FakeTxSet> explicitFinalTxSet;
     std::vector<uint256> fetchedExportSets;
     std::vector<uint256> fetchedEntropySets;
+    std::vector<uint256> fetchedCommitSets;
+    int commitBuilds = 0;
     int exportBuilds = 0;
     int entropyBuilds = 0;
 
@@ -154,13 +164,13 @@ struct FakeExtensions
     std::size_t
     pendingCommitCount() const
     {
-        return rngOn ? exportQuorum : 0;
+        return rngOn ? commits : 0;
     }
 
     std::size_t
     pendingRevealCount() const
     {
-        return rngOn ? exportQuorum : 0;
+        return rngOn ? reveals : 0;
     }
 
     std::size_t
@@ -172,25 +182,26 @@ struct FakeExtensions
     bool
     hasQuorumOfCommits() const
     {
-        return rngOn;
+        return rngOn && commitQuorum;
     }
 
     bool
     hasMinimumReveals() const
     {
-        return rngOn;
+        return rngOn && minimumReveals;
     }
 
     bool
     hasAnyReveals() const
     {
-        return rngOn;
+        return rngOn && anyReveals;
     }
 
     uint256
     buildCommitSet(LedgerIndex)
     {
-        return makeHash("commit-set");
+        ++commitBuilds;
+        return commitHash;
     }
 
     uint256
@@ -222,6 +233,8 @@ struct FakeExtensions
     {
         if (kind == SidecarKind::reveal && hash)
             fetchedEntropySets.push_back(*hash);
+        else if (kind == SidecarKind::commit && hash)
+            fetchedCommitSets.push_back(*hash);
         else if (kind == SidecarKind::exportSig && hash)
             fetchedExportSets.push_back(*hash);
     }
@@ -229,13 +242,13 @@ struct FakeExtensions
     bool
     shouldSendExplicitFinalProposal() const
     {
-        return false;
+        return sendExplicitFinal;
     }
 
     std::optional<FakeTxSet>
     buildExplicitFinalProposalTxSet(FakeTxSet const&, LedgerIndex)
     {
-        return std::nullopt;
+        return explicitFinalTxSet;
     }
 
     bool
@@ -296,6 +309,18 @@ struct ExportTickHarness
     {
         ExtendedPosition peerPosition{txSetHash};
         peerPosition.entropySetHash = entropySetHash;
+        peers.emplace(
+            makeNode(id), FakePeerPosition{makeNode(id), peerPosition});
+    }
+
+    void
+    addCommitPeer(
+        std::uint8_t id,
+        std::optional<uint256> commitSetHash,
+        uint256 txSetHash = makeHash("tx-set"))
+    {
+        ExtendedPosition peerPosition{txSetHash};
+        peerPosition.commitSetHash = commitSetHash;
         peers.emplace(
             makeNode(id), FakePeerPosition{makeNode(id), peerPosition});
     }
@@ -617,6 +642,225 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testRngBootstrapSkipWhenPreviousParticipantsBelowQuorum()
+    {
+        testcase("RNG bootstrap skip below previous participant quorum");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+
+        ExportTickHarness harness;
+        harness.prevProposers = 2;
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(ext.estState_ == EstablishState::ConvergingTx);
+        BEAST_EXPECT(ext.commitBuilds == 0);
+        BEAST_EXPECT(!harness.position.commitSetHash);
+    }
+
+    void
+    testRngCommitWaitsWhenQuorumPossible()
+    {
+        testcase("RNG commit waits when quorum is still possible");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.commitQuorum = false;
+        ext.commits = 2;
+
+        ExportTickHarness harness;
+        harness.addCommitPeer(1, std::nullopt);
+        harness.addCommitPeer(2, std::nullopt);
+        harness.addCommitPeer(3, std::nullopt);
+
+        auto result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(ext.estState_ == EstablishState::ConvergingTx);
+        BEAST_EXPECT(ext.commitBuilds == 0);
+        BEAST_EXPECT(harness.updates == 0);
+    }
+
+    void
+    testRngCommitTimeoutWithQuorumPublishesCommitSet()
+    {
+        testcase("RNG commit timeout with quorum publishes commit set");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.commitQuorum = false;
+        ext.commits = 4;
+
+        ExportTickHarness harness;
+        harness.addCommitPeer(1, std::nullopt);
+        harness.addCommitPeer(2, std::nullopt);
+        harness.addCommitPeer(3, std::nullopt);
+
+        auto result = harness.tick(
+            ext,
+            harness.parms.rngPIPELINE_TIMEOUT + std::chrono::milliseconds{1});
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(ext.estState_ == EstablishState::ConvergingCommit);
+        BEAST_EXPECT(ext.commitBuilds == 1);
+        BEAST_EXPECT(harness.position.commitSetHash == ext.commitHash);
+        BEAST_EXPECT(harness.updates == 1);
+        BEAST_EXPECT(harness.proposes == 1);
+    }
+
+    void
+    testRngCommitHashConflictTimeoutFallsBack()
+    {
+        testcase("RNG commit hash conflict timeout falls back");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.estState_ = EstablishState::ConvergingCommit;
+        ext.commitHash = makeHash("commit-local");
+
+        ExportTickHarness harness;
+        harness.start =
+            std::chrono::steady_clock::time_point{} + std::chrono::seconds{1};
+        harness.position.commitSetHash = ext.commitHash;
+        auto const conflictHash = makeHash("commit-conflict");
+        harness.addCommitPeer(1, conflictHash);
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(!ext.entropyFailed);
+        BEAST_EXPECT(ext.commitHashConflictStart_ == harness.start);
+        BEAST_EXPECT(ext.fetchedCommitSets.size() == 1);
+        BEAST_EXPECT(ext.fetchedCommitSets.front() == conflictHash);
+
+        result = harness.tick(
+            ext,
+            harness.parms.rngREVEAL_TIMEOUT + std::chrono::milliseconds{1});
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(ext.entropyFailed);
+        BEAST_EXPECT(ext.estState_ == EstablishState::ConvergingReveal);
+        BEAST_EXPECT(
+            ext.commitHashConflictStart_ ==
+            std::chrono::steady_clock::time_point{});
+    }
+
+    void
+    testRngRevealTimeoutWithoutRevealsFallsBack()
+    {
+        testcase("RNG reveal timeout without reveals falls back");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.estState_ = EstablishState::ConvergingReveal;
+        ext.minimumReveals = false;
+        ext.anyReveals = false;
+
+        ExportTickHarness harness;
+
+        auto result = harness.tick(
+            ext,
+            harness.parms.rngREVEAL_TIMEOUT + std::chrono::milliseconds{1});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(ext.entropyFailed);
+        BEAST_EXPECT(!harness.position.entropySetHash);
+    }
+
+    void
+    testRngEntropyConflictTimeoutClearsHash()
+    {
+        testcase("RNG entropy conflict timeout clears hash");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.estState_ = EstablishState::ConvergingReveal;
+
+        ExportTickHarness harness;
+        harness.position.entropySetHash = ext.entropyHash;
+        ext.entropySetPublished_ = true;
+        ext.entropyPublishStart_ = harness.start;
+        auto const conflictHash = makeHash("entropy-conflict");
+        harness.addEntropyPeer(1, conflictHash);
+
+        auto result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(!ext.entropyFailed);
+        BEAST_EXPECT(harness.position.entropySetHash == ext.entropyHash);
+        BEAST_EXPECT(!ext.fetchedEntropySets.empty());
+        BEAST_EXPECT(ext.fetchedEntropySets.front() == conflictHash);
+
+        result = harness.tick(
+            ext,
+            harness.parms.rngREVEAL_TIMEOUT * 2 + std::chrono::milliseconds{1});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(ext.entropyFailed);
+        BEAST_EXPECT(!harness.position.entropySetHash);
+    }
+
+    void
+    testRngEntropyConflictIgnoredWithQuorumAlignment()
+    {
+        testcase("RNG entropy conflict ignored with quorum alignment");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.estState_ = EstablishState::ConvergingReveal;
+
+        ExportTickHarness harness;
+        auto const localHash = ext.entropyHash;
+        harness.position.entropySetHash = localHash;
+        ext.entropySetPublished_ = true;
+        ext.entropyPublishStart_ = harness.start;
+
+        harness.addEntropyPeer(1, localHash);
+        harness.addEntropyPeer(2, localHash);
+        harness.addEntropyPeer(3, localHash);
+        harness.addEntropyPeer(4, makeHash("entropy-minority-conflict"));
+
+        auto result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(!ext.entropyFailed);
+        BEAST_EXPECT(harness.position.entropySetHash == localHash);
+        BEAST_EXPECT(ext.fetchedEntropySets.size() == 1);
+    }
+
+    void
+    testRngExplicitFinalProposalPublishesSyntheticTxSet()
+    {
+        testcase("RNG explicit final proposal publishes synthetic tx set");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.estState_ = EstablishState::ConvergingReveal;
+        ext.sendExplicitFinal = true;
+        ext.explicitFinalTxSet = FakeTxSet{makeHash("explicit-final-tx-set")};
+
+        ExportTickHarness harness;
+        auto const localHash = ext.entropyHash;
+        harness.position.entropySetHash = localHash;
+        ext.entropySetPublished_ = true;
+        ext.entropyPublishStart_ = harness.start;
+        harness.addEntropyPeer(1, localHash);
+        harness.addEntropyPeer(2, localHash);
+        harness.addEntropyPeer(3, localHash);
+        harness.addEntropyPeer(4, localHash);
+
+        auto result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(ext.explicitFinalProposalSent_);
+        BEAST_EXPECT(
+            harness.position.txSetHash == ext.explicitFinalTxSet->hash);
+        BEAST_EXPECT(harness.position.entropySetHash == localHash);
+        BEAST_EXPECT(harness.updates == 1);
+        BEAST_EXPECT(harness.proposes == 1);
+    }
+
+    void
     testExportSigGateAllowsAlignedQuorumDespiteMinorityConflict()
     {
         testcase("Export sig gate ignores minority conflict after quorum");
@@ -826,6 +1070,14 @@ public:
         testExportSigGateRequiresQuorumAlignment();
         testRngEntropyGateRequiresFullObservation();
         testRngFastPathWaitsAfterEntropyPublish();
+        testRngBootstrapSkipWhenPreviousParticipantsBelowQuorum();
+        testRngCommitWaitsWhenQuorumPossible();
+        testRngCommitTimeoutWithQuorumPublishesCommitSet();
+        testRngCommitHashConflictTimeoutFallsBack();
+        testRngRevealTimeoutWithoutRevealsFallsBack();
+        testRngEntropyConflictTimeoutClearsHash();
+        testRngEntropyConflictIgnoredWithQuorumAlignment();
+        testRngExplicitFinalProposalPublishesSyntheticTxSet();
         testExportSigGateAllowsAlignedQuorumDespiteMinorityConflict();
         testExportSigGateRequiresFullObservation();
         testExportSigGateFetchesAdvertisedPeerSets();
