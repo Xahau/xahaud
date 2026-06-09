@@ -448,18 +448,21 @@ public:
             return;
         }
 
-        // Either the read completed normally or it ended at EOF with no
-        // Content-Length. Both cases deliver the accumulated body. EOF
-        // is the expected end-of-message here, not an error, so report
-        // success — otherwise invokeComplete() forwards eof as an error
-        // code and the caller treats a complete response as a failure.
+        // Either the read completed normally or it ended at EOF (an
+        // EOF-delimited response with no Content-Length, or a truncated
+        // one). Deliver the accumulated body and forward ecResult as-is:
+        // success when the read completed, eof otherwise. We deliberately
+        // do NOT translate eof to success — a server that promises
+        // Content-Length: N and closes early must surface as an error,
+        // and HTTPClient::get() relies on a non-zero code to fall back to
+        // the next site.
         JLOG(j_.trace()) << "Complete.";
 
         mResponse.commit(bytes_transferred);
         std::string strBody{
             {std::istreambuf_iterator<char>(&mResponse)},
             std::istreambuf_iterator<char>()};
-        invokeComplete(boost::system::error_code{}, mStatus, mBody + strBody);
+        invokeComplete(ecResult, mStatus, mBody + strBody);
     }
 
     // Call cancel the deadline timer and invoke the completion routine.
