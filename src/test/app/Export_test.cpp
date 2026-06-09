@@ -23,6 +23,7 @@
 #include <test/jtx/import.h>
 #include <test/jtx/xpop.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ExportLimits.h>
@@ -49,6 +50,12 @@ struct Export_test : public beast::unit_test::suite
         auto cfg = jtx::envconfig(jtx::validator, "");
         cfg->NETWORK_ID = 21337;
         return cfg;
+    }
+
+    static void
+    forceNonStandalone(Application& app)
+    {
+        const_cast<Config&>(app.config()).setupControl(true, true, false);
     }
 
     // Build a minimal unsigned Payment STObject suitable for sfExportedTxn.
@@ -614,6 +621,64 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportNetworkRetryWithoutQuorum(FeatureBitset features)
+    {
+        testcase("ttEXPORT network mode retries without quorum");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+        forceNonStandalone(env.app());
+        BEAST_EXPECT(!env.app().config().standalone());
+        ConfigVals cfg;
+        cfg.noExportSig = true;
+        env.app().getRuntimeConfig().setConfig("*", cfg);
+
+        auto const seq = env.current()->seq();
+        auto const ticketSeq = std::uint32_t{1};
+        auto const lls = seq + 5;
+        auto innerObj = buildExportedPayment(
+            alice.id(), carol.id(), seq + 1, lls, ticketSeq);
+
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::Export;
+        jv[jss::Account] = alice.human();
+        jv[jss::LastLedgerSequence] = lls;
+        jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+
+        env(jv, fee(XRP(1)), ter(tesSUCCESS));
+        BEAST_EXPECT(env.close(
+            env.now() + std::chrono::seconds{5}, std::chrono::milliseconds{0}));
+
+        std::optional<TER> closedResult;
+        for (auto const& [stx, meta] : env.closed()->txs)
+        {
+            if (!stx || stx->getTxnType() != ttEXPORT ||
+                stx->getAccountID(sfAccount) != alice.id())
+            {
+                continue;
+            }
+
+            auto const& exported =
+                stx->peekAtField(sfExportedTxn).downcast<STObject>();
+            if (exported.getFieldU32(sfTicketSequence) != ticketSeq)
+                continue;
+
+            if (meta)
+                closedResult = TER::fromInt((*meta)[sfTransactionResult]);
+        }
+
+        BEAST_EXPECT(!closedResult);
+        BEAST_EXPECT(!env.le(keylet::shadowTicket(alice.id(), ticketSeq)));
+    }
+
+    void
     testOpenLedgerExportLimit(FeatureBitset features)
     {
         testcase("ttEXPORT open ledger limit");
@@ -1060,6 +1125,7 @@ struct Export_test : public beast::unit_test::suite
 
         // ttEXPORT transactor tests
         testExportTxnOpenLedger(allWithExport);
+        testExportNetworkRetryWithoutQuorum(allWithExport);
         testOpenLedgerExportLimit(allWithExport);
         testShadowTicketLimit(allWithExport);
         testShadowTicketLifecycle(allWithExport);

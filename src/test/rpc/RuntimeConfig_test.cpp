@@ -851,6 +851,38 @@ class RuntimeConfig_test : public beast::unit_test::suite
     }
 
     void
+    testRngAndExportRuntimeToggles()
+    {
+        testcase("rng/export runtime toggles round-trip");
+        using namespace test::jtx;
+        Env env{*this};
+
+        Json::Value params;
+        params["set"] = Json::objectValue;
+        params["set"]["*"] = Json::objectValue;
+        params["set"]["*"]["bootstrap_fast_start"] = false;
+        params["set"]["*"]["rng_poll_ms"] = 5;
+        params["set"]["*"]["no_export_sig"] = true;
+        auto const result = runtimeConfig(env, params);
+
+        auto const& global = result["configs"]["*"];
+        BEAST_EXPECT(global["bootstrap_fast_start"].asBool() == false);
+        BEAST_EXPECT(global["rng_poll_ms"].asInt() == 50);
+        BEAST_EXPECT(global["no_export_sig"].asBool() == true);
+
+        auto const cfg = env.app().getRuntimeConfig().getConfig("*");
+        BEAST_EXPECT(cfg.has_value());
+        if (cfg)
+        {
+            BEAST_EXPECT(cfg->bootstrapFastStart.has_value());
+            BEAST_EXPECT(*cfg->bootstrapFastStart == false);
+            BEAST_EXPECT(cfg->rngPollMs == 50);
+            BEAST_EXPECT(cfg->noExportSig.has_value());
+            BEAST_EXPECT(*cfg->noExportSig == true);
+        }
+    }
+
+    void
     testExplicitFinalProposalToggle()
     {
         testcase("explicit_final_proposal round-trips and merges");
@@ -968,6 +1000,7 @@ public:
         testDropPctClamping();
         testRngClaimDropPct();
         testRngClaimDropPctClamping();
+        testRngAndExportRuntimeToggles();
         testExplicitFinalProposalToggle();
         testPerPeerClearInheritedFilter();
     }

@@ -146,6 +146,10 @@ harvestExportSignatures(
             continue;
 
         auto const fullSlice = makeSlice(blob);
+        auto const pkSlice = fullSlice.substr(32, 33);
+        if (!publicKeyType(pkSlice))
+            continue;
+
         auto const sigSlice = fullSlice.substr(65);
 
         auto const txIt = input.exportTxns.find(txHash);

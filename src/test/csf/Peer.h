@@ -367,6 +367,9 @@ struct Peer
         // Optional test hook: stay an active proposer but do not originate an
         // export signature, so tests can force sidecar-fetch-only convergence.
         bool suppressOwnExportSig_ = false;
+        // Optional test hook: exercise generic Consensus bootstrap timing
+        // without making the CSF runtime-config aware.
+        bool bootstrapFastStartEnabled_ = false;
 
         explicit Extensions(Peer& p) : peer(p), j_(p.j)
         {
@@ -887,7 +890,7 @@ struct Peer
         bool
         bootstrapFastStartEnabled() const
         {
-            return false;
+            return bootstrapFastStartEnabled_;
         }
         bool
         shouldSendExplicitFinalProposal() const

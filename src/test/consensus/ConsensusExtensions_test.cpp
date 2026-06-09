@@ -19,7 +19,10 @@
 #include <test/jtx.h>
 #include <xrpld/app/consensus/ActiveValidatorView.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
+#include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/misc/CanonicalTXSet.h>
+#include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/consensus/ConsensusExtensionsTick.h>
 #include <xrpld/consensus/ConsensusProposal.h>
@@ -27,6 +30,13 @@
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/STAmount.h>
+#include <xrpl/protocol/STObject.h>
+#include <xrpl/protocol/STTx.h>
+#include <xrpl/protocol/SidecarType.h>
+#include <xrpl/protocol/Sign.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/digest.h>
 #include <cstring>
 #include <deque>
@@ -35,6 +45,37 @@ namespace ripple {
 namespace test {
 
 namespace {
+
+class ActiveNoopSink : public beast::Journal::Sink
+{
+public:
+    ActiveNoopSink() : Sink(beast::severities::kTrace, false)
+    {
+    }
+
+    bool
+    active(beast::severities::Severity) const override
+    {
+        return true;
+    }
+
+    void
+    write(beast::severities::Severity, std::string const&) override
+    {
+    }
+
+    void
+    writeAlways(beast::severities::Severity, std::string const&) override
+    {
+    }
+};
+
+beast::Journal
+activeNoopJournal()
+{
+    static ActiveNoopSink sink;
+    return beast::Journal{sink};
+}
 
 uint256
 makeHash(char const* label)
@@ -60,6 +101,186 @@ makeExportSigBlob(uint256 const& txHash, PublicKey const& publicKey)
         reinterpret_cast<char const*>(publicKey.data()), publicKey.size());
     blob.push_back('\x30');
     return blob;
+}
+
+STTx
+makeSTTx(STObject const& obj)
+{
+    Serializer s;
+    obj.add(s);
+    SerialIter sit{s.slice()};
+    return STTx{std::ref(sit)};
+}
+
+STObject
+makeExportedPayment(AccountID const& src, AccountID const& dst)
+{
+    STObject obj(sfExportedTxn);
+    obj.setFieldU16(sfTransactionType, ttPAYMENT);
+    obj.setFieldU32(sfFlags, tfFullyCanonicalSig);
+    obj.setFieldU32(sfSequence, 0);
+    obj.setFieldU32(sfTicketSequence, 1);
+    obj.setFieldU32(sfFirstLedgerSequence, 2);
+    obj.setFieldU32(sfLastLedgerSequence, 6);
+    obj.setFieldAmount(sfAmount, XRPAmount{1000000});
+    obj.setFieldAmount(sfFee, XRPAmount{10});
+    obj.setFieldVL(sfSigningPubKey, Blob{});
+    obj.setAccountID(sfAccount, src);
+    obj.setAccountID(sfDestination, dst);
+    return obj;
+}
+
+std::shared_ptr<STTx const>
+makeExportTx(STObject const& inner, AccountID const& account)
+{
+    STObject exportObj(sfGeneric);
+    exportObj.setFieldU16(sfTransactionType, ttEXPORT);
+    exportObj.setAccountID(sfAccount, account);
+    exportObj.setFieldU32(sfSequence, 0);
+    exportObj.setFieldVL(sfSigningPubKey, Blob{});
+    exportObj.setFieldU32(sfFirstLedgerSequence, 2);
+    exportObj.setFieldU32(sfLastLedgerSequence, 6);
+    exportObj.setFieldAmount(sfFee, XRPAmount{0});
+    exportObj.set(std::make_unique<STObject>(inner));
+
+    return std::make_shared<STTx const>(makeSTTx(exportObj));
+}
+
+RCLTxSet
+makeRCLTxSet(Application& app, std::vector<std::shared_ptr<STTx const>> txns)
+{
+    auto map =
+        std::make_shared<SHAMap>(SHAMapType::TRANSACTION, app.getNodeFamily());
+    map->setUnbacked();
+
+    for (auto const& tx : txns)
+    {
+        Serializer s;
+        tx->add(s);
+        map->addItem(
+            SHAMapNodeType::tnTRANSACTION_NM,
+            make_shamapitem(tx->getTransactionID(), s.slice()));
+    }
+
+    return RCLTxSet{map->snapShot(false)};
+}
+
+AccountID
+accountFromNode(NodeID const& nodeId)
+{
+    AccountID acctId;
+    std::memcpy(acctId.data(), nodeId.data(), acctId.size());
+    return acctId;
+}
+
+std::shared_ptr<SHAMap>
+makeSidecarSet(Application& app, std::vector<STObject> const& sidecars)
+{
+    auto map =
+        std::make_shared<SHAMap>(SHAMapType::SIDECAR, app.getNodeFamily());
+    map->setUnbacked();
+
+    for (auto const& sidecar : sidecars)
+    {
+        auto const itemKey = sidecar.getHash(HashPrefix::sidecar);
+        Serializer s(2048);
+        sidecar.add(s);
+        map->addItem(
+            SHAMapNodeType::tnSIDECAR, make_shamapitem(itemKey, s.slice()));
+    }
+
+    return map->snapShot(false);
+}
+
+std::shared_ptr<SHAMap>
+makeRawSidecarSet(Application& app, std::string const& raw)
+{
+    auto map =
+        std::make_shared<SHAMap>(SHAMapType::SIDECAR, app.getNodeFamily());
+    map->setUnbacked();
+    map->addItem(
+        SHAMapNodeType::tnSIDECAR,
+        make_shamapitem(makeHash("raw-sidecar-entry"), makeSlice(raw)));
+    return map->snapShot(false);
+}
+
+void
+publishAndFetchSidecarSet(
+    Application& app,
+    ConsensusExtensions& ce,
+    std::shared_ptr<SHAMap> const& map,
+    ConsensusExtensions::SidecarKind kind)
+{
+    auto const hash = map->getHash().as_uint256();
+    app.getInboundTransactions().giveSet(hash, map, false);
+    ce.fetchRngSetIfNeeded(hash, kind);
+}
+
+void
+forceNonStandalone(Application& app)
+{
+    const_cast<Config&>(app.config()).setupControl(true, true, false);
+}
+
+std::shared_ptr<STTx const>
+singleCanonicalTx(CanonicalTXSet const& txs)
+{
+    if (std::distance(txs.begin(), txs.end()) != 1)
+        return {};
+    return txs.begin()->second;
+}
+
+uint256
+expectedEntropy(PublicKey const& key, uint256 const& reveal)
+{
+    Serializer s;
+    s.addVL(key.slice());
+    s.addBitString(reveal);
+    return sha512Half(s.slice());
+}
+
+Buffer
+signPosition(
+    PublicKey const& publicKey,
+    SecretKey const& secretKey,
+    ExtendedPosition const& position,
+    std::uint32_t proposeSeq,
+    NetClock::time_point closeTime,
+    uint256 const& prevLedger)
+{
+    using Proposal = ConsensusProposal<NodeID, uint256, ExtendedPosition>;
+    Proposal proposal{
+        prevLedger,
+        proposeSeq,
+        position,
+        closeTime,
+        NetClock::time_point{},
+        calcNodeID(publicKey)};
+
+    auto const sig = signDigest(publicKey, secretKey, proposal.signingHash());
+    return Buffer(sig.data(), sig.size());
+}
+
+Blob
+makeProofBlob(
+    PublicKey const& publicKey,
+    SecretKey const& secretKey,
+    ExtendedPosition const& position,
+    std::uint32_t proposeSeq,
+    NetClock::time_point closeTime,
+    uint256 const& prevLedger)
+{
+    auto signature = signPosition(
+        publicKey, secretKey, position, proposeSeq, closeTime, prevLedger);
+    Serializer positionData;
+    position.add(positionData);
+    return ConsensusExtensions::serializeProof(
+        ConsensusExtensions::ProposalProof{
+            proposeSeq,
+            static_cast<std::uint32_t>(closeTime.time_since_epoch().count()),
+            prevLedger,
+            std::move(positionData),
+            std::move(signature)});
 }
 
 struct FakeTxSet
@@ -105,7 +326,7 @@ struct FakeExtensions
 {
     enum class SidecarKind : uint8_t { commit, reveal, exportSig };
 
-    beast::Journal j_{beast::Journal::getNullSink()};
+    beast::Journal j_{activeNoopJournal()};
     EstablishState estState_{EstablishState::ConvergingTx};
     std::chrono::steady_clock::time_point revealPhaseStart_{};
     std::chrono::steady_clock::time_point commitHashConflictStart_{};
@@ -391,7 +612,7 @@ struct ExportTickHarness
             .parms = parms,
             .haveCloseTimeConsensus = true,
             .convergePercent = 100,
-            .j = beast::Journal{beast::Journal::getNullSink()},
+            .j = activeNoopJournal(),
             .getPosition = [&]() -> ExtendedPosition const& {
                 return position;
             },
@@ -594,6 +815,947 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!view->containsNode(calcNodeID(vlKeys[0])));
         BEAST_EXPECT(view->containsMaster(vlKeys[1]));
         BEAST_EXPECT(view->containsNode(calcNodeID(vlKeys[1])));
+    }
+
+    void
+    testActiveValidatorViewNullSourceAndExpectedProposers()
+    {
+        testcase("Active validator view null source and expected proposers");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        auto const view = ce.makeActiveValidatorView({});
+        BEAST_EXPECT(!view->fromUNLReport);
+        BEAST_EXPECT(view->containsNode(valKeys.nodeID));
+
+        ce.cacheUNLReport();
+        ce.setMode(ConsensusMode::proposing);
+        ce.setExpectedProposers(hash_set<NodeID>{valKeys.nodeID, makeNode(99)});
+        BEAST_EXPECT(ce.expectedProposerCount() == 1);
+
+        ce.setExpectedProposers({});
+        BEAST_EXPECT(
+            ce.expectedProposerCount() == ce.activeValidatorView()->size());
+    }
+
+    void
+    testExplicitFinalProposalTxSetBuildsEntropyTxn()
+    {
+        testcase("explicit final proposal tx set builds entropy txn");
+
+        auto extractSingleEntropyTx =
+            [](RCLTxSet const& set) -> std::shared_ptr<STTx const> {
+            std::vector<std::shared_ptr<STTx const>> txs;
+            set.map_->visitLeaves(
+                [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                    SerialIter sit(item->slice());
+                    txs.push_back(std::make_shared<STTx const>(sit));
+                });
+            if (txs.size() != 1 ||
+                txs.front()->getTxnType() != ttCONSENSUS_ENTROPY)
+                return {};
+            return txs.front();
+        };
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        auto const base = makeRCLTxSet(env.app(), {});
+        auto const seq = env.closed()->seq() + 1;
+
+        auto synthetic = ce.buildExplicitFinalProposalTxSet(base, seq);
+        BEAST_EXPECT(synthetic);
+        if (!synthetic)
+            return;
+
+        auto const txPtr = extractSingleEntropyTx(*synthetic);
+        BEAST_EXPECT(txPtr);
+        if (!txPtr)
+            return;
+        auto const& tx = *txPtr;
+        BEAST_EXPECT(tx.getFieldU32(sfLedgerSequence) == seq);
+        BEAST_EXPECT(
+            tx.getFieldH256(sfDigest) ==
+            sha512Half(std::string("standalone-entropy"), seq));
+        BEAST_EXPECT(tx.getFieldU16(sfEntropyCount) == 20);
+
+        auto duplicate = ce.buildExplicitFinalProposalTxSet(*synthetic, seq);
+        BEAST_EXPECT(duplicate);
+        if (duplicate)
+            BEAST_EXPECT(duplicate->id() == synthetic->id());
+
+        Env nonStandaloneEnv{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+        forceNonStandalone(nonStandaloneEnv.app());
+        auto const ledger =
+            nonStandaloneEnv.app().getLedgerMaster().getClosedLedger();
+        auto const nonStandaloneBase = makeRCLTxSet(nonStandaloneEnv.app(), {});
+        auto const nonStandaloneSeq = ledger->seq() + 1;
+
+        ConsensusExtensions zeroCe{nonStandaloneEnv.app(), activeNoopJournal()};
+        zeroCe.cacheUNLReport(ledger);
+        zeroCe.setEntropyFailed();
+        auto zeroSynthetic = zeroCe.buildExplicitFinalProposalTxSet(
+            nonStandaloneBase, nonStandaloneSeq);
+        BEAST_EXPECT(zeroSynthetic);
+        auto const zeroTx =
+            zeroSynthetic ? extractSingleEntropyTx(*zeroSynthetic) : nullptr;
+        BEAST_EXPECT(zeroTx);
+        if (zeroTx)
+        {
+            BEAST_EXPECT(zeroTx->getFieldH256(sfDigest) == uint256{});
+            BEAST_EXPECT(zeroTx->getFieldU16(sfEntropyCount) == 0);
+        }
+
+        auto const& valKeys = nonStandaloneEnv.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& publicKey = valKeys.keys->publicKey;
+        auto const& secretKey = valKeys.keys->secretKey;
+        auto const nodeId = valKeys.nodeID;
+        auto const prevLedger = ledger->info().hash;
+        auto const closeTime = NetClock::time_point{NetClock::duration{654}};
+        auto const txSetHash = makeHash("explicit-final-nonzero-txset");
+        auto const reveal = makeHash("explicit-final-nonzero-reveal");
+        auto const commitment = sha512Half(reveal, publicKey, nonStandaloneSeq);
+
+        ConsensusExtensions revealCe{
+            nonStandaloneEnv.app(), activeNoopJournal()};
+        revealCe.cacheUNLReport(ledger);
+
+        ExtendedPosition commitPos{txSetHash};
+        commitPos.myCommitment = commitment;
+        auto const commitSig = signPosition(
+            publicKey, secretKey, commitPos, 0, closeTime, prevLedger);
+        revealCe.harvestRngData(
+            nodeId,
+            publicKey,
+            commitPos,
+            0,
+            closeTime,
+            prevLedger,
+            Slice(commitSig.data(), commitSig.size()));
+
+        ExtendedPosition revealPos{txSetHash};
+        revealPos.myReveal = reveal;
+        auto const revealSig = signPosition(
+            publicKey, secretKey, revealPos, 1, closeTime, prevLedger);
+        revealCe.harvestRngData(
+            nodeId,
+            publicKey,
+            revealPos,
+            1,
+            closeTime,
+            prevLedger,
+            Slice(revealSig.data(), revealSig.size()));
+        revealCe.buildEntropySet(nonStandaloneSeq);
+
+        auto revealSynthetic = revealCe.buildExplicitFinalProposalTxSet(
+            nonStandaloneBase, nonStandaloneSeq);
+        BEAST_EXPECT(revealSynthetic);
+        auto const revealTx = revealSynthetic
+            ? extractSingleEntropyTx(*revealSynthetic)
+            : nullptr;
+        BEAST_EXPECT(revealTx);
+        if (revealTx)
+        {
+            BEAST_EXPECT(
+                revealTx->getFieldH256(sfDigest) ==
+                expectedEntropy(publicKey, reveal));
+            BEAST_EXPECT(revealTx->getFieldU16(sfEntropyCount) == 1);
+        }
+    }
+
+    void
+    testRuntimeConfigPolicyAccessors()
+    {
+        testcase("runtime config policy accessors");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+
+        BEAST_EXPECT(!ce.bootstrapFastStartEnabled());
+        BEAST_EXPECT(!ce.shouldSendExplicitFinalProposal());
+
+        ConfigVals cfg;
+        cfg.bootstrapFastStart = true;
+        cfg.explicitFinalProposal = true;
+        env.app().getRuntimeConfig().setConfig("*", cfg);
+        BEAST_EXPECT(ce.bootstrapFastStartEnabled());
+        BEAST_EXPECT(ce.shouldSendExplicitFinalProposal());
+
+        cfg.bootstrapFastStart = false;
+        cfg.explicitFinalProposal = false;
+        env.app().getRuntimeConfig().setConfig("*", cfg);
+        BEAST_EXPECT(!ce.bootstrapFastStartEnabled());
+        BEAST_EXPECT(!ce.shouldSendExplicitFinalProposal());
+    }
+
+    void
+    testDecoratePositionGeneratesCommitment()
+    {
+        testcase("decoratePosition generates commitment");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ExtendedPosition pos{makeHash("decorate-position-enabled")};
+        ce.decoratePosition(pos, ledger, true);
+
+        BEAST_EXPECT(pos.myCommitment);
+        BEAST_EXPECT(ce.pendingCommitCount() == 1);
+        BEAST_EXPECT(ce.getEntropySecret() != uint256{});
+        BEAST_EXPECT(ce.isUNLReportMember(env.app().getValidatorKeys().nodeID));
+    }
+
+    void
+    testOnPreBuildInjectsZeroEntropyFallback()
+    {
+        testcase("onPreBuild injects zero entropy fallback");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+        forceNonStandalone(env.app());
+        BEAST_EXPECT(!env.app().config().standalone());
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        ce.cacheUNLReport(ledger);
+        ce.setRngEnabledThisRound(true);
+        BEAST_EXPECT(ce.shouldZeroEntropy());
+
+        CanonicalTXSet retriableTxs{makeHash("rng-zero-fallback-salt")};
+        auto const seq = ledger->seq() + 1;
+        ce.onPreBuild(retriableTxs, seq);
+
+        auto const tx = singleCanonicalTx(retriableTxs);
+        BEAST_EXPECT(tx);
+        if (!tx)
+            return;
+        BEAST_EXPECT(tx->getTxnType() == ttCONSENSUS_ENTROPY);
+        BEAST_EXPECT(tx->getFieldU32(sfLedgerSequence) == seq);
+        BEAST_EXPECT(tx->getFieldH256(sfDigest) == uint256{});
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 0);
+    }
+
+    void
+    testOnPreBuildInjectsEntropySetEntropy()
+    {
+        testcase("onPreBuild injects entropy-set entropy");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+        forceNonStandalone(env.app());
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& publicKey = valKeys.keys->publicKey;
+        auto const& secretKey = valKeys.keys->secretKey;
+        auto const nodeId = valKeys.nodeID;
+        auto const prevLedger = ledger->info().hash;
+        auto const seq = ledger->seq() + 1;
+        auto const closeTime = NetClock::time_point{NetClock::duration{321}};
+        auto const txSetHash = makeHash("prebuild-entropy-txset");
+        auto const reveal = makeHash("prebuild-entropy-reveal");
+        auto const commitment = sha512Half(reveal, publicKey, seq);
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.cacheUNLReport(ledger);
+
+        ExtendedPosition commitPos{txSetHash};
+        commitPos.myCommitment = commitment;
+        auto const commitSig = signPosition(
+            publicKey, secretKey, commitPos, 0, closeTime, prevLedger);
+        ce.harvestRngData(
+            nodeId,
+            publicKey,
+            commitPos,
+            0,
+            closeTime,
+            prevLedger,
+            Slice(commitSig.data(), commitSig.size()));
+        BEAST_EXPECT(ce.hasQuorumOfCommits());
+
+        ExtendedPosition revealPos{txSetHash};
+        revealPos.myReveal = reveal;
+        auto const revealSig = signPosition(
+            publicKey, secretKey, revealPos, 1, closeTime, prevLedger);
+        ce.harvestRngData(
+            nodeId,
+            publicKey,
+            revealPos,
+            1,
+            closeTime,
+            prevLedger,
+            Slice(revealSig.data(), revealSig.size()));
+        BEAST_EXPECT(ce.hasMinimumReveals());
+
+        auto const entropySetHash = ce.buildEntropySet(seq);
+        BEAST_EXPECT(ce.isSidecarSet(entropySetHash));
+        BEAST_EXPECT(!ce.shouldZeroEntropy());
+
+        CanonicalTXSet retriableTxs{makeHash("entropy-set-prebuild-salt")};
+        ce.onPreBuild(retriableTxs, seq);
+
+        auto const tx = singleCanonicalTx(retriableTxs);
+        BEAST_EXPECT(tx);
+        if (!tx)
+            return;
+        BEAST_EXPECT(tx->getTxnType() == ttCONSENSUS_ENTROPY);
+        BEAST_EXPECT(
+            tx->getFieldH256(sfDigest) == expectedEntropy(publicKey, reveal));
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 1);
+    }
+
+    void
+    testProposalProofRoundTrip()
+    {
+        testcase("proposal proof round-trip");
+
+        auto const [publicKey, secretKey] = randomKeyPair(KeyType::secp256k1);
+        auto const prevLedger = makeHash("proof-prev-ledger");
+        auto const closeTime = NetClock::time_point{NetClock::duration{99}};
+        ExtendedPosition position{makeHash("proof-tx-set")};
+        position.myCommitment = makeHash("proof-commitment");
+
+        auto const signature = signPosition(
+            publicKey, secretKey, position, 0, closeTime, prevLedger);
+        Serializer positionData;
+        position.add(positionData);
+
+        ConsensusExtensions::ProposalProof proof{
+            0,
+            static_cast<std::uint32_t>(closeTime.time_since_epoch().count()),
+            prevLedger,
+            std::move(positionData),
+            signature};
+
+        auto const blob = ConsensusExtensions::serializeProof(proof);
+        auto parsed = ConsensusExtensions::deserializeProof(blob);
+        BEAST_EXPECT(parsed);
+        if (!parsed)
+            return;
+        BEAST_EXPECT(parsed->proposeSeq == proof.proposeSeq);
+        BEAST_EXPECT(parsed->closeTime == proof.closeTime);
+        BEAST_EXPECT(parsed->prevLedger == proof.prevLedger);
+        BEAST_EXPECT(parsed->signature == proof.signature);
+        BEAST_EXPECT(ConsensusExtensions::verifyProof(
+            blob, publicKey, *position.myCommitment, true));
+        BEAST_EXPECT(!ConsensusExtensions::verifyProof(
+            blob, publicKey, makeHash("wrong-commitment"), true));
+
+        Blob malformed{1, 2, 3};
+        BEAST_EXPECT(!ConsensusExtensions::deserializeProof(malformed));
+        BEAST_EXPECT(!ConsensusExtensions::verifyProof(
+            malformed, publicKey, *position.myCommitment, true));
+    }
+
+    void
+    testHarvestRngDataReplacementAndRejection()
+    {
+        testcase("harvestRngData replacement and rejection");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& publicKey = valKeys.keys->publicKey;
+        auto const& secretKey = valKeys.keys->secretKey;
+        auto const nodeId = valKeys.nodeID;
+        auto const prevLedger = ledger->info().hash;
+        auto const seq = ledger->seq() + 1;
+        auto const closeTime = NetClock::time_point{NetClock::duration{654}};
+        auto const txSetHash = makeHash("harvest-replace-txset");
+        auto const reveal1 = makeHash("harvest-reveal-1");
+        auto const reveal2 = makeHash("harvest-reveal-2");
+        auto const commitment1 = sha512Half(reveal1, publicKey, seq);
+        auto const commitment2 = sha512Half(reveal2, publicKey, seq);
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.cacheUNLReport(ledger);
+
+        ExtendedPosition inactiveCommit{txSetHash};
+        inactiveCommit.myCommitment = commitment1;
+        ce.harvestRngData(
+            makeNode(99),
+            publicKey,
+            inactiveCommit,
+            0,
+            closeTime,
+            prevLedger,
+            Slice{});
+        BEAST_EXPECT(ce.pendingCommitCount() == 0);
+
+        ExtendedPosition earlyReveal{txSetHash};
+        earlyReveal.myReveal = reveal1;
+        ce.harvestRngData(
+            nodeId, publicKey, earlyReveal, 1, closeTime, prevLedger, Slice{});
+        BEAST_EXPECT(ce.pendingRevealCount() == 0);
+
+        ExtendedPosition commitPos{txSetHash};
+        commitPos.myCommitment = commitment1;
+        auto commitSig = signPosition(
+            publicKey, secretKey, commitPos, 0, closeTime, prevLedger);
+        ce.harvestRngData(
+            nodeId,
+            publicKey,
+            commitPos,
+            0,
+            closeTime,
+            prevLedger,
+            Slice(commitSig.data(), commitSig.size()));
+        BEAST_EXPECT(ce.pendingCommitCount() == 1);
+        BEAST_EXPECT(ce.hasQuorumOfCommits());
+
+        auto revealSig = signPosition(
+            publicKey, secretKey, earlyReveal, 1, closeTime, prevLedger);
+        ce.harvestRngData(
+            nodeId,
+            publicKey,
+            earlyReveal,
+            1,
+            closeTime,
+            prevLedger,
+            Slice(revealSig.data(), revealSig.size()));
+        BEAST_EXPECT(ce.pendingRevealCount() == 1);
+        BEAST_EXPECT(ce.hasMinimumReveals());
+
+        commitPos.myCommitment = commitment2;
+        commitSig = signPosition(
+            publicKey, secretKey, commitPos, 2, closeTime, prevLedger);
+        ce.harvestRngData(
+            nodeId,
+            publicKey,
+            commitPos,
+            2,
+            closeTime,
+            prevLedger,
+            Slice(commitSig.data(), commitSig.size()));
+        BEAST_EXPECT(ce.pendingCommitCount() == 1);
+        BEAST_EXPECT(ce.pendingRevealCount() == 0);
+        BEAST_EXPECT(!ce.hasQuorumOfCommits());
+
+        ce.harvestRngData(
+            nodeId, publicKey, earlyReveal, 3, closeTime, prevLedger, Slice{});
+        BEAST_EXPECT(ce.pendingRevealCount() == 0);
+
+        ExtendedPosition reveal2Pos{txSetHash};
+        reveal2Pos.myReveal = reveal2;
+        revealSig = signPosition(
+            publicKey, secretKey, reveal2Pos, 4, closeTime, prevLedger);
+        ce.harvestRngData(
+            nodeId,
+            publicKey,
+            reveal2Pos,
+            4,
+            closeTime,
+            prevLedger,
+            Slice(revealSig.data(), revealSig.size()));
+        BEAST_EXPECT(ce.pendingRevealCount() == 1);
+    }
+
+    void
+    testExportSidecarBuildFetchAndMerge()
+    {
+        testcase("Export sidecar build, fetch, and merge");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& valPK = valKeys.keys->publicKey;
+        auto const& valSK = valKeys.keys->secretKey;
+        auto const signerAccount = calcAccountID(valPK);
+        auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
+        auto const innerObj = makeExportedPayment(signerAccount, dst);
+        auto const innerTx = makeSTTx(innerObj);
+        auto const exportTx = makeExportTx(innerObj, signerAccount);
+        auto const txHash = exportTx->getTransactionID();
+        auto const txSet = makeRCLTxSet(env.app(), {exportTx});
+        auto const seq = ledger->seq() + 1;
+
+        ConsensusExtensions source{env.app(), activeNoopJournal()};
+        source.setExportEnabledThisRound(true);
+        source.cacheUNLReport(ledger);
+        source.cacheConsensusTxSet(txSet);
+        source.cacheConsensusTxSet(txSet);
+        BEAST_EXPECT(source.hasConsensusExportTxns());
+        BEAST_EXPECT(!source.hasPendingExportSigs());
+
+        auto const sigData = buildMultiSigningData(innerTx, signerAccount);
+        auto const sig = sign(valPK, valSK, sigData.slice());
+        Buffer sigBuf(sig.data(), sig.size());
+        source.exportSigCollector().addUnverifiedSignature(
+            txHash, valPK, sigBuf, seq);
+        BEAST_EXPECT(source.verifyPendingExportSigs(txSet, seq) == 1);
+        BEAST_EXPECT(
+            source.exportSigCollector().hasVerifiedSignature(txHash, valPK));
+        BEAST_EXPECT(source.hasPendingExportSigs());
+
+        auto const exportSigSetHash = source.buildExportSigSet(seq);
+        BEAST_EXPECT(source.isSidecarSet(exportSigSetHash));
+
+        ConsensusExtensions fetched{env.app(), activeNoopJournal()};
+        fetched.setExportEnabledThisRound(true);
+        fetched.cacheUNLReport(ledger);
+        fetched.cacheConsensusTxSet(txSet);
+        fetched.fetchRngSetIfNeeded(
+            exportSigSetHash, ConsensusExtensions::SidecarKind::exportSig);
+
+        BEAST_EXPECT(
+            fetched.exportSigCollector().hasVerifiedSignature(txHash, valPK));
+        BEAST_EXPECT(fetched.buildExportSigSet(seq) == exportSigSetHash);
+    }
+
+    void
+    testRngSidecarBuildFetchAndMerge()
+    {
+        testcase("RNG sidecar build, fetch, and merge");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& publicKey = valKeys.keys->publicKey;
+        auto const& secretKey = valKeys.keys->secretKey;
+        auto const nodeId = valKeys.nodeID;
+        auto const prevLedger = ledger->info().hash;
+        auto const seq = ledger->seq() + 1;
+        auto const closeTime = NetClock::time_point{NetClock::duration{777}};
+        auto const txSetHash = makeHash("rng-sidecar-txset");
+        auto const reveal = makeHash("rng-sidecar-reveal");
+        auto const commitment = sha512Half(reveal, publicKey, seq);
+
+        ConsensusExtensions source{env.app(), env.journal};
+        source.cacheUNLReport(ledger);
+
+        ExtendedPosition commitPos{txSetHash};
+        commitPos.myCommitment = commitment;
+        auto const commitSig = signPosition(
+            publicKey, secretKey, commitPos, 0, closeTime, prevLedger);
+        source.harvestRngData(
+            nodeId,
+            publicKey,
+            commitPos,
+            0,
+            closeTime,
+            prevLedger,
+            Slice(commitSig.data(), commitSig.size()));
+        BEAST_EXPECT(source.pendingCommitCount() == 1);
+
+        ExtendedPosition revealPos{txSetHash};
+        revealPos.myReveal = reveal;
+        auto const revealSig = signPosition(
+            publicKey, secretKey, revealPos, 1, closeTime, prevLedger);
+        source.harvestRngData(
+            nodeId,
+            publicKey,
+            revealPos,
+            1,
+            closeTime,
+            prevLedger,
+            Slice(revealSig.data(), revealSig.size()));
+        BEAST_EXPECT(source.pendingRevealCount() == 1);
+
+        auto const commitSetHash = source.buildCommitSet(seq);
+        auto const revealSetHash = source.buildEntropySet(seq);
+        BEAST_EXPECT(source.isSidecarSet(commitSetHash));
+        BEAST_EXPECT(source.isSidecarSet(revealSetHash));
+
+        ConsensusExtensions fetched{env.app(), env.journal};
+        fetched.cacheUNLReport(ledger);
+        fetched.fetchRngSetIfNeeded(
+            commitSetHash, ConsensusExtensions::SidecarKind::commit);
+        BEAST_EXPECT(fetched.pendingCommitCount() == 1);
+        BEAST_EXPECT(fetched.buildCommitSet(seq) == commitSetHash);
+
+        fetched.fetchRngSetIfNeeded(
+            revealSetHash, ConsensusExtensions::SidecarKind::reveal);
+        BEAST_EXPECT(fetched.pendingRevealCount() == 1);
+        BEAST_EXPECT(fetched.buildEntropySet(seq) == revealSetHash);
+
+        fetched.fetchRngSetIfNeeded(
+            std::nullopt, ConsensusExtensions::SidecarKind::commit);
+        fetched.fetchRngSetIfNeeded(
+            uint256{}, ConsensusExtensions::SidecarKind::reveal);
+        fetched.fetchRngSetIfNeeded(
+            commitSetHash, ConsensusExtensions::SidecarKind::commit);
+        fetched.fetchRngSetIfNeeded(
+            revealSetHash, ConsensusExtensions::SidecarKind::reveal);
+
+        auto const rawMap =
+            makeRawSidecarSet(env.app(), std::string{"cached-sidecar"});
+        auto const rawHash = rawMap->getHash().as_uint256();
+        env.app().getInboundTransactions().giveSet(rawHash, rawMap, false);
+        fetched.fetchRngSetIfNeeded(
+            rawHash, ConsensusExtensions::SidecarKind::commit);
+        BEAST_EXPECT(fetched.pendingCommitCount() == 1);
+
+        fetched.setRngEnabledThisRound(true);
+        fetched.recordParticipantDiagnostics(
+            ConsensusMode::proposing, std::vector<NodeID>{nodeId});
+        BEAST_EXPECT(fetched.observedParticipantCount() == 1);
+        BEAST_EXPECT(fetched.observedParticipantsHash());
+        BEAST_EXPECT(!fetched.observedParticipantsBitmapBin().empty());
+
+        ExtendedPosition diagnosticPos{txSetHash};
+        fetched.attachParticipantDiagnostics(diagnosticPos);
+        BEAST_EXPECT(diagnosticPos.observedParticipantsHash);
+    }
+
+    void
+    testRngSidecarRejectsInvalidFetchedEntries()
+    {
+        testcase("RNG sidecar rejects invalid fetched entries");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& publicKey = valKeys.keys->publicKey;
+        auto const& secretKey = valKeys.keys->secretKey;
+        auto const nodeId = valKeys.nodeID;
+        auto const prevLedger = ledger->info().hash;
+        auto const seq = ledger->seq() + 1;
+        auto const closeTime = NetClock::time_point{NetClock::duration{777}};
+        auto const txSetHash = makeHash("invalid-fetched-txset");
+        auto const digest = makeHash("invalid-fetched-digest");
+
+        auto makeRngSidecar = [&](std::uint8_t type,
+                                  NodeID const& owner,
+                                  PublicKey const& pk,
+                                  uint256 const& value,
+                                  LedgerIndex ledgerSeq) {
+            STObject sidecar(sfGeneric);
+            sidecar.setFieldU8(sfSidecarType, type);
+            sidecar.setFieldU32(sfLedgerSequence, ledgerSeq);
+            sidecar.setAccountID(sfAccount, accountFromNode(owner));
+            sidecar.setFieldH256(sfDigest, value);
+            sidecar.setFieldVL(sfSigningPubKey, pk.slice());
+            return sidecar;
+        };
+        auto makeCommitProof = [&](uint256 const& value, std::uint32_t n = 0) {
+            ExtendedPosition position{txSetHash};
+            position.myCommitment = value;
+            return makeProofBlob(
+                publicKey, secretKey, position, n, closeTime, prevLedger);
+        };
+        auto makeRevealProof = [&](uint256 const& value, std::uint32_t n = 1) {
+            ExtendedPosition position{txSetHash};
+            position.myReveal = value;
+            return makeProofBlob(
+                publicKey, secretKey, position, n, closeTime, prevLedger);
+        };
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.cacheUNLReport(ledger);
+
+        // Commit sidecars need a verifiable proposal proof.
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            makeSidecarSet(
+                env.app(),
+                {makeRngSidecar(
+                    sidecarRngCommit, nodeId, publicKey, digest, seq)}),
+            ConsensusExtensions::SidecarKind::commit);
+        BEAST_EXPECT(ce.pendingCommitCount() == 0);
+
+        // Entries from outside the active validator view are ignored.
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            makeSidecarSet(
+                env.app(),
+                {makeRngSidecar(
+                    sidecarRngReveal, makeNode(99), publicKey, digest, seq)}),
+            ConsensusExtensions::SidecarKind::reveal);
+        BEAST_EXPECT(ce.pendingRevealCount() == 0);
+
+        // A valid active NodeID cannot be paired with an untrusted signing key.
+        auto const [untrustedPk, _] = randomKeyPair(KeyType::secp256k1);
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            makeSidecarSet(
+                env.app(),
+                {makeRngSidecar(
+                    sidecarRngReveal, nodeId, untrustedPk, digest, seq)}),
+            ConsensusExtensions::SidecarKind::reveal);
+        BEAST_EXPECT(ce.pendingRevealCount() == 0);
+
+        // Reveal sidecars are only valid after their matching commitment.
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            makeSidecarSet(
+                env.app(),
+                {makeRngSidecar(
+                    sidecarRngReveal, nodeId, publicKey, digest, seq)}),
+            ConsensusExtensions::SidecarKind::reveal);
+        BEAST_EXPECT(ce.pendingRevealCount() == 0);
+
+        // Corrupt leaf bytes should not make the merge path throw outward.
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            makeRawSidecarSet(env.app(), std::string{"not-an-stobject"}),
+            ConsensusExtensions::SidecarKind::commit);
+        BEAST_EXPECT(ce.pendingCommitCount() == 0);
+
+        // A proof must verify the digest carried by the sidecar leaf.
+        auto invalidProofSidecar =
+            makeRngSidecar(sidecarRngCommit, nodeId, publicKey, digest, seq);
+        invalidProofSidecar.setFieldVL(
+            sfBlob, makeCommitProof(makeHash("other-commitment")));
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            makeSidecarSet(env.app(), {invalidProofSidecar}),
+            ConsensusExtensions::SidecarKind::commit);
+        BEAST_EXPECT(ce.pendingCommitCount() == 0);
+
+        // verifyProof ignores trailing bytes, but deserializeProof rejects them
+        // before caching the proof for deterministic sidecar rebuilds.
+        auto malformedProof = makeCommitProof(digest);
+        malformedProof.push_back(0);
+        auto malformedProofSidecar =
+            makeRngSidecar(sidecarRngCommit, nodeId, publicKey, digest, seq);
+        malformedProofSidecar.setFieldVL(sfBlob, malformedProof);
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            makeSidecarSet(env.app(), {malformedProofSidecar}),
+            ConsensusExtensions::SidecarKind::commit);
+        BEAST_EXPECT(ce.pendingCommitCount() == 0);
+
+        auto outOfRoundSidecar = makeRngSidecar(
+            sidecarRngCommit, nodeId, publicKey, digest, seq + 1);
+        outOfRoundSidecar.setFieldVL(sfBlob, makeCommitProof(digest));
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            makeSidecarSet(env.app(), {outOfRoundSidecar}),
+            ConsensusExtensions::SidecarKind::commit);
+        BEAST_EXPECT(ce.pendingCommitCount() == 0);
+
+        auto nonZeroProofSidecar =
+            makeRngSidecar(sidecarRngCommit, nodeId, publicKey, digest, seq);
+        nonZeroProofSidecar.setFieldVL(sfBlob, makeCommitProof(digest, 2));
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            makeSidecarSet(env.app(), {nonZeroProofSidecar}),
+            ConsensusExtensions::SidecarKind::commit);
+        BEAST_EXPECT(ce.pendingCommitCount() == 1);
+        BEAST_EXPECT(
+            ce.buildCommitSet(seq) !=
+            makeSidecarSet(env.app(), {nonZeroProofSidecar})
+                ->getHash()
+                .as_uint256());
+
+        ConsensusExtensions replacement{env.app(), activeNoopJournal()};
+        replacement.cacheUNLReport(ledger);
+        auto const reveal1 = makeHash("fetched-reveal-1");
+        auto const reveal2 = makeHash("fetched-reveal-2");
+        auto const commit1 = sha512Half(reveal1, publicKey, seq);
+        auto const commit2 = sha512Half(reveal2, publicKey, seq);
+
+        auto commit1Sidecar =
+            makeRngSidecar(sidecarRngCommit, nodeId, publicKey, commit1, seq);
+        commit1Sidecar.setFieldVL(sfBlob, makeCommitProof(commit1));
+        publishAndFetchSidecarSet(
+            env.app(),
+            replacement,
+            makeSidecarSet(env.app(), {commit1Sidecar}),
+            ConsensusExtensions::SidecarKind::commit);
+        BEAST_EXPECT(replacement.pendingCommitCount() == 1);
+
+        auto reveal1Sidecar =
+            makeRngSidecar(sidecarRngReveal, nodeId, publicKey, reveal1, seq);
+        reveal1Sidecar.setFieldVL(sfBlob, makeRevealProof(reveal1));
+        publishAndFetchSidecarSet(
+            env.app(),
+            replacement,
+            makeSidecarSet(env.app(), {reveal1Sidecar}),
+            ConsensusExtensions::SidecarKind::reveal);
+        BEAST_EXPECT(replacement.pendingRevealCount() == 1);
+
+        auto commit2Sidecar =
+            makeRngSidecar(sidecarRngCommit, nodeId, publicKey, commit2, seq);
+        commit2Sidecar.setFieldVL(sfBlob, makeCommitProof(commit2));
+        publishAndFetchSidecarSet(
+            env.app(),
+            replacement,
+            makeSidecarSet(env.app(), {commit2Sidecar}),
+            ConsensusExtensions::SidecarKind::commit);
+        BEAST_EXPECT(replacement.pendingCommitCount() == 1);
+        BEAST_EXPECT(replacement.pendingRevealCount() == 0);
+
+        // The old reveal is no longer valid after the commitment changes.
+        publishAndFetchSidecarSet(
+            env.app(),
+            replacement,
+            makeSidecarSet(env.app(), {reveal1Sidecar}),
+            ConsensusExtensions::SidecarKind::reveal);
+        BEAST_EXPECT(replacement.pendingRevealCount() == 0);
+
+        // With a local map already built, fetched deltas merge only missing
+        // leaves; corrupt remote additions are ignored without disturbing local
+        // state.
+        replacement.buildCommitSet(seq);
+        publishAndFetchSidecarSet(
+            env.app(),
+            replacement,
+            makeRawSidecarSet(env.app(), std::string{"bad-diff-entry"}),
+            ConsensusExtensions::SidecarKind::commit);
+        BEAST_EXPECT(replacement.pendingCommitCount() == 1);
+    }
+
+    void
+    testOnPreBuildInjectsStandaloneEntropy()
+    {
+        testcase("onPreBuild injects standalone entropy pseudo-tx");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        CanonicalTXSet retriableTxs{makeHash("rng-on-pre-build-salt")};
+        auto const seq = env.closed()->seq() + 1;
+
+        ce.onPreBuild(retriableTxs, seq);
+        BEAST_EXPECT(
+            std::distance(retriableTxs.begin(), retriableTxs.end()) == 1);
+
+        auto const tx = retriableTxs.begin()->second;
+        BEAST_EXPECT(tx);
+        BEAST_EXPECT(tx->getTxnType() == ttCONSENSUS_ENTROPY);
+        BEAST_EXPECT(tx->getFieldU32(sfLedgerSequence) == seq);
+        BEAST_EXPECT(tx->getAccountID(sfAccount) == AccountID{});
+        BEAST_EXPECT(
+            tx->getFieldH256(sfDigest) ==
+            sha512Half(std::string("standalone-entropy"), seq));
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 20);
+
+        ce.onPreBuild(retriableTxs, seq);
+        BEAST_EXPECT(
+            std::distance(retriableTxs.begin(), retriableTxs.end()) == 1);
+    }
+
+    void
+    testDiagnosticsJsonAndPositionLogging()
+    {
+        testcase("diagnostics JSON and position logging");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        ce.setRngEnabledThisRound(true);
+        ce.recordParticipantDiagnostics(
+            ConsensusMode::proposing, std::vector<NodeID>{valKeys.nodeID});
+
+        Json::Value json;
+        ce.appendJson(json);
+        BEAST_EXPECT(json.isMember("rng"));
+        BEAST_EXPECT(json["rng"]["enabled"].asBool());
+        BEAST_EXPECT(json["rng"]["est_state"].asString() == "ConvergingTx");
+        BEAST_EXPECT(
+            json["rng"]["observed_active_participants"].asInt() ==
+            static_cast<int>(ce.observedParticipantCount()));
+        BEAST_EXPECT(json["rng"].isMember("observed_participants"));
+        BEAST_EXPECT(json["rng"].isMember("observed_participants_bitmap"));
+
+        ExtendedPosition pos{makeHash("diagnostic-tx-set")};
+        pos.commitSetHash = makeHash("diagnostic-commit-set");
+        pos.entropySetHash = makeHash("diagnostic-entropy-set");
+        pos.exportSigSetHash = makeHash("diagnostic-export-set");
+        pos.exportSignaturesHash = makeHash("diagnostic-export-signatures");
+        pos.observedParticipantsHash = ce.observedParticipantsHash();
+        pos.myCommitment = makeHash("diagnostic-commitment");
+        pos.myReveal = makeHash("diagnostic-reveal");
+        ce.logPosition(pos, activeNoopJournal());
+    }
+
+    void
+    testDecoratePositionSkipsWhenDisabled()
+    {
+        testcase("decoratePosition skips without amendment");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ExtendedPosition pos{makeHash("decorate-position-tx-set")};
+
+        ce.decoratePosition(pos, ledger, true);
+        BEAST_EXPECT(!pos.myCommitment);
+        BEAST_EXPECT(ce.pendingCommitCount() == 0);
+
+        ExtendedPosition skipped{makeHash("decorate-position-skipped")};
+        ce.decoratePosition(skipped, ledger, false);
+        BEAST_EXPECT(!skipped.myCommitment);
     }
 
     void
@@ -1311,6 +2473,191 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(ce.exportSigCollector().hasUnverifiedSignatures());
     }
 
+    void
+    testWireProposalHarvestsExportSigs()
+    {
+        testcase("wire proposal harvests export signatures");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.setExportEnabledThisRound(true);
+        ce.cacheUNLReport();
+
+        protocol::TMProposeSet wire;
+        auto const& senderPK = valKeys.keys->publicKey;
+        wire.set_nodepubkey(senderPK.data(), senderPK.size());
+        auto const prevLedger = *ce.activeValidatorView()->sourceLedgerHash;
+        wire.set_previousledger(prevLedger.data(), prevLedger.size());
+        auto const tx = makeHash("wire-export-sig-tx");
+        auto const blob = makeExportSigBlob(tx, senderPK);
+        wire.add_exportsignatures(blob);
+
+        ce.onTrustedPeerMessage(wire);
+        BEAST_EXPECT(ce.exportSigCollector().hasUnverifiedSignatures());
+
+        protocol::TMProposeSet malformed;
+        malformed.add_exportsignatures(blob);
+        malformed.set_nodepubkey("bad", 3);
+        ce.onTrustedPeerMessage(malformed);
+        BEAST_EXPECT(ce.exportSigCollector().hasUnverifiedSignatures());
+    }
+
+    void
+    testPublicHookNoopAndFailureBranches()
+    {
+        testcase("public hook no-op and failure branches");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        ce.cacheUNLReport(ledger);
+        BEAST_EXPECT(ce.exportSigQuorumThreshold() == 1);
+
+        ce.setExportSigConvergenceFailed();
+        BEAST_EXPECT(ce.exportSigConvergenceFailed());
+
+        ce.setEntropyFailed();
+        BEAST_EXPECT(ce.shouldZeroEntropy());
+
+        ce.generateEntropySecret();
+        BEAST_EXPECT(!ce.hasAnyReveals());
+        ce.selfSeedReveal();
+        BEAST_EXPECT(ce.pendingRevealCount() == 1);
+
+        auto const [pk, _] = randomKeyPair(KeyType::secp256k1);
+        std::vector<std::string> const noSigs;
+        BEAST_EXPECT(
+            ce.harvestExportSignatures(
+                pk, ledger->info().hash, noSigs, "disabled") == 0);
+
+        ce.setExportEnabledThisRound(true);
+        BEAST_EXPECT(
+            ce.harvestExportSignatures(
+                pk, ledger->info().hash, noSigs, "empty") == 0);
+
+        protocol::TMProposeSet wire;
+        ce.onTrustedPeerMessage(wire);
+
+        wire.add_exportsignatures(
+            makeExportSigBlob(makeHash("wire-no-prev"), pk));
+        wire.set_nodepubkey(pk.data(), pk.size());
+        ce.onTrustedPeerMessage(wire);
+
+        Json::Value json;
+        ce.estState_ = EstablishState::ConvergingCommit;
+        ce.appendJson(json);
+        BEAST_EXPECT(json["rng"]["est_state"].asString() == "ConvergingCommit");
+        ce.estState_ = EstablishState::ConvergingReveal;
+        ce.appendJson(json);
+        BEAST_EXPECT(json["rng"]["est_state"].asString() == "ConvergingReveal");
+
+        ExtendedPosition logPos{makeHash("log-inactive-position")};
+        ce.logPosition(
+            logPos,
+            beast::Journal{beast::Journal::getNullSink()},
+            beast::severities::kTrace);
+
+        protocol::TMProposeSet prop;
+        RCLCxPeerPos::Proposal proposal{
+            ledger->info().hash,
+            0,
+            ExtendedPosition{makeHash("attach-export-disabled")},
+            NetClock::time_point{},
+            NetClock::time_point{},
+            env.app().getValidatorKeys().nodeID};
+        ConsensusExtensions disabled{env.app(), activeNoopJournal()};
+        disabled.attachExportSignatures(prop, proposal);
+        BEAST_EXPECT(prop.exportsignatures_size() == 0);
+
+        ConfigVals cfg;
+        cfg.noExportSig = true;
+        env.app().getRuntimeConfig().setConfig("*", cfg);
+        ce.attachExportSignatures(prop, proposal);
+        BEAST_EXPECT(prop.exportsignatures_size() == 0);
+    }
+
+    void
+    testDecorateMessageStoresSelfProofs()
+    {
+        testcase("decorateMessage stores self proofs");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ExtendedPosition commitPos{makeHash("decorate-message-txset")};
+        ce.decoratePosition(commitPos, ledger, true);
+        BEAST_EXPECT(commitPos.myCommitment);
+        if (!commitPos.myCommitment)
+            return;
+
+        auto const closeTime = NetClock::time_point{NetClock::duration{12345}};
+        RCLCxPeerPos::Proposal commitProposal{
+            ledger->info().hash,
+            0,
+            commitPos,
+            closeTime,
+            NetClock::time_point{},
+            valKeys.nodeID};
+        auto const commitSig = signDigest(
+            valKeys.keys->publicKey,
+            valKeys.keys->secretKey,
+            commitProposal.signingHash());
+        protocol::TMProposeSet prop;
+        ce.decorateMessage(
+            prop,
+            commitProposal,
+            commitPos,
+            Buffer(commitSig.data(), commitSig.size()));
+
+        auto const seq = ledger->info().seq + 1;
+        auto const commitHash = ce.buildCommitSet(seq);
+        BEAST_EXPECT(ce.isSidecarSet(commitHash));
+
+        ExtendedPosition revealPos{commitPos.txSetHash};
+        revealPos.myReveal = ce.getEntropySecret();
+        RCLCxPeerPos::Proposal revealProposal{
+            ledger->info().hash,
+            1,
+            revealPos,
+            closeTime,
+            NetClock::time_point{},
+            valKeys.nodeID};
+        auto const revealSig = signDigest(
+            valKeys.keys->publicKey,
+            valKeys.keys->secretKey,
+            revealProposal.signingHash());
+        ce.decorateMessage(
+            prop,
+            revealProposal,
+            revealPos,
+            Buffer(revealSig.data(), revealSig.size()));
+
+        BEAST_EXPECT(ce.pendingRevealCount() == 1);
+        BEAST_EXPECT(ce.hasMinimumReveals());
+        auto const entropyHash = ce.buildEntropySet(seq);
+        BEAST_EXPECT(ce.isSidecarSet(entropyHash));
+    }
+
 public:
     void
     run() override
@@ -1319,6 +2666,20 @@ public:
         testActiveValidatorViewBuilderPrefersUNLReport();
         testActiveValidatorViewBuilderFallback();
         testActiveValidatorViewAppliesNegativeUNL();
+        testActiveValidatorViewNullSourceAndExpectedProposers();
+        testExplicitFinalProposalTxSetBuildsEntropyTxn();
+        testRuntimeConfigPolicyAccessors();
+        testDecoratePositionGeneratesCommitment();
+        testOnPreBuildInjectsZeroEntropyFallback();
+        testOnPreBuildInjectsEntropySetEntropy();
+        testProposalProofRoundTrip();
+        testHarvestRngDataReplacementAndRejection();
+        testExportSidecarBuildFetchAndMerge();
+        testRngSidecarBuildFetchAndMerge();
+        testRngSidecarRejectsInvalidFetchedEntries();
+        testOnPreBuildInjectsStandaloneEntropy();
+        testDiagnosticsJsonAndPositionLogging();
+        testDecoratePositionSkipsWhenDisabled();
         testExportSigGateRequiresQuorumAlignment();
         testRngEntropyGateRequiresFullObservation();
         testRngFastPathWaitsAfterEntropyPublish();
@@ -1345,6 +2706,9 @@ public:
         testParticipantDiagnosticsOnlyWhenExtensionEnabled();
         testExportDisabledRoundClearsCollector();
         testReplayedProposalHarvestsExportSigs();
+        testWireProposalHarvestsExportSigs();
+        testPublicHookNoopAndFailureBranches();
+        testDecorateMessageStoresSelfProofs();
     }
 };
 

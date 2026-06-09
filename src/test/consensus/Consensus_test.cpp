@@ -38,6 +38,13 @@ public:
     {
     }
 
+    static void
+    enableSilentTracing(csf::Sim& sim)
+    {
+        sim.sink.silent(true);
+        sim.sink.threshold(beast::severities::kTrace);
+    }
+
     void
     testShouldCloseLedger()
     {
@@ -214,6 +221,7 @@ public:
         //@@start peers-agree
         ConsensusParms const parms{};
         Sim sim;
+        enableSilentTracing(sim);
         PeerGroup peers = sim.createGroup(5);
 
         // Connected trust and network graphs with single fixed delay
@@ -260,6 +268,7 @@ public:
         {
             ConsensusParms const parms{};
             Sim sim;
+            enableSilentTracing(sim);
             PeerGroup slow = sim.createGroup(1);
             PeerGroup fast = sim.createGroup(4);
             PeerGroup network = fast + slow;
@@ -318,6 +327,7 @@ public:
                 ConsensusParms const parms{};
 
                 Sim sim;
+                enableSilentTracing(sim);
                 PeerGroup slow = sim.createGroup(2);
                 PeerGroup fast = sim.createGroup(4);
                 PeerGroup network = fast + slow;
@@ -447,6 +457,7 @@ public:
 
         ConsensusParms const parms{};
         Sim sim;
+        enableSilentTracing(sim);
 
         PeerGroup groupA = sim.createGroup(2);
         PeerGroup groupB = sim.createGroup(2);
@@ -477,6 +488,52 @@ public:
         {
             for (Peer* peer : network)
                 BEAST_EXPECT(!peer->lastClosedLedger.closeAgree());
+        }
+    }
+
+    void
+    testBootstrapFastStart()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+        testcase("bootstrap fast start");
+
+        ConsensusParms const parms{};
+        Sim sim;
+        enableSilentTracing(sim);
+        PeerGroup peers = sim.createGroup(4);
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        for (Peer* peer : peers)
+        {
+            peer->ce().bootstrapFastStartEnabled_ = true;
+            peer->targetLedgers =
+                static_cast<int>(parms.bootstrapStableRoundsRequired);
+            peer->start();
+
+            auto const json = peer->consensus.getJson(true);
+            BEAST_EXPECT(json.isMember("bootstrap_fast_start"));
+            BEAST_EXPECT(json["bootstrap_fast_start"].asBool());
+            BEAST_EXPECT(
+                json["previous_mseconds"].asInt() ==
+                parms.bootstrapRoundTimeSeed.count());
+            BEAST_EXPECT(json["bootstrap_stable_rounds"].asInt() == 0);
+        }
+
+        sim.scheduler.step();
+
+        if (BEAST_EXPECT(sim.synchronized()))
+        {
+            for (Peer* peer : peers)
+            {
+                BEAST_EXPECT(
+                    peer->completedLedgers ==
+                    static_cast<int>(parms.bootstrapStableRoundsRequired));
+                auto const json = peer->consensus.getJson(true);
+                BEAST_EXPECT(!json.isMember("bootstrap_fast_start"));
+                BEAST_EXPECT(peer->prevRoundTime < parms.ledgerIDLE_INTERVAL);
+            }
         }
     }
 
@@ -520,6 +577,7 @@ public:
             //@@end wrong-lcl-scenario
 
             Sim sim;
+            enableSilentTracing(sim);
 
             PeerGroup minority = sim.createGroup(2);
             PeerGroup majorityA = sim.createGroup(3);
@@ -624,6 +682,7 @@ public:
             // after it is already in the establish phase of the next round.
 
             Sim sim;
+            enableSilentTracing(sim);
             PeerGroup loner = sim.createGroup(1);
             PeerGroup friends = sim.createGroup(3);
             loner.trust(loner + friends);
@@ -669,6 +728,7 @@ public:
         ConsensusParms parms;
 
         Sim sim;
+        enableSilentTracing(sim);
 
         // This requires a group of 4 fast and 2 slow peers to create a
         // situation in which a subset of peers requires seeing additional
@@ -770,6 +830,7 @@ public:
         {
             ConsensusParms const parms{};
             Sim sim;
+            enableSilentTracing(sim);
 
             std::uint32_t numA = (numPeers - overlap) / 2;
             std::uint32_t numB = numPeers - numA - overlap;
@@ -828,6 +889,7 @@ public:
 
         ConsensusParms const parms{};
         Sim sim;
+        enableSilentTracing(sim);
         PeerGroup validators = sim.createGroup(5);
         PeerGroup center = sim.createGroup(1);
         validators.trust(validators);
@@ -943,6 +1005,7 @@ public:
 
         ConsensusParms const parms{};
         Sim sim;
+        enableSilentTracing(sim);
 
         // Goes A->B->D
         PeerGroup groupABD = sim.createGroup(2);
@@ -1066,6 +1129,7 @@ public:
 
         ConsensusParms const parms{};
         Sim sim;
+        enableSilentTracing(sim);
         SimDuration delay = round<milliseconds>(0.2 * parms.ledgerGRANULARITY);
 
         PeerGroup behind = sim.createGroup(3);
@@ -1542,6 +1606,7 @@ public:
         testPeersAgree();
         testSlowPeers();
         testCloseTimeDisagree();
+        testBootstrapFastStart();
         testWrongLCL();
         testConsensusCloseTimeRounding();
         testFork();

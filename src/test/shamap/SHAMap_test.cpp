@@ -20,10 +20,12 @@
 #include <test/shamap/common.h>
 #include <test/unit_test/SuiteJournal.h>
 #include <xrpld/shamap/SHAMap.h>
+#include <xrpld/shamap/SHAMapSidecarLeafNode.h>
 #include <xrpl/basics/Blob.h>
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/HashPrefix.h>
 
 namespace ripple {
 namespace tests {
@@ -122,6 +124,65 @@ public:
 
         run(true, journal);
         run(false, journal);
+        testSidecarLeaf(journal);
+    }
+
+    void
+    testSidecarLeaf(beast::Journal const& journal)
+    {
+        testcase("sidecar leaf");
+
+        Blob const payload{
+            0x53, 0x49, 0x44, 0x45, 0x43, 0x41, 0x52, 0x00, 0x01, 0x02,
+            0x03, 0x04};
+        auto const itemHash = sha512Half(HashPrefix::sidecar, makeSlice(payload));
+        auto const item = make_shamapitem(itemHash, makeSlice(payload));
+
+        SHAMapSidecarLeafNode leaf{item, 7};
+        BEAST_EXPECT(leaf.cowid() == 7);
+        BEAST_EXPECT(leaf.getType() == SHAMapNodeType::tnSIDECAR);
+        BEAST_EXPECT(leaf.getHash() == SHAMapHash{itemHash});
+        BEAST_EXPECT(leaf.peekItem()->slice() == makeSlice(payload));
+
+        auto const label = leaf.getString(SHAMapNodeID{});
+        BEAST_EXPECT(label.find(",sidecar") != std::string::npos);
+
+        auto const cloned = leaf.clone(11);
+        BEAST_EXPECT(cloned->cowid() == 11);
+        BEAST_EXPECT(cloned->getType() == SHAMapNodeType::tnSIDECAR);
+        BEAST_EXPECT(cloned->getHash() == leaf.getHash());
+
+        Serializer wire;
+        leaf.serializeForWire(wire);
+        auto const wireSlice = wire.slice();
+        auto const wirePayload = Slice{wireSlice.data(), payload.size()};
+        BEAST_EXPECT(wireSlice.size() == payload.size() + 1);
+        BEAST_EXPECT(wirePayload == makeSlice(payload));
+        BEAST_EXPECT(wireSlice[wireSlice.size() - 1] == wireTypeSidecar);
+
+        auto const fromWire = SHAMapTreeNode::makeFromWire(wireSlice);
+        BEAST_EXPECT(fromWire->getType() == SHAMapNodeType::tnSIDECAR);
+        BEAST_EXPECT(fromWire->getHash() == leaf.getHash());
+
+        Serializer prefixed;
+        leaf.serializeWithPrefix(prefixed);
+        auto const fromPrefix =
+            SHAMapTreeNode::makeFromPrefix(prefixed.slice(), leaf.getHash());
+        BEAST_EXPECT(fromPrefix->getType() == SHAMapNodeType::tnSIDECAR);
+        BEAST_EXPECT(fromPrefix->getHash() == leaf.getHash());
+
+        tests::TestNodeFamily f(journal);
+        SHAMap sidecars{SHAMapType::SIDECAR, f};
+        BEAST_EXPECT(sidecars.addItem(
+            SHAMapNodeType::tnSIDECAR, make_shamapitem(*item)));
+        sidecars.invariants();
+        BEAST_EXPECT(sidecars.hasItem(itemHash));
+        BEAST_EXPECT(sidecars.peekItem(itemHash)->slice() == makeSlice(payload));
+
+        SHAMapMissingNode missing{SHAMapType::SIDECAR, leaf.getHash()};
+        BEAST_EXPECT(
+            std::string{missing.what()}.find("Sidecar Tree") !=
+            std::string::npos);
     }
 
     void

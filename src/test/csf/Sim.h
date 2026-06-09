@@ -42,6 +42,7 @@ namespace csf {
 class BasicSink : public beast::Journal::Sink
 {
     Scheduler::clock_type const& clock_;
+    bool silent_ = false;
 
 public:
     BasicSink(Scheduler::clock_type const& clock)
@@ -50,9 +51,17 @@ public:
     }
 
     void
+    silent(bool value)
+    {
+        silent_ = value;
+    }
+
+    void
     write(beast::severities::Severity level, std::string const& text) override
     {
         if (level < threshold())
+            return;
+        if (silent_)
             return;
 
         std::cout << clock_.now().time_since_epoch().count() << " " << text

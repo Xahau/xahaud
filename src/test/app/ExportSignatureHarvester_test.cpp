@@ -16,6 +16,7 @@
 */
 //==============================================================================
 
+#include <test/unit_test/SuiteJournal.h>
 #include <xrpld/app/consensus/ExportSignatureHarvester.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test.h>
@@ -116,16 +117,11 @@ makeBlob(uint256 const& txHash, PublicKey const& pk, Buffer const& sig)
     return makeBlob(txHash, pk, Slice(sig.data(), sig.size()));
 }
 
-beast::Journal
-journal()
-{
-    return beast::Journal{beast::Journal::getNullSink()};
-}
-
 }  // namespace
 
 class ExportSignatureHarvester_test : public beast::unit_test::suite
 {
+    SuiteJournal journal_{"ExportSignatureHarvester_test", *this};
     std::pair<PublicKey, SecretKey> const sender_ =
         randomKeyPair(KeyType::secp256k1);
     std::pair<PublicKey, SecretKey> const other_ =
@@ -139,7 +135,8 @@ class ExportSignatureHarvester_test : public beast::unit_test::suite
         ExportTxnLookup const& exportTxns,
         bool active = true,
         std::optional<uint256> sourceLedgerHash = std::nullopt,
-        PublicKey const* sender = nullptr) const
+        PublicKey const* sender = nullptr,
+        std::size_t maxEntries = 2) const
     {
         return ExportSignatureHarvestInput{
             sender ? *sender : sender_.first,
@@ -150,7 +147,13 @@ class ExportSignatureHarvester_test : public beast::unit_test::suite
             exportTxns,
             42,
             source_,
-            2};
+            maxEntries};
+    }
+
+    beast::Journal&
+    journal()
+    {
+        return journal_;
     }
 
 public:
@@ -238,7 +241,8 @@ public:
         ExportTxnLookup lookup;
         ExportSigCollector collector;
 
-        auto input = makeInput(blobs, lookup, true, prevLedger_);
+        auto input =
+            makeInput(blobs, lookup, true, prevLedger_, nullptr, blobs.size());
         BEAST_EXPECT(harvestExportSignatures(input, collector, journal()) == 0);
         BEAST_EXPECT(!collector.hasUnverifiedSignatures());
         BEAST_EXPECT(collector.signatureCount(txHash) == 0);

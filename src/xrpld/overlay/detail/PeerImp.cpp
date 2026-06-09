@@ -33,6 +33,7 @@
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/overlay/Cluster.h>
 #include <xrpld/overlay/detail/PeerImp.h>
+#include <xrpld/overlay/detail/ProposalPrecheck.h>
 #include <xrpld/overlay/detail/Tuning.h>
 #include <xrpld/perflog/PerfLog.h>
 #include <xrpl/basics/UptimeClock.h>
@@ -40,7 +41,6 @@
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/core/LexicalCast.h>
-#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/digest.h>
 
@@ -1721,14 +1721,6 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         return;
     }
 
-    if (set.currenttxhash().size() < uint256::size() ||
-        !stringIsUint256Sized(set.previousledger()))
-    {
-        JLOG(p_journal_.warn()) << "Proposal: malformed";
-        fee_.update(Resource::feeMalformedRequest, "bad hashes");
-        return;
-    }
-
     // RH TODO: when isTrusted = false we should probably also cache a key
     // suppression for 30 seconds to avoid doing a relatively expensive lookup
     // every time a spam packet is received
@@ -1741,85 +1733,26 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     if (!isTrusted && app_.config().RELAY_UNTRUSTED_PROPOSALS == -1)
         return;
 
-    auto const currentPosSlice = makeSlice(set.currenttxhash());
-    SerialIter currentPosSit{currentPosSlice};
-    auto const parsedPosition = ExtendedPosition::fromSerialIter(
-        currentPosSit, set.currenttxhash().size());
-    if (!parsedPosition)
+    auto const openLedger = app_.openLedger().current();
+    auto const precheck = detail::checkProposalExtensions(
+        set,
+        openLedger && openLedger->rules().enabled(featureConsensusEntropy),
+        openLedger && openLedger->rules().enabled(featureExport));
+    if (auto const rejection =
+            detail::proposalPrecheckRejection(precheck.result))
     {
-        JLOG(p_journal_.warn()) << "Proposal: malformed extended position";
-        fee_.update(Resource::feeMalformedRequest, "bad proposal position");
+        JLOG(p_journal_.warn()) << rejection->logMessage;
+        fee_.update(Resource::feeMalformedRequest, rejection->feeReason);
         return;
     }
-    bool const hasEntropyMaterial = parsedPosition->commitSetHash ||
-        parsedPosition->entropySetHash || parsedPosition->myCommitment ||
-        parsedPosition->myReveal;
-    bool const hasExportMaterial = parsedPosition->exportSigSetHash ||
-        parsedPosition->exportSignaturesHash || set.exportsignatures_size() > 0;
-    if (hasEntropyMaterial || hasExportMaterial)
-    {
-        auto const openLedger = app_.openLedger().current();
-        bool const entropyEnabled =
-            openLedger && openLedger->rules().enabled(featureConsensusEntropy);
-        bool const exportEnabled =
-            openLedger && openLedger->rules().enabled(featureExport);
-        if (hasEntropyMaterial && !entropyEnabled)
-        {
-            JLOG(p_journal_.warn())
-                << "Proposal: entropy fields while featureConsensusEntropy "
-                   "disabled";
-            fee_.update(
-                Resource::feeMalformedRequest, "entropy fields disabled");
-            return;
-        }
-        if (hasExportMaterial && !exportEnabled)
-        {
-            JLOG(p_journal_.warn())
-                << "Proposal: export fields while featureExport disabled";
-            fee_.update(
-                Resource::feeMalformedRequest, "export fields disabled");
-            return;
-        }
-    }
-    if (set.exportsignatures_size() > ExportLimits::maxPendingExports)
-    {
-        JLOG(p_journal_.warn()) << "Proposal: too many export signatures";
-        fee_.update(Resource::feeMalformedRequest, "too many export sigs");
-        return;
-    }
-
-    if (set.exportsignatures_size() > 0)
-    {
-        if (!parsedPosition->exportSignaturesHash)
-        {
-            JLOG(p_journal_.warn()) << "Proposal: unsigned export signatures";
-            fee_.update(Resource::feeMalformedRequest, "unsigned export sigs");
-            return;
-        }
-
-        if (proposalExportSignaturesHash(set.exportsignatures()) !=
-            *parsedPosition->exportSignaturesHash)
-        {
-            JLOG(p_journal_.warn())
-                << "Proposal: export signatures hash mismatch";
-            fee_.update(
-                Resource::feeMalformedRequest, "export sig hash mismatch");
-            return;
-        }
-    }
-    else if (parsedPosition->exportSignaturesHash)
-    {
-        JLOG(p_journal_.warn()) << "Proposal: missing signed export signatures";
-        fee_.update(Resource::feeMalformedRequest, "missing export sigs");
-        return;
-    }
+    auto const& parsedPosition = *precheck.position;
 
     uint256 const prevLedger{set.previousledger()};
 
     NetClock::time_point const closeTime{NetClock::duration{set.closetime()}};
 
     uint256 const suppression = proposalUniqueId(
-        *parsedPosition,
+        parsedPosition,
         prevLedger,
         set.proposeseq(),
         closeTime,
@@ -1876,7 +1809,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         RCLCxPeerPos::Proposal{
             prevLedger,
             set.proposeseq(),
-            *parsedPosition,
+            parsedPosition,
             closeTime,
             app_.timeKeeper().closeTime(),
             calcNodeID(app_.validatorManifests().getMasterKey(publicKey))},

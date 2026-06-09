@@ -20,6 +20,7 @@
 #include <test/jtx.h>
 #include <test/jtx/import.h>
 #include <test/jtx/xpop.h>
+#include <test/shamap/common.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/proof/LedgerProof.h>
 #include <xrpld/app/proof/ProofBuilder.h>
@@ -150,6 +151,62 @@ struct XPOP_test : public beast::unit_test::suite
         BEAST_EXPECT(proofJson.isArray());
         BEAST_EXPECT(proofJson.size() == 16);
         BEAST_EXPECT(proofJson[3].asString() == to_string(manual.leafHash));
+    }
+
+    void
+    testProofBuilderSyntheticTrie()
+    {
+        testcase("ProofBuilder synthetic trie collisions");
+
+        tests::TestNodeFamily f{beast::Journal{beast::Journal::getNullSink()}};
+        SHAMap map{SHAMapType::TRANSACTION, f};
+
+        auto const keyA = uint256{
+            "1000000000000000000000000000000000000000000000000000000000000001"};
+        auto const keyB = uint256{
+            "1800000000000000000000000000000000000000000000000000000000000002"};
+        auto const keyC = uint256{
+            "2000000000000000000000000000000000000000000000000000000000000003"};
+        auto const keyD = uint256{
+            "1f00000000000000000000000000000000000000000000000000000000000004"};
+
+        auto add = [&](uint256 const& key, Blob data) {
+            return map.addItem(
+                SHAMapNodeType::tnTRANSACTION_NM,
+                make_shamapitem(key, makeSlice(data)));
+        };
+        auto payload = [](std::uint8_t first) {
+            Blob data;
+            data.reserve(12);
+            for (std::uint8_t i = 0; i < 12; ++i)
+                data.push_back(first + i);
+            return data;
+        };
+
+        BEAST_EXPECT(add(keyA, payload(0x01)));
+        BEAST_EXPECT(add(keyB, payload(0x11)));
+        BEAST_EXPECT(add(keyC, payload(0x21)));
+        BEAST_EXPECT(add(keyD, payload(0x31)));
+        map.invariants();
+
+        auto const proof = proof::extractProofV1(map, keyA);
+        BEAST_EXPECT(proof.has_value());
+        if (proof)
+        {
+            BEAST_EXPECT(proof->path.size() == 2);
+            auto const computedRoot = proof->computeRoot();
+            BEAST_EXPECT(computedRoot.has_value());
+            if (computedRoot)
+                BEAST_EXPECT(proof->verify(*computedRoot));
+
+            auto const json = proof->toJsonV1();
+            BEAST_EXPECT(json.isArray());
+            BEAST_EXPECT(json[proof->path.front().targetBranch].isArray());
+        }
+
+        auto const nearMiss = uint256{
+            "10000000000000000000000000000000000000000000000000000000000000ff"};
+        BEAST_EXPECT(!proof::extractProofV1(map, nearMiss));
     }
 
     void
@@ -385,6 +442,7 @@ struct XPOP_test : public beast::unit_test::suite
     {
         testBuildLedgerProof();
         testProofBuilderEdgeCases();
+        testProofBuilderSyntheticTrie();
         testBuildXPOPv1();
         testBuildXPOPv1WithoutMerkleProof();
         testMerkleProofVerification();
