@@ -22,6 +22,7 @@
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/digest.h>
+#include <xrpl/protocol/jss.h>
 #include <cstring>
 #include <sstream>
 
@@ -337,6 +338,126 @@ class ExtendedPosition_test : public beast::unit_test::suite
     }
 
     void
+    testPeerPosition()
+    {
+        testcase("RCLCxPeerPos signed proposal wrapper");
+
+        auto const [pk, sk] = randomKeyPair(KeyType::secp256k1);
+        auto const nodeId = calcNodeID(pk);
+        auto const prevLedger = makeHash("prevledger-peer");
+        auto const closeTime =
+            NetClock::time_point{NetClock::duration{7654321}};
+
+        ExtendedPosition pos{makeHash("txset-peer")};
+        pos.commitSetHash = makeHash("commitset-peer");
+        pos.entropySetHash = makeHash("entropyset-peer");
+        pos.exportSigSetHash = makeHash("exportsigset-peer");
+        pos.exportSignaturesHash = makeHash("exportsigs-peer");
+        pos.observedParticipantsHash = makeHash("participants-peer");
+        pos.myCommitment = makeHash("commitment-peer");
+        pos.myReveal = makeHash("reveal-peer");
+
+        using Proposal = ConsensusProposal<NodeID, uint256, ExtendedPosition>;
+        Proposal prop{
+            prevLedger,
+            Proposal::seqJoin,
+            pos,
+            closeTime,
+            NetClock::time_point{},
+            nodeId};
+
+        auto const sig = signDigest(pk, sk, prop.signingHash());
+        auto const suppression = proposalUniqueId(
+            pos, prevLedger, prop.proposeSeq(), closeTime, pk, sig);
+        std::vector<std::string> exportSignatures{
+            "export-sig-a", "export-sig-b"};
+
+        RCLCxPeerPos peer{
+            pk,
+            sig,
+            suppression,
+            Proposal{
+                prevLedger,
+                Proposal::seqJoin,
+                pos,
+                closeTime,
+                NetClock::time_point{},
+                nodeId},
+            exportSignatures};
+
+        BEAST_EXPECT(peer.checkSign());
+        BEAST_EXPECT(peer.publicKey() == pk);
+        BEAST_EXPECT(peer.signature().size() == sig.size());
+        BEAST_EXPECT(peer.suppressionID() == suppression);
+        BEAST_EXPECT(peer.proposal().position().txSetHash == pos.txSetHash);
+        BEAST_EXPECT(peer.exportSignatures() == exportSignatures);
+        BEAST_EXPECT(!peer.render().empty());
+
+        auto const json = peer.getJson();
+        BEAST_EXPECT(json.isMember(jss::peer_id));
+        BEAST_EXPECT(
+            json[jss::peer_id].asString() ==
+            toBase58(TokenType::NodePublic, pk));
+
+        auto badSig = sig;
+        badSig.data()[badSig.size() - 1] ^= 0x01;
+        RCLCxPeerPos badPeer{
+            pk,
+            badSig,
+            suppression,
+            Proposal{
+                prevLedger,
+                Proposal::seqJoin,
+                pos,
+                closeTime,
+                NetClock::time_point{},
+                nodeId}};
+        BEAST_EXPECT(!badPeer.checkSign());
+
+        auto mutated = pos;
+        mutated.myReveal = makeHash("reveal-peer-mutated");
+        BEAST_EXPECT(
+            proposalUniqueId(
+                mutated, prevLedger, prop.proposeSeq(), closeTime, pk, sig) !=
+            suppression);
+
+        mutated = pos;
+        mutated.exportSignaturesHash = makeHash("exportsigs-peer-mutated");
+        BEAST_EXPECT(
+            proposalUniqueId(
+                mutated, prevLedger, prop.proposeSeq(), closeTime, pk, sig) !=
+            suppression);
+
+        BEAST_EXPECT(
+            proposalUniqueId(
+                pos,
+                makeHash("prevledger-peer-mutated"),
+                prop.proposeSeq(),
+                closeTime,
+                pk,
+                sig) != suppression);
+        BEAST_EXPECT(
+            proposalUniqueId(
+                pos, prevLedger, prop.proposeSeq() + 1, closeTime, pk, sig) !=
+            suppression);
+        BEAST_EXPECT(
+            proposalUniqueId(
+                pos,
+                prevLedger,
+                prop.proposeSeq(),
+                NetClock::time_point{NetClock::duration{7654322}},
+                pk,
+                sig) != suppression);
+
+        auto const [otherPk, unusedSk] = randomKeyPair(KeyType::secp256k1);
+        (void)unusedSk;
+        BEAST_EXPECT(
+            proposalUniqueId(
+                pos, prevLedger, prop.proposeSeq(), closeTime, otherPk, sig) !=
+            suppression);
+    }
+
+    void
     testMalformedPayload()
     {
         testcase("Malformed payload rejected");
@@ -576,6 +697,7 @@ public:
         testSerializationRoundTrip();
         testSigningConsistency();
         testSuppressionConsistency();
+        testPeerPosition();
         testMalformedPayload();
         testEquality();
         testExportSignatureDigest();
