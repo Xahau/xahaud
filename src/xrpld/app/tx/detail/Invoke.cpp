@@ -64,8 +64,13 @@ Invoke::preclaim(PreclaimContext const& ctx)
 
     if (ctx.tx.isFieldPresent(sfDestination))
     {
-        if (!ctx.view.exists(keylet::account(ctx.tx[sfDestination])))
+        auto const sleDest =
+            ctx.view.read(keylet::account(ctx.tx[sfDestination]));
+        if (!sleDest)
             return tecNO_TARGET;
+
+        if (sleDest->isFieldPresent(sfAMMID))
+            return tecNO_PERMISSION;
     }
 
     return tesSUCCESS;

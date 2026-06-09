@@ -84,6 +84,7 @@ test.nodestore > xrpl.basics
 test.nodestore > xrpld.core
 test.nodestore > xrpld.nodestore
 test.nodestore > xrpld.unity
+test.nodestore > xrpl.protocol
 test.overlay > test.jtx
 test.overlay > test.toplevel
 test.overlay > test.unit_test
@@ -118,6 +119,7 @@ test.rpc > xrpld.core
 test.rpc > xrpld.net
 test.rpc > xrpld.overlay
 test.rpc > xrpld.rpc
+test.rpc > xrpld.shamap
 test.rpc > xrpl.hook
 test.rpc > xrpl.json
 test.rpc > xrpl.protocol

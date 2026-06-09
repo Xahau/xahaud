@@ -14,8 +14,6 @@
 #include <xrpl/protocol/st.h>
 #include <xrpl/protocol/tokens.h>
 #include <boost/multiprecision/cpp_dec_float.hpp>
-#include <any>
-#include <cfenv>
 #include <memory>
 #include <optional>
 #include <string>
@@ -41,7 +39,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
     if (!otxnAcc)
         return {};
 
-    uint16_t tt = tx.getFieldU16(sfTransactionType);
+    TxType const& tt = tx.getTxnType();
 
     std::map<AccountID, std::pair<int, bool>> tshEntries;
 
@@ -301,18 +299,14 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             bool issuerCanRollback = nft::getFlags(nid) & tfStrongTSH;
             ADD_TSH(issuer, issuerCanRollback);
 
-            if (bo)
+            for (auto const& offer : {bo, so})
             {
-                ADD_TSH(bo->getAccountID(sfOwner), tshSTRONG);
-                if (bo->isFieldPresent(sfDestination))
-                    ADD_TSH(bo->getAccountID(sfDestination), tshSTRONG);
-            }
-
-            if (so)
-            {
-                ADD_TSH(so->getAccountID(sfOwner), tshSTRONG);
-                if (so->isFieldPresent(sfDestination))
-                    ADD_TSH(so->getAccountID(sfDestination), tshSTRONG);
+                if (offer)
+                {
+                    ADD_TSH(offer->getAccountID(sfOwner), tshSTRONG);
+                    if (offer->isFieldPresent(sfDestination))
+                        ADD_TSH(offer->getAccountID(sfDestination), tshSTRONG);
+                }
             }
 
             break;
@@ -551,7 +545,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             break;
         }
         case ttLEDGER_STATE_FIX: {
-            // TODO: Implement if needed
+            if (tx.isFieldPresent(sfOwner))
+                ADD_TSH(tx.getAccountID(sfOwner), tshWEAK);
             break;
         }
         case ttMPTOKEN_ISSUANCE_CREATE:
@@ -601,159 +596,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
 }  // namespace hook
 
-namespace hook_float {
-
-using namespace hook_api;
-static int64_t const minMantissa = 1000000000000000ull;
-static int64_t const maxMantissa = 9999999999999999ull;
-static int32_t const minExponent = -96;
-static int32_t const maxExponent = 80;
-inline int32_t
-get_exponent(int64_t float1)
-{
-    if (float1 < 0)
-        return INVALID_FLOAT;
-    if (float1 == 0)
-        return 0;
-    uint64_t float_in = (uint64_t)float1;
-    float_in >>= 54U;
-    float_in &= 0xFFU;
-    return ((int32_t)float_in) - 97;
-}
-
-inline int64_t
-get_mantissa(int64_t float1)
-{
-    if (float1 < 0)
-        return INVALID_FLOAT;
-    if (float1 == 0)
-        return 0;
-    float1 -= ((((uint64_t)float1) >> 54U) << 54U);
-    return float1;
-}
-
-inline bool
-is_negative(int64_t float1)
-{
-    return ((float1 >> 62U) & 1ULL) == 0;
-}
-
-inline int64_t
-invert_sign(int64_t float1)
-{
-    int64_t r = (int64_t)(((uint64_t)float1) ^ (1ULL << 62U));
-    return r;
-}
-
-inline int64_t
-set_sign(int64_t float1, bool set_negative)
-{
-    bool neg = is_negative(float1);
-    if ((neg && set_negative) || (!neg && !set_negative))
-        return float1;
-
-    return invert_sign(float1);
-}
-
-inline int64_t
-set_mantissa(int64_t float1, uint64_t mantissa)
-{
-    if (mantissa > maxMantissa)
-        return MANTISSA_OVERSIZED;
-    if (mantissa < minMantissa)
-        return MANTISSA_UNDERSIZED;
-    return float1 - get_mantissa(float1) + mantissa;
-}
-
-inline int64_t
-set_exponent(int64_t float1, int32_t exponent)
-{
-    if (exponent > maxExponent)
-        return EXPONENT_OVERSIZED;
-    if (exponent < minExponent)
-        return EXPONENT_UNDERSIZED;
-
-    uint64_t exp = (exponent + 97);
-    exp <<= 54U;
-    float1 &= ~(0xFFLL << 54);
-    float1 += (int64_t)exp;
-    return float1;
-}
-
-inline int64_t
-make_float(ripple::IOUAmount& amt)
-{
-    int64_t man_out = amt.mantissa();
-    int64_t float_out = 0;
-    bool neg = man_out < 0;
-    if (neg)
-        man_out *= -1;
-
-    float_out = set_sign(float_out, neg);
-    float_out = set_mantissa(float_out, (uint64_t)man_out);
-    float_out = set_exponent(float_out, amt.exponent());
-    return float_out;
-}
-
-inline int64_t
-make_float(uint64_t mantissa, int32_t exponent, bool neg)
-{
-    if (mantissa == 0)
-        return 0;
-    if (mantissa > maxMantissa)
-        return MANTISSA_OVERSIZED;
-    if (mantissa < minMantissa)
-        return MANTISSA_UNDERSIZED;
-    if (exponent > maxExponent)
-        return EXPONENT_OVERSIZED;
-    if (exponent < minExponent)
-        return EXPONENT_UNDERSIZED;
-    int64_t out = 0;
-    out = set_mantissa(out, mantissa);
-    out = set_exponent(out, exponent);
-    out = set_sign(out, neg);
-    return out;
-}
-
-}  // namespace hook_float
-using namespace hook_float;
+using namespace hook::hook_float;
 using hook::Bytes;
-
-inline int32_t
-no_free_slots(hook::HookContext& hookCtx)
-{
-    return hook_api::max_slots - hookCtx.slot.size() <= 0;
-}
-
-inline std::optional<int32_t>
-get_free_slot(hook::HookContext& hookCtx)
-{
-    // allocate a slot
-    int32_t slot_into = 0;
-    if (hookCtx.slot_free.size() > 0)
-    {
-        slot_into = hookCtx.slot_free.front();
-        hookCtx.slot_free.pop();
-        return slot_into;
-    }
-
-    // no slots were available in the queue so increment slot counter until we
-    // find a free slot usually this will be the next available but the hook
-    // developer may have allocated any slot ahead of when the counter gets
-    // there
-    do
-    {
-        slot_into = ++hookCtx.slot_counter;
-    } while (hookCtx.slot.find(slot_into) != hookCtx.slot.end() &&
-             // this condition should always be met, if for some reason, somehow
-             // it is not then we will return the final slot every time.
-             hookCtx.slot_counter <= hook_api::max_slots);
-
-    if (hookCtx.slot_counter > hook_api::max_slots)
-        return {};
-
-    return slot_into;
-}
 
 // cu_ptr is a pointer into memory, bounds check is assumed to have already
 // happened
@@ -810,7 +654,7 @@ parseCurrency(uint8_t* cu_ptr, uint32_t cu_len)
         return {};
 }
 
-inline int64_t
+inline std::variant<uint64_t, hook_api::hook_return_code>
 serialize_keylet(
     ripple::Keylet& kl,
     uint8_t* memory,
@@ -818,7 +662,7 @@ serialize_keylet(
     uint32_t write_len)
 {
     if (write_len < 34)
-        return hook_api::TOO_SMALL;
+        return TOO_SMALL;
 
     memory[write_ptr + 0] = (kl.type >> 8) & 0xFFU;
     memory[write_ptr + 1] = (kl.type >> 0) & 0xFFU;
@@ -826,7 +670,7 @@ serialize_keylet(
     for (int i = 0; i < 32; ++i)
         memory[write_ptr + 2 + i] = kl.key.data()[i];
 
-    return 34;
+    return 34ULL;
 }
 
 std::optional<ripple::Keylet>
@@ -869,19 +713,19 @@ hook::computeCreationFee(uint64_t byteCount)
 }
 
 // many datatypes can be encoded into an int64_t
-inline int64_t
+inline std::variant<uint64_t, hook_api::hook_return_code>
 data_as_int64(void const* ptr_raw, uint32_t len)
 {
     if (len > 8)
-        return hook_api::hook_return_code::TOO_BIG;
+        return TOO_BIG;
 
     uint8_t const* ptr = reinterpret_cast<uint8_t const*>(ptr_raw);
     uint64_t output = 0;
     for (int i = 0, j = (len - 1) * 8; i < len; ++i, j -= 8)
         output += (((uint64_t)ptr[i]) << j);
     if ((1ULL << 63U) & output)
-        return hook_api::hook_return_code::TOO_BIG;
-    return (int64_t)output;
+        return TOO_BIG;
+    return output;
 }
 
 /* returns true iff every even char is ascii and every odd char is 00
@@ -1268,7 +1112,7 @@ DEFINE_HOOK_FUNCTION(
         return OUT_OF_BOUNDS;
 
     if (!j.trace())
-        return 0;
+        return 0ULL;
 
     if (read_len > 128)
         read_len = 128;
@@ -1286,12 +1130,12 @@ DEFINE_HOOK_FUNCTION(
                              (const char*)memory + read_ptr, read_len)
                       << ": " << number;
 
-            return 0;
+            return 0ULL;
         }
     }
 
     j.trace() << "HookTrace[" << HC_ACC() << "]: " << number;
-    return 0;
+    return 0ULL;
     HOOK_TEARDOWN();
 }
 
@@ -1311,7 +1155,7 @@ DEFINE_HOOK_FUNCTION(
         return OUT_OF_BOUNDS;
 
     if (!j.trace())
-        return 0;
+        return 0ULL;
 
     if (mread_len > 128)
         mread_len = 128;
@@ -1374,7 +1218,7 @@ DEFINE_HOOK_FUNCTION(
                   << std::string_view((const char*)output_storage, out_len);
     }
 
-    return 0;
+    return 0ULL;
     HOOK_TEARDOWN();
 }
 
@@ -1479,7 +1323,8 @@ DEFINE_HOOK_FUNCTION(
 
     auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
     if (!sleAccount && view.rules().enabled(featureExtendedHookState))
-        return tefINTERNAL;
+        // should return hook_api::hook_return_code
+        return static_cast<hook_api::hook_return_code>(tefINTERNAL);
 
     uint16_t const hookStateScale = sleAccount->isFieldPresent(sfHookStateScale)
         ? sleAccount->getFieldU16(sfHookStateScale)
@@ -1503,7 +1348,8 @@ DEFINE_HOOK_FUNCTION(
     {
         auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
         if (!sleAccount)
-            return tefINTERNAL;
+            // should return hook_api::hook_return_code
+            return static_cast<hook_api::hook_return_code>(tefINTERNAL);
     }
 
     if (!key)
@@ -1718,7 +1564,8 @@ hook::finalizeHookResult(
     // add a metadata entry for this hook execution result
     {
         STObject meta{sfHookExecution};
-        meta.setFieldU8(sfHookResult, hookResult.exitType);
+        meta.setFieldU8(
+            sfHookResult, static_cast<uint8_t>(hookResult.exitType));
         meta.setAccountID(sfHookAccount, hookResult.account);
 
         // RH NOTE: this is probably not necessary, a direct cast should always
@@ -2228,7 +2075,7 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags)
     if (flags == 0)
     {
         auto const base = std::get<0>(*result);
-        return base.getFName().fieldCode;
+        return static_cast<uint64_t>(base.getFName().fieldCode);
     }
     else
     {
@@ -2730,26 +2577,23 @@ DEFINE_HOOK_FUNCTION(
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
+            // These keylet types are not yet implemented. Their
+            // corresponding amendments are not yet supported on the
+            // network. Each case needs a full implementation (see
+            // above cases for reference) before its amendment can be
+            // enabled.
+            // featureXChainBridge
             case keylet_code::BRIDGE:
             case keylet_code::XCHAIN_OWNED_CLAIM_ID:
-            case keylet_code::XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID: {
-                if (!applyCtx.view().rules().enabled(featureXChainBridge))
-                    return INVALID_ARGUMENT;
-            }
+            case keylet_code::XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID:
+            // featureMPTokensV1
             case keylet_code::MPTOKEN_ISSUANCE:
-            case keylet_code::MPTOKEN: {
-                if (!applyCtx.view().rules().enabled(featureMPTokensV1))
-                    return INVALID_ARGUMENT;
-            }
-            case keylet_code::CREDENTIAL: {
-                if (!applyCtx.view().rules().enabled(featureCredentials))
-                    return INVALID_ARGUMENT;
-            }
-            case keylet_code::PERMISSIONED_DOMAIN: {
-                if (!applyCtx.view().rules().enabled(
-                        featurePermissionedDomains))
-                    return INVALID_ARGUMENT;
-            }
+            case keylet_code::MPTOKEN:
+            // featureCredentials
+            case keylet_code::CREDENTIAL:
+            // featurePermissionedDomains
+            case keylet_code::PERMISSIONED_DOMAIN:
+                return INVALID_ARGUMENT;
         }
     }
     catch (std::exception& e)
@@ -2842,7 +2686,8 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
         return OUT_OF_BOUNDS;
 
-    auto const write_txid = [&]() -> int64_t {
+    auto const write_txid =
+        [&]() -> std::variant<uint64_t, hook_api::hook_return_code> {
         WRITE_WASM_MEMORY_AND_RETURN(
             write_ptr,
             txID.size(),
@@ -2852,12 +2697,15 @@ DEFINE_HOOK_FUNCTION(
             memory_length);
     };
 
-    int64_t result = write_txid();
+    auto result = write_txid();
+    if (std::holds_alternative<hook_api::hook_return_code>(result))
+        return std::get<hook_api::hook_return_code>(result);
 
-    if (result == 32)
+    auto const value = std::get<uint64_t>(result);
+    if (value == 32)
         hookCtx.result.emittedTxn.push(tpTrans);
 
-    return result;
+    return value;
 
     HOOK_TEARDOWN();
 }
@@ -3346,7 +3194,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t field_id)
 {
     // proxy only no setup or teardown
-    int64_t ret = sto_emplace(
+    auto ret = sto_emplace(
         hookCtx,
         frameCtx,
         write_ptr,
@@ -3357,8 +3205,12 @@ DEFINE_HOOK_FUNCTION(
         0,
         field_id);
 
-    if (ret > 0 && ret == read_len)
-        return DOESNT_EXIST;
+    if (std::holds_alternative<uint64_t>(ret))
+    {
+        auto const value = std::get<uint64_t>(ret);
+        if (value > 0 && value == read_len)
+            return DOESNT_EXIST;
+    }
 
     return ret;
 }
@@ -3381,7 +3233,7 @@ DEFINE_HOOK_FUNCTION(
     auto const result = api.sto_validate(data);
     if (!result)
         return result.error();
-    return result.value() ? 1 : 0;
+    return result.value() ? 1ULL : 0ULL;
 
     HOOK_TEARDOWN();
 }
@@ -3417,7 +3269,7 @@ DEFINE_HOOK_FUNCTION(
     auto const result = api.util_verify(data, sig, key);
     if (!result)
         return result.error();
-    return result.value() ? 1 : 0;
+    return result.value() ? 1ULL : 0ULL;
 
     HOOK_TEARDOWN();
 }
@@ -3512,26 +3364,30 @@ DEFINE_HOOK_FUNCTION(int32_t, _g, uint32_t id, uint32_t maxitr)
                             << "Iterations: " << hookCtx.guard_map[id];
         }
         hookCtx.result.exitType = hook_api::ExitType::ROLLBACK;
-        hookCtx.result.exitCode = GUARD_VIOLATION;
+        hookCtx.result.exitCode = (int64_t)GUARD_VIOLATION;
         return RC_ROLLBACK;
     }
-    return 1;
+    return 1U;
 
     HOOK_TEARDOWN();
 }
 
-#define RETURN_IF_INVALID_FLOAT(float1)                             \
-    {                                                               \
-        if (float1 < 0)                                             \
-            return hook_api::INVALID_FLOAT;                         \
-        if (float1 != 0)                                            \
-        {                                                           \
-            uint64_t mantissa = get_mantissa(float1);               \
-            int32_t exponent = get_exponent(float1);                \
-            if (mantissa < minMantissa || mantissa > maxMantissa || \
-                exponent > maxExponent || exponent < minExponent)   \
-                return INVALID_FLOAT;                               \
-        }                                                           \
+#define RETURN_IF_INVALID_FLOAT(float1)                 \
+    {                                                   \
+        if (float1 < 0)                                 \
+            return INVALID_FLOAT;                       \
+        if (float1 != 0)                                \
+        {                                               \
+            auto const mantissa = get_mantissa(float1); \
+            auto const exponent = get_exponent(float1); \
+            if (!mantissa || !exponent)                 \
+                return INVALID_FLOAT;                   \
+            if (mantissa.value() < minMantissa ||       \
+                mantissa.value() > maxMantissa ||       \
+                exponent.value() > maxExponent ||       \
+                exponent.value() < minExponent)         \
+                return INVALID_FLOAT;                   \
+        }                                               \
     }
 
 DEFINE_HOOK_FUNCTION(
@@ -3548,7 +3404,7 @@ DEFINE_HOOK_FUNCTION(
         return OUT_OF_BOUNDS;
 
     if (!j.trace())
-        return 0;
+        return 0ULL;
 
     if (read_len > 128)
         read_len = 128;
@@ -3558,38 +3414,33 @@ DEFINE_HOOK_FUNCTION(
         *((const char*)memory + read_ptr + read_len - 1) == '\0')
         read_len--;
 
+    auto const messageKey = (read_len == 0)
+        ? ""
+        : std::string_view((const char*)memory + read_ptr, read_len);
+
     if (float1 == 0)
     {
-        j.trace() << "HookTrace[" << HC_ACC() << "]: "
-                  << (read_len == 0
-                          ? ""
-                          : std::string_view(
-                                (const char*)memory + read_ptr, read_len))
+        j.trace() << "HookTrace[" << HC_ACC() << "]: " << messageKey
                   << ": Float 0*10^(0) <ZERO>";
-        return 0;
+        return 0ULL;
     }
 
-    uint64_t man = get_mantissa(float1);
-    int32_t exp = get_exponent(float1);
+    auto const man = get_mantissa(float1);
+    auto const exp = get_exponent(float1);
     bool neg = is_negative(float1);
-    if (man < minMantissa || man > maxMantissa || exp < minExponent ||
-        exp > maxExponent)
+    if (!man || !exp || man.value() < minMantissa ||
+        man.value() > maxMantissa || exp.value() < minExponent ||
+        exp.value() > maxExponent)
     {
-        j.trace() << "HookTrace[" << HC_ACC() << "]:"
-                  << (read_len == 0
-                          ? ""
-                          : std::string_view(
-                                (const char*)memory + read_ptr, read_len))
+        j.trace() << "HookTrace[" << HC_ACC() << "]: " << messageKey
                   << ": Float <INVALID>";
-        return 0;
+        return 0ULL;
     }
 
-    j.trace() << "HookTrace[" << HC_ACC() << "]:"
-              << (read_len == 0 ? ""
-                                : std::string_view(
-                                      (const char*)memory + read_ptr, read_len))
-              << ": Float " << (neg ? "-" : "") << man << "*10^(" << exp << ")";
-    return 0;
+    j.trace() << "HookTrace[" << HC_ACC() << "]:" << messageKey << ": Float "
+              << (neg ? "-" : "") << man.value() << "*10^(" << exp.value()
+              << ")";
+    return 0ULL;
 
     HOOK_TEARDOWN();
 }

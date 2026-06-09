@@ -65,7 +65,7 @@ computeBookChanges(std::shared_ptr<L const> const& lpAccepted)
             continue;
 
         std::optional<uint32_t> offerCancel;
-        uint16_t tt = tx.first->getFieldU16(sfTransactionType);
+        TxType const& tt = tx.first->getTxnType();
         switch (tt)
         {
             case ttOFFER_CANCEL:

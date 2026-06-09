@@ -21,15 +21,20 @@
 
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/detail/OnlineDeleteRanges.h>
 #include <xrpld/app/rdb/State.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/Scheduler.h>
+#include <xrpld/nodestore/detail/DatabasePinnedImp.h>
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
 #include <xrpld/shamap/SHAMapMissingNode.h>
 #include <xrpl/beast/core/CurrentThreadName.h>
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <iostream>
+
+#include <xrpl/json/json_reader.h>
 
 namespace ripple {
 void
@@ -79,6 +84,20 @@ SHAMapStoreImp::SavedStateDB::setLastRotated(LedgerIndex seq)
     ripple::setLastRotated(sqlDb_, seq);
 }
 
+std::string
+SHAMapStoreImp::SavedStateDB::getPinnedRanges()
+{
+    std::lock_guard lock(mutex_);
+    return ripple::getPinnedRanges(sqlDb_);
+}
+
+void
+SHAMapStoreImp::SavedStateDB::setPinnedRanges(std::string const& ranges)
+{
+    std::lock_guard lock(mutex_);
+    ripple::setPinnedRanges(sqlDb_, ranges);
+}
+
 //------------------------------------------------------------------------------
 
 SHAMapStoreImp::SHAMapStoreImp(
@@ -117,6 +136,9 @@ SHAMapStoreImp::SHAMapStoreImp(
 
     get_if_exists(section, "online_delete", deleteInterval_);
 
+    // Always initialize state database for pinned ranges persistence
+    state_db_.init(config, dbName_);
+
     if (deleteInterval_)
     {
         // Configuration that affects the behavior of online delete
@@ -153,7 +175,6 @@ SHAMapStoreImp::SHAMapStoreImp(
                 std::to_string(config.LEDGER_HISTORY) + ")");
         }
 
-        state_db_.init(config, dbName_);
         if (!config.mem_backend())
             dbPaths();
     }
@@ -183,6 +204,8 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
     {
         SavedState state = state_db_.getState();
 
+        // Create the rotation backends - needed for both DatabaseRotating and
+        // DatabasePinned
         auto writableBackend = makeBackendRotating(state.writableDb);
         auto archiveBackend = makeBackendRotating(state.archiveDb);
         if (!state.writableDb.size())
@@ -192,19 +215,58 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
             state_db_.setState(state);
         }
 
-        // Create NodeStore with two backends to allow online deletion of
-        // data
-        auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
-            app_,
-            scheduler_,
-            readThreads,
-            std::move(writableBackend),
-            std::move(archiveBackend),
-            nscfg,
-            app_.logs().journal(nodeStoreName_));
-        fdRequired_ += dbr->fdRequired();
-        dbRotating_ = dbr.get();
-        db.reset(dynamic_cast<NodeStore::Database*>(dbr.release()));
+        // Check if DatabasePinned should be created
+        if (nscfg.exists("pinned_type"))
+        {
+            // DatabasePinned uses the same rotation backends as
+            // DatabaseRotating but adds a persistent backend for pinned nodes
+
+            // Create persistent backend for pinned data
+            Section pinnedConfig = nscfg;
+            pinnedConfig.set("type", *nscfg.get("pinned_type"));
+            if (auto pinnedPath = nscfg.get("pinned_path"))
+                pinnedConfig.set("path", *pinnedPath);
+            auto pinnedBackend = NodeStore::Manager::instance().make_Backend(
+                pinnedConfig,
+                megabytes(app_.config().getValueFor(
+                    SizedItem::burstSize, std::nullopt)),
+                scheduler_,
+                app_.logs().journal(nodeStoreName_));
+            pinnedBackend->open();
+
+            // Create DatabasePinned with rotation backends + persistent
+
+            auto dbp = std::make_unique<NodeStore::DatabasePinnedImp>(
+                app_,
+                scheduler_,
+                readThreads,
+                std::move(writableBackend),
+                std::move(archiveBackend),
+                std::move(pinnedBackend),
+                nscfg,
+                app_.logs().journal(NodeStore::DatabasePinnedImp::JournalName));
+
+            fdRequired_ += dbp->fdRequired();
+            dbRotating_ =
+                dbp.get();  // DatabasePinned inherits from DatabaseRotating
+            db.reset(dynamic_cast<NodeStore::Database*>(dbp.release()));
+        }
+        else
+        {
+            // Create NodeStore with two backends to allow online deletion of
+            // data
+            auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
+                app_,
+                scheduler_,
+                readThreads,
+                std::move(writableBackend),
+                std::move(archiveBackend),
+                nscfg,
+                app_.logs().journal(nodeStoreName_));
+            fdRequired_ += dbr->fdRequired();
+            dbRotating_ = dbr.get();
+            db.reset(dynamic_cast<NodeStore::Database*>(dbr.release()));
+        }
     }
     else
     {
@@ -263,6 +325,58 @@ SHAMapStoreImp::copyNode(std::uint64_t& nodeCount, SHAMapTreeNode const& node)
     }
 
     return true;
+}
+
+void
+SHAMapStoreImp::loadPinnedRanges()
+{
+    auto rangesStr = state_db_.getPinnedRanges();
+    if (rangesStr.empty())
+        return;
+
+    auto const& nscfg = app_.config().section(ConfigSection::nodeDatabase());
+    if (!nscfg.exists("pinned_type"))
+    {
+        JLOG(journal_.warn())
+            << "Ignoring persisted pinned ranges because [node_db] "
+               "pinned_type is not configured: "
+            << rangesStr;
+        return;
+    }
+
+    RangeSet<std::uint32_t> persistedRanges;
+    if (!from_string(persistedRanges, rangesStr))
+    {
+        Throw<std::runtime_error>(
+            "Failed to parse persisted pinned ranges in state.db: " +
+            rangesStr);
+    }
+
+    // state.db alone is not sufficient evidence that pinned history is
+    // available in the currently configured backend. Validate each interval
+    // boundary against the actual node store before advertising it as pinned.
+    auto const hasLedgerData = [this](std::uint32_t seq) {
+        auto const hash = app_.getRelationalDatabase().getHashByIndex(seq);
+        return hash.isNonZero() &&
+            static_cast<bool>(app_.getNodeStore().fetchNodeObject(hash, seq));
+    };
+
+    for (auto const& interval : persistedRanges)
+    {
+        if (!hasLedgerData(interval.lower()) ||
+            !hasLedgerData(interval.upper()))
+        {
+            Throw<std::runtime_error>(
+                "Persisted pinned interval " +
+                std::to_string(interval.lower()) + "-" +
+                std::to_string(interval.upper()) +
+                " is not present in the currently configured pinned store");
+        }
+    }
+
+    JLOG(journal_.info()) << "Loaded pinned ranges from database: "
+                          << rangesStr;
+    app_.getLedgerMaster().setPinnedLedgersRangeSet(persistedRanges);
 }
 
 void
@@ -486,17 +600,19 @@ SHAMapStoreImp::makeBackendRotating(std::string path)
     Section section{app_.config().section(ConfigSection::nodeDatabase())};
     boost::filesystem::path newPath;
 
-    if (path.size())
+    if (!path.empty())
     {
         newPath = path;
     }
     else
     {
+        // Create new empty backend with unique path
         boost::filesystem::path p = get(section, "path");
         p /= dbPrefix_;
         p += ".%%%%";
         newPath = boost::filesystem::unique_path(p);
     }
+
     section.set("path", newPath.string());
 
     auto backend{NodeStore::Manager::instance().make_Backend(
@@ -510,56 +626,43 @@ SHAMapStoreImp::makeBackendRotating(std::string path)
 }
 
 void
-SHAMapStoreImp::clearSql(
+SHAMapStoreImp::clearSqlRanges(
     LedgerIndex lastRotated,
-    std::string const& TableName,
+    RangeSet<std::uint32_t> const& pinned,
+    std::string const& tableName,
     std::function<std::optional<LedgerIndex>()> const& getMinSeq,
-    std::function<void(LedgerIndex)> const& deleteBeforeSeq)
+    std::function<void(RangeSet<std::uint32_t> const&)> const& deleteInRanges)
 {
     XRPL_ASSERT(
         deleteInterval_,
         "ripple::SHAMapStoreImp::clearSql : nonzero delete interval");
-    LedgerIndex min = std::numeric_limits<LedgerIndex>::max();
-
-    {
-        JLOG(journal_.trace())
-            << "Begin: Look up lowest value of: " << TableName;
-        auto m = getMinSeq();
-        JLOG(journal_.trace()) << "End: Look up lowest value of: " << TableName;
-        if (!m)
-            return;
-        min = *m;
-    }
-
-    if (min > lastRotated || healthWait() == stopping)
+    auto m = getMinSeq();
+    if (!m)
         return;
-    if (min == lastRotated)
+
+    if (healthWait() == stopping)
+        return;
+
+    // The pure interval-math is in detail::computeOnlineDeleteTargets so
+    // it can be unit-tested without spinning up SHAMapStoreImp. It
+    // returns the disjoint deletable intervals after subtracting pinned
+    // ranges from the base window [minSeq, lastRotated - 1].
+    auto const target =
+        detail::computeOnlineDeleteTargets(*m, lastRotated, pinned);
+    if (target.empty())
     {
-        // Micro-optimization mainly to clarify logs
-        JLOG(journal_.trace()) << "Nothing to delete from " << TableName;
+        JLOG(journal_.trace()) << "Nothing to delete from " << tableName
+                               << " after considering pins.";
         return;
     }
 
-    JLOG(journal_.debug()) << "start deleting in: " << TableName << " from "
-                           << min << " to " << lastRotated;
-    while (min < lastRotated)
-    {
-        min = std::min(lastRotated, min + deleteBatch_);
-        JLOG(journal_.trace())
-            << "Begin: Delete up to " << deleteBatch_
-            << " rows with LedgerSeq < " << min << " from: " << TableName;
-        deleteBeforeSeq(min);
-        JLOG(journal_.trace())
-            << "End: Delete up to " << deleteBatch_ << " rows with LedgerSeq < "
-            << min << " from: " << TableName;
-        if (healthWait() == stopping)
-            return;
-        if (min < lastRotated)
-            std::this_thread::sleep_for(backOff_);
-        if (healthWait() == stopping)
-            return;
-    }
-    JLOG(journal_.debug()) << "finished deleting from: " << TableName;
+    JLOG(journal_.debug()) << "Pruning " << tableName
+                           << ". Target ranges: " << to_string(target);
+
+    // The deleteInRanges lambda will handle the actual database operations
+    deleteInRanges(target);
+
+    JLOG(journal_.debug()) << "finished deleting from: " << tableName;
 }
 
 void
@@ -581,6 +684,14 @@ SHAMapStoreImp::freshenCaches()
 void
 SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
 {
+    // Get pinned ranges to exclude from deletion
+    auto pinnedRanges = app_.getLedgerMaster().getPinnedLedgersRangeSet();
+    if (!pinnedRanges.empty())
+    {
+        JLOG(journal_.info())
+            << "Online delete with pinned ranges: " << to_string(pinnedRanges);
+    }
+
     // Do not allow ledgers to be acquired from the network
     // that are about to be deleted.
     minimumOnline_ = lastRotated + 1;
@@ -600,36 +711,96 @@ SHAMapStoreImp::clearPrior(LedgerIndex lastRotated)
 
     if (app_.config().useTxTables())
     {
-        clearSql(
+        clearSqlRanges(
             lastRotated,
+            pinnedRanges,
             "Transactions",
             [&db]() -> std::optional<LedgerIndex> {
                 return db->getTransactionsMinLedgerSeq();
             },
-            [&db](LedgerIndex min) -> void {
-                db->deleteTransactionsBeforeLedgerSeq(min);
+            [this, &db](RangeSet<std::uint32_t> const& ranges) -> void {
+                for (auto const& interval : ranges)
+                {
+                    // Simple delete loop with LIMIT
+                    while (true)
+                    {
+                        if (healthWait() == stopping)
+                            return;
+
+                        auto deleted = db->deleteTransactionsInRange(
+                            interval.lower(), interval.upper(), deleteBatch_);
+
+                        if (deleted == 0)
+                            break;
+
+                        JLOG(journal_.trace()) << "Deleted " << deleted
+                                               << " rows from Transactions";
+                        std::this_thread::sleep_for(backOff_);
+                    }
+                }
             });
         if (healthWait() == stopping)
             return;
 
-        clearSql(
+        clearSqlRanges(
             lastRotated,
+            pinnedRanges,
             "AccountTransactions",
             [&db]() -> std::optional<LedgerIndex> {
                 return db->getAccountTransactionsMinLedgerSeq();
             },
-            [&db](LedgerIndex min) -> void {
-                db->deleteAccountTransactionsBeforeLedgerSeq(min);
+            [this, &db](RangeSet<std::uint32_t> const& ranges) -> void {
+                for (auto const& interval : ranges)
+                {
+                    // Simple delete loop with LIMIT
+                    while (true)
+                    {
+                        if (healthWait() == stopping)
+                            return;
+
+                        auto deleted = db->deleteAccountTransactionsInRange(
+                            interval.lower(), interval.upper(), deleteBatch_);
+
+                        if (deleted == 0)
+                            break;
+
+                        JLOG(journal_.trace())
+                            << "Deleted " << deleted
+                            << " rows from AccountTransactions";
+                        std::this_thread::sleep_for(backOff_);
+                    }
+                }
             });
         if (healthWait() == stopping)
             return;
     }
 
-    clearSql(
+    clearSqlRanges(
         lastRotated,
+        pinnedRanges,
         "Ledgers",
         [db]() -> std::optional<LedgerIndex> { return db->getMinLedgerSeq(); },
-        [db](LedgerIndex min) -> void { db->deleteBeforeLedgerSeq(min); });
+        [this, db](RangeSet<std::uint32_t> const& ranges) -> void {
+            for (auto const& interval : ranges)
+            {
+                // Simple delete loop with LIMIT
+                while (true)
+                {
+                    if (healthWait() == stopping)
+                        return;
+
+                    auto deleted = db->deleteLedgersInRange(
+                        interval.lower(), interval.upper(), deleteBatch_);
+
+                    if (deleted == 0)
+                        break;
+
+                    JLOG(journal_.trace())
+                        << "Deleted " << deleted << " rows from Ledgers";
+                    std::this_thread::sleep_for(backOff_);
+                }
+            }
+        });
     if (healthWait() == stopping)
         return;
 }

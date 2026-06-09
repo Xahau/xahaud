@@ -69,7 +69,6 @@ class Hooks_test : public beast::unit_test::suite
             sfHookAccount,
             sfEmittedTxn,
             sfHook,
-            sfHookDefinition,
             sfHookParameter,
             sfHookGrant,
             sfEmitDetails,
