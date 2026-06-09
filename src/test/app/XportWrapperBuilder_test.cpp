@@ -93,12 +93,12 @@ makeInput(
     std::uint32_t networkID = 21337,
     hook::XportWrapperBuilder::NonceGenerator generateNonce =
         [] {
-            return Expected<uint256, hook_api::hook_return_code>{
+            return Expected<uint256, ::hook_api::hook_return_code>{
                 makeHash("nonce")};
         },
     hook::XportWrapperBuilder::FeeCalculator calculateFee =
         [](Slice const&) {
-            return Expected<std::uint64_t, hook_api::hook_return_code>{12345};
+            return Expected<std::uint64_t, ::hook_api::hook_return_code>{12345};
         })
 {
     return hook::XportWrapperBuilder::Input{
@@ -196,11 +196,12 @@ public:
                 21337,
                 [&nonceCalled] {
                     nonceCalled = true;
-                    return Expected<uint256, hook_api::hook_return_code>{
+                    return Expected<uint256, ::hook_api::hook_return_code>{
                         makeHash("nonce")};
                 }));
             BEAST_EXPECT(!result);
-            BEAST_EXPECT(result.error() == hook_api::EXPORT_FAILURE);
+            BEAST_EXPECT(
+                result.error() == ::hook_api::hook_return_code::EXPORT_FAILURE);
             BEAST_EXPECT(!nonceCalled);
         }
 
@@ -212,11 +213,12 @@ public:
                 21337,
                 [&nonceCalled] {
                     nonceCalled = true;
-                    return Expected<uint256, hook_api::hook_return_code>{
+                    return Expected<uint256, ::hook_api::hook_return_code>{
                         makeHash("nonce")};
                 }));
             BEAST_EXPECT(!result);
-            BEAST_EXPECT(result.error() == hook_api::EXPORT_FAILURE);
+            BEAST_EXPECT(
+                result.error() == ::hook_api::hook_return_code::EXPORT_FAILURE);
             BEAST_EXPECT(!nonceCalled);
         }
 
@@ -231,11 +233,12 @@ public:
                 21337,
                 [&nonceCalled] {
                     nonceCalled = true;
-                    return Expected<uint256, hook_api::hook_return_code>{
+                    return Expected<uint256, ::hook_api::hook_return_code>{
                         makeHash("nonce")};
                 }));
             BEAST_EXPECT(!result);
-            BEAST_EXPECT(result.error() == hook_api::EXPORT_FAILURE);
+            BEAST_EXPECT(
+                result.error() == ::hook_api::hook_return_code::EXPORT_FAILURE);
             BEAST_EXPECT(!nonceCalled);
         }
     }
@@ -256,12 +259,13 @@ public:
             calcAccountID(exporter.first),
             21337,
             [] {
-                return Expected<uint256, hook_api::hook_return_code>{
-                    Unexpected(hook_api::TOO_MANY_NONCES)};
+                return Expected<uint256, ::hook_api::hook_return_code>{
+                    Unexpected(::hook_api::hook_return_code::TOO_MANY_NONCES)};
             }));
 
         BEAST_EXPECT(!result);
-        BEAST_EXPECT(result.error() == hook_api::INTERNAL_ERROR);
+        BEAST_EXPECT(
+            result.error() == ::hook_api::hook_return_code::INTERNAL_ERROR);
     }
 
     void
@@ -280,16 +284,17 @@ public:
             calcAccountID(exporter.first),
             21337,
             [] {
-                return Expected<uint256, hook_api::hook_return_code>{
+                return Expected<uint256, ::hook_api::hook_return_code>{
                     makeHash("nonce")};
             },
             [](Slice const&) {
-                return Expected<std::uint64_t, hook_api::hook_return_code>{
-                    Unexpected(hook_api::EXPORT_FAILURE)};
+                return Expected<std::uint64_t, ::hook_api::hook_return_code>{
+                    Unexpected(::hook_api::hook_return_code::EXPORT_FAILURE)};
             }));
 
         BEAST_EXPECT(!result);
-        BEAST_EXPECT(result.error() == hook_api::EXPORT_FAILURE);
+        BEAST_EXPECT(
+            result.error() == ::hook_api::hook_return_code::EXPORT_FAILURE);
     }
 
     void

@@ -16,7 +16,7 @@
 namespace hook {
 namespace XportWrapperBuilder {
 
-using HookReturnCode = hook_api::hook_return_code;
+using HookReturnCode = ::hook_api::hook_return_code;
 using FeeCalculator =
     std::function<ripple::Expected<std::uint64_t, HookReturnCode>(
         ripple::Slice)>;

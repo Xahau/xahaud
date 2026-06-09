@@ -18,6 +18,7 @@
 #define featureExport "1"
 #define featureConsensusEntropy "1"
 #define fix20250131 "1"
+#define fixGuardDepth32 "1"
 namespace hook_api {
 struct Rules
 {
@@ -321,7 +322,7 @@ namespace compare_mode {
 enum compare_mode : uint32_t { EQUAL = 1, LESS = 2, GREATER = 4 };
 }
 
-enum hook_return_code : int64_t {
+enum class hook_return_code : int64_t {
     SUCCESS =
         0,  // return codes > 0 are reserved for hook apis to return "success"
     OUT_OF_BOUNDS =
@@ -391,7 +392,7 @@ enum hook_return_code : int64_t {
     TOO_LITTLE_ENTROPY = -48,
 };
 
-enum ExitType : uint8_t {
+enum class ExitType : uint8_t {
     UNSET = 0,
     WASM_ERROR = 1,
     ROLLBACK = 2,
@@ -445,6 +446,7 @@ getImportWhitelist(Rules const& rules)
 
 enum GuardRulesVersion : uint64_t {
     GuardRuleFix20250131 = 0x00000001,
+    GuardRuleDepth32 = 0x00000002,
 };
 
 inline uint64_t
@@ -453,6 +455,8 @@ getGuardRulesVersion(Rules const& rules)
     uint64_t version = 0;
     if (rules.enabled(fix20250131))
         version |= GuardRuleFix20250131;
+    if (rules.enabled(fixGuardDepth32))
+        version |= GuardRuleDepth32;
     return version;
 }
 

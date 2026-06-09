@@ -26,33 +26,33 @@ build(Input const& input)
     catch (std::exception const& e)
     {
         JLOG(input.j.trace()) << "HookExport: Failed " << e.what();
-        return Unexpected(hook_api::EXPORT_FAILURE);
+        return Unexpected(::hook_api::hook_return_code::EXPORT_FAILURE);
     }
 
     if (auto ter = ExportLedgerOps::validateExportAccount(
             *innerTx, input.exporter, input.j);
         !isTesSuccess(ter))
-        return Unexpected(hook_api::EXPORT_FAILURE);
+        return Unexpected(::hook_api::hook_return_code::EXPORT_FAILURE);
 
     if (auto ter = ExportLedgerOps::validateNetworkID(
             *innerTx, input.networkID, input.j);
         !isTesSuccess(ter))
-        return Unexpected(hook_api::EXPORT_FAILURE);
+        return Unexpected(::hook_api::hook_return_code::EXPORT_FAILURE);
 
     if (auto ter = ExportLedgerOps::validateTicketSequence(*innerTx, input.j);
         !isTesSuccess(ter))
-        return Unexpected(hook_api::EXPORT_FAILURE);
+        return Unexpected(::hook_api::hook_return_code::EXPORT_FAILURE);
 
     if (!input.generateNonce)
     {
         JLOG(input.j.trace())
             << "HookExport: Nonce callback missing for ttEXPORT wrapper";
-        return Unexpected(hook_api::INTERNAL_ERROR);
+        return Unexpected(::hook_api::hook_return_code::INTERNAL_ERROR);
     }
 
     auto nonce = input.generateNonce();
     if (!nonce)
-        return Unexpected(hook_api::INTERNAL_ERROR);
+        return Unexpected(::hook_api::hook_return_code::INTERNAL_ERROR);
 
     Serializer innerSer;
     innerTx->add(innerSer);
@@ -83,7 +83,7 @@ build(Input const& input)
     {
         JLOG(input.j.trace()) << "HookExport: Fee calculation callback missing "
                                  "for ttEXPORT wrapper";
-        return Unexpected(hook_api::EXPORT_FAILURE);
+        return Unexpected(::hook_api::hook_return_code::EXPORT_FAILURE);
     }
 
     Serializer feeSer;
@@ -93,7 +93,7 @@ build(Input const& input)
     {
         JLOG(input.j.trace())
             << "HookExport: Fee calculation failed for ttEXPORT wrapper";
-        return Unexpected(hook_api::EXPORT_FAILURE);
+        return Unexpected(::hook_api::hook_return_code::EXPORT_FAILURE);
     }
     exportObj[sfFee] = STAmount{static_cast<std::uint64_t>(*feeResult)};
 
