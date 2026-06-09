@@ -445,28 +445,21 @@ public:
             JLOG(j_.trace()) << "Read error: " << mShutdown.message();
 
             invokeComplete(mShutdown);
+            return;
         }
-        else
-        {
-            if (mShutdown)
-            {
-                JLOG(j_.trace()) << "Complete.";
 
-                mResponse.commit(bytes_transferred);
-                std::string strBody{
-                    {std::istreambuf_iterator<char>(&mResponse)},
-                    std::istreambuf_iterator<char>()};
-                invokeComplete(ecResult, mStatus, mBody + strBody);
-            }
-            else
-            {
-                mResponse.commit(bytes_transferred);
-                std::string strBody{
-                    {std::istreambuf_iterator<char>(&mResponse)},
-                    std::istreambuf_iterator<char>()};
-                invokeComplete(ecResult, mStatus, mBody + strBody);
-            }
-        }
+        // Either the read completed normally or it ended at EOF with no
+        // Content-Length. Both cases deliver the accumulated body. EOF
+        // is the expected end-of-message here, not an error, so report
+        // success — otherwise invokeComplete() forwards eof as an error
+        // code and the caller treats a complete response as a failure.
+        JLOG(j_.trace()) << "Complete.";
+
+        mResponse.commit(bytes_transferred);
+        std::string strBody{
+            {std::istreambuf_iterator<char>(&mResponse)},
+            std::istreambuf_iterator<char>()};
+        invokeComplete(boost::system::error_code{}, mStatus, mBody + strBody);
     }
 
     // Call cancel the deadline timer and invoke the completion routine.

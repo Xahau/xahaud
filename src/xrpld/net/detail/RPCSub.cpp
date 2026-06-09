@@ -78,12 +78,24 @@ public:
 
         if (mDeque.size() >= maxQueueSize)
         {
-            JLOG(j_.warn())
-                << "RPCCall::fromNetwork drop: queue full (" << mDeque.size()
-                << "), seq=" << mSeq << ", endpoint=" << mIp;
+            // Always advance mSeq so consumers can detect the gap, but
+            // rate-limit the log: a hopelessly behind endpoint drops on
+            // every send() and would otherwise flood the log. Warn on
+            // the first drop of a run and then once per dropLogInterval.
+            if (mDropped++ % dropLogInterval == 0)
+            {
+                JLOG(j_.warn())
+                    << "RPCCall::fromNetwork drop: queue full ("
+                    << mDeque.size() << "), seq=" << mSeq
+                    << ", endpoint=" << mIp << ", dropped=" << mDropped;
+            }
             ++mSeq;
             return;
         }
+
+        // Endpoint caught up enough to accept again; reset so the next
+        // overflow burst logs its first drop immediately.
+        mDropped = 0;
 
         auto jm = broadcast ? j_.debug() : j_.info();
         JLOG(jm) << "RPCCall::fromNetwork push: " << jvObj;
@@ -133,74 +145,97 @@ private:
     // of buffer. Consumers detect gaps via the seq field.
     static constexpr std::size_t maxQueueSize = 16384;
 
+    // Log one drop warning per this many drops while the queue stays
+    // full, to avoid flooding the log on a persistently behind endpoint.
+    static constexpr std::size_t dropLogInterval = 1000;
+
     void
     sendThread()
     {
-        bool bSend;
-
-        do
+        // mSending must be cleared under the lock on every exit path —
+        // drain, dispatch throw, or run() throw. If it ever stays set
+        // after sendThread() returns, send() sees mSending == true and
+        // never starts another job, so the queue stalls forever. That
+        // is the original bug (xrpld issue #6341), so the whole loop is
+        // wrapped to guarantee the reset even on an unexpected throw.
+        try
         {
-            // Local io_service per batch — cheap to create (just an
-            // internal event queue, no threads, no syscalls). Using a
-            // local io_service is what makes .run() block until exactly
-            // this batch completes, giving us flow control. Same
-            // pattern used by rpcClient() in RPCCall.cpp for CLI
-            // commands.
-            boost::asio::io_service io_service;
-            int dispatched = 0;
-
+            for (;;)
             {
-                std::lock_guard sl(mLock);
+                // Local io_service per batch — cheap to create (just an
+                // internal event queue, no threads, no syscalls). Using
+                // a local io_service is what makes .run() block until
+                // exactly this batch completes, giving us flow control.
+                // Same pattern used by rpcClient() in RPCCall.cpp for
+                // CLI commands.
+                boost::asio::io_service io_service;
+                int dispatched = 0;
 
-                while (!mDeque.empty() && dispatched < maxInFlight)
                 {
-                    auto const [seq, env] = mDeque.front();
-                    mDeque.pop_front();
+                    std::lock_guard sl(mLock);
 
-                    Json::Value jvEvent = env;
-                    jvEvent["seq"] = seq;
+                    while (!mDeque.empty() && dispatched < maxInFlight)
+                    {
+                        auto const [seq, env] = mDeque.front();
+                        mDeque.pop_front();
 
-                    RPCCall::fromNetwork(
-                        io_service,
-                        mIp,
-                        mPort,
-                        mUsername,
-                        mPassword,
-                        mPath,
-                        "event",
-                        jvEvent,
-                        mSSL,
-                        true,
-                        logs_);
-                    ++dispatched;
+                        Json::Value jvEvent = env;
+                        jvEvent["seq"] = seq;
+
+                        RPCCall::fromNetwork(
+                            io_service,
+                            mIp,
+                            mPort,
+                            mUsername,
+                            mPassword,
+                            mPath,
+                            "event",
+                            jvEvent,
+                            mSSL,
+                            true,
+                            logs_);
+                        ++dispatched;
+                    }
+
+                    if (dispatched == 0)
+                    {
+                        // Reset under the lock to avoid a lost-wakeup
+                        // race with send() enqueuing a new event.
+                        mSending = false;
+                        return;
+                    }
                 }
 
-                if (dispatched == 0)
-                    mSending = false;
-            }
+                JLOG(j_.info()) << "RPCCall::fromNetwork: " << mIp
+                                << " dispatching " << dispatched << " events";
 
-            bSend = dispatched > 0;
-
-            if (bSend)
-            {
                 try
                 {
-                    JLOG(j_.info())
-                        << "RPCCall::fromNetwork: " << mIp << " dispatching "
-                        << dispatched << " events";
                     io_service.run();
                 }
-                catch (const std::exception& e)
+                catch (std::exception const& e)
                 {
                     JLOG(j_.warn())
-                        << "RPCCall::fromNetwork exception: " << e.what();
-                }
-                catch (...)
-                {
-                    JLOG(j_.warn()) << "RPCCall::fromNetwork unknown exception";
+                        << "RPCCall::fromNetwork io_service.run exception: "
+                        << e.what();
+                    std::lock_guard sl(mLock);
+                    mSending = false;
+                    return;
                 }
             }
-        } while (bSend);
+        }
+        catch (std::exception const& e)
+        {
+            JLOG(j_.warn()) << "RPCSub::sendThread exception: " << e.what();
+            std::lock_guard sl(mLock);
+            mSending = false;
+        }
+        catch (...)
+        {
+            JLOG(j_.warn()) << "RPCSub::sendThread unknown exception";
+            std::lock_guard sl(mLock);
+            mSending = false;
+        }
     }
 
 private:
@@ -215,6 +250,8 @@ private:
     std::string mPath;
 
     int mSeq;  // Next id to allocate.
+
+    std::size_t mDropped = 0;  // Consecutive drops while queue is full.
 
     bool mSending;  // Sending threead is active.
 

@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
-#include <ripple/basics/ByteUtilities.h>
-#include <ripple/net/HTTPClient.h>
 #include <test/jtx.h>
+#include <xrpld/net/HTTPClient.h>
+#include <xrpl/basics/ByteUtilities.h>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ip/tcp.hpp>
