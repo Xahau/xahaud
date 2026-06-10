@@ -86,18 +86,17 @@ public:
         work_.reset();  // Allow io_service to stop.
         boost::system::error_code ec;
         acceptor_.close(ec);
-        {
-            std::lock_guard lk(heldMutex_);
-            for (auto& s : heldSockets_)
-            {
-                boost::system::error_code ig;
-                s->close(ig);
-            }
-            heldSockets_.clear();
-        }
         ios_.stop();
         if (thread_.joinable())
             thread_.join();
+        // The io_service thread is joined — safe to close held sockets
+        // without racing it (and no lock needed).
+        for (auto& s : heldSockets_)
+        {
+            boost::system::error_code ig;
+            s->close(ig);
+        }
+        heldSockets_.clear();
     }
 
     unsigned short
