@@ -122,12 +122,20 @@ public:
         mComplete = complete;
         mTimeout = timeout;
 
+        // Bind a non-owning `this` (not shared_from_this()) into mBuild.
+        // mBuild is a member, so capturing a shared_ptr to self here would
+        // form a reference cycle (this -> mBuild -> shared_ptr<this>) that
+        // never breaks, leaking the object and its socket FD after the
+        // request completes. mBuild is only ever invoked from
+        // handleRequest(), which always runs inside an async handler that
+        // already holds a shared_from_this(), so the object is guaranteed
+        // alive whenever mBuild fires — a raw `this` is safe.
         request(
             bSSL,
             deqSites,
             std::bind(
                 &HTTPClientImp::makeGet,
-                shared_from_this(),
+                this,
                 strPath,
                 std::placeholders::_1,
                 std::placeholders::_2),
