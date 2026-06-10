@@ -24,11 +24,12 @@
 #include <xrpl/basics/contract.h>
 #include <xrpl/json/to_string.h>
 #include <deque>
+#include <memory>
 
 namespace ripple {
 
 // Subscription object for JSON-RPC
-class RPCSubImp : public RPCSub
+class RPCSubImp : public RPCSub, public std::enable_shared_from_this<RPCSubImp>
 {
 public:
     RPCSubImp(
@@ -109,10 +110,7 @@ public:
             // Start a sending thread.
             JLOG(j_.info()) << "RPCCall::fromNetwork start";
 
-            mSending = m_jobQueue.addJob(
-                jtCLIENT_SUBSCRIBE, "RPCSub::sendThread", [this]() {
-                    sendThread();
-                });
+            startSendingJob();
         }
     }
 
@@ -144,93 +142,108 @@ private:
     // full, to avoid flooding the log on a persistently behind endpoint.
     static constexpr std::size_t dropLogInterval = 1000;
 
+    // Schedule a sending job. Must be called under mLock. The job holds a
+    // weak_ptr and re-locks it on entry, so the RPCSub is kept alive for
+    // the duration of the batch even if it is unsubscribed (and would
+    // otherwise be destroyed) concurrently — sendThread dereferences this
+    // only via that strong ref. mDeque events are delivered until the sub
+    // is gone, after which weak.lock() fails and the job is a no-op.
+    void
+    startSendingJob()
+    {
+        std::weak_ptr<RPCSubImp> weak = weak_from_this();
+        mSending = m_jobQueue.addJob(
+            jtCLIENT_SUBSCRIBE, "RPCSub::sendThread", [weak]() {
+                if (auto self = weak.lock())
+                    self->sendThread();
+            });
+    }
+
     void
     sendThread()
     {
-        // mSending must be cleared under the lock on every exit path —
-        // drain, dispatch throw, or run() throw. If it ever stays set
-        // after sendThread() returns, send() sees mSending == true and
-        // never starts another job, so the queue stalls forever. That
-        // is the original bug (xrpld issue #6341), so the whole loop is
-        // wrapped to guarantee the reset even on an unexpected throw.
+        // Process exactly ONE batch per job, then re-queue if more events
+        // remain, rather than draining the whole backlog in a single job.
+        // A local io_service's .run() blocks this worker thread for the
+        // batch (up to the per-request timeout), so re-queueing between
+        // batches keeps one slow/hung subscriber from monopolising a
+        // job-queue worker and starving consensus/ledger/RPC work.
+        //
+        // mSending must be cleared under the lock on every non-requeue
+        // exit path; if it ever stays set without a job in flight, send()
+        // sees mSending == true and never restarts us, stalling the queue
+        // forever — the original bug (xrpld issue #6341).
+        boost::asio::io_service io_service;
+        int dispatched = 0;
+
         try
         {
-            for (;;)
             {
-                // Local io_service per batch — cheap to create (just an
-                // internal event queue, no threads, no syscalls). Using
-                // a local io_service is what makes .run() block until
-                // exactly this batch completes, giving us flow control.
-                // Same pattern used by rpcClient() in RPCCall.cpp for
-                // CLI commands.
-                boost::asio::io_service io_service;
-                int dispatched = 0;
+                std::lock_guard sl(mLock);
 
+                while (!mDeque.empty() && dispatched < maxInFlight)
                 {
-                    std::lock_guard sl(mLock);
+                    auto const [seq, env] = mDeque.front();
+                    mDeque.pop_front();
 
-                    while (!mDeque.empty() && dispatched < maxInFlight)
-                    {
-                        auto const [seq, env] = mDeque.front();
-                        mDeque.pop_front();
+                    Json::Value jvEvent = env;
+                    jvEvent["seq"] = seq;
 
-                        Json::Value jvEvent = env;
-                        jvEvent["seq"] = seq;
-
-                        RPCCall::fromNetwork(
-                            io_service,
-                            mIp,
-                            mPort,
-                            mUsername,
-                            mPassword,
-                            mPath,
-                            "event",
-                            jvEvent,
-                            mSSL,
-                            true,
-                            logs_);
-                        ++dispatched;
-                    }
-
-                    if (dispatched == 0)
-                    {
-                        // Reset under the lock to avoid a lost-wakeup
-                        // race with send() enqueuing a new event.
-                        mSending = false;
-                        return;
-                    }
+                    RPCCall::fromNetwork(
+                        io_service,
+                        mIp,
+                        mPort,
+                        mUsername,
+                        mPassword,
+                        mPath,
+                        "event",
+                        jvEvent,
+                        mSSL,
+                        true,
+                        logs_);
+                    ++dispatched;
                 }
 
-                JLOG(j_.info()) << "RPCCall::fromNetwork: " << mIp
-                                << " dispatching " << dispatched << " events";
-
-                try
+                if (dispatched == 0)
                 {
-                    io_service.run();
-                }
-                catch (std::exception const& e)
-                {
-                    JLOG(j_.warn())
-                        << "RPCCall::fromNetwork io_service.run exception: "
-                        << e.what();
-                    std::lock_guard sl(mLock);
+                    // Reset under the lock to avoid a lost-wakeup race
+                    // with send() enqueuing a new event.
                     mSending = false;
                     return;
                 }
             }
+
+            JLOG(j_.info()) << "RPCCall::fromNetwork: " << mIp
+                            << " dispatching " << dispatched << " events";
+
+            io_service.run();
         }
         catch (std::exception const& e)
         {
+            // Bail rather than re-queue: a persistently failing endpoint
+            // would otherwise spin the job queue. mSending is reset so the
+            // next send() restarts delivery.
             JLOG(j_.warn()) << "RPCSub::sendThread exception: " << e.what();
             std::lock_guard sl(mLock);
             mSending = false;
+            return;
         }
         catch (...)
         {
             JLOG(j_.warn()) << "RPCSub::sendThread unknown exception";
             std::lock_guard sl(mLock);
             mSending = false;
+            return;
         }
+
+        // Batch complete: re-queue for the next one (mSending stays set)
+        // or clear mSending if the queue drained — both under the lock to
+        // avoid a lost-wakeup race with send().
+        std::lock_guard sl(mLock);
+        if (mDeque.empty())
+            mSending = false;
+        else
+            startSendingJob();
     }
 
 private:
