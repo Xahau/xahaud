@@ -505,6 +505,10 @@ class HTTPClient_test : public beast::unit_test::suite
 
         MockHTTPServer server;
         server.setStatus(200);
+        // Without this the mock sends Content-Length and completion
+        // happens in handleHeader, NOT the handleData EOF branch this
+        // test targets. Force the EOF (no-Content-Length) path.
+        server.setNoContentLength(true);
 
         std::atomic<int> completed{0};
         auto j = env.app().journal("HTTPClient");
