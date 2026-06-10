@@ -388,12 +388,12 @@ HOOK_API_DEFINITION(
   int64_t, xport_cancel, (uint32_t),
   featureExport)
 
-// int64_t dice(uint32_t sides);
+// int64_t dice(uint32_t sides, uint32_t min_tier, uint32_t min_count);
 HOOK_API_DEFINITION(
-  int64_t, dice, (uint32_t),
+  int64_t, dice, (uint32_t, uint32_t, uint32_t),
   featureConsensusEntropy)
 
-// int64_t random(uint32_t write_ptr, uint32_t write_len);
+// int64_t random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier, uint32_t min_count);
 HOOK_API_DEFINITION(
-  int64_t, random, (uint32_t, uint32_t),
+  int64_t, random, (uint32_t, uint32_t, uint32_t, uint32_t),
   featureConsensusEntropy)

@@ -150,7 +150,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t dice(uint32_t sides);
+            extern int64_t dice(uint32_t sides, uint32_t min_tier, uint32_t min_count);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
 
             int64_t hook(uint32_t r)
@@ -158,7 +158,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 _g(1,1);
 
                 // dice(6) should return 0..5
-                int64_t result = dice(6);
+                int64_t result = dice(6, 3, 5);
 
                 // negative means error
                 if (result < 0)
@@ -225,7 +225,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t random(uint32_t write_ptr, uint32_t write_len);
+            extern int64_t random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier, uint32_t min_count);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
 
             int64_t hook(uint32_t r)
@@ -236,7 +236,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     buf[i] = 0;
 
-                int64_t result = random((uint32_t)buf, 32);
+                int64_t result = random((uint32_t)buf, 32, 3, 5);
 
                 // Should return 32 (bytes written)
                 if (result != 32)
@@ -301,16 +301,16 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t dice(uint32_t sides);
+            extern int64_t dice(uint32_t sides, uint32_t min_tier, uint32_t min_count);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                int64_t r1 = dice(1000000);
+                int64_t r1 = dice(1000000, 3, 5);
                 if (r1 < 0)
                     rollback(0, 0, r1);
 
-                int64_t r2 = dice(1000000);
+                int64_t r2 = dice(1000000, 3, 5);
                 if (r2 < 0)
                     rollback(0, 0, r2);
 
@@ -378,12 +378,12 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t dice(uint32_t sides);
+            extern int64_t dice(uint32_t sides, uint32_t min_tier, uint32_t min_count);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                int64_t result = dice(0);
+                int64_t result = dice(0, 3, 5);
                 // dice(0) should return negative error code, pass it through
                 return accept(0, 0, result);
             }
@@ -419,6 +419,70 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
+    testDiceRequirementNotMet()
+    {
+        testcase("Hook dice() returns TOO_LITTLE_ENTROPY below requirement");
+        using namespace jtx;
+
+        Env env{
+            *this,
+            envconfig(),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+
+        // Standalone entropy carries EntropyCount=20 / tier validator_quorum.
+        // A hook demanding min_count=21 states a requirement this ledger
+        // cannot meet, so dice must fail closed with TOO_LITTLE_ENTROPY (-48)
+        // rather than silently serving weaker entropy.
+        TestHook hook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t dice(uint32_t sides, uint32_t min_tier, uint32_t min_count);
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                int64_t result = dice(6, 3, 21);
+                // requirement unmet: pass the error code through
+                return accept(0, 0, result);
+            }
+        )[test.hook]"];
+
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set dice-requirement hook"),
+            HSFEE);
+        env.close();
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = alice.human();
+        env(invoke, M("test dice min_count unmet"), fee(XRP(1)));
+
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);
+
+        auto const rawCode = hookExecutions[0].getFieldU64(sfHookReturnCode);
+        int64_t returnCode = (rawCode & 0x8000000000000000ULL)
+            ? -static_cast<int64_t>(rawCode & 0x7FFFFFFFFFFFFFFFULL)
+            : static_cast<int64_t>(rawCode);
+        std::cerr << "  dice(6,3,21) returnCode = " << returnCode << " (raw 0x"
+                  << std::hex << rawCode << std::dec << ")\n";
+        BEAST_EXPECT(returnCode == -48);  // TOO_LITTLE_ENTROPY
+        BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
+    }
+
+    void
     run() override
     {
         testSLECreated();
@@ -426,6 +490,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         testNoSLEWithoutAmendment();
         testDice();
         testDiceZeroSides();
+        testDiceRequirementNotMet();
         testRandom();
         testDiceConsecutiveCallsDiffer();
     }

@@ -4032,9 +4032,17 @@ DEFINE_HOOK_FUNCTION(
 }
 //@@end xport-impl
 
-// byteCount must be a multiple of 32
+// byteCount must be a multiple of 32.
+// minTier/minCount are the CALLER'S stated requirements (required hook API
+// arguments — there is deliberately no network-wide default): entropy is
+// usable iff tier >= minTier && count >= minCount, in addition to freshness.
 inline std::vector<uint8_t>
-fairRng(ApplyContext& applyCtx, hook::HookResult& hr, uint32_t byteCount)
+fairRng(
+    ApplyContext& applyCtx,
+    hook::HookResult& hr,
+    uint32_t byteCount,
+    uint32_t minTier,
+    uint32_t minCount)
 {
     if (byteCount > 512)
         byteCount = 512;
@@ -4061,7 +4069,8 @@ fairRng(ApplyContext& applyCtx, hook::HookResult& hr, uint32_t byteCount)
     // dice/random results will differ between speculative and final
     // execution.  This needs further thought re: UX implications.
     if (!sleEntropy || entropySeq > seq || (seq - entropySeq) > 1 ||
-        sleEntropy->getFieldU16(sfEntropyCount) < 5)
+        sleEntropy->getFieldU8(sfEntropyTier) < minTier ||
+        sleEntropy->getFieldU16(sfEntropyCount) < minCount)
         return {};
 
     // we'll generate bytes in lots of 32
@@ -4095,14 +4104,19 @@ fairRng(ApplyContext& applyCtx, hook::HookResult& hr, uint32_t byteCount)
     return bytesOut;
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, dice, uint32_t sides)
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    dice,
+    uint32_t sides,
+    uint32_t min_tier,
+    uint32_t min_count)
 {
     HOOK_SETUP();
 
     if (sides == 0)
         return INVALID_ARGUMENT;
 
-    auto vec = fairRng(applyCtx, hookCtx.result, 32);
+    auto vec = fairRng(applyCtx, hookCtx.result, 32, min_tier, min_count);
 
     if (vec.empty())
         return TOO_LITTLE_ENTROPY;
@@ -4118,7 +4132,13 @@ DEFINE_HOOK_FUNCTION(int64_t, dice, uint32_t sides)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, random, uint32_t write_ptr, uint32_t write_len)
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    random,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t min_tier,
+    uint32_t min_count)
 {
     HOOK_SETUP();
 
@@ -4144,7 +4164,7 @@ DEFINE_HOOK_FUNCTION(int64_t, random, uint32_t write_ptr, uint32_t write_len)
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    auto vec = fairRng(applyCtx, hookCtx.result, required);
+    auto vec = fairRng(applyCtx, hookCtx.result, required, min_tier, min_count);
 
     if (vec.empty())
         return TOO_LITTLE_ENTROPY;

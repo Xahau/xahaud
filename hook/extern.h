@@ -353,10 +353,14 @@ extern int64_t
 xport_cancel(uint32_t ticket_seq);
 
 extern int64_t
-dice(uint32_t sides);
+dice(uint32_t sides, uint32_t min_tier, uint32_t min_count);
 
 extern int64_t
-random(uint32_t write_ptr, uint32_t write_len);
+random(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t min_tier,
+    uint32_t min_count);
 
 #ifdef __cplusplus
 }

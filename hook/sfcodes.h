@@ -10,6 +10,7 @@
 #define sfHookResult ((16U << 16U) + 18U)
 #define sfWasLockingChainSend ((16U << 16U) + 19U)
 #define sfSidecarType ((16U << 16U) + 20U)
+#define sfEntropyTier ((16U << 16U) + 21U)
 #define sfLedgerEntryType ((1U << 16U) + 1U)
 #define sfTransactionType ((1U << 16U) + 2U)
 #define sfSignerWeight ((1U << 16U) + 3U)
