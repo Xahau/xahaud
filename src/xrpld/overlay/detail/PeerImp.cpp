@@ -1740,11 +1740,20 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     if (!isTrusted && app_.config().RELAY_UNTRUSTED_PROPOSALS == -1)
         return;
 
-    auto const openLedger = app_.openLedger().current();
+    bool openLedgerLoaded = false;
+    std::shared_ptr<OpenView const> openLedger;
+    auto const featureEnabled = [&](uint256 const& feature) {
+        if (!openLedgerLoaded)
+        {
+            openLedger = app_.openLedger().current();
+            openLedgerLoaded = true;
+        }
+        return openLedger && openLedger->rules().enabled(feature);
+    };
     auto const precheck = detail::checkProposalExtensions(
         set,
-        openLedger && openLedger->rules().enabled(featureConsensusEntropy),
-        openLedger && openLedger->rules().enabled(featureExport));
+        [&] { return featureEnabled(featureConsensusEntropy); },
+        [&] { return featureEnabled(featureExport); });
     if (auto const rejection =
             detail::proposalPrecheckRejection(precheck.result))
     {

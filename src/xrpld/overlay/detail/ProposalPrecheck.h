@@ -83,11 +83,12 @@ proposalPrecheckRejection(ProposalPrecheckResult result)
     return std::nullopt;
 }
 
+template <class IsEntropyEnabled, class IsExportEnabled>
 inline ProposalPrecheck
 checkProposalExtensions(
     protocol::TMProposeSet const& set,
-    bool entropyEnabled,
-    bool exportEnabled)
+    IsEntropyEnabled isEntropyEnabled,
+    IsExportEnabled isExportEnabled)
 {
     if (proposalHasMalformedHashes(set))
     {
@@ -106,9 +107,9 @@ checkProposalExtensions(
         parsedPosition->myReveal;
     bool const hasExportMaterial = parsedPosition->exportSigSetHash ||
         parsedPosition->exportSignaturesHash || set.exportsignatures_size() > 0;
-    if (hasEntropyMaterial && !entropyEnabled)
+    if (hasEntropyMaterial && !isEntropyEnabled())
         return {ProposalPrecheckResult::entropyDisabled, parsedPosition};
-    if (hasExportMaterial && !exportEnabled)
+    if (hasExportMaterial && !isExportEnabled())
         return {ProposalPrecheckResult::exportDisabled, parsedPosition};
 
     if (set.exportsignatures_size() > ExportLimits::maxPendingExports)
@@ -137,6 +138,18 @@ checkProposalExtensions(
     }
 
     return {ProposalPrecheckResult::ok, parsedPosition};
+}
+
+inline ProposalPrecheck
+checkProposalExtensions(
+    protocol::TMProposeSet const& set,
+    bool entropyEnabled,
+    bool exportEnabled)
+{
+    return checkProposalExtensions(
+        set,
+        [entropyEnabled] { return entropyEnabled; },
+        [exportEnabled] { return exportEnabled; });
 }
 
 }  // namespace detail

@@ -76,6 +76,55 @@ public:
                     precheck.position->txSetHash == position.txSetHash);
         }
 
+        testcase("feature predicates are lazy");
+        {
+            int entropyChecks = 0;
+            int exportChecks = 0;
+            auto const entropyEnabled = [&] {
+                ++entropyChecks;
+                return false;
+            };
+            auto const exportEnabled = [&] {
+                ++exportChecks;
+                return false;
+            };
+
+            protocol::TMProposeSet plainSet;
+            setPreviousLedger(plainSet);
+            ExtendedPosition plain{makeHash("plain-lazy-position")};
+            setPosition(plainSet, plain);
+            BEAST_EXPECT(
+                detail::checkProposalExtensions(
+                    plainSet, entropyEnabled, exportEnabled)
+                    .result == ok);
+            BEAST_EXPECT(entropyChecks == 0);
+            BEAST_EXPECT(exportChecks == 0);
+
+            protocol::TMProposeSet entropySet;
+            setPreviousLedger(entropySet);
+            ExtendedPosition entropy{makeHash("entropy-lazy-position")};
+            entropy.myCommitment = makeHash("lazy-commitment");
+            setPosition(entropySet, entropy);
+            BEAST_EXPECT(
+                detail::checkProposalExtensions(
+                    entropySet, entropyEnabled, exportEnabled)
+                    .result == entropyDisabled);
+            BEAST_EXPECT(entropyChecks == 1);
+            BEAST_EXPECT(exportChecks == 0);
+
+            protocol::TMProposeSet exportSet;
+            setPreviousLedger(exportSet);
+            ExtendedPosition exportPos{makeHash("export-lazy-position")};
+            exportPos.exportSigSetHash = makeHash("lazy-export-sidecar");
+            setPosition(exportSet, exportPos);
+            BEAST_EXPECT(
+                detail::checkProposalExtensions(
+                    exportSet, entropyEnabled, exportEnabled)
+                    .result == exportDisabled);
+            BEAST_EXPECT(entropyChecks == 1);
+            BEAST_EXPECT(exportChecks == 1);
+        }
+
         testcase("malformed hashes and extended payload");
         {
             protocol::TMProposeSet set;
