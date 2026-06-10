@@ -1883,9 +1883,14 @@ fromNetwork(
 
     // Send request
 
-    // Number of bytes to try to receive if no
-    // Content-Length header received
-    constexpr auto RPC_REPLY_MAX_BYTES = megabytes(256);
+    // Number of bytes to try to receive if no Content-Length header is
+    // received. Webhook event deliveries ("event") ignore the response
+    // body, so a missing Content-Length must not pre-allocate the full
+    // 256MB RPC reply budget per in-flight delivery (maxInFlight can be
+    // 32 -> 8GB). Cap those small; genuine RPC replies (CLI) keep the
+    // large budget.
+    auto const RPC_REPLY_MAX_BYTES =
+        (strMethod == "event") ? megabytes(1) : megabytes(256);
 
     using namespace std::chrono_literals;
     // auto constexpr RPC_NOTIFY = 10min; // Wietse: lolwut 10 minutes for one
