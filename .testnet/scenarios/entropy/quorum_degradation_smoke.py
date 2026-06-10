@@ -1,8 +1,8 @@
-""":descr: 4/5 liveness, 3/5 zero-entropy fallback, recovery"""
+""":descr: 4/5 liveness, 3/5 fallback-entropy (Tier 3), recovery"""
 
 from __future__ import annotations
 
-from helpers import require_entropy, get_entropy_tx, entropy_fields
+from helpers import ZERO_DIGEST, require_entropy, get_entropy_tx, entropy_fields
 
 
 async def scenario(ctx, log):
@@ -32,24 +32,35 @@ async def scenario(ctx, log):
 
     # Accepted/built ledgers may still later appear as validated once the full
     # network rejoins. For ConsensusEntropy the key invariant is that every
-    # ledger created during this sub-quorum window carries ZERO entropy.
-    degraded_zero = 0
+    # ledger created during this sub-quorum window carries FALLBACK entropy
+    # (Tier 3: non-zero consensus-bound digest, EntropyCount=0) — never
+    # validator-tier entropy.
+    degraded_fallback = 0
     degraded_end = val_after or val_before
     if val_before and degraded_end and degraded_end > val_before:
         for seq in range(val_before + 1, degraded_end + 1):
             ce, _ = get_entropy_tx(ctx, seq)
-            digest, entropy_count, is_zero = entropy_fields(ce)
+            digest, entropy_count, is_fallback = entropy_fields(ce)
 
-            if not is_zero:
+            if not is_fallback:
                 raise AssertionError(
-                    f"Ledger {seq}: expected ZERO entropy during 3/5 window, "
-                    f"got Digest={digest[:16]}... EntropyCount={entropy_count}"
+                    f"Ledger {seq}: expected fallback entropy during 3/5 "
+                    f"window, got Digest={digest[:16]}... "
+                    f"EntropyCount={entropy_count}"
+                )
+            if digest == ZERO_DIGEST:
+                raise AssertionError(
+                    f"Ledger {seq}: fallback digest should be non-zero "
+                    f"(Tier 3), got zero"
                 )
 
-            degraded_zero += 1
-            log(f"  Degraded ledger {seq}: EntropyCount={entropy_count} ZERO")
+            degraded_fallback += 1
+            log(
+                f"  Degraded ledger {seq}: EntropyCount={entropy_count} "
+                f"FALLBACK"
+            )
 
-    log(f"3/5 entropy summary: {degraded_zero} zero")
+    log(f"3/5 entropy summary: {degraded_fallback} fallback")
 
     # Log checks tied to current transition mechanics:
     # - commit-set SHAMap publication is the observable output of entering the
@@ -99,27 +110,30 @@ async def scenario(ctx, log):
     # Inspect post-recovery ledgers separately from the degraded window above.
     # Once the network is back at quorum, non-zero entropy is valid again but
     # must still be quorum-met.
-    zero_count = 0
-    nonzero_count = 0
+    fallback_count = 0
+    validator_count = 0
     for seq in range(pre_recovery + 1, val_recovered + 1):
         ce, _ = get_entropy_tx(ctx, seq)
-        digest, entropy_count, is_zero = entropy_fields(ce)
+        digest, entropy_count, is_fallback = entropy_fields(ce)
 
-        if is_zero:
-            zero_count += 1
+        if is_fallback:
+            fallback_count += 1
         else:
-            nonzero_count += 1
+            validator_count += 1
             if entropy_count < 4:
                 raise AssertionError(
-                    f"Ledger {seq}: non-zero entropy with sub-quorum "
+                    f"Ledger {seq}: validator entropy with sub-quorum "
                     f"EntropyCount={entropy_count} (need >= 4)"
                 )
 
         log(
             f"  Ledger {seq}: EntropyCount={entropy_count} "
-            f"{'ZERO' if is_zero else 'REAL'}"
+            f"{'FALLBACK' if is_fallback else 'VALIDATOR'}"
         )
 
-    log(f"Entropy summary: {zero_count} zero, {nonzero_count} non-zero")
+    log(
+        f"Entropy summary: {fallback_count} fallback, "
+        f"{validator_count} validator"
+    )
 
     log("PASS")

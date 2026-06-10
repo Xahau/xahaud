@@ -28,6 +28,7 @@
 #include <xrpld/consensus/ConsensusProposal.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STAmount.h>
@@ -886,6 +887,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             tx.getFieldH256(sfDigest) ==
             sha512Half(std::string("standalone-entropy"), seq));
         BEAST_EXPECT(tx.getFieldU16(sfEntropyCount) == 20);
+        BEAST_EXPECT(
+            tx.getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
 
         auto duplicate = ce.buildExplicitFinalProposalTxSet(*synthetic, seq);
         BEAST_EXPECT(duplicate);
@@ -904,7 +907,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const nonStandaloneSeq = ledger->seq() + 1;
 
         ConsensusExtensions zeroCe{nonStandaloneEnv.app(), activeNoopJournal()};
-        zeroCe.cacheUNLReport(ledger);
+        zeroCe.onRoundStart(RCLCxLedger{ledger}, {});
         zeroCe.setEntropyFailed();
         auto zeroSynthetic = zeroCe.buildExplicitFinalProposalTxSet(
             nonStandaloneBase, nonStandaloneSeq);
@@ -914,8 +917,18 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(zeroTx);
         if (zeroTx)
         {
-            BEAST_EXPECT(zeroTx->getFieldH256(sfDigest) == uint256{});
+            // Tier 3 fallback digest over (prevLedgerHash, base set, seq).
+            auto const expectedFallback = sha512Half(
+                HashPrefix::entropyFallback,
+                ledger->info().hash,
+                nonStandaloneBase.id(),
+                nonStandaloneSeq);
+            BEAST_EXPECT(zeroTx->getFieldH256(sfDigest) == expectedFallback);
+            BEAST_EXPECT(zeroTx->getFieldH256(sfDigest) != uint256{});
             BEAST_EXPECT(zeroTx->getFieldU16(sfEntropyCount) == 0);
+            BEAST_EXPECT(
+                zeroTx->getFieldU8(sfEntropyTier) ==
+                entropyTierConsensusFallback);
         }
 
         auto const& valKeys = nonStandaloneEnv.app().getValidatorKeys();
@@ -976,6 +989,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 revealTx->getFieldH256(sfDigest) ==
                 expectedEntropy(publicKey, reveal));
             BEAST_EXPECT(revealTx->getFieldU16(sfEntropyCount) == 1);
+            BEAST_EXPECT(
+                revealTx->getFieldU8(sfEntropyTier) ==
+                entropyTierValidatorQuorum);
         }
     }
 
@@ -1032,7 +1048,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     void
     testOnPreBuildInjectsZeroEntropyFallback()
     {
-        testcase("onPreBuild injects zero entropy fallback");
+        testcase("onPreBuild injects consensus-bound fallback entropy");
 
         using namespace jtx;
         Env env{
@@ -1045,13 +1061,14 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
         auto const ledger = env.app().getLedgerMaster().getClosedLedger();
-        ce.cacheUNLReport(ledger);
+        ce.onRoundStart(RCLCxLedger{ledger}, {});
         ce.setRngEnabledThisRound(true);
         BEAST_EXPECT(ce.shouldZeroEntropy());
 
         CanonicalTXSet retriableTxs{makeHash("rng-zero-fallback-salt")};
         auto const seq = ledger->seq() + 1;
-        ce.onPreBuild(retriableTxs, seq);
+        auto const txSetHash = makeHash("rng-fallback-txset");
+        ce.onPreBuild(retriableTxs, seq, txSetHash);
 
         auto const tx = singleCanonicalTx(retriableTxs);
         BEAST_EXPECT(tx);
@@ -1059,8 +1076,26 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             return;
         BEAST_EXPECT(tx->getTxnType() == ttCONSENSUS_ENTROPY);
         BEAST_EXPECT(tx->getFieldU32(sfLedgerSequence) == seq);
-        BEAST_EXPECT(tx->getFieldH256(sfDigest) == uint256{});
+
+        // Tier 3: deterministic, consensus-bound, non-zero, fallback-labeled.
+        auto const expected = sha512Half(
+            HashPrefix::entropyFallback, ledger->info().hash, txSetHash, seq);
+        BEAST_EXPECT(tx->getFieldH256(sfDigest) == expected);
+        BEAST_EXPECT(tx->getFieldH256(sfDigest) != uint256{});
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 0);
+        BEAST_EXPECT(
+            tx->getFieldU8(sfEntropyTier) == entropyTierConsensusFallback);
+
+        // Same agreed inputs => identical digest on an independent instance.
+        ConsensusExtensions other{env.app(), activeNoopJournal()};
+        other.onRoundStart(RCLCxLedger{ledger}, {});
+        other.setRngEnabledThisRound(true);
+        CanonicalTXSet otherTxs{makeHash("rng-zero-fallback-salt-2")};
+        other.onPreBuild(otherTxs, seq, txSetHash);
+        auto const otherTx = singleCanonicalTx(otherTxs);
+        BEAST_EXPECT(otherTx);
+        if (otherTx)
+            BEAST_EXPECT(otherTx->getFieldH256(sfDigest) == expected);
     }
 
     void
@@ -1127,7 +1162,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!ce.shouldZeroEntropy());
 
         CanonicalTXSet retriableTxs{makeHash("entropy-set-prebuild-salt")};
-        ce.onPreBuild(retriableTxs, seq);
+        ce.onPreBuild(retriableTxs, seq, txSetHash);
 
         auto const tx = singleCanonicalTx(retriableTxs);
         BEAST_EXPECT(tx);
@@ -1137,6 +1172,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(
             tx->getFieldH256(sfDigest) == expectedEntropy(publicKey, reveal));
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 1);
+        BEAST_EXPECT(
+            tx->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
     }
 
     void
@@ -1677,7 +1714,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         CanonicalTXSet retriableTxs{makeHash("rng-on-pre-build-salt")};
         auto const seq = env.closed()->seq() + 1;
 
-        ce.onPreBuild(retriableTxs, seq);
+        ce.onPreBuild(retriableTxs, seq, makeHash("standalone-txset"));
         BEAST_EXPECT(
             std::distance(retriableTxs.begin(), retriableTxs.end()) == 1);
 
@@ -1690,8 +1727,11 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             tx->getFieldH256(sfDigest) ==
             sha512Half(std::string("standalone-entropy"), seq));
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 20);
+        BEAST_EXPECT(
+            tx->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
 
-        ce.onPreBuild(retriableTxs, seq);
+        // Type-based dedup: a second injection attempt must be a no-op.
+        ce.onPreBuild(retriableTxs, seq, makeHash("standalone-txset"));
         BEAST_EXPECT(
             std::distance(retriableTxs.begin(), retriableTxs.end()) == 1);
     }

@@ -55,19 +55,28 @@ def get_entropy_tx(ctx, seq):
 
 
 def entropy_fields(ce_tx):
-    """Return (digest, entropy_count, is_zero) from a ConsensusEntropy tx."""
+    """Return (digest, entropy_count, is_fallback) from a ConsensusEntropy tx.
+
+    Tier 3: fallback rounds carry a deterministic non-zero consensus-bound
+    digest with EntropyCount=0 and EntropyTier=1 (consensus_fallback).
+    Validator entropy has EntropyTier=3 (validator_quorum).
+    """
     digest = ce_tx.get("Digest", "")
     entropy_count = ce_tx.get("EntropyCount", -1)
-    is_zero = digest == ZERO_DIGEST and entropy_count == 0
-    return digest, entropy_count, is_zero
+    tier = ce_tx.get("EntropyTier", None)
+    if tier is not None:
+        is_fallback = tier != 3
+    else:
+        is_fallback = entropy_count == 0
+    return digest, entropy_count, is_fallback
 
 
 def assert_valid_entropy(ce_tx, seq, seen_digests=None):
-    """Assert non-zero quorum-met entropy. Optionally check uniqueness."""
-    digest, entropy_count, is_zero = entropy_fields(ce_tx)
+    """Assert quorum-met validator entropy. Optionally check uniqueness."""
+    digest, entropy_count, is_fallback = entropy_fields(ce_tx)
 
-    if is_zero or not digest:
-        raise AssertionError(f"Ledger {seq}: zero/empty Digest")
+    if is_fallback or not digest or digest == ZERO_DIGEST:
+        raise AssertionError(f"Ledger {seq}: fallback/empty Digest")
 
     if entropy_count < 4:
         raise AssertionError(

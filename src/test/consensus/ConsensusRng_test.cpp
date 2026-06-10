@@ -149,7 +149,12 @@ public:
             for (Peer const* peer : majority)
             {
                 BEAST_EXPECT(peer->ce().lastEntropyWasFallback_);
-                BEAST_EXPECT(peer->ce().lastEntropyDigest_ == uint256{});
+                // Tier 3: fallback rounds carry a deterministic non-zero
+                // consensus-bound digest, identical across the group.
+                BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
+                BEAST_EXPECT(
+                    peer->ce().lastEntropyDigest_ ==
+                    majority[0]->ce().lastEntropyDigest_);
                 BEAST_EXPECT(peer->ce().lastEntropyCount_ == 0);
             }
         }
@@ -195,7 +200,12 @@ public:
             for (Peer const* peer : majority)
             {
                 BEAST_EXPECT(peer->ce().lastEntropyWasFallback_);
-                BEAST_EXPECT(peer->ce().lastEntropyDigest_ == uint256{});
+                // Tier 3: fallback rounds carry a deterministic non-zero
+                // consensus-bound digest, identical across the group.
+                BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
+                BEAST_EXPECT(
+                    peer->ce().lastEntropyDigest_ ==
+                    majority[0]->ce().lastEntropyDigest_);
                 BEAST_EXPECT(peer->ce().lastEntropyCount_ == 0);
             }
         }
@@ -277,7 +287,10 @@ public:
             for (Peer const* peer : peers)
             {
                 BEAST_EXPECT(peer->ce().lastEntropyWasFallback_);
-                BEAST_EXPECT(peer->ce().lastEntropyDigest_ == uint256{});
+                BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
+                BEAST_EXPECT(
+                    peer->ce().lastEntropyDigest_ ==
+                    peers[0]->ce().lastEntropyDigest_);
             }
         }
     }
@@ -776,7 +789,10 @@ public:
         for (Peer const* peer : peers)
         {
             BEAST_EXPECT(peer->ce().lastEntropyWasFallback_);
-            BEAST_EXPECT(peer->ce().lastEntropyDigest_ == uint256{});
+            BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
+            BEAST_EXPECT(
+                peer->ce().lastEntropyDigest_ ==
+                peers[0]->ce().lastEntropyDigest_);
             BEAST_EXPECT(peer->ce().lastEntropyCount_ == 0);
         }
     }
@@ -941,12 +957,14 @@ public:
         for (Peer const* peer : majority)
             BEAST_EXPECT(peer->ce().lastEntropyDigest_ == majorityDigest);
 
-        // Peer 0 must NOT have non-zero entropy that differs from
-        // the majority.  It should either:
+        // Peer 0 must NOT have validator entropy that differs from the
+        // majority.  It should either:
         // a) have converged to the majority via fetch/merge, or
-        // b) have fallen back to zero entropy
+        // b) have taken the (explicitly labeled) Tier 3 fallback
         auto const& p0Digest = peers[0]->ce().lastEntropyDigest_;
-        BEAST_EXPECT(p0Digest == majorityDigest || p0Digest == uint256{});
+        BEAST_EXPECT(
+            p0Digest == majorityDigest ||
+            peers[0]->ce().lastEntropyWasFallback_);
     }
 
     void

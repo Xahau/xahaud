@@ -232,6 +232,7 @@ LEDGER_ENTRY(ltURI_TOKEN, 0x0055, URIToken, uri_token, ({
 LEDGER_ENTRY_DUPLICATE(ltCONSENSUS_ENTROPY, 0x0058, ConsensusEntropy, consensus_entropy, ({
     {sfDigest,               soeREQUIRED},
     {sfEntropyCount,         soeREQUIRED},
+    {sfEntropyTier,          soeREQUIRED},
     {sfLedgerSequence,       soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},

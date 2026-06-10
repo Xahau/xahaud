@@ -594,7 +594,7 @@ RCLConsensus::Adaptor::doAccept(
     // so ttEXPORT can observe exportSigSetHash convergence at apply time.
     //@@start accept-time-cleanup-disabled
     if (ce().rngEnabled())
-        ce().onPreBuild(retriableTxs, prevLedger.seq() + 1);
+        ce().onPreBuild(retriableTxs, prevLedger.seq() + 1, result.txns.id());
     else if (!ce().exportEnabled())
         ce().clearRngState();
     //@@end accept-time-cleanup-disabled

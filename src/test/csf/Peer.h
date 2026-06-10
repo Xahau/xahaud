@@ -348,6 +348,7 @@ struct Peer
         uint256 lastEntropyDigest_;
         std::uint16_t lastEntropyCount_ = 0;
         bool lastEntropyWasFallback_ = true;
+        std::uint8_t lastEntropyTier_ = 0;  // mirrors EntropyTier values
         bool lastExportSucceeded_ = false;
         bool lastExportRetried_ = false;
         std::size_t exportSigFetchMerges_ = 0;
@@ -702,21 +703,40 @@ struct Peer
         }
 
         void
-        finalizeRoundEntropy(std::uint32_t seq)
+        finalizeRoundEntropy(
+            std::uint32_t seq,
+            std::uint32_t prevLedgerId,
+            std::size_t txSetId)
         {
+            // CSF analog of the Tier 3 consensus-bound fallback: derived
+            // from already-agreed round inputs, so all same-LCL peers
+            // compute the same non-zero digest. Mirrors production's
+            // sha512Half(HashPrefix::entropyFallback, prevHash, txSet, seq).
+            auto const fallbackEntropy = [&] {
+                return sha512Half(
+                    std::string("csf-rng-fallback"),
+                    prevLedgerId,
+                    static_cast<std::uint64_t>(txSetId),
+                    seq);
+            };
+
             if (!enableRngConsensus_)
             {
+                // RNG disabled: no pseudo-tx at all in production; keep the
+                // zero digest as the "none" marker.
                 lastEntropyDigest_.zero();
                 lastEntropyCount_ = 0;
                 lastEntropyWasFallback_ = true;
+                lastEntropyTier_ = 0;
                 return;
             }
 
             if (shouldZeroEntropy())
             {
-                lastEntropyDigest_.zero();
+                lastEntropyDigest_ = fallbackEntropy();
                 lastEntropyCount_ = 0;
                 lastEntropyWasFallback_ = true;
+                lastEntropyTier_ = 1;  // consensus_fallback
                 return;
             }
 
@@ -732,9 +752,10 @@ struct Peer
 
             if (ordered.empty())
             {
-                lastEntropyDigest_.zero();
+                lastEntropyDigest_ = fallbackEntropy();
                 lastEntropyCount_ = 0;
                 lastEntropyWasFallback_ = true;
+                lastEntropyTier_ = 1;  // consensus_fallback
                 return;
             }
 
@@ -762,6 +783,7 @@ struct Peer
             lastEntropyDigest_ = digest;
             lastEntropyCount_ = static_cast<std::uint16_t>(ordered.size());
             lastEntropyWasFallback_ = false;
+            lastEntropyTier_ = 3;  // validator_quorum
         }
 
         void
@@ -1297,7 +1319,10 @@ struct Peer
             const bool consensusFail = result.state == ConsensusState::MovedOn;
             auto const seq = static_cast<std::uint32_t>(prevLedger.seq()) + 1;
 
-            ce().finalizeRoundEntropy(seq);
+            ce().finalizeRoundEntropy(
+                seq,
+                static_cast<std::uint32_t>(prevLedger.id()),
+                result.txns.id());
             ce().finalizeRoundExport();
 
             TxSet const acceptedTxs = injectTxs(prevLedger, result.txns);

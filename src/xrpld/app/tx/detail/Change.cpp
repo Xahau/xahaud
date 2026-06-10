@@ -253,6 +253,7 @@ Change::applyConsensusEntropy()
 
     sle->setFieldH256(sfDigest, entropy);
     sle->setFieldU16(sfEntropyCount, ctx_.tx.getFieldU16(sfEntropyCount));
+    sle->setFieldU8(sfEntropyTier, ctx_.tx.getFieldU8(sfEntropyTier));
     sle->setFieldU32(sfLedgerSequence, view().info().seq);
     // Note: sfPreviousTxnID and sfPreviousTxnLgrSeq are set automatically
     // by ApplyStateTable::threadItem() because isThreadedType() returns true

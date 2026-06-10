@@ -35,6 +35,7 @@
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/crypto/csprng.h>
+#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
@@ -443,6 +444,15 @@ ConsensusExtensions::buildExplicitFinalProposalTxSet(
 
     uint256 finalEntropy;
     bool hasEntropy = false;
+    std::uint8_t entropyTier = entropyTierNone;
+    std::uint16_t entropyCount = 0;
+
+    // Tier 3 fallback over already-agreed round inputs. Uses the BASE tx
+    // set hash (txns.id()) — never the synthetic set's own hash (circular).
+    auto const fallbackEntropy = [&] {
+        return sha512Half(
+            HashPrefix::entropyFallback, roundPrevLedgerHash_, txns.id(), seq);
+    };
 
     // Keep this entropy-selection logic aligned with onPreBuild().
     // If these paths drift, different nodes can derive different synthetic
@@ -452,11 +462,15 @@ ConsensusExtensions::buildExplicitFinalProposalTxSet(
     {
         finalEntropy = sha512Half(std::string("standalone-entropy"), seq);
         hasEntropy = true;
+        entropyTier = entropyTierValidatorQuorum;
+        entropyCount = 20;
     }
     else if (shouldZeroEntropy())
     {
-        finalEntropy.zero();
+        finalEntropy = fallbackEntropy();
         hasEntropy = true;
+        entropyTier = entropyTierConsensusFallback;
+        entropyCount = 0;
     }
     else
     {
@@ -485,20 +499,22 @@ ConsensusExtensions::buildExplicitFinalProposalTxSet(
             }
             finalEntropy = sha512Half(s.slice());
             hasEntropy = true;
+            entropyTier = entropyTierValidatorQuorum;
+            entropyCount = static_cast<std::uint16_t>(sorted.size());
         }
     }
 
     if (!hasEntropy)
     {
-        JLOG(j_.debug()) << "RNGFINAL: no entropy available for synthetic txSet"
+        // Residual (no usable reveals): fall back rather than skipping, so
+        // the synthetic set always carries a fresh entropy pseudo-tx.
+        finalEntropy = fallbackEntropy();
+        hasEntropy = true;
+        entropyTier = entropyTierConsensusFallback;
+        entropyCount = 0;
+        JLOG(j_.debug()) << "RNGFINAL: fallback entropy for synthetic txSet"
                          << " baseTxSet=" << txns.id() << " seq=" << seq;
-        return std::nullopt;
     }
-
-    auto const entropyCount = static_cast<std::uint16_t>(
-        app_.config().standalone()
-            ? 20
-            : (shouldZeroEntropy() ? 0 : pendingReveals_.size()));
 
     STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
         obj.setFieldU32(sfLedgerSequence, seq);
@@ -507,12 +523,32 @@ ConsensusExtensions::buildExplicitFinalProposalTxSet(
         obj.setFieldAmount(sfFee, STAmount{});
         obj.setFieldH256(sfDigest, finalEntropy);
         obj.setFieldU16(sfEntropyCount, entropyCount);
+        obj.setFieldU8(sfEntropyTier, entropyTier);
     });
 
     auto const txID = tx.getTransactionID();
-    if (txns.exists(txID))
+    // Dedup by type (mirrors onPreBuild): there must never be two entropy
+    // pseudo-txs, and a fallback digest derived from a different base set
+    // hash would not match by exact txID.
+    bool alreadyPresent = false;
+    txns.map_->visitLeaves(
+        [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+            if (alreadyPresent)
+                return;
+            try
+            {
+                SerialIter sit(item->slice());
+                STTx const parsed{sit};
+                if (parsed.getTxnType() == ttCONSENSUS_ENTROPY)
+                    alreadyPresent = true;
+            }
+            catch (...)
+            {
+            }
+        });
+    if (alreadyPresent)
     {
-        JLOG(j_.debug()) << "RNGFINAL: pseudo-tx already in base txSet"
+        JLOG(j_.debug()) << "RNGFINAL: entropy pseudo-tx already in base txSet"
                          << " txHash=" << txID << " baseTxSet=" << txns.id();
         return txns;
     }
@@ -1579,7 +1615,10 @@ ConsensusExtensions::verifyPendingExportSigs(
 }
 
 void
-ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
+ConsensusExtensions::onPreBuild(
+    CanonicalTXSet& retriableTxs,
+    LedgerIndex seq,
+    uint256 const& txSetHash)
 {
     JLOG(j_.info()) << "RNG: injectEntropy"
                     << " seq=" << seq << " commits=" << pendingCommits_.size()
@@ -1592,6 +1631,17 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
 
     uint256 finalEntropy;
     bool hasEntropy = false;
+    std::uint8_t entropyTier = entropyTierNone;
+    std::uint16_t entropyCount = 0;
+
+    // Tier 3 fallback: consensus-bound deterministic digest derived from
+    // already-agreed round inputs. txSetHash is the BASE (pre-injection)
+    // consensus tx set hash — the digest must never depend on a set that
+    // could contain the pseudo-tx carrying it (circular).
+    auto const fallbackEntropy = [&] {
+        return sha512Half(
+            HashPrefix::entropyFallback, roundPrevLedgerHash_, txSetHash, seq);
+    };
 
     //@@start rng-inject-entropy-selection
     // Calculate entropy from collected reveals
@@ -1601,19 +1651,25 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
         // so that Hook APIs (dice/random) work for testing.
         finalEntropy = sha512Half(std::string("standalone-entropy"), seq);
         hasEntropy = true;
+        entropyTier = entropyTierValidatorQuorum;
+        entropyCount = 20;  // synthetic: high enough for any hook minimum
         JLOG(j_.info()) << "RNG: standalone synthetic entropy"
                         << " seq=" << seq << " entropy=" << finalEntropy;
     }
     else if (shouldZeroEntropy())
     {
-        // Liveness fallback: inject zero entropy.
-        // Hooks MUST check for zero to know entropy is unavailable.
+        // Liveness fallback (Tier 3): consensus-bound deterministic entropy
+        // instead of zero. EntropyTier/EntropyCount mark it fallback-grade —
+        // user-influenceable via tx submission, never for value-bearing use.
         // shouldZeroEntropy() covers: pipeline failure, no reveals,
         // or sub-quorum reveals (too easily influenced by a minority).
-        finalEntropy.zero();
+        finalEntropy = fallbackEntropy();
         hasEntropy = true;
-        JLOG(j_.warn()) << "RNG: injecting ZERO entropy"
+        entropyTier = entropyTierConsensusFallback;
+        entropyCount = 0;
+        JLOG(j_.warn()) << "RNG: injecting FALLBACK entropy"
                         << " seq=" << seq << " reason=fallback"
+                        << " entropy=" << finalEntropy
                         << " reveals=" << pendingReveals_.size()
                         << " threshold=" << quorumThreshold()
                         << " entropyFailed=" << (entropyFailed_ ? "yes" : "no")
@@ -1664,6 +1720,8 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
             }
             finalEntropy = sha512Half(s.slice());
             hasEntropy = true;
+            entropyTier = entropyTierValidatorQuorum;
+            entropyCount = static_cast<std::uint16_t>(sorted.size());
 
             JLOG(j_.info())
                 << "RNG: injecting entropy"
@@ -1671,6 +1729,20 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
                 << " entropyCount=" << sorted.size() << " source=entropySetMap"
                 << " entropySetHash=" << entropySetMap_->getHash().as_uint256();
         }
+    }
+
+    if (!hasEntropy)
+    {
+        // Residual: an entropy set passed the gate but yielded no parseable
+        // leaves. Fall back rather than skipping injection so a fresh
+        // ConsensusEntropy entry exists on every RNG-enabled ledger.
+        finalEntropy = fallbackEntropy();
+        hasEntropy = true;
+        entropyTier = entropyTierConsensusFallback;
+        entropyCount = 0;
+        JLOG(j_.warn()) << "RNG: injecting FALLBACK entropy"
+                        << " seq=" << seq << " reason=unparseable-entropy-set"
+                        << " entropy=" << finalEntropy;
     }
     //@@end rng-inject-entropy-selection
 
@@ -1696,13 +1768,6 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
 
         //@@start rng-inject-pseudotx-core
         // Account Zero convention for pseudo-transactions (same as ttFEE, etc)
-        auto const entropyCount = static_cast<std::uint16_t>(
-            app_.config().standalone()
-                ? 20  // synthetic: high enough for Hook APIs (need >= 5)
-                : (shouldZeroEntropy()
-                       ? 0
-                       : std::distance(
-                             entropySetMap_->begin(), entropySetMap_->end())));
         STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
             obj.setFieldU32(sfLedgerSequence, seq);
             obj.setAccountID(sfAccount, AccountID{});
@@ -1710,12 +1775,17 @@ ConsensusExtensions::onPreBuild(CanonicalTXSet& retriableTxs, LedgerIndex seq)
             obj.setFieldAmount(sfFee, STAmount{});
             obj.setFieldH256(sfDigest, finalEntropy);
             obj.setFieldU16(sfEntropyCount, entropyCount);
+            obj.setFieldU8(sfEntropyTier, entropyTier);
         });
 
         auto const txID = tx.getTransactionID();
+        // Dedup by type, not exact txID: with explicit-final proposals the
+        // agreed set can already carry an entropy pseudo-tx whose fallback
+        // digest was derived from a base tx set hash this node cannot
+        // reconstruct. There must never be two entropy pseudo-txs.
         auto alreadyPresent = std::any_of(
             retriableTxs.begin(), retriableTxs.end(), [&](auto const& entry) {
-                return entry.first.getTXID() == txID;
+                return entry.second->getTxnType() == ttCONSENSUS_ENTROPY;
             });
         if (alreadyPresent)
         {
@@ -2015,6 +2085,7 @@ ConsensusExtensions::onRoundStart(
     hash_set<NodeID> lastProposers)
 {
     clearRngState();
+    roundPrevLedgerHash_ = prevLedger.ledger_->info().hash;
     cacheUNLReport(prevLedger.ledger_);
     setExpectedProposers(std::move(lastProposers));
     resetSubState();
