@@ -45,7 +45,10 @@ make_RPCSub(
     std::string const& strUrl,
     std::string const& strUsername,
     std::string const& strPassword,
-    Logs& logs);
+    Logs& logs,
+    // Max events buffered before new ones are dropped. Configurable so
+    // tests can exercise the drop path without queueing the full default.
+    std::size_t maxQueueSize = 16384);
 
 }  // namespace ripple
 

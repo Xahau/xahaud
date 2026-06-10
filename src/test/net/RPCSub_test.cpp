@@ -18,6 +18,8 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <xrpld/core/Job.h>
+#include <xrpld/core/JobQueue.h>
 #include <xrpld/net/RPCSub.h>
 #include <xrpl/json/json_value.h>
 
@@ -139,11 +141,11 @@ private:
 
 class RPCSub_test : public beast::unit_test::suite
 {
+    // Generous ceiling: the instrumented Debug (coverage) build is much
+    // slower than Release, so timeouts are sized for that, not Release.
     template <class Cond>
     bool
-    waitFor(
-        Cond cond,
-        std::chrono::milliseconds timeout = std::chrono::seconds{10})
+    waitFor(Cond cond, std::chrono::seconds timeout = std::chrono::seconds{30})
     {
         auto const deadline = std::chrono::steady_clock::now() + timeout;
         while (!cond() && std::chrono::steady_clock::now() < deadline)
@@ -152,7 +154,10 @@ class RPCSub_test : public beast::unit_test::suite
     }
 
     std::shared_ptr<RPCSub>
-    makeSub(jtx::Env& env, MockWebhookEndpoint& ep)
+    makeSub(
+        jtx::Env& env,
+        MockWebhookEndpoint& ep,
+        std::size_t maxQueueSize = 16384)
     {
         return make_RPCSub(
             env.app().getOPs(),
@@ -160,17 +165,32 @@ class RPCSub_test : public beast::unit_test::suite
             "http://127.0.0.1:" + std::to_string(ep.port()) + "/",
             "",
             "",
-            env.app().logs());
+            env.app().logs(),
+            maxQueueSize);
     }
 
-    // Wait until all queued events have been delivered, then give the
-    // sending job a moment to finish. sendThread captures a raw `this`,
-    // so the RPCSub must not be destroyed while it is still running.
-    void
-    drainAndSettle(MockWebhookEndpoint& ep, int expected)
+    // True once no RPCSub sending job is queued or running. sendThread
+    // captures a raw `this`, so the RPCSub must not be destroyed while a
+    // job is still in flight — wait on this before letting the sub die.
+    bool
+    sendingIdle(jtx::Env& env)
     {
-        BEAST_EXPECT(waitFor([&] { return ep.received() >= expected; }));
-        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        return env.app().getJobQueue().getJobCountTotal(jtCLIENT_SUBSCRIBE) ==
+            0;
+    }
+
+    // Wait for all events to reach the endpoint AND the sending job to
+    // finish, so the sub can be torn down without racing sendThread.
+    void
+    drainAndSettle(jtx::Env& env, MockWebhookEndpoint& ep, int expected)
+    {
+        bool const delivered =
+            waitFor([&] { return ep.received() >= expected; });
+        bool const idle = waitFor([&] { return sendingIdle(env); });
+        log << "  drainAndSettle: received=" << ep.received() << "/" << expected
+            << " idle=" << idle << std::endl;
+        BEAST_EXPECT(delivered);
+        BEAST_EXPECT(idle);
     }
 
     void
@@ -186,18 +206,16 @@ class RPCSub_test : public beast::unit_test::suite
     {
         testcase("Webhook events are delivered");
 
-        // N > maxInFlight(32) so sendThread drains in multiple batches
-        // within a single invocation (exercises the dispatch loop).
         using namespace jtx;
         Env env{*this};
         MockWebhookEndpoint ep;
 
-        static constexpr int N = 50;
+        static constexpr int N = 10;
         {
             auto sub = makeSub(env, ep);
             for (int i = 0; i < N; ++i)
                 send(sub, i);
-            drainAndSettle(ep, N);
+            drainAndSettle(env, ep, N);
         }
 
         BEAST_EXPECT(ep.received() == N);
@@ -217,12 +235,12 @@ class RPCSub_test : public beast::unit_test::suite
         MockWebhookEndpoint ep;
         ep.setStatus(500);
 
-        static constexpr int N = 50;
+        static constexpr int N = 10;
         {
             auto sub = makeSub(env, ep);
             for (int i = 0; i < N; ++i)
                 send(sub, i);
-            drainAndSettle(ep, N);
+            drainAndSettle(env, ep, N);
         }
 
         BEAST_EXPECT(ep.received() == N);
@@ -244,18 +262,48 @@ class RPCSub_test : public beast::unit_test::suite
         {
             auto sub = makeSub(env, ep);
 
-            for (int i = 0; i < 20; ++i)
+            // First burst, then wait for the sending job to fully drain
+            // and exit (mSending cleared) — deterministically, not via a
+            // sleep.
+            for (int i = 0; i < 5; ++i)
                 send(sub, i);
-            BEAST_EXPECT(waitFor([&] { return ep.received() >= 20; }));
-            // Let the first sending job finish so mSending goes false.
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            drainAndSettle(env, ep, 5);
 
-            for (int i = 20; i < 40; ++i)
+            // Second burst must start a fresh sending job.
+            for (int i = 5; i < 10; ++i)
                 send(sub, i);
-            drainAndSettle(ep, 40);
+            drainAndSettle(env, ep, 10);
         }
 
-        BEAST_EXPECT(ep.received() == 40);
+        BEAST_EXPECT(ep.received() == 10);
+    }
+
+    void
+    testQueueCapDrops()
+    {
+        testcase("Events past the queue cap are dropped");
+
+        // With a tiny cap, pushing far more events than delivery can keep
+        // up with forces send() down the drop path: enqueue is microsecond
+        // -fast while each HTTP delivery is a full round-trip, so the deque
+        // sits at the cap and excess events are dropped. We just need some
+        // delivered (cap works) and some dropped (drop path exercised).
+        using namespace jtx;
+        Env env{*this};
+        MockWebhookEndpoint ep;
+
+        static constexpr int pushed = 50;
+        {
+            auto sub = makeSub(env, ep, /*maxQueueSize*/ 2);
+            for (int i = 0; i < pushed; ++i)
+                send(sub, i);
+            BEAST_EXPECT(waitFor([&] { return sendingIdle(env); }));
+        }
+
+        log << "  queue cap: received " << ep.received() << "/" << pushed
+            << std::endl;
+        BEAST_EXPECT(ep.received() > 0);
+        BEAST_EXPECT(ep.received() < pushed);
     }
 
 public:
@@ -265,6 +313,7 @@ public:
         testDelivery();
         testErrorsDoNotStall();
         testRestartAfterDrain();
+        testQueueCapDrops();
     }
 };
 

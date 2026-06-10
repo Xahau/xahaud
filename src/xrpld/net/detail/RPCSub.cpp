@@ -37,7 +37,8 @@ public:
         std::string const& strUrl,
         std::string const& strUsername,
         std::string const& strPassword,
-        Logs& logs)
+        Logs& logs,
+        std::size_t maxQueueSize)
         : RPCSub(source)
         , m_jobQueue(jobQueue)
         , mUrl(strUrl)
@@ -45,6 +46,7 @@ public:
         , mUsername(strUsername)
         , mPassword(strPassword)
         , mSending(false)
+        , maxQueueSize_(maxQueueSize)
         , j_(logs.journal("RPCSub"))
         , logs_(logs)
     {
@@ -76,7 +78,7 @@ public:
     {
         std::lock_guard sl(mLock);
 
-        if (mDeque.size() >= maxQueueSize)
+        if (mDeque.size() >= maxQueueSize_)
         {
             // Always advance mSeq so consumers can detect the gap, but
             // rate-limit the log: a hopelessly behind endpoint drops on
@@ -137,13 +139,6 @@ private:
     // peers, clients, and the node store, 32 per subscriber is a
     // meaningful but survivable chunk even with multiple subscribers.
     static constexpr int maxInFlight = 32;
-
-    // Maximum queued events before dropping. At ~5-10KB per event
-    // this is ~80-160MB worst case — trivial memory-wise. The real
-    // purpose is detecting a hopelessly behind endpoint: at 100+
-    // events per ledger (every ~4s), 16384 events is ~10 minutes
-    // of buffer. Consumers detect gaps via the seq field.
-    static constexpr std::size_t maxQueueSize = 16384;
 
     // Log one drop warning per this many drops while the queue stays
     // full, to avoid flooding the log on a persistently behind endpoint.
@@ -255,6 +250,11 @@ private:
 
     bool mSending;  // Sending threead is active.
 
+    // Maximum queued events before dropping. The default (16384) is a
+    // ~10-minute buffer at 100+ events/ledger; a hopelessly behind
+    // endpoint trips it and consumers detect the gap via the seq field.
+    std::size_t const maxQueueSize_;
+
     std::deque<std::pair<int, Json::Value>> mDeque;
 
     beast::Journal const j_;
@@ -274,7 +274,8 @@ make_RPCSub(
     std::string const& strUrl,
     std::string const& strUsername,
     std::string const& strPassword,
-    Logs& logs)
+    Logs& logs,
+    std::size_t maxQueueSize)
 {
     return std::make_shared<RPCSubImp>(
         std::ref(source),
@@ -282,7 +283,8 @@ make_RPCSub(
         strUrl,
         strUsername,
         strPassword,
-        logs);
+        logs,
+        maxQueueSize);
 }
 
 }  // namespace ripple
