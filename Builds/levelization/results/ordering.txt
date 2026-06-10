@@ -12,6 +12,7 @@ libxrpl.server > xrpl.basics
 libxrpl.server > xrpl.json
 libxrpl.server > xrpl.protocol
 libxrpl.server > xrpl.server
+test.app > test.shamap
 test.app > test.toplevel
 test.app > test.unit_test
 test.app > xrpl.basics

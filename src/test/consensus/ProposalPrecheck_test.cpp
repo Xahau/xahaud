@@ -16,7 +16,7 @@
 */
 //==============================================================================
 
-#include <xrpld/overlay/detail/ProposalPrecheck.h>
+#include <xrpld/app/consensus/ProposalPrecheck.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/digest.h>
 
@@ -277,7 +277,7 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(ProposalPrecheck, overlay, ripple);
+BEAST_DEFINE_TESTSUITE(ProposalPrecheck, consensus, ripple);
 
 }  // namespace test
 }  // namespace ripple

@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/consensus/ConsensusExtensions.h>
+#include <xrpld/app/consensus/ProposalPrecheck.h>
 #include <xrpld/app/consensus/RCLValidations.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
@@ -33,7 +34,6 @@
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/overlay/Cluster.h>
 #include <xrpld/overlay/detail/PeerImp.h>
-#include <xrpld/overlay/detail/ProposalPrecheck.h>
 #include <xrpld/overlay/detail/Tuning.h>
 #include <xrpld/perflog/PerfLog.h>
 #include <xrpl/basics/UptimeClock.h>
