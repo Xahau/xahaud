@@ -72,7 +72,8 @@ public:
             BEAST_EXPECT(precheck.result == ok);
             BEAST_EXPECT(precheck.position);
             if (precheck.position)
-                BEAST_EXPECT(precheck.position->txSetHash == position.txSetHash);
+                BEAST_EXPECT(
+                    precheck.position->txSetHash == position.txSetHash);
         }
 
         testcase("malformed hashes and extended payload");
@@ -179,13 +180,13 @@ public:
             auto const check = [&](detail::ProposalPrecheckResult result,
                                    char const* logMessage,
                                    char const* feeReason) {
-                auto const rejection = detail::proposalPrecheckRejection(result);
+                auto const rejection =
+                    detail::proposalPrecheckRejection(result);
                 BEAST_EXPECT(rejection);
                 if (rejection)
                 {
                     BEAST_EXPECT(
-                        std::string_view{rejection->logMessage} ==
-                        logMessage);
+                        std::string_view{rejection->logMessage} == logMessage);
                     BEAST_EXPECT(
                         std::string_view{rejection->feeReason} == feeReason);
                 }
@@ -198,7 +199,8 @@ public:
                 "bad proposal position");
             check(
                 entropyDisabled,
-                "Proposal: entropy fields while featureConsensusEntropy disabled",
+                "Proposal: entropy fields while featureConsensusEntropy "
+                "disabled",
                 "entropy fields disabled");
             check(
                 exportDisabled,

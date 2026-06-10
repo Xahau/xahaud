@@ -133,9 +133,20 @@ public:
         testcase("sidecar leaf");
 
         Blob const payload{
-            0x53, 0x49, 0x44, 0x45, 0x43, 0x41, 0x52, 0x00, 0x01, 0x02,
-            0x03, 0x04};
-        auto const itemHash = sha512Half(HashPrefix::sidecar, makeSlice(payload));
+            0x53,
+            0x49,
+            0x44,
+            0x45,
+            0x43,
+            0x41,
+            0x52,
+            0x00,
+            0x01,
+            0x02,
+            0x03,
+            0x04};
+        auto const itemHash =
+            sha512Half(HashPrefix::sidecar, makeSlice(payload));
         auto const item = make_shamapitem(itemHash, makeSlice(payload));
 
         SHAMapSidecarLeafNode leaf{item, 7};
@@ -177,7 +188,8 @@ public:
             SHAMapNodeType::tnSIDECAR, make_shamapitem(*item)));
         sidecars.invariants();
         BEAST_EXPECT(sidecars.hasItem(itemHash));
-        BEAST_EXPECT(sidecars.peekItem(itemHash)->slice() == makeSlice(payload));
+        BEAST_EXPECT(
+            sidecars.peekItem(itemHash)->slice() == makeSlice(payload));
 
         SHAMapMissingNode missing{SHAMapType::SIDECAR, leaf.getHash()};
         BEAST_EXPECT(

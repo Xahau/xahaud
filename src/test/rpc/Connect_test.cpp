@@ -63,16 +63,13 @@ class Connect_test : public beast::unit_test::suite
             BEAST_EXPECT(result[jss::result][jss::status] == "error");
             BEAST_EXPECT(result[jss::result].isMember(jss::error));
             BEAST_EXPECT(
-                result[jss::result][jss::error_message]
-                    .asString()
-                    .find("ip") != std::string::npos);
+                result[jss::result][jss::error_message].asString().find("ip") !=
+                std::string::npos);
         }
 
         {
             auto const result = env.rpc(
-                "json",
-                "disconnect",
-                R"({"ip":"127.0.0.1","port":"bad"})");
+                "json", "disconnect", R"({"ip":"127.0.0.1","port":"bad"})");
             BEAST_EXPECT(result[jss::result][jss::status] == "error");
             BEAST_EXPECT(result[jss::result][jss::error] == "invalidParams");
         }
@@ -85,8 +82,8 @@ class Connect_test : public beast::unit_test::suite
                 result[jss::result][jss::message].asString().find(
                     "port: 21337") != std::string::npos);
             BEAST_EXPECT(
-                result[jss::result][jss::message].asString().find(
-                    "peers: 0") != std::string::npos);
+                result[jss::result][jss::message].asString().find("peers: 0") !=
+                std::string::npos);
         }
 
         {

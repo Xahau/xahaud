@@ -1721,6 +1721,13 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         return;
     }
 
+    if (detail::proposalHasMalformedHashes(set))
+    {
+        JLOG(p_journal_.warn()) << "Proposal: malformed";
+        fee_.update(Resource::feeMalformedRequest, "bad hashes");
+        return;
+    }
+
     // RH TODO: when isTrusted = false we should probably also cache a key
     // suppression for 30 seconds to avoid doing a relatively expensive lookup
     // every time a spam packet is received

@@ -2501,12 +2501,17 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         ce.onTrustedPeerMessage(wire);
         BEAST_EXPECT(ce.exportSigCollector().hasUnverifiedSignatures());
+        auto const beforeMalformed =
+            ce.exportSigCollector().unverifiedSignatures(tx);
+        BEAST_EXPECT(beforeMalformed.size() == 1);
 
         protocol::TMProposeSet malformed;
         malformed.add_exportsignatures(blob);
         malformed.set_nodepubkey("bad", 3);
         ce.onTrustedPeerMessage(malformed);
-        BEAST_EXPECT(ce.exportSigCollector().hasUnverifiedSignatures());
+        auto const afterMalformed =
+            ce.exportSigCollector().unverifiedSignatures(tx);
+        BEAST_EXPECT(afterMalformed == beforeMalformed);
     }
 
     void

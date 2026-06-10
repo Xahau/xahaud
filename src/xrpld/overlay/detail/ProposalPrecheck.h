@@ -35,6 +35,13 @@ struct ProposalPrecheckRejection
     char const* feeReason;
 };
 
+inline bool
+proposalHasMalformedHashes(protocol::TMProposeSet const& set)
+{
+    return set.currenttxhash().size() < uint256::size() ||
+        set.previousledger().size() != uint256::size();
+}
+
 inline std::optional<ProposalPrecheckRejection>
 proposalPrecheckRejection(ProposalPrecheckResult result)
 {
@@ -51,7 +58,8 @@ proposalPrecheckRejection(ProposalPrecheckResult result)
                 "bad proposal position"};
         case ProposalPrecheckResult::entropyDisabled:
             return ProposalPrecheckRejection{
-                "Proposal: entropy fields while featureConsensusEntropy disabled",
+                "Proposal: entropy fields while featureConsensusEntropy "
+                "disabled",
                 "entropy fields disabled"};
         case ProposalPrecheckResult::exportDisabled:
             return ProposalPrecheckRejection{
@@ -81,8 +89,7 @@ checkProposalExtensions(
     bool entropyEnabled,
     bool exportEnabled)
 {
-    if (set.currenttxhash().size() < uint256::size() ||
-        set.previousledger().size() != uint256::size())
+    if (proposalHasMalformedHashes(set))
     {
         return {ProposalPrecheckResult::badHashes, std::nullopt};
     }
