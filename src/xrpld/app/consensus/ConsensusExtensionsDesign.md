@@ -15,17 +15,23 @@ extension timing must not create divergent closed-ledger effects when a bounded
 coordination step can avoid it. Fast means those coordination steps stay short
 and conditional, never becoming an open-ended wait for an extension feature to
 succeed. Works means missed or late extension material follows that feature's
-deterministic fallback, such as zero entropy for RNG or normal Export
-retry/expiry, rather than blocking core consensus.
+deterministic fallback, such as Tier 3 fallback entropy for RNG or normal
+Export retry/expiry, rather than blocking core consensus.
 
 ## Fallback Semantics
 
 RNG and Export use similar positive-path sidecar gates, but they do not have
-the same safe fallback. RNG can safely close with deterministic zero entropy
-when peers cannot establish quorum alignment on non-zero entropy in time.
-Export has no equivalent dummy success value: without quorum-aligned verified
-export signatures, the export must not be treated as complete and must retry or
-expire under transaction rules.
+the same safe fallback. RNG can safely close with a deterministic
+consensus-bound fallback digest (Tier 3) when peers cannot establish quorum
+alignment on validator entropy in time: every input to the fallback
+(`HashPrefix::entropyFallback`, parent ledger hash, base tx set hash,
+sequence) is already consensus-agreed at injection time, so no second
+agreement is needed. The result is explicitly labeled
+(`EntropyTier = consensus_fallback`, `EntropyCount = 0`) — it is
+user-influenceable via transaction submission and must never be presented
+under validator-entropy semantics. Export has no equivalent fallback value:
+without quorum-aligned verified export signatures, the export must not be
+treated as complete and must retry or expire under transaction rules.
 
 ## Core Invariants
 
@@ -39,10 +45,11 @@ expire under transaction rules.
 2. Extension waits are bounded.
 
    RNG and export sidecar convergence may wait briefly inside establish, but
-   they must not block ledger close indefinitely. If RNG cannot establish a
-   safe non-zero entropy value, it injects the deterministic zero-entropy path.
-   If export signatures cannot converge, export retries or expires according
-   to transaction rules.
+   they must not block ledger close indefinitely. If RNG cannot establish
+   quorum-aligned validator entropy, it injects the deterministic Tier 3
+   fallback digest (labeled `consensus_fallback`, count 0). If export
+   signatures cannot converge, export retries or expires according to
+   transaction rules.
 
 3. Safety is in validation; extension logic is deliberation.
 
@@ -144,7 +151,8 @@ local reveal subsets at timeout boundaries from producing different entropy.
 
 ## Entropy Alignment Rules
 
-Non-zero entropy requires quorum alignment on the entropy sidecar hash.
+Validator-tier entropy requires quorum alignment on the entropy sidecar
+hash.
 
 The alignment count is:
 
@@ -152,25 +160,33 @@ The alignment count is:
 our published entropySetHash + tx-converged peers with the same entropySetHash
 ```
 
-If that count reaches `quorumThreshold()`, the node may proceed with non-zero
-entropy even if a below-quorum minority advertises a conflicting or
-unacquirable entropy hash.
+If that count reaches `quorumThreshold()`, the node may proceed with
+validator-tier entropy even if a below-quorum minority advertises a
+conflicting or unacquirable entropy hash.
 
 If no entropy hash reaches quorum alignment before the bounded deadline, the
-round must fall back to zero entropy. This is the safe degradation path, not a
-consensus failure.
+round must fall back to the Tier 3 consensus-bound digest. This is the safe
+degradation path, not a consensus failure.
 
 Examples with five active validators and threshold four:
 
 - Four honest validators align on one entropy hash and one validator advertises
-  a bogus hash: proceed with non-zero entropy for the honest quorum.
+  a bogus hash: proceed with validator-tier entropy for the honest quorum.
 - Two validators advertise different bogus hashes and only three align on the
-  honest hash: fall back to zero entropy.
-- No peer entropy hash is observed in time: fall back to zero entropy.
+  honest hash: fall back to the Tier 3 digest.
+- No peer entropy hash is observed in time: fall back to the Tier 3 digest.
 
-Zero entropy means unavailable entropy. The pseudo-transaction is still
-deterministic, with zero digest and zero entropy count, so hooks can detect
-the unavailable path.
+The fallback pseudo-transaction is deterministic — every node derives the same
+digest from `(HashPrefix::entropyFallback, parentLedgerHash, baseTxSetHash,
+seq)` — and labeled with `EntropyTier = consensus_fallback` and
+`EntropyCount = 0`. Hooks state their own requirements via the required
+`min_tier`/`min_count` arguments to `dice()`/`random()`: a hook that demands
+validator-tier entropy fails closed with `TOO_LITTLE_ENTROPY` on fallback
+ledgers, while a hook that opts into fallback-grade randomness must do so
+explicitly at the call site. The fallback digest derives from the BASE
+(pre-injection) tx set hash to avoid circularity, and entropy pseudo-tx
+deduplication is type-based so an explicit-final synthetic set's pseudo-tx is
+recognized even when its exact txID cannot be re-derived locally.
 
 ## Sidecar Convergence Rules
 
