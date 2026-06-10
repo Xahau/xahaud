@@ -24,11 +24,14 @@
 #include <boost/asio.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace ripple {
 namespace test {
@@ -56,6 +59,13 @@ class MockHTTPServer
     std::atomic<bool> closeImmediately_{false};
     std::atomic<bool> noContentLength_{false};
 
+    // Sockets deliberately held open (sendResponse_ == false) so the
+    // client must hit its deadline. Without this the only shared_ptr to
+    // the socket would drop when the accept handler returns, closing it
+    // and turning a timeout test into a server-closed test.
+    std::mutex heldMutex_;
+    std::vector<std::shared_ptr<boost::asio::ip::tcp::socket>> heldSockets_;
+
 public:
     MockHTTPServer()
         : work_(std::make_unique<boost::asio::io_service::work>(ios_))
@@ -76,6 +86,15 @@ public:
         work_.reset();  // Allow io_service to stop.
         boost::system::error_code ec;
         acceptor_.close(ec);
+        {
+            std::lock_guard lk(heldMutex_);
+            for (auto& s : heldSockets_)
+            {
+                boost::system::error_code ig;
+                s->close(ig);
+            }
+            heldSockets_.clear();
+        }
         ios_.stop();
         if (thread_.joinable())
             thread_.join();
@@ -172,10 +191,12 @@ private:
 
                 if (!sendResponse_)
                 {
-                    // Hold connection open without responding.
-                    // The socket shared_ptr prevents cleanup.
-                    // This simulates a server that accepts but
-                    // never responds (e.g., overloaded).
+                    // Accept but never respond, simulating an overloaded
+                    // endpoint. Stash the socket so it stays open past
+                    // this handler — the client must time out on its own
+                    // deadline rather than see the connection close.
+                    std::lock_guard lk(heldMutex_);
+                    heldSockets_.push_back(sock);
                     return;
                 }
 
@@ -210,9 +231,44 @@ private:
             *sock,
             boost::asio::buffer(*response),
             [this, sock, response](auto, size_t) {
-                boost::system::error_code ec;
-                sock->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
-                sock->close(ec);
+                if (noContentLength_)
+                {
+                    // EOF-delimited: the server must close to signal the
+                    // end of the body, so release immediately.
+                    boost::system::error_code ec;
+                    sock->shutdown(
+                        boost::asio::ip::tcp::socket::shutdown_both, ec);
+                    sock->close(ec);
+                    --activeConnections_;
+                    return;
+                }
+                // Content-Length response: keep the connection counted
+                // until the CLIENT closes its end. This makes
+                // activeConnectionCount() track client-side socket
+                // cleanup (FD release) rather than the server's own
+                // lifecycle — so a leaked HTTPClientImp shows up as a
+                // connection that never drops, not a false zero.
+                awaitClientClose(sock);
+            });
+    }
+
+    void
+    awaitClientClose(std::shared_ptr<boost::asio::ip::tcp::socket> sock)
+    {
+        auto drain = std::make_shared<std::array<char, 64>>();
+        sock->async_read_some(
+            boost::asio::buffer(*drain),
+            [this, sock, drain](boost::system::error_code ec, std::size_t n) {
+                if (!ec && n > 0)
+                {
+                    // Leftover request body or pipelined bytes — keep
+                    // waiting for the client's close (EOF).
+                    awaitClientClose(sock);
+                    return;
+                }
+                boost::system::error_code ig;
+                sock->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ig);
+                sock->close(ig);
                 --activeConnections_;
             });
     }
@@ -222,6 +278,30 @@ private:
 
 class HTTPClient_test : public beast::unit_test::suite
 {
+    // Poll until cond() holds or the timeout elapses. The mock server now
+    // decrements its connection count only when the CLIENT closes its
+    // socket (it waits for the client's EOF), and that runs on the
+    // server's io_service thread — so a bounded poll is more robust than
+    // a fixed sleep against that cross-thread timing.
+    template <class Cond>
+    bool
+    waitFor(
+        Cond cond,
+        std::chrono::milliseconds timeout = std::chrono::seconds{5})
+    {
+        auto const deadline = std::chrono::steady_clock::now() + timeout;
+        while (!cond() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return cond();
+    }
+
+    bool
+    waitForConnections(MockHTTPServer& server, int expected)
+    {
+        return waitFor(
+            [&] { return server.activeConnectionCount() == expected; });
+    }
+
     // Helper: fire an HTTP request and track completion via atomic counter.
     void
     fireRequest(
@@ -286,7 +366,7 @@ class HTTPClient_test : public beast::unit_test::suite
         BEAST_EXPECT(server.totalAcceptedCount() == 1);
         // After io_service.run() returns, the server should
         // see zero active connections — socket was released.
-        BEAST_EXPECT(server.activeConnectionCount() == 0);
+        BEAST_EXPECT(waitForConnections(server, 0));
     }
 
     void
@@ -310,7 +390,7 @@ class HTTPClient_test : public beast::unit_test::suite
         }
 
         BEAST_EXPECT(completed == 1);
-        BEAST_EXPECT(server.activeConnectionCount() == 0);
+        BEAST_EXPECT(waitForConnections(server, 0));
     }
 
     void
@@ -401,7 +481,7 @@ class HTTPClient_test : public beast::unit_test::suite
         }
 
         BEAST_EXPECT(completed == 1);
-        BEAST_EXPECT(server.activeConnectionCount() == 0);
+        BEAST_EXPECT(waitForConnections(server, 0));
     }
 
     void
@@ -486,7 +566,7 @@ class HTTPClient_test : public beast::unit_test::suite
         BEAST_EXPECT(completed == N);
         // Brief sleep to let server-side shutdown complete.
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        BEAST_EXPECT(server.activeConnectionCount() == 0);
+        BEAST_EXPECT(waitForConnections(server, 0));
 
         log << "  Completed: " << completed
             << ", Peak concurrent: " << server.peakConnectionCount()
@@ -523,7 +603,7 @@ class HTTPClient_test : public beast::unit_test::suite
 
         BEAST_EXPECT(completed == N);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        BEAST_EXPECT(server.activeConnectionCount() == 0);
+        BEAST_EXPECT(waitForConnections(server, 0));
     }
 
     void
@@ -656,7 +736,7 @@ class HTTPClient_test : public beast::unit_test::suite
 
         // Give server-side shutdown a moment.
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        BEAST_EXPECT(server.activeConnectionCount() == 0);
+        BEAST_EXPECT(waitForConnections(server, 0));
 
         if (server.activeConnectionCount() != 0)
         {
@@ -724,7 +804,7 @@ class HTTPClient_test : public beast::unit_test::suite
 
         BEAST_EXPECT(completed == N);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        BEAST_EXPECT(server.activeConnectionCount() == 0);
+        BEAST_EXPECT(waitForConnections(server, 0));
 
         log << "  Completed: " << completed << "/" << N
             << ", Active connections after: " << server.activeConnectionCount()
@@ -791,7 +871,7 @@ class HTTPClient_test : public beast::unit_test::suite
                 << " prevents HTTPClientImp destruction."
                 << " Socket FD leaked." << std::endl;
         }
-        BEAST_EXPECT(server.activeConnectionCount() == 0);
+        BEAST_EXPECT(waitForConnections(server, 0));
     }
 
 public:
