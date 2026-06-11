@@ -108,8 +108,8 @@ async def scenario(ctx, log):
         )
 
     # Inspect post-recovery ledgers separately from the degraded window above.
-    # Once the network is back at quorum, non-zero entropy is valid again but
-    # must still be quorum-met.
+    # Once the network is back at quorum, validator-tier entropy is expected
+    # again (transitional fallback ledgers are fine) and must be quorum-met.
     fallback_count = 0
     validator_count = 0
     for seq in range(pre_recovery + 1, val_recovered + 1):
