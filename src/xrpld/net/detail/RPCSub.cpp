@@ -203,20 +203,19 @@ private:
                         logs_);
                     ++dispatched;
                 }
-
-                if (dispatched == 0)
-                {
-                    // Reset under the lock to avoid a lost-wakeup race
-                    // with send() enqueuing a new event.
-                    mSending = false;
-                    return;
-                }
             }
 
-            JLOG(j_.info()) << "RPCCall::fromNetwork: " << mIp
-                            << " dispatching " << dispatched << " events";
+            // dispatched is always > 0 here (send() only starts a job
+            // after enqueuing, and the re-queue below only fires with a
+            // non-empty deque), but guard anyway so an empty batch can't
+            // log/spin — it falls straight through to clear mSending.
+            if (dispatched > 0)
+            {
+                JLOG(j_.info()) << "RPCCall::fromNetwork: " << mIp
+                                << " dispatching " << dispatched << " events";
 
-            io_service.run();
+                io_service.run();
+            }
         }
         catch (std::exception const& e)
         {
