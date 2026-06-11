@@ -58,6 +58,7 @@ class MockHTTPServer
     std::atomic<bool> sendResponse_{true};
     std::atomic<bool> closeImmediately_{false};
     std::atomic<bool> noContentLength_{false};
+    std::atomic<bool> partialBodyHold_{false};
 
     // Sockets deliberately held open (sendResponse_ == false) so the
     // client must hit its deadline. Without this the only shared_ptr to
@@ -145,6 +146,11 @@ public:
     {
         noContentLength_ = noContentLength;
     }
+    void
+    setPartialBodyHold(bool v)
+    {
+        partialBodyHold_ = v;
+    }
 
 private:
     void
@@ -196,6 +202,25 @@ private:
                     // deadline rather than see the connection close.
                     std::lock_guard lk(heldMutex_);
                     heldSockets_.push_back(sock);
+                    return;
+                }
+
+                if (partialBodyHold_)
+                {
+                    // Promise more body than we deliver, then hold the
+                    // socket open. The client reads the header, blocks in
+                    // handleData waiting for the rest of the body, and
+                    // eventually hits its deadline — exercising the
+                    // read-error completion path (mShutdown != eof).
+                    auto resp = std::make_shared<std::string>(
+                        "HTTP/1.0 200 OK\r\nContent-Length: 1000\r\n\r\nXX");
+                    boost::asio::async_write(
+                        *sock,
+                        boost::asio::buffer(*resp),
+                        [this, sock, resp](auto, std::size_t) {
+                            std::lock_guard lk(heldMutex_);
+                            heldSockets_.push_back(sock);
+                        });
                     return;
                 }
 
@@ -453,6 +478,41 @@ class HTTPClient_test : public beast::unit_test::suite
         }
 
         // Callback must be invoked even on timeout.
+        BEAST_EXPECT(completed == 1);
+    }
+
+    void
+    testReadErrorDuringBody()
+    {
+        testcase("Read error during body invokes callback");
+
+        // Server sends a header promising 1000 body bytes but delivers
+        // only 2, then holds the socket. The client blocks in handleData
+        // waiting for the rest and hits its deadline, driving the
+        // read-error completion path (mShutdown != eof). The callback
+        // must still fire.
+
+        using namespace jtx;
+        Env env{*this};
+
+        MockHTTPServer server;
+        server.setPartialBodyHold(true);
+
+        std::atomic<int> completed{0};
+        auto j = env.app().journal("HTTPClient");
+
+        {
+            boost::asio::io_service ios;
+            fireRequest(
+                ios,
+                "127.0.0.1",
+                server.port(),
+                completed,
+                j,
+                std::chrono::seconds{2});
+            ios.run();
+        }
+
         BEAST_EXPECT(completed == 1);
     }
 
@@ -885,6 +945,7 @@ public:
         testCleanupAfter500();
         testCleanupAfterConnectionRefused();
         testCleanupAfterTimeout();
+        testReadErrorDuringBody();
         testCleanupAfterServerCloseBeforeResponse();
         testEOFCompletionCallsCallback();
         testConcurrentRequestCleanup();
