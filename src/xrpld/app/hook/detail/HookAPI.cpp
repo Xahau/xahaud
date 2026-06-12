@@ -1945,8 +1945,19 @@ HookAPI::state_foreign_set(
     {
         auto const sle =
             hookCtx.applyCtx.view().read(ripple::keylet::hook(account));
+
         if (!sle)
+        {
+            if (hasFix)
+            {
+                hookCtx.result.foreignStateSetDisabled = true;
+                return Unexpected(NOT_AUTHORIZED);
+            }
+
             return Unexpected(INTERNAL_ERROR);
+        }
+
+        // RH TODO: test this code path more completely
 
         bool found_auth = false;
 
