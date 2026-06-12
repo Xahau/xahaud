@@ -13499,7 +13499,7 @@ public:
                     0,0
                 )));
                 
-                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_AMM,
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_AMM,
                     SBUF(asset1), SBUF(asset2),
                     0,0
                 )));

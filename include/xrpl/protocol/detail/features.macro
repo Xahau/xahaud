@@ -60,7 +60,7 @@ XRPL_FIX    (FillOrKill,                 Supported::yes, VoteBehavior::DefaultYe
 XRPL_FEATURE(DID,                        Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FIX    (DisallowIncomingV1,         Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(XChainBridge,               Supported::no,  VoteBehavior::DefaultNo)
-XRPL_FEATURE(AMM,                        Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FEATURE(AMM,                        Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FIX    (ReducedOffersV1,            Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(HooksUpdate2,               Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(HookOnV2,                   Supported::yes, VoteBehavior::DefaultNo)
