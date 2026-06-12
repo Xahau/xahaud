@@ -4331,7 +4331,7 @@ struct Escrow_test : public beast::unit_test::suite
         auto const USD = gw["USD"];
 
         // AMMCreate fails - insufficient balance
-        Env env(*this, features);
+        Env env(*this, features | featureAMM | featureAMMClawback);
         env.fund(XRP(10000), alice, bob, gw);
         env.close();
 
@@ -4383,8 +4383,8 @@ struct Escrow_test : public beast::unit_test::suite
 
         env(ammAlice.bid(BidArg{
                 .account = alice,
-                .assets = {{USD, XRP}},
                 .bidMax = 100,
+                .assets = {{USD, XRP}},
             }),
             ter(tecAMM_INVALID_TOKENS));
 
@@ -4395,6 +4395,13 @@ struct Escrow_test : public beast::unit_test::suite
             std::nullopt,
             {{USD, XRP}},
             ter(tecAMM_INVALID_TOKENS));
+
+        // Cannot escrow clawbackable tokens, so we cannot ammClawback escrowed
+        // tokens
+        // env(amm::ammClawback(gw, alice, USD, XRP, USD(100)),
+        //     ter(tecAMM_BALANCE));
+        // env(amm::ammClawback(gw, alice, USD, XRP, std::nullopt),
+        //     ter(tecAMM_BALANCE));
     }
 
     static uint256
