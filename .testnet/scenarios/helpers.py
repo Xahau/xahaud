@@ -57,7 +57,7 @@ def get_entropy_tx(ctx, seq):
 def entropy_fields(ce_tx):
     """Return (digest, entropy_count, is_fallback) from a ConsensusEntropy tx.
 
-    Tier 3: fallback rounds carry a deterministic non-zero consensus-bound
+    consensus_fallback rounds carry a deterministic non-zero consensus-bound
     digest with EntropyCount=0 and EntropyTier=1 (consensus_fallback).
     Validator entropy has EntropyTier=3 (validator_quorum).
     """

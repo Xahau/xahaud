@@ -1,4 +1,4 @@
-""":descr: 4/5 liveness, 3/5 fallback-entropy (Tier 3), recovery"""
+""":descr: 4/5 liveness, 3/5 fallback-entropy (consensus_fallback), recovery"""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ async def scenario(ctx, log):
     # Accepted/built ledgers may still later appear as validated once the full
     # network rejoins. For ConsensusEntropy the key invariant is that every
     # ledger created during this sub-quorum window carries FALLBACK entropy
-    # (Tier 3: non-zero consensus-bound digest, EntropyCount=0) — never
+    # (consensus_fallback: non-zero consensus-bound digest, count 0) — never
     # validator-tier entropy.
     degraded_fallback = 0
     degraded_end = val_after or val_before
@@ -43,7 +43,7 @@ async def scenario(ctx, log):
             digest, entropy_count, is_fallback = entropy_fields(ce)
             tier = ce.get("EntropyTier")
 
-            # Tier 3 = consensus_fallback (1): explicit tier, count 0,
+            # consensus_fallback (EntropyTier=1): explicit tier, count 0,
             # deterministic NON-zero digest.
             if tier != 1:
                 raise AssertionError(
@@ -59,7 +59,7 @@ async def scenario(ctx, log):
             if not digest or digest == ZERO_DIGEST:
                 raise AssertionError(
                     f"Ledger {seq}: fallback digest must be non-zero "
-                    f"(Tier 3), got {digest[:16]}..."
+                    f"(consensus_fallback), got {digest[:16]}..."
                 )
             assert is_fallback  # tier==1 implies fallback
 
