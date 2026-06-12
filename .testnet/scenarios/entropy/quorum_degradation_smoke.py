@@ -41,18 +41,27 @@ async def scenario(ctx, log):
         for seq in range(val_before + 1, degraded_end + 1):
             ce, _ = get_entropy_tx(ctx, seq)
             digest, entropy_count, is_fallback = entropy_fields(ce)
+            tier = ce.get("EntropyTier")
 
-            if not is_fallback:
+            # Tier 3 = consensus_fallback (1): explicit tier, count 0,
+            # deterministic NON-zero digest.
+            if tier != 1:
                 raise AssertionError(
-                    f"Ledger {seq}: expected fallback entropy during 3/5 "
-                    f"window, got Digest={digest[:16]}... "
-                    f"EntropyCount={entropy_count}"
+                    f"Ledger {seq}: expected EntropyTier==1 "
+                    f"(consensus_fallback) during 3/5 window, got {tier} "
+                    f"(EntropyCount={entropy_count})"
                 )
-            if digest == ZERO_DIGEST:
+            if entropy_count != 0:
                 raise AssertionError(
-                    f"Ledger {seq}: fallback digest should be non-zero "
-                    f"(Tier 3), got zero"
+                    f"Ledger {seq}: fallback EntropyCount must be 0, got "
+                    f"{entropy_count}"
                 )
+            if not digest or digest == ZERO_DIGEST:
+                raise AssertionError(
+                    f"Ledger {seq}: fallback digest must be non-zero "
+                    f"(Tier 3), got {digest[:16]}..."
+                )
+            assert is_fallback  # tier==1 implies fallback
 
             degraded_fallback += 1
             log(

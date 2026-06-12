@@ -1779,19 +1779,46 @@ ConsensusExtensions::onPreBuild(
         });
 
         auto const txID = tx.getTransactionID();
-        // Dedup by type, not exact txID: with explicit-final proposals the
-        // agreed set can already carry an entropy pseudo-tx whose fallback
-        // digest was derived from a base tx set hash this node cannot
-        // reconstruct. There must never be two entropy pseudo-txs.
-        auto alreadyPresent = std::any_of(
-            retriableTxs.begin(), retriableTxs.end(), [&](auto const& entry) {
+        // Value-based dedup. There must never be two entropy pseudo-txs, but
+        // when one is already present (explicit-final, or a peer's agreed
+        // set) it must be VALIDATED as the exact pseudo-tx we would have
+        // produced — not merely "same type". Injection is deterministic, so
+        // every honest node derives the identical pseudo-tx (identical txID)
+        // for the same agreed inputs. A present-but-different entropy pseudo-tx
+        // is therefore a determinism violation (version skew or a divergent/
+        // malicious peer) and must be surfaced, not silently trusted.
+        auto const existing = std::find_if(
+            retriableTxs.begin(), retriableTxs.end(), [](auto const& entry) {
                 return entry.second->getTxnType() == ttCONSENSUS_ENTROPY;
             });
-        if (alreadyPresent)
+        if (existing != retriableTxs.end())
         {
-            JLOG(j_.debug()) << "RNG: entropy pseudo-tx already present"
-                             << " txHash=" << txID << " seq=" << seq
-                             << " action=skip-duplicate";
+            auto const existingID = existing->second->getTransactionID();
+            if (existingID == txID)
+            {
+                JLOG(j_.debug()) << "RNG: entropy pseudo-tx already present"
+                                 << " txHash=" << txID << " seq=" << seq
+                                 << " action=skip-duplicate-verified";
+            }
+            else
+            {
+                // The agreed tx set's hash already commits to the existing
+                // pseudo-tx, so we cannot replace it without forking off the
+                // agreed ledger; keep it, but loudly flag the mismatch.
+                JLOG(j_.error())
+                    << "RNG: entropy pseudo-tx MISMATCH"
+                    << " seq=" << seq << " reason=determinism-violation"
+                    << " ourTxHash=" << txID << " ourDigest=" << finalEntropy
+                    << " ourTier=" << static_cast<int>(entropyTier)
+                    << " ourCount=" << entropyCount
+                    << " presentTxHash=" << existingID << " presentDigest="
+                    << existing->second->getFieldH256(sfDigest)
+                    << " presentTier="
+                    << static_cast<int>(
+                           existing->second->getFieldU8(sfEntropyTier))
+                    << " presentCount="
+                    << existing->second->getFieldU16(sfEntropyCount);
+            }
         }
         else
         {

@@ -4068,8 +4068,15 @@ fairRng(
     // TODO: open-ledger entropy uses previous ledger's entropy, so
     // dice/random results will differ between speculative and final
     // execution.  This needs further thought re: UX implications.
+    // Defensive: sfEntropyTier is soeREQUIRED, so any entry this code wrote
+    // carries it. A missing field can only come from a pre-tier-3 persisted
+    // entry; treat that as tier 0 (none) so the requirement check fails closed.
+    auto const entropyTier =
+        sleEntropy && sleEntropy->isFieldPresent(sfEntropyTier)
+        ? sleEntropy->getFieldU8(sfEntropyTier)
+        : std::uint8_t{0};
     if (!sleEntropy || entropySeq > seq || (seq - entropySeq) > 1 ||
-        sleEntropy->getFieldU8(sfEntropyTier) < minTier ||
+        entropyTier < minTier ||
         sleEntropy->getFieldU16(sfEntropyCount) < minCount)
         return {};
 
