@@ -1804,20 +1804,36 @@ ConsensusExtensions::onPreBuild(
             {
                 // The agreed tx set's hash already commits to the existing
                 // pseudo-tx, so we cannot replace it without forking off the
-                // agreed ledger; keep it, but loudly flag the mismatch.
+                // agreed ledger. This is detect-and-log only: the existing
+                // pseudo-tx is KEPT and is still applied at ledger build
+                // (BuildLedger applyTransactions). A hard-fail/reject policy
+                // on mismatch is a deliberate future decision (it trades a
+                // determinism violation for a halt risk under benign skew).
+                //
+                // Read present fields defensively: the mismatching pseudo-tx
+                // may be exactly the old/malformed (pre-tier) entry we are
+                // guarding against, and getField...() on a missing required
+                // field would throw here, inside onPreBuild during build.
+                auto const& pres = *existing->second;
                 JLOG(j_.error())
                     << "RNG: entropy pseudo-tx MISMATCH"
                     << " seq=" << seq << " reason=determinism-violation"
+                    << " action=keep-agreed-and-flag"
                     << " ourTxHash=" << txID << " ourDigest=" << finalEntropy
                     << " ourTier=" << static_cast<int>(entropyTier)
                     << " ourCount=" << entropyCount
                     << " presentTxHash=" << existingID << " presentDigest="
-                    << existing->second->getFieldH256(sfDigest)
+                    << (pres.isFieldPresent(sfDigest)
+                            ? to_string(pres.getFieldH256(sfDigest))
+                            : std::string{"<missing>"})
                     << " presentTier="
-                    << static_cast<int>(
-                           existing->second->getFieldU8(sfEntropyTier))
+                    << (pres.isFieldPresent(sfEntropyTier)
+                            ? std::to_string(pres.getFieldU8(sfEntropyTier))
+                            : std::string{"<missing>"})
                     << " presentCount="
-                    << existing->second->getFieldU16(sfEntropyCount);
+                    << (pres.isFieldPresent(sfEntropyCount)
+                            ? std::to_string(pres.getFieldU16(sfEntropyCount))
+                            : std::string{"<missing>"});
             }
         }
         else

@@ -1730,10 +1730,68 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(
             tx->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
 
-        // Type-based dedup: a second injection attempt must be a no-op.
+        // Value-based dedup: re-injecting with identical inputs yields the
+        // identical pseudo-tx (same txID) -> verified skip, still one entry.
         ce.onPreBuild(retriableTxs, seq, makeHash("standalone-txset"));
         BEAST_EXPECT(
             std::distance(retriableTxs.begin(), retriableTxs.end()) == 1);
+    }
+
+    void
+    testOnPreBuildEntropyMismatchKeepsAgreed()
+    {
+        testcase("onPreBuild keeps a present-but-different entropy pseudo-tx");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const seq = env.closed()->seq() + 1;
+
+        // Build a ttCONSENSUS_ENTROPY, optionally without sfEntropyTier
+        // (mimics a pre-tier-3 / malformed entry).
+        auto makeEntropyTx = [&](uint256 const& digest, std::uint16_t count) {
+            STObject obj(sfGeneric);
+            obj.setFieldU16(sfTransactionType, ttCONSENSUS_ENTROPY);
+            obj.setFieldU32(sfLedgerSequence, seq);
+            obj.setAccountID(sfAccount, AccountID{});
+            obj.setFieldU32(sfSequence, 0);
+            obj.setFieldAmount(sfFee, STAmount{});
+            obj.setFieldVL(sfSigningPubKey, Slice{});  // pseudo-tx convention
+            obj.setFieldH256(sfDigest, digest);
+            obj.setFieldU16(sfEntropyCount, count);
+            obj.setFieldU8(sfEntropyTier, entropyTierConsensusFallback);
+            return std::make_shared<STTx const>(makeSTTx(obj));
+        };
+
+        // (1) Well-formed but DIFFERENT digest already present: standalone
+        // injection would produce its own digest, so txIDs differ -> mismatch
+        // branch keeps the agreed one, does not insert ours, stays at one.
+        {
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            CanonicalTXSet txs{makeHash("mismatch-wellformed-salt")};
+            auto const present =
+                makeEntropyTx(makeHash("a-different-digest"), 7);
+            auto const presentID = present->getTransactionID();
+            txs.insert(present);
+
+            ce.onPreBuild(txs, seq, makeHash("mismatch-txset"));
+
+            BEAST_EXPECT(std::distance(txs.begin(), txs.end()) == 1);
+            auto const kept = singleCanonicalTx(txs);
+            BEAST_EXPECT(kept);
+            if (kept)
+            {
+                BEAST_EXPECT(kept->getTransactionID() == presentID);
+                BEAST_EXPECT(
+                    kept->getFieldH256(sfDigest) ==
+                    makeHash("a-different-digest"));
+            }
+        }
+
+        // Note: a ttCONSENSUS_ENTROPY missing sfEntropyTier cannot be
+        // constructed (STTx deserialization enforces all soeREQUIRED fields),
+        // so the mismatch-branch's defensive isFieldPresent reads guard an
+        // unreachable-via-tx-path case — belt-and-suspenders, kept cheap.
     }
 
     void
@@ -2723,6 +2781,7 @@ public:
         testRngSidecarBuildFetchAndMerge();
         testRngSidecarRejectsInvalidFetchedEntries();
         testOnPreBuildInjectsStandaloneEntropy();
+        testOnPreBuildEntropyMismatchKeepsAgreed();
         testDiagnosticsJsonAndPositionLogging();
         testDecoratePositionSkipsWhenDisabled();
         testExportSigGateRequiresQuorumAlignment();
