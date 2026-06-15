@@ -189,8 +189,12 @@ public:
     bool
     hasAnyReveals() const;
 
+    /// True when the agreed entropy set would NOT reach validator_quorum
+    /// (tier 3): absent/failed, or fewer leaves than quorumThreshold(). A
+    /// tier-3 eligibility predicate only — it does NOT account for the tier-2
+    /// floor, so never gate injection on it (selectEntropy() does the tiering).
     bool
-    shouldZeroEntropy() const;
+    belowValidatorQuorum() const;
 
     /// Result of the shared deterministic entropy selector: the digest to
     /// inject plus its tier/count labels. Both injection paths derive these

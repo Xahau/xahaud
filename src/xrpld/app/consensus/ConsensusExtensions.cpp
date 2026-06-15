@@ -413,7 +413,7 @@ ConsensusExtensions::hasAnyReveals() const
 }
 
 bool
-ConsensusExtensions::shouldZeroEntropy() const
+ConsensusExtensions::belowValidatorQuorum() const
 {
     if (entropyFailed_ || !entropySetMap_)
         return true;
@@ -452,9 +452,9 @@ ConsensusExtensions::selectEntropy(
 
     // No agreed entropy set (round failed, or none was built) → fallback. We do
     // NOT fall back merely for being below the 80% quorum the way
-    // shouldZeroEntropy() does: a sub-quorum-but-aligned set may still qualify
-    // for participant_aligned (tier 2). The tier ladder below decides from the
-    // agreed participant count.
+    // belowValidatorQuorum() does: a sub-quorum-but-aligned set may still
+    // qualify for participant_aligned (tier 2). The tier ladder below decides
+    // from the agreed participant count.
     if (entropyFailed_ || !entropySetMap_)
         return fallback();
 
@@ -591,29 +591,42 @@ ConsensusExtensions::buildExplicitFinalProposalTxSet(
     });
 
     auto const txID = tx.getTransactionID();
-    // Dedup by type (mirrors onPreBuild): there must never be two entropy
-    // pseudo-txs, and a fallback digest derived from a different base set
-    // hash would not match by exact txID.
-    bool alreadyPresent = false;
+    // Value-based dedup (mirrors onPreBuild): there must never be two entropy
+    // pseudo-txs. If one is already in the base set it must be the EXACT
+    // pseudo-tx we would have produced (injection is deterministic, so the same
+    // agreed inputs yield an identical txID); a present-but-different one is a
+    // determinism violation to surface, not silently accept. Either way return
+    // the base unchanged — explicit-final is best-effort and must not rewrite
+    // an already-committed set.
+    std::optional<uint256> presentID;
     txns.map_->visitLeaves(
         [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-            if (alreadyPresent)
+            if (presentID)
                 return;
             try
             {
                 SerialIter sit(item->slice());
                 STTx const parsed{sit};
                 if (parsed.getTxnType() == ttCONSENSUS_ENTROPY)
-                    alreadyPresent = true;
+                    presentID = parsed.getTransactionID();
             }
             catch (...)
             {
             }
         });
-    if (alreadyPresent)
+    if (presentID)
     {
-        JLOG(j_.debug()) << "RNGFINAL: entropy pseudo-tx already in base txSet"
-                         << " txHash=" << txID << " baseTxSet=" << txns.id();
+        if (*presentID == txID)
+            JLOG(j_.debug())
+                << "RNGFINAL: entropy pseudo-tx already in base txSet"
+                << " txHash=" << txID << " baseTxSet=" << txns.id()
+                << " action=skip-duplicate-verified";
+        else
+            JLOG(j_.error())
+                << "RNGFINAL: entropy pseudo-tx MISMATCH in base txSet"
+                << " reason=determinism-violation action=keep-base"
+                << " ourTxHash=" << txID << " presentTxHash=" << *presentID
+                << " baseTxSet=" << txns.id();
         return txns;
     }
 

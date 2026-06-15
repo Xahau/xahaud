@@ -1161,7 +1161,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const ledger = env.app().getLedgerMaster().getClosedLedger();
         ce.onRoundStart(RCLCxLedger{ledger}, {});
         ce.setRngEnabledThisRound(true);
-        BEAST_EXPECT(ce.shouldZeroEntropy());
+        BEAST_EXPECT(ce.belowValidatorQuorum());
 
         CanonicalTXSet retriableTxs{makeHash("rng-zero-fallback-salt")};
         auto const seq = ledger->seq() + 1;
@@ -1239,7 +1239,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         auto const entropySetHash = ce.buildEntropySet(seq);
         BEAST_EXPECT(ce.isSidecarSet(entropySetHash));
-        BEAST_EXPECT(!ce.shouldZeroEntropy());
+        BEAST_EXPECT(!ce.belowValidatorQuorum());
 
         CanonicalTXSet retriableTxs{makeHash("entropy-set-prebuild-salt")};
         ce.onPreBuild(retriableTxs, seq, txSetHash);
@@ -2809,7 +2809,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(ce.exportSigConvergenceFailed());
 
         ce.setEntropyFailed();
-        BEAST_EXPECT(ce.shouldZeroEntropy());
+        BEAST_EXPECT(ce.belowValidatorQuorum());
 
         ce.generateEntropySecret();
         BEAST_EXPECT(!ce.hasAnyReveals());
