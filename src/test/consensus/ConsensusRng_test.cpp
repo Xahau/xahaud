@@ -220,6 +220,57 @@ public:
     }
 
     void
+    testRngTier2MintByBandCohort()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG tier 2 minted by in-band aligned cohort");
+
+        // 6 validators — the smallest NON-degenerate tier-2 size: f=1 (one
+        // tolerated fault) and a one-wide band {4} (tier2=4, quorum=5). Isolate
+        // 2 so the surviving 4-validator cohort is below the 80% quorum but at
+        // the tier-2 floor. It mints participant_aligned entropy, and all four
+        // agree on the same non-zero digest — no hang, no fork.
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup cohort = sim.createGroup(4);
+        PeerGroup isolated = sim.createGroup(2);
+        PeerGroup network = cohort + isolated;
+
+        for (Peer* peer : network)
+            peer->ce().enableRngConsensus_ = true;
+
+        network.trust(network);
+        network.connect(
+            network, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+        sim.run(1);
+
+        cohort.disconnect(isolated);
+        isolated.disconnect(cohort);
+        cohort.connect(
+            cohort, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        sim.run(2);
+
+        if (BEAST_EXPECT(sim.synchronized(cohort)))
+        {
+            BEAST_EXPECT(sim.branches(cohort) == 1);
+            for (Peer const* peer : cohort)
+            {
+                BEAST_EXPECT(!peer->ce().lastEntropyWasFallback_);
+                BEAST_EXPECT(peer->ce().lastEntropyTier_ == 2);
+                BEAST_EXPECT(peer->ce().lastEntropyCount_ == 4);
+                BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
+                BEAST_EXPECT(
+                    peer->ce().lastEntropyDigest_ ==
+                    cohort[0]->ce().lastEntropyDigest_);
+            }
+        }
+    }
+
+    void
     testRngTimeoutWithPartialQuorum()
     {
         using namespace csf;
@@ -994,6 +1045,7 @@ public:
         RUN(testRngCommitRevealConvergesWithTransactions);
         RUN(testRngQuorumImpossibleFallsToTier2);
         RUN(testRngPersistentLossDoesNotShrinkQuorum);
+        RUN(testRngTier2MintByBandCohort);
         RUN(testRngTimeoutWithPartialQuorum);
         RUN(testRngCommitSetConflictForcesFallback);
         RUN(testRngObserverDoesNotExpectSelfCommit);
