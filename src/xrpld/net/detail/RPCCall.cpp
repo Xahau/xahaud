@@ -1585,6 +1585,10 @@ struct RPCCallImp
             // callbackFuncP.
 
             // Receive reply
+            if (ecResult)
+                Throw<std::runtime_error>(
+                    "RPC transport error: " + ecResult.message());
+
             if (strData.empty())
                 Throw<std::runtime_error>(
                     "no response from server. Please "

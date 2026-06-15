@@ -19,6 +19,7 @@
 
 #include <test/jtx.h>
 #include <xrpld/net/HTTPClient.h>
+#include <xrpld/net/RPCCall.h>
 #include <xrpl/basics/ByteUtilities.h>
 
 #include <boost/asio.hpp>
@@ -59,6 +60,9 @@ class MockHTTPServer
     std::atomic<bool> closeImmediately_{false};
     std::atomic<bool> noContentLength_{false};
     std::atomic<bool> partialBodyHold_{false};
+    std::atomic<bool> truncatedContentLength_{false};
+    std::mutex configMutex_;
+    std::string responseBody_{"{}"};
 
     // Sockets deliberately held open (sendResponse_ == false) so the
     // client must hit its deadline. Without this the only shared_ptr to
@@ -150,6 +154,17 @@ public:
     setPartialBodyHold(bool v)
     {
         partialBodyHold_ = v;
+    }
+    void
+    setTruncatedContentLength(bool v)
+    {
+        truncatedContentLength_ = v;
+    }
+    void
+    setResponseBody(std::string body)
+    {
+        std::lock_guard lk(configMutex_);
+        responseBody_ = std::move(body);
     }
 
 private:
@@ -243,10 +258,16 @@ private:
     void
     sendHTTPResponse(std::shared_ptr<boost::asio::ip::tcp::socket> sock)
     {
-        auto body = std::string("{}");
+        auto body = [&] {
+            std::lock_guard lk(configMutex_);
+            return responseBody_;
+        }();
         std::string header =
             "HTTP/1.0 " + std::to_string(statusCode_.load()) + " OK\r\n";
-        if (!noContentLength_)
+        if (truncatedContentLength_)
+            header += "Content-Length: " + std::to_string(body.size() + 1000) +
+                "\r\n";
+        else if (!noContentLength_)
             header += "Content-Length: " + std::to_string(body.size()) + "\r\n";
         header += "\r\n";
         auto response = std::make_shared<std::string>(header + body);
@@ -255,10 +276,12 @@ private:
             *sock,
             boost::asio::buffer(*response),
             [this, sock, response](auto, size_t) {
-                if (noContentLength_)
+                if (noContentLength_ || truncatedContentLength_)
                 {
-                    // EOF-delimited: the server must close to signal the
-                    // end of the body, so release immediately.
+                    // EOF-delimited responses close to signal the end of the
+                    // body. Truncated Content-Length responses also close here
+                    // to simulate a server disappearing before the promised
+                    // bytes arrive.
                     boost::system::error_code ec;
                     sock->shutdown(
                         boost::asio::ip::tcp::socket::shutdown_both, ec);
@@ -733,6 +756,203 @@ class HTTPClient_test : public beast::unit_test::suite
     }
 
     void
+    testEOFWithoutContentLengthIsSuccess()
+    {
+        testcase("EOF without Content-Length reports success");
+
+        using namespace jtx;
+        Env env{*this};
+
+        MockHTTPServer server;
+        server.setStatus(200);
+        server.setNoContentLength(true);
+
+        std::atomic<int> completed{0};
+        std::atomic<bool> sawError{true};
+        auto j = env.app().journal("HTTPClient");
+
+        {
+            boost::asio::io_service ios;
+            HTTPClient::request(
+                false,
+                ios,
+                "127.0.0.1",
+                server.port(),
+                [](boost::asio::streambuf& sb, std::string const& strHost) {
+                    std::ostream os(&sb);
+                    os << "POST / HTTP/1.0\r\n"
+                       << "Host: " << strHost << "\r\n"
+                       << "Content-Type: application/json\r\n"
+                       << "Content-Length: 2\r\n"
+                       << "\r\n"
+                       << "{}";
+                },
+                megabytes(1),
+                std::chrono::seconds{2},
+                [&completed, &sawError](
+                    const boost::system::error_code& ecResult,
+                    int,
+                    std::string const&) {
+                    sawError = static_cast<bool>(ecResult);
+                    ++completed;
+                    return false;
+                },
+                j);
+            ios.run();
+        }
+
+        BEAST_EXPECT(completed == 1);
+        BEAST_EXPECT(!sawError);
+    }
+
+    void
+    testTruncatedContentLengthIsError()
+    {
+        testcase("Truncated Content-Length reports error");
+
+        using namespace jtx;
+        Env env{*this};
+
+        MockHTTPServer server;
+        server.setStatus(200);
+        server.setTruncatedContentLength(true);
+
+        std::atomic<int> completed{0};
+        std::atomic<bool> sawError{false};
+        std::string data;
+        auto j = env.app().journal("HTTPClient");
+
+        {
+            boost::asio::io_service ios;
+            HTTPClient::request(
+                false,
+                ios,
+                "127.0.0.1",
+                server.port(),
+                [](boost::asio::streambuf& sb, std::string const& strHost) {
+                    std::ostream os(&sb);
+                    os << "POST / HTTP/1.0\r\n"
+                       << "Host: " << strHost << "\r\n"
+                       << "Content-Type: application/json\r\n"
+                       << "Content-Length: 2\r\n"
+                       << "\r\n"
+                       << "{}";
+                },
+                megabytes(1),
+                std::chrono::seconds{2},
+                [&completed, &sawError, &data](
+                    const boost::system::error_code& ecResult,
+                    int,
+                    std::string const& strData) {
+                    sawError = static_cast<bool>(ecResult);
+                    data = strData;
+                    ++completed;
+                    return false;
+                },
+                j);
+            ios.run();
+        }
+
+        BEAST_EXPECT(completed == 1);
+        BEAST_EXPECT(sawError);
+        BEAST_EXPECT(data == "{}");
+    }
+
+    void
+    testRPCCallAcceptsCompleteContentLength()
+    {
+        testcase("RPCCall accepts complete Content-Length");
+
+        using namespace jtx;
+        Env env{*this};
+
+        MockHTTPServer server;
+        server.setStatus(200);
+        server.setResponseBody(R"({"status":"success"})");
+
+        std::atomic<int> callbackCount{0};
+        bool threw = false;
+        bool sawResult = false;
+
+        try
+        {
+            boost::asio::io_service ios;
+            Json::Value params(Json::arrayValue);
+            RPCCall::fromNetwork(
+                ios,
+                "127.0.0.1",
+                server.port(),
+                "",
+                "",
+                "",
+                "server_info",
+                params,
+                false,
+                true,
+                env.app().logs(),
+                [&callbackCount, &sawResult](Json::Value const& jvInput) {
+                    ++callbackCount;
+                    sawResult = jvInput.isMember("result") &&
+                        jvInput["result"].isObject();
+                });
+            ios.run();
+        }
+        catch (std::exception const& e)
+        {
+            threw = true;
+            log << "  unexpected RPCCall exception: " << e.what() << std::endl;
+        }
+
+        BEAST_EXPECT(!threw);
+        BEAST_EXPECT(callbackCount == 1);
+        BEAST_EXPECT(sawResult);
+    }
+
+    void
+    testRPCCallRejectsTruncatedContentLength()
+    {
+        testcase("RPCCall rejects truncated Content-Length");
+
+        using namespace jtx;
+        Env env{*this};
+
+        MockHTTPServer server;
+        server.setStatus(200);
+        server.setTruncatedContentLength(true);
+
+        std::atomic<int> callbackCount{0};
+        bool threw = false;
+
+        try
+        {
+            boost::asio::io_service ios;
+            Json::Value params(Json::arrayValue);
+            RPCCall::fromNetwork(
+                ios,
+                "127.0.0.1",
+                server.port(),
+                "",
+                "",
+                "",
+                "server_info",
+                params,
+                false,
+                true,
+                env.app().logs(),
+                [&callbackCount](Json::Value const&) { ++callbackCount; });
+            ios.run();
+        }
+        catch (std::exception const& e)
+        {
+            threw = true;
+            log << "  RPCCall exception: " << e.what() << std::endl;
+        }
+
+        BEAST_EXPECT(threw);
+        BEAST_EXPECT(callbackCount == 0);
+    }
+
+    void
     testPersistentIOServiceCleanup()
     {
         testcase("Cleanup on persistent io_service (no destructor mask)");
@@ -951,6 +1171,10 @@ public:
         testConcurrentRequestCleanup();
         testConcurrent500Cleanup();
         testEOFWithoutContentLength();
+        testEOFWithoutContentLengthIsSuccess();
+        testTruncatedContentLengthIsError();
+        testRPCCallAcceptsCompleteContentLength();
+        testRPCCallRejectsTruncatedContentLength();
         testPersistentIOServiceCleanup();
         testPersistentIOService500Cleanup();
         testGetSelfReferenceCleanup();

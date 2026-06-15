@@ -401,8 +401,12 @@ public:
         if (boost::regex_match(strHeader, smMatch, reBody))  // we got some body
             mBody = smMatch[1];
 
+        bool const hasContentLength =
+            boost::regex_match(strHeader, smMatch, reSize);
+        mReceivedContentLength = hasContentLength;
+
         std::size_t const responseSize = [&] {
-            if (boost::regex_match(strHeader, smMatch, reSize))
+            if (hasContentLength)
                 return beast::lexicalCast<std::size_t>(
                     std::string(smMatch[1]), maxResponseSize_);
             return maxResponseSize_;
@@ -456,21 +460,21 @@ public:
             return;
         }
 
-        // Either the read completed normally or it ended at EOF (an
-        // EOF-delimited response with no Content-Length, or a truncated
-        // one). Deliver the accumulated body and forward ecResult as-is:
-        // success when the read completed, eof otherwise. We deliberately
-        // do NOT translate eof to success — a server that promises
-        // Content-Length: N and closes early must surface as an error,
-        // and HTTPClient::get() relies on a non-zero code to fall back to
-        // the next site.
+        // Either the read completed normally or it ended at EOF. EOF is a
+        // successful completion for EOF-delimited responses, but it is an
+        // error when the server promised a Content-Length and closed early.
         JLOG(j_.trace()) << "Complete.";
 
         mResponse.commit(bytes_transferred);
         std::string strBody{
             {std::istreambuf_iterator<char>(&mResponse)},
             std::istreambuf_iterator<char>()};
-        invokeComplete(ecResult, mStatus, mBody + strBody);
+
+        auto completeEc = ecResult;
+        if (completeEc == boost::asio::error::eof && !mReceivedContentLength)
+            completeEc.clear();
+
+        invokeComplete(completeEc, mStatus, mBody + strBody);
     }
 
     // Call cancel the deadline timer and invoke the completion routine.
@@ -526,6 +530,7 @@ private:
     boost::asio::streambuf mHeader;
     boost::asio::streambuf mResponse;
     std::string mBody;
+    bool mReceivedContentLength = false;
     const unsigned short mPort;
     std::size_t const maxResponseSize_;
     int mStatus;
