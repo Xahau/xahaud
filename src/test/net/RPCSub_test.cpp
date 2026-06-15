@@ -52,6 +52,7 @@ class MockWebhookEndpoint
 
     std::atomic<int> received_{0};
     std::atomic<int> status_{200};
+    std::atomic<int> delayMs_{0};
 
 public:
     MockWebhookEndpoint()
@@ -95,6 +96,15 @@ public:
         status_ = s;
     }
 
+    // Delay each reply so delivery is deterministically slower than the
+    // microsecond-fast enqueue loop — keeps the deque full for the
+    // queue-cap drop test regardless of scheduling.
+    void
+    setResponseDelay(int ms)
+    {
+        delayMs_ = ms;
+    }
+
 private:
     void
     accept()
@@ -119,20 +129,35 @@ private:
 
                 ++received_;
 
-                // EOF-delimited reply: no Content-Length, close after
-                // writing. This is the realistic failing-webhook shape.
-                auto resp = std::make_shared<std::string>(
-                    "HTTP/1.0 " + std::to_string(status_.load()) +
-                    " Reply\r\n\r\n{\"result\":{}}");
-                boost::asio::async_write(
-                    *sock,
-                    boost::asio::buffer(*resp),
-                    [sock, resp](auto, std::size_t) {
-                        boost::system::error_code ig;
-                        sock->shutdown(
-                            boost::asio::ip::tcp::socket::shutdown_both, ig);
-                        sock->close(ig);
-                    });
+                auto const delay = delayMs_.load();
+                if (delay > 0)
+                {
+                    auto timer =
+                        std::make_shared<boost::asio::steady_timer>(ios_);
+                    timer->expires_from_now(std::chrono::milliseconds(delay));
+                    timer->async_wait(
+                        [this, sock, timer](auto) { reply(sock); });
+                }
+                else
+                {
+                    reply(sock);
+                }
+            });
+    }
+
+    void
+    reply(std::shared_ptr<boost::asio::ip::tcp::socket> sock)
+    {
+        // EOF-delimited reply: no Content-Length, close after writing.
+        // This is the realistic failing-webhook shape.
+        auto resp = std::make_shared<std::string>(
+            "HTTP/1.0 " + std::to_string(status_.load()) +
+            " Reply\r\n\r\n{\"result\":{}}");
+        boost::asio::async_write(
+            *sock, boost::asio::buffer(*resp), [sock, resp](auto, std::size_t) {
+                boost::system::error_code ig;
+                sock->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ig);
+                sock->close(ig);
             });
     }
 };
@@ -285,12 +310,15 @@ class RPCSub_test : public beast::unit_test::suite
 
         // With a tiny cap, pushing far more events than delivery can keep
         // up with forces send() down the drop path: enqueue is microsecond
-        // -fast while each HTTP delivery is a full round-trip, so the deque
-        // sits at the cap and excess events are dropped. We just need some
+        // -fast while each (delayed) HTTP delivery is a full round-trip, so
+        // the deque sits at the cap and excess events are dropped. The
+        // delay makes "delivery slower than enqueue" hold regardless of
+        // scheduling, so this isn't timing-dependent. We just need some
         // delivered (cap works) and some dropped (drop path exercised).
         using namespace jtx;
         Env env{*this};
         MockWebhookEndpoint ep;
+        ep.setResponseDelay(50);
 
         static constexpr int pushed = 50;
         {
