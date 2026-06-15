@@ -724,6 +724,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(view.fromUNLReport);
         BEAST_EXPECT(view.sourceLedgerHash == source.sourceLedgerHash);
         BEAST_EXPECT(view.size() == 1);
+        BEAST_EXPECT(view.originalViewSize == 1);
         BEAST_EXPECT(view.containsMaster(keys[0]));
         BEAST_EXPECT(!view.containsMaster(keys[1]));
         BEAST_EXPECT(view.containsNode(calcNodeID(keys[0])));
@@ -747,6 +748,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!view.fromUNLReport);
         BEAST_EXPECT(view.sourceLedgerHash == source.sourceLedgerHash);
         BEAST_EXPECT(view.size() == 2);
+        BEAST_EXPECT(view.originalViewSize == 2);
         BEAST_EXPECT(view.containsMaster(keys[0]));
         BEAST_EXPECT(view.containsMaster(keys[1]));
 
@@ -756,6 +758,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const negativeView = buildActiveValidatorView(source, fallback);
         BEAST_EXPECT(!negativeView.fromUNLReport);
         BEAST_EXPECT(negativeView.size() == 1);
+        // nUNL shrinks the effective view but NOT the original-UNL denominator.
+        BEAST_EXPECT(negativeView.originalViewSize == 2);
         BEAST_EXPECT(!negativeView.containsMaster(keys[0]));
         BEAST_EXPECT(negativeView.containsMaster(keys[1]));
     }
@@ -812,6 +816,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         BEAST_EXPECT(view->fromUNLReport);
         BEAST_EXPECT(view->size() == 1);
+        // Effective view is 1 (nUNL disabled one), but the original-UNL
+        // denominator that Tier 2's 60% floor anchors to stays 2.
+        BEAST_EXPECT(view->originalViewSize == 2);
         BEAST_EXPECT(!view->containsMaster(vlKeys[0]));
         BEAST_EXPECT(!view->containsNode(calcNodeID(vlKeys[0])));
         BEAST_EXPECT(view->containsMaster(vlKeys[1]));
@@ -844,6 +851,29 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ce.setExpectedProposers({});
         BEAST_EXPECT(
             ce.expectedProposerCount() == ce.activeValidatorView()->size());
+    }
+
+    void
+    testParticipantThreshold()
+    {
+        testcase("participant-alignment threshold arithmetic");
+
+        // ceil(0.6 * count): the Tier 2 (participant_aligned) alignment floor.
+        BEAST_EXPECT(calculateParticipantThreshold(0) == 0);
+        BEAST_EXPECT(calculateParticipantThreshold(1) == 1);
+        // Sizing-note boundaries (tier2-participant-aligned-entropy-spec §0.e):
+        BEAST_EXPECT(calculateParticipantThreshold(5) == 3);  // banded, UNSAFE
+        BEAST_EXPECT(calculateParticipantThreshold(6) == 4);  // smallest safe
+        BEAST_EXPECT(calculateParticipantThreshold(8) == 5);  // one nUNL off
+        BEAST_EXPECT(calculateParticipantThreshold(10) == 6);
+        BEAST_EXPECT(calculateParticipantThreshold(20) == 12);
+
+        // For an undiminished (no-nUNL) view the Tier 2 bar is never stricter
+        // than the Tier 3 80% bar: ceil(0.6 n) <= ceil(0.8 n) for all n.
+        for (std::size_t n = 1; n <= 64; ++n)
+            BEAST_EXPECT(
+                calculateParticipantThreshold(n) <=
+                calculateQuorumThreshold(n));
     }
 
     void
@@ -2770,6 +2800,7 @@ public:
         testActiveValidatorViewBuilderFallback();
         testActiveValidatorViewAppliesNegativeUNL();
         testActiveValidatorViewNullSourceAndExpectedProposers();
+        testParticipantThreshold();
         testExplicitFinalProposalTxSetBuildsEntropyTxn();
         testRuntimeConfigPolicyAccessors();
         testDecoratePositionGeneratesCommitment();

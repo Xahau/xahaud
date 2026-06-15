@@ -231,6 +231,22 @@ ConsensusExtensions::exportSigQuorumThreshold() const
     return calculateQuorumThreshold(base);
 }
 
+std::size_t
+ConsensusExtensions::tier2Threshold() const
+{
+    // Tier 2 (participant_aligned) lowers the alignment bar from the 80%
+    // validator-quorum gate to 60% of the ORIGINAL (pre-nUNL) view — the
+    // quorum-intersection floor that still prevents a single equivocator from
+    // minting two distinct aligned digests. Anchored to originalViewSize, not
+    // size(): nUNL can shrink the effective view while leaving faulty nodes in
+    // it, so a fraction of the effective view could exceed the Byzantine
+    // fraction (which is bounded over the original UNL).
+    auto const base = activeValidatorView()->originalViewSize;
+    if (base == 0)
+        return 1;  // safety: need at least one aligned participant
+    return calculateParticipantThreshold(base);
+}
+
 void
 ConsensusExtensions::setExpectedProposers(hash_set<NodeID> proposers)
 {

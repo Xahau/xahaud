@@ -229,6 +229,26 @@ calculateQuorumThreshold(std::size_t count)
     return (count * 80 + 99) / 100;
 }
 
+/** Calculate the 60% participant-alignment threshold (rounded up).
+
+    Tier 2 (participant_aligned) sub-quorum entropy aligns a cohort at this
+    lower bar. 60% of the ORIGINAL (pre-nUNL) view is the quorum-intersection
+    floor: two cohorts of this size always share an honest validator under the
+    ~20% Byzantine bound, so a single equivocator cannot mint two distinct
+    aligned digests. Anchored to the original view size, NOT the effective
+    (post-nUNL) one — see ActiveValidatorView::originalViewSize.
+
+    Uses integer arithmetic: (count * 60 + 99) / 100 == ceil(count * 0.6).
+
+    @param count The original (pre-nUNL) number of active validators
+    @return The minimum cohort size for participant alignment (60%, rounded up)
+*/
+inline std::size_t
+calculateParticipantThreshold(std::size_t count)
+{
+    return (count * 60 + 99) / 100;
+}
+
 inline std::pair<std::size_t, std::optional<ConsensusParms::AvalancheState>>
 getNeededWeight(
     ConsensusParms const& p,

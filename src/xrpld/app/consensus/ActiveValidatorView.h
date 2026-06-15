@@ -36,6 +36,14 @@ struct ActiveValidatorView
     std::optional<uint256> sourceLedgerHash;
     bool fromUNLReport = false;
 
+    // Master-key count BEFORE the negativeUNL subtraction (see
+    // buildActiveValidatorView). size() is the effective (post-nUNL) view;
+    // originalViewSize is the original-UNL denominator that tier thresholds
+    // anchored to the original view (the 0.6 participant_aligned floor) must
+    // use, because nUNL can shrink the effective view while leaving faulty
+    // nodes in it.
+    std::size_t originalViewSize = 0;
+
     // Export paths receive validator keys; RNG sidecars identify validators by
     // NodeID. Keep both indexes in lockstep.
     void

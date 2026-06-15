@@ -152,6 +152,12 @@ public:
     std::size_t
     exportSigQuorumThreshold() const;
 
+    /// Tier 2 (participant_aligned) alignment floor: ceil(0.6 * originalView),
+    /// anchored to the ORIGINAL (pre-nUNL) view size — unlike quorumThreshold()
+    /// which uses the effective (post-nUNL) size. See ActiveValidatorView.
+    std::size_t
+    tier2Threshold() const;
+
     void
     setExpectedProposers(hash_set<NodeID> proposers);
 
