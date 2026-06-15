@@ -152,9 +152,11 @@ public:
     std::size_t
     exportSigQuorumThreshold() const;
 
-    /// Tier 2 (participant_aligned) alignment floor: ceil(0.6 * originalView),
-    /// anchored to the ORIGINAL (pre-nUNL) view size — unlike quorumThreshold()
-    /// which uses the effective (post-nUNL) size. See ActiveValidatorView.
+    /// Tier 2 (participant_aligned) alignment floor: the smallest cohort whose
+    /// pairwise intersection exceeds the tolerated Byzantine count (~0.6 of the
+    /// ORIGINAL pre-nUNL view; exact value from calculateParticipantThreshold).
+    /// Anchored to the original size — unlike quorumThreshold(), which uses the
+    /// effective (post-nUNL) size. See ActiveValidatorView.
     std::size_t
     tier2Threshold() const;
 

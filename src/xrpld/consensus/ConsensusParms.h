@@ -229,24 +229,40 @@ calculateQuorumThreshold(std::size_t count)
     return (count * 80 + 99) / 100;
 }
 
-/** Calculate the 60% participant-alignment threshold (rounded up).
+/** Calculate the Tier 2 (participant_aligned) alignment floor.
 
-    Tier 2 (participant_aligned) sub-quorum entropy aligns a cohort at this
-    lower bar. 60% of the ORIGINAL (pre-nUNL) view is the quorum-intersection
-    floor: two cohorts of this size always share an honest validator under the
-    ~20% Byzantine bound, so a single equivocator cannot mint two distinct
-    aligned digests. Anchored to the original view size, NOT the effective
-    (post-nUNL) one — see ActiveValidatorView::originalViewSize.
+    Tier 2 sub-quorum entropy aligns a cohort at this lower bar. The floor is
+    DERIVED, not a fixed fraction: it is the smallest cohort size t whose
+    pairwise intersection within the view strictly exceeds the tolerated
+    Byzantine count f = floor(count / 5) (~20%). Two t-cohorts in a count-sized
+    view overlap in at least 2t - count validators; requiring 2t - count > f
+    guarantees an HONEST validator in every such overlap. Since an honest
+    validator advertises only one entropy-set hash, that shared honest node
+    stops a single equivocator (or up to f colluding Byzantine nodes) from
+    minting two distinct aligned digests for the same round -> no fork.
 
-    Uses integer arithmetic: (count * 60 + 99) / 100 == ceil(count * 0.6).
+    Solving 2t - count > f for the smallest integer t gives
+    t = floor((count + f) / 2) + 1. This is ~0.6 * count and equals
+    ceil(0.6 * count) at every count EXCEPT multiples of 5, where the plain 0.6
+    bar leaves the overlap exactly equal to f (not greater) and is therefore
+    forkable -- there this is one higher. (E.g. count=10: f=2, this yields 7,
+    whereas ceil(0.6*10)=6 leaves overlap 12-10=2 == f.)
+
+    Anchored to the ORIGINAL (pre-nUNL) view size, NOT the effective (post-nUNL)
+    one: the Byzantine bound is over the original UNL, and nUNL can shrink the
+    effective view while leaving faulty nodes in it. See
+    ActiveValidatorView::originalViewSize.
 
     @param count The original (pre-nUNL) number of active validators
-    @return The minimum cohort size for participant alignment (60%, rounded up)
+    @return The minimum cohort size for safe participant alignment
 */
 inline std::size_t
 calculateParticipantThreshold(std::size_t count)
 {
-    return (count * 60 + 99) / 100;
+    // f = floor(0.2 * count) tolerated Byzantine validators; the smallest t
+    // with 2t - count > f is floor((count + f) / 2) + 1.
+    auto const byzantine = count / 5;
+    return (count + byzantine) / 2 + 1;
 }
 
 inline std::pair<std::size_t, std::optional<ConsensusParms::AvalancheState>>

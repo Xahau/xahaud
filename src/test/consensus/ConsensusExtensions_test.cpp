@@ -895,7 +895,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(view->fromUNLReport);
         BEAST_EXPECT(view->size() == 1);
         // Effective view is 1 (nUNL disabled one), but the original-UNL
-        // denominator that Tier 2's 60% floor anchors to stays 2.
+        // denominator that Tier 2's intersection floor anchors to stays 2.
         BEAST_EXPECT(view->originalViewSize == 2);
         BEAST_EXPECT(!view->containsMaster(vlKeys[0]));
         BEAST_EXPECT(!view->containsNode(calcNodeID(vlKeys[0])));
@@ -936,22 +936,30 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     {
         testcase("participant-alignment threshold arithmetic");
 
-        // ceil(0.6 * count): the Tier 2 (participant_aligned) alignment floor.
-        BEAST_EXPECT(calculateParticipantThreshold(0) == 0);
+        // Smallest cohort t with 2t - n > floor(n/5) tolerated faults: ~0.6 n,
+        // but bumped at multiples of 5 where plain ceil(0.6 n) leaves the
+        // cohort overlap exactly == f (forkable).
         BEAST_EXPECT(calculateParticipantThreshold(1) == 1);
-        // Sizing-note boundaries (tier2-participant-aligned-entropy-spec §0.e):
-        BEAST_EXPECT(calculateParticipantThreshold(5) == 3);  // banded, UNSAFE
-        BEAST_EXPECT(calculateParticipantThreshold(6) == 4);  // smallest safe
-        BEAST_EXPECT(calculateParticipantThreshold(8) == 5);  // one nUNL off
-        BEAST_EXPECT(calculateParticipantThreshold(10) == 6);
-        BEAST_EXPECT(calculateParticipantThreshold(20) == 12);
+        BEAST_EXPECT(
+            calculateParticipantThreshold(5) == 4);  // not 3 (n=5 forks)
+        BEAST_EXPECT(calculateParticipantThreshold(6) == 4);  // == ceil(0.6*6)
+        BEAST_EXPECT(calculateParticipantThreshold(7) == 5);
+        BEAST_EXPECT(calculateParticipantThreshold(8) == 5);
+        BEAST_EXPECT(
+            calculateParticipantThreshold(10) == 7);  // not 6 (n=10 forks)
+        BEAST_EXPECT(calculateParticipantThreshold(15) == 10);
+        BEAST_EXPECT(calculateParticipantThreshold(20) == 13);
 
-        // For an undiminished (no-nUNL) view the Tier 2 bar is never stricter
-        // than the Tier 3 80% bar: ceil(0.6 n) <= ceil(0.8 n) for all n.
-        for (std::size_t n = 1; n <= 64; ++n)
-            BEAST_EXPECT(
-                calculateParticipantThreshold(n) <=
-                calculateQuorumThreshold(n));
+        // The defining safety invariant, for EVERY view size: two aligned
+        // cohorts always share an honest validator, i.e. their overlap (2t - n)
+        // strictly exceeds the tolerated Byzantine count f = floor(n/5). And
+        // the Tier 2 bar is never stricter than the Tier 3 80% bar.
+        for (std::size_t n = 1; n <= 256; ++n)
+        {
+            auto const t = calculateParticipantThreshold(n);
+            BEAST_EXPECT(2 * t > n + n / 5);  // overlap 2t-n > floor(n/5)
+            BEAST_EXPECT(t <= calculateQuorumThreshold(n));
+        }
     }
 
     void
@@ -1262,12 +1270,13 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             nullptr};
         forceNonStandalone(env.app());
 
-        // A 5-validator UNLReport opens the tier-2 band:
-        //   tier2Threshold  = ceil(0.6 * 5) = 3
-        //   quorumThreshold = ceil(0.8 * 5) = 4
-        // so an agreed aligned count of 3 is participant_aligned, 4+ is
-        // validator_quorum, and < 3 falls back.
-        constexpr std::size_t kValidators = 5;
+        // A 6-validator UNLReport opens the tier-2 band:
+        //   tier2Threshold  = 4 (smallest cohort whose overlap exceeds f=1)
+        //   quorumThreshold = ceil(0.8 * 6) = 5
+        // so an agreed aligned count of 4 is participant_aligned, 5+ is
+        // validator_quorum, and < 4 falls back. (n=5 has no band -- there
+        // tier2 == quorum -- so 6 is the smallest size that exercises tier 2.)
+        constexpr std::size_t kValidators = 6;
         std::vector<std::pair<PublicKey, SecretKey>> vals;
         vals.reserve(kValidators);
         std::vector<PublicKey> activeKeys;
@@ -1279,14 +1288,14 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         }
         auto const viewLedger = makeUNLReportLedger(env, activeKeys);
 
-        // Thresholds derive from the cached pre-nUNL view (originalViewSize=5).
+        // Thresholds derive from the cached pre-nUNL view (originalViewSize=6).
         {
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.cacheUNLReport(viewLedger);
-            BEAST_EXPECT(ce.activeValidatorView()->originalViewSize == 5);
-            BEAST_EXPECT(ce.quorumThreshold() == 4);
-            BEAST_EXPECT(ce.tier2Threshold() == 3);
-            BEAST_EXPECT(ce.entropyGateThreshold() == 3);
+            BEAST_EXPECT(ce.activeValidatorView()->originalViewSize == 6);
+            BEAST_EXPECT(ce.quorumThreshold() == 5);
+            BEAST_EXPECT(ce.tier2Threshold() == 4);
+            BEAST_EXPECT(ce.entropyGateThreshold() == 4);
         }
 
         // Reveal verification resolves the round's prev ledger through the
@@ -1298,7 +1307,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const closeTime = NetClock::time_point{NetClock::duration{777}};
         auto const txSetHash = makeHash("tier2-txset");
 
-        // Harvest commit+reveal from `revealers` of the 5 validators, build the
+        // Harvest commit+reveal from `revealers` of the 6 validators, build the
         // agreed entropy set, inject, and return the labelled (tier, count).
         auto runWith = [&](std::size_t revealers) {
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
@@ -1330,18 +1339,18 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             return out;
         };
 
-        // 4 of 5 aligned -> validator_quorum (count >= quorum 4).
-        auto const q = runWith(4);
+        // 5 of 6 aligned -> validator_quorum (count >= quorum 5).
+        auto const q = runWith(5);
         BEAST_EXPECT(q.first == entropyTierValidatorQuorum);
-        BEAST_EXPECT(q.second == 4);
+        BEAST_EXPECT(q.second == 5);
 
-        // 3 of 5 aligned -> participant_aligned (count >= tier2 3, < quorum 4).
-        auto const p = runWith(3);
+        // 4 of 6 aligned -> participant_aligned (count >= tier2 4, < quorum 5).
+        auto const p = runWith(4);
         BEAST_EXPECT(p.first == entropyTierParticipantAligned);
-        BEAST_EXPECT(p.second == 3);
+        BEAST_EXPECT(p.second == 4);
 
-        // 2 of 5 aligned -> below the tier-2 floor -> consensus_fallback.
-        auto const f = runWith(2);
+        // 3 of 6 aligned -> below the tier-2 floor -> consensus_fallback.
+        auto const f = runWith(3);
         BEAST_EXPECT(f.first == entropyTierConsensusFallback);
         BEAST_EXPECT(f.second == 0);
     }

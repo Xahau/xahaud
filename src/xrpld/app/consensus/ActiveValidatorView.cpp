@@ -45,9 +45,9 @@ buildActiveValidatorView(
 
     // Capture the pre-nUNL denominator before subtracting negatives. size()
     // remains the effective (post-nUNL) count used by the 80% validator-quorum
-    // gate; originalViewSize is the original-UNL count that the 60% Tier 2
-    // (participant_aligned) floor anchors to, since nUNL can shrink the
-    // effective view while leaving faulty nodes in it.
+    // gate; originalViewSize is the original-UNL count that the Tier 2
+    // (participant_aligned) intersection floor anchors to, since nUNL can
+    // shrink the effective view while leaving faulty nodes in it.
     view.originalViewSize = view.masterKeys.size();
 
     if (source.negativeUNLEnabled)

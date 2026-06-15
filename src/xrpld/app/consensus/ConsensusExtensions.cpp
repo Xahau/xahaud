@@ -235,12 +235,13 @@ std::size_t
 ConsensusExtensions::tier2Threshold() const
 {
     // Tier 2 (participant_aligned) lowers the alignment bar from the 80%
-    // validator-quorum gate to 60% of the ORIGINAL (pre-nUNL) view — the
-    // quorum-intersection floor that still prevents a single equivocator from
-    // minting two distinct aligned digests. Anchored to originalViewSize, not
-    // size(): nUNL can shrink the effective view while leaving faulty nodes in
-    // it, so a fraction of the effective view could exceed the Byzantine
-    // fraction (which is bounded over the original UNL).
+    // validator-quorum gate to the quorum-intersection floor over the ORIGINAL
+    // (pre-nUNL) view (~60%; exact value from calculateParticipantThreshold,
+    // which keeps two aligned cohorts sharing an honest validator so an
+    // equivocator cannot mint two distinct digests). Anchored to
+    // originalViewSize, not size(): nUNL can shrink the effective view while
+    // leaving faulty nodes in it, so a fraction of the effective view could
+    // exceed the Byzantine fraction (which is bounded over the original UNL).
     auto const base = activeValidatorView()->originalViewSize;
     if (base == 0)
         return 1;  // safety: need at least one aligned participant
@@ -252,10 +253,11 @@ ConsensusExtensions::entropyGateThreshold() const
 {
     // The bar at which the commit/reveal/entropy pipeline engages and the
     // entropy conflict gate resolves: the lowest ENABLED accepted tier's
-    // threshold. In the normal band tier2Threshold (0.6*original) < quorum
-    // (0.8*effective), so this is the 60% floor and sub-quorum rounds reach
-    // injection; under heavy nUNL the band collapses (tier2 >= quorum) and this
-    // is the 80% quorum, so only validator_quorum survives. This governs
+    // threshold. In the normal band tier2Threshold (~0.6*original) < quorum
+    // (0.8*effective), so this is the participant-alignment floor and
+    // sub-quorum rounds reach injection; under heavy nUNL the band collapses
+    // (tier2 >= quorum) and this is the 80% quorum, so only validator_quorum
+    // survives. This governs
     // proceed-vs-fall-back ONLY — the selector still labels the agreed set's
     // tier from its participant count, so a node that proceeds here never mints
     // a different tier than its peers (divergent local views fall back).
@@ -499,9 +501,10 @@ ConsensusExtensions::selectEntropy(
 
     // Tier ladder over the AGREED participant count — deterministic on every
     // node holding this entropySetHash. quorumThreshold() = ceil(0.8 *
-    // effective view); tier2Threshold() = ceil(0.6 * original view), the
-    // equivocation-safe intersection floor. Below tier2Threshold too few
-    // aligned participants contributed to trust the result — fall back.
+    // effective view); tier2Threshold() = the equivocation-safe intersection
+    // floor over the original view (~0.6*n; see calculateParticipantThreshold).
+    // Below tier2Threshold too few aligned participants contributed to trust
+    // the result — fall back.
     if (count >= quorumThreshold())
         return {digest, entropyTierValidatorQuorum, count};
     if (count >= tier2Threshold())
