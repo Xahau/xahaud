@@ -406,6 +406,86 @@ ConsensusExtensions::shouldZeroEntropy() const
     return leafCount == 0 || leafCount < quorumThreshold();
 }
 
+ConsensusExtensions::EntropySelection
+ConsensusExtensions::selectEntropy(
+    uint256 const& baseTxSetHash,
+    LedgerIndex seq) const
+{
+    // Tier 3 fallback: consensus-bound deterministic digest over already-agreed
+    // round inputs. baseTxSetHash is the BASE (pre-injection) consensus tx set
+    // hash — the digest must never depend on a set that could contain the
+    // pseudo-tx carrying it (circular).
+    auto const fallback = [&]() -> EntropySelection {
+        return {
+            sha512Half(
+                HashPrefix::entropyFallback,
+                roundPrevLedgerHash_,
+                baseTxSetHash,
+                seq),
+            entropyTierConsensusFallback,
+            0};
+    };
+
+    // Standalone/dev: synthetic deterministic entropy so hook dice/random work.
+    if (app_.config().standalone())
+        return {
+            sha512Half(std::string("standalone-entropy"), seq),
+            entropyTierValidatorQuorum,
+            20};
+
+    // Fallback when the agreed entropy set is missing/failed or sub-quorum.
+    if (shouldZeroEntropy())
+        return fallback();
+
+    // Derive from the AGREED entropySetMap_ — NOT local pendingReveals_. The
+    // map's hash was published in proposals and converged via fetch/merge, so
+    // every node holding the same entropySetHash produces byte-identical
+    // entropy and the same tier/count. shouldZeroEntropy() above guarantees the
+    // map is present and at/above quorum here; the guard is
+    // belt-and-suspenders. Each leaf is an STObject(sfGeneric) with
+    // sfSigningPubKey + sfDigest.
+    std::vector<std::pair<PublicKey, uint256>> sorted;
+    if (entropySetMap_)
+    {
+        entropySetMap_->visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                try
+                {
+                    SerialIter sit(item->slice());
+                    STObject obj(sit, sfGeneric);
+                    auto const pk = obj.getFieldVL(sfSigningPubKey);
+                    if (!publicKeyType(makeSlice(pk)))
+                        return;
+                    sorted.emplace_back(
+                        PublicKey(makeSlice(pk)), obj.getFieldH256(sfDigest));
+                }
+                catch (...)
+                {
+                }
+            });
+    }
+
+    // Residual: the gate passed but no leaf parsed — fall back rather than
+    // skip, so a fresh ConsensusEntropy entry always exists.
+    if (sorted.empty())
+        return fallback();
+
+    std::sort(sorted.begin(), sorted.end(), [](auto const& a, auto const& b) {
+        return a.first.slice() < b.first.slice();
+    });
+
+    Serializer s;
+    for (auto const& [key, reveal] : sorted)
+    {
+        s.addVL(key.slice());
+        s.addBitString(reveal);
+    }
+    return {
+        sha512Half(s.slice()),
+        entropyTierValidatorQuorum,
+        static_cast<std::uint16_t>(sorted.size())};
+}
+
 bool
 ConsensusExtensions::rngEnabled() const
 {
@@ -458,79 +538,21 @@ ConsensusExtensions::buildExplicitFinalProposalTxSet(
                      << " reveals=" << pendingReveals_.size()
                      << " entropyFailed=" << (entropyFailed_ ? "yes" : "no");
 
-    uint256 finalEntropy;
-    bool hasEntropy = false;
-    std::uint8_t entropyTier = entropyTierNone;
-    std::uint16_t entropyCount = 0;
+    // Shared deterministic selector over the AGREED entropySetMap_ — the same
+    // one onPreBuild uses — NOT local pendingReveals_, which can diverge from
+    // the agreed set at timeout boundaries. Routing explicit-final
+    // (experimental, default-off) through it keeps this path byte-identical to
+    // the implicit one. txns.id() is the BASE tx set hash for the fallback.
+    auto const selection = selectEntropy(txns.id(), seq);
+    uint256 const finalEntropy = selection.digest;
+    std::uint8_t const entropyTier = selection.tier;
+    std::uint16_t const entropyCount = selection.count;
 
-    // Tier 3 fallback over already-agreed round inputs. Uses the BASE tx
-    // set hash (txns.id()) — never the synthetic set's own hash (circular).
-    auto const fallbackEntropy = [&] {
-        return sha512Half(
-            HashPrefix::entropyFallback, roundPrevLedgerHash_, txns.id(), seq);
-    };
-
-    // Keep this entropy-selection logic aligned with onPreBuild().
-    // If these paths drift, different nodes can derive different synthetic
-    // hashes for the same round, which is especially harmful because this
-    // path mutates proposal tx-set identity late in establish.
-    if (app_.config().standalone())
-    {
-        finalEntropy = sha512Half(std::string("standalone-entropy"), seq);
-        hasEntropy = true;
-        entropyTier = entropyTierValidatorQuorum;
-        entropyCount = 20;
-    }
-    else if (shouldZeroEntropy())
-    {
-        finalEntropy = fallbackEntropy();
-        hasEntropy = true;
-        entropyTier = entropyTierConsensusFallback;
-        entropyCount = 0;
-    }
-    else
-    {
-        std::vector<std::pair<PublicKey, uint256>> sorted;
-        sorted.reserve(pendingReveals_.size());
-
-        for (auto const& [nodeId, reveal] : pendingReveals_)
-        {
-            auto it = nodeIdToKey_.find(nodeId);
-            if (it != nodeIdToKey_.end())
-                sorted.emplace_back(it->second, reveal);
-        }
-
-        if (!sorted.empty())
-        {
-            std::sort(
-                sorted.begin(), sorted.end(), [](auto const& a, auto const& b) {
-                    return a.first.slice() < b.first.slice();
-                });
-
-            Serializer s;
-            for (auto const& [key, reveal] : sorted)
-            {
-                s.addVL(key.slice());
-                s.addBitString(reveal);
-            }
-            finalEntropy = sha512Half(s.slice());
-            hasEntropy = true;
-            entropyTier = entropyTierValidatorQuorum;
-            entropyCount = static_cast<std::uint16_t>(sorted.size());
-        }
-    }
-
-    if (!hasEntropy)
-    {
-        // Residual (no usable reveals): fall back rather than skipping, so
-        // the synthetic set always carries a fresh entropy pseudo-tx.
-        finalEntropy = fallbackEntropy();
-        hasEntropy = true;
-        entropyTier = entropyTierConsensusFallback;
-        entropyCount = 0;
-        JLOG(j_.debug()) << "RNGFINAL: fallback entropy for synthetic txSet"
-                         << " baseTxSet=" << txns.id() << " seq=" << seq;
-    }
+    JLOG(j_.debug()) << "RNGFINAL: entropy selected"
+                     << " seq=" << seq
+                     << " tier=" << static_cast<int>(entropyTier)
+                     << " count=" << entropyCount << " digest=" << finalEntropy
+                     << " baseTxSet=" << txns.id();
 
     STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
         obj.setFieldU32(sfLedgerSequence, seq);
@@ -1645,126 +1667,28 @@ ConsensusExtensions::onPreBuild(
                             ? to_string(entropySetMap_->getHash().as_uint256())
                             : std::string{"none"});
 
-    uint256 finalEntropy;
-    bool hasEntropy = false;
-    std::uint8_t entropyTier = entropyTierNone;
-    std::uint16_t entropyCount = 0;
-
-    // Tier 3 fallback: consensus-bound deterministic digest derived from
-    // already-agreed round inputs. txSetHash is the BASE (pre-injection)
-    // consensus tx set hash — the digest must never depend on a set that
-    // could contain the pseudo-tx carrying it (circular).
-    auto const fallbackEntropy = [&] {
-        return sha512Half(
-            HashPrefix::entropyFallback, roundPrevLedgerHash_, txSetHash, seq);
-    };
-
     //@@start rng-inject-entropy-selection
-    // Calculate entropy from collected reveals
-    if (app_.config().standalone())
-    {
-        // Standalone mode: generate synthetic deterministic entropy
-        // so that Hook APIs (dice/random) work for testing.
-        finalEntropy = sha512Half(std::string("standalone-entropy"), seq);
-        hasEntropy = true;
-        entropyTier = entropyTierValidatorQuorum;
-        entropyCount = 20;  // synthetic: high enough for any hook minimum
-        JLOG(j_.info()) << "RNG: standalone synthetic entropy"
-                        << " seq=" << seq << " entropy=" << finalEntropy;
-    }
-    else if (shouldZeroEntropy())
-    {
-        // Liveness fallback (Tier 3): consensus-bound deterministic entropy
-        // instead of zero. EntropyTier/EntropyCount mark it fallback-grade —
-        // user-influenceable via tx submission, never for value-bearing use.
-        // shouldZeroEntropy() covers: pipeline failure, no reveals,
-        // or sub-quorum reveals (too easily influenced by a minority).
-        finalEntropy = fallbackEntropy();
-        hasEntropy = true;
-        entropyTier = entropyTierConsensusFallback;
-        entropyCount = 0;
-        JLOG(j_.warn()) << "RNG: injecting FALLBACK entropy"
-                        << " seq=" << seq << " reason=fallback"
-                        << " entropy=" << finalEntropy
-                        << " reveals=" << pendingReveals_.size()
-                        << " threshold=" << quorumThreshold()
-                        << " entropyFailed=" << (entropyFailed_ ? "yes" : "no")
-                        << " hasEntropySet=" << (entropySetMap_ ? "yes" : "no");
-    }
-    else if (entropySetMap_)
-    {
-        // Compute entropy from the agreed-upon entropySet SHAMap
-        // rather than from local pendingReveals_.  The map's hash
-        // was published in proposals and converged via fetch/merge,
-        // so all nodes with the same entropySetHash produce the
-        // same entropy — preventing reveal-subset divergence at
-        // timeout boundaries.
-        //
-        // Each leaf is an STObject(sfGeneric) sidecar with sfSigningPubKey
-        // (validator key) and sfDigest (the reveal).
-        std::vector<std::pair<PublicKey, uint256>> sorted;
-        entropySetMap_->visitLeaves(
-            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                try
-                {
-                    SerialIter sit(item->slice());
-                    STObject obj(sit, sfGeneric);
-                    auto const pk = obj.getFieldVL(sfSigningPubKey);
-                    if (!publicKeyType(makeSlice(pk)))
-                        return;
-                    sorted.emplace_back(
-                        PublicKey(makeSlice(pk)), obj.getFieldH256(sfDigest));
-                }
-                catch (...)
-                {
-                }
-            });
-
-        if (!sorted.empty())
-        {
-            std::sort(
-                sorted.begin(), sorted.end(), [](auto const& a, auto const& b) {
-                    return a.first.slice() < b.first.slice();
-                });
-
-            // Mix all reveals into final entropy
-            Serializer s;
-            for (auto const& [key, reveal] : sorted)
-            {
-                s.addVL(key.slice());
-                s.addBitString(reveal);
-            }
-            finalEntropy = sha512Half(s.slice());
-            hasEntropy = true;
-            entropyTier = entropyTierValidatorQuorum;
-            entropyCount = static_cast<std::uint16_t>(sorted.size());
-
-            JLOG(j_.info())
-                << "RNG: injecting entropy"
-                << " seq=" << seq << " entropy=" << finalEntropy
-                << " entropyCount=" << sorted.size() << " source=entropySetMap"
-                << " entropySetHash=" << entropySetMap_->getHash().as_uint256();
-        }
-    }
-
-    if (!hasEntropy)
-    {
-        // Residual: an entropy set passed the gate but yielded no parseable
-        // leaves. Fall back rather than skipping injection so a fresh
-        // ConsensusEntropy entry exists on every RNG-enabled ledger.
-        finalEntropy = fallbackEntropy();
-        hasEntropy = true;
-        entropyTier = entropyTierConsensusFallback;
-        entropyCount = 0;
-        JLOG(j_.warn()) << "RNG: injecting FALLBACK entropy"
-                        << " seq=" << seq << " reason=unparseable-entropy-set"
-                        << " entropy=" << finalEntropy;
-    }
+    // One deterministic selector over the AGREED entropySetMap_ chooses the
+    // digest and its tier/count. onPreBuild and buildExplicitFinalProposalTxSet
+    // share it, so neither the implicit vs explicit-final paths on one node nor
+    // two different nodes can derive different entropy for the same agreed
+    // round inputs. txSetHash is the BASE (pre-injection) consensus tx set
+    // hash.
+    auto const selection = selectEntropy(txSetHash, seq);
+    uint256 const finalEntropy = selection.digest;
+    std::uint8_t const entropyTier = selection.tier;
+    std::uint16_t const entropyCount = selection.count;
     //@@end rng-inject-entropy-selection
 
+    JLOG(j_.info()) << "RNG: entropy selected"
+                    << " seq=" << seq
+                    << " tier=" << static_cast<int>(entropyTier)
+                    << " count=" << entropyCount << " digest=" << finalEntropy;
+
     //@@start rng-inject-pseudotx
-    // Synthesize and inject the pseudo-transaction
-    if (hasEntropy)
+    // Synthesize and inject the pseudo-transaction. The selector always yields
+    // a digest (fallback when there is no validator entropy), so injection is
+    // unconditional — every RNG-enabled ledger carries a ConsensusEntropy tx.
     {
         // Design note: this is the canonical/implicit path that materializes
         // the synthetic entropy-bearing tx-set in production.

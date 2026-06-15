@@ -182,6 +182,23 @@ public:
     bool
     shouldZeroEntropy() const;
 
+    /// Result of the shared deterministic entropy selector: the digest to
+    /// inject plus its tier/count labels. Both injection paths derive these
+    /// identically from the AGREED entropySetMap_ so they cannot drift.
+    struct EntropySelection
+    {
+        uint256 digest;
+        std::uint8_t tier = 0;  // EntropyTier; the selector always sets this
+        std::uint16_t count = 0;
+    };
+
+    /// Deterministically choose the entropy to inject for this round from the
+    /// AGREED entropySetMap_ (never local pendingReveals_), labelled
+    /// validator_quorum or consensus_fallback. baseTxSetHash is the BASE
+    /// (pre-injection) tx set hash used for the fallback digest.
+    EntropySelection
+    selectEntropy(uint256 const& baseTxSetHash, LedgerIndex seq) const;
+
     bool
     rngEnabled() const;
 
