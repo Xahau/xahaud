@@ -113,12 +113,12 @@ public:
     }
 
     void
-    testRngImpossibleQuorumFallback()
+    testRngQuorumImpossibleFallsToTier2()
     {
         using namespace csf;
         using namespace std::chrono;
 
-        testcase("RNG impossible quorum fallback");
+        testcase("RNG quorum-impossible cohort falls to participant_aligned");
 
         ConsensusParms const parms{};
         Sim sim;
@@ -148,14 +148,18 @@ public:
         {
             for (Peer const* peer : majority)
             {
-                BEAST_EXPECT(peer->ce().lastEntropyWasFallback_);
-                // Tier 3: fallback rounds carry a deterministic non-zero
-                // consensus-bound digest, identical across the group.
+                // 2 of 3 is below the 80% quorum but at the tier-2 floor (n=3:
+                // tier2 == 2), so the surviving cohort mints
+                // participant_aligned entropy instead of falling back — and
+                // still converges (no hang, no fork): same non-zero digest and
+                // count across all.
+                BEAST_EXPECT(!peer->ce().lastEntropyWasFallback_);
+                BEAST_EXPECT(peer->ce().lastEntropyTier_ == 2);
+                BEAST_EXPECT(peer->ce().lastEntropyCount_ == 2);
                 BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
                 BEAST_EXPECT(
                     peer->ce().lastEntropyDigest_ ==
                     majority[0]->ce().lastEntropyDigest_);
-                BEAST_EXPECT(peer->ce().lastEntropyCount_ == 0);
             }
         }
     }
@@ -199,14 +203,18 @@ public:
         {
             for (Peer const* peer : majority)
             {
-                BEAST_EXPECT(peer->ce().lastEntropyWasFallback_);
-                // Tier 3: fallback rounds carry a deterministic non-zero
-                // consensus-bound digest, identical across the group.
+                // The 2 survivors of a 3-validator UNL mint the labeled-weaker
+                // participant_aligned (tier 2), NOT validator_quorum (tier 3):
+                // the tier-3 quorum did not silently shrink to 2 (a min_tier=3
+                // hook still rejects this). Deterministic + identical across
+                // the group — no fork.
+                BEAST_EXPECT(!peer->ce().lastEntropyWasFallback_);
+                BEAST_EXPECT(peer->ce().lastEntropyTier_ == 2);
+                BEAST_EXPECT(peer->ce().lastEntropyCount_ == 2);
                 BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
                 BEAST_EXPECT(
                     peer->ce().lastEntropyDigest_ ==
                     majority[0]->ce().lastEntropyDigest_);
-                BEAST_EXPECT(peer->ce().lastEntropyCount_ == 0);
             }
         }
     }
@@ -984,7 +992,7 @@ public:
 
         RUN(testRngCommitRevealConverges);
         RUN(testRngCommitRevealConvergesWithTransactions);
-        RUN(testRngImpossibleQuorumFallback);
+        RUN(testRngQuorumImpossibleFallsToTier2);
         RUN(testRngPersistentLossDoesNotShrinkQuorum);
         RUN(testRngTimeoutWithPartialQuorum);
         RUN(testRngCommitSetConflictForcesFallback);

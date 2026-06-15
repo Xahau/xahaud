@@ -400,11 +400,22 @@ struct Peer
         }
 
         std::size_t
+        tier2Threshold() const
+        {
+            if (!enableRngConsensus_)
+                return (std::numeric_limits<std::size_t>::max)() / 4;
+            auto const base = unlNodes_.size();
+            return calculateParticipantThreshold(base == 0 ? 1 : base);
+        }
+
+        std::size_t
         entropyGateThreshold() const
         {
-            // Mirror quorumThreshold for now; the tier-2 step-down (and its
-            // sims) lower this to min(quorum, tier2) in a follow-up.
-            return quorumThreshold();
+            // Lowest enabled accepted tier's bar, mirroring production: the
+            // pipeline/entropy gate engages here, then finalizeRoundEntropy
+            // labels by aligned count. In the tier-2 band tier2 < quorum; at
+            // sizes where the band collapses (e.g. n=5) this is just quorum.
+            return std::min(quorumThreshold(), tier2Threshold());
         }
 
         std::size_t
@@ -739,14 +750,14 @@ struct Peer
                 return;
             }
 
-            if (shouldZeroEntropy())
-            {
+            // Fallback when the round failed alignment (entropyFailed_ is set
+            // by the tick entropy gate) or yielded no reveals.
+            auto const fallback = [&] {
                 lastEntropyDigest_ = fallbackEntropy();
                 lastEntropyCount_ = 0;
                 lastEntropyWasFallback_ = true;
                 lastEntropyTier_ = 1;  // consensus_fallback
-                return;
-            }
+            };
 
             std::vector<std::pair<PeerKey, uint256>> ordered;
             ordered.reserve(pendingReveals_.size());
@@ -758,12 +769,9 @@ struct Peer
                 ordered.emplace_back(it->second, reveal);
             }
 
-            if (ordered.empty())
+            if (entropyFailed_ || ordered.empty())
             {
-                lastEntropyDigest_ = fallbackEntropy();
-                lastEntropyCount_ = 0;
-                lastEntropyWasFallback_ = true;
-                lastEntropyTier_ = 1;  // consensus_fallback
+                fallback();
                 return;
             }
 
@@ -788,10 +796,22 @@ struct Peer
                     reveal);
             }
 
+            // Tier ladder over the aligned reveal count (mirrors production
+            // selectEntropy): >= quorum -> validator_quorum, >= tier2 ->
+            // participant_aligned, else too few aligned to trust -> fall back.
+            auto const count = ordered.size();
+            if (count >= quorumThreshold())
+                lastEntropyTier_ = 3;  // validator_quorum
+            else if (count >= tier2Threshold())
+                lastEntropyTier_ = 2;  // participant_aligned
+            else
+            {
+                fallback();
+                return;
+            }
             lastEntropyDigest_ = digest;
-            lastEntropyCount_ = static_cast<std::uint16_t>(ordered.size());
+            lastEntropyCount_ = static_cast<std::uint16_t>(count);
             lastEntropyWasFallback_ = false;
-            lastEntropyTier_ = 3;  // validator_quorum
         }
 
         void
