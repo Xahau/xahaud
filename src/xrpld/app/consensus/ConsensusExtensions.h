@@ -158,6 +158,14 @@ public:
     std::size_t
     tier2Threshold() const;
 
+    /// Threshold at which the commit/reveal/entropy pipeline engages and the
+    /// entropy conflict gate resolves: min(quorumThreshold(),
+    /// tier2Threshold()). Governs proceed-vs-fall-back only; the tier LABEL
+    /// comes from the agreed participant count in selectEntropy(), never from
+    /// this local bar.
+    std::size_t
+    entropyGateThreshold() const;
+
     void
     setExpectedProposers(hash_set<NodeID> proposers);
 
@@ -193,9 +201,11 @@ public:
     };
 
     /// Deterministically choose the entropy to inject for this round from the
-    /// AGREED entropySetMap_ (never local pendingReveals_), labelled
-    /// validator_quorum or consensus_fallback. baseTxSetHash is the BASE
-    /// (pre-injection) tx set hash used for the fallback digest.
+    /// AGREED entropySetMap_ (never local pendingReveals_), labelled by agreed
+    /// participant count: validator_quorum (>= quorumThreshold),
+    /// participant_aligned (>= tier2Threshold) or consensus_fallback.
+    /// baseTxSetHash is the BASE (pre-injection) tx set hash used for the
+    /// fallback digest.
     EntropySelection
     selectEntropy(uint256 const& baseTxSetHash, LedgerIndex seq) const;
 

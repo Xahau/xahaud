@@ -400,6 +400,14 @@ struct Peer
         }
 
         std::size_t
+        entropyGateThreshold() const
+        {
+            // Mirror quorumThreshold for now; the tier-2 step-down (and its
+            // sims) lower this to min(quorum, tier2) in a follow-up.
+            return quorumThreshold();
+        }
+
+        std::size_t
         exportSigQuorumThreshold() const
         {
             if (!enableExportConsensus_)

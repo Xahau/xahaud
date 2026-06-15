@@ -280,7 +280,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
         // normally with all its coordination delays intact.
         bool rngBootstrapSkip = false;
         {
-            auto const threshold = ext.quorumThreshold();
+            auto const threshold = ext.entropyGateThreshold();
             // prevProposers is peer-only. Include our own proposer slot when
             // we are actively proposing, otherwise a 4/5 honest quorum appears
             // as only three previous proposers after one validator diverges.
@@ -351,7 +351,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             {
                 // participants = peers + ourselves
                 auto const participants = ctx.peerPositions.size() + 1;
-                auto const threshold = ext.quorumThreshold();
+                auto const threshold = ext.entropyGateThreshold();
                 bool const impossible = participants < threshold;
 
                 if (impossible)
@@ -379,7 +379,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     // with what we have — the SHAMap merge handles any
                     // remaining straggler fuzz for this transition round.
                     auto const commits = ext.pendingCommitCount();
-                    auto const quorum = ext.quorumThreshold();
+                    auto const quorum = ext.entropyGateThreshold();
                     if (commits >= quorum)
                     {
                         JLOG(ext.j_.info())
@@ -717,7 +717,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     };
 
                     auto entropyState = inspectEntropyPeers(ourPos, true);
-                    auto const entropyQuorum = ext.quorumThreshold();
+                    auto const entropyQuorum = ext.entropyGateThreshold();
                     auto quorumAligned = [&] {
                         return entropyState.quorumAligned(entropyQuorum);
                     };

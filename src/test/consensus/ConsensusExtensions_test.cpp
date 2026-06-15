@@ -384,6 +384,14 @@ struct FakeExtensions
     }
 
     std::size_t
+    entropyGateThreshold() const
+    {
+        // Stub default mirrors quorumThreshold (tier-2 band collapsed); the
+        // tier-2 step-down is exercised end-to-end in the CSF sims.
+        return exportQuorum;
+    }
+
+    std::size_t
     exportSigQuorumThreshold() const
     {
         return exportQuorum;
@@ -631,6 +639,107 @@ struct ExportTickHarness
     }
 };
 
+// Build an in-memory ledger carrying a UNLReport with the given active
+// validator keys (optionally disabling some via NegativeUNL). Drives the RNG
+// active-validator view. NOTE: it is not registered with the LedgerMaster, so
+// it suits cacheUNLReport()/makeActiveValidatorView() (which read its SLEs
+// directly) but NOT reveal verification (which resolves the round's prev ledger
+// through the LedgerMaster — anchor harvests to a real closed ledger instead).
+std::shared_ptr<Ledger>
+makeUNLReportLedger(
+    jtx::Env& env,
+    std::vector<PublicKey> const& activeKeys,
+    std::vector<PublicKey> const& disabledKeys = {})
+{
+    auto const genesis = std::make_shared<Ledger>(
+        create_genesis,
+        env.app().config(),
+        std::vector<uint256>{},
+        env.app().getNodeFamily());
+    auto ledger =
+        std::make_shared<Ledger>(*genesis, env.app().timeKeeper().closeTime());
+
+    auto report = std::make_shared<SLE>(keylet::UNLReport());
+    std::vector<STObject> active;
+    active.reserve(activeKeys.size());
+    for (auto const& pk : activeKeys)
+    {
+        active.push_back(STObject::makeInnerObject(sfActiveValidator));
+        active.back().setFieldVL(sfPublicKey, pk);
+    }
+    report->setFieldArray(
+        sfActiveValidators, STArray(active, sfActiveValidators));
+
+    OpenView accum(&*ledger);
+    accum.rawInsert(report);
+
+    if (!disabledKeys.empty())
+    {
+        auto negUnl = std::make_shared<SLE>(keylet::negativeUNL());
+        std::vector<STObject> disabled;
+        disabled.reserve(disabledKeys.size());
+        for (auto const& pk : disabledKeys)
+        {
+            disabled.push_back(STObject::makeInnerObject(sfDisabledValidator));
+            disabled.back().setFieldVL(sfPublicKey, pk);
+            disabled.back().setFieldU32(sfFirstLedgerSequence, ledger->seq());
+        }
+        negUnl->setFieldArray(
+            sfDisabledValidators, STArray(disabled, sfDisabledValidators));
+        accum.rawInsert(negUnl);
+    }
+
+    accum.apply(*ledger);
+    return ledger;
+}
+
+// Harvest a commit (proposeSeq 0) + matching reveal (proposeSeq 1) from one
+// validator into `ce`. The commitment binds seq, which reveal verification
+// recomputes as prevLedger->seq()+1 (resolved through the LedgerMaster), so
+// pass a prevLedger that is actually stored and a matching seq.
+void
+harvestCommitReveal(
+    ConsensusExtensions& ce,
+    NodeID const& nodeId,
+    PublicKey const& pk,
+    SecretKey const& sk,
+    uint256 const& txSetHash,
+    LedgerIndex seq,
+    NetClock::time_point closeTime,
+    uint256 const& prevLedger,
+    uint256 const& reveal)
+{
+    // nodeId is explicit (not calcNodeID(pk)): a validator's view identity is
+    // its master-key NodeID, which can differ from its signing pubkey.
+    auto const commitment = sha512Half(reveal, pk, seq);
+
+    ExtendedPosition commitPos{txSetHash};
+    commitPos.myCommitment = commitment;
+    auto const commitSig =
+        signPosition(pk, sk, commitPos, 0, closeTime, prevLedger);
+    ce.harvestRngData(
+        nodeId,
+        pk,
+        commitPos,
+        0,
+        closeTime,
+        prevLedger,
+        Slice(commitSig.data(), commitSig.size()));
+
+    ExtendedPosition revealPos{txSetHash};
+    revealPos.myReveal = reveal;
+    auto const revealSig =
+        signPosition(pk, sk, revealPos, 1, closeTime, prevLedger);
+    ce.harvestRngData(
+        nodeId,
+        pk,
+        revealPos,
+        1,
+        closeTime,
+        prevLedger,
+        Slice(revealSig.data(), revealSig.size()));
+}
+
 }  // namespace
 
 class ConsensusExtensions_test : public beast::unit_test::suite
@@ -777,39 +886,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             nullptr};
 
         auto const vlKeys = makeValidatorKeys();
-        auto const genesis = std::make_shared<Ledger>(
-            create_genesis,
-            env.app().config(),
-            std::vector<uint256>{},
-            env.app().getNodeFamily());
-        auto l = std::make_shared<Ledger>(
-            *genesis, env.app().timeKeeper().closeTime());
+        auto const l = makeUNLReportLedger(env, vlKeys, {vlKeys[0]});
         BEAST_EXPECT(l->rules().enabled(featureNegativeUNL));
-
-        auto report = std::make_shared<SLE>(keylet::UNLReport());
-        std::vector<STObject> activeValidators;
-        for (auto const& pk : vlKeys)
-        {
-            activeValidators.push_back(
-                STObject::makeInnerObject(sfActiveValidator));
-            activeValidators.back().setFieldVL(sfPublicKey, pk);
-        }
-        report->setFieldArray(
-            sfActiveValidators, STArray(activeValidators, sfActiveValidators));
-
-        auto negUnl = std::make_shared<SLE>(keylet::negativeUNL());
-        std::vector<STObject> disabledValidators;
-        disabledValidators.push_back(
-            STObject::makeInnerObject(sfDisabledValidator));
-        disabledValidators.back().setFieldVL(sfPublicKey, vlKeys[0]);
-        disabledValidators.back().setFieldU32(sfFirstLedgerSequence, l->seq());
-        negUnl->setFieldArray(
-            sfDisabledValidators,
-            STArray(disabledValidators, sfDisabledValidators));
-        OpenView accum(&*l);
-        accum.rawInsert(report);
-        accum.rawInsert(negUnl);
-        accum.apply(*l);
 
         ConsensusExtensions ce{env.app(), env.journal};
         auto const view = ce.makeActiveValidatorView(l);
@@ -973,37 +1051,19 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const closeTime = NetClock::time_point{NetClock::duration{654}};
         auto const txSetHash = makeHash("explicit-final-nonzero-txset");
         auto const reveal = makeHash("explicit-final-nonzero-reveal");
-        auto const commitment = sha512Half(reveal, publicKey, nonStandaloneSeq);
-
         ConsensusExtensions revealCe{
             nonStandaloneEnv.app(), activeNoopJournal()};
         revealCe.cacheUNLReport(ledger);
-
-        ExtendedPosition commitPos{txSetHash};
-        commitPos.myCommitment = commitment;
-        auto const commitSig = signPosition(
-            publicKey, secretKey, commitPos, 0, closeTime, prevLedger);
-        revealCe.harvestRngData(
+        harvestCommitReveal(
+            revealCe,
             nodeId,
             publicKey,
-            commitPos,
-            0,
+            secretKey,
+            txSetHash,
+            nonStandaloneSeq,
             closeTime,
             prevLedger,
-            Slice(commitSig.data(), commitSig.size()));
-
-        ExtendedPosition revealPos{txSetHash};
-        revealPos.myReveal = reveal;
-        auto const revealSig = signPosition(
-            publicKey, secretKey, revealPos, 1, closeTime, prevLedger);
-        revealCe.harvestRngData(
-            nodeId,
-            publicKey,
-            revealPos,
-            1,
-            closeTime,
-            prevLedger,
-            Slice(revealSig.data(), revealSig.size()));
+            reveal);
         revealCe.buildEntropySet(nonStandaloneSeq);
 
         auto revealSynthetic = revealCe.buildExplicitFinalProposalTxSet(
@@ -1154,37 +1214,19 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const closeTime = NetClock::time_point{NetClock::duration{321}};
         auto const txSetHash = makeHash("prebuild-entropy-txset");
         auto const reveal = makeHash("prebuild-entropy-reveal");
-        auto const commitment = sha512Half(reveal, publicKey, seq);
-
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
         ce.cacheUNLReport(ledger);
-
-        ExtendedPosition commitPos{txSetHash};
-        commitPos.myCommitment = commitment;
-        auto const commitSig = signPosition(
-            publicKey, secretKey, commitPos, 0, closeTime, prevLedger);
-        ce.harvestRngData(
+        harvestCommitReveal(
+            ce,
             nodeId,
             publicKey,
-            commitPos,
-            0,
+            secretKey,
+            txSetHash,
+            seq,
             closeTime,
             prevLedger,
-            Slice(commitSig.data(), commitSig.size()));
+            reveal);
         BEAST_EXPECT(ce.hasQuorumOfCommits());
-
-        ExtendedPosition revealPos{txSetHash};
-        revealPos.myReveal = reveal;
-        auto const revealSig = signPosition(
-            publicKey, secretKey, revealPos, 1, closeTime, prevLedger);
-        ce.harvestRngData(
-            nodeId,
-            publicKey,
-            revealPos,
-            1,
-            closeTime,
-            prevLedger,
-            Slice(revealSig.data(), revealSig.size()));
         BEAST_EXPECT(ce.hasMinimumReveals());
 
         auto const entropySetHash = ce.buildEntropySet(seq);
@@ -1204,6 +1246,104 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 1);
         BEAST_EXPECT(
             tx->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
+    }
+
+    void
+    testOnPreBuildTier2ParticipantAligned()
+    {
+        testcase(
+            "onPreBuild labels sub-quorum aligned set participant_aligned");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+        forceNonStandalone(env.app());
+
+        // A 5-validator UNLReport opens the tier-2 band:
+        //   tier2Threshold  = ceil(0.6 * 5) = 3
+        //   quorumThreshold = ceil(0.8 * 5) = 4
+        // so an agreed aligned count of 3 is participant_aligned, 4+ is
+        // validator_quorum, and < 3 falls back.
+        constexpr std::size_t kValidators = 5;
+        std::vector<std::pair<PublicKey, SecretKey>> vals;
+        vals.reserve(kValidators);
+        std::vector<PublicKey> activeKeys;
+        activeKeys.reserve(kValidators);
+        for (std::size_t i = 0; i < kValidators; ++i)
+        {
+            vals.push_back(randomKeyPair(KeyType::secp256k1));
+            activeKeys.push_back(vals.back().first);
+        }
+        auto const viewLedger = makeUNLReportLedger(env, activeKeys);
+
+        // Thresholds derive from the cached pre-nUNL view (originalViewSize=5).
+        {
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            ce.cacheUNLReport(viewLedger);
+            BEAST_EXPECT(ce.activeValidatorView()->originalViewSize == 5);
+            BEAST_EXPECT(ce.quorumThreshold() == 4);
+            BEAST_EXPECT(ce.tier2Threshold() == 3);
+            BEAST_EXPECT(ce.entropyGateThreshold() == 3);
+        }
+
+        // Reveal verification resolves the round's prev ledger through the
+        // LedgerMaster, so anchor commitments to a real closed ledger (the view
+        // above comes from the in-memory UNLReport ledger).
+        auto const anchor = env.app().getLedgerMaster().getClosedLedger();
+        auto const prevLedger = anchor->info().hash;
+        auto const seq = anchor->info().seq + 1;
+        auto const closeTime = NetClock::time_point{NetClock::duration{777}};
+        auto const txSetHash = makeHash("tier2-txset");
+
+        // Harvest commit+reveal from `revealers` of the 5 validators, build the
+        // agreed entropy set, inject, and return the labelled (tier, count).
+        auto runWith = [&](std::size_t revealers) {
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            ce.cacheUNLReport(viewLedger);
+            for (std::size_t i = 0; i < revealers; ++i)
+            {
+                auto const reveal =
+                    sha512Half(vals[i].first, makeHash("tier2-reveal"));
+                harvestCommitReveal(
+                    ce,
+                    calcNodeID(vals[i].first),
+                    vals[i].first,
+                    vals[i].second,
+                    txSetHash,
+                    seq,
+                    closeTime,
+                    prevLedger,
+                    reveal);
+            }
+            ce.buildEntropySet(seq);
+            CanonicalTXSet txs{makeHash("tier2-salt")};
+            ce.onPreBuild(txs, seq, txSetHash);
+            auto const tx = singleCanonicalTx(txs);
+            std::pair<int, std::uint16_t> out{-1, 0};
+            if (tx)
+                out = {
+                    tx->getFieldU8(sfEntropyTier),
+                    tx->getFieldU16(sfEntropyCount)};
+            return out;
+        };
+
+        // 4 of 5 aligned -> validator_quorum (count >= quorum 4).
+        auto const q = runWith(4);
+        BEAST_EXPECT(q.first == entropyTierValidatorQuorum);
+        BEAST_EXPECT(q.second == 4);
+
+        // 3 of 5 aligned -> participant_aligned (count >= tier2 3, < quorum 4).
+        auto const p = runWith(3);
+        BEAST_EXPECT(p.first == entropyTierParticipantAligned);
+        BEAST_EXPECT(p.second == 3);
+
+        // 2 of 5 aligned -> below the tier-2 floor -> consensus_fallback.
+        auto const f = runWith(2);
+        BEAST_EXPECT(f.first == entropyTierConsensusFallback);
+        BEAST_EXPECT(f.second == 0);
     }
 
     void
@@ -2806,6 +2946,7 @@ public:
         testDecoratePositionGeneratesCommitment();
         testOnPreBuildInjectsZeroEntropyFallback();
         testOnPreBuildInjectsEntropySetEntropy();
+        testOnPreBuildTier2ParticipantAligned();
         testProposalProofRoundTrip();
         testHarvestRngDataReplacementAndRejection();
         testExportSidecarBuildFetchAndMerge();

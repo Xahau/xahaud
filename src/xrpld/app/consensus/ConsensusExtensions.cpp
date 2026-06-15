@@ -247,6 +247,21 @@ ConsensusExtensions::tier2Threshold() const
     return calculateParticipantThreshold(base);
 }
 
+std::size_t
+ConsensusExtensions::entropyGateThreshold() const
+{
+    // The bar at which the commit/reveal/entropy pipeline engages and the
+    // entropy conflict gate resolves: the lowest ENABLED accepted tier's
+    // threshold. In the normal band tier2Threshold (0.6*original) < quorum
+    // (0.8*effective), so this is the 60% floor and sub-quorum rounds reach
+    // injection; under heavy nUNL the band collapses (tier2 >= quorum) and this
+    // is the 80% quorum, so only validator_quorum survives. This governs
+    // proceed-vs-fall-back ONLY — the selector still labels the agreed set's
+    // tier from its participant count, so a node that proceeds here never mints
+    // a different tier than its peers (divergent local views fall back).
+    return std::min(quorumThreshold(), tier2Threshold());
+}
+
 void
 ConsensusExtensions::setExpectedProposers(hash_set<NodeID> proposers)
 {
@@ -433,37 +448,36 @@ ConsensusExtensions::selectEntropy(
             entropyTierValidatorQuorum,
             20};
 
-    // Fallback when the agreed entropy set is missing/failed or sub-quorum.
-    if (shouldZeroEntropy())
+    // No agreed entropy set (round failed, or none was built) → fallback. We do
+    // NOT fall back merely for being below the 80% quorum the way
+    // shouldZeroEntropy() does: a sub-quorum-but-aligned set may still qualify
+    // for participant_aligned (tier 2). The tier ladder below decides from the
+    // agreed participant count.
+    if (entropyFailed_ || !entropySetMap_)
         return fallback();
 
     // Derive from the AGREED entropySetMap_ — NOT local pendingReveals_. The
     // map's hash was published in proposals and converged via fetch/merge, so
     // every node holding the same entropySetHash produces byte-identical
-    // entropy and the same tier/count. shouldZeroEntropy() above guarantees the
-    // map is present and at/above quorum here; the guard is
-    // belt-and-suspenders. Each leaf is an STObject(sfGeneric) with
+    // entropy and the same tier/count. Each leaf is an STObject(sfGeneric) with
     // sfSigningPubKey + sfDigest.
     std::vector<std::pair<PublicKey, uint256>> sorted;
-    if (entropySetMap_)
-    {
-        entropySetMap_->visitLeaves(
-            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                try
-                {
-                    SerialIter sit(item->slice());
-                    STObject obj(sit, sfGeneric);
-                    auto const pk = obj.getFieldVL(sfSigningPubKey);
-                    if (!publicKeyType(makeSlice(pk)))
-                        return;
-                    sorted.emplace_back(
-                        PublicKey(makeSlice(pk)), obj.getFieldH256(sfDigest));
-                }
-                catch (...)
-                {
-                }
-            });
-    }
+    entropySetMap_->visitLeaves(
+        [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+            try
+            {
+                SerialIter sit(item->slice());
+                STObject obj(sit, sfGeneric);
+                auto const pk = obj.getFieldVL(sfSigningPubKey);
+                if (!publicKeyType(makeSlice(pk)))
+                    return;
+                sorted.emplace_back(
+                    PublicKey(makeSlice(pk)), obj.getFieldH256(sfDigest));
+            }
+            catch (...)
+            {
+            }
+        });
 
     // Residual: the gate passed but no leaf parsed — fall back rather than
     // skip, so a fresh ConsensusEntropy entry always exists.
@@ -480,10 +494,19 @@ ConsensusExtensions::selectEntropy(
         s.addVL(key.slice());
         s.addBitString(reveal);
     }
-    return {
-        sha512Half(s.slice()),
-        entropyTierValidatorQuorum,
-        static_cast<std::uint16_t>(sorted.size())};
+    auto const digest = sha512Half(s.slice());
+    auto const count = static_cast<std::uint16_t>(sorted.size());
+
+    // Tier ladder over the AGREED participant count — deterministic on every
+    // node holding this entropySetHash. quorumThreshold() = ceil(0.8 *
+    // effective view); tier2Threshold() = ceil(0.6 * original view), the
+    // equivocation-safe intersection floor. Below tier2Threshold too few
+    // aligned participants contributed to trust the result — fall back.
+    if (count >= quorumThreshold())
+        return {digest, entropyTierValidatorQuorum, count};
+    if (count >= tier2Threshold())
+        return {digest, entropyTierParticipantAligned, count};
+    return fallback();
 }
 
 bool
