@@ -342,6 +342,13 @@ struct Peer
         hash_map<PeerID, uint256> pendingExportSigs_;
         hash_map<PeerID, PeerKey> nodeKeys_;
         uint256 myEntropySecret_;
+        // Hash of the entropy reveal set this peer last advertised
+        // (buildEntropySet). finalizeRoundEntropy injects from the snapshot the
+        // sidecar store holds under this hash — the analog of production's
+        // FROZEN entropySetMap_ — not live pendingReveals_, so late-fetched or
+        // conflicting reveals that never entered the advertised set are not
+        // counted (matches ConsensusExtensions::selectEntropy).
+        uint256 lastEntropySetHash_{};
         bool entropyFailed_ = false;
 
         // Last round summary (for test assertions)
@@ -497,10 +504,14 @@ struct Peer
         buildEntropySet(Ledger::Seq seq)
         {
             if (forcedEntropySetHash_)
+            {
+                lastEntropySetHash_ = *forcedEntropySetHash_;
                 return *forcedEntropySetHash_;
+            }
             auto const hash = hashRngSet(pendingReveals_, seq, "reveal");
             peer.sidecarStore.publish(
                 hash, SidecarStore::Type::reveal, pendingReveals_);
+            lastEntropySetHash_ = hash;
             return hash;
         }
 
@@ -607,6 +618,7 @@ struct Peer
             nodeKeys_.clear();
             likelyParticipants_.clear();
             myEntropySecret_.zero();
+            lastEntropySetHash_.zero();
             entropyFailed_ = false;
             exportSigGateStarted_ = false;
             exportSigGateStart_ = {};
@@ -759,14 +771,26 @@ struct Peer
                 lastEntropyTier_ = 1;  // consensus_fallback
             };
 
+            // Finalize from the snapshot of the entropy set this peer last
+            // advertised (the sidecar-store entry for lastEntropySetHash_) —
+            // the analog of production injecting from the frozen
+            // entropySetMap_, NOT live pendingReveals_. Late-fetched or
+            // conflicting reveals that never entered the advertised/aligned set
+            // are not counted, matching ConsensusExtensions::selectEntropy.
+            auto const* acceptedSet =
+                peer.sidecarStore.fetch(lastEntropySetHash_);
+
             std::vector<std::pair<PeerKey, uint256>> ordered;
-            ordered.reserve(pendingReveals_.size());
-            for (auto const& [nodeId, reveal] : pendingReveals_)
+            if (acceptedSet)
             {
-                auto const it = nodeKeys_.find(nodeId);
-                if (it == nodeKeys_.end())
-                    continue;
-                ordered.emplace_back(it->second, reveal);
+                ordered.reserve(acceptedSet->entries.size());
+                for (auto const& [nodeId, reveal] : acceptedSet->entries)
+                {
+                    auto const it = nodeKeys_.find(nodeId);
+                    if (it == nodeKeys_.end())
+                        continue;
+                    ordered.emplace_back(it->second, reveal);
+                }
             }
 
             if (entropyFailed_ || ordered.empty())
