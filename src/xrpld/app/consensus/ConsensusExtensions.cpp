@@ -207,10 +207,12 @@ sidecarKindName(ConsensusExtensions::SidecarKind kind)
 std::size_t
 ConsensusExtensions::quorumThreshold() const
 {
-    // Non-zero entropy is only allowed once a fixed 80% quorum of the active
-    // UNL snapshot has committed. Recent proposers are useful for liveness
-    // heuristics, but they do not lower this floor.
-    // Use the shared validator view so RNG and Export use the same denominator.
+    // Validator_quorum entropy uses a fixed 80% threshold over the effective
+    // active UNL snapshot. Tier 2 participant_aligned entropy has its own
+    // lower intersection-safe floor; recent proposers are useful for liveness
+    // heuristics, but they do not lower either threshold.
+    // Use the shared validator view so Tier 3 RNG and Export use the same
+    // denominator.
     auto const base = activeValidatorView()->size();
     if (base == 0)
         return 1;  // safety: need at least one commit
@@ -428,7 +430,7 @@ ConsensusExtensions::selectEntropy(
     uint256 const& baseTxSetHash,
     LedgerIndex seq) const
 {
-    // Tier 3 fallback: consensus-bound deterministic digest over already-agreed
+    // Tier 1 fallback: consensus-bound deterministic digest over already-agreed
     // round inputs. baseTxSetHash is the BASE (pre-injection) consensus tx set
     // hash — the digest must never depend on a set that could contain the
     // pseudo-tx carrying it (circular).

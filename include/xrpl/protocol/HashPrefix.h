@@ -100,9 +100,10 @@ enum class HashPrefix : std::uint32_t {
     /** consensus extension sidecar object */
     sidecar = detail::make_hash_prefix('S', 'C', 'R'),
 
-    /** consensus-bound fallback entropy digest (Tier 3: derived from
-        already-agreed round inputs when validator reveal quorum is not
-        available; never to be confused with validator entropy) */
+    /** consensus-bound fallback entropy digest (Tier 1: derived from
+        already-agreed round inputs when no agreed reveal set reaches an
+        accepted validator-participant tier; never to be confused with
+        validator entropy) */
     entropyFallback = detail::make_hash_prefix('E', 'F', 'B'),
 };
 

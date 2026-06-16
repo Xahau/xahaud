@@ -15,15 +15,15 @@ extension timing must not create divergent closed-ledger effects when a bounded
 coordination step can avoid it. Fast means those coordination steps stay short
 and conditional, never becoming an open-ended wait for an extension feature to
 succeed. Works means missed or late extension material follows that feature's
-deterministic fallback, such as Tier 3 fallback entropy for RNG or normal
+deterministic fallback, such as Tier 1 consensus_fallback entropy for RNG or normal
 Export retry/expiry, rather than blocking core consensus.
 
 ## Fallback Semantics
 
 RNG and Export use similar positive-path sidecar gates, but they do not have
 the same safe fallback. RNG can safely close with a deterministic
-consensus-bound fallback digest (Tier 3) when peers cannot establish quorum
-alignment on validator entropy in time: every input to the fallback
+consensus-bound fallback digest (Tier 1) when peers cannot establish an
+accepted participant_aligned or validator_quorum entropy set in time: every input to the fallback
 (`HashPrefix::entropyFallback`, parent ledger hash, base tx set hash,
 sequence) is already consensus-agreed at injection time, so no second
 agreement is needed. The result is explicitly labeled
@@ -46,8 +46,8 @@ treated as complete and must retry or expire under transaction rules.
 
    RNG and export sidecar convergence may wait briefly inside establish, but
    they must not block ledger close indefinitely. If RNG cannot establish
-   quorum-aligned validator entropy, it injects the deterministic Tier 3
-   fallback digest (labeled `consensus_fallback`, count 0). If export
+   an accepted entropy set, it injects the deterministic Tier 1
+   consensus_fallback digest (labeled `consensus_fallback`, count 0). If export
    signatures cannot converge, export retries or expires according to
    transaction rules.
 
@@ -152,7 +152,8 @@ local reveal subsets at timeout boundaries from producing different entropy.
 ## Entropy Alignment Rules
 
 Validator-tier entropy requires quorum alignment on the entropy sidecar
-hash.
+hash. Participant-aligned entropy uses the lower `tier2Threshold()` floor over
+the original pre-nUNL view.
 
 The alignment count is:
 
@@ -160,21 +161,24 @@ The alignment count is:
 our published entropySetHash + tx-converged peers with the same entropySetHash
 ```
 
-If that count reaches `quorumThreshold()`, the node may proceed with
-validator-tier entropy even if a below-quorum minority advertises a
-conflicting or unacquirable entropy hash.
+If that count reaches `quorumThreshold()`, the node labels the agreed set
+`validator_quorum`. If it is below `quorumThreshold()` but reaches
+`tier2Threshold()`, the node labels the agreed set `participant_aligned`.
+In both cases, a below-threshold minority can advertise a conflicting or
+unacquirable entropy hash without vetoing the aligned cohort.
 
-If no entropy hash reaches quorum alignment before the bounded deadline, the
-round must fall back to the Tier 3 consensus-bound digest. This is the safe
-degradation path, not a consensus failure.
+If no entropy hash reaches the entropy gate threshold before the bounded
+deadline, the round must fall back to the Tier 1 consensus-bound digest. This
+is the safe degradation path, not a consensus failure.
 
-Examples with five active validators and threshold four:
+Examples with five active validators, validator_quorum threshold four, and
+participant_aligned threshold four:
 
 - Four honest validators align on one entropy hash and one validator advertises
-  a bogus hash: proceed with validator-tier entropy for the honest quorum.
+  a bogus hash: proceed with validator_quorum entropy for the honest quorum.
 - Two validators advertise different bogus hashes and only three align on the
-  honest hash: fall back to the Tier 3 digest.
-- No peer entropy hash is observed in time: fall back to the Tier 3 digest.
+  honest hash: fall back to the Tier 1 digest.
+- No peer entropy hash is observed in time: fall back to the Tier 1 digest.
 
 The fallback pseudo-transaction is deterministic — every node derives the same
 digest from `(HashPrefix::entropyFallback, parentLedgerHash, baseTxSetHash,
@@ -185,8 +189,9 @@ validator-tier entropy fails closed with `TOO_LITTLE_ENTROPY` on fallback
 ledgers, while a hook that opts into fallback-grade randomness must do so
 explicitly at the call site. The fallback digest derives from the BASE
 (pre-injection) tx set hash to avoid circularity, and entropy pseudo-tx
-deduplication is type-based so an explicit-final synthetic set's pseudo-tx is
-recognized even when its exact txID cannot be re-derived locally.
+deduplication is value-based: if an explicit-final synthetic set already
+contains the exact pseudo-tx, injection skips it; a present-but-different
+pseudo-tx is logged as a determinism violation and left in the agreed set.
 
 ## Sidecar Convergence Rules
 
@@ -280,9 +285,10 @@ When changing consensus extension code, check these questions:
 
 - Does this preserve transaction-set equality as the core consensus identity?
 - Does every extension wait have a bounded fallback?
-- Does non-zero entropy require active-validator quorum alignment?
+- Does validator_quorum entropy require active-validator quorum alignment?
 - Can one bad validator deny entropy to an honest quorum? It must not.
-- Can a sub-quorum set produce non-zero entropy? It must not.
+- Can a sub-quorum set produce participant_aligned entropy only after reaching
+  the intersection-safe tier2Threshold()?
 - Are quorum calculations using the active validator view, not recent
   proposers as the denominator?
 - Are sidecar entries typed as sidecars, not pseudo-transactions?

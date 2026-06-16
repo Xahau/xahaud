@@ -98,15 +98,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
     // SHAMap fetch/diff/merge in onAcquiredSidecarSet is a safety net
     // for stragglers, not a voting mechanism.
     //
-    // Why 80% for commits but 100% for reveals?
+    // Why an 80% fast path for commits but 100% for reveals?
     //
-    // COMMITS: quorum is based on the active UNL, but we don't know
-    // which UNL members are actually online until they propose — and
-    // commitments ride on those same proposals.  Chicken-and-egg: we
-    // learn who's active by receiving their commits.  80% of the UNL
-    // says "we've heard from enough validators, let's go."  The
-    // impossible-quorum early-exit handles the case where too few
-    // participants exist to ever reach 80%.
+    // COMMITS: the immediate transition still uses the 80%
+    // validator_quorum threshold. If that fast path is not reached, bounded
+    // timeout/impossible-participant logic may still proceed at the lower
+    // entropyGateThreshold() so Tier 2 participant_aligned rounds can close.
     //
     // REVEALS: the commit set is now locked and we know *exactly* who
     // committed.  Every committer broadcasts their reveal immediately.
@@ -269,14 +266,14 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             << " mode=" << to_string(ctx.mode);
 
         // Bootstrap fast-path: if the previous round didn't have
-        // enough proposers for RNG to have succeeded, the network
-        // is still converging.  Skip the entire commit/reveal
-        // pipeline — it can only produce zero entropy anyway, but
+        // enough proposers for RNG to reach the entropy gate threshold, the
+        // network is still converging.  Skip the entire commit/reveal
+        // pipeline — it can only produce consensus_fallback anyway, but
         // each substate transition and timeout (PIPELINE_TIMEOUT,
         // REVEAL_TIMEOUT, conflict-wait) adds seconds of latency
         // per round that compound across staggered startup.
         //
-        // Once prevProposers reaches quorum the pipeline engages
+        // Once prevProposers reaches the entropy gate threshold the pipeline engages
         // normally with all its coordination delays intact.
         bool rngBootstrapSkip = false;
         {
@@ -332,16 +329,15 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
             // Don't let the round close while waiting for commit quorum.
             // Without this gate, execution falls through to the normal
-            // consensus close logic and nodes inject partial/zero entropy
+            // consensus close logic and nodes inject different entropy tiers
             // while others are still collecting — causing ledger
             // mismatches.
             //
             // However, if we've already converged on the txSet (which we
             // have — haveConsensus() passed above) and there aren't enough
-            // currently participating validators to ever reach the fixed
-            // UNL quorum, skip immediately. With 3 active UNL validators
-            // and quorum=3, losing one node means 2/3 commits forever —
-            // waiting 3s per round just delays recovery.
+            // currently participating validators to ever reach the entropy
+            // gate threshold, skip immediately. For a badly degraded view below
+            // the Tier 2 floor, waiting 3s per round just delays recovery.
             //
             // NOTE: Late-joining nodes (e.g. restarting after a crash)
             // cannot help here.  They enter the round as proposing=false
@@ -357,12 +353,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 if (impossible)
                 {
                     JLOG(ext.j_.debug()) << "RNG: skipping commit wait"
-                                         << " reason=impossible-quorum"
+                                        << " reason=impossible-entropy-gate"
                                          << " participants=" << participants
                                          << " threshold=" << threshold
                                          << " buildSeq=" << buildSeq;
-                    logRngDiag("rng-commit-wait-impossible-quorum");
-                    // Fall through to close with zero entropy
+                    logRngDiag("rng-commit-wait-impossible-entropy-gate");
+                    // Fall through to close with consensus_fallback entropy.
                 }
                 else
                 {
@@ -384,9 +380,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     if (commits >= quorum)
                     {
                         JLOG(ext.j_.info())
-                            << "RNG: commit timeout with quorum"
+                            << "RNG: commit timeout with entropy gate threshold"
                             << " buildSeq=" << buildSeq
-                            << " commits=" << commits << " quorum=" << quorum
+                            << " commits=" << commits
+                            << " entropyGateThreshold=" << quorum
                             << " roundMs=" << ctx.roundTime.count()
                             << " timeoutMs="
                             << ctx.parms.rngPIPELINE_TIMEOUT.count();
@@ -408,7 +405,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         return {};
                     }
                     logRngDiag("rng-commit-timeout-below-quorum");
-                    // Truly below quorum: fall through to zero entropy
+                    // Truly below the entropy gate: fall through to
+                    // consensus_fallback entropy.
                 }
             }
         }
@@ -554,7 +552,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " buildSeq=" << buildSeq
                         << " elapsedMs=" << toMs(conflictElapsed)
                         << " deadlineMs=" << toMs(ctx.parms.rngREVEAL_TIMEOUT)
-                        << " action=zero-entropy-fallback";
+                        << " action=consensus-fallback";
                     logRngDiag("rng-commit-conflict-timeout-fallback");
                     return {};
                 }
@@ -667,7 +665,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             // at least one observation window to see our hash (and us
             // theirs) before accepting.  Without this, a node can
             // publish + accept in the same tick, never seeing a peer's
-            // different hash — causing asymmetric zero/non-zero entropy
+            // different hash — causing asymmetric validator/fallback entropy
             // and a ledger fork.
             //
             // The gate works in two phases:
@@ -763,7 +761,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         // Re-check against the current local hash.  Any peer
                         // that still advertises a different entropySetHash is
                         // unresolved until it converges or the bounded RNG
-                        // window expires and forces zero entropy.
+                        // window expires and forces consensus_fallback.
                         entropyState =
                             inspectEntropyPeers(ctx.getPosition(), true);
                     }
@@ -805,7 +803,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             return {};
                         }
 
-                        // Deadline exceeded — fall back to zero.
+                        // Deadline exceeded — fall back to consensus_fallback.
                         ext.setEntropyFailed();
                         clearEntropyHash();
                         JLOG(ext.j_.warn())
@@ -813,23 +811,24 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             << " buildSeq=" << buildSeq
                             << " elapsedMs=" << toMs(entropyElapsed)
                             << " deadlineMs=" << toMs(entropyDeadline)
-                            << " action=zero-entropy-fallback"
+                            << " action=consensus-fallback"
                             << " alignedParticipants="
                             << entropyState.alignedParticipants()
-                            << " quorum=" << entropyQuorum
+                            << " entropyGateThreshold=" << entropyQuorum
                             << " peersSeen=" << entropyState.peersSeen
                             << " txConverged=" << entropyState.txConverged;
                         logRngDiag("rng-entropy-hash-conflict-timeout");
                     }
 
                     // Positive alignment check: require at least one
-                    // tx-converged quorum with a matching entropySetHash
-                    // before accepting non-zero entropy, and require every
+                    // tx-converged entropy-gate cohort with a matching
+                    // entropySetHash before accepting validator-derived
+                    // entropy, and require every
                     // tx-converged peer we are counting to have advertised
                     // some entropySetHash.  Without the full-observation
                     // part, asymmetric proposal delivery lets a node accept
-                    // non-zero while peers that are still missing sidecar
-                    // hashes hit the deadline and deterministically zero.
+                    // validator-derived entropy while peers that are still missing sidecar
+                    // hashes hit the deadline and deterministically fall back.
                     if (!entropyState.conflict &&
                         (!quorumAligned() || !fullObservation()))
                     {
@@ -840,12 +839,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         if (entropyElapsed <= entropyDeadline)
                         {
                             JLOG(ext.j_.debug())
-                                << "RNG: waiting for entropySetHash quorum "
-                                   "alignment"
+                                << "RNG: waiting for entropySetHash entropy "
+                                   "gate alignment"
                                 << " buildSeq=" << buildSeq
                                 << " alignedParticipants="
                                 << entropyState.alignedParticipants()
-                                << " quorum=" << entropyQuorum
+                                << " entropyGateThreshold=" << entropyQuorum
                                 << " peersSeen=" << entropyState.peersSeen
                                 << " txConverged=" << entropyState.txConverged
                                 << " elapsedMs=" << toMs(entropyElapsed)
@@ -856,12 +855,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         ext.setEntropyFailed();
                         clearEntropyHash();
                         JLOG(ext.j_.warn())
-                            << "RNG: entropySetHash quorum alignment timeout"
+                            << "RNG: entropySetHash entropy gate alignment timeout"
                             << " buildSeq=" << buildSeq
-                            << " action=zero-entropy-fallback"
+                            << " action=consensus-fallback"
                             << " alignedParticipants="
                             << entropyState.alignedParticipants()
-                            << " quorum=" << entropyQuorum
+                            << " entropyGateThreshold=" << entropyQuorum
                             << " peersSeen=" << entropyState.peersSeen
                             << " txConverged=" << entropyState.txConverged
                             << " elapsedMs=" << toMs(entropyElapsed)
@@ -875,7 +874,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " aligned=" << entropyState.aligned
                         << " alignedParticipants="
                         << entropyState.alignedParticipants()
-                        << " quorum=" << entropyQuorum
+                        << " entropyGateThreshold=" << entropyQuorum
                         << " peersSeen=" << entropyState.peersSeen
                         << " txConverged=" << entropyState.txConverged
                         << " conflict="

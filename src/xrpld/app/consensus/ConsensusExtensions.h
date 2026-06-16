@@ -67,7 +67,7 @@ private:
     std::shared_ptr<SHAMap> exportSigSetMap_;
     std::optional<LedgerIndex> rngRoundSeq_;
     // Consensus parent ledger hash, pinned at round start. Input to the
-    // Tier 3 consensus-bound fallback entropy digest.
+    // Tier 1 consensus_fallback entropy digest.
     uint256 roundPrevLedgerHash_;
     std::shared_ptr<SHAMap const> consensusTxSetMap_;
     hash_map<uint256, std::shared_ptr<STTx const>> consensusExportTxns_;
@@ -342,7 +342,7 @@ public:
     clearRngState();
 
     /// txSetHash is the BASE (pre-injection) consensus tx set hash —
-    /// an input to the Tier 3 fallback digest. It must never be the hash
+    /// an input to the Tier 1 consensus_fallback digest. It must never be the hash
     /// of a set that could contain the entropy pseudo-tx itself.
     void
     onPreBuild(

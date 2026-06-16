@@ -953,7 +953,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         // The defining safety invariant, for EVERY view size: two aligned
         // cohorts always share an honest validator, i.e. their overlap (2t - n)
         // strictly exceeds the tolerated Byzantine count f = floor(n/5). And
-        // the Tier 2 bar is never stricter than the Tier 3 80% bar.
+        // the Tier 2 bar is never stricter than the Tier 3 validator_quorum bar.
         for (std::size_t n = 1; n <= 256; ++n)
         {
             auto const t = calculateParticipantThreshold(n);
@@ -1033,7 +1033,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(zeroTx);
         if (zeroTx)
         {
-            // Tier 3 fallback digest over (prevLedgerHash, base set, seq).
+            // Tier 1 consensus_fallback digest over (prevLedgerHash, base set, seq).
             auto const expectedFallback = sha512Half(
                 HashPrefix::entropyFallback,
                 ledger->info().hash,
@@ -1175,7 +1175,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(tx->getTxnType() == ttCONSENSUS_ENTROPY);
         BEAST_EXPECT(tx->getFieldU32(sfLedgerSequence) == seq);
 
-        // Tier 3: deterministic, consensus-bound, non-zero, fallback-labeled.
+        // Tier 1: deterministic, consensus-bound, non-zero, fallback-labeled.
         auto const expected = sha512Half(
             HashPrefix::entropyFallback, ledger->info().hash, txSetHash, seq);
         BEAST_EXPECT(tx->getFieldH256(sfDigest) == expected);
@@ -2088,7 +2088,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         // Quorum alignment is not safe if a tx-converged peer has not
         // advertised any entropySetHash. Otherwise local observation order
-        // can split non-zero entropy from deterministic zero fallback.
+        // can split validator entropy from deterministic consensus_fallback.
         result = harness.tick(ext, std::chrono::milliseconds{100});
         BEAST_EXPECT(!result.readyForAccept);
         BEAST_EXPECT(!ext.entropyFailed);
@@ -2133,9 +2133,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testRngBootstrapSkipWhenPreviousParticipantsBelowQuorum()
+    testRngBootstrapSkipWhenPreviousParticipantsBelowGate()
     {
-        testcase("RNG bootstrap skip below previous participant quorum");
+        testcase("RNG bootstrap skip below previous participant entropy gate");
 
         FakeExtensions ext;
         ext.rngOn = true;
@@ -2175,9 +2175,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testRngCommitTimeoutWithQuorumPublishesCommitSet()
+    testRngCommitTimeoutWithEntropyGatePublishesCommitSet()
     {
-        testcase("RNG commit timeout with quorum publishes commit set");
+        testcase("RNG commit timeout with entropy gate publishes commit set");
 
         FakeExtensions ext;
         ext.rngOn = true;
@@ -2968,9 +2968,9 @@ public:
         testExportSigGateRequiresQuorumAlignment();
         testRngEntropyGateRequiresFullObservation();
         testRngFastPathWaitsAfterEntropyPublish();
-        testRngBootstrapSkipWhenPreviousParticipantsBelowQuorum();
+        testRngBootstrapSkipWhenPreviousParticipantsBelowGate();
         testRngCommitWaitsWhenQuorumPossible();
-        testRngCommitTimeoutWithQuorumPublishesCommitSet();
+        testRngCommitTimeoutWithEntropyGatePublishesCommitSet();
         testRngCommitQuorumInObservingModeDoesNotPropose();
         testRngCommitConflictRefreshesHashBeforeWaiting();
         testRngCommitHashConflictTimeoutFallsBack();

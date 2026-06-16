@@ -482,7 +482,10 @@ struct Peer
         {
             if (entropyFailed_ || pendingReveals_.empty())
                 return true;
-            // Match production: zero when reveals < quorum threshold.
+            // Legacy validator-quorum-only predicate retained for old CSF
+            // assertions. Current production tiering is handled in
+            // finalizeRoundEntropy(), which can mint participant_aligned below
+            // validator quorum when the advertised set reaches tier2Threshold().
             auto const threshold = unlNodes_.empty()
                 ? std::size_t{1}
                 : calculateQuorumThreshold(unlNodes_.size());
@@ -739,7 +742,7 @@ struct Peer
             std::uint32_t prevLedgerId,
             std::size_t txSetId)
         {
-            // CSF analog of the Tier 3 consensus-bound fallback: derived
+            // CSF analog of the Tier 1 consensus-bound fallback: derived
             // from already-agreed round inputs, so all same-LCL peers
             // compute the same non-zero digest. Mirrors production's
             // sha512Half(HashPrefix::entropyFallback, prevHash, txSet, seq).

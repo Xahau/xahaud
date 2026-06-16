@@ -19,9 +19,10 @@ enum EntropyTier : std::uint8_t {
 
     /// Consensus-bound deterministic fallback: derived from already-agreed
     /// round inputs (parent ledger hash, base tx set hash, sequence) under
-    /// HashPrefix::entropyFallback when validator reveal quorum was not
-    /// available. Unpredictable in practice but user-influenceable via
-    /// transaction submission — never suitable for value-bearing outcomes.
+    /// HashPrefix::entropyFallback when no agreed reveal set reaches either
+    /// participant_aligned or validator_quorum. Unpredictable in practice but
+    /// user-influenceable via transaction submission — never suitable for
+    /// value-bearing outcomes.
     entropyTierConsensusFallback = 1,
 
     /// Participant-aligned sub-quorum entropy: the agreed reveal set aligned at

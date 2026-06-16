@@ -53,7 +53,8 @@ public:
             peer->ce().enableRngConsensus_ = true;
 
         // Warmup: run 1 round so prevProposers_ is populated (bootstrap
-        // skip bypasses the RNG pipeline when prevProposers < quorum).
+        // skip bypasses the RNG pipeline when prevProposers is below the
+        // entropy gate threshold).
         sim.run(1);
         BEAST_EXPECT(sim.synchronized());
 
@@ -89,7 +90,8 @@ public:
             peer->ce().enableRngConsensus_ = true;
 
         // Warmup: run 1 round so prevProposers_ is populated (bootstrap
-        // skip bypasses the RNG pipeline when prevProposers < quorum).
+        // skip bypasses the RNG pipeline when previous participants are below
+        // the entropy gate threshold).
         sim.run(1);
         BEAST_EXPECT(sim.synchronized());
 
@@ -296,7 +298,7 @@ public:
         sim.run(1);
 
         // Isolate one expected proposer. Majority should still progress after
-        // timeout using available commit quorum instead of zero-entropy
+        // timeout using available commit quorum instead of consensus_fallback
         // fallback.
         majority.disconnect(isolated);
         isolated.disconnect(majority);
@@ -644,8 +646,8 @@ public:
         auto const fast = round<milliseconds>(0.2 * parms.ledgerGRANULARITY);
         network.connect(network, fast);
 
-        // Warmup: populate prevProposers (bootstrap skip bypasses
-        // RNG when prevProposers < quorum).
+        // Warmup: populate prevProposers (bootstrap skip bypasses RNG when
+        // previous participants are below the entropy gate threshold).
         sim.run(1);
         BEAST_EXPECT(sim.synchronized(network));
 
@@ -701,13 +703,13 @@ public:
         using namespace csf;
         using namespace std::chrono;
 
-        testcase("RNG entropy falls back to zero on major reveal loss");
+        testcase("RNG entropy uses consensus_fallback on major reveal loss");
 
         // 5 peers.  Peer 0 drops reveals from peers 2, 3, 4
         // (only sees 2/5 reveals = 40%, below 80% quorum).
         // All other peers see all reveals.
         //
-        // Peer 0 must fall back to zero entropy.
+        // Peer 0 must fall back to consensus_fallback entropy.
         // The network must still agree (either all use full entropy
         // from the converged set, or all fall back).
 
@@ -735,12 +737,12 @@ public:
         // Peer 0 may desync from the group because it missed most
         // reveals and fell behind on a previous round.  The important
         // invariant is: peers that stayed in sync must agree on
-        // entropy, and that entropy should be zero (fallback) since
+        // entropy, and that entropy should be consensus_fallback since
         // the reveal asymmetry means not all honest reveal sets
         // can converge within the bounded window.
         //
         // Verify: no multi-branch fork, and the synchronized group
-        // agrees on zero entropy.
+        // agrees on the fallback entropy.
         BEAST_EXPECT(sim.branches(peers) <= 2);
 
         // Find the majority group and verify they agree
@@ -801,9 +803,9 @@ public:
         BEAST_EXPECT(sim.branches(honest) == 1);
         BEAST_EXPECT(sim.synchronized(honest));
 
-        // One bad hash is below quorum. The honest 4/5 quorum should agree
-        // on non-zero entropy instead of letting a single validator deny the
-        // round's entropy.
+        // One bad hash is below the validator_quorum threshold. The honest 4/5
+        // quorum should agree on validator entropy instead of letting a single
+        // validator deny the round's entropy.
         for (Peer const* peer : honest)
         {
             BEAST_EXPECT(!peer->ce().lastEntropyWasFallback_);
@@ -818,7 +820,7 @@ public:
         using namespace csf;
         using namespace std::chrono;
 
-        testcase("RNG entropy hash conflict without quorum falls back to zero");
+        testcase("RNG entropy hash conflict without threshold falls back");
 
         ConsensusParms const parms{};
         Sim sim;
@@ -836,7 +838,7 @@ public:
 
         // Two peers advertise entropy-set hashes that nobody can acquire.
         // The remaining 3/5 do not form an entropy quorum, so the safe
-        // outcome is zero entropy instead of mixed zero/non-zero results.
+        // outcome is consensus_fallback instead of mixed validator/fallback results.
         peers[0]->ce().forcedEntropySetHash_ =
             sha512Half(std::string("forced-entropy-conflict-a"));
         peers[1]->ce().forcedEntropySetHash_ =
@@ -913,7 +915,7 @@ public:
         using namespace csf;
         using namespace std::chrono;
 
-        testcase("RNG no non-zero entropy without peer alignment");
+        testcase("RNG no validator entropy without peer alignment");
 
         // 5 peers.  All peers see all reveals (healthy network).
         // But peer 0 drops ALL incoming proposals after publishing
@@ -929,7 +931,7 @@ public:
         // entropy.  If it can't see any alignment within the bounded
         // window, it must fall back to zero.
         //
-        // The key invariant: no node should accept non-zero entropy
+        // The key invariant: no node should accept validator entropy
         // unless it has observed positive peer agreement on the same
         // entropySetHash.
 
@@ -951,7 +953,7 @@ public:
 
         // All peers should agree — either all have the same entropy
         // (since all reveals are available), or some fall back to zero.
-        // The key check: no peer should have non-zero entropy that
+        // The key check: no peer should have validator entropy that
         // differs from the majority.
         BEAST_EXPECT(sim.synchronized(peers));
 
@@ -959,7 +961,7 @@ public:
         for (Peer const* peer : peers)
             BEAST_EXPECT(peer->ce().lastEntropyDigest_ == refDigest);
 
-        // At least some peers should have non-zero entropy
+        // At least some peers should have validator entropy
         // (healthy network, all reveals available)
         BEAST_EXPECT(refDigest != uint256{});
     }
@@ -978,7 +980,7 @@ public:
         // sees any peer's entropySetHash — aligned=0, peersSeen=0.
         //
         // The alignment gate should prevent peer 0 from accepting
-        // non-zero entropy without peer confirmation.  Instead it
+        // validator entropy without peer confirmation.  Instead it
         // should fall back to zero or desync.
 
         ConsensusParms const parms{};
@@ -1006,7 +1008,7 @@ public:
         // and triggering bootstrap skip on the final round.
         sim.run(1);
 
-        // The majority (peers 1-4) should agree on non-zero entropy
+        // The majority (peers 1-4) should agree on validator entropy
         std::vector<Peer const*> majority;
         for (std::size_t i = 1; i < peers.size(); ++i)
             majority.push_back(peers[i]);
@@ -1019,7 +1021,7 @@ public:
         // Peer 0 must NOT have validator entropy that differs from the
         // majority.  It should either:
         // a) have converged to the majority via fetch/merge, or
-        // b) have taken the (explicitly labeled) Tier 3 fallback
+        // b) have taken the explicitly labeled Tier 1 consensus_fallback
         auto const& p0Digest = peers[0]->ce().lastEntropyDigest_;
         BEAST_EXPECT(
             p0Digest == majorityDigest ||
