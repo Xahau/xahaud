@@ -244,6 +244,8 @@ ConsensusExtensions::tier2Threshold() const
     // originalViewSize, not size(): nUNL can shrink the effective view while
     // leaving faulty nodes in it, so a fraction of the effective view could
     // exceed the Byzantine fraction (which is bounded over the original UNL).
+    // Regressing this to size() is a consensus fork under nUNL and is pinned by
+    // ConsensusExtensions_test::testTier2ThresholdAnchorsToOriginalView.
     auto const base = activeValidatorView()->originalViewSize;
     if (base == 0)
         return 1;  // safety: need at least one aligned participant

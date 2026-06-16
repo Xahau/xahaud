@@ -953,7 +953,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         // The defining safety invariant, for EVERY view size: two aligned
         // cohorts always share an honest validator, i.e. their overlap (2t - n)
         // strictly exceeds the tolerated Byzantine count f = floor(n/5). And
-        // the Tier 2 bar is never stricter than the Tier 3 validator_quorum bar.
+        // the Tier 2 bar is never stricter than the Tier 3 validator_quorum
+        // bar.
         for (std::size_t n = 1; n <= 256; ++n)
         {
             auto const t = calculateParticipantThreshold(n);
@@ -1033,7 +1034,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(zeroTx);
         if (zeroTx)
         {
-            // Tier 1 consensus_fallback digest over (prevLedgerHash, base set, seq).
+            // Tier 1 consensus_fallback digest over (prevLedgerHash, base set,
+            // seq).
             auto const expectedFallback = sha512Half(
                 HashPrefix::entropyFallback,
                 ledger->info().hash,
@@ -1353,6 +1355,66 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const f = runWith(3);
         BEAST_EXPECT(f.first == entropyTierConsensusFallback);
         BEAST_EXPECT(f.second == 0);
+    }
+
+    void
+    testTier2ThresholdAnchorsToOriginalView()
+    {
+        testcase(
+            "Tier 2 threshold anchors to pre-nUNL original view under "
+            "NegativeUNL");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy |
+                featureNegativeUNL,
+            nullptr};
+        forceNonStandalone(env.app());
+
+        // Eight active validators with two disabled via NegativeUNL: the
+        // original-UNL denominator is 8 while the effective view is 6. The two
+        // anchor DIFFERENT participant thresholds, which is the whole reason
+        // Tier 2 keys off the original view:
+        //   tier2Threshold(original 8)  == 5  (the equivocation-safe floor)
+        //   tier2Threshold(effective 6) == 4  (what a regression to size()
+        //   gives)
+        // A 4-of-original-8 cohort has overlap 2*4 - 8 == 0, which does NOT
+        // exceed f = floor(8/5) = 1 -- labelling it participant_aligned would
+        // be forkable. Anchoring to the original view suppresses that mint;
+        // this test pins the anchor so a future refactor to size() fails
+        // loudly.
+        constexpr std::size_t kActive = 8;
+        constexpr std::size_t kDisabled = 2;
+        std::vector<PublicKey> activeKeys;
+        activeKeys.reserve(kActive);
+        for (std::size_t i = 0; i < kActive; ++i)
+            activeKeys.push_back(randomKeyPair(KeyType::secp256k1).first);
+        std::vector<PublicKey> const disabledKeys(
+            activeKeys.begin(), activeKeys.begin() + kDisabled);
+
+        auto const viewLedger =
+            makeUNLReportLedger(env, activeKeys, disabledKeys);
+        BEAST_EXPECT(viewLedger->rules().enabled(featureNegativeUNL));
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.cacheUNLReport(viewLedger);
+        auto const view = ce.activeValidatorView();
+
+        BEAST_EXPECT(view->fromUNLReport);
+        BEAST_EXPECT(view->originalViewSize == kActive);    // 8, pre-nUNL
+        BEAST_EXPECT(view->size() == kActive - kDisabled);  // 6, effective
+
+        // The anchor. Tier 2 derives from originalViewSize (8 -> 5), NOT the
+        // effective size (6 -> 4); the gate is min(quorum, tier2) and quorum
+        // tracks the effective view (6 -> 5), so a regression to size() would
+        // drop both the floor and the gate to 4.
+        BEAST_EXPECT(calculateParticipantThreshold(kActive) == 5);
+        BEAST_EXPECT(calculateParticipantThreshold(kActive - kDisabled) == 4);
+        BEAST_EXPECT(ce.tier2Threshold() == 5);
+        BEAST_EXPECT(ce.quorumThreshold() == 5);
+        BEAST_EXPECT(ce.entropyGateThreshold() == 5);
     }
 
     void
@@ -2956,6 +3018,7 @@ public:
         testOnPreBuildInjectsZeroEntropyFallback();
         testOnPreBuildInjectsEntropySetEntropy();
         testOnPreBuildTier2ParticipantAligned();
+        testTier2ThresholdAnchorsToOriginalView();
         testProposalProofRoundTrip();
         testHarvestRngDataReplacementAndRejection();
         testExportSidecarBuildFetchAndMerge();

@@ -171,13 +171,20 @@ If no entropy hash reaches the entropy gate threshold before the bounded
 deadline, the round must fall back to the Tier 1 consensus-bound digest. This
 is the safe degradation path, not a consensus failure.
 
-Examples with five active validators, validator_quorum threshold four, and
-participant_aligned threshold four:
+Examples with six active validators, validator_quorum threshold five, and
+participant_aligned threshold four (six is the smallest view with a non-empty
+Tier 2 band — at five validators quorum and participant_aligned coincide at
+four, leaving no band):
 
-- Four honest validators align on one entropy hash and one validator advertises
+- Five honest validators align on one entropy hash and one validator advertises
   a bogus hash: proceed with validator_quorum entropy for the honest quorum.
-- Two validators advertise different bogus hashes and only three align on the
-  honest hash: fall back to the Tier 1 digest.
+- Four validators align on the honest hash and two advertise different bogus
+  hashes: proceed with participant_aligned (Tier 2) entropy — the aligned
+  cohort is below the 80% quorum but at or above the intersection-safe floor,
+  and its overlap (2*4 - 6 = 2 > floor(6/5) = 1) still shares an honest
+  validator between any two such cohorts.
+- Three validators align on the honest hash and three fail to align: fall back
+  to the Tier 1 digest.
 - No peer entropy hash is observed in time: fall back to the Tier 1 digest.
 
 The fallback pseudo-transaction is deterministic — every node derives the same
