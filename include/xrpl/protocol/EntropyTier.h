@@ -24,7 +24,10 @@ enum EntropyTier : std::uint8_t {
     /// transaction submission — never suitable for value-bearing outcomes.
     entropyTierConsensusFallback = 1,
 
-    /// Reserved for a future participant-aligned sub-quorum tier.
+    /// Participant-aligned sub-quorum entropy: the agreed reveal set aligned at
+    /// the tier-2 participant threshold — below the 80% validator quorum but at
+    /// or above the equivocation-intersection floor over the original (pre-nUNL)
+    /// view. Weaker than validator_quorum; opt-in for hooks via min_tier.
     entropyTierParticipantAligned = 2,
 
     /// Validator commit/reveal entropy whose sidecar set passed the

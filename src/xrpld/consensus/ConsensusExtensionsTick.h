@@ -375,9 +375,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     }
 
                     // Timeout waiting for additional likely participants.
-                    // If we already have the fixed UNL quorum, proceed
-                    // with what we have — the SHAMap merge handles any
-                    // remaining straggler fuzz for this transition round.
+                    // If we already meet the entropy-gate threshold (the lowest
+                    // accepted tier's bar — min(quorum, tier2)), proceed with
+                    // what we have — the SHAMap merge handles any remaining
+                    // straggler fuzz for this transition round.
                     auto const commits = ext.pendingCommitCount();
                     auto const quorum = ext.entropyGateThreshold();
                     if (commits >= quorum)
