@@ -71,6 +71,36 @@ def entropy_fields(ce_tx):
     return digest, entropy_count, is_fallback
 
 
+def assert_participant_aligned(ce_tx, seq, expected_count=None):
+    """Assert participant_aligned (Tier 2) entropy on a ConsensusEntropy tx.
+
+    Tier 2 is the sub-quorum band: the agreed reveal cohort is >= the
+    participant floor but < the 80% validator quorum, so it carries
+    EntropyTier=2 with a deterministic non-zero digest. NOTE entropy_fields()'s
+    is_fallback lumps tier 2 in with fallback (is_fallback = tier != 3), so the
+    tier must be checked EXPLICITLY here.
+    """
+    digest = ce_tx.get("Digest", "")
+    count = ce_tx.get("EntropyCount", -1)
+    tier = ce_tx.get("EntropyTier", None)
+    if tier != 2:
+        raise AssertionError(
+            f"Ledger {seq}: expected EntropyTier==2 (participant_aligned), "
+            f"got {tier} (EntropyCount={count})"
+        )
+    if not digest or digest == ZERO_DIGEST:
+        raise AssertionError(
+            f"Ledger {seq}: participant_aligned digest must be non-zero, got "
+            f"{digest[:16]}..."
+        )
+    if expected_count is not None and count != expected_count:
+        raise AssertionError(
+            f"Ledger {seq}: participant_aligned EntropyCount must be "
+            f"{expected_count} (the surviving cohort), got {count}"
+        )
+    return digest, count
+
+
 def assert_valid_entropy(ce_tx, seq, seen_digests=None):
     """Assert quorum-met validator entropy. Optionally check uniqueness."""
     digest, entropy_count, is_fallback = entropy_fields(ce_tx)

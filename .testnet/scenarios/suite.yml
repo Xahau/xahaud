@@ -42,4 +42,14 @@ tests:
         LedgerConsensus: trace
         ConsensusExtensions: trace
 
+  # Tier 2 (participant_aligned) needs 6 nodes: n=5 has no band (tier2 ==
+  # quorum). At 6, the 4/6 window is the participant_aligned band.
+  - name: participant_aligned_smoke
+    script: .testnet/scenarios/entropy/participant_aligned_smoke.py
+    network:
+      node_count: 6
+      log_levels:
+        LedgerConsensus: trace
+        ConsensusExtensions: trace
+
   # Export scenarios: see export-suite.yml
