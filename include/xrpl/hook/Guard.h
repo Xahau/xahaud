@@ -638,7 +638,9 @@ check_guard(
             }
             else if (fc_type == 10)  // memory.copy
             {
-                if (rulesVersion & hook_api::GuardRuleFix20250131)
+                if ((rulesVersion & hook_api::GuardRuleFix20250131) &&
+                    !(rulesVersion &
+                      hook_api::GuardRuleFeatureHooksMemoryFillCopy))
                     GUARD_ERROR("Memory.copy instruction is not allowed.");
 
                 REQUIRE(2);
@@ -646,7 +648,9 @@ check_guard(
             }
             else if (fc_type == 11)  // memory.fill
             {
-                if (rulesVersion & hook_api::GuardRuleFix20250131)
+                if ((rulesVersion & hook_api::GuardRuleFix20250131) &&
+                    !(rulesVersion &
+                      hook_api::GuardRuleFeatureHooksMemoryFillCopy))
                     GUARD_ERROR("Memory.fill instruction is not allowed.");
 
                 ADVANCE(1);
@@ -1179,6 +1183,67 @@ validateGuards(
                 if (DEBUG_GUARD)
                     printf("Function map: func %d -> type %d\n", j, type_idx);
                 func_type_map[j] = type_idx;
+            }
+        }
+        else if (
+            section_type == 5 &&
+            (rulesVersion &
+             hook_api::GuardRuleFeatureHooksMemoryFillCopy))  // memory section
+        {
+            int memory_count = parseLeb128(wasm, i, &i);
+            CHECK_SHORT_HOOK();
+            if (memory_count <= 0)
+            {
+                GUARDLOG(hook::log::MEMORY_MISSING)
+                    << "Malformed transaction. "
+                    << "Hook did not establish any memory section."
+                    << "\n";
+                return {};
+            }
+
+            // check the initial number of pages for each memory
+            for (int j = 0; j < memory_count; ++j)
+            {
+                // read the limits flag (0x00 = no max, 0x01 = has max)
+                if (i >= wasm.size())
+                {
+                    // LCOV_EXCL_START
+                    GUARDLOG(hook::log::SHORT_HOOK)
+                        << "Malformed transaction. "
+                        << "Hook memory section ended abruptly."
+                        << "\n";
+                    return {};
+                    // LCOV_EXCL_STOP
+                }
+                uint8_t limits = wasm[i++];
+
+                // read the minimum number of pages
+                int min_pages = parseLeb128(wasm, i, &i);
+                CHECK_SHORT_HOOK();
+
+                // limit the initial number of pages to 2 or less
+                if (min_pages > 2)
+                {
+                    GUARDLOG(hook::log::WASM_VALIDATION)
+                        << "Malformed transaction. "
+                        << "Hook memory initial pages (" << min_pages
+                        << ") exceeds maximum allowed (2)."
+                        << "\n";
+                    return {};
+                }
+
+                // if the maximum number of pages is specified, reject it
+                if (limits == 0x01)
+                {
+                    int max_pages = parseLeb128(wasm, i, &i);
+                    CHECK_SHORT_HOOK();
+                    GUARDLOG(hook::log::MEMORY_MAX_PAGES)
+                        << "Malformed transaction. "
+                        << "Hook memory maximum pages (" << max_pages
+                        << ") is not allowed."
+                        << "\n";
+                    return {};
+                }
             }
         }
 

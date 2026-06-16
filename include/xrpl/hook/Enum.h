@@ -17,6 +17,7 @@
 #define featureHooksUpdate2 "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
+#define featureHooksMemoryFillCopy "1"
 namespace hook_api {
 struct Rules
 {
@@ -265,8 +266,10 @@ enum hook_log_code : uint16_t {
     SECTIONS_OUT_OF_SEQUENCE =
         85,  // the wasm contained sections out of sequence
     CUSTOM_SECTION_DISALLOWED =
-        86,               // the wasm contained a custom section (id=0)
-    INTERNAL_ERROR = 87,  // an internal error described by the log text
+        86,                 // the wasm contained a custom section (id=0)
+    INTERNAL_ERROR = 87,    // an internal error described by the log text
+    MEMORY_MISSING = 88,    // hook did not establish any memory section
+    MEMORY_MAX_PAGES = 89,  // hook memory section maximum pages is not allowed
     // RH NOTE: only HookSet msgs got log codes, possibly all Hook log lines
     // should get a code?
 };
@@ -445,6 +448,7 @@ getImportWhitelist(Rules const& rules)
 enum GuardRulesVersion : uint64_t {
     GuardRuleFix20250131 = 0x00000001,
     GuardRuleDepth32 = 0x00000002,
+    GuardRuleFeatureHooksMemoryFillCopy = 0x00000004,
 };
 
 inline uint64_t
@@ -455,6 +459,8 @@ getGuardRulesVersion(Rules const& rules)
         version |= GuardRuleFix20250131;
     if (rules.enabled(fixGuardDepth32))
         version |= GuardRuleDepth32;
+    if (rules.enabled(featureHooksMemoryFillCopy))
+        version |= GuardRuleFeatureHooksMemoryFillCopy;
     return version;
 }
 

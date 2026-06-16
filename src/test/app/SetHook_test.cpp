@@ -2036,47 +2036,387 @@ public:
     testFillCopy(FeatureBitset features)
     {
         testcase("Test fill/copy");
-
-        // a hook containing memory.fill instruction
-        std::string hookFill =
-            "0061736d0100000001130360027f7f017f60037f7f7e017e60017f017e02"
-            "170203656e76025f67000003656e76066163636570740001030201020503"
-            "0100020621057f01418088040b7f004180080b7f004180080b7f00418088"
-            "040b7f004180080b07080104686f6f6b00020aa4800001a0800001017e23"
-            "01412a41e400fc0b004101410110001a41004100420010011a20010b";
-
-        // a hook containing memory.copy instruction
-        std::string hookCopy =
-            "0061736d0100000001130360027f7f017f60037f7f7e017e60017f017e02"
-            "170203656e76025f67000003656e76066163636570740001030201020503"
-            "0100020621057f01418088040b7f004180080b7f004180080b7f00418088"
-            "040b7f004180080b07080104686f6f6b00020aa5800001a1800001017e23"
-            "00230141e400fc0a00004101410110001a41004100420010011a20010b";
-
         using namespace jtx;
 
-        for (int withFix = 0; withFix < 2; ++withFix)
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+
         {
-            auto f = withFix ? features : features - fix20250131;
-            Env env{*this, f};
+            // memory page size: 2
 
-            auto const alice = Account{"alice"};
-            env.fund(XRP(10000), alice);
+            // 64KiB * (2-1) - 1024 = 64512
+            // memory.fill with len=64512 works, but len=64513 traps.
+            // (memory 2) = 2 pages × 64KiB = 128KiB total.
+            // Fill range: [1024, 1024 + len)
+            // len=64512 → ends at 65536 (exactly before page 1 boundary) → OK
+            // len=64513 → touches 65537 (first byte of page 2) → out-of-bounds
+            // trap.
+            // Many runtimes reserve the last 64KiB as a guard page for safety.
+            // guard page for safety. Effectively only 1 page is writable.
 
-            auto const bob = Account{"bob"};
-            env.fund(XRP(10000), bob);
+            // a hook containing memory.fill instruction
+            TestHook hookFill = wasm[R"[test.hook](
+                (module
+                (type (;0;) (func (param i32 i32) (result i32)))
+                (type (;1;) (func (param i32 i32 i64) (result i64)))
+                (type (;2;) (func (param i32) (result i64)))
+                (import "env" "_g" (func (;0;) (type 0)))
+                (import "env" "accept" (func (;1;) (type 1)))
+                (func (;2;) (type 2) (param i32) (result i64)
+                    (local i64)
+                    global.get 1
+                    i32.const 42
+                    i32.const 130047
+                    memory.fill
+                    i32.const 1
+                    i32.const 1
+                    call 0
+                    drop
+                    i32.const 0
+                    i32.const 0
+                    i64.const 0
+                    call 1
+                    drop
+                    local.get 1)
+                (memory (;0;) 2)
+                (global (;0;) (mut i32) (i32.const 66560))
+                (global (;1;) i32 (i32.const 1024))
+                (global (;2;) i32 (i32.const 1024))
+                (global (;3;) i32 (i32.const 66560))
+                (global (;4;) i32 (i32.const 1024))
+                (export "hook" (func 2)))
+            )[test.hook]"];
+
+            // a hook containing memory.copy instruction
+            TestHook hookCopy = wasm[R"[test.hook](
+                (module
+                (type (;0;) (func (param i32 i32) (result i32)))
+                (type (;1;) (func (param i32 i32 i64) (result i64)))
+                (type (;2;) (func (param i32) (result i64)))
+                (import "env" "_g" (func (;0;) (type 0)))
+                (import "env" "accept" (func (;1;) (type 1)))
+                (func (;2;) (type 2) (param i32) (result i64)
+                    (local i64)
+                    global.get 0
+                    global.get 1
+                    i32.const 130047
+                    memory.copy
+                    i32.const 1
+                    i32.const 1
+                    call 0
+                    drop
+                    i32.const 0
+                    i32.const 0
+                    i64.const 0
+                    call 1
+                    drop
+                    local.get 1)
+                (memory (;0;) 2)
+                (global (;0;) (mut i32) (i32.const 1024))
+                (global (;1;) i32 (i32.const 1024))
+                (global (;2;) i32 (i32.const 1024))
+                (global (;3;) i32 (i32.const 66560))
+                (global (;4;) i32 (i32.const 1024))
+                (export "hook" (func 2)))
+            )[test.hook]"];
+
+            for (bool withFix : {true, false})
+                for (bool withFillCopy : {true, false})
+                {
+                    auto f = features;
+                    if (!withFix)
+                        f = f - fix20250131;
+                    if (!withFillCopy)
+                        f = f - featureHooksMemoryFillCopy;
+                    Env env{*this, f};
+                    env.fund(XRP(10000), alice, bob);
+                    env.close();
+
+                    auto expect = ter(tesSUCCESS);
+                    if (withFix && !withFillCopy)
+                        expect = ter(temMALFORMED);
+                    if (withFillCopy)
+                        expect = ter(tesSUCCESS);
+
+                    env(ripple::test::jtx::hook(alice, {{hso(hookFill)}}, 0),
+                        M(withFix ? "hookFill - with fix"
+                                  : "hookFill - zonder fix"),
+                        HSFEE,
+                        expect);
+                    env.close();
+
+                    if (withFillCopy)
+                    {
+                        env(pay(bob, alice, XRP(1)),
+                            fee(XRP(1)),
+                            ter(tesSUCCESS));
+                        env.close();
+                    }
+
+                    env(ripple::test::jtx::hook(bob, {{hso(hookCopy)}}, 0),
+                        M(withFix ? "hookCopy - with fix"
+                                  : "hookCopy - zonder fix"),
+                        HSFEE,
+                        expect);
+                    env.close();
+
+                    if (withFillCopy)
+                    {
+                        env(pay(bob, alice, XRP(1)),
+                            fee(XRP(1)),
+                            ter(tesSUCCESS));
+                        env.close();
+                    }
+                }
+        }
+        {
+            // Check trap
+            TestHook hookFill = wasm[R"[test.hook](
+                (module
+                (type (;0;) (func (param i32 i32) (result i32)))
+                (type (;1;) (func (param i32 i32 i64) (result i64)))
+                (type (;2;) (func (param i32) (result i64)))
+                (import "env" "_g" (func (;0;) (type 0)))
+                (import "env" "accept" (func (;1;) (type 1)))
+                (func (;2;) (type 2) (param i32) (result i64)
+                    (local i64)
+                    global.get 1
+                    i32.const 42
+                    i32.const 130049
+                    memory.fill
+                    i32.const 1
+                    i32.const 1
+                    call 0
+                    drop
+                    i32.const 0
+                    i32.const 0
+                    i64.const 0
+                    call 1
+                    drop
+                    local.get 1)
+                (memory (;0;) 2)
+                (global (;0;) (mut i32) (i32.const 66560))
+                (global (;1;) i32 (i32.const 1024))
+                (global (;2;) i32 (i32.const 1024))
+                (global (;3;) i32 (i32.const 66560))
+                (global (;4;) i32 (i32.const 1024))
+                (export "hook" (func 2)))
+            )[test.hook]"];
+
+            // a hook containing memory.copy instruction
+            TestHook hookCopy = wasm[R"[test.hook](
+                (module
+                (type (;0;) (func (param i32 i32) (result i32)))
+                (type (;1;) (func (param i32 i32 i64) (result i64)))
+                (type (;2;) (func (param i32) (result i64)))
+                (import "env" "_g" (func (;0;) (type 0)))
+                (import "env" "accept" (func (;1;) (type 1)))
+                (func (;2;) (type 2) (param i32) (result i64)
+                    (local i64)
+                    global.get 0
+                    global.get 1
+                    i32.const 130049
+                    memory.copy
+                    i32.const 1
+                    i32.const 1
+                    call 0
+                    drop
+                    i32.const 0
+                    i32.const 0
+                    i64.const 0
+                    call 1
+                    drop
+                    local.get 1)
+                (memory (;0;) 2)
+                (global (;0;) (mut i32) (i32.const 1024))
+                (global (;1;) i32 (i32.const 1024))
+                (global (;2;) i32 (i32.const 1024))
+                (global (;3;) i32 (i32.const 66560))
+                (global (;4;) i32 (i32.const 1024))
+                (export "hook" (func 2)))
+            )[test.hook]"];
+
+            Env env{*this, features | featureHooksMemoryFillCopy};
+            env.fund(XRP(10000), alice, bob);
+            env.close();
 
             env(ripple::test::jtx::hook(alice, {{hso(hookFill)}}, 0),
-                M(withFix ? "hookFill - with fix" : "hookFill - zonder fix"),
                 HSFEE,
-                withFix ? ter(temMALFORMED) : ter(tesSUCCESS));
+                ter(tesSUCCESS));
+            env.close();
+
+            env(pay(bob, alice, XRP(1)),
+                fee(XRP(1)),
+                M("hookFill - page cap exceeded"),
+                ter(tecHOOK_REJECTED));
+            env.close();
 
             env(ripple::test::jtx::hook(bob, {{hso(hookCopy)}}, 0),
-                M(withFix ? "hookCopy - with fix" : "hookCopy - zonder fix"),
                 HSFEE,
-                withFix ? ter(temMALFORMED) : ter(tesSUCCESS));
-
+                ter(tesSUCCESS));
             env.close();
+
+            env(pay(bob, alice, XRP(1)),
+                fee(XRP(1)),
+                M("hookCopy - page cap exceeded"),
+                ter(tecHOOK_REJECTED));
+            env.close();
+        }
+
+        {
+            // no memory section
+            TestHook hook = wasm[R"[test.hook](
+                (module
+                (type (;0;) (func (param i32 i32) (result i32)))
+                (type (;1;) (func (param i32 i32 i64) (result i64)))
+                (type (;2;) (func (param i32) (result i64)))
+                (import "env" "_g" (func (;0;) (type 0)))
+                (import "env" "accept" (func (;1;) (type 1)))
+                (func (;2;) (type 2) (param i32) (result i64)
+                    (local i64)
+                    i32.const 1
+                    i32.const 1
+                    call 0
+                    drop
+                    i32.const 0
+                    i32.const 0
+                    i64.const 0
+                    call 1
+                    drop
+                    local.get 1)
+                (memory (;0;) 3)
+                (export "hook" (func 2)))
+            )[test.hook]"];
+
+            for (bool withFillCopy : {true, false})
+            {
+                auto f = features;
+                if (!withFillCopy)
+                    f = f - featureHooksMemoryFillCopy;
+
+                Env env{*this, f};
+                env.fund(XRP(10000), alice, bob);
+                env.close();
+
+                env(ripple::test::jtx::hook(alice, {{hso(hook)}}, 0),
+                    HSFEE,
+                    M("hook - no memory section"),
+                    withFillCopy ? ter(temMALFORMED) : ter(tesSUCCESS));
+                env.close();
+
+                if (!withFillCopy)
+                {
+                    env(pay(bob, alice, XRP(1)), fee(XRP(1)), ter(tesSUCCESS));
+                    env.close();
+                }
+            }
+        }
+
+        {
+            // page out of bounds
+            TestHook hook = wasm[R"[test.hook](
+                (module
+                (type (;0;) (func (param i32 i32) (result i32)))
+                (type (;1;) (func (param i32 i32 i64) (result i64)))
+                (type (;2;) (func (param i32) (result i64)))
+                (import "env" "_g" (func (;0;) (type 0)))
+                (import "env" "accept" (func (;1;) (type 1)))
+                (func (;2;) (type 2) (param i32) (result i64)
+                    (local i64)
+                    i32.const 1
+                    i32.const 1
+                    call 0
+                    drop
+                    i32.const 0
+                    i32.const 0
+                    i64.const 0
+                    call 1
+                    drop
+                    local.get 1)
+                (memory (;0;) 3)
+                (global (;0;) (mut i32) (i32.const 66560))
+                (global (;1;) i32 (i32.const 1024))
+                (global (;2;) i32 (i32.const 1024))
+                (global (;3;) i32 (i32.const 66560))
+                (global (;4;) i32 (i32.const 1024))
+                (export "hook" (func 2)))
+            )[test.hook]"];
+
+            for (bool withFillCopy : {true, false})
+            {
+                auto f = features;
+                if (!withFillCopy)
+                    f = f - featureHooksMemoryFillCopy;
+
+                Env env{*this, f};
+                env.fund(XRP(10000), alice, bob);
+                env.close();
+
+                env(ripple::test::jtx::hook(alice, {{hso(hook)}}, 0),
+                    HSFEE,
+                    M("hookFill - page out of bounds"),
+                    withFillCopy ? ter(temMALFORMED) : ter(tesSUCCESS));
+                env.close();
+
+                if (!withFillCopy)
+                {
+                    env(pay(bob, alice, XRP(1)), fee(XRP(1)), ter(tesSUCCESS));
+                    env.close();
+                }
+            }
+        }
+        {
+            // has maximum number of pages
+            TestHook hook = wasm[R"[test.hook](
+                (module
+                (type (;0;) (func (param i32 i32) (result i32)))
+                (type (;1;) (func (param i32 i32 i64) (result i64)))
+                (type (;2;) (func (param i32) (result i64)))
+                (import "env" "_g" (func (;0;) (type 0)))
+                (import "env" "accept" (func (;1;) (type 1)))
+                (func (;2;) (type 2) (param i32) (result i64)
+                    (local i64)
+                    i32.const 1
+                    i32.const 1
+                    call 0
+                    drop
+                    i32.const 0
+                    i32.const 0
+                    i64.const 0
+                    call 1
+                    drop
+                    local.get 1)
+                (memory (;0;) 2 2)
+                (global (;0;) (mut i32) (i32.const 66560))
+                (global (;1;) i32 (i32.const 1024))
+                (global (;2;) i32 (i32.const 1024))
+                (global (;3;) i32 (i32.const 66560))
+                (global (;4;) i32 (i32.const 1024))
+                (export "hook" (func 2)))
+            )[test.hook]"];
+
+            for (bool withFillCopy : {true, false})
+            {
+                auto f = features;
+                if (!withFillCopy)
+                    f = f - featureHooksMemoryFillCopy;
+
+                Env env{*this, f};
+                env.fund(XRP(10000), alice, bob);
+                env.close();
+
+                env(ripple::test::jtx::hook(alice, {{hso(hook)}}, 0),
+                    HSFEE,
+                    M("hookFill - page out of bounds"),
+                    withFillCopy ? ter(temMALFORMED) : ter(tesSUCCESS));
+                env.close();
+
+                if (!withFillCopy)
+                {
+                    env(pay(bob, alice, XRP(1)), fee(XRP(1)), ter(tesSUCCESS));
+                    env.close();
+                }
+            }
         }
     }
 
