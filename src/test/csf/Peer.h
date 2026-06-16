@@ -781,7 +781,11 @@ struct Peer
                 peer.sidecarStore.fetch(lastEntropySetHash_);
 
             std::vector<std::pair<PeerKey, uint256>> ordered;
-            if (acceptedSet)
+            // Defensive: lastEntropySetHash_ only ever names a reveal set (the
+            // per-type salt in hashRngSet rules out a cross-type collision),
+            // but guard the type so a commit/export-sig snapshot can never be
+            // counted as entropy.
+            if (acceptedSet && acceptedSet->type == SidecarStore::Type::reveal)
             {
                 ordered.reserve(acceptedSet->entries.size());
                 for (auto const& [nodeId, reveal] : acceptedSet->entries)
