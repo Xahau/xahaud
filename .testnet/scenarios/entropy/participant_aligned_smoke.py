@@ -9,16 +9,39 @@ n=5 has NO tier-2 band (tier2 == quorum == 4), which is why the existing
 degradation smoke at 5 nodes only ever sees tier 3 / fallback.
 
 KEY: the 4/6 window is BELOW the 80% validation quorum (5). The 4 survivors
-keep building ledgers carrying tier-2 entropy, but those ledgers do NOT validate
-until the network recovers — exactly the transition window Tier 2 serves. So we
-confirm tier-2 injection from the cohort's LOGS during the window, then verify
-the on-ledger EntropyTier=2 POST-RECOVERY, once the provisional ledgers become
-canonical and validate (same mechanism the degradation smoke relies on).
+keep CLOSING ledgers that carry tier-2 entropy, but those ledgers do NOT
+validate until the network recovers — exactly the transition window Tier 2
+serves. So validated_ledger_index() stalls; we instead inspect a surviving
+node's CLOSED ledger (its LCL) directly, and cross-check the injection from the
+cohort's logs.
 """
 
 from __future__ import annotations
 
-from helpers import require_entropy, get_entropy_tx, assert_participant_aligned
+from helpers import (
+    require_entropy,
+    get_entropy_tx,
+    assert_participant_aligned,
+    assert_validator_quorum,
+)
+
+
+def _closed_entropy(result):
+    """(seq, ConsensusEntropy tx) from a ctx.ledger('closed', transactions=True)
+    result, or (None, None) if absent/ambiguous."""
+    if not result or not isinstance(result.get("ledger"), dict):
+        return None, None
+    led = result["ledger"]
+    try:
+        seq = int(led.get("ledger_index"))
+    except (TypeError, ValueError):
+        seq = None
+    ce = [
+        t
+        for t in led.get("transactions", [])
+        if isinstance(t, dict) and t.get("TransactionType") == "ConsensusEntropy"
+    ]
+    return seq, (ce[0] if len(ce) == 1 else None)
 
 
 async def scenario(ctx, log):
@@ -34,23 +57,20 @@ async def scenario(ctx, log):
 
     val_5of6 = ctx.validated_ledger_index(0)
     ce5, _ = get_entropy_tx(ctx, val_5of6)
-    if ce5.get("EntropyTier") != 3:
-        raise AssertionError(
-            f"5/6 ledger {val_5of6}: expected validator_quorum (tier 3), got "
-            f"tier {ce5.get('EntropyTier')} (EntropyCount={ce5.get('EntropyCount')})"
-        )
+    # 5/6 is at/above the 80% quorum (5), so the boundary ledger must be true
+    # validator_quorum: EntropyTier=3, a real >= quorum cohort, non-zero digest
+    # — not a tier-3 label on a sub-quorum count.
+    assert_validator_quorum(ce5, val_5of6, min_count=5)
     log(f"5/6: validator_quorum at validated seq {val_5of6}")
 
     # --- 4/6: participant_aligned (Tier 2) degraded window ---
-    # Validation stalls here (4 < 5); the 4 survivors build PROVISIONAL tier-2
-    # ledgers. Confirm injection from the cohort's logs now.
     ctx.stop_node(4)
     await ctx.wait_for_nodes_down(nodes=[4], timeout=30)
 
-    # ~12s ≈ 4 rounds at 3s cadence — enough for the transition blip to settle
-    # and several steady 4/6 (tier-2) rounds to close.
+    # ~12s window: confirm tier-2 INJECTION from the cohort's logs, and that the
+    # round is NOT the impossible/fallback path (which is what distinguishes the
+    # tier-2 band from the tier-1 fallback regime).
     op = await ctx.sleep(12, name="tier2_window")
-
     selected_t2 = ctx.search_logs(
         r"RNG: entropy selected seq=\d+ tier=2 count=4",
         within=op.window,
@@ -62,16 +82,38 @@ async def scenario(ctx, log):
             "4/6 window injected no participant_aligned (tier 2) entropy: no "
             "'RNG: entropy selected ... tier=2 count=4' on the surviving cohort"
         )
-
-    # 4/6 sits AT the entropy-gate threshold, so the round must NOT take the
-    # impossible/fallback path the sub-floor degradation smoke relies on — this
-    # is what distinguishes the tier-2 band from the tier-1 fallback regime.
     ctx.assert_not_log(
         r"reason=impossible-entropy-gate", within=op.window, nodes=[0, 1, 2, 3]
     )
 
-    # --- Recovery: restart -> the provisional tier-2 ledgers become canonical
-    # and validate, advancing the validated tip past them. ---
+    # Verify the on-ledger EntropyTier=2 DIRECTLY: validation is stalled (4 < 5),
+    # so sample the surviving cohort's CLOSED ledger (its LCL — built but not yet
+    # validated). At least one must be participant_aligned with EntropyCount=4.
+    tier2_on_ledger = 0
+    last_seq = None
+    for _ in range(5):
+        seq, ce = _closed_entropy(
+            ctx.ledger("closed", transactions=True, node_id=0)
+        )
+        if ce is not None and seq is not None and seq != last_seq:
+            last_seq = seq
+            tier = ce.get("EntropyTier")
+            count = ce.get("EntropyCount", -1)
+            log(f"  closed ledger {seq}: tier={tier} count={count}")
+            if tier == 2:
+                assert_participant_aligned(ce, seq, expected_count=4)
+                tier2_on_ledger += 1
+        await ctx.sleep(3)
+
+    if tier2_on_ledger == 0:
+        raise AssertionError(
+            "no closed participant_aligned (tier 2) ledger observed during the "
+            "4/6 window (tier 2 was injected per logs, but not seen on a closed "
+            "ledger)"
+        )
+    log(f"4/6: {tier2_on_ledger} participant_aligned closed ledger(s) verified")
+
+    # --- Recovery: liveness — validation resumes once quorum is restored ---
     ctx.start_node(4)
     ctx.start_node(5)
     await ctx.wait_for_ledgers(1, node_id=0, timeout=120)
@@ -83,28 +125,5 @@ async def scenario(ctx, log):
             f"({val_5of6} -> {val_recovered})"
         )
     log(f"Recovered: validated seq {val_5of6} -> {val_recovered}")
-
-    # The 4/6 window's ledgers are now validated. At least one must carry
-    # participant_aligned (tier 2): EntropyTier=2, EntropyCount=4. The range may
-    # also hold a transitional fallback (the count-3 blip) and post-recovery
-    # validator ledgers; the invariant is that the band was reached AND recorded
-    # on-ledger — never silently upgraded to tier 3 with a sub-quorum cohort.
-    tier2_seen = 0
-    for seq in range(val_5of6 + 1, val_recovered + 1):
-        ce, _ = get_entropy_tx(ctx, seq)
-        tier = ce.get("EntropyTier")
-        count = ce.get("EntropyCount", -1)
-        if tier == 2:
-            assert_participant_aligned(ce, seq, expected_count=4)
-            tier2_seen += 1
-        log(f"  ledger {seq}: tier={tier} count={count}")
-
-    if tier2_seen == 0:
-        raise AssertionError(
-            f"No participant_aligned (tier 2) ledger in the recovered range "
-            f"{val_5of6 + 1}..{val_recovered}; tier 2 was injected (logs) but "
-            "not recorded on a validated ledger"
-        )
-    log(f"4/6 entropy: {tier2_seen} participant_aligned ledger(s) validated")
 
     log("PASS")

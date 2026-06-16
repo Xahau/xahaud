@@ -60,6 +60,12 @@ def entropy_fields(ce_tx):
     consensus_fallback rounds carry a deterministic non-zero consensus-bound
     digest with EntropyCount=0 and EntropyTier=1 (consensus_fallback).
     Validator entropy has EntropyTier=3 (validator_quorum).
+
+    WARNING: is_fallback is ``tier != 3``, so it lumps participant_aligned
+    (Tier 2) in with fallback. It is only safe where no Tier 2 band exists
+    (e.g. 5-node networks, where tier2 == quorum). For band-aware scenarios use
+    the explicit assert_consensus_fallback / assert_participant_aligned /
+    assert_validator_quorum helpers, which check EntropyTier directly.
     """
     digest = ce_tx.get("Digest", "")
     entropy_count = ce_tx.get("EntropyCount", -1)
@@ -97,6 +103,59 @@ def assert_participant_aligned(ce_tx, seq, expected_count=None):
         raise AssertionError(
             f"Ledger {seq}: participant_aligned EntropyCount must be "
             f"{expected_count} (the surviving cohort), got {count}"
+        )
+    return digest, count
+
+
+def assert_validator_quorum(ce_tx, seq, min_count=None):
+    """Assert validator_quorum (Tier 3) entropy on a ConsensusEntropy tx:
+    EntropyTier=3, a deterministic non-zero digest, and (optionally)
+    EntropyCount >= min_count (the active quorum). The count can EXCEED the
+    quorum (e.g. a still-full 6/6 ledger caught at a 6->5 transition), so check
+    >=, not ==.
+    """
+    digest = ce_tx.get("Digest", "")
+    count = ce_tx.get("EntropyCount", -1)
+    tier = ce_tx.get("EntropyTier", None)
+    if tier != 3:
+        raise AssertionError(
+            f"Ledger {seq}: expected EntropyTier==3 (validator_quorum), got "
+            f"{tier} (EntropyCount={count})"
+        )
+    if not digest or digest == ZERO_DIGEST:
+        raise AssertionError(
+            f"Ledger {seq}: validator_quorum digest must be non-zero, got "
+            f"{digest[:16]}..."
+        )
+    if min_count is not None and count < min_count:
+        raise AssertionError(
+            f"Ledger {seq}: validator_quorum EntropyCount={count} < quorum "
+            f"{min_count}"
+        )
+    return digest, count
+
+
+def assert_consensus_fallback(ce_tx, seq):
+    """Assert consensus_fallback (Tier 1) entropy on a ConsensusEntropy tx:
+    EntropyTier=1, EntropyCount=0, and a deterministic NON-zero digest.
+    """
+    digest = ce_tx.get("Digest", "")
+    count = ce_tx.get("EntropyCount", -1)
+    tier = ce_tx.get("EntropyTier", None)
+    if tier != 1:
+        raise AssertionError(
+            f"Ledger {seq}: expected EntropyTier==1 (consensus_fallback), got "
+            f"{tier} (EntropyCount={count})"
+        )
+    if count != 0:
+        raise AssertionError(
+            f"Ledger {seq}: consensus_fallback EntropyCount must be 0, got "
+            f"{count}"
+        )
+    if not digest or digest == ZERO_DIGEST:
+        raise AssertionError(
+            f"Ledger {seq}: consensus_fallback digest must be non-zero, got "
+            f"{digest[:16]}..."
         )
     return digest, count
 
