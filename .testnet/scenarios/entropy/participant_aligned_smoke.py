@@ -28,20 +28,30 @@ from helpers import (
 
 def _closed_entropy(result):
     """(seq, ConsensusEntropy tx) from a ctx.ledger('closed', transactions=True)
-    result, or (None, None) if absent/ambiguous."""
+    result, or (None, None) if the fetch returned no usable ledger.
+
+    Enforces the per-ledger invariant that an entropy-enabled closed ledger
+    carries EXACTLY ONE ConsensusEntropy pseudo-tx (mirroring get_entropy_tx):
+    a duplicate or missing injection raises here with a clear error instead of
+    being silently skipped and resurfacing later as a generic 'no tier-2 ledger'.
+    """
     if not result or not isinstance(result.get("ledger"), dict):
         return None, None
     led = result["ledger"]
     try:
         seq = int(led.get("ledger_index"))
     except (TypeError, ValueError):
-        seq = None
+        return None, None
     ce = [
         t
         for t in led.get("transactions", [])
         if isinstance(t, dict) and t.get("TransactionType") == "ConsensusEntropy"
     ]
-    return seq, (ce[0] if len(ce) == 1 else None)
+    if len(ce) != 1:
+        raise AssertionError(
+            f"Closed ledger {seq}: expected 1 ConsensusEntropy txn, got {len(ce)}"
+        )
+    return seq, ce[0]
 
 
 async def scenario(ctx, log):
@@ -50,18 +60,37 @@ async def scenario(ctx, log):
     # Baseline: healthy 6/6 produces validator_quorum entropy.
     await ctx.wait_for_ledgers(1, node_id=0, timeout=30)
 
-    # --- 5/6: still validator_quorum (5 present >= quorum 5; validates) ---
+    # --- 5/6: settles back to validator_quorum (5 present >= quorum 5) ---
+    val_before_drop = ctx.validated_ledger_index(0)
     ctx.stop_node(5)
     await ctx.wait_for_nodes_down(nodes=[5], timeout=30)
-    await ctx.wait_for_ledgers(1, node_id=0, timeout=30)
+    # Settle a few ledgers past the membership change. The ledger right at a
+    # validator drop can carry a transient consensus_fallback (tier 1, count 0,
+    # deterministic and by design) before the commit/reveal pipeline re-primes,
+    # so we do NOT assume any single post-drop ledger is already tier 3.
+    await ctx.wait_for_ledgers(4, node_id=0, timeout=90)
 
+    # 5/6 is at/above the 80% quorum (5), so steady state is validator_quorum.
+    # Scan the post-drop validated ledgers (all carry the 5-node cohort, so a
+    # tier-3 here has count == 5) and require at least one clean validator_quorum
+    # — EntropyTier=3, count >= quorum, non-zero digest — tolerating the
+    # transition fallback instead of depending on where the tip happened to land.
     val_5of6 = ctx.validated_ledger_index(0)
-    ce5, _ = get_entropy_tx(ctx, val_5of6)
-    # 5/6 is at/above the 80% quorum (5), so the boundary ledger must be true
-    # validator_quorum: EntropyTier=3, a real >= quorum cohort, non-zero digest
-    # — not a tier-3 label on a sub-quorum count.
-    assert_validator_quorum(ce5, val_5of6, min_count=5)
-    log(f"5/6: validator_quorum at validated seq {val_5of6}")
+    t3_seq = None
+    for seq in range(val_5of6, val_before_drop, -1):
+        ce, _ = get_entropy_tx(ctx, seq)
+        tier = ce.get("EntropyTier")
+        log(f"  5/6 ledger {seq}: tier={tier} count={ce.get('EntropyCount')}")
+        if tier == 3:
+            assert_validator_quorum(ce, seq, min_count=5)
+            t3_seq = seq
+            break
+    if t3_seq is None:
+        raise AssertionError(
+            f"5/6: no validator_quorum (tier 3) entropy in post-drop validated "
+            f"ledgers {val_before_drop + 1}..{val_5of6}"
+        )
+    log(f"5/6: validator_quorum at validated seq {t3_seq}")
 
     # --- 4/6: participant_aligned (Tier 2) degraded window ---
     ctx.stop_node(4)
