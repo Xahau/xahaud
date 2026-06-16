@@ -197,7 +197,8 @@ AMMTest::pathTestEnv()
             cfg->PATH_SEARCH_MAX = 10;
             return cfg;
         }),
-        supported_amendments() - featureXahauGenesis - featureTouch);
+        (supported_amendments() | featureAMM | featureAMMClawback) -
+            featureXahauGenesis - featureTouch);
 }
 
 Json::Value

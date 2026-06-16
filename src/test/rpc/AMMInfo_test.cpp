@@ -347,7 +347,8 @@ public:
     run() override
     {
         using namespace jtx;
-        auto const all = supported_amendments();
+        auto const all =
+            supported_amendments() | featureAMM | featureAMMClawback;
         testErrors();
         testSimpleRpc();
         testVoteAndBid(all);

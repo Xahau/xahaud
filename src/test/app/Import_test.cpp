@@ -2667,8 +2667,9 @@ class Import_test : public beast::unit_test::suite
             }
             for (bool const withFixImportIssuer : {true, false})
             {
+                auto const withAMM = features | featureAMM;
                 auto const amend =
-                    withFixImportIssuer ? features : features - fixImportIssuer;
+                    withFixImportIssuer ? withAMM : withAMM - fixImportIssuer;
                 test::jtx::Env env{
                     *this, network::makeNetworkVLConfig(21337, keys), amend};
                 env.fund(XRP(1000), alice, issuer);

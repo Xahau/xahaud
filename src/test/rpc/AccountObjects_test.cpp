@@ -577,8 +577,8 @@ public:
 
         Env env(
             *this,
-            features | featureXChainBridge | featureDID | featureCredentials |
-                featurePermissionedDomains);
+            features | featureAMM | featureXChainBridge | featureDID |
+                featureCredentials | featurePermissionedDomains);
 
         // Make a lambda we can use to get "account_objects" easily.
         auto acctObjs = [&env](
