@@ -78,7 +78,7 @@ class Invariants_test : public beast::unit_test::suite
     {
         using namespace test::jtx;
         FeatureBitset amendments =
-            supported_amendments() | featureInvariantsV1_1;
+            supported_amendments() | featureInvariantsV1_1 | featureAMM;
         Env env{*this, amendments};
 
         Account const A1{"A1"};
