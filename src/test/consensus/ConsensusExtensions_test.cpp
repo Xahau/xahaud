@@ -1373,19 +1373,25 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             nullptr};
         forceNonStandalone(env.app());
 
-        // Eight active validators with two disabled via NegativeUNL: the
-        // original-UNL denominator is 8 while the effective view is 6. The two
-        // anchor DIFFERENT participant thresholds, which is the whole reason
-        // Tier 2 keys off the original view:
-        //   tier2Threshold(original 8)  == 5  (the equivocation-safe floor)
-        //   tier2Threshold(effective 6) == 4  (what a regression to size()
-        //   gives)
-        // A 4-of-original-8 cohort has overlap 2*4 - 8 == 0, which does NOT
-        // exceed f = floor(8/5) = 1 -- labelling it participant_aligned would
-        // be forkable. Anchoring to the original view suppresses that mint;
-        // this test pins the anchor so a future refactor to size() fails
-        // loudly.
-        constexpr std::size_t kActive = 8;
+        // Ten active validators with two disabled via NegativeUNL: the
+        // original-UNL denominator is 10 (Byzantine bound f = floor(10/5) = 2)
+        // while the effective view is 8. Aligned cohorts form among the 8
+        // effective validators, so two t-cohorts overlap by 2t - 8; safety
+        // needs that overlap to exceed f so the two cohorts share an honest
+        // validator. Tier 2 MUST key off the original view:
+        //   tier2Threshold(original 10) == 7  -> overlap 2*7 - 8 = 6 > f: safe
+        //   tier2Threshold(effective 8) == 5  -> overlap 2*5 - 8 = 2, NOT > f
+        // A regression to size() would admit a 5-of-8 cohort as
+        // participant_aligned, but its overlap (2) does not exceed the two
+        // faulty validators the original UNL still tolerates, so an equivocator
+        // could mint two distinct tier-2 digests: a fork. nUNL drops
+        // honest-but-down nodes while leaving faulty ones, so the fault bound
+        // stays anchored to the original UNL, not the shrunk effective view.
+        // Under the correct anchor the band collapses (tier2 == quorum == 7)
+        // and no tier-2 mint happens at all; this test pins the anchor so a
+        // refactor to size() -- which re-opens the forkable [5, 7) band --
+        // fails loudly.
+        constexpr std::size_t kActive = 10;
         constexpr std::size_t kDisabled = 2;
         std::vector<PublicKey> activeKeys;
         activeKeys.reserve(kActive);
@@ -1403,18 +1409,19 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const view = ce.activeValidatorView();
 
         BEAST_EXPECT(view->fromUNLReport);
-        BEAST_EXPECT(view->originalViewSize == kActive);    // 8, pre-nUNL
-        BEAST_EXPECT(view->size() == kActive - kDisabled);  // 6, effective
+        BEAST_EXPECT(view->originalViewSize == kActive);    // 10, pre-nUNL
+        BEAST_EXPECT(view->size() == kActive - kDisabled);  // 8, effective
 
-        // The anchor. Tier 2 derives from originalViewSize (8 -> 5), NOT the
-        // effective size (6 -> 4); the gate is min(quorum, tier2) and quorum
-        // tracks the effective view (6 -> 5), so a regression to size() would
-        // drop both the floor and the gate to 4.
-        BEAST_EXPECT(calculateParticipantThreshold(kActive) == 5);
-        BEAST_EXPECT(calculateParticipantThreshold(kActive - kDisabled) == 4);
-        BEAST_EXPECT(ce.tier2Threshold() == 5);
-        BEAST_EXPECT(ce.quorumThreshold() == 5);
-        BEAST_EXPECT(ce.entropyGateThreshold() == 5);
+        // The anchor. Tier 2 derives from originalViewSize (10 -> 7), NOT the
+        // effective size (8 -> 5). The gate is min(quorum, tier2); quorum
+        // tracks the effective view (8 -> 7), so under the correct anchor gate
+        // == 7 and the band is closed, while a regression to size() would drop
+        // the floor to 5 and the gate to min(7, 5) == 5.
+        BEAST_EXPECT(calculateParticipantThreshold(kActive) == 7);
+        BEAST_EXPECT(calculateParticipantThreshold(kActive - kDisabled) == 5);
+        BEAST_EXPECT(ce.tier2Threshold() == 7);
+        BEAST_EXPECT(ce.quorumThreshold() == 7);
+        BEAST_EXPECT(ce.entropyGateThreshold() == 7);
     }
 
     void
