@@ -173,7 +173,10 @@ class Invoke_test : public beast::unit_test::suite
         // tecNO_PERMISSION
         // issuer is an AMM account
         {
-            test::jtx::Env env{*this, network::makeNetworkConfig(21337)};
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337),
+                features | featureAMM};
 
             auto const alice = Account("alice");
             auto const issuer = Account("issuer");

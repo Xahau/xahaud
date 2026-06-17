@@ -99,6 +99,7 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookOnOutgoing, soeOPTIONAL},
          {sfHookCanEmit, soeOPTIONAL},
          {sfHookApiVersion, soeOPTIONAL},
+         {sfHookName, soeOPTIONAL},
          {sfFlags, soeOPTIONAL}});
 
     add(sfHookGrant.jsonName,
@@ -252,6 +253,24 @@ InnerObjectFormats::InnerObjectFormats()
         {
             {sfIssuer, soeREQUIRED},
             {sfCredentialType, soeREQUIRED},
+        });
+
+    add(sfHighReward.jsonName,
+        sfHighReward.getCode(),
+        {
+            {sfRewardLgrFirst, soeREQUIRED},
+            {sfRewardLgrLast, soeREQUIRED},
+            {sfRewardTime, soeREQUIRED},
+            {sfTrustLineRewardAccumulator, soeREQUIRED},
+        });
+
+    add(sfLowReward.jsonName,
+        sfLowReward.getCode(),
+        {
+            {sfRewardLgrFirst, soeREQUIRED},
+            {sfRewardLgrLast, soeREQUIRED},
+            {sfRewardTime, soeREQUIRED},
+            {sfTrustLineRewardAccumulator, soeREQUIRED},
         });
 }
 

@@ -24,6 +24,7 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/OrderBookDB.h>
 #include <xrpld/app/ledger/PendingSaves.h>
+#include <xrpld/app/ledger/detail/PublishGap.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/HashRouter.h>
@@ -446,14 +447,25 @@ bool
 LedgerMaster::storeLedger(std::shared_ptr<Ledger const> ledger, bool pin)
 {
     bool validated = ledger->info().validated;
-    // Returns true if we already had the ledger
-    if (!mLedgerHistory.insert(std::move(ledger), validated))
+    // Returns true if we already had the ledger.
+    //
+    // When pin=true, we deliberately skip mLedgerHistory insertion.
+    // A single catalogue pack can contain tens of thousands of ledgers,
+    // each holding a full SHAMap of account/transaction nodes. Keeping
+    // them all in the in-memory history cache would consume hundreds of
+    // GB of RAM. Instead, pinned ledgers are persisted to the nodestore
+    // and SQLite, and are retrievable via RPC (which reads from SQLite),
+    // but are NOT kept in memory.
+    if (!pin && !mLedgerHistory.insert(std::move(ledger), validated))
         return false;
 
     if (pin)
     {
         uint32_t seq = ledger->info().seq;
-        mPinnedLedgers.insert(range(seq, seq));
+        {
+            std::lock_guard sl(mPinnedLock);
+            mPinnedLedgers.insert(range(seq, seq));
+        }
         JLOG(m_journal.info()) << "Pinned ledger : " << seq;
     }
     return true;
@@ -512,7 +524,7 @@ LedgerMaster::haveLedger(std::uint32_t seq)
 void
 LedgerMaster::clearLedger(std::uint32_t seq)
 {
-    std::lock_guard sl(mCompleteLock);
+    std::scoped_lock lock(mCompleteLock, mPinnedLock);
 
     // Don't clear pinned ledgers
     if (boost::icl::contains(mPinnedLedgers, seq))
@@ -523,6 +535,20 @@ LedgerMaster::clearLedger(std::uint32_t seq)
     }
 
     mCompleteLedgers.erase(seq);
+}
+
+bool
+LedgerMaster::isPinned(std::uint32_t seq)
+{
+    std::lock_guard sl(mPinnedLock);
+    return boost::icl::contains(mPinnedLedgers, seq);
+}
+
+void
+LedgerMaster::unpinLedger(std::uint32_t seq)
+{
+    std::lock_guard sl(mPinnedLock);
+    mPinnedLedgers.erase(range(seq, seq));
 }
 
 bool
@@ -861,7 +887,19 @@ LedgerMaster::setFullLedger(
     pendSaveValidated(app_, ledger, isSynchronous, isCurrent);
 
     {
-        std::lock_guard ml(mCompleteLock);
+        std::scoped_lock lock(mCompleteLock, mPinnedLock);
+        // One-time merge of pinned ranges into mCompleteLedgers.
+        // For NORMAL/NETWORK startup, this fires on the first validated
+        // ledger (network quorum). For LOAD/standalone, the merge
+        // already happened in setPinnedLedgersRangeSet() and this
+        // is a no-op (mPinnedMergedToComplete is already true).
+        if (!mPinnedMergedToComplete && !mPinnedLedgers.empty())
+        {
+            for (auto const& interval : mPinnedLedgers)
+                mCompleteLedgers.insert(interval);
+            mPinnedMergedToComplete = true;
+        }
+
         mCompleteLedgers.insert(ledger->info().seq);
     }
 
@@ -1286,53 +1324,134 @@ LedgerMaster::findNewLedgersToPublish(
     auto valLedger = mValidLedger.get();
     std::uint32_t valSeq = valLedger->info().seq;
 
+    // Create a range of ledgers we need to publish
+    RangeSet<std::uint32_t> toPublish;
+    toPublish.insert(range(pubSeq, valSeq));
+
+    // CRITICAL: Skip publishing pinned ledgers (except the most recent).
+    //
+    // When loading catalogues, we deliberately avoid storing pinned ledgers in
+    // the AcceptedLedger cache to prevent memory bloat with millions of
+    // ledgers. However, NetworkOPs::pubLedger() expects every published ledger
+    // to either:
+    // 1. Already exist in the AcceptedLedger cache, OR
+    // 2. Be able to create and cache a new AcceptedLedger
+    //
+    // For pinned ledgers, we skip the cache entirely during
+    // saveValidatedLedger. If we try to publish them, pubLedger creates a new
+    // AcceptedLedger, but canonicalize_replace_client might return a different
+    // instance, causing: "Assertion failed: alpAccepted->getLedger().get() ==
+    // lpAccepted.get()"
+    //
+    // This primarily affects STANDALONE MODE where catalogue_load calls
+    // switchLCL when loading historical ledgers newer than the current closed
+    // ledger. In live network mode, historical ledgers are typically older than
+    // the current ledger, so switchLCL -> tryAdvance -> publish isn't
+    // triggered.
+    //
+    // Solution: Only publish the most recent validated ledger (which needs
+    // publishing) and skip all intermediate pinned ledgers (already on disk).
+    {
+        std::lock_guard sll(mPinnedLock);
+        RangeSet<std::uint32_t> pinnedExceptLast = mPinnedLedgers;
+        // Remove the most recent from the pinned set so we always publish it
+        if (boost::icl::contains(pinnedExceptLast, valSeq))
+            pinnedExceptLast.erase(range(valSeq, valSeq));
+        // Subtract pinned ledgers from the set to publish
+        toPublish -= pinnedExceptLast;
+    }
+
     scope_unlock sul{sl};
     try
     {
-        for (std::uint32_t seq = pubSeq; seq <= valSeq; ++seq)
+        for (auto const& interval : toPublish)
         {
-            JLOG(m_journal.trace())
-                << "Trying to fetch/publish valid ledger " << seq;
+            // Some sequences may be absent from toPublish because they are
+            // pinned ledgers already persisted to disk and intentionally not
+            // republished. The decision logic — "can pubSeq safely jump
+            // across this gap?" — lives in detail::canSkipPinnedGap so it
+            // is unit-testable without spinning up a full LedgerMaster.
+            //
+            // Core invariant (enforced by canSkipPinnedGap): never publish
+            // across a gap in non-pinned ledgers. Publication must remain
+            // contiguous for every non-pinned sequence from
+            // mPubLedgerSeq + 1 forward. If pubSeq is lagging because an
+            // earlier non-pinned ledger could not be fetched/published, we
+            // stop here rather than publish newer ledgers out of order.
+            //
+            // In production this branch is essentially dead code: pinned
+            // ranges are old historical catalogue data and pubSeq tracks
+            // the recent published tip, so toPublish won't have pinned-
+            // induced gaps. It only matters in test/standalone catalogue-
+            // load scenarios where pinned ranges can sit near pubSeq.
+            if (pubSeq < interval.first())
+            {
+                bool canSkip;
+                {
+                    std::lock_guard sll(mPinnedLock);
+                    canSkip = detail::canSkipPinnedGap(
+                        pubSeq, interval.first(), mPinnedLedgers);
+                }
 
-            std::shared_ptr<Ledger const> ledger;
-            // This can throw
-            auto hash = hashOfSeq(*valLedger, seq, m_journal);
-            // VFALCO TODO Restructure this code so that zero is not
-            // used.
-            if (!hash)
-                hash = beast::zero;  // kludge
-            if (seq == valSeq)
-            {
-                // We need to publish the ledger we just fully validated
-                ledger = valLedger;
-            }
-            else if (hash->isZero())
-            {
-                JLOG(m_journal.fatal()) << "Ledger: " << valSeq
-                                        << " does not have hash for " << seq;
-                UNREACHABLE(
-                    "ripple::LedgerMaster::findNewLedgersToPublish : ledger "
-                    "not found");
-            }
-            else
-            {
-                ledger = mLedgerHistory.getLedgerByHash(*hash);
+                if (!canSkip)
+                {
+                    JLOG(m_journal.trace())
+                        << "Stopping publish at seq " << pubSeq
+                        << " — skipped span [" << pubSeq << ", "
+                        << interval.first() << ") contains non-pinned ledgers";
+                    break;
+                }
+
+                pubSeq = interval.first();
             }
 
-            if (!app_.config().LEDGER_REPLAY)
+            for (std::uint32_t seq = interval.first(); seq <= interval.last();
+                 ++seq)
             {
-                // Can we try to acquire the ledger we need?
-                if (!ledger && (++acqCount < ledger_fetch_size_))
-                    ledger = app_.getInboundLedgers().acquire(
-                        *hash, seq, InboundLedger::Reason::GENERIC);
-            }
+                JLOG(m_journal.trace())
+                    << "Trying to fetch/publish valid ledger " << seq;
 
-            // Did we acquire the next ledger we need to publish?
-            if (ledger && (ledger->info().seq == pubSeq))
-            {
-                ledger->setValidated();
-                ret.push_back(ledger);
-                ++pubSeq;
+                std::shared_ptr<Ledger const> ledger;
+                // This can throw
+                auto hash = hashOfSeq(*valLedger, seq, m_journal);
+                // VFALCO TODO Restructure this code so that zero is not
+                // used.
+                if (!hash)
+                    hash = beast::zero;  // kludge
+                if (seq == valSeq)
+                {
+                    // We need to publish the ledger we just fully validated
+                    ledger = valLedger;
+                }
+                else if (hash->isZero())
+                {
+                    JLOG(m_journal.fatal())
+                        << "Ledger: " << valSeq << " does not have hash for "
+                        << seq;
+                    UNREACHABLE(
+                        "ripple::LedgerMaster::findNewLedgersToPublish : "
+                        "ledger not found");
+                }
+                else
+                {
+                    ledger = mLedgerHistory.getLedgerByHash(*hash);
+                }
+
+                if (!app_.config().LEDGER_REPLAY)
+                {
+                    // Can we try to acquire the ledger we need?
+                    if (!ledger && (++acqCount < ledger_fetch_size_))
+                        ledger = app_.getInboundLedgers().acquire(
+                            *hash, seq, InboundLedger::Reason::GENERIC);
+                }
+
+                // Did we acquire the next ledger we need to publish?
+                if (ledger && (ledger->info().seq == pubSeq))
+                {
+                    ledger->setValidated();
+                    ret.push_back(ledger);
+                    ++pubSeq;
+                }
             }
         }
 
@@ -1632,7 +1751,7 @@ LedgerMaster::getCompleteLedgers()
 std::string
 LedgerMaster::getPinnedLedgers()
 {
-    std::lock_guard sl(mCompleteLock);
+    std::lock_guard sl(mPinnedLock);
     return to_string(mPinnedLedgers);
 }
 
@@ -1646,8 +1765,44 @@ LedgerMaster::getCompleteLedgersRangeSet()
 RangeSet<std::uint32_t>
 LedgerMaster::getPinnedLedgersRangeSet()
 {
-    std::lock_guard sl(mCompleteLock);
+    std::lock_guard sl(mPinnedLock);
     return mPinnedLedgers;
+}
+
+void
+LedgerMaster::setPinnedLedgersRangeSet(const RangeSet<std::uint32_t>& range_set)
+{
+    std::scoped_lock lock(mCompleteLock, mPinnedLock);
+    if (!mPinnedLedgers.empty())
+    {
+        Throw<std::runtime_error>(
+            "Expected mPinnedLedgers to be empty on startup");
+    }
+    mPinnedLedgers.assign(range_set);
+
+    // Normally, we defer merging pinned ranges into mCompleteLedgers until
+    // the first validated ledger (in setFullLedger), so that pinned history
+    // only becomes queryable after the node has network quorum. But if
+    // mCompleteLedgers is already non-empty (LOAD/standalone startup already
+    // called setFullLedger before we got here), the one-shot in
+    // setFullLedger won't fire again. Merge immediately in that case.
+    if (!mCompleteLedgers.empty())
+    {
+        for (auto const& interval : mPinnedLedgers)
+            mCompleteLedgers.insert(interval);
+        mPinnedMergedToComplete = true;
+        JLOG(m_journal.info())
+            << "Merged pinned ranges into complete ledgers immediately "
+            << "(startup already past setFullLedger): " << to_string(range_set);
+    }
+    else
+    {
+        // mCompleteLedgers is empty — defer merge to setFullLedger()
+        // when the first validated ledger arrives (network quorum).
+        JLOG(m_journal.info())
+            << "Loaded pinned ranges, will merge on first validation: "
+            << to_string(range_set);
+    }
 }
 
 std::optional<NetClock::time_point>
@@ -1813,15 +1968,18 @@ LedgerMaster::setLedgerRangePresent(
     std::uint32_t maxV,
     bool pin)
 {
-    std::lock_guard sl(mCompleteLock);
-    mCompleteLedgers.insert(range(minV, maxV));
-
     if (pin)
     {
+        std::scoped_lock lock(mCompleteLock, mPinnedLock);
+        mCompleteLedgers.insert(range(minV, maxV));
         mPinnedLedgers.insert(range(minV, maxV));
         JLOG(m_journal.info())
             << "Pinned ledger range: " << minV << " - " << maxV;
+        return;
     }
+
+    std::lock_guard cl(mCompleteLock);
+    mCompleteLedgers.insert(range(minV, maxV));
 }
 
 void
@@ -1841,7 +1999,7 @@ LedgerMaster::getCacheHitRate()
 void
 LedgerMaster::clearPriorLedgers(LedgerIndex seq)
 {
-    std::lock_guard sl(mCompleteLock);
+    std::scoped_lock lock(mCompleteLock, mPinnedLock);
     if (seq <= 0)
         return;
 

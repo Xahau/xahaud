@@ -21,10 +21,13 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/LedgerToJson.h>
 #include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/SHAMapStore.h>
+#include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpld/rpc/Role.h>
+#include <xrpld/rpc/detail/CatalogueStream.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/Tuning.h>
 #include <xrpld/shamap/SHAMapItem.h>
@@ -678,10 +681,10 @@ doCatalogueCreate(RPC::JsonContext& context)
                 return false;
             }
 
-            size_t stateNodesWritten =
-                ledger->stateMap().serializeToStream(*compStream, prevStateMap);
+            size_t stateNodesWritten = RPC::serializeStateMapToStream(
+                ledger->stateMap(), *compStream, prevStateMap);
             size_t txNodesWritten =
-                ledger->txMap().serializeToStream(*compStream);
+                RPC::serializeTxMapToStream(ledger->txMap(), *compStream);
 
             predictor.addLedger(info.seq, byteCounter.getBytesWritten());
 
@@ -910,6 +913,21 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
     } opCleanup;
 
+    // Reject if DatabasePinned is not configured. Without it, loaded
+    // data lands in rotating storage and will be rotated away.
+    {
+        auto const& nscfg =
+            context.app.config().section(ConfigSection::nodeDatabase());
+        if (!nscfg.exists("pinned_type"))
+        {
+            return rpcError(
+                rpcINVALID_PARAMS,
+                "catalogue_load requires [node_db] pinned_type to be "
+                "configured. Without it, loaded data will be lost on "
+                "the next database rotation.");
+        }
+    }
+
     if (!context.params.isMember(jss::input_file))
         return rpcError(rpcINVALID_PARAMS, "expected input_file");
 
@@ -970,6 +988,10 @@ doCatalogueLoad(RPC::JsonContext& context)
     // Extract version information
     uint8_t version = getCatalogueVersion(header.version);
     uint8_t compressionLevel = getCompressionLevel(header.version);
+
+    if (header.min_ledger > header.max_ledger)
+        return rpcError(
+            rpcINVALID_PARAMS, "catalogue min_ledger must be <= max_ledger");
 
     // Initialize status tracking
     {
@@ -1191,7 +1213,11 @@ doCatalogueLoad(RPC::JsonContext& context)
             ledger->setLedgerInfo(info);
 
             // Deserialize the complete state map from leaf nodes
-            if (!ledger->stateMap().deserializeFromStream(*decompStream))
+            if (!RPC::deserializeStateMapFromStream(
+                    ledger->stateMap(),
+                    *decompStream,
+                    pinnedACCOUNT_NODE,
+                    context.j))
             {
                 JLOG(context.j.error())
                     << "Failed to deserialize base ledger state";
@@ -1217,7 +1243,11 @@ doCatalogueLoad(RPC::JsonContext& context)
                 *snapshot);
 
             // Apply delta (only leaf-node changes)
-            if (!ledger->stateMap().deserializeFromStream(*decompStream))
+            if (!RPC::deserializeStateMapFromStream(
+                    ledger->stateMap(),
+                    *decompStream,
+                    pinnedACCOUNT_NODE,
+                    context.j))
             {
                 JLOG(context.j.error())
                     << "Failed to apply delta to ledger " << info.seq;
@@ -1226,16 +1256,16 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
 
         // pull in the tx map
-        if (!ledger->txMap().deserializeFromStream(*decompStream))
+        if (!RPC::deserializeTxMapFromStream(
+                ledger->txMap(),
+                *decompStream,
+                pinnedTRANSACTION_NODE,
+                context.j))
         {
             JLOG(context.j.error())
                 << "Failed to apply delta to ledger " << info.seq;
             return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
         }
-
-        // Finalize the ledger
-        ledger->stateMap().flushDirty(hotACCOUNT_NODE);
-        ledger->txMap().flushDirty(hotTRANSACTION_NODE);
 
         ledger->setAccepted(
             info.closeTime,
@@ -1260,11 +1290,83 @@ doCatalogueLoad(RPC::JsonContext& context)
                 rpcINTERNAL, "Catalogue file contains a corrupted ledger.");
         }
 
-        // Save in database
-        pendSaveValidated(context.app, ledger, false, false);
-
-        // Store in ledger master
+        // IMPORTANT: Mark as pinned BEFORE saving to database.
+        // This ensures isPinned() returns true when saveValidatedLedger
+        // checks, which: (a) routes to persistent backend via pinnedLEDGER
+        // type, and (b) skips AcceptedLedgerCache to avoid memory bloat.
         context.app.getLedgerMaster().storeLedger(ledger, true);
+
+        // Scope guard: un-pin if we exit without a successful save.
+        // Dismissed on success below.
+        bool saveDone = false;
+        auto unpinGuard = [&]() {
+            if (!saveDone)
+                context.app.getLedgerMaster().unpinLedger(ledger->info().seq);
+        };
+        // Use a simple RAII wrapper to guarantee the guard runs
+        struct OnExit
+        {
+            std::function<void()> fn;
+            ~OnExit()
+            {
+                fn();
+            }
+        } unpinOnExit{unpinGuard};
+
+        // Save in database - wait for completion to avoid memory bloat.
+        // Uses pendSaveValidated to respect job queue tuning on live
+        // servers (jtPUBOLDLEDGER), runs synchronously in standalone.
+        {
+            auto savePromise = std::make_shared<std::promise<bool>>();
+            auto saveFuture = savePromise->get_future();
+
+            bool queued = pendSaveValidated(
+                context.app,
+                ledger,
+                context.app.config().standalone(),
+                false,
+                [savePromise](bool success) {
+                    savePromise->set_value(success);
+                });
+
+            if (!queued)
+                return rpcError(rpcINTERNAL, "Failed to save ledger");
+
+            // Wait for the async save to complete. Note: if the save
+            // job throws, the JobQueue has no exception handling — the
+            // process will std::terminate before we ever see a
+            // broken_promise here. The catch is defensive in case the
+            // job queue gains exception handling in the future.
+            bool saved = false;
+            try
+            {
+                saved = saveFuture.get();
+            }
+            catch (std::future_error const& e)
+            {
+                JLOG(context.j.error())
+                    << "Save job for ledger " << ledger->info().seq
+                    << " failed with exception (promise broken): " << e.what();
+                return rpcError(
+                    rpcINTERNAL,
+                    "Save job crashed for ledger " +
+                        std::to_string(ledger->info().seq));
+            }
+
+            if (!saved)
+            {
+                JLOG(context.j.error()) << "Failed to save ledger "
+                                        << ledger->info().seq << " to SQLite";
+                return rpcError(
+                    rpcINTERNAL,
+                    "Failed to save ledger " +
+                        std::to_string(ledger->info().seq) +
+                        " to SQLite database");
+            }
+
+            // Save succeeded — dismiss the guard
+            saveDone = true;
+        }
 
         if (info.seq == header.max_ledger &&
             context.app.getLedgerMaster().getClosedLedger()->info().seq <
@@ -1276,6 +1378,20 @@ doCatalogueLoad(RPC::JsonContext& context)
 
         context.app.getLedgerMaster().setLedgerRangePresent(
             header.min_ledger, info.seq, true);
+
+        // Persist pinned ranges to state.db after every ledger.
+        // This is a single row UPDATE, so it's cheap.
+        //
+        // DURABILITY NOTE: There is a small crash window between the
+        // ledger save above and this setPinnedRanges call. If the
+        // process crashes in that window, the ledger data is safely
+        // in the persistent backend (always opened based on config,
+        // independent of state.db), and fetchNodeObject will still
+        // find it via the tryPersistent fallback. However, state.db
+        // won't record the pinned range, so mCompleteLedgers won't
+        // include those seqs until catalogue_load is re-run.
+        context.app.getSHAMapStore().setPinnedRanges(
+            context.app.getLedgerMaster().getPinnedLedgersRangeSet());
 
         // Store the ledger
         prevLedger = ledger;

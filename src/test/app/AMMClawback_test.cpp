@@ -32,9 +32,12 @@ class AMMClawback_test : public beast::unit_test::suite
         testcase("test invalid request");
         using namespace jtx;
 
+        auto const features =
+            supported_amendments() | featureAMM | featureAMMClawback;
+
         // Test if holder does not exist.
         {
-            Env env(*this);
+            Env env(*this, features);
             Account gw{"gateway"};
             Account alice{"alice"};
             env.fund(XRP(100000), gw, alice);
@@ -60,7 +63,7 @@ class AMMClawback_test : public beast::unit_test::suite
         // Test if asset pair provided does not exist. This should
         // return terNO_AMM error.
         {
-            Env env(*this);
+            Env env(*this, features);
             Account gw{"gateway"};
             Account alice{"alice"};
             env.fund(XRP(100000), gw, alice);
@@ -93,7 +96,7 @@ class AMMClawback_test : public beast::unit_test::suite
         // Test if the issuer field and holder field is the same. This should
         // return temMALFORMED error.
         {
-            Env env(*this);
+            Env env(*this, features);
             Account gw{"gateway"};
             Account alice{"alice"};
             env.fund(XRP(10000), gw, alice);
@@ -123,7 +126,7 @@ class AMMClawback_test : public beast::unit_test::suite
 
         // Test if the Asset field matches the Account field.
         {
-            Env env(*this);
+            Env env(*this, features);
             Account gw{"gateway"};
             Account alice{"alice"};
             env.fund(XRP(10000), gw, alice);
@@ -155,7 +158,7 @@ class AMMClawback_test : public beast::unit_test::suite
 
         // Test if the Amount field matches the Asset field.
         {
-            Env env(*this);
+            Env env(*this, features);
             Account gw{"gateway"};
             Account alice{"alice"};
             env.fund(XRP(10000), gw, alice);
@@ -188,7 +191,7 @@ class AMMClawback_test : public beast::unit_test::suite
 
         // Test if the Amount is invalid, which is less than zero.
         {
-            Env env(*this);
+            Env env(*this, features);
             Account gw{"gateway"};
             Account alice{"alice"};
             env.fund(XRP(10000), gw, alice);
@@ -229,7 +232,7 @@ class AMMClawback_test : public beast::unit_test::suite
         // Test if the issuer did not set asfAllowTrustLineClawback, AMMClawback
         // transaction is prohibited.
         {
-            Env env(*this);
+            Env env(*this, features);
             Account gw{"gateway"};
             Account alice{"alice"};
             env.fund(XRP(10000), gw, alice);
@@ -254,7 +257,7 @@ class AMMClawback_test : public beast::unit_test::suite
 
         // Test invalid flag.
         {
-            Env env(*this);
+            Env env(*this, features);
             Account gw{"gateway"};
             Account alice{"alice"};
             env.fund(XRP(10000), gw, alice);
@@ -282,7 +285,7 @@ class AMMClawback_test : public beast::unit_test::suite
         // Test if tfClawTwoAssets is set when the two assets in the AMM pool
         // are not issued by the same issuer.
         {
-            Env env(*this);
+            Env env(*this, features);
             Account gw{"gateway"};
             Account alice{"alice"};
             env.fund(XRP(10000), gw, alice);
@@ -313,7 +316,7 @@ class AMMClawback_test : public beast::unit_test::suite
 
         // Test clawing back XRP is being prohibited.
         {
-            Env env(*this);
+            Env env(*this, features);
             Account gw{"gateway"};
             Account alice{"alice"};
             env.fund(XRP(1000000), gw, alice);
@@ -2085,7 +2088,8 @@ class AMMClawback_test : public beast::unit_test::suite
     void
     run() override
     {
-        FeatureBitset const all{jtx::supported_amendments()};
+        FeatureBitset const all{
+            jtx::supported_amendments() | featureAMM | featureAMMClawback};
 
         testInvalidRequest();
         testFeatureDisabled(all - featureAMMClawback);
