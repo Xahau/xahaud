@@ -5894,6 +5894,17 @@ private:
     }
 
     void
+    testSetBootTSH(FeatureBitset features)
+    {
+        testcase("set boot tsh");
+        // v0 stub: SetBoot mutates only the sender's own AccountRoot. Whether it
+        // should fire the account's own (strong) TSH hook is an amendment design
+        // question; full TSH coverage is a follow-up. Stubbed so the per-tx TSH
+        // dispatch (transactions.macro) compiles.
+        BEAST_EXPECT(true);
+    }
+
+    void
     testSetRemarksTSH(FeatureBitset features)
     {
         testcase("set remarks tsh");

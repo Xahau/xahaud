@@ -67,6 +67,7 @@
 #include <xrpld/app/tx/detail/SetOracle.h>
 #include <xrpld/app/tx/detail/SetRegularKey.h>
 #include <xrpld/app/tx/detail/SetRemarks.h>
+#include <xrpld/app/tx/detail/SetBoot.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/app/tx/detail/SetTrust.h>
 #include <xrpld/app/tx/detail/URIToken.h>

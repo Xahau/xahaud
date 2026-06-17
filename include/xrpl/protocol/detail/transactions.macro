@@ -519,6 +519,11 @@ TRANSACTION(ttREMARKS_SET, 94, SetRemarks, ({
     {sfRemarks, soeREQUIRED},
 }))
 
+/* Store a small on-chain PWA bootloader blob on the sender's account (delete = omit blob) */
+TRANSACTION(ttBOOT_SET, 105, SetBoot, ({
+    {sfBootBlob, soeOPTIONAL},
+}))
+
 /* A payment transactor that delivers only the exact amounts specified, creating accounts and TLs as needed 
   * that the sender pays for. */
 TRANSACTION(ttREMIT, 95, Remit, ({
