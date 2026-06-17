@@ -51,6 +51,15 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         jv[jss::Flags] = hsfOVERRIDE;
     }
 
+    static int64_t
+    hookReturnCode(STObject const& hookExecution)
+    {
+        auto const rawCode = hookExecution.getFieldU64(sfHookReturnCode);
+        return (rawCode & 0x8000000000000000ULL)
+            ? -static_cast<int64_t>(rawCode & 0x7FFFFFFFFFFFFFFFULL)
+            : static_cast<int64_t>(rawCode);
+    }
+
     void
     testSLECreated()
     {
@@ -483,6 +492,78 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
+    testInvalidEntropyRequirements()
+    {
+        testcase("Hook dice/random reject invalid entropy requirements");
+        using namespace jtx;
+
+        Env env{
+            *this,
+            envconfig(),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+
+        TestHook hook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t dice(uint32_t sides, uint32_t min_tier, uint32_t min_count);
+            extern int64_t random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier, uint32_t min_count);
+            #define INVALID_ARGUMENT (-7)
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                uint8_t buf[32];
+
+                int64_t bad_min_tier = dice(6, 0, 0);
+                if (bad_min_tier != INVALID_ARGUMENT)
+                    return accept(0, 0, bad_min_tier);
+
+                int64_t bad_high_tier = dice(6, 4, 0);
+                if (bad_high_tier != INVALID_ARGUMENT)
+                    return accept(0, 0, bad_high_tier);
+
+                int64_t bad_min_count = dice(6, 3, 70000);
+                if (bad_min_count != INVALID_ARGUMENT)
+                    return accept(0, 0, bad_min_count);
+
+                int64_t bad_random_tier = random((uint32_t)buf, 32, 4, 0);
+                if (bad_random_tier != INVALID_ARGUMENT)
+                    return accept(0, 0, bad_random_tier);
+
+                return accept(0, 0, 0);
+            }
+        )[test.hook]"];
+
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set invalid entropy requirement hook"),
+            HSFEE);
+        env.close();
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = alice.human();
+        env(invoke, M("test invalid entropy requirements"), fee(XRP(1)));
+
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);
+
+        BEAST_EXPECT(hookReturnCode(hookExecutions[0]) == 0);
+        BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
+    }
+
+    void
     run() override
     {
         testSLECreated();
@@ -491,6 +572,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         testDice();
         testDiceZeroSides();
         testDiceRequirementNotMet();
+        testInvalidEntropyRequirements();
         testRandom();
         testDiceConsecutiveCallsDiffer();
     }

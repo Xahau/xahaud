@@ -10,11 +10,13 @@
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
+#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
 #include <xrpl/protocol/tokens.h>
 #include <boost/multiprecision/cpp_dec_float.hpp>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -4032,6 +4034,14 @@ DEFINE_HOOK_FUNCTION(
 }
 //@@end xport-impl
 
+inline bool
+invalidEntropyRequirement(uint32_t minTier, uint32_t minCount)
+{
+    return minTier < entropyTierConsensusFallback ||
+        minTier > entropyTierValidatorQuorum ||
+        minCount > std::numeric_limits<std::uint16_t>::max();
+}
+
 // byteCount must be a multiple of 32.
 // minTier/minCount are the CALLER'S stated requirements (required hook API
 // arguments — there is deliberately no network-wide default): entropy is
@@ -4061,13 +4071,11 @@ fairRng(
     auto const entropySeq =
         sleEntropy ? sleEntropy->getFieldU32(sfLedgerSequence) : 0u;
 
-    // Allow entropy from current ledger (during close) or previous ledger
-    // (open ledger / speculative execution).  On the real network hooks
-    // always execute during buildLCL where the entropy pseudo-tx has
-    // already updated the SLE to the current seq.
-    // TODO: open-ledger entropy uses previous ledger's entropy, so
-    // dice/random results will differ between speculative and final
-    // execution.  This needs further thought re: UX implications.
+    // Open-ledger hook execution is provisional and can only see the previous
+    // ledger's finalized entropy. Final buildLCL execution sees the current
+    // ledger's entropy pseudo-tx after it updates this SLE. That open-vs-final
+    // skew is inherent to speculative execution; callers that need final
+    // entropy must treat open-ledger dice/random results as previews.
     // Defensive: sfEntropyTier is soeREQUIRED, so any entry this code wrote
     // carries it. A missing field can only come from a pre-tier-3 persisted
     // entry; treat that as tier 0 (none) so the requirement check fails closed.
@@ -4123,6 +4131,9 @@ DEFINE_HOOK_FUNCTION(
     if (sides == 0)
         return INVALID_ARGUMENT;
 
+    if (invalidEntropyRequirement(min_tier, min_count))
+        return INVALID_ARGUMENT;
+
     auto vec = fairRng(applyCtx, hookCtx.result, 32, min_tier, min_count);
 
     if (vec.empty())
@@ -4170,6 +4181,9 @@ DEFINE_HOOK_FUNCTION(
 
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
+
+    if (invalidEntropyRequirement(min_tier, min_count))
+        return INVALID_ARGUMENT;
 
     auto vec = fairRng(applyCtx, hookCtx.result, required, min_tier, min_count);
 
