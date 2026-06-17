@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <test/jtx/AMM.h>
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpld/ledger/Dir.h>
 #include <xrpl/protocol/Feature.h>
@@ -4316,6 +4317,93 @@ struct Escrow_test : public beast::unit_test::suite
         env.close();
     }
 
+    void
+    testIOUAMM(FeatureBitset features)
+    {
+        testcase("IOU AMM");
+        using namespace test::jtx;
+        using namespace std::chrono;
+
+        Account alice{"alice"};
+        Account bob{"bob"};
+        Account gw{"gw"};
+
+        auto const USD = gw["USD"];
+
+        // AMMCreate fails - insufficient balance
+        Env env(*this, features | featureAMM | featureAMMClawback);
+        env.fund(XRP(10000), alice, bob, gw);
+        env.close();
+
+        env.trust(USD(100000), alice);
+        env.close();
+        env(pay(gw, alice, USD(1000)));
+        env.close();
+
+        env(escrow(alice, bob, USD(1000)), finish_time(env.now() + 1s));
+        env.close();
+
+        // AMMCreate fails - insufficient balance
+        AMM ammFail(env, alice, XRP(1000), USD(1000), ter(tecUNFUNDED_AMM));
+
+        env(pay(gw, alice, USD(1000)));
+        env.close();
+
+        AMM ammAlice(env, alice, XRP(1000), USD(1000));
+        BEAST_EXPECT(ammAlice.ammExists());
+
+        // Single Asset Deposit fails - insufficient balance
+        ammAlice.deposit(
+            alice,
+            USD(1000),
+            std::nullopt,
+            std::nullopt,
+            std::nullopt,
+            ter(tecUNFUNDED_AMM));
+
+        // Double Asset Deposit fails - insufficient balance
+        ammAlice.deposit(
+            alice,
+            USD(1000),
+            XRP(1000),
+            std::nullopt,
+            std::nullopt,
+            ter(tecUNFUNDED_AMM));
+
+        auto const lptoken = ammAlice.getLPTokensBalance(alice);
+        // lock all LP tokens
+        env(escrow(alice, bob, STAmount{lptoken, ammAlice.lptIssue()}),
+            finish_time(env.now() + 1s));
+        env.close();
+
+        // Withdraw
+        ammAlice.withdraw(
+            alice, USD(1000), std::nullopt, std::nullopt, ter(tecAMM_BALANCE));
+        ammAlice.withdrawAll(alice, USD(1000), ter(tecAMM_BALANCE));
+
+        env(ammAlice.bid(BidArg{
+                .account = alice,
+                .bidMax = 100,
+                .assets = {{USD, XRP}},
+            }),
+            ter(tecAMM_INVALID_TOKENS));
+
+        ammAlice.vote(
+            alice,
+            1'000,
+            std::nullopt,
+            std::nullopt,
+            {{USD, XRP}},
+            ter(tecAMM_INVALID_TOKENS));
+
+        // Cannot escrow clawbackable tokens, so we cannot ammClawback escrowed
+        // tokens
+        // env(amm::ammClawback(gw, alice, USD, XRP, USD(100)),
+        //     ter(tecAMM_BALANCE));
+        // env(amm::ammClawback(gw, alice, USD, XRP, std::nullopt),
+        //     ter(tecAMM_BALANCE));
+    }
+
     static uint256
     getEscrowIndex(AccountID const& account, std::uint32_t uSequence)
     {
@@ -4729,6 +4817,7 @@ struct Escrow_test : public beast::unit_test::suite
         testIOUTLINSF(features);
         testIOUPrecisionLoss(features);
         testIOUClawback(features);
+        testIOUAMM(features);
     }
 
 public:
