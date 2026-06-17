@@ -34,6 +34,7 @@
 // If you add an amendment here, then do not forget to increment `numFeatures`
 // in include/xrpl/protocol/Feature.h.
 
+XRPL_FIX    (HookMap,                    Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (GuardDepth32,               Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(NamedHooks,                 Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(IOURewardClaim,             Supported::yes, VoteBehavior::DefaultNo)
@@ -60,7 +61,7 @@ XRPL_FIX    (FillOrKill,                 Supported::yes, VoteBehavior::DefaultYe
 XRPL_FEATURE(DID,                        Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FIX    (DisallowIncomingV1,         Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(XChainBridge,               Supported::no,  VoteBehavior::DefaultNo)
-XRPL_FEATURE(AMM,                        Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FEATURE(AMM,                        Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FIX    (ReducedOffersV1,            Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(HooksUpdate2,               Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(HookOnV2,                   Supported::yes, VoteBehavior::DefaultNo)

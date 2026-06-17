@@ -413,7 +413,7 @@ struct Remit_test : public beast::unit_test::suite
 
         // tecNO_PERMISSION - inform account is an AMM
         {
-            Env env{*this, features};
+            Env env{*this, features | featureAMM};
             env.fund(XRP(1000), gw, alice, bob);
             env.close();
 
@@ -2902,7 +2902,7 @@ struct Remit_test : public beast::unit_test::suite
         auto const gw = Account("gw");
         auto const USD = gw["USD"];
 
-        Env env{*this, features};
+        Env env{*this, features | featureAMM};
         env.fund(XRP(10'000'000), alice, gw);
         env.close();
 
