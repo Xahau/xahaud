@@ -38,6 +38,19 @@ class SetBoot_test : public beast::unit_test::suite
         return jv;
     }
 
+    // Same tx but WITHOUT a baked-in fee, so a caller can attach an exact fee() and actually
+    // exercise calculateBaseFee (base + 1 drop/blob-byte) via Transactor::checkFee.
+    static Json::Value
+    setBootNoFee(test::jtx::Account const& acct, std::optional<Blob> const& blob)
+    {
+        Json::Value jv;
+        jv[jss::TransactionType] = "SetBoot";
+        jv[jss::Account] = acct.human();
+        if (blob)
+            jv[sfBootBlob.jsonName] = strHex(*blob);
+        return jv;
+    }
+
     void
     testDisabled()
     {
@@ -99,6 +112,54 @@ class SetBoot_test : public beast::unit_test::suite
         BEAST_EXPECT(env.le(alice)->isFieldPresent(sfBootBlob));
     }
 
+    void
+    testFeeSurcharge()
+    {
+        // calculateBaseFee = Transactor base + 1 drop per blob byte. Submit the EXACT required
+        // fee (success) and one drop short (telINSUF_FEE_P) so the per-byte surcharge is actually
+        // exercised — a zero/wrong/sign-flipped surcharge would change one of these outcomes.
+        testcase("per-byte fee surcharge enforced");
+        using namespace test::jtx;
+        Env env{*this, supported_amendments()};
+        auto const alice = Account("alice");
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        Blob const blob(200, 0x42);  // 200-byte blob => +200 drop surcharge
+        auto const base = env.current()->fees().base;
+        auto const required = base + XRPAmount{static_cast<std::int64_t>(blob.size())};
+
+        // one drop short of (base + surcharge) => the surcharge is what tips it under.
+        env(setBootNoFee(alice, blob),
+            fee(required - XRPAmount{1}),
+            ter(telINSUF_FEE_P));
+        env.close();
+        BEAST_EXPECT(!env.le(alice)->isFieldPresent(sfBootBlob));  // rejected, nothing stored
+
+        // exactly base + surcharge => succeeds.
+        env(setBootNoFee(alice, blob), fee(required));
+        env.close();
+        BEAST_EXPECT(env.le(alice)->getFieldVL(sfBootBlob) == blob);
+    }
+
+    void
+    testDeleteWhenAbsentIsNoOp()
+    {
+        // Deleting a boot blob that was never set: doApply's fall-through branch. Must be a clean
+        // no-op (tesSUCCESS, field stays absent), not an error or an unexpected mutation.
+        testcase("delete when absent => no-op success");
+        using namespace test::jtx;
+        Env env{*this, supported_amendments()};
+        auto const alice = Account("alice");
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        BEAST_EXPECT(!env.le(alice)->isFieldPresent(sfBootBlob));  // precondition: none set
+        env(setBoot(alice, std::nullopt));  // delete with nothing present
+        env.close();
+        BEAST_EXPECT(!env.le(alice)->isFieldPresent(sfBootBlob));  // still absent, no error
+    }
+
 public:
     void
     run() override
@@ -106,6 +167,8 @@ public:
         testDisabled();
         testSetReplaceDelete();
         testBounds();
+        testFeeSurcharge();
+        testDeleteWhenAbsentIsNoOp();
     }
 };
 
