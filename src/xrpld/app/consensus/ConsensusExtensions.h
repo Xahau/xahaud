@@ -189,13 +189,6 @@ public:
     bool
     hasAnyReveals() const;
 
-    /// True when the agreed entropy set would NOT reach validator_quorum
-    /// (tier 3): absent/failed, or fewer leaves than quorumThreshold(). A
-    /// tier-3 eligibility predicate only — it does NOT account for the tier-2
-    /// floor, so never gate injection on it (selectEntropy() does the tiering).
-    bool
-    belowValidatorQuorum() const;
-
     /// Result of the shared deterministic entropy selector: the digest to
     /// inject plus its tier/count labels. Both injection paths derive these
     /// identically from the AGREED entropySetMap_ so they cannot drift.
@@ -209,7 +202,9 @@ public:
     /// Deterministically choose the entropy to inject for this round from the
     /// AGREED entropySetMap_ (never local pendingReveals_), labelled by agreed
     /// participant count: validator_quorum (>= quorumThreshold),
-    /// participant_aligned (>= tier2Threshold) or consensus_fallback.
+    /// participant_aligned (>= tier2Threshold) or consensus_fallback. In
+    /// non-standalone mode, non-fallback labels require an UNLReport-backed
+    /// active view; the trusted-fallback view is local config and mints Tier 1.
     /// baseTxSetHash is the BASE (pre-injection) tx set hash used for the
     /// fallback digest.
     EntropySelection
@@ -342,8 +337,8 @@ public:
     clearRngState();
 
     /// txSetHash is the BASE (pre-injection) consensus tx set hash —
-    /// an input to the Tier 1 consensus_fallback digest. It must never be the hash
-    /// of a set that could contain the entropy pseudo-tx itself.
+    /// an input to the Tier 1 consensus_fallback digest. It must never be the
+    /// hash of a set that could contain the entropy pseudo-tx itself.
     void
     onPreBuild(
         CanonicalTXSet& retriableTxs,

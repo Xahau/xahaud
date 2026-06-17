@@ -477,21 +477,6 @@ struct Peer
             return !pendingReveals_.empty();
         }
 
-        bool
-        shouldZeroEntropy() const
-        {
-            if (entropyFailed_ || pendingReveals_.empty())
-                return true;
-            // Legacy validator-quorum-only predicate retained for old CSF
-            // assertions. Current production tiering is handled in
-            // finalizeRoundEntropy(), which can mint participant_aligned below
-            // validator quorum when the advertised set reaches tier2Threshold().
-            auto const threshold = unlNodes_.empty()
-                ? std::size_t{1}
-                : calculateQuorumThreshold(unlNodes_.size());
-            return pendingReveals_.size() < threshold;
-        }
-
         uint256
         buildCommitSet(Ledger::Seq seq)
         {

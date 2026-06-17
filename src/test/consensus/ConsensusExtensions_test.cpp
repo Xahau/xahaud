@@ -1061,9 +1061,11 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const closeTime = NetClock::time_point{NetClock::duration{654}};
         auto const txSetHash = makeHash("explicit-final-nonzero-txset");
         auto const reveal = makeHash("explicit-final-nonzero-reveal");
+        auto const viewLedger = makeUNLReportLedger(
+            nonStandaloneEnv, std::vector<PublicKey>{publicKey});
         ConsensusExtensions revealCe{
             nonStandaloneEnv.app(), activeNoopJournal()};
-        revealCe.cacheUNLReport(ledger);
+        revealCe.cacheUNLReport(viewLedger);
         harvestCommitReveal(
             revealCe,
             nodeId,
@@ -1163,7 +1165,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const ledger = env.app().getLedgerMaster().getClosedLedger();
         ce.onRoundStart(RCLCxLedger{ledger}, {});
         ce.setRngEnabledThisRound(true);
-        BEAST_EXPECT(ce.belowValidatorQuorum());
 
         CanonicalTXSet retriableTxs{makeHash("rng-zero-fallback-salt")};
         auto const seq = ledger->seq() + 1;
@@ -1224,8 +1225,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const closeTime = NetClock::time_point{NetClock::duration{321}};
         auto const txSetHash = makeHash("prebuild-entropy-txset");
         auto const reveal = makeHash("prebuild-entropy-reveal");
+        auto const viewLedger =
+            makeUNLReportLedger(env, std::vector<PublicKey>{publicKey});
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
-        ce.cacheUNLReport(ledger);
+        ce.cacheUNLReport(viewLedger);
         harvestCommitReveal(
             ce,
             nodeId,
@@ -1241,7 +1244,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         auto const entropySetHash = ce.buildEntropySet(seq);
         BEAST_EXPECT(ce.isSidecarSet(entropySetHash));
-        BEAST_EXPECT(!ce.belowValidatorQuorum());
 
         CanonicalTXSet retriableTxs{makeHash("entropy-set-prebuild-salt")};
         ce.onPreBuild(retriableTxs, seq, txSetHash);
@@ -2878,7 +2880,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(ce.exportSigConvergenceFailed());
 
         ce.setEntropyFailed();
-        BEAST_EXPECT(ce.belowValidatorQuorum());
 
         ce.generateEntropySecret();
         BEAST_EXPECT(!ce.hasAnyReveals());

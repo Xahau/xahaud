@@ -261,10 +261,10 @@ ConsensusExtensions::entropyGateThreshold() const
     // (0.8*effective), so this is the participant-alignment floor and
     // sub-quorum rounds reach injection; under heavy nUNL the band collapses
     // (tier2 >= quorum) and this is the 80% quorum, so only validator_quorum
-    // survives. This governs
-    // proceed-vs-fall-back ONLY — the selector still labels the agreed set's
-    // tier from its participant count, so a node that proceeds here never mints
-    // a different tier than its peers (divergent local views fall back).
+    // survives. This governs proceed-vs-fall-back only. Non-fallback tier
+    // labels are allowed only when the round view is anchored by UNLReport; the
+    // trusted-fallback view is local configuration and selectEntropy() maps it
+    // to consensus_fallback.
     return std::min(quorumThreshold(), tier2Threshold());
 }
 
@@ -416,17 +416,6 @@ ConsensusExtensions::hasAnyReveals() const
     return !pendingReveals_.empty();
 }
 
-bool
-ConsensusExtensions::belowValidatorQuorum() const
-{
-    if (entropyFailed_ || !entropySetMap_)
-        return true;
-
-    auto const leafCount =
-        std::distance(entropySetMap_->begin(), entropySetMap_->end());
-    return leafCount == 0 || leafCount < quorumThreshold();
-}
-
 ConsensusExtensions::EntropySelection
 ConsensusExtensions::selectEntropy(
     uint256 const& baseTxSetHash,
@@ -454,11 +443,18 @@ ConsensusExtensions::selectEntropy(
             entropyTierValidatorQuorum,
             20};
 
-    // No agreed entropy set (round failed, or none was built) → fallback. We do
-    // NOT fall back merely for being below the 80% quorum the way
-    // belowValidatorQuorum() does: a sub-quorum-but-aligned set may still
-    // qualify for participant_aligned (tier 2). The tier ladder below decides
-    // from the agreed participant count.
+    // Non-fallback entropy labels depend on validator-view thresholds. Without
+    // an on-ledger UNLReport, that view is derived from local trusted config,
+    // so two nodes can agree on the same entropy set but label it with
+    // different tiers. A non-standalone node therefore mints only
+    // consensus_fallback until the round view is ledger-anchored.
+    if (!activeValidatorView()->fromUNLReport)
+        return fallback();
+
+    // No agreed entropy set (round failed, or none was built) → fallback. A
+    // sub-quorum-but-aligned set may still qualify for participant_aligned
+    // (tier 2); the tier ladder below decides from the agreed participant
+    // count.
     if (entropyFailed_ || !entropySetMap_)
         return fallback();
 

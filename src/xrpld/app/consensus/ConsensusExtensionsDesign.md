@@ -173,8 +173,8 @@ is the safe degradation path, not a consensus failure.
 
 Examples with six active validators, validator_quorum threshold five, and
 participant_aligned threshold four (six is the smallest view with a non-empty
-Tier 2 band — at five validators quorum and participant_aligned coincide at
-four, leaving no band):
+Tier 2 band and non-zero tolerated Byzantine count; at five validators quorum
+and participant_aligned coincide at four, leaving no band):
 
 - Five honest validators align on one entropy hash and one validator advertises
   a bogus hash: proceed with validator_quorum entropy for the honest quorum.
@@ -194,11 +194,22 @@ seq)` — and labeled with `EntropyTier = consensus_fallback` and
 `min_tier`/`min_count` arguments to `dice()`/`random()`: a hook that demands
 validator-tier entropy fails closed with `TOO_LITTLE_ENTROPY` on fallback
 ledgers, while a hook that opts into fallback-grade randomness must do so
-explicitly at the call site. The fallback digest derives from the BASE
-(pre-injection) tx set hash to avoid circularity, and entropy pseudo-tx
-deduplication is value-based: if an explicit-final synthetic set already
-contains the exact pseudo-tx, injection skips it; a present-but-different
-pseudo-tx is logged as a determinism violation and left in the agreed set.
+explicitly at the call site. Valid `min_tier` values are the stored entropy
+tiers 1..3; `min_count` must fit the on-ledger `EntropyCount` UINT16 field.
+Invalid requirements return `INVALID_ARGUMENT`, while valid-but-unmet
+requirements return `TOO_LITTLE_ENTROPY`.
+
+Open-ledger hook execution is provisional. During speculative open-ledger
+execution, `dice()`/`random()` can only use the previous ledger's finalized
+entropy; final buildLCL execution sees the current ledger's entropy pseudo-tx
+after it updates the SLE. Hooks that need final entropy must treat open-ledger
+RNG results as previews.
+
+The fallback digest derives from the BASE (pre-injection) tx set hash to avoid
+circularity, and entropy pseudo-tx deduplication is value-based: if an
+explicit-final synthetic set already contains the exact pseudo-tx, injection
+skips it; a present-but-different pseudo-tx is logged as a determinism
+violation and left in the agreed set.
 
 ## Sidecar Convergence Rules
 
