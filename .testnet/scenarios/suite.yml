@@ -8,6 +8,7 @@ defaults:
       - ConsensusEntropy
     track_features:
       - ConsensusEntropy
+    unl_report: true
     log_levels:
       TxQ: info
       Protocol: debug
@@ -22,6 +23,11 @@ defaults:
 tests:
   - name: steady_state_entropy
     script: .testnet/scenarios/entropy/steady_state_entropy.py
+
+  - name: fallback_without_unl_report
+    script: .testnet/scenarios/entropy/fallback_without_unl_report.py
+    network:
+      unl_report: false
 
   - name: steady_state_entropy_fast_start
     script: .testnet/scenarios/entropy/steady_state_entropy.py

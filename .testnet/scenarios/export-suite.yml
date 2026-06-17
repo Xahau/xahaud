@@ -10,6 +10,7 @@ defaults:
     track_features:
       - ConsensusEntropy
       - Export
+    unl_report: true
     log_levels:
       TxQ: info
       Protocol: debug
