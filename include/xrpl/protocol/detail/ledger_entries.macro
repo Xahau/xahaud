@@ -93,7 +93,7 @@ LEDGER_ENTRY(ltCHECK, 0x0043, Check, check, ({
 */
 LEDGER_ENTRY(ltHOOK_DEFINITION, 'D', HookDefinition, hook_definition, ({
     {sfHookHash,             soeREQUIRED},
-    {sfHookOn,               soeREQUIRED},
+    {sfHookOn,               soeOPTIONAL},
     {sfHookOnIncoming,       soeOPTIONAL},
     {sfHookOnOutgoing,       soeOPTIONAL},
     {sfHookCanEmit,          soeOPTIONAL},

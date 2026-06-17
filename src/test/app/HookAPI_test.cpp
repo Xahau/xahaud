@@ -3632,8 +3632,9 @@ public:
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
+        auto const claire = Account{"claire"};
         Env env{*this, features};
-        env.fund(XRP(100000), alice, bob);
+        env.fund(XRP(100000), alice, bob, claire);
         env.close();
 
         // Compute hook hash for the accept hook
@@ -3772,6 +3773,84 @@ public:
                 api.state_foreign_set(testKey, testNs, alice.id(), newData);
             BEAST_EXPECT(result2.has_value());
             BEAST_EXPECT(result2.value() == newData.size());
+        }
+
+        {
+            // fixHookMap: foreign state set without grant after state previous
+            // modified
+
+            HookStateMap stateMap;
+            auto hookCtx = makeStubHookContext(
+                applyCtx, alice.id(), bob.id(), {}, stateMap);
+
+            AccountID const aliceid = alice.id();
+
+            // Pre-populate stateMap
+            stateMap[alice.id()] = {
+                100,  // availableForReserves
+                1,    // namespaceCount
+                1,    // hookStateScale
+                {}};
+
+            auto& api = hookCtx.api();
+
+            // setup a hook on alice, and on claire, no grants
+            env(hook(alice, {{hso(genesis::AcceptHook)}}, 0), fee(XRP(1)));
+            env(hook(claire, {{hso(genesis::AcceptHook)}}, 0), fee(XRP(1)));
+            env.close();
+
+            // First modification
+            auto result1 =
+                api.state_foreign_set(testKey, testNs, aliceid, testData);
+            BEAST_EXPECT(result1.has_value());
+
+            // Second modification this time using bob as hookacc (should hit
+            // cache)
+            auto hookCtx2 = makeStubHookContext(
+                applyCtx, claire.id(), bob.id(), {}, stateMap);
+
+            // check the state entry is carried into the second context
+
+            // does the map contain the account?
+            BEAST_EXPECT(
+                hookCtx2.result.stateMap.find(aliceid) !=
+                hookCtx2.result.stateMap.end());
+
+            // the name space?
+            BEAST_EXPECT(
+                std::get<3>(hookCtx2.result.stateMap[aliceid]).find(testNs) !=
+                std::get<3>(hookCtx2.result.stateMap[aliceid]).end());
+
+            // the key entry?
+            BEAST_EXPECT(
+                std::get<3>(hookCtx2.result.stateMap[aliceid])[testNs].find(
+                    testKey) !=
+                std::get<3>(hookCtx2.result.stateMap[aliceid])[testNs].end());
+
+            // is the entry marked as modified?
+            BEAST_EXPECT(
+                std::get<3>(hookCtx2.result.stateMap[aliceid])[testNs][testKey]
+                    .first);
+
+            auto& api2 = hookCtx2.api();
+            Bytes newData{0x04, 0x05};
+            auto result2 =
+                api2.state_foreign_set(testKey, testNs, aliceid, newData);
+
+            if (features[fixHookMap])
+            {
+                // new behaviour: grant is missing, cannot write
+                BEAST_EXPECT(!result2.has_value());
+                BEAST_EXPECT(result2.error() == NOT_AUTHORIZED);
+                BEAST_EXPECT(hookCtx2.result.foreignStateSetDisabled);
+            }
+            else
+            {
+                // old behaviour: allow this illegal write due to the entry
+                // being modified previously in the map
+                BEAST_EXPECT(result2.has_value());
+                BEAST_EXPECT(result2.value() == newData.size());
+            }
         }
     }
 
@@ -4832,6 +4911,7 @@ public:
 
         test_state(features);
         test_state_foreign(features);
+        test_state_foreign_set(features - fixHookMap);
         test_state_foreign_set(features);
         test_state_foreign_set_max(features);
         test_state_set(features);
