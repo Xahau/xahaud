@@ -838,7 +838,8 @@ public:
 
         // Two peers advertise entropy-set hashes that nobody can acquire.
         // The remaining 3/5 do not form an entropy quorum, so the safe
-        // outcome is consensus_fallback instead of mixed validator/fallback results.
+        // outcome is consensus_fallback instead of mixed validator/fallback
+        // results.
         peers[0]->ce().forcedEntropySetHash_ =
             sha512Half(std::string("forced-entropy-conflict-a"));
         peers[1]->ce().forcedEntropySetHash_ =

@@ -273,8 +273,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
         // REVEAL_TIMEOUT, conflict-wait) adds seconds of latency
         // per round that compound across staggered startup.
         //
-        // Once prevProposers reaches the entropy gate threshold the pipeline engages
-        // normally with all its coordination delays intact.
+        // Once prevProposers reaches the entropy gate threshold the pipeline
+        // engages normally with all its coordination delays intact.
         bool rngBootstrapSkip = false;
         {
             auto const threshold = ext.entropyGateThreshold();
@@ -353,7 +353,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 if (impossible)
                 {
                     JLOG(ext.j_.debug()) << "RNG: skipping commit wait"
-                                        << " reason=impossible-entropy-gate"
+                                         << " reason=impossible-entropy-gate"
                                          << " participants=" << participants
                                          << " threshold=" << threshold
                                          << " buildSeq=" << buildSeq;
@@ -827,8 +827,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     // tx-converged peer we are counting to have advertised
                     // some entropySetHash.  Without the full-observation
                     // part, asymmetric proposal delivery lets a node accept
-                    // validator-derived entropy while peers that are still missing sidecar
-                    // hashes hit the deadline and deterministically fall back.
+                    // validator-derived entropy while peers that are still
+                    // missing sidecar hashes hit the deadline and
+                    // deterministically fall back.
                     if (!entropyState.conflict &&
                         (!quorumAligned() || !fullObservation()))
                     {
@@ -855,7 +856,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         ext.setEntropyFailed();
                         clearEntropyHash();
                         JLOG(ext.j_.warn())
-                            << "RNG: entropySetHash entropy gate alignment timeout"
+                            << "RNG: entropySetHash entropy gate alignment "
+                               "timeout"
                             << " buildSeq=" << buildSeq
                             << " action=consensus-fallback"
                             << " alignedParticipants="
