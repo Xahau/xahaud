@@ -280,7 +280,10 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
                 if (bad_random_tier != INVALID_ARGUMENT)
                     return accept(0, 0, bad_random_tier);
 
-                return accept(0, 0, 0);
+                // Sentinel distinct from any dice (0..5) / random result and
+                // from INVALID_ARGUMENT, so a regression that lets a bad
+                // requirement through returns its own code, not this one.
+                return accept(0, 0, 42);
             }
         )[test.hook]",
          {
@@ -313,7 +316,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x04U, 0x41U, 0x00U, 0x10U, 0x03U, 0x22U, 0x01U, 0x42U, 0x79U,
              0x52U, 0x04U, 0x40U, 0x41U, 0x00U, 0x41U, 0x00U, 0x20U, 0x01U,
              0x10U, 0x02U, 0x0CU, 0x01U, 0x0BU, 0x41U, 0x00U, 0x41U, 0x00U,
-             0x42U, 0x00U, 0x10U, 0x02U, 0x0BU, 0x21U, 0x01U, 0x20U, 0x00U,
+             0x42U, 0x2AU, 0x10U, 0x02U, 0x0BU, 0x21U, 0x01U, 0x20U, 0x00U,
              0x41U, 0x20U, 0x6AU, 0x24U, 0x00U, 0x20U, 0x01U, 0x0BU,
          }},
 

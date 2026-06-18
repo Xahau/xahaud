@@ -538,7 +538,10 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 if (bad_random_tier != INVALID_ARGUMENT)
                     return accept(0, 0, bad_random_tier);
 
-                return accept(0, 0, 0);
+                // Sentinel distinct from any dice (0..5) / random result and
+                // from INVALID_ARGUMENT, so a regression that lets a bad
+                // requirement through returns its own code, not this one.
+                return accept(0, 0, 42);
             }
         )[test.hook]"];
 
@@ -559,7 +562,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
         BEAST_REQUIRE(hookExecutions.size() == 1);
 
-        BEAST_EXPECT(hookReturnCode(hookExecutions[0]) == 0);
+        // 42 only if all four invalid requirements were rejected; any bad
+        // requirement leaking through returns its own (non-42) code.
+        BEAST_EXPECT(hookReturnCode(hookExecutions[0]) == 42);
         BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
     }
 
