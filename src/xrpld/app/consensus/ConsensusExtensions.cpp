@@ -2146,6 +2146,14 @@ ConsensusExtensions::onRoundStart(
     clearRngState();
     roundPrevLedgerHash_ = prevLedger.ledger_->info().hash;
     cacheUNLReport(prevLedger.ledger_);
+    auto const validatorView = activeValidatorView();
+    if (validatorView->sourceLedgerHash)
+    {
+        XRPL_ASSERT(
+            *validatorView->sourceLedgerHash == roundPrevLedgerHash_,
+            "ripple::ConsensusExtensions::onRoundStart : "
+            "active view source matches round parent");
+    }
     setExpectedProposers(std::move(lastProposers));
     resetSubState();
 }
