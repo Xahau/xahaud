@@ -953,6 +953,23 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     // This is a heuristic to reduce risk, not a proof of
                     // safety. We still keep the feature
                     // optional/default-off.
+                    //
+                    // OUTSTANDING (F1): unlike the main entropy gate
+                    // (inspectTxConvergedSidecarPeers), this explicit-final
+                    // participant/alignment count is over the UNFILTERED
+                    // trusted-proposer set (ctx.peerPositions) plus an
+                    // unconditional local +1 -- NOT the active validator view.
+                    // A trusted-but-non-active proposer can pad both
+                    // `participants` and `alignedPeers`, inflating the counting
+                    // universe above originalViewSize and eroding the same
+                    // Tier-2 intersection margin that the F1 fix closed for the
+                    // main gate. Before this path is EVER enabled it must
+                    // filter peers through activeValidatorView()->containsNode
+                    // and gate the local +1 on local active-view membership
+                    // (mirror inspectTxConvergedSidecarPeers); until then it
+                    // stays default-off. Per the TBD above, no safe timing
+                    // model was found for this path regardless, so it may never
+                    // ship.
                     auto const participants = ctx.peerPositions.size() + 1;
                     auto const expectedParticipants = ctx.prevProposers + 1;
                     fullParticipantCoverage =
