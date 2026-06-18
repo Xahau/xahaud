@@ -33,6 +33,7 @@
 #include <xrpld/consensus/ConsensusExtensionsTick.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/shamap/SHAMap.h>
+#include <xrpl/basics/contract.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/crypto/csprng.h>
 #include <xrpl/protocol/EntropyTier.h>
@@ -448,8 +449,28 @@ ConsensusExtensions::selectEntropy(
     // so two nodes can agree on the same entropy set but label it with
     // different tiers. A non-standalone node therefore mints only
     // consensus_fallback until the round view is ledger-anchored.
-    if (!activeValidatorView()->fromUNLReport)
+    auto const validatorView = activeValidatorView();
+    if (!validatorView->fromUNLReport)
+    {
+        if (validatorView->sourceLedgerHash)
+        {
+            XRPL_ASSERT(
+                *validatorView->sourceLedgerHash == roundPrevLedgerHash_,
+                "ripple::ConsensusExtensions::selectEntropy : "
+                "active view source matches round parent");
+        }
+        JLOG(j_.warn()) << "RNG: using consensus fallback entropy"
+                        << " reason=no-unl-report"
+                        << " seq=" << seq
+                        << " activeValidators=" << validatorView->size()
+                        << " originalView=" << validatorView->originalViewSize
+                        << " sourceLedgerHash="
+                        << (validatorView->sourceLedgerHash
+                                ? to_string(*validatorView->sourceLedgerHash)
+                                : std::string{"none"})
+                        << " roundPrevLedgerHash=" << roundPrevLedgerHash_;
         return fallback();
+    }
 
     // No agreed entropy set (round failed, or none was built) → fallback. A
     // sub-quorum-but-aligned set may still qualify for participant_aligned
@@ -1014,6 +1035,10 @@ ConsensusExtensions::makeActiveValidatorView(
     // against the same frozen UNLReport, not a local latest-validated ledger.
     auto const sourceLedger =
         prevLedger ? prevLedger : app_.getLedgerMaster().getValidatedLedger();
+    XRPL_ASSERT(
+        sourceLedger,
+        "ripple::ConsensusExtensions::makeActiveValidatorView : "
+        "source ledger is available");
     return std::make_shared<ActiveValidatorView const>(buildActiveValidatorView(
         buildActiveValidatorViewSource(sourceLedger),
         buildActiveValidatorViewFallback(app_)));
