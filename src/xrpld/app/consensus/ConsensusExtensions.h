@@ -318,6 +318,12 @@ public:
     bool
     isUNLReportMember(NodeID const& nodeId) const;
 
+    // True only when THIS node's own validator key is in the active view. Used
+    // to gate our own +1 in the sidecar alignment count to the same universe as
+    // the peer-membership filter and the entropy/export thresholds.
+    bool
+    localIsActiveValidator() const;
+
     void
     generateEntropySecret();
 

@@ -987,6 +987,18 @@ ConsensusExtensions::isUNLReportMember(NodeID const& nodeId) const
     return activeValidatorView()->containsNode(nodeId);
 }
 
+bool
+ConsensusExtensions::localIsActiveValidator() const
+{
+    // Our own sidecar position only counts toward alignment when this validator
+    // is itself in the active view — the same universe as the peer-membership
+    // filter and the entropy/export thresholds.
+    auto const& valKeys = app_.getValidatorKeys();
+    if (!valKeys.keys || valKeys.nodeID == beast::zero)
+        return false;
+    return activeValidatorView()->containsNode(valKeys.nodeID);
+}
+
 ConsensusExtensions::ActiveValidatorViewPtr
 ConsensusExtensions::activeValidatorView() const
 {

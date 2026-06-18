@@ -37,12 +37,19 @@ struct SidecarPeerAlignment
     }
 };
 
-template <class PeerPositions, class Position, class GetHash, class OnMismatch>
+template <
+    class PeerPositions,
+    class Position,
+    class GetHash,
+    class IsMember,
+    class OnMismatch>
 SidecarPeerAlignment
 inspectTxConvergedSidecarPeers(
     PeerPositions const& peerPositions,
     Position const& pos,
+    bool localIsMember,
     GetHash getHash,
+    IsMember isMember,
     OnMismatch onMismatch)
 {
     SidecarPeerAlignment state;
@@ -50,9 +57,21 @@ inspectTxConvergedSidecarPeers(
     if (!localHash)
         return state;
 
-    state.localPublished = true;
-    for (auto const& [_, peerPos] : peerPositions)
+    // The alignment-counting universe must be the active validator view, the
+    // same denominator the entropy/export thresholds use (quorumThreshold /
+    // tier2Threshold are computed over that view). A trusted-but-non-active
+    // proposer can tx-converge and advertise a sidecar hash, but it must NOT
+    // pad alignedParticipants(): counting outside the active view inflates the
+    // universe N above originalViewSize and erodes the Tier-2 intersection
+    // margin (2t - N) below the Byzantine floor f, breaking equivocation
+    // uniqueness. Mirror buildEntropySet/hasQuorumOfCommits' containsNode
+    // filter, and only count our own +1 when this node is itself active.
+    state.localPublished = localIsMember;
+    for (auto const& [nodeId, peerPos] : peerPositions)
     {
+        if (!isMember(nodeId))
+            continue;  // outside the active view -> not in the counting
+                       // universe
         auto const& pp = peerPos.proposal().position();
         if (!(pp == pos))
             continue;  // not tx-converged
@@ -705,8 +724,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         return detail::inspectTxConvergedSidecarPeers(
                             ctx.peerPositions,
                             pos,
+                            ext.localIsActiveValidator(),
                             [](auto const& position) {
                                 return position.entropySetHash;
+                            },
+                            [&ext](auto const& nodeId) {
+                                return ext.isUNLReportMember(nodeId);
                             },
                             [&](auto const& hash) {
                                 if (fetchMismatches)
@@ -1210,8 +1233,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     return detail::inspectTxConvergedSidecarPeers(
                         ctx.peerPositions,
                         pos,
+                        ext.localIsActiveValidator(),
                         [](auto const& position) {
                             return position.exportSigSetHash;
+                        },
+                        [&ext](auto const& nodeId) {
+                            return ext.isUNLReportMember(nodeId);
                         },
                         [&](auto const& hash) {
                             if (fetchMismatches)

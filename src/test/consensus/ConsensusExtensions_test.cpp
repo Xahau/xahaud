@@ -397,6 +397,22 @@ struct FakeExtensions
         return exportQuorum;
     }
 
+    // Membership is a no-op in the FakeExtensions tick tests (every peer
+    // counts, local counts) so the gate behavior is unchanged; F1 active-view
+    // filtering is exercised directly against inspectTxConvergedSidecarPeers.
+    template <class Id>
+    bool
+    isUNLReportMember(Id const&) const
+    {
+        return true;
+    }
+
+    bool
+    localIsActiveValidator() const
+    {
+        return true;
+    }
+
     std::size_t
     pendingCommitCount() const
     {
@@ -777,11 +793,18 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         harness.addPeer(3, std::nullopt);
         harness.addPeer(4, localHash, makeHash("other-tx-set"));
 
+        auto const exportHashOf = [](auto const& position) {
+            return position.exportSigSetHash;
+        };
+        auto const allMembers = [](auto const&) { return true; };
+
         std::vector<uint256> fetched;
         auto const state = detail::inspectTxConvergedSidecarPeers(
             harness.peers,
             harness.position,
-            [](auto const& position) { return position.exportSigSetHash; },
+            true,
+            exportHashOf,
+            allMembers,
             [&](auto const& hash) {
                 if (hash)
                     fetched.push_back(*hash);
@@ -804,12 +827,56 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const unpublishedState = detail::inspectTxConvergedSidecarPeers(
             harness.peers,
             harness.position,
-            [](auto const& position) { return position.exportSigSetHash; },
+            true,
+            exportHashOf,
+            allMembers,
             [](auto const&) {});
         BEAST_EXPECT(!unpublishedState.localPublished);
         BEAST_EXPECT(unpublishedState.alignedParticipants() == 0);
         BEAST_EXPECT(!unpublishedState.quorumAligned(1));
         BEAST_EXPECT(unpublishedState.fullObservation());
+
+        // F1: the alignment-counting universe must be the active validator
+        // view, not the full trusted-proposer set. A trusted-but-non-active
+        // proposer (node 5) that tx-converges and aligns on the SAME hash must
+        // NOT inflate alignedParticipants() — otherwise two equivocation
+        // cohorts padded by non-active peers could each clear the gate.
+        harness.position.exportSigSetHash = localHash;
+        harness.addPeer(5, localHash);  // trusted, but outside the active view
+        auto const activeOnly = [](auto const& id) {
+            return id != makeNode(5);  // nodes 1..4 active; 5 is not
+        };
+
+        auto const padded = detail::inspectTxConvergedSidecarPeers(
+            harness.peers,
+            harness.position,
+            true,
+            exportHashOf,
+            allMembers,
+            [](auto const&) {});
+        BEAST_EXPECT(padded.aligned == 2);  // node 1 + node 5, unfiltered
+
+        auto const filtered = detail::inspectTxConvergedSidecarPeers(
+            harness.peers,
+            harness.position,
+            true,
+            exportHashOf,
+            activeOnly,
+            [](auto const&) {});
+        BEAST_EXPECT(filtered.aligned == 1);                // node 5 excluded
+        BEAST_EXPECT(filtered.alignedParticipants() == 2);  // node 1 + local
+        BEAST_EXPECT(!filtered.quorumAligned(3));  // padding can't reach quorum
+
+        // The local +1 is likewise gated on local active-view membership.
+        auto const nonActiveLocal = detail::inspectTxConvergedSidecarPeers(
+            harness.peers,
+            harness.position,
+            false,
+            exportHashOf,
+            activeOnly,
+            [](auto const&) {});
+        BEAST_EXPECT(!nonActiveLocal.localPublished);
+        BEAST_EXPECT(nonActiveLocal.alignedParticipants() == 1);  // node 1 only
     }
 
     void

@@ -721,6 +721,12 @@ struct Peer
             return unlNodes_.count(nodeId) > 0;
         }
 
+        bool
+        localIsActiveValidator() const
+        {
+            return isUNLReportMember(peer.id);
+        }
+
         void
         finalizeRoundEntropy(
             std::uint32_t seq,
