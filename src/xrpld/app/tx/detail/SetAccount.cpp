@@ -197,6 +197,31 @@ SetAccount::preflight(PreflightContext const& ctx)
             return temMALFORMED;
     }
 
+    if (tx.isFieldPresent(sfSecureUI))
+    {
+        if (!ctx.rules.enabled(featureSecureUI))
+            return temMALFORMED;
+
+        Blob ui = tx.getFieldVL(sfSecureUI);
+
+        if (ui.size() == 0)
+        {
+            // this is an unset operation, pass
+        }
+        else if (ui.size() > 4096)
+        {
+            JLOG(j.trace()) << "SecureUI: Too long > 4096 bytes";
+            return temMALFORMED;
+        }
+        else if (!URIToken::validateUTF8(ui))
+        {
+            JLOG(j.trace()) << "SecureUI: Not UTF-8";
+            return temMALFORMED;
+        }
+
+        // valid
+    } 
+
     return preflight2(ctx);
 }
 
@@ -699,6 +724,23 @@ SetAccount::doApply()
             sle->setFieldU16(sfHookStateScale, newScale);
         }
     }
+
+    if (tx.isFieldPresent(sfSecureUI))
+    {
+        Blob ui = tx.getFieldVL(sfSecureUI);
+        if (ui.size() == 0)
+        {
+            // unset operation
+            if (sle->isFieldPresent(sfSecureUI))
+                sle->makeFieldAbsent(sfSecureUI);
+        }
+        else
+        {
+            // set operation
+            sle->setFieldVL(sfSecureUI, std::move(ui));
+        }
+    }
+
     ctx_.view().update(sle);
 
     return tesSUCCESS;
