@@ -903,6 +903,116 @@ ConsensusExtensions::exportSigConvergenceFailed() const
     return exportSigConvergenceFailed_;
 }
 
+std::optional<ConsensusExtensions::ExportSignatureSnapshot>
+ConsensusExtensions::agreedExportSignatures(
+    STTx const& exportTx,
+    uint256 const& txHash,
+    ActiveValidatorView const& validatorView,
+    std::size_t threshold) const
+{
+    if (!exportSigSetMap_)
+    {
+        JLOG(j_.warn()) << "Export: agreed exportSigSet missing"
+                        << " txHash=" << txHash << " threshold=" << threshold;
+        return std::nullopt;
+    }
+
+    ExportSignatureSnapshot signatures;
+    bool invalid = false;
+    auto const agreedHash = exportSigSetMap_->getHash().as_uint256();
+    exportSigSetMap_->visitLeaves(
+        [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+            if (invalid)
+                return;
+
+            try
+            {
+                SerialIter sit(item->slice());
+                STObject sidecar(sit, sfGeneric);
+
+                if (!sidecar.isFieldPresent(sfSidecarType) ||
+                    sidecar.getFieldU8(sfSidecarType) != sidecarExportSig)
+                    return;
+
+                auto const sidecarHash = sidecar.getHash(HashPrefix::sidecar);
+                if (sidecarHash != item->key())
+                {
+                    JLOG(j_.warn())
+                        << "Export: agreed exportSigSet item hash mismatch"
+                        << " setHash=" << agreedHash
+                        << " itemKey=" << item->key()
+                        << " computedHash=" << sidecarHash;
+                    invalid = true;
+                    return;
+                }
+
+                if (!sidecar.isFieldPresent(sfTransactionHash) ||
+                    !sidecar.isFieldPresent(sfSigningPubKey) ||
+                    !sidecar.isFieldPresent(sfTxnSignature))
+                    return;
+
+                if (sidecar.getFieldH256(sfTransactionHash) != txHash)
+                    return;
+
+                auto const pk = sidecar.getFieldVL(sfSigningPubKey);
+                if (!publicKeyType(makeSlice(pk)))
+                    return;
+
+                PublicKey const valPK{makeSlice(pk)};
+                if (!isActiveValidator(valPK, validatorView))
+                    return;
+
+                auto const sigVL = sidecar.getFieldVL(sfTxnSignature);
+                auto const sigSlice = makeSlice(sigVL);
+                if (!verifyExportSignatureAgainstTx(
+                        exportTx,
+                        valPK,
+                        sigSlice,
+                        txHash,
+                        j_,
+                        "agreed exportSigSet"))
+                {
+                    invalid = true;
+                    return;
+                }
+
+                Buffer sigBuf(sigSlice.data(), sigSlice.size());
+                if (auto const [_, inserted] =
+                        signatures.emplace(valPK, std::move(sigBuf));
+                    !inserted)
+                {
+                    JLOG(j_.warn())
+                        << "Export: agreed exportSigSet duplicate signer"
+                        << " setHash=" << agreedHash << " txHash=" << txHash
+                        << " signer=" << toBase58(TokenType::NodePublic, valPK);
+                    invalid = true;
+                }
+            }
+            catch (std::exception const& e)
+            {
+                JLOG(j_.warn())
+                    << "Export: agreed exportSigSet parse failed"
+                    << " setHash=" << agreedHash << " txHash=" << txHash
+                    << " error=" << e.what();
+                invalid = true;
+            }
+        });
+
+    if (invalid)
+        return std::nullopt;
+
+    if (signatures.size() < threshold)
+    {
+        JLOG(j_.info()) << "Export: agreed exportSigSet below quorum"
+                        << " setHash=" << agreedHash << " txHash=" << txHash
+                        << " signers=" << signatures.size()
+                        << " threshold=" << threshold;
+        return std::nullopt;
+    }
+
+    return signatures;
+}
+
 void
 ConsensusExtensions::generateEntropySecret()
 {
@@ -936,6 +1046,35 @@ ConsensusExtensions::selfSeedReveal()
 
 //@@start clear-rng-state
 void
+ConsensusExtensions::clearRngStatePreservingExport()
+{
+    //@@start round-stop-rng-reset
+    pendingCommits_.clear();
+    pendingReveals_.clear();
+    nodeIdToKey_.clear();
+    myEntropySecret_ = uint256{};
+    entropyFailed_ = false;
+    commitSetMap_.reset();
+    entropySetMap_.reset();
+    rngRoundSeq_.reset();
+    consensusTxSetMap_.reset();
+    consensusTxSetHash_.reset();
+    pendingRngFetches_.clear();
+    observedParticipantsHash_.reset();
+    observedParticipantsCount_ = 0;
+    observedParticipantsBitmapBin_.clear();
+    likelyParticipants_.clear();
+    commitProofs_.clear();
+    proposalProofs_.clear();
+    //@@end round-stop-rng-reset
+    // Keep the round-level enable latches intact here. Consensus::startRound()
+    // calls preStartRound() first to snapshot which extensions are enabled for
+    // the upcoming round, then immediately clears per-round working state.
+    // Resetting these latches here would wipe that snapshot before
+    // phaseEstablish() can consult it.
+}
+
+void
 ConsensusExtensions::clearRngState()
 {
     //@@start round-stop-export-reset
@@ -949,36 +1088,14 @@ ConsensusExtensions::clearRngState()
         // material waiting for a later re-enable.
         exportSigCollector_.clearAll();
     }
-    //@@end round-stop-export-reset
-    //@@start round-stop-rng-reset
-    pendingCommits_.clear();
-    pendingReveals_.clear();
-    nodeIdToKey_.clear();
-    myEntropySecret_ = uint256{};
-    entropyFailed_ = false;
-    commitSetMap_.reset();
-    entropySetMap_.reset();
     exportSigSetMap_.reset();
-    rngRoundSeq_.reset();
-    consensusTxSetMap_.reset();
     consensusExportTxns_.clear();
-    consensusTxSetHash_.reset();
-    pendingRngFetches_.clear();
-    observedParticipantsHash_.reset();
-    observedParticipantsCount_ = 0;
-    observedParticipantsBitmapBin_.clear();
     exportSigGateStarted_ = false;
     exportSigGateStart_ = {};
     exportSigConvergenceFailed_ = false;
-    likelyParticipants_.clear();
-    commitProofs_.clear();
-    proposalProofs_.clear();
-    //@@end round-stop-rng-reset
-    // Keep the round-level enable latches intact here. Consensus::startRound()
-    // calls preStartRound() first to snapshot which extensions are enabled for
-    // the upcoming round, then immediately clears per-round working state.
-    // Resetting these latches here would wipe that snapshot before
-    // phaseEstablish() can consult it.
+    //@@end round-stop-export-reset
+
+    clearRngStatePreservingExport();
 }
 //@@end clear-rng-state
 
@@ -1861,8 +1978,10 @@ ConsensusExtensions::onPreBuild(
     //@@end rng-inject-pseudotx
 
     //@@start accept-time-cleanup-success
-    // Reset RNG state for next round
-    clearRngState();
+    // Reset RNG state for next round. Export state is intentionally preserved
+    // until buildLCL applies any ttEXPORT transactions: export apply must see
+    // the convergence decision and the agreed exportSigSetHash from this round.
+    clearRngStatePreservingExport();
     //@@end accept-time-cleanup-success
 }
 

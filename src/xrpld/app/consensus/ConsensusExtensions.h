@@ -10,10 +10,12 @@
 #include <xrpld/consensus/ConsensusTypes.h>
 #include <xrpld/overlay/Message.h>
 #include <xrpld/shamap/SHAMap.h>
+#include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <chrono>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -26,6 +28,7 @@ namespace ripple {
 class Application;
 class CanonicalTXSet;
 class Ledger;
+class STTx;
 
 /// Concrete alias for the consensus tick context.
 using TickContext = ConsensusTick<ExtendedPosition, RCLCxPeerPos, RCLTxSet>;
@@ -48,6 +51,7 @@ public:
 
     using ActiveValidatorView = ripple::ActiveValidatorView;
     using ActiveValidatorViewPtr = std::shared_ptr<ActiveValidatorView const>;
+    using ExportSignatureSnapshot = std::map<PublicKey, Buffer>;
 
 private:
     // --- RNG Pipelined Storage ---
@@ -116,6 +120,9 @@ public:
     };
 
 private:
+    void
+    clearRngStatePreservingExport();
+
     // Proposal proofs keyed by NodeID.
     // commitProofs_: only seq=0 proofs (deterministic across all nodes).
     // proposalProofs_: latest proof with reveal (for entropySet).
@@ -245,6 +252,13 @@ public:
 
     bool
     exportSigConvergenceFailed() const;
+
+    std::optional<ExportSignatureSnapshot>
+    agreedExportSignatures(
+        STTx const& exportTx,
+        uint256 const& txHash,
+        ActiveValidatorView const& validatorView,
+        std::size_t threshold) const;
 
     bool
     isSidecarSet(uint256 const& hash) const;

@@ -99,10 +99,9 @@ The active validator view is the shared denominator for RNG and export:
 - Prefer `UNLReport.sfActiveValidators` from the consensus parent ledger.
 - If no report is available, fall back to configured trusted validators so
   early ledgers and dev/test networks can make progress. This configured
-  fallback view is `!fromUNLReport`: it still serves the Export quorum, but a
-  non-standalone node mints only `consensus_fallback` entropy under it (see
-  Entropy Alignment Rules), because a config-derived view can diverge between
-  nodes.
+  fallback view is `!fromUNLReport`: a non-standalone node mints only
+  `consensus_fallback` entropy under it and must not finalize Export, because a
+  config-derived view can diverge between nodes.
 - If `featureNegativeUNL` is enabled, subtract the parent ledger's Negative
   UNL from whichever source produced the view.
 - Use the same snapshot throughout the round.
@@ -287,6 +286,11 @@ whether or not RNG is enabled. Do not make Export liveness depend on unanimity:
 one active validator with a missing, delayed, or conflicting sidecar must not
 veto an otherwise quorum-aligned export round.
 
+Non-standalone Export completion requires a UNLReport-backed active validator
+view. If the parent ledger has no `UNLReport`, Export has no safe deterministic
+fallback result, so it retries or expires rather than finalizing against local
+trusted-configuration thresholds.
+
 The extended proposal machinery is enabled when either feature needs signed
 sidecar fields. Do not make Export depend on RNG availability just because RNG
 was the first consumer of `ExtendedPosition`.
@@ -309,8 +313,9 @@ verified export signatures it actually has locally, and only for `ttEXPORT`
 transactions in the consensus candidate set. A fetched export sidecar is not a
 separate apply input: on merge, each leaf must be active-view checked, verified
 against the candidate transaction, and promoted into `ExportSigCollector`.
-Closed-ledger apply snapshots that collector, so the sidecar convergence state
-and the signer set used by `ttEXPORT` stay on the same path.
+Closed-ledger apply must assemble the signer set from the agreed
+`exportSigSetHash` sidecar map, not from the still-growing live collector, so
+late local arrivals cannot change the ledger-defining export result.
 
 If the consensus candidate contains a `ttEXPORT` but the node has no eligible
 local export signatures yet, the export sidecar gate opens only a bounded

@@ -1704,6 +1704,100 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExportAgreedSignaturesIgnoreLiveCollectorMutation()
+    {
+        testcase("Export apply uses agreed sidecar signatures");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& valPK = valKeys.keys->publicKey;
+        auto const& valSK = valKeys.keys->secretKey;
+        auto const signerAccount = calcAccountID(valPK);
+        auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
+        auto const innerObj = makeExportedPayment(signerAccount, dst);
+        auto const innerTx = makeSTTx(innerObj);
+        auto const exportTx = makeExportTx(innerObj, signerAccount);
+        auto const txHash = exportTx->getTransactionID();
+        auto const txSet = makeRCLTxSet(env.app(), {exportTx});
+        auto const seq = ledger->seq() + 1;
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.setExportEnabledThisRound(true);
+        ce.cacheUNLReport(ledger);
+        ce.cacheConsensusTxSet(txSet);
+
+        auto const sigData = buildMultiSigningData(innerTx, signerAccount);
+        auto const sig = sign(valPK, valSK, sigData.slice());
+        Buffer const originalSig(sig.data(), sig.size());
+        ce.exportSigCollector().addVerifiedSignature(
+            txHash, valPK, originalSig, seq);
+        auto const exportSigSetHash = ce.buildExportSigSet(seq);
+        BEAST_EXPECT(ce.isSidecarSet(exportSigSetHash));
+
+        // Simulate a late local collector mutation after the sidecar hash has
+        // converged. The live collector now differs from the agreed sidecar
+        // map.
+        std::uint8_t const lateBytes[] = {9, 8, 7};
+        Buffer const lateSig{lateBytes, sizeof(lateBytes)};
+        ce.exportSigCollector().addVerifiedSignature(
+            txHash, valPK, lateSig, seq);
+
+        auto const view = ce.activeValidatorView();
+        auto const live = ce.exportSigCollector().checkQuorumAndSnapshot(
+            txHash, 1, [&](PublicKey const& pk) {
+                return ce.isActiveValidator(pk, *view);
+            });
+        BEAST_EXPECT(live);
+        if (live)
+            BEAST_EXPECT(live->at(valPK) == lateSig);
+
+        auto const agreed =
+            ce.agreedExportSignatures(*exportTx, txHash, *view, 1);
+        BEAST_EXPECT(agreed);
+        if (agreed)
+        {
+            BEAST_EXPECT(agreed->size() == 1);
+            BEAST_EXPECT(agreed->at(valPK) == originalSig);
+        }
+    }
+
+    void
+    testOnPreBuildPreservesExportDecision()
+    {
+        testcase("onPreBuild preserves export state through buildLCL");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy | featureExport,
+            nullptr};
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.setExportEnabledThisRound(true);
+        ce.setRngEnabledThisRound(true);
+        ce.setExportSigConvergenceFailed();
+        auto const tx = makeHash("export-prebuild-preserve");
+        auto const pk = makeValidatorKeys().front();
+        std::uint8_t const sigBytes[] = {1, 2, 3};
+        Buffer const sig{sigBytes, sizeof(sigBytes)};
+        ce.exportSigCollector().addVerifiedSignature(tx, pk, sig, 10);
+
+        CanonicalTXSet retriableTxs{makeHash("preserve-export-state")};
+        ce.onPreBuild(retriableTxs, env.closed()->seq() + 1, makeHash("txset"));
+
+        BEAST_EXPECT(ce.exportSigConvergenceFailed());
+        BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 1);
+    }
+
+    void
     testRngSidecarBuildFetchAndMerge()
     {
         testcase("RNG sidecar build, fetch, and merge");
@@ -2650,7 +2744,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     void
     testExportSigGateAllowsQuorumDespiteMissingObservation()
     {
-        testcase("Export sig gate allows quorum despite missing sidecar observation");
+        testcase(
+            "Export sig gate allows quorum despite missing sidecar "
+            "observation");
 
         FakeExtensions ext;
         ExportTickHarness harness;
@@ -3091,6 +3187,8 @@ public:
         testProposalProofRoundTrip();
         testHarvestRngDataReplacementAndRejection();
         testExportSidecarBuildFetchAndMerge();
+        testExportAgreedSignaturesIgnoreLiveCollectorMutation();
+        testOnPreBuildPreservesExportDecision();
         testRngSidecarBuildFetchAndMerge();
         testRngSidecarRejectsInvalidFetchedEntries();
         testOnPreBuildInjectsStandaloneEntropy();

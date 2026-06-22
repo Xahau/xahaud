@@ -165,9 +165,9 @@ Export::doApply()
             j_);
     };
 
-    // Atomic quorum check + snapshot for network mode.
-    // Only verified signatures count toward quorum and appear
-    // in the snapshot.
+    // Network mode must assemble from the agreed exportSigSetHash sidecar map,
+    // not the live collector. The collector can keep growing after the gate
+    // succeeds; the agreed sidecar map is the ledger-defining snapshot.
     std::optional<std::map<PublicKey, Buffer>> collectedSigs;
 
     if (!ctx_.app.config().standalone())
@@ -175,13 +175,17 @@ Export::doApply()
         std::size_t const threshold =
             unlSize == 0 ? 1 : calculateQuorumThreshold(unlSize);
 
-        // The collector may contain old trusted signatures; quorum counts only
-        // signatures whose keys resolve into the same frozen active view.
-        if (!consensusExtensions.exportSigConvergenceFailed())
+        if (!validatorView->fromUNLReport)
         {
-            collectedSigs =
-                consensusExtensions.exportSigCollector().checkQuorumAndSnapshot(
-                    txId, threshold, isActiveSigner);
+            JLOG(j_.warn())
+                << "Export: retrying without ledger-anchored validator view"
+                << " txHash=" << txId << " ledgerSeq=" << currentSeq
+                << " unlSize=" << unlSize << " threshold=" << threshold;
+        }
+        else if (!consensusExtensions.exportSigConvergenceFailed())
+        {
+            collectedSigs = consensusExtensions.agreedExportSignatures(
+                ctx_.tx, txId, *validatorView, threshold);
         }
 
         if (!collectedSigs)
