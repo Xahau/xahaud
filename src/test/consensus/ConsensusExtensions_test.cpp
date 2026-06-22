@@ -2648,9 +2648,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testExportSigGateRequiresFullObservation()
+    testExportSigGateAllowsQuorumDespiteMissingObservation()
     {
-        testcase("Export sig gate requires full sidecar observation");
+        testcase("Export sig gate allows quorum despite missing sidecar observation");
 
         FakeExtensions ext;
         ExportTickHarness harness;
@@ -2666,17 +2666,11 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(harness.position.exportSigSetHash == localHash);
         BEAST_EXPECT(ext.exportSigGateStarted_);
 
-        // Local quorum alignment is not enough if a tx-converged peer has
-        // not advertised any exportSigSetHash yet.
+        // A quorum-aligned signed exportSigSetHash is enough even if a
+        // tx-converged minority peer has not advertised any exportSigSetHash.
         result = harness.tick(ext, std::chrono::milliseconds{100});
-        BEAST_EXPECT(!result.readyForAccept);
-        BEAST_EXPECT(!ext.exportSigConvergenceFailed_);
-
-        result = harness.tick(
-            ext,
-            harness.parms.rngREVEAL_TIMEOUT * 2 + std::chrono::milliseconds{1});
         BEAST_EXPECT(result.readyForAccept);
-        BEAST_EXPECT(ext.exportSigConvergenceFailed_);
+        BEAST_EXPECT(!ext.exportSigConvergenceFailed_);
     }
 
     void
@@ -3120,7 +3114,7 @@ public:
         testRngEntropyConflictIgnoredWithQuorumAlignment();
         testRngExplicitFinalProposalPublishesSyntheticTxSet();
         testExportSigGateAllowsAlignedQuorumDespiteMinorityConflict();
-        testExportSigGateRequiresFullObservation();
+        testExportSigGateAllowsQuorumDespiteMissingObservation();
         testExportSigGateFetchesAdvertisedPeerSets();
         testExportSigGateObservingModeDoesNotPropose();
         testExportSigGateRefreshesHashBeforeWaiting();

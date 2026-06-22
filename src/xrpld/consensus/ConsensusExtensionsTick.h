@@ -1269,13 +1269,6 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 auto quorumAligned = [&] {
                     return exportState.quorumAligned(exportQuorum);
                 };
-                auto fullObservation = [&] {
-                    // Export success changes ledger effects too. Require a
-                    // full view of tx-converged peers before treating a local
-                    // quorum as safe enough to succeed in this ledger.
-                    return exportState.fullObservation();
-                };
-
                 if (exportState.conflict && !quorumAligned())
                 {
                     auto const refreshedHash =
@@ -1301,9 +1294,13 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     exportState = inspectExportPeers(ctx.getPosition(), true);
                 }
 
-                if (exportState.conflict && quorumAligned() &&
-                    fullObservation())
+                if (exportState.conflict && quorumAligned())
                 {
+                    // Export sidecar roots are signed through ExtendedPosition
+                    // whenever featureExport is active. A quorum-aligned hash is
+                    // therefore enough to proceed; requiring every tx-converged
+                    // active peer to publish an exportSigSetHash would let a
+                    // missing minority sidecar force retry/expiry.
                     JLOG(ext.j_.info())
                         << "Export: exportSigSetHash conflict ignored"
                         << " reason=quorum-aligned"
@@ -1314,9 +1311,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " peersSeen=" << exportState.peersSeen
                         << " txConverged=" << exportState.txConverged;
                 }
-                else if (
-                    exportState.conflict || !quorumAligned() ||
-                    !fullObservation())
+                else if (exportState.conflict || !quorumAligned())
                 {
                     auto const elapsed =
                         ctx.nowSteady - ext.exportSigGateStart_;

@@ -313,18 +313,15 @@ closing a minority ledger while sidecar convergence is already reachable. If no
 advertised sidecar appears by the deadline, the gate stops waiting and the
 export retries or expires through normal transaction rules.
 
-Export success requires quorum alignment on `exportSigSetHash` AND full
-observation of the tx-converged active set — not merely a local collector quorum.
-Quorum alignment is necessary but not sufficient: even when a quorum of
-tx-converged participants advertises the same export signature sidecar hash, that
-hash is only treated as aligned (and below-quorum conflicts only ignored, and the
-round only allowed to succeed) once the node has also observed an `exportSigSetHash`
-from every tx-converged active validator (`peersSeen == txConverged`), because
-export success changes ledger effects. While quorum is aligned but some
-tx-converged peer's hash is unobserved, the node keeps waiting within the bounded
-window. If quorum-aligned full observation is not reached by the bounded deadline,
-do not choose the largest non-quorum set; the export retries or expires according
-to normal transaction rules.
+Export success requires quorum alignment on `exportSigSetHash`, not merely a
+local collector quorum. Since `featureExport` enables signed extended proposal
+fields, a quorum-aligned `exportSigSetHash` is enough to proceed even if a
+tx-converged minority peer has not advertised an export sidecar hash. Do not let
+one active validator with a missing sidecar force an otherwise quorum-aligned
+export round to retry or expire. Full observation remains useful diagnostics; it
+is not an Export success precondition. If no export signature hash reaches quorum
+alignment by the bounded deadline, do not choose the largest non-quorum set; the
+export retries or expires according to normal transaction rules.
 
 Closed-ledger apply must not promote unverified proposal-carried signatures into
 current-round quorum material. It may verify and retain them for a future retry,
