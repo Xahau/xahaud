@@ -938,10 +938,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             // the
             //   normal implicit path (accept-time pseudo-tx injection).
             //
-            // TBD (2026-03-03): We did not find a robust timing model that
-            // folds this into a guaranteed-safe explicit final proposal
-            // across lossy/reordered links without increasing churn. Keep
-            // this path as opt-in for future evaluation.
+            // TODO: remove this explicit-final proposal path. We did not find
+            // a robust timing model that folds it into a guaranteed-safe
+            // explicit final proposal across lossy/reordered links without
+            // increasing churn. It remains opt-in only until deleted.
             {
                 bool fullParticipantCoverage = false;
                 bool entropyAligned = false;
@@ -966,10 +966,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     // main gate. Before this path is EVER enabled it must
                     // filter peers through activeValidatorView()->containsNode
                     // and gate the local +1 on local active-view membership
-                    // (mirror inspectTxConvergedSidecarPeers); until then it
-                    // stays default-off. Per the TBD above, no safe timing
-                    // model was found for this path regardless, so it may never
-                    // ship.
+                    // (mirror inspectTxConvergedSidecarPeers) if this code
+                    // survives long enough to be touched. Preferred disposition
+                    // is deletion, not promotion.
                     auto const participants = ctx.peerPositions.size() + 1;
                     auto const expectedParticipants = ctx.prevProposers + 1;
                     fullParticipantCoverage =
@@ -1297,10 +1296,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 if (exportState.conflict && quorumAligned())
                 {
                     // Export sidecar roots are signed through ExtendedPosition
-                    // whenever featureExport is active. A quorum-aligned hash is
-                    // therefore enough to proceed; requiring every tx-converged
-                    // active peer to publish an exportSigSetHash would let a
-                    // missing minority sidecar force retry/expiry.
+                    // whenever featureExport is active. A quorum-aligned hash
+                    // is therefore enough to proceed; requiring every
+                    // tx-converged active peer to publish an exportSigSetHash
+                    // would let a missing minority sidecar force retry/expiry.
                     JLOG(ext.j_.info())
                         << "Export: exportSigSetHash conflict ignored"
                         << " reason=quorum-aligned"

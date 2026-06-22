@@ -565,9 +565,10 @@ ConsensusExtensions::shouldSendExplicitFinalProposal() const
     // We only enable explicit-final when operators intentionally opt in via
     // runtime config/env for measurement/diagnostics.
     //
-    // TBD (2026-03-03): Keep collecting tx-bearing network data before
-    // revisiting whether explicit-final can be safely promoted beyond
-    // experimental use.
+    // TODO: remove the explicit-final proposal path. The implicit accept-time
+    // injection path is the consensus path; explicit-final never found a robust
+    // timing model and still carries separate experimental-only alignment
+    // hazards. Do not promote this by just widening the gates.
     auto const cfg = app_.getRuntimeConfig().getConfig("*");
     if (cfg && cfg->explicitFinalProposal.has_value())
         return *cfg->explicitFinalProposal;
@@ -590,6 +591,9 @@ ConsensusExtensions::buildExplicitFinalProposalTxSet(
     // the agreed set at timeout boundaries. Routing explicit-final
     // (experimental, default-off) through it keeps this path byte-identical to
     // the implicit one. txns.id() is the BASE tx set hash for the fallback.
+    //
+    // TODO: delete this with the explicit-final proposal path; keep this helper
+    // only while the runtime-config experiment still exists.
     auto const selection = selectEntropy(txns.id(), seq);
     uint256 const finalEntropy = selection.digest;
     std::uint8_t const entropyTier = selection.tier;

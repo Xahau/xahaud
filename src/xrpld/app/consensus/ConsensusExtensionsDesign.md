@@ -212,8 +212,9 @@ is the safe degradation path, not a consensus failure.
 
 > Known exception: the experimental, default-off explicit-final proposal path
 > counts alignment over the unfiltered proposer set (not the active view). It is
-> flagged in-code as an outstanding F1 gap and must apply the same active-view
-> filter before it is ever enabled.
+> flagged in-code as an outstanding F1 gap, but the intended disposition is
+> removal rather than repair/promotion; it must not be enabled as a production
+> consensus path.
 
 Examples with six active validators on a UNLReport-anchored view (validator_quorum
 threshold five, participant_aligned threshold four; six is the smallest view with
