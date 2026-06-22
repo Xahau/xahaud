@@ -18,7 +18,7 @@ defaults:
       NetworkOPs: info
     env:
       XAHAU_RESOURCE_PER_PORT: "1"
-      XAHAU_RNG_POLL_MS: "333"
+      XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333}}}'
 
 tests:
   - name: steady_state_entropy
@@ -33,7 +33,7 @@ tests:
     script: .testnet/scenarios/entropy/steady_state_entropy.py
     network:
       env:
-        XAHAUD_BOOTSTRAP_FAST_START: "1"
+        XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333,"bootstrap_fast_start":true}}}'
 
   - name: entropy_with_transactions
     script: .testnet/scenarios/entropy/entropy_with_transactions.py

@@ -548,7 +548,7 @@ ConsensusExtensions::exportEnabled() const
 bool
 ConsensusExtensions::bootstrapFastStartEnabled() const
 {
-    auto const cfg = app_.getRuntimeConfig().getConfig("*");
+    auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();
     if (cfg && cfg->bootstrapFastStart.has_value())
         return *cfg->bootstrapFastStart;
     return false;
@@ -1894,11 +1894,12 @@ ConsensusExtensions::harvestRngData(
         return;
     }
 
+    //@@start runtime-rng-claim-drop
     // RuntimeConfig: randomly drop RNG claims for testing
     auto& rc = app_.getRuntimeConfig();
     if (rc.active())
     {
-        if (auto cfg = rc.getConfig("*"))
+        if (auto cfg = rc.getConsensusTestConfig())
         {
             if (cfg->rngClaimDropPctX100 && *cfg->rngClaimDropPctX100 > 0)
             {
@@ -1916,6 +1917,7 @@ ConsensusExtensions::harvestRngData(
             }
         }
     }
+    //@@end runtime-rng-claim-drop
 
     // Store nodeId -> publicKey mapping for deterministic ordering
     nodeIdToKey_.insert_or_assign(nodeId, publicKey);
@@ -2390,12 +2392,13 @@ ConsensusExtensions::attachExportSignatures(
 
     // Attach export signatures for any ttEXPORT txns in the open ledger.
     // Gated on featureExport amendment.
+    //@@start runtime-export-no-sig
     // RuntimeConfig no_export_sig disables sig attachment (testing sub-quorum).
     {
         auto& rc = app_.getRuntimeConfig();
         if (rc.active())
         {
-            if (auto cfg = rc.getConfig("*"))
+            if (auto cfg = rc.getConsensusTestConfig())
             {
                 if (cfg->noExportSig && *cfg->noExportSig)
                 {
@@ -2406,6 +2409,7 @@ ConsensusExtensions::attachExportSignatures(
             }
         }
     }
+    //@@end runtime-export-no-sig
 
     auto const openLedger = app_.openLedger().current();
     if (!openLedger || !openLedger->rules().enabled(featureExport))

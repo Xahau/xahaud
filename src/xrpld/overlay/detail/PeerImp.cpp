@@ -258,11 +258,12 @@ PeerImp::send(std::shared_ptr<Message> const& m)
     if (validator && !squelch_.expireSquelch(*validator))
         return;
 
+    //@@start runtime-peer-fault-config
     // RuntimeConfig: artificial delay/drop for testing
     auto& rc = app_.getRuntimeConfig();
     if (rc.active())
     {
-        auto const cfg = rc.getConfig(remote_address_.to_string());
+        auto const cfg = rc.getPeerFaultConfig(remote_address_.to_string());
         if (cfg && cfg->active() && cfg->appliesTo(m->getCategory()))
         {
             auto const dropPct = cfg->sendDropPctX100.value_or(0);
@@ -303,6 +304,7 @@ PeerImp::send(std::shared_ptr<Message> const& m)
             }
         }
     }
+    //@@end runtime-peer-fault-config
 
     sendDirect(m);
 }

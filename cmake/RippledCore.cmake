@@ -165,6 +165,9 @@ if(xrpld)
   if(tests)
     target_compile_definitions(rippled PUBLIC ENABLE_TESTS)
   endif()
+  if(xahaud_runtime_test_config)
+    target_compile_definitions(rippled PUBLIC XAHAUD_ENABLE_RUNTIME_TEST_CONFIG=1)
+  endif()
   target_include_directories(rippled
     PRIVATE
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>

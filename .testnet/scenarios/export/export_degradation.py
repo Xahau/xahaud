@@ -1,9 +1,9 @@
 """:descr: Submit ttEXPORT with 2 nodes suppressing export sigs, verify it
 retries via terRETRY_EXPORT until LLS expiry (insufficient signatures).
 
-Nodes 3 and 4 have XAHAUD_NO_EXPORT_SIG=1, so only 3/5 nodes provide
-export signatures. With 80% quorum = ceil(5*0.8) = 4 required, the
-export cannot reach quorum and should expire via tecEXPORT_EXPIRED.
+Nodes 3 and 4 have runtime_config no_export_sig=true, so only 3/5 nodes
+provide export signatures. With 80% quorum = ceil(5*0.8) = 4 required,
+the export cannot reach quorum and should expire via tecEXPORT_EXPIRED.
 
 Flow:
   1. Fund alice and bob
@@ -30,7 +30,7 @@ async def scenario(ctx, log):
     current_seq = ctx.validated_ledger_index(0)
 
     log(f"Current ledger: {current_seq}")
-    log("Nodes 3,4 have XAHAUD_NO_EXPORT_SIG=1 (3/5 sigs, need 4)")
+    log("Nodes 3,4 have runtime_config no_export_sig=true (3/5 sigs, need 4)")
 
     # --- Submit ttEXPORT (should retry then expire -- only 3/5 sigs) ---
     export_start = ctx.mark("export-degradation-submit-start")
@@ -66,7 +66,7 @@ async def scenario(ctx, log):
     if engine_result == "tesSUCCESS":
         raise AssertionError(
             "Export should NOT have succeeded with only 3/5 sigs "
-            "(need 4 for 80% quorum) -- check XAHAUD_NO_EXPORT_SIG config"
+            "(need 4 for 80% quorum) -- check runtime_config no_export_sig"
         )
 
     # Should be tecEXPORT_EXPIRED (LLS reached without quorum)

@@ -1025,13 +1025,13 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         BEAST_EXPECT(!ce.bootstrapFastStartEnabled());
 
-        ConfigVals cfg;
+        ConsensusTestConfig cfg;
         cfg.bootstrapFastStart = true;
-        env.app().getRuntimeConfig().setConfig("*", cfg);
+        env.app().getRuntimeConfig().setGlobalConfig(cfg);
         BEAST_EXPECT(ce.bootstrapFastStartEnabled());
 
         cfg.bootstrapFastStart = false;
-        env.app().getRuntimeConfig().setConfig("*", cfg);
+        env.app().getRuntimeConfig().setGlobalConfig(cfg);
         BEAST_EXPECT(!ce.bootstrapFastStartEnabled());
     }
 
@@ -2900,9 +2900,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         disabled.attachExportSignatures(prop, proposal);
         BEAST_EXPECT(prop.exportsignatures_size() == 0);
 
-        ConfigVals cfg;
+        ConsensusTestConfig cfg;
         cfg.noExportSig = true;
-        env.app().getRuntimeConfig().setConfig("*", cfg);
+        env.app().getRuntimeConfig().setGlobalConfig(cfg);
         ce.attachExportSignatures(prop, proposal);
         BEAST_EXPECT(prop.exportsignatures_size() == 0);
     }

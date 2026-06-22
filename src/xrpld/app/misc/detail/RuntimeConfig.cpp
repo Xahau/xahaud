@@ -23,7 +23,6 @@
 #include <xrpl/json/json_value.h>
 
 #include <algorithm>
-#include <cctype>
 #include <cstdlib>
 #include <exception>
 #include <mutex>
@@ -223,62 +222,292 @@ categoriesForName(std::string const& name)
     return std::nullopt;
 }
 
-std::optional<bool>
-parseBoolEnv(char const* env)
+Json::Value
+invalidParams(std::string const& message)
 {
-    if (!env)
-        return std::nullopt;
+    Json::Value err{Json::objectValue};
+    err["error"] = "invalidParams";
+    err["error_message"] = message;
+    return err;
+}
 
-    std::string value{env};
-    std::transform(
-        value.begin(), value.end(), value.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
+#ifdef XAHAUD_ENABLE_RUNTIME_TEST_CONFIG
 
-    if (value == "1" || value == "true" || value == "yes" || value == "on")
-        return true;
-    if (value == "0" || value == "false" || value == "no" || value == "off")
+bool
+isPeerField(std::string const& name)
+{
+    return name == "send_delay_ms" || name == "send_delay_jitter_ms" ||
+        name == "send_drop_pct" || name == "message_types";
+}
+
+bool
+isGlobalField(std::string const& name)
+{
+    return name == "rng_claim_drop_pct" || name == "bootstrap_fast_start" ||
+        name == "rng_poll_ms" || name == "no_export_sig";
+}
+
+bool
+parseInt(
+    Json::Value const& value,
+    std::string const& field,
+    int& out,
+    std::string& error)
+{
+    if (!value.isInt())
+    {
+        error = field + " must be an integer";
         return false;
+    }
+    out = value.asInt();
+    return true;
+}
 
+bool
+parseBool(
+    Json::Value const& value,
+    std::string const& field,
+    bool& out,
+    std::string& error)
+{
+    if (!value.isBool())
+    {
+        error = field + " must be a boolean";
+        return false;
+    }
+    out = value.asBool();
+    return true;
+}
+
+bool
+parsePctX100(
+    Json::Value const& value,
+    std::string const& field,
+    int& out,
+    std::string& error)
+{
+    if (!value.isNumeric() || value.isBool())
+    {
+        error = field + " must be numeric";
+        return false;
+    }
+
+    auto const pct = value.asDouble();
+    if (pct < 0.0 || pct > 100.0)
+    {
+        error = field + " must be between 0 and 100";
+        return false;
+    }
+    out = static_cast<int>(pct * 100);
+    return true;
+}
+
+bool
+parseMessageTypes(
+    Json::Value const& value,
+    std::optional<CategorySet>& out,
+    std::string& error)
+{
+    if (!value.isArray())
+    {
+        error = "message_types must be an array";
+        return false;
+    }
+
+    std::vector<std::string> names;
+    for (auto const& mt : value)
+    {
+        if (!mt.isString())
+        {
+            error = "message_types entries must be strings";
+            return false;
+        }
+        names.push_back(mt.asString());
+    }
+
+    auto cats = runtimeConfigMessageCategoriesFromNames(names, error);
+    if (!cats)
+        return false;
+    out = *cats;
+    return true;
+}
+
+std::optional<PeerFaultConfig>
+parsePeerFaultConfig(Json::Value const& v, std::string& error)
+{
+    if (!v.isObject())
+    {
+        error = "peer config must be an object or null";
+        return std::nullopt;
+    }
+
+    PeerFaultConfig cfg;
+    for (auto const& name : v.getMemberNames())
+    {
+        if (isGlobalField(name))
+        {
+            error = name + " is global-only; use global";
+            return std::nullopt;
+        }
+        if (!isPeerField(name))
+        {
+            error = "unknown peer config field: " + name;
+            return std::nullopt;
+        }
+
+        if (name == "send_delay_ms")
+        {
+            int parsed = 0;
+            if (!parseInt(v[name], name, parsed, error))
+                return std::nullopt;
+            cfg.sendDelayMs = parsed;
+        }
+        else if (name == "send_delay_jitter_ms")
+        {
+            int parsed = 0;
+            if (!parseInt(v[name], name, parsed, error))
+                return std::nullopt;
+            cfg.sendDelayJitterMs = parsed;
+        }
+        else if (name == "send_drop_pct")
+        {
+            int parsed = 0;
+            if (!parsePctX100(v[name], name, parsed, error))
+                return std::nullopt;
+            cfg.sendDropPctX100 = parsed;
+        }
+        else if (name == "message_types")
+        {
+            if (!parseMessageTypes(v[name], cfg.messageCategories, error))
+                return std::nullopt;
+        }
+    }
+    return cfg;
+}
+
+std::optional<ConsensusTestConfig>
+parseConsensusTestConfig(Json::Value const& v, std::string& error)
+{
+    if (!v.isObject())
+    {
+        error = "global config must be an object or null";
+        return std::nullopt;
+    }
+
+    ConsensusTestConfig cfg;
+    for (auto const& name : v.getMemberNames())
+    {
+        if (isPeerField(name))
+        {
+            error =
+                name + " is peer-scoped; use peer_defaults or peer:<ip:port>";
+            return std::nullopt;
+        }
+        if (!isGlobalField(name))
+        {
+            error = "unknown global config field: " + name;
+            return std::nullopt;
+        }
+
+        if (name == "rng_claim_drop_pct")
+        {
+            int parsed = 0;
+            if (!parsePctX100(v[name], name, parsed, error))
+                return std::nullopt;
+            cfg.rngClaimDropPctX100 = parsed;
+        }
+        else if (name == "bootstrap_fast_start")
+        {
+            bool parsed = false;
+            if (!parseBool(v[name], name, parsed, error))
+                return std::nullopt;
+            cfg.bootstrapFastStart = parsed;
+        }
+        else if (name == "rng_poll_ms")
+        {
+            int parsed = 0;
+            if (!parseInt(v[name], name, parsed, error))
+                return std::nullopt;
+            cfg.rngPollMs = std::max(50, parsed);
+        }
+        else if (name == "no_export_sig")
+        {
+            bool parsed = false;
+            if (!parseBool(v[name], name, parsed, error))
+                return std::nullopt;
+            cfg.noExportSig = parsed;
+        }
+    }
+    return cfg;
+}
+
+enum class ConfigKeyKind { global, peerDefaults, peer };
+
+struct ParsedConfigKey
+{
+    ConfigKeyKind kind;
+    std::string peer;
+};
+
+std::optional<ParsedConfigKey>
+parseConfigKey(std::string const& key, std::string& error)
+{
+    if (key == "global")
+        return ParsedConfigKey{ConfigKeyKind::global, {}};
+    if (key == "peer_defaults")
+        return ParsedConfigKey{ConfigKeyKind::peerDefaults, {}};
+
+    constexpr std::string_view prefix = "peer:";
+    if (key.starts_with(prefix))
+    {
+        auto peer = key.substr(prefix.size());
+        if (peer.empty())
+        {
+            error = "peer key must include an address after peer:";
+            return std::nullopt;
+        }
+        return ParsedConfigKey{ConfigKeyKind::peer, std::move(peer)};
+    }
+
+    error = "unknown runtime_config key: " + key;
     return std::nullopt;
 }
 
-std::optional<ConfigVals>
-parseConfigVals(Json::Value const& v)
+#endif
+
+Json::Value
+peerFaultConfigJson(PeerFaultConfig const& cfg)
 {
-    ConfigVals cfg;
-    if (v.isMember("send_delay_ms"))
-        cfg.sendDelayMs = v["send_delay_ms"].asInt();
-    if (v.isMember("send_delay_jitter_ms"))
-        cfg.sendDelayJitterMs = v["send_delay_jitter_ms"].asInt();
-    if (v.isMember("send_drop_pct"))
-        cfg.sendDropPctX100 =
-            static_cast<int>(v["send_drop_pct"].asDouble() * 100);
-    if (v.isMember("rng_claim_drop_pct"))
-        cfg.rngClaimDropPctX100 =
-            static_cast<int>(v["rng_claim_drop_pct"].asDouble() * 100);
-    if (v.isMember("bootstrap_fast_start"))
-        cfg.bootstrapFastStart = v["bootstrap_fast_start"].asBool();
-    if (v.isMember("rng_poll_ms"))
-        cfg.rngPollMs = std::max(50, v["rng_poll_ms"].asInt());
-    if (v.isMember("no_export_sig"))
-        cfg.noExportSig = v["no_export_sig"].asBool();
-    if (v.isMember("message_types"))
+    Json::Value entry{Json::objectValue};
+    if (cfg.sendDelayMs)
+        entry["send_delay_ms"] = *cfg.sendDelayMs;
+    if (cfg.sendDelayJitterMs)
+        entry["send_delay_jitter_ms"] = *cfg.sendDelayJitterMs;
+    if (cfg.sendDropPctX100)
+        entry["send_drop_pct"] = *cfg.sendDropPctX100 / 100.0;
+    if (cfg.messageCategories)
     {
-        if (!v["message_types"].isArray())
-            return std::nullopt;
-
-        std::vector<std::string> names;
-        for (auto const& mt : v["message_types"])
-            names.push_back(mt.asString());
-
-        std::string error;
-        auto cats = runtimeConfigMessageCategoriesFromNames(names, error);
-        if (!cats)
-            return std::nullopt;
-        cfg.messageCategories = *cats;
+        Json::Value types{Json::arrayValue};
+        for (auto cat : *cfg.messageCategories)
+            types.append(runtimeConfigMessageCategoryName(cat));
+        entry["message_types"] = types;
     }
-    return cfg;
+    return entry;
+}
+
+Json::Value
+consensusTestConfigJson(ConsensusTestConfig const& cfg)
+{
+    Json::Value entry{Json::objectValue};
+    if (cfg.rngClaimDropPctX100)
+        entry["rng_claim_drop_pct"] = *cfg.rngClaimDropPctX100 / 100.0;
+    if (cfg.bootstrapFastStart.has_value())
+        entry["bootstrap_fast_start"] = *cfg.bootstrapFastStart;
+    if (cfg.rngPollMs)
+        entry["rng_poll_ms"] = *cfg.rngPollMs;
+    if (cfg.noExportSig.has_value())
+        entry["no_export_sig"] = *cfg.noExportSig;
+    return entry;
 }
 }  // namespace
 
@@ -315,81 +544,91 @@ runtimeConfigMessageCategoryName(std::size_t category)
 
 RuntimeConfig::RuntimeConfig()
 {
-    // XAHAU_RUNTIME_CONFIG takes precedence (full JSON config)
-    if (auto const* env = std::getenv("XAHAU_RUNTIME_CONFIG"))
+#ifdef XAHAUD_ENABLE_RUNTIME_TEST_CONFIG
+    if (auto const* env = std::getenv("XAHAUD_RUNTIME_TEST_CONFIG"))
     {
         Json::Value root;
         Json::Reader reader;
         if (reader.parse(env, root) && root.isObject())
-        {
-            std::unique_lock lock(mutex_);
-            for (auto const& target : root.getMemberNames())
-            {
-                if (auto cfg = parseConfigVals(root[target]))
-                    configs_[target] = *cfg;
-            }
-            rebuildMerged();
-            updateActive();
-        }
-        return;
+            (void)applyJson(root);
     }
-
-    // Fall back to individual env vars -> "*" entry
-    ConfigVals global;
-    if (auto const* env = std::getenv("XAHAU_SEND_DELAY_MS"))
-        global.sendDelayMs = std::atoi(env);
-    if (auto const* env = std::getenv("XAHAU_SEND_DELAY_JITTER_MS"))
-        global.sendDelayJitterMs = std::atoi(env);
-    if (auto const* env = std::getenv("XAHAU_SEND_DROP_PCT"))
-        global.sendDropPctX100 = static_cast<int>(std::atof(env) * 100);
-    if (auto const* env = std::getenv("XAHAU_RNG_CLAIM_DROP_PCT"))
-        global.rngClaimDropPctX100 = static_cast<int>(std::atof(env) * 100);
-    if (auto parsed = parseBoolEnv(std::getenv("XAHAUD_BOOTSTRAP_FAST_START")))
-        global.bootstrapFastStart = *parsed;
-    if (auto const* env = std::getenv("XAHAU_RNG_POLL_MS"))
-        global.rngPollMs = std::max(50, std::atoi(env));
-    if (auto parsed = parseBoolEnv(std::getenv("XAHAUD_NO_EXPORT_SIG")))
-        global.noExportSig = *parsed;
-
-    if (global.active())
-    {
-        std::unique_lock lock(mutex_);
-        configs_["*"] = global;
-        updateActive();
-    }
+#endif
 }
 
-std::optional<ConfigVals>
-RuntimeConfig::getConfig(std::string const& peerAddress) const
+std::optional<PeerFaultConfig>
+RuntimeConfig::getPeerFaultConfig(std::string const& peerAddress) const
 {
     std::shared_lock lock(mutex_);
 
     // Pre-merged entry for this peer?
-    if (auto it = merged_.find(peerAddress); it != merged_.end())
+    if (auto it = mergedPeers_.find(peerAddress); it != mergedPeers_.end())
         return it->second;
 
-    // Fall back to global "*" (no merge needed)
-    if (auto it = configs_.find("*"); it != configs_.end())
-        return it->second;
+    // Fall back to peer defaults (no merge needed)
+    if (peerDefaults_)
+        return peerDefaults_;
 
     return std::nullopt;
 }
 
+std::optional<ConsensusTestConfig>
+RuntimeConfig::getConsensusTestConfig() const
+{
+    std::shared_lock lock(mutex_);
+    return global_;
+}
+
 void
-RuntimeConfig::setConfig(std::string const& target, ConfigVals const& cfg)
+RuntimeConfig::setGlobalConfig(ConsensusTestConfig const& cfg)
 {
     std::unique_lock lock(mutex_);
-    configs_[target] = cfg;
+    global_ = cfg;
+    updateActive();
+}
+
+void
+RuntimeConfig::clearGlobalConfig()
+{
+    std::unique_lock lock(mutex_);
+    global_.reset();
+    updateActive();
+}
+
+void
+RuntimeConfig::setPeerDefaults(PeerFaultConfig const& cfg)
+{
+    std::unique_lock lock(mutex_);
+    peerDefaults_ = cfg;
     rebuildMerged();
     updateActive();
 }
 
 void
-RuntimeConfig::clearConfig(std::string const& target)
+RuntimeConfig::clearPeerDefaults()
 {
     std::unique_lock lock(mutex_);
-    configs_.erase(target);
-    merged_.erase(target);
+    peerDefaults_.reset();
+    rebuildMerged();
+    updateActive();
+}
+
+void
+RuntimeConfig::setPeerConfig(
+    std::string const& peerAddress,
+    PeerFaultConfig const& cfg)
+{
+    std::unique_lock lock(mutex_);
+    peers_[peerAddress] = cfg;
+    rebuildMerged();
+    updateActive();
+}
+
+void
+RuntimeConfig::clearPeerConfig(std::string const& peerAddress)
+{
+    std::unique_lock lock(mutex_);
+    peers_.erase(peerAddress);
+    mergedPeers_.erase(peerAddress);
     rebuildMerged();
     updateActive();
 }
@@ -398,16 +637,133 @@ void
 RuntimeConfig::clearAllConfigs()
 {
     std::unique_lock lock(mutex_);
-    configs_.clear();
-    merged_.clear();
+    global_.reset();
+    peerDefaults_.reset();
+    peers_.clear();
+    mergedPeers_.clear();
     active_.store(false, std::memory_order_relaxed);
 }
 
-std::unordered_map<std::string, ConfigVals>
-RuntimeConfig::getAllConfigs() const
+Json::Value
+RuntimeConfig::applyJson(Json::Value const& params)
 {
+#ifndef XAHAUD_ENABLE_RUNTIME_TEST_CONFIG
+    (void)params;
+    return invalidParams("runtime_config support is not compiled in");
+#else
+    if (!params.isObject())
+        return invalidParams("runtime_config params must be an object");
+
+    for (auto const& name : params.getMemberNames())
+    {
+        if (name != "set" && name != "clear_all" && name != "command" &&
+            name != "api_version" && name != "jsonrpc" && name != "method" &&
+            name != "id")
+        {
+            return invalidParams("unknown runtime_config field: " + name);
+        }
+    }
+
+    struct Mutation
+    {
+        ParsedConfigKey key{ConfigKeyKind::global, {}};
+        bool clear = false;
+        std::optional<ConsensusTestConfig> global;
+        std::optional<PeerFaultConfig> peer;
+    };
+
+    std::vector<Mutation> mutations;
+    if (params.isMember("set"))
+    {
+        auto const& set = params["set"];
+        if (!set.isObject())
+            return invalidParams("set must be an object");
+
+        for (auto const& keyName : set.getMemberNames())
+        {
+            std::string error;
+            auto key = parseConfigKey(keyName, error);
+            if (!key)
+                return invalidParams(error);
+
+            Mutation mutation;
+            mutation.key = *key;
+            auto const& value = set[keyName];
+            if (value.isNull())
+            {
+                mutation.clear = true;
+            }
+            else if (key->kind == ConfigKeyKind::global)
+            {
+                auto cfg = parseConsensusTestConfig(value, error);
+                if (!cfg)
+                    return invalidParams(error);
+                mutation.global = *cfg;
+            }
+            else
+            {
+                auto cfg = parsePeerFaultConfig(value, error);
+                if (!cfg)
+                    return invalidParams(error);
+                mutation.peer = *cfg;
+            }
+            mutations.push_back(std::move(mutation));
+        }
+    }
+
+    if (params.isMember("clear_all"))
+    {
+        if (!params["clear_all"].isBool())
+            return invalidParams("clear_all must be a boolean");
+        if (params["clear_all"].asBool())
+            clearAllConfigs();
+    }
+
+    for (auto const& mutation : mutations)
+    {
+        switch (mutation.key.kind)
+        {
+            case ConfigKeyKind::global:
+                if (mutation.clear)
+                    clearGlobalConfig();
+                else
+                    setGlobalConfig(*mutation.global);
+                break;
+            case ConfigKeyKind::peerDefaults:
+                if (mutation.clear)
+                    clearPeerDefaults();
+                else
+                    setPeerDefaults(*mutation.peer);
+                break;
+            case ConfigKeyKind::peer:
+                if (mutation.clear)
+                    clearPeerConfig(mutation.key.peer);
+                else
+                    setPeerConfig(mutation.key.peer, *mutation.peer);
+                break;
+        }
+    }
+
+    return getJson();
+#endif
+}
+
+Json::Value
+RuntimeConfig::getJson() const
+{
+    Json::Value result{Json::objectValue};
+    Json::Value configs{Json::objectValue};
+
     std::shared_lock lock(mutex_);
-    return configs_;
+    if (global_)
+        configs["global"] = consensusTestConfigJson(*global_);
+    if (peerDefaults_)
+        configs["peer_defaults"] = peerFaultConfigJson(*peerDefaults_);
+    for (auto const& [peer, cfg] : peers_)
+        configs["peer:" + peer] = peerFaultConfigJson(cfg);
+
+    result["configs"] = std::move(configs);
+    return result;
 }
 
 void
@@ -415,16 +771,13 @@ RuntimeConfig::rebuildMerged()
 {
     // Called with mutex_ write-locked.
     // Rebuild pre-merged entries for every per-peer key.
-    merged_.clear();
-    auto globalIt = configs_.find("*");
-    for (auto const& [target, cfg] : configs_)
+    mergedPeers_.clear();
+    for (auto const& [target, cfg] : peers_)
     {
-        if (target == "*")
-            continue;
-        if (globalIt != configs_.end())
-            merged_[target] = globalIt->second.merged(cfg);
+        if (peerDefaults_)
+            mergedPeers_[target] = peerDefaults_->merged(cfg);
         else
-            merged_[target] = cfg;
+            mergedPeers_[target] = cfg;
     }
 }
 
@@ -432,15 +785,16 @@ void
 RuntimeConfig::updateActive()
 {
     // Called with mutex_ write-locked.
-    // Check merged_ (effective per-peer) and configs_["*"] (global).
-    bool any = false;
-    if (auto it = configs_.find("*"); it != configs_.end())
-        any = it->second.active();
+    // Check global, peerDefaults_, and merged peer configs.
+    bool any = global_ && global_->active();
+    if (!any && peerDefaults_)
+        any = peerDefaults_->active();
     if (!any)
     {
-        any = std::any_of(merged_.begin(), merged_.end(), [](auto const& p) {
-            return p.second.active();
-        });
+        any = std::any_of(
+            mergedPeers_.begin(), mergedPeers_.end(), [](auto const& p) {
+                return p.second.active();
+            });
     }
     active_.store(any, std::memory_order_relaxed);
 }

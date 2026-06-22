@@ -1034,17 +1034,19 @@ NetworkOPsImp::processHeartbeatTimer()
     // Tunable via RuntimeConfig rng_poll_ms (default 250ms, min 50ms).
     if (mConsensus.extensionsBusy())
     {
+        //@@start runtime-rng-poll-interval
         auto pollMs = std::chrono::milliseconds{250};
         auto& rc = app_.getRuntimeConfig();
         if (rc.active())
         {
-            if (auto cfg = rc.getConfig("*"))
+            if (auto cfg = rc.getConsensusTestConfig())
             {
                 if (cfg->rngPollMs)
                     pollMs = std::chrono::milliseconds{*cfg->rngPollMs};
             }
         }
         setHeartbeatTimer(pollMs);
+        //@@end runtime-rng-poll-interval
     }
     else
         setHeartbeatTimer();

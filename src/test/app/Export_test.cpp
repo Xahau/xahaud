@@ -716,9 +716,9 @@ struct Export_test : public beast::unit_test::suite
         env.close();
         forceNonStandalone(env.app());
         BEAST_EXPECT(!env.app().config().standalone());
-        ConfigVals cfg;
+        ConsensusTestConfig cfg;
         cfg.noExportSig = true;
-        env.app().getRuntimeConfig().setConfig("*", cfg);
+        env.app().getRuntimeConfig().setGlobalConfig(cfg);
 
         auto const seq = env.current()->seq();
         auto const ticketSeq = std::uint32_t{1};
