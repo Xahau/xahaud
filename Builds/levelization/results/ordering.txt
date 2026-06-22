@@ -22,6 +22,7 @@ test.app > xrpld.ledger
 test.app > xrpld.nodestore
 test.app > xrpld.overlay
 test.app > xrpld.rpc
+test.app > xrpld.shamap
 test.app > xrpl.hook
 test.app > xrpl.json
 test.app > xrpl.protocol
