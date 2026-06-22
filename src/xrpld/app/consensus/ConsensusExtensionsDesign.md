@@ -146,6 +146,13 @@ RNG proceeds through establish sub-states:
 3. `ConvergingReveal`: collect reveals, publish the entropy sidecar hash, and
    wait for sidecar agreement or deterministic fallback.
 
+These sub-states are sequential gates, not sequential collection phases.
+Commitments ride on the initial proposal and are usually already harvested
+during `ConvergingTx`; in a healthy round `ConvergingCommit` is often just a
+one-tick commit-set publication/checkpoint before reveals begin. The bounded
+waits there are for late quorum or conflicting commit-set hashes, not the normal
+commit transport path.
+
 Commit quorum counts only proofed commits from active validators. A commit that
 cannot be emitted as a verifiable sidecar leaf does not count.
 
