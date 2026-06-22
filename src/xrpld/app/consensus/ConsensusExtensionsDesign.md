@@ -21,9 +21,14 @@ Export retry/expiry, rather than blocking core consensus.
 ## Fallback Semantics
 
 RNG and Export use similar positive-path sidecar gates, but they do not have
-the same safe fallback. RNG can safely close with a deterministic
-consensus-bound fallback digest (Tier 1) when peers cannot establish an
-accepted participant_aligned or validator_quorum entropy set in time: every input to the fallback
+the same safe fallback. RNG closes with a deterministic consensus-bound fallback
+digest (Tier 1) in either of two cases: (1) when peers cannot establish an
+accepted participant_aligned or validator_quorum entropy set in time, or (2)
+whenever the round's active validator view is not UNLReport-backed — no on-ledger
+`UNLReport`, e.g. early ledgers or config-trusted dev/test networks — regardless
+of how well peers aligned, because a config-derived view can differ between nodes
+and yield divergent tier labels for the same entropy set (see Entropy Alignment
+Rules). Either way every input to the fallback
 (`HashPrefix::entropyFallback`, parent ledger hash, base tx set hash,
 sequence) is already consensus-agreed at injection time, so no second
 agreement is needed. The result is explicitly labeled
@@ -93,7 +98,11 @@ The active validator view is the shared denominator for RNG and export:
 
 - Prefer `UNLReport.sfActiveValidators` from the consensus parent ledger.
 - If no report is available, fall back to configured trusted validators so
-  early ledgers and dev/test networks can make progress.
+  early ledgers and dev/test networks can make progress. This configured
+  fallback view is `!fromUNLReport`: it still serves the Export quorum, but a
+  non-standalone node mints only `consensus_fallback` entropy under it (see
+  Entropy Alignment Rules), because a config-derived view can diverge between
+  nodes.
 - If `featureNegativeUNL` is enabled, subtract the parent ledger's Negative
   UNL from whichever source produced the view.
 - Use the same snapshot throughout the round.
@@ -151,30 +160,61 @@ local reveal subsets at timeout boundaries from producing different entropy.
 
 ## Entropy Alignment Rules
 
-Validator-tier entropy requires quorum alignment on the entropy sidecar
-hash. Participant-aligned entropy uses the lower `tier2Threshold()` floor over
-the original pre-nUNL view.
+Non-fallback entropy tiers require a UNLReport-anchored active view. A
+non-standalone node mints only `consensus_fallback` (Tier 1) when the round's
+active view is not built from an on-ledger `UNLReport` (`!fromUNLReport`),
+regardless of how well peers aligned, because a config-derived view can differ
+between nodes and yield divergent tier labels for the same set. (Standalone/dev
+nodes are a separate exception that synthesize validator_quorum entropy.)
+Everything below assumes a UNLReport-anchored view.
 
-The alignment count is:
+Two distinct counts are involved; keep them separate.
+
+The **alignment (gate) count** decides whether the round proceeds with the agreed
+entropy set or falls back. It is taken over the active validator view:
 
 ```
-our published entropySetHash + tx-converged peers with the same entropySetHash
+(our published entropySetHash, counted only if this node is itself an active validator)
+  + active-view, tx-converged peers advertising the same entropySetHash
 ```
 
-If that count reaches `quorumThreshold()`, the node labels the agreed set
-`validator_quorum`. If it is below `quorumThreshold()` but reaches
-`tier2Threshold()`, the node labels the agreed set `participant_aligned`.
-In both cases, a below-threshold minority can advertise a conflicting or
+Trusted-but-non-active proposers are NOT counted even when tx-converged and
+aligned (peers are filtered through the active view via `isUNLReportMember`), and
+a non-active local node does not add its own +1 (gated on
+`localIsActiveValidator()`). This mirrors the `buildEntropySet`/`hasQuorumOfCommits`
+membership filter and keeps the counting universe from inflating above the
+active-view size, preserving the Tier-2 intersection margin (`2t - n`) and
+equivocation uniqueness. The round proceeds when this count reaches
+`entropyGateThreshold() = min(quorumThreshold(), tier2Threshold())` and the node
+has full observation of the tx-converged active set; otherwise it falls back at
+the bounded deadline.
+
+The **tier label** is then derived from the agreed entropy set itself — the
+number of validator reveals (leaves) in the agreed `entropySetMap_`, not the
+peer-alignment count above. If that leaf count reaches `quorumThreshold()`, the
+set is labeled `validator_quorum`; if it is below `quorumThreshold()` but reaches
+`tier2Threshold()`, it is labeled `participant_aligned`; otherwise the round falls
+back. `quorumThreshold()` is 80% of the effective active view; `tier2Threshold()`
+is the intersection-safe floor over the original pre-nUNL view.
+
+In both label cases, a below-threshold minority can advertise a conflicting or
 unacquirable entropy hash without vetoing the aligned cohort.
 
 If no entropy hash reaches the entropy gate threshold before the bounded
 deadline, the round must fall back to the Tier 1 consensus-bound digest. This
 is the safe degradation path, not a consensus failure.
 
-Examples with six active validators, validator_quorum threshold five, and
-participant_aligned threshold four (six is the smallest view with a non-empty
-Tier 2 band and non-zero tolerated Byzantine count; at five validators quorum
-and participant_aligned coincide at four, leaving no band):
+> Known exception: the experimental, default-off explicit-final proposal path
+> counts alignment over the unfiltered proposer set (not the active view). It is
+> flagged in-code as an outstanding F1 gap and must apply the same active-view
+> filter before it is ever enabled.
+
+Examples with six active validators on a UNLReport-anchored view (validator_quorum
+threshold five, participant_aligned threshold four; six is the smallest view with
+a non-empty Tier 2 band and non-zero tolerated Byzantine count; at five validators
+quorum and participant_aligned coincide at four, leaving no band). On a
+non-UNLReport (config-fallback) view, every case below instead mints
+`consensus_fallback`:
 
 - Five honest validators align on one entropy hash and one validator advertises
   a bogus hash: proceed with validator_quorum entropy for the honest quorum.
@@ -273,12 +313,18 @@ closing a minority ledger while sidecar convergence is already reachable. If no
 advertised sidecar appears by the deadline, the gate stops waiting and the
 export retries or expires through normal transaction rules.
 
-Export success requires quorum alignment on `exportSigSetHash`, not merely a
-local collector quorum. If a quorum of tx-converged participants advertises the
-same export signature sidecar hash, that hash is aligned and below-quorum
-conflicts are ignored. If no export signature hash reaches quorum alignment by
-the bounded deadline, do not choose the largest non-quorum set; the export
-retries or expires according to normal transaction rules.
+Export success requires quorum alignment on `exportSigSetHash` AND full
+observation of the tx-converged active set — not merely a local collector quorum.
+Quorum alignment is necessary but not sufficient: even when a quorum of
+tx-converged participants advertises the same export signature sidecar hash, that
+hash is only treated as aligned (and below-quorum conflicts only ignored, and the
+round only allowed to succeed) once the node has also observed an `exportSigSetHash`
+from every tx-converged active validator (`peersSeen == txConverged`), because
+export success changes ledger effects. While quorum is aligned but some
+tx-converged peer's hash is unobserved, the node keeps waiting within the bounded
+window. If quorum-aligned full observation is not reached by the bounded deadline,
+do not choose the largest non-quorum set; the export retries or expires according
+to normal transaction rules.
 
 Closed-ledger apply must not promote unverified proposal-carried signatures into
 current-round quorum material. It may verify and retain them for a future retry,
@@ -309,6 +355,12 @@ When changing consensus extension code, check these questions:
   the intersection-safe tier2Threshold()?
 - Are quorum calculations using the active validator view, not recent
   proposers as the denominator?
+- Do non-fallback tier labels (validator_quorum / participant_aligned) require a
+  UNLReport-anchored active view, falling back to `consensus_fallback` when the
+  view is config-derived (`!fromUNLReport`)?
+- Is the alignment-count *universe* itself — not just the quorum denominator —
+  the active validator view (non-active proposers and a non-active local node
+  excluded from the count)?
 - Are sidecar entries typed as sidecars, not pseudo-transactions?
 - Are proposal-visible or validation-visible sidecar fields covered by the
   relevant signature and duplicate/replay identity?
