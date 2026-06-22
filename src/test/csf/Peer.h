@@ -325,7 +325,6 @@ struct Peer
         EstablishState estState_{EstablishState::ConvergingTx};
         std::chrono::steady_clock::time_point revealPhaseStart_{};
         std::chrono::steady_clock::time_point commitHashConflictStart_{};
-        bool explicitFinalProposalSent_{false};
         bool entropySetPublished_{false};
         std::chrono::steady_clock::time_point entropyPublishStart_{};
         bool exportSigGateStarted_{false};
@@ -965,16 +964,6 @@ struct Peer
             return bootstrapFastStartEnabled_;
         }
         bool
-        shouldSendExplicitFinalProposal() const
-        {
-            return false;
-        }
-        std::optional<TxSet>
-        buildExplicitFinalProposalTxSet(TxSet const&, Ledger::Seq)
-        {
-            return std::nullopt;
-        }
-        bool
         hasPendingExportSigs() const
         {
             return enableExportConsensus_ && !pendingExportSigs_.empty();
@@ -1010,7 +999,6 @@ struct Peer
             estState_ = EstablishState::ConvergingTx;
             revealPhaseStart_ = {};
             commitHashConflictStart_ = {};
-            explicitFinalProposalSent_ = false;
             entropySetPublished_ = false;
             entropyPublishStart_ = {};
             exportSigGateStarted_ = false;

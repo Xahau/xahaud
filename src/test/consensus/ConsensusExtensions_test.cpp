@@ -331,7 +331,6 @@ struct FakeExtensions
     EstablishState estState_{EstablishState::ConvergingTx};
     std::chrono::steady_clock::time_point revealPhaseStart_{};
     std::chrono::steady_clock::time_point commitHashConflictStart_{};
-    bool explicitFinalProposalSent_{false};
     bool entropySetPublished_{false};
     std::chrono::steady_clock::time_point entropyPublishStart_{};
     bool exportSigGateStarted_{false};
@@ -348,14 +347,12 @@ struct FakeExtensions
     bool commitQuorum{true};
     bool minimumReveals{true};
     bool anyReveals{true};
-    bool sendExplicitFinal{false};
     uint256 exportHash{makeHash("local-export-sig-set")};
     uint256 commitHash{makeHash("local-commit-set")};
     uint256 entropyHash{makeHash("local-entropy-set")};
     std::deque<uint256> exportHashSequence;
     std::deque<uint256> commitHashSequence;
     std::deque<uint256> entropyHashSequence;
-    std::optional<FakeTxSet> explicitFinalTxSet;
     std::vector<uint256> fetchedExportSets;
     std::vector<uint256> fetchedEntropySets;
     std::vector<uint256> fetchedCommitSets;
@@ -502,18 +499,6 @@ struct FakeExtensions
             fetchedCommitSets.push_back(*hash);
         else if (kind == SidecarKind::exportSig && hash)
             fetchedExportSets.push_back(*hash);
-    }
-
-    bool
-    shouldSendExplicitFinalProposal() const
-    {
-        return sendExplicitFinal;
-    }
-
-    std::optional<FakeTxSet>
-    buildExplicitFinalProposalTxSet(FakeTxSet const&, LedgerIndex)
-    {
-        return explicitFinalTxSet;
     }
 
     bool
@@ -1031,140 +1016,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testExplicitFinalProposalTxSetBuildsEntropyTxn()
-    {
-        testcase("explicit final proposal tx set builds entropy txn");
-
-        auto extractSingleEntropyTx =
-            [](RCLTxSet const& set) -> std::shared_ptr<STTx const> {
-            std::vector<std::shared_ptr<STTx const>> txs;
-            set.map_->visitLeaves(
-                [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                    SerialIter sit(item->slice());
-                    txs.push_back(std::make_shared<STTx const>(sit));
-                });
-            if (txs.size() != 1 ||
-                txs.front()->getTxnType() != ttCONSENSUS_ENTROPY)
-                return {};
-            return txs.front();
-        };
-
-        using namespace jtx;
-        Env env{
-            *this, envconfig(validator, ""), supported_amendments(), nullptr};
-        ConsensusExtensions ce{env.app(), activeNoopJournal()};
-        auto const base = makeRCLTxSet(env.app(), {});
-        auto const seq = env.closed()->seq() + 1;
-
-        auto synthetic = ce.buildExplicitFinalProposalTxSet(base, seq);
-        BEAST_EXPECT(synthetic);
-        if (!synthetic)
-            return;
-
-        auto const txPtr = extractSingleEntropyTx(*synthetic);
-        BEAST_EXPECT(txPtr);
-        if (!txPtr)
-            return;
-        auto const& tx = *txPtr;
-        BEAST_EXPECT(tx.getFieldU32(sfLedgerSequence) == seq);
-        BEAST_EXPECT(
-            tx.getFieldH256(sfDigest) ==
-            sha512Half(std::string("standalone-entropy"), seq));
-        BEAST_EXPECT(tx.getFieldU16(sfEntropyCount) == 20);
-        BEAST_EXPECT(
-            tx.getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
-
-        auto duplicate = ce.buildExplicitFinalProposalTxSet(*synthetic, seq);
-        BEAST_EXPECT(duplicate);
-        if (duplicate)
-            BEAST_EXPECT(duplicate->id() == synthetic->id());
-
-        Env nonStandaloneEnv{
-            *this,
-            envconfig(validator, ""),
-            supported_amendments() | featureConsensusEntropy,
-            nullptr};
-        forceNonStandalone(nonStandaloneEnv.app());
-        auto const ledger =
-            nonStandaloneEnv.app().getLedgerMaster().getClosedLedger();
-        auto const nonStandaloneBase = makeRCLTxSet(nonStandaloneEnv.app(), {});
-        auto const nonStandaloneSeq = ledger->seq() + 1;
-
-        ConsensusExtensions zeroCe{nonStandaloneEnv.app(), activeNoopJournal()};
-        zeroCe.onRoundStart(RCLCxLedger{ledger}, {});
-        zeroCe.setEntropyFailed();
-        auto zeroSynthetic = zeroCe.buildExplicitFinalProposalTxSet(
-            nonStandaloneBase, nonStandaloneSeq);
-        BEAST_EXPECT(zeroSynthetic);
-        auto const zeroTx =
-            zeroSynthetic ? extractSingleEntropyTx(*zeroSynthetic) : nullptr;
-        BEAST_EXPECT(zeroTx);
-        if (zeroTx)
-        {
-            // Tier 1 consensus_fallback digest over (prevLedgerHash, base set,
-            // seq).
-            auto const expectedFallback = sha512Half(
-                HashPrefix::entropyFallback,
-                ledger->info().hash,
-                nonStandaloneBase.id(),
-                nonStandaloneSeq);
-            BEAST_EXPECT(zeroTx->getFieldH256(sfDigest) == expectedFallback);
-            BEAST_EXPECT(zeroTx->getFieldH256(sfDigest) != uint256{});
-            BEAST_EXPECT(zeroTx->getFieldU16(sfEntropyCount) == 0);
-            BEAST_EXPECT(
-                zeroTx->getFieldU8(sfEntropyTier) ==
-                entropyTierConsensusFallback);
-        }
-
-        auto const& valKeys = nonStandaloneEnv.app().getValidatorKeys();
-        BEAST_EXPECT(valKeys.keys);
-        if (!valKeys.keys)
-            return;
-
-        auto const& publicKey = valKeys.keys->publicKey;
-        auto const& secretKey = valKeys.keys->secretKey;
-        auto const nodeId = valKeys.nodeID;
-        auto const prevLedger = ledger->info().hash;
-        auto const closeTime = NetClock::time_point{NetClock::duration{654}};
-        auto const txSetHash = makeHash("explicit-final-nonzero-txset");
-        auto const reveal = makeHash("explicit-final-nonzero-reveal");
-        auto const viewLedger = makeUNLReportLedger(
-            nonStandaloneEnv, std::vector<PublicKey>{publicKey});
-        ConsensusExtensions revealCe{
-            nonStandaloneEnv.app(), activeNoopJournal()};
-        revealCe.cacheUNLReport(viewLedger);
-        harvestCommitReveal(
-            revealCe,
-            nodeId,
-            publicKey,
-            secretKey,
-            txSetHash,
-            nonStandaloneSeq,
-            closeTime,
-            prevLedger,
-            reveal);
-        revealCe.buildEntropySet(nonStandaloneSeq);
-
-        auto revealSynthetic = revealCe.buildExplicitFinalProposalTxSet(
-            nonStandaloneBase, nonStandaloneSeq);
-        BEAST_EXPECT(revealSynthetic);
-        auto const revealTx = revealSynthetic
-            ? extractSingleEntropyTx(*revealSynthetic)
-            : nullptr;
-        BEAST_EXPECT(revealTx);
-        if (revealTx)
-        {
-            BEAST_EXPECT(
-                revealTx->getFieldH256(sfDigest) ==
-                expectedEntropy(publicKey, reveal));
-            BEAST_EXPECT(revealTx->getFieldU16(sfEntropyCount) == 1);
-            BEAST_EXPECT(
-                revealTx->getFieldU8(sfEntropyTier) ==
-                entropyTierValidatorQuorum);
-        }
-    }
-
-    void
     testRuntimeConfigPolicyAccessors()
     {
         testcase("runtime config policy accessors");
@@ -1175,20 +1026,15 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
 
         BEAST_EXPECT(!ce.bootstrapFastStartEnabled());
-        BEAST_EXPECT(!ce.shouldSendExplicitFinalProposal());
 
         ConfigVals cfg;
         cfg.bootstrapFastStart = true;
-        cfg.explicitFinalProposal = true;
         env.app().getRuntimeConfig().setConfig("*", cfg);
         BEAST_EXPECT(ce.bootstrapFastStartEnabled());
-        BEAST_EXPECT(ce.shouldSendExplicitFinalProposal());
 
         cfg.bootstrapFastStart = false;
-        cfg.explicitFinalProposal = false;
         env.app().getRuntimeConfig().setConfig("*", cfg);
         BEAST_EXPECT(!ce.bootstrapFastStartEnabled());
-        BEAST_EXPECT(!ce.shouldSendExplicitFinalProposal());
     }
 
     void
@@ -2685,38 +2531,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testRngExplicitFinalProposalPublishesSyntheticTxSet()
-    {
-        testcase("RNG explicit final proposal publishes synthetic tx set");
-
-        FakeExtensions ext;
-        ext.rngOn = true;
-        ext.exportOn = false;
-        ext.estState_ = EstablishState::ConvergingReveal;
-        ext.sendExplicitFinal = true;
-        ext.explicitFinalTxSet = FakeTxSet{makeHash("explicit-final-tx-set")};
-
-        ExportTickHarness harness;
-        auto const localHash = ext.entropyHash;
-        harness.position.entropySetHash = localHash;
-        ext.entropySetPublished_ = true;
-        ext.entropyPublishStart_ = harness.start;
-        harness.addEntropyPeer(1, localHash);
-        harness.addEntropyPeer(2, localHash);
-        harness.addEntropyPeer(3, localHash);
-        harness.addEntropyPeer(4, localHash);
-
-        auto result = harness.tick(ext, std::chrono::milliseconds{100});
-        BEAST_EXPECT(result.readyForAccept);
-        BEAST_EXPECT(ext.explicitFinalProposalSent_);
-        BEAST_EXPECT(
-            harness.position.txSetHash == ext.explicitFinalTxSet->hash);
-        BEAST_EXPECT(harness.position.entropySetHash == localHash);
-        BEAST_EXPECT(harness.updates == 1);
-        BEAST_EXPECT(harness.proposes == 1);
-    }
-
-    void
     testExportSigGateAllowsAlignedQuorumDespiteMinorityConflict()
     {
         testcase("Export sig gate ignores minority conflict after quorum");
@@ -3177,7 +2991,6 @@ public:
         testActiveValidatorViewAppliesNegativeUNL();
         testActiveValidatorViewNullSourceAndExpectedProposers();
         testParticipantThreshold();
-        testExplicitFinalProposalTxSetBuildsEntropyTxn();
         testRuntimeConfigPolicyAccessors();
         testDecoratePositionGeneratesCommitment();
         testOnPreBuildInjectsZeroEntropyFallback();
@@ -3210,7 +3023,6 @@ public:
         testRngEntropyConflictTimeoutClearsHash();
         testRngEntropyConflictRefreshesHashBeforeWaiting();
         testRngEntropyConflictIgnoredWithQuorumAlignment();
-        testRngExplicitFinalProposalPublishesSyntheticTxSet();
         testExportSigGateAllowsAlignedQuorumDespiteMinorityConflict();
         testExportSigGateAllowsQuorumDespiteMissingObservation();
         testExportSigGateFetchesAdvertisedPeerSets();

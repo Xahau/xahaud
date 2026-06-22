@@ -62,9 +62,6 @@ doRuntimeConfig(RPC::JsonContext& context)
                     pct = 100.0;
                 cfg.rngClaimDropPctX100 = static_cast<int>(pct * 100);
             }
-            if (v.isMember("explicit_final_proposal"))
-                cfg.explicitFinalProposal =
-                    v["explicit_final_proposal"].asBool();
             if (v.isMember("bootstrap_fast_start"))
                 cfg.bootstrapFastStart = v["bootstrap_fast_start"].asBool();
             if (v.isMember("rng_poll_ms"))
@@ -131,8 +128,6 @@ doRuntimeConfig(RPC::JsonContext& context)
             entry["send_drop_pct"] = *cfg.sendDropPctX100 / 100.0;
         if (cfg.rngClaimDropPctX100)
             entry["rng_claim_drop_pct"] = *cfg.rngClaimDropPctX100 / 100.0;
-        if (cfg.explicitFinalProposal.has_value())
-            entry["explicit_final_proposal"] = *cfg.explicitFinalProposal;
         if (cfg.bootstrapFastStart.has_value())
             entry["bootstrap_fast_start"] = *cfg.bootstrapFastStart;
         if (cfg.rngPollMs)

@@ -210,12 +210,6 @@ If no entropy hash reaches the entropy gate threshold before the bounded
 deadline, the round must fall back to the Tier 1 consensus-bound digest. This
 is the safe degradation path, not a consensus failure.
 
-> Known exception: the experimental, default-off explicit-final proposal path
-> counts alignment over the unfiltered proposer set (not the active view). It is
-> flagged in-code as an outstanding F1 gap, but the intended disposition is
-> removal rather than repair/promotion; it must not be enabled as a production
-> consensus path.
-
 Examples with six active validators on a UNLReport-anchored view (validator_quorum
 threshold five, participant_aligned threshold four; six is the smallest view with
 a non-empty Tier 2 band and non-zero tolerated Byzantine count; at five validators
@@ -253,10 +247,10 @@ after it updates the SLE. Hooks that need final entropy must treat open-ledger
 RNG results as previews.
 
 The fallback digest derives from the BASE (pre-injection) tx set hash to avoid
-circularity, and entropy pseudo-tx deduplication is value-based: if an
-explicit-final synthetic set already contains the exact pseudo-tx, injection
-skips it; a present-but-different pseudo-tx is logged as a determinism
-violation and left in the agreed set.
+circularity, and entropy pseudo-tx deduplication is value-based: if the agreed
+set already contains the exact pseudo-tx, injection skips it; a
+present-but-different pseudo-tx is logged as a determinism violation and left in
+the agreed set.
 
 ## Sidecar Convergence Rules
 

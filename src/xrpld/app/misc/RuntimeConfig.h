@@ -41,13 +41,6 @@ struct ConfigVals
     std::optional<int> sendDelayJitterMs;
     std::optional<int> sendDropPctX100;  // 0-10000 (pct * 100, avoids float)
     std::optional<int> rngClaimDropPctX100;  // 0-10000 (pct * 100)
-    // Controls explicit final proposal broadcast in the RNG reveal phase.
-    // true  = attempt explicit-final proposal (experimental)
-    // false = keep implicit mode (recommended default for production)
-    //
-    // NOTE: This knob is intentionally explicit opt-in. The consensus system
-    // is fully functional without it via accept-time pseudo-tx injection.
-    std::optional<bool> explicitFinalProposal;
     // Bootstrap fast start: seed prevRoundTime_ to 3s instead of 15s on first
     // round, auto-disables after stable quorum is observed.
     std::optional<bool> bootstrapFastStart;
@@ -76,7 +69,6 @@ struct ConfigVals
             (sendDelayJitterMs && *sendDelayJitterMs > 0) ||
             (sendDropPctX100 && *sendDropPctX100 > 0) ||
             (rngClaimDropPctX100 && *rngClaimDropPctX100 > 0) ||
-            explicitFinalProposal.has_value() ||
             bootstrapFastStart.has_value() || rngPollMs.has_value() ||
             noExportSig.has_value();
     }
@@ -94,8 +86,6 @@ struct ConfigVals
             result.sendDropPctX100 = other.sendDropPctX100;
         if (other.rngClaimDropPctX100)
             result.rngClaimDropPctX100 = other.rngClaimDropPctX100;
-        if (other.explicitFinalProposal.has_value())
-            result.explicitFinalProposal = other.explicitFinalProposal;
         if (other.bootstrapFastStart.has_value())
             result.bootstrapFastStart = other.bootstrapFastStart;
         if (other.rngPollMs)

@@ -110,7 +110,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
         ConfigVals peer;
         peer.sendDelayMs = 500;
         peer.sendDelayJitterMs = 25;
-        peer.explicitFinalProposal = true;
         peer.rngPollMs = 75;
         peer.noExportSig = true;
         peer.messageCategories = std::set<std::size_t>{};
@@ -122,8 +121,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
         BEAST_EXPECT(merged.rngClaimDropPctX100 == 750);
         BEAST_EXPECT(merged.bootstrapFastStart.has_value());
         BEAST_EXPECT(*merged.bootstrapFastStart == false);
-        BEAST_EXPECT(merged.explicitFinalProposal.has_value());
-        BEAST_EXPECT(*merged.explicitFinalProposal == true);
         BEAST_EXPECT(merged.rngPollMs == 75);
         BEAST_EXPECT(merged.noExportSig.has_value());
         BEAST_EXPECT(*merged.noExportSig == true);
@@ -138,7 +135,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
         inactive.sendDropPctX100 = 0;
         inactive.rngClaimDropPctX100 = 0;
         BEAST_EXPECT(!inactive.active());
-        inactive.explicitFinalProposal = false;
+        inactive.bootstrapFastStart = false;
         BEAST_EXPECT(inactive.active());
     }
 
@@ -304,7 +301,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
         EnvVarGuard jitter{"XAHAU_SEND_DELAY_JITTER_MS", "3"};
         EnvVarGuard drop{"XAHAU_SEND_DROP_PCT", "4.5"};
         EnvVarGuard rngDrop{"XAHAU_RNG_CLAIM_DROP_PCT", "6.25"};
-        EnvVarGuard explicitFinal{"XAHAUD_EXPLICIT_FINAL_PROPOSAL", "off"};
         EnvVarGuard bootstrap{"XAHAUD_BOOTSTRAP_FAST_START", "yes"};
         EnvVarGuard rngPoll{"XAHAU_RNG_POLL_MS", "5"};
         EnvVarGuard noExportSig{"XAHAUD_NO_EXPORT_SIG", "0"};
@@ -319,8 +315,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
         BEAST_EXPECT(cfg->sendDelayJitterMs == 3);
         BEAST_EXPECT(cfg->sendDropPctX100 == 450);
         BEAST_EXPECT(cfg->rngClaimDropPctX100 == 625);
-        BEAST_EXPECT(cfg->explicitFinalProposal.has_value());
-        BEAST_EXPECT(*cfg->explicitFinalProposal == false);
         BEAST_EXPECT(cfg->bootstrapFastStart.has_value());
         BEAST_EXPECT(*cfg->bootstrapFastStart == true);
         BEAST_EXPECT(cfg->rngPollMs == 50);
@@ -337,12 +331,12 @@ class RuntimeConfig_test : public beast::unit_test::suite
             "XAHAU_RUNTIME_CONFIG",
             R"({"*":{"send_delay_ms":100,"send_delay_jitter_ms":20,)"
             R"("send_drop_pct":1.25,"rng_claim_drop_pct":3.5,)"
-            R"("explicit_final_proposal":true,"bootstrap_fast_start":false,)"
+            R"("bootstrap_fast_start":false,)"
             R"("rng_poll_ms":5,"no_export_sig":true,)"
             R"("message_types":["proposal"]},)"
             R"("10.0.0.5:51235":{"send_delay_ms":200,)"
             R"("send_drop_pct":2.5,"rng_claim_drop_pct":4.5,)"
-            R"("explicit_final_proposal":false,"bootstrap_fast_start":true,)"
+            R"("bootstrap_fast_start":true,)"
             R"("rng_poll_ms":125,"no_export_sig":false,)"
             R"("message_types":[]}})"};
 
@@ -354,8 +348,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
         BEAST_EXPECT(global->sendDelayJitterMs == 20);
         BEAST_EXPECT(global->sendDropPctX100 == 125);
         BEAST_EXPECT(global->rngClaimDropPctX100 == 350);
-        BEAST_EXPECT(global->explicitFinalProposal.has_value());
-        BEAST_EXPECT(*global->explicitFinalProposal == true);
         BEAST_EXPECT(global->bootstrapFastStart.has_value());
         BEAST_EXPECT(*global->bootstrapFastStart == false);
         BEAST_EXPECT(global->rngPollMs == 50);
@@ -371,8 +363,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
         BEAST_EXPECT(peer->sendDelayJitterMs == 20);
         BEAST_EXPECT(peer->sendDropPctX100 == 250);
         BEAST_EXPECT(peer->rngClaimDropPctX100 == 450);
-        BEAST_EXPECT(peer->explicitFinalProposal.has_value());
-        BEAST_EXPECT(*peer->explicitFinalProposal == false);
         BEAST_EXPECT(peer->bootstrapFastStart.has_value());
         BEAST_EXPECT(*peer->bootstrapFastStart == true);
         BEAST_EXPECT(peer->rngPollMs == 125);
@@ -883,54 +873,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
     }
 
     void
-    testExplicitFinalProposalToggle()
-    {
-        testcase("explicit_final_proposal round-trips and merges");
-        using namespace test::jtx;
-        Env env{*this};
-
-        // Global default for this node: skip explicit final proposal.
-        {
-            Json::Value params;
-            params["set"] = Json::objectValue;
-            params["set"]["*"] = Json::objectValue;
-            params["set"]["*"]["explicit_final_proposal"] = false;
-            auto result = runtimeConfig(env, params);
-
-            auto const& global = result["configs"]["*"];
-            BEAST_EXPECT(global["explicit_final_proposal"].asBool() == false);
-        }
-
-        auto& rc = env.app().getRuntimeConfig();
-        BEAST_EXPECT(rc.active());
-
-        // Global view is false.
-        auto globalCfg = rc.getConfig("*");
-        BEAST_EXPECT(globalCfg.has_value());
-        BEAST_EXPECT(globalCfg->explicitFinalProposal.has_value());
-        BEAST_EXPECT(*globalCfg->explicitFinalProposal == false);
-
-        // Per-peer override can re-enable.
-        {
-            Json::Value params;
-            params["set"] = Json::objectValue;
-            params["set"]["10.0.0.2:51235"] = Json::objectValue;
-            params["set"]["10.0.0.2:51235"]["explicit_final_proposal"] = true;
-            runtimeConfig(env, params);
-        }
-
-        auto peerCfg = rc.getConfig("10.0.0.2:51235");
-        BEAST_EXPECT(peerCfg.has_value());
-        BEAST_EXPECT(peerCfg->explicitFinalProposal.has_value());
-        BEAST_EXPECT(*peerCfg->explicitFinalProposal == true);
-
-        auto otherCfg = rc.getConfig("10.0.0.3:51235");
-        BEAST_EXPECT(otherCfg.has_value());
-        BEAST_EXPECT(otherCfg->explicitFinalProposal.has_value());
-        BEAST_EXPECT(*otherCfg->explicitFinalProposal == false);
-    }
-
-    void
     testPerPeerClearInheritedFilter()
     {
         testcase("Per-peer can override global filter to all");
@@ -1001,7 +943,6 @@ public:
         testRngClaimDropPct();
         testRngClaimDropPctClamping();
         testRngAndExportRuntimeToggles();
-        testExplicitFinalProposalToggle();
         testPerPeerClearInheritedFilter();
     }
 };

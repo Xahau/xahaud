@@ -101,7 +101,6 @@ public:
     EstablishState estState_{EstablishState::ConvergingTx};
     std::chrono::steady_clock::time_point revealPhaseStart_{};
     std::chrono::steady_clock::time_point commitHashConflictStart_{};
-    bool explicitFinalProposalSent_{false};
     bool entropySetPublished_{false};
     std::chrono::steady_clock::time_point entropyPublishStart_{};
     bool exportSigGateStarted_{false};
@@ -225,12 +224,6 @@ public:
 
     bool
     bootstrapFastStartEnabled() const;
-
-    bool
-    shouldSendExplicitFinalProposal() const;
-
-    std::optional<RCLTxSet>
-    buildExplicitFinalProposalTxSet(RCLTxSet const& txns, LedgerIndex seq);
 
     uint256
     buildCommitSet(LedgerIndex seq);
@@ -502,7 +495,6 @@ public:
         estState_ = EstablishState::ConvergingTx;
         revealPhaseStart_ = {};
         commitHashConflictStart_ = {};
-        explicitFinalProposalSent_ = false;
         entropySetPublished_ = false;
         entropyPublishStart_ = {};
         exportSigGateStarted_ = false;

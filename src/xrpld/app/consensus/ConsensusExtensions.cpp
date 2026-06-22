@@ -554,122 +554,6 @@ ConsensusExtensions::bootstrapFastStartEnabled() const
     return false;
 }
 
-bool
-ConsensusExtensions::shouldSendExplicitFinalProposal() const
-{
-    // Explicit-final-proposal policy is node-local and experimental.
-    //
-    // Default behavior is implicit finalization (no extra seq=4 proposal):
-    // entropy pseudo-tx is injected in onAccept/buildLCL.
-    //
-    // We only enable explicit-final when operators intentionally opt in via
-    // runtime config/env for measurement/diagnostics.
-    //
-    // TODO: remove the explicit-final proposal path. The implicit accept-time
-    // injection path is the consensus path; explicit-final never found a robust
-    // timing model and still carries separate experimental-only alignment
-    // hazards. Do not promote this by just widening the gates.
-    auto const cfg = app_.getRuntimeConfig().getConfig("*");
-    if (cfg && cfg->explicitFinalProposal.has_value())
-        return *cfg->explicitFinalProposal;
-    return false;
-}
-
-std::optional<RCLTxSet>
-ConsensusExtensions::buildExplicitFinalProposalTxSet(
-    RCLTxSet const& txns,
-    LedgerIndex seq)
-{
-    JLOG(j_.debug()) << "RNGFINAL: build synthetic txSet"
-                     << " baseTxSet=" << txns.id() << " seq=" << seq
-                     << " commits=" << pendingCommits_.size()
-                     << " reveals=" << pendingReveals_.size()
-                     << " entropyFailed=" << (entropyFailed_ ? "yes" : "no");
-
-    // Shared deterministic selector over the AGREED entropySetMap_ — the same
-    // one onPreBuild uses — NOT local pendingReveals_, which can diverge from
-    // the agreed set at timeout boundaries. Routing explicit-final
-    // (experimental, default-off) through it keeps this path byte-identical to
-    // the implicit one. txns.id() is the BASE tx set hash for the fallback.
-    //
-    // TODO: delete this with the explicit-final proposal path; keep this helper
-    // only while the runtime-config experiment still exists.
-    auto const selection = selectEntropy(txns.id(), seq);
-    uint256 const finalEntropy = selection.digest;
-    std::uint8_t const entropyTier = selection.tier;
-    std::uint16_t const entropyCount = selection.count;
-
-    JLOG(j_.debug()) << "RNGFINAL: entropy selected"
-                     << " seq=" << seq
-                     << " tier=" << static_cast<int>(entropyTier)
-                     << " count=" << entropyCount << " digest=" << finalEntropy
-                     << " baseTxSet=" << txns.id();
-
-    STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
-        obj.setFieldU32(sfLedgerSequence, seq);
-        obj.setAccountID(sfAccount, AccountID{});
-        obj.setFieldU32(sfSequence, 0);
-        obj.setFieldAmount(sfFee, STAmount{});
-        obj.setFieldH256(sfDigest, finalEntropy);
-        obj.setFieldU16(sfEntropyCount, entropyCount);
-        obj.setFieldU8(sfEntropyTier, entropyTier);
-    });
-
-    auto const txID = tx.getTransactionID();
-    // Value-based dedup (mirrors onPreBuild): there must never be two entropy
-    // pseudo-txs. If one is already in the base set it must be the EXACT
-    // pseudo-tx we would have produced (injection is deterministic, so the same
-    // agreed inputs yield an identical txID); a present-but-different one is a
-    // determinism violation to surface, not silently accept. Either way return
-    // the base unchanged — explicit-final is best-effort and must not rewrite
-    // an already-committed set.
-    std::optional<uint256> presentID;
-    txns.map_->visitLeaves(
-        [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-            if (presentID)
-                return;
-            try
-            {
-                SerialIter sit(item->slice());
-                STTx const parsed{sit};
-                if (parsed.getTxnType() == ttCONSENSUS_ENTROPY)
-                    presentID = parsed.getTransactionID();
-            }
-            catch (...)
-            {
-            }
-        });
-    if (presentID)
-    {
-        if (*presentID == txID)
-            JLOG(j_.debug())
-                << "RNGFINAL: entropy pseudo-tx already in base txSet"
-                << " txHash=" << txID << " baseTxSet=" << txns.id()
-                << " action=skip-duplicate-verified";
-        else
-            JLOG(j_.error())
-                << "RNGFINAL: entropy pseudo-tx MISMATCH in base txSet"
-                << " reason=determinism-violation action=keep-base"
-                << " ourTxHash=" << txID << " presentTxHash=" << *presentID
-                << " baseTxSet=" << txns.id();
-        return txns;
-    }
-
-    RCLTxSet::MutableTxSet mutableTxSet{txns};
-    Serializer ser(512);
-    tx.add(ser);
-    mutableTxSet.insert(RCLCxTx{make_shamapitem(txID, ser.slice())});
-    auto syntheticSet = RCLTxSet{mutableTxSet};
-    auto const hash = syntheticSet.id();
-    app_.getInboundTransactions().giveSet(hash, syntheticSet.map_, false);
-
-    JLOG(j_.debug()) << "RNGFINAL: built synthetic txSet"
-                     << " syntheticTxSet=" << hash << " baseTxSet=" << txns.id()
-                     << " txHash=" << txID << " entropyCount=" << entropyCount;
-
-    return syntheticSet;
-}
-
 uint256
 ConsensusExtensions::buildCommitSet(LedgerIndex seq)
 {
@@ -1866,11 +1750,9 @@ ConsensusExtensions::onPreBuild(
 
     //@@start rng-inject-entropy-selection
     // One deterministic selector over the AGREED entropySetMap_ chooses the
-    // digest and its tier/count. onPreBuild and buildExplicitFinalProposalTxSet
-    // share it, so neither the implicit vs explicit-final paths on one node nor
-    // two different nodes can derive different entropy for the same agreed
-    // round inputs. txSetHash is the BASE (pre-injection) consensus tx set
-    // hash.
+    // digest and its tier/count. Every node derives the same entropy for the
+    // same agreed round inputs. txSetHash is the BASE (pre-injection)
+    // consensus tx set hash.
     auto const selection = selectEntropy(txSetHash, seq);
     uint256 const finalEntropy = selection.digest;
     std::uint8_t const entropyTier = selection.tier;
@@ -1898,11 +1780,6 @@ ConsensusExtensions::onPreBuild(
         //   agree on the base transaction set first, then deterministically
         //   derive/apply the entropy pseudo-tx for ledger construction.
         //
-        // Explicit-final (seq=4 synthetic proposal) remains an optional
-        // experiment for observability/perf testing and is default-off.
-        // TBD (2026-03-03): revisit only with stronger evidence that explicit
-        // publication can be made stable under tx-bearing, lossy networks.
-
         //@@start rng-inject-pseudotx-core
         // Account Zero convention for pseudo-transactions (same as ttFEE, etc)
         STTx tx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
@@ -1917,13 +1794,13 @@ ConsensusExtensions::onPreBuild(
 
         auto const txID = tx.getTransactionID();
         // Value-based dedup. There must never be two entropy pseudo-txs, but
-        // when one is already present (explicit-final, or a peer's agreed
-        // set) it must be VALIDATED as the exact pseudo-tx we would have
-        // produced — not merely "same type". Injection is deterministic, so
-        // every honest node derives the identical pseudo-tx (identical txID)
-        // for the same agreed inputs. A present-but-different entropy pseudo-tx
-        // is therefore a determinism violation (version skew or a divergent/
-        // malicious peer) and must be surfaced, not silently trusted.
+        // when one is already present in the agreed set it must be VALIDATED as
+        // the exact pseudo-tx we would have produced — not merely "same type".
+        // Injection is deterministic, so every honest node derives the
+        // identical pseudo-tx (identical txID) for the same agreed inputs. A
+        // present-but-different entropy pseudo-tx is therefore a determinism
+        // violation (version skew or a divergent/malicious peer) and must be
+        // surfaced, not silently trusted.
         auto const existing = std::find_if(
             retriableTxs.begin(), retriableTxs.end(), [](auto const& entry) {
                 return entry.second->getTxnType() == ttCONSENSUS_ENTROPY;

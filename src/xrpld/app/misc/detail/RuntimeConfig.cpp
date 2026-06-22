@@ -257,8 +257,6 @@ parseConfigVals(Json::Value const& v)
     if (v.isMember("rng_claim_drop_pct"))
         cfg.rngClaimDropPctX100 =
             static_cast<int>(v["rng_claim_drop_pct"].asDouble() * 100);
-    if (v.isMember("explicit_final_proposal"))
-        cfg.explicitFinalProposal = v["explicit_final_proposal"].asBool();
     if (v.isMember("bootstrap_fast_start"))
         cfg.bootstrapFastStart = v["bootstrap_fast_start"].asBool();
     if (v.isMember("rng_poll_ms"))
@@ -346,11 +344,6 @@ RuntimeConfig::RuntimeConfig()
         global.sendDropPctX100 = static_cast<int>(std::atof(env) * 100);
     if (auto const* env = std::getenv("XAHAU_RNG_CLAIM_DROP_PCT"))
         global.rngClaimDropPctX100 = static_cast<int>(std::atof(env) * 100);
-    // Explicit-final proposal is intentionally opt-in and defaults to
-    // implicit behavior when unset.
-    if (auto parsed =
-            parseBoolEnv(std::getenv("XAHAUD_EXPLICIT_FINAL_PROPOSAL")))
-        global.explicitFinalProposal = *parsed;
     if (auto parsed = parseBoolEnv(std::getenv("XAHAUD_BOOTSTRAP_FAST_START")))
         global.bootstrapFastStart = *parsed;
     if (auto const* env = std::getenv("XAHAU_RNG_POLL_MS"))
