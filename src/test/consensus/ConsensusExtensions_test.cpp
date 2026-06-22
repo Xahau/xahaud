@@ -570,7 +570,6 @@ struct ExportTickHarness
     std::size_t prevProposers = 4;
     int updates = 0;
     int proposes = 0;
-    int caches = 0;
 
     void
     addPeer(
@@ -633,7 +632,6 @@ struct ExportTickHarness
                 },
             .propose = [&]() { ++proposes; },
             .haveConsensus = []() { return true; },
-            .cacheAndShareTxSet = [&](FakeTxSet const&) { ++caches; },
             .getTxns = [&]() -> FakeTxSet const& { return txns; }};
 
         return extensionsTick(ext, ctx);

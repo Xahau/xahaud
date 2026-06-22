@@ -331,7 +331,6 @@ struct ConsensusTick
     std::function<void(Position const&)> updatePosition;
     std::function<void()> propose;
     std::function<bool()> haveConsensus;
-    std::function<void(TxSet const&)> cacheAndShareTxSet;
     std::function<TxSet const&()> getTxns;
 };
 

@@ -1603,11 +1603,6 @@ Consensus<Adaptor>::phaseEstablish(
                     },
                 .propose = [&]() { adaptor_.propose(result_->position); },
                 .haveConsensus = [&]() { return haveConsensus(clog); },
-                .cacheAndShareTxSet =
-                    [&](TxSet_t const& txSet) {
-                        acquired_.emplace(txSet.id(), txSet);
-                        adaptor_.share(txSet);
-                    },
                 .getTxns = [&]() -> TxSet_t const& { return result_->txns; },
             };
         auto tickResult = adaptor_.ce().onTick(ctx);
