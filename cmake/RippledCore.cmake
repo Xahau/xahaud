@@ -183,6 +183,21 @@ if(xrpld)
       "${CMAKE_CURRENT_SOURCE_DIR}/src/test/*.cpp"
     )
     target_sources(rippled PRIVATE ${sources})
+
+    set(HOOKS_TEST_DIR "" CACHE PATH "External hook Env-test directory")
+    if(NOT HOOKS_TEST_DIR AND DEFINED ENV{HOOKS_TEST_DIR})
+      set(HOOKS_TEST_DIR "$ENV{HOOKS_TEST_DIR}")
+    endif()
+    if(HOOKS_TEST_DIR)
+      file(GLOB_RECURSE hook_test_sources CONFIGURE_DEPENDS
+        "${HOOKS_TEST_DIR}/*_test.cpp"
+      )
+      if(hook_test_sources)
+        message(STATUS "Including external hook Env tests from ${HOOKS_TEST_DIR}")
+        target_sources(rippled PRIVATE ${hook_test_sources})
+        target_include_directories(rippled PRIVATE "${HOOKS_TEST_DIR}")
+      endif()
+    endif()
   endif()
 
   target_link_libraries(rippled
