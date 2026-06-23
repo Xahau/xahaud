@@ -1340,6 +1340,102 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testOnPreBuildTier2WithNegativeUNL()
+    {
+        testcase("onPreBuild mints Tier 2 with active NegativeUNL");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy |
+                featureNegativeUNL,
+            nullptr};
+        forceNonStandalone(env.app());
+
+        // 20 original active validators, 1 disabled by nUNL:
+        //   originalViewSize = 20 -> tier2Threshold = 13
+        //   effective size   = 19 -> quorumThreshold = 16
+        // so counts 13..15 are genuinely participant_aligned under active nUNL.
+        constexpr std::size_t kOriginal = 20;
+        constexpr std::size_t kDisabled = 1;
+        std::vector<std::pair<PublicKey, SecretKey>> vals;
+        vals.reserve(kOriginal);
+        std::vector<PublicKey> activeKeys;
+        activeKeys.reserve(kOriginal);
+        for (std::size_t i = 0; i < kOriginal; ++i)
+        {
+            vals.push_back(randomKeyPair(KeyType::secp256k1));
+            activeKeys.push_back(vals.back().first);
+        }
+        std::vector<PublicKey> const disabledKeys(
+            activeKeys.begin(), activeKeys.begin() + kDisabled);
+        auto const viewLedger =
+            makeUNLReportLedger(env, activeKeys, disabledKeys);
+
+        {
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            ce.cacheUNLReport(viewLedger);
+            auto const view = ce.activeValidatorView();
+            BEAST_EXPECT(view->fromUNLReport);
+            BEAST_EXPECT(view->originalViewSize == kOriginal);
+            BEAST_EXPECT(view->size() == kOriginal - kDisabled);
+            BEAST_EXPECT(ce.tier2Threshold() == 13);
+            BEAST_EXPECT(ce.quorumThreshold() == 16);
+            BEAST_EXPECT(ce.entropyGateThreshold() == 13);
+        }
+
+        auto const anchor = env.app().getLedgerMaster().getClosedLedger();
+        auto const prevLedger = anchor->info().hash;
+        auto const seq = anchor->info().seq + 1;
+        auto const closeTime = NetClock::time_point{NetClock::duration{778}};
+        auto const txSetHash = makeHash("tier2-nunl-txset");
+
+        auto runWith = [&](std::size_t revealers) {
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            ce.cacheUNLReport(viewLedger);
+            for (std::size_t i = 0; i < revealers; ++i)
+            {
+                auto const idx = i + kDisabled;  // skip disabled validator
+                auto const reveal =
+                    sha512Half(vals[idx].first, makeHash("tier2-nunl-reveal"));
+                harvestCommitReveal(
+                    ce,
+                    calcNodeID(vals[idx].first),
+                    vals[idx].first,
+                    vals[idx].second,
+                    txSetHash,
+                    seq,
+                    closeTime,
+                    prevLedger,
+                    reveal);
+            }
+            ce.buildEntropySet(seq);
+            CanonicalTXSet txs{makeHash("tier2-nunl-salt")};
+            ce.onPreBuild(txs, seq, txSetHash);
+            auto const tx = singleCanonicalTx(txs);
+            std::pair<int, std::uint16_t> out{-1, 0};
+            if (tx)
+                out = {
+                    tx->getFieldU8(sfEntropyTier),
+                    tx->getFieldU16(sfEntropyCount)};
+            return out;
+        };
+
+        auto const q = runWith(16);
+        BEAST_EXPECT(q.first == entropyTierValidatorQuorum);
+        BEAST_EXPECT(q.second == 16);
+
+        auto const p = runWith(15);
+        BEAST_EXPECT(p.first == entropyTierParticipantAligned);
+        BEAST_EXPECT(p.second == 15);
+
+        auto const f = runWith(12);
+        BEAST_EXPECT(f.first == entropyTierConsensusFallback);
+        BEAST_EXPECT(f.second == 0);
+    }
+
+    void
     testProposalProofRoundTrip()
     {
         testcase("proposal proof round-trip");
@@ -2997,6 +3093,7 @@ public:
         testOnPreBuildInjectsEntropySetEntropy();
         testOnPreBuildTier2ParticipantAligned();
         testTier2ThresholdAnchorsToOriginalView();
+        testOnPreBuildTier2WithNegativeUNL();
         testProposalProofRoundTrip();
         testHarvestRngDataReplacementAndRejection();
         testExportSidecarBuildFetchAndMerge();
