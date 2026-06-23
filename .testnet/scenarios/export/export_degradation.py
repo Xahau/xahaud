@@ -32,6 +32,7 @@ async def scenario(ctx, log):
     log(f"Current ledger: {current_seq}")
     log("Nodes 3,4 have runtime_config no_export_sig=true (3/5 sigs, need 4)")
 
+    #@@start test-export-below-quorum-expiry
     # --- Submit ttEXPORT (should retry then expire -- only 3/5 sigs) ---
     export_start = ctx.mark("export-degradation-submit-start")
     result = await ctx.submit_and_wait(
@@ -91,6 +92,7 @@ async def scenario(ctx, log):
 
     # No shadow ticket should exist (export never reached quorum)
     assert_shadow_ticket(ctx, alice.address, log, expect_exists=False)
+    #@@end test-export-below-quorum-expiry
 
     # --- Verify subsequent payment works regardless ---
     log("Submitting payment from alice to bob...")
