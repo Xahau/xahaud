@@ -116,6 +116,11 @@ struct ConsensusTestConfig
     - "peer_defaults"  — default send fault config for all peers
     - "peer:ip:port"   — per-peer send fault override
 
+    Peer keys match the outbound PeerImp remote endpoint used at send time.
+    In x-testnet, n0->n2 resolves to peer:127.0.0.1:<n2 peer port> and affects
+    only node 0's outbound sends to node 2. Reverse traffic and inbound
+    ephemeral endpoints are separate unless configured separately.
+
     RPC handler: runtime_config (Role::ADMIN)
     Disconnect handler: disconnect (Role::ADMIN)
 

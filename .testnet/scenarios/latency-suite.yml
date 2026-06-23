@@ -57,8 +57,8 @@ tests:
     network:
       rc:
         - rng_poll_ms=250
-        - n0@n2:delay=750,jitter=100,msg=proposal
-        - n2@n0:delay=750,jitter=100,msg=proposal
+        - n0->n2:delay=750,jitter=100,msg=proposal
+        - n2->n0:delay=750,jitter=100,msg=proposal
 
   - name: latency_slow_minority_export
     script: .testnet/scenarios/perf/ce_export_latency_probe.py
@@ -70,18 +70,18 @@ tests:
     network:
       rc:
         - rng_poll_ms=250
-        - n3@n0:delay=500,jitter=100,msg=proposal
-        - n3@n1:delay=500,jitter=100,msg=proposal
-        - n3@n2:delay=500,jitter=100,msg=proposal
-        - n4@n0:delay=500,jitter=100,msg=proposal
-        - n4@n1:delay=500,jitter=100,msg=proposal
-        - n4@n2:delay=500,jitter=100,msg=proposal
-        - n0@n3:delay=500,jitter=100,msg=proposal
-        - n1@n3:delay=500,jitter=100,msg=proposal
-        - n2@n3:delay=500,jitter=100,msg=proposal
-        - n0@n4:delay=500,jitter=100,msg=proposal
-        - n1@n4:delay=500,jitter=100,msg=proposal
-        - n2@n4:delay=500,jitter=100,msg=proposal
+        - n3->n0:delay=500,jitter=100,msg=proposal
+        - n3->n1:delay=500,jitter=100,msg=proposal
+        - n3->n2:delay=500,jitter=100,msg=proposal
+        - n4->n0:delay=500,jitter=100,msg=proposal
+        - n4->n1:delay=500,jitter=100,msg=proposal
+        - n4->n2:delay=500,jitter=100,msg=proposal
+        - n0->n3:delay=500,jitter=100,msg=proposal
+        - n1->n3:delay=500,jitter=100,msg=proposal
+        - n2->n3:delay=500,jitter=100,msg=proposal
+        - n0->n4:delay=500,jitter=100,msg=proposal
+        - n1->n4:delay=500,jitter=100,msg=proposal
+        - n2->n4:delay=500,jitter=100,msg=proposal
 
   - name: latency_export_no_veto_with_delay
     script: .testnet/scenarios/export/export_no_veto_missing_observation.py
