@@ -865,6 +865,82 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testSidecarSplitBrainEquivocationThreshold()
+    {
+        testcase("Sidecar split-brain equivocation threshold");
+
+        auto const hashA = makeHash("split-brain-sidecar-a");
+        auto const hashB = makeHash("split-brain-sidecar-b");
+        auto const exportHashOf = [](auto const& position) {
+            return position.exportSigSetHash;
+        };
+        auto const allMembers = [](auto const&) { return true; };
+
+        auto inspect = [&](std::uint8_t localId,
+                           uint256 const& localHash,
+                           std::vector<std::uint8_t> const& hashANodes,
+                           std::vector<std::uint8_t> const& hashBNodes) {
+            ExportTickHarness harness;
+            harness.position.exportSigSetHash = localHash;
+            auto addPeer = [&](std::uint8_t id, uint256 const& hash) {
+                if (id != localId)
+                    harness.addPeer(id, hash);
+            };
+            for (auto id : hashANodes)
+                addPeer(id, hashA);
+            for (auto id : hashBNodes)
+                addPeer(id, hashB);
+
+            return detail::inspectTxConvergedSidecarPeers(
+                harness.peers,
+                harness.position,
+                true,
+                exportHashOf,
+                allMembers,
+                [](auto const&) {});
+        };
+
+        // n=9, f=floor(n/5)=1. One equivocator (node 8) can show hashA to
+        // nodes 0..3 and hashB to nodes 4..7. A plain strict-majority gate
+        // (5/9) would let both local views proceed on different hashes. The
+        // participant threshold is 6, so neither split cohort can pass.
+        {
+            auto const viewA = inspect(0, hashA, {0, 1, 2, 3, 8}, {4, 5, 6, 7});
+            auto const viewB = inspect(4, hashB, {0, 1, 2, 3}, {4, 5, 6, 7, 8});
+            auto const strictMajority = std::size_t{5};
+            auto const participant = calculateParticipantThreshold(9);
+
+            BEAST_EXPECT(viewA.alignedParticipants() == strictMajority);
+            BEAST_EXPECT(viewB.alignedParticipants() == strictMajority);
+            BEAST_EXPECT(viewA.quorumAligned(strictMajority));
+            BEAST_EXPECT(viewB.quorumAligned(strictMajority));
+            BEAST_EXPECT(participant == 6);
+            BEAST_EXPECT(!viewA.quorumAligned(participant));
+            BEAST_EXPECT(!viewB.quorumAligned(participant));
+        }
+
+        // n=10, f=2. Two equivocators (8,9) make two disjoint honest cohorts
+        // appear as 6/10 each. Naive ceil(0.6n) would fork at this exact
+        // multiple of five; calculateParticipantThreshold bumps the floor to 7.
+        {
+            auto const viewA =
+                inspect(0, hashA, {0, 1, 2, 3, 8, 9}, {4, 5, 6, 7});
+            auto const viewB =
+                inspect(4, hashB, {0, 1, 2, 3}, {4, 5, 6, 7, 8, 9});
+            auto const naiveSixty = std::size_t{6};
+            auto const participant = calculateParticipantThreshold(10);
+
+            BEAST_EXPECT(viewA.alignedParticipants() == naiveSixty);
+            BEAST_EXPECT(viewB.alignedParticipants() == naiveSixty);
+            BEAST_EXPECT(viewA.quorumAligned(naiveSixty));
+            BEAST_EXPECT(viewB.quorumAligned(naiveSixty));
+            BEAST_EXPECT(participant == 7);
+            BEAST_EXPECT(!viewA.quorumAligned(participant));
+            BEAST_EXPECT(!viewB.quorumAligned(participant));
+        }
+    }
+
+    void
     testActiveValidatorViewBuilderPrefersUNLReport()
     {
         testcase("Active validator view builder prefers UNLReport");
@@ -3082,6 +3158,7 @@ public:
     run() override
     {
         testSidecarPeerAlignmentHelper();
+        testSidecarSplitBrainEquivocationThreshold();
         testActiveValidatorViewBuilderPrefersUNLReport();
         testActiveValidatorViewBuilderFallback();
         testActiveValidatorViewAppliesNegativeUNL();
