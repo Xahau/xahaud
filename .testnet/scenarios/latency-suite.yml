@@ -1,0 +1,92 @@
+defaults:
+  network:
+    node_count: 5
+    launcher: tmux
+    find_ports: true
+    slave_delay: 0.2
+    features:
+      - ConsensusEntropy
+      - Export
+    track_features:
+      - ConsensusEntropy
+      - Export
+    unl_report: true
+    log_levels:
+      TxQ: info
+      Protocol: debug
+      Peer: debug
+      LedgerConsensus: debug
+      ConsensusExtensions: debug
+      NetworkOPs: info
+    env:
+      XAHAU_RESOURCE_PER_PORT: "1"
+    rc:
+      - rng_poll_ms=250
+tests:
+  - name: latency_baseline_ce
+    script: .testnet/scenarios/perf/ce_export_latency_probe.py
+    params:
+      warmup_ledgers: 3
+      ledgers: 8
+      submit_export: false
+
+  - name: latency_baseline_export
+    script: .testnet/scenarios/perf/ce_export_latency_probe.py
+    params:
+      warmup_ledgers: 3
+      ledgers: 8
+      submit_export: true
+
+  - name: latency_proposal_delay_export
+    script: .testnet/scenarios/perf/ce_export_latency_probe.py
+    params:
+      warmup_ledgers: 3
+      ledgers: 8
+      submit_export: true
+    network:
+      rc:
+        - rng_poll_ms=250
+        - delay=100,jitter=25,msg=proposal
+
+  - name: latency_directed_pair_delay_export
+    script: .testnet/scenarios/perf/ce_export_latency_probe.py
+    params:
+      warmup_ledgers: 3
+      ledgers: 8
+      submit_export: true
+    network:
+      rc:
+        - rng_poll_ms=250
+        - n0@n2:delay=750,jitter=100,msg=proposal
+        - n2@n0:delay=750,jitter=100,msg=proposal
+
+  - name: latency_slow_minority_export
+    script: .testnet/scenarios/perf/ce_export_latency_probe.py
+    params:
+      warmup_ledgers: 3
+      ledgers: 8
+      submit_export: true
+      export_timeout: 120
+    network:
+      rc:
+        - rng_poll_ms=250
+        - n3@n0:delay=500,jitter=100,msg=proposal
+        - n3@n1:delay=500,jitter=100,msg=proposal
+        - n3@n2:delay=500,jitter=100,msg=proposal
+        - n4@n0:delay=500,jitter=100,msg=proposal
+        - n4@n1:delay=500,jitter=100,msg=proposal
+        - n4@n2:delay=500,jitter=100,msg=proposal
+        - n0@n3:delay=500,jitter=100,msg=proposal
+        - n1@n3:delay=500,jitter=100,msg=proposal
+        - n2@n3:delay=500,jitter=100,msg=proposal
+        - n0@n4:delay=500,jitter=100,msg=proposal
+        - n1@n4:delay=500,jitter=100,msg=proposal
+        - n2@n4:delay=500,jitter=100,msg=proposal
+
+  - name: latency_export_no_veto_with_delay
+    script: .testnet/scenarios/export/export_no_veto_missing_observation.py
+    network:
+      rc:
+        - rng_poll_ms=250
+        - delay=300,jitter=100,msg=proposal
+        - n4:no_export_sig_hash=true
