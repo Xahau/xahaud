@@ -23,7 +23,6 @@
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
-#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
@@ -1742,15 +1741,22 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     if (!isTrusted && app_.config().RELAY_UNTRUSTED_PROPOSALS == -1)
         return;
 
-    bool openLedgerLoaded = false;
-    std::shared_ptr<OpenView const> openLedger;
+    uint256 const prevLedger{set.previousledger()};
+
+    bool prevLedgerLoaded = false;
+    std::shared_ptr<Ledger const> proposalParent;
     auto const featureEnabled = [&](uint256 const& feature) {
-        if (!openLedgerLoaded)
+        if (!prevLedgerLoaded)
         {
-            openLedger = app_.openLedger().current();
-            openLedgerLoaded = true;
+            proposalParent = app_.getLedgerMaster().getLedgerByHash(prevLedger);
+            prevLedgerLoaded = true;
         }
-        return openLedger && openLedger->rules().enabled(feature);
+        // Extension material is scoped to the proposal parent ledger, not the
+        // receiver's current open ledger. If that parent is not locally
+        // available yet, avoid rejecting at ingress on a node-local fetch gap;
+        // consensus alignment will still determine whether the proposal is
+        // usable for the active round.
+        return !proposalParent || proposalParent->rules().enabled(feature);
     };
     auto const precheck = detail::checkProposalExtensions(
         set,
@@ -1764,8 +1770,6 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         return;
     }
     auto const& parsedPosition = *precheck.position;
-
-    uint256 const prevLedger{set.previousledger()};
 
     NetClock::time_point const closeTime{NetClock::duration{set.closetime()}};
 
