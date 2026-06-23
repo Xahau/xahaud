@@ -203,6 +203,12 @@ set is labeled `validator_quorum`; if it is below `quorumThreshold()` but reache
 back. `quorumThreshold()` is 80% of the effective active view; `tier2Threshold()`
 is the intersection-safe floor over the original pre-nUNL view.
 
+Under nUNL, exact integer thresholds can cross either way. For example, a
+20-validator original view with five disabled validators has effective quorum
+12 but participant threshold 13. That only changes which threshold dominates
+the proceed gate; the final tier label is still derived from the agreed entropy
+set count by the ladder above.
+
 In both label cases, a below-threshold minority can advertise a conflicting or
 unacquirable entropy hash without vetoing the aligned cohort.
 

@@ -260,10 +260,11 @@ ConsensusExtensions::entropyGateThreshold() const
     // entropy conflict gate resolves: the lowest ENABLED accepted tier's
     // threshold. In the normal band tier2Threshold (~0.6*original) < quorum
     // (0.8*effective), so this is the participant-alignment floor and
-    // sub-quorum rounds reach injection; under heavy nUNL the band collapses
-    // (tier2 >= quorum) and this is the 80% quorum, so only validator_quorum
-    // survives. This governs proceed-vs-fall-back only. Non-fallback tier
-    // labels are allowed only when the round view is anchored by UNLReport; the
+    // sub-quorum rounds reach injection. Under nUNL the exact integer
+    // thresholds can cross either way; that only changes which threshold lets
+    // the pipeline proceed. Final tier labels are computed later from the
+    // agreed entropy set count in selectEntropy(). Non-fallback tier labels are
+    // allowed only when the round view is anchored by UNLReport; the
     // trusted-fallback view is local configuration and selectEntropy() maps it
     // to consensus_fallback.
     return std::min(quorumThreshold(), tier2Threshold());
