@@ -70,9 +70,12 @@ async def scenario(ctx, log):
             "(need 4 for 80% quorum) -- check runtime_config no_export_sig"
         )
 
-    # Should be tecEXPORT_EXPIRED (LLS reached without quorum)
+    # Should be tecEXPORT_EXPIRED (LLS reached without quorum). Be exact here:
+    # any other non-success means the retry/expiry boundary regressed.
     if engine_result != "tecEXPORT_EXPIRED":
-        log(f"WARNING: expected tecEXPORT_EXPIRED, got {engine_result}")
+        raise AssertionError(
+            f"Expected tecEXPORT_EXPIRED below quorum, got {engine_result}"
+        )
 
     log(f"Export failed as expected ({engine_result})")
 

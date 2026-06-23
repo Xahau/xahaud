@@ -84,6 +84,11 @@ async def scenario(ctx, log, expect_success=True):
             raise AssertionError(
                 "Export should NOT have succeeded below active-view quorum"
             )
+        if engine_result != "tecEXPORT_EXPIRED":
+            raise AssertionError(
+                "Expected tecEXPORT_EXPIRED below active-view quorum, "
+                f"got {engine_result}"
+            )
         log(f"Export failed as expected ({engine_result})")
 
         # No shadow ticket should exist

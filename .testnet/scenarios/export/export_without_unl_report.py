@@ -58,8 +58,13 @@ async def scenario(ctx, log):
             "Export should not succeed without a ledger-anchored UNLReport view"
         )
 
+    # Be exact: without a UNLReport view the export should retry until LLS and
+    # expire, not fail by some unrelated terminal code.
     if engine_result != "tecEXPORT_EXPIRED":
-        log(f"WARNING: expected tecEXPORT_EXPIRED, got {engine_result}")
+        raise AssertionError(
+            "Expected tecEXPORT_EXPIRED without UNLReport view, "
+            f"got {engine_result}"
+        )
 
     warning_logs = ctx.assert_log(
         r"Export: retrying without ledger-anchored validator view",

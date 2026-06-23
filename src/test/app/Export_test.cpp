@@ -909,6 +909,98 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportNetworkLastLedgerSequenceBoundary(FeatureBitset features)
+    {
+        testcase("ttEXPORT network mode LastLedgerSequence boundary");
+
+        using namespace jtx;
+
+        auto applyAtLastLedger = [&](bool withQuorum) {
+            Env env{*this, exportTestConfig(), features};
+
+            Account const alice{"alice"};
+            Account const carol{"carol"};
+
+            env.fund(XRP(10000), alice, carol);
+            env.close();
+
+            auto const& valKeys = env.app().getValidatorKeys();
+            BEAST_EXPECT(valKeys.keys);
+            if (!valKeys.keys)
+                return;
+
+            auto const& valPK = valKeys.keys->publicKey;
+            auto const& valSK = valKeys.keys->secretKey;
+            seedUNLReportLedger(env, {valPK});
+            forceNonStandalone(env.app());
+            BEAST_EXPECT(!env.app().config().standalone());
+
+            auto const parent = env.app().getLedgerMaster().getClosedLedger();
+            auto const applySeq = parent->seq() + 1;
+            auto const ticketSeq =
+                withQuorum ? std::uint32_t{1} : std::uint32_t{2};
+            auto innerObj = buildExportedPayment(
+                alice.id(), carol.id(), applySeq, applySeq, ticketSeq);
+            auto const innerTx = makeSTTx(innerObj);
+            auto jt = makeExportJTx(env, alice, innerObj, applySeq);
+            auto const exportTx = jt.stx;
+            BEAST_EXPECT(exportTx);
+            if (!exportTx)
+                return;
+            auto const txHash = exportTx->getTransactionID();
+
+            auto& ce = env.app().getConsensusExtensions();
+            ce.setExportEnabledThisRound(true);
+            ce.cacheUNLReport(parent);
+            auto const view = ce.activeValidatorView();
+            BEAST_EXPECT(view->fromUNLReport);
+            ce.cacheConsensusTxSet(makeRCLTxSet(env.app(), {exportTx}));
+
+            if (withQuorum)
+            {
+                auto const sig =
+                    ExportResultBuilder::signExportedTxn(innerTx, valPK, valSK);
+                ce.exportSigCollector().addVerifiedSignature(
+                    txHash, valPK, sig, applySeq);
+                auto const agreedHash = ce.buildExportSigSet(applySeq);
+                BEAST_EXPECT(ce.isSidecarSet(agreedHash));
+            }
+
+            auto next = std::make_shared<Ledger>(
+                *parent, env.app().timeKeeper().closeTime());
+            BEAST_EXPECT(next->seq() == applySeq);
+            OpenView accum(&*next);
+            auto const result = ripple::apply(
+                env.app(), accum, *exportTx, tapNONE, env.journal);
+
+            if (withQuorum)
+            {
+                BEAST_EXPECT(result.ter == tesSUCCESS);
+                BEAST_EXPECT(result.applied);
+                accum.apply(*next);
+                BEAST_EXPECT(
+                    next->read(keylet::shadowTicket(alice.id(), ticketSeq)));
+            }
+            else
+            {
+                BEAST_EXPECT(result.ter == tecEXPORT_EXPIRED);
+                // tecEXPORT_EXPIRED is a terminal tec result: it applies to
+                // consume the sequence/fee, but must not create export state.
+                BEAST_EXPECT(result.applied);
+                accum.apply(*next);
+                BEAST_EXPECT(
+                    !next->read(keylet::shadowTicket(alice.id(), ticketSeq)));
+            }
+        };
+
+        // Quorum at ledger == LastLedgerSequence still succeeds; no quorum at
+        // the same boundary expires cleanly instead of falling through to a
+        // later tefMAX_LEDGER preclaim.
+        applyAtLastLedger(true);
+        applyAtLastLedger(false);
+    }
+
+    void
     testOpenLedgerExportLimit(FeatureBitset features)
     {
         testcase("ttEXPORT open ledger limit");
@@ -1358,6 +1450,7 @@ struct Export_test : public beast::unit_test::suite
         testExportNetworkRetryWithoutQuorum(allWithExport);
         testExportNetworkApplyUsesAgreedSidecar(allWithExport);
         testExportNetworkRetryWithoutUNLReport(allWithExport);
+        testExportNetworkLastLedgerSequenceBoundary(allWithExport);
         testOpenLedgerExportLimit(allWithExport);
         testShadowTicketLimit(allWithExport);
         testShadowTicketLifecycle(allWithExport);
