@@ -819,6 +819,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!unpublishedState.quorumAligned(1));
         BEAST_EXPECT(unpublishedState.fullObservation());
 
+        //@@start test-sidecar-active-view-filter
         // F1: the alignment-counting universe must be the active validator
         // view, not the full trusted-proposer set. A trusted-but-non-active
         // proposer (node 5) that tx-converges and aligns on the SAME hash must
@@ -860,6 +861,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             [](auto const&) {});
         BEAST_EXPECT(!nonActiveLocal.localPublished);
         BEAST_EXPECT(nonActiveLocal.alignedParticipants() == 1);  // node 1 only
+        //@@end test-sidecar-active-view-filter
     }
 
     void

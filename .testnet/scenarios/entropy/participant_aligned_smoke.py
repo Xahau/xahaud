@@ -92,6 +92,7 @@ async def scenario(ctx, log):
         )
     log(f"5/6: validator_quorum at validated seq {t3_seq}")
 
+    #@@start test-participant-aligned-window
     # --- 4/6: participant_aligned (Tier 2) degraded window ---
     ctx.stop_node(4)
     await ctx.wait_for_nodes_down(nodes=[4], timeout=30)
@@ -141,6 +142,7 @@ async def scenario(ctx, log):
             "ledger)"
         )
     log(f"4/6: {tier2_on_ledger} participant_aligned closed ledger(s) verified")
+    #@@end test-participant-aligned-window
 
     # --- Recovery: liveness — validation resumes once quorum is restored ---
     ctx.start_node(4)
