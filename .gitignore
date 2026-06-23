@@ -130,5 +130,9 @@ generated
 # AI docs (local working documents)
 .ai-docs/
 
+# Local formal-methods workspace; kept as a separate repository and optionally
+# symlinked here for navigation.
+formal/lean/xahau_consensus
+
 # Suggested in-tree build directory
 /.build/
