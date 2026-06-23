@@ -152,21 +152,36 @@ public:
     std::optional<ConsensusTestConfig>
     getConsensusTestConfig() const;
 
-    /** Set daemon-wide consensus/export test config. */
+    /** Set daemon-wide consensus/export test config.
+
+        Direct setters are for in-process tests and test harnesses. External
+        env/RPC mutation is compile-gated; production code should not call
+        these as a runtime configuration surface.
+    */
     void
     setGlobalConfig(ConsensusTestConfig const& cfg);
 
     void
     clearGlobalConfig();
 
-    /** Set default peer send fault config. */
+    /** Set default peer send fault config.
+
+        Direct setters are for in-process tests and test harnesses. External
+        env/RPC mutation is compile-gated; production code should not call
+        these as a runtime configuration surface.
+    */
     void
     setPeerDefaults(PeerFaultConfig const& cfg);
 
     void
     clearPeerDefaults();
 
-    /** Set config for one peer key (without the "peer:" prefix). */
+    /** Set config for one peer key (without the "peer:" prefix).
+
+        Direct setters are for in-process tests and test harnesses. External
+        env/RPC mutation is compile-gated; production code should not call
+        these as a runtime configuration surface.
+    */
     void
     setPeerConfig(std::string const& peerAddress, PeerFaultConfig const& cfg);
 

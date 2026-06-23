@@ -352,6 +352,18 @@ xport(
 extern int64_t
 xport_cancel(uint32_t ticket_seq);
 
+/*
+    Consensus entropy APIs.
+
+    min_tier is a fail-closed floor:
+      1 = consensus_fallback, 2 = participant_aligned, 3 = validator_quorum.
+    min_count is the minimum validator/reveal count the caller accepts.
+
+    If the most recent finalized entropy object does not satisfy both floors,
+    these APIs return TOO_LITTLE_ENTROPY. Open-ledger and simulate execution
+    are provisional previews over the entropy currently visible to the node;
+    final ordered ledger execution may see a different entropy object.
+*/
 extern int64_t
 dice(uint32_t sides, uint32_t min_tier, uint32_t min_count);
 
