@@ -95,8 +95,16 @@ if [[ "$4" == "" ]]; then
   echo "Non GH, local building, no Action runner magic"
 else
   # GH Action, runner
-  cp /io/release-build/xahaud /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
-  cp /io/release-build/release.info /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4.releaseinfo
+    if [[ "$(git rev-parse --abbrev-ref HEAD)" == "release" ]]; then
+        echo "building on the release branch... placing it in builds/candidate"
+        mkdir /data/builds/candidate
+        cp /io/release-build/xahaud /data/builds/candidate/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
+        cp /io/release-build/release.info /data/builds/candidate/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4.releaseinfo
+    else
+        echo "building non-release branch, placing it in builds root"
+        cp /io/release-build/xahaud /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
+        cp /io/release-build/release.info /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4.releaseinfo
+    fi  
   echo "Published build to: http://build.xahau.tech/"
   echo $(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
 fi
