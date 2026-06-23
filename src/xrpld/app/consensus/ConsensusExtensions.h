@@ -223,6 +223,9 @@ public:
     exportEnabled() const;
 
     bool
+    suppressExportSigSetHash() const;
+
+    bool
     bootstrapFastStartEnabled() const;
 
     uint256

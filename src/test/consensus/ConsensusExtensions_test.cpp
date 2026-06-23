@@ -374,6 +374,12 @@ struct FakeExtensions
         return exportOn;
     }
 
+    bool
+    suppressExportSigSetHash() const
+    {
+        return false;
+    }
+
     std::size_t
     quorumThreshold() const
     {
@@ -1102,15 +1108,20 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
 
         BEAST_EXPECT(!ce.bootstrapFastStartEnabled());
+        BEAST_EXPECT(!ce.suppressExportSigSetHash());
 
         ConsensusTestConfig cfg;
         cfg.bootstrapFastStart = true;
+        cfg.noExportSigHash = true;
         env.app().getRuntimeConfig().setGlobalConfig(cfg);
         BEAST_EXPECT(ce.bootstrapFastStartEnabled());
+        BEAST_EXPECT(ce.suppressExportSigSetHash());
 
         cfg.bootstrapFastStart = false;
+        cfg.noExportSigHash = false;
         env.app().getRuntimeConfig().setGlobalConfig(cfg);
         BEAST_EXPECT(!ce.bootstrapFastStartEnabled());
+        BEAST_EXPECT(!ce.suppressExportSigSetHash());
     }
 
     void

@@ -396,6 +396,12 @@ struct Peer
             return enableExportConsensus_;
         }
 
+        bool
+        suppressExportSigSetHash() const
+        {
+            return false;
+        }
+
         std::size_t
         quorumThreshold() const
         {

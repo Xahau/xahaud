@@ -95,13 +95,17 @@ struct ConsensusTestConfig
     std::optional<int> rngPollMs;
     // Disable export signature attachment (testing sub-quorum scenarios).
     std::optional<bool> noExportSig;
+    // Withhold exportSigSetHash publication while still attaching export
+    // signatures (testing no-veto missing-observation scenarios).
+    std::optional<bool> noExportSigHash;
 
     bool
     active() const
     {
         return (rngClaimDropPctX100 && *rngClaimDropPctX100 > 0) ||
             (bootstrapFastStart && *bootstrapFastStart) || rngPollMs ||
-            (noExportSig && *noExportSig);
+            (noExportSig && *noExportSig) ||
+            (noExportSigHash && *noExportSigHash);
     }
 };
 

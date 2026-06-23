@@ -244,7 +244,8 @@ bool
 isGlobalField(std::string const& name)
 {
     return name == "rng_claim_drop_pct" || name == "bootstrap_fast_start" ||
-        name == "rng_poll_ms" || name == "no_export_sig";
+        name == "rng_poll_ms" || name == "no_export_sig" ||
+        name == "no_export_sig_hash";
 }
 
 bool
@@ -437,6 +438,13 @@ parseConsensusTestConfig(Json::Value const& v, std::string& error)
                 return std::nullopt;
             cfg.noExportSig = parsed;
         }
+        else if (name == "no_export_sig_hash")
+        {
+            bool parsed = false;
+            if (!parseBool(v[name], name, parsed, error))
+                return std::nullopt;
+            cfg.noExportSigHash = parsed;
+        }
     }
     return cfg;
 }
@@ -507,6 +515,8 @@ consensusTestConfigJson(ConsensusTestConfig const& cfg)
         entry["rng_poll_ms"] = *cfg.rngPollMs;
     if (cfg.noExportSig.has_value())
         entry["no_export_sig"] = *cfg.noExportSig;
+    if (cfg.noExportSigHash.has_value())
+        entry["no_export_sig_hash"] = *cfg.noExportSigHash;
     return entry;
 }
 }  // namespace

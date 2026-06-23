@@ -551,6 +551,13 @@ ConsensusExtensions::exportEnabled() const
 }
 
 bool
+ConsensusExtensions::suppressExportSigSetHash() const
+{
+    auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();
+    return cfg && cfg->noExportSigHash.has_value() && *cfg->noExportSigHash;
+}
+
+bool
 ConsensusExtensions::bootstrapFastStartEnabled() const
 {
     auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();

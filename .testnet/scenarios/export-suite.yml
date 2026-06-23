@@ -48,6 +48,13 @@ tests:
         - Export
       unl_report: false
 
+  - name: export_no_veto_missing_observation
+    script: .testnet/scenarios/export/export_no_veto_missing_observation.py
+    network:
+      node_env:
+        4:
+          XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333,"no_export_sig_hash":true}}}'
+
   # CE + Export: 1 node suppressed, 4/5 = 80% quorum, should succeed
   - name: export_ce_one_node_down
     script: .testnet/scenarios/export/export_quorum.py

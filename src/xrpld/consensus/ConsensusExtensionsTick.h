@@ -1024,19 +1024,39 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             auto const exportHash = ext.buildExportSigSet(buildSeqExport);
 
             auto currentPos = ctx.getPosition();
-            bool const publishedNewHash = !currentPos.exportSigSetHash ||
-                *currentPos.exportSigSetHash != exportHash;
-            if (publishedNewHash)
+            bool publishedNewHash = false;
+            if (ext.suppressExportSigSetHash())
             {
-                currentPos.exportSigSetHash = exportHash;
-                ctx.updatePosition(currentPos);
+                if (currentPos.exportSigSetHash)
+                {
+                    currentPos.exportSigSetHash.reset();
+                    ctx.updatePosition(currentPos);
 
-                if (ctx.mode == ConsensusMode::proposing)
-                    ctx.propose();
+                    if (ctx.mode == ConsensusMode::proposing)
+                        ctx.propose();
+                }
 
                 JLOG(ext.j_.debug())
-                    << "Export: published exportSigSetHash"
+                    << "Export: withholding exportSigSetHash"
+                    << " reason=runtime-config-noExportSigHash"
                     << " buildSeq=" << buildSeqExport << " hash=" << exportHash;
+            }
+            else
+            {
+                publishedNewHash = !currentPos.exportSigSetHash ||
+                    *currentPos.exportSigSetHash != exportHash;
+                if (publishedNewHash)
+                {
+                    currentPos.exportSigSetHash = exportHash;
+                    ctx.updatePosition(currentPos);
+
+                    if (ctx.mode == ConsensusMode::proposing)
+                        ctx.propose();
+
+                    JLOG(ext.j_.debug()) << "Export: published exportSigSetHash"
+                                         << " buildSeq=" << buildSeqExport
+                                         << " hash=" << exportHash;
+                }
             }
             //@@end export-publish-sigset-hash
 
@@ -1123,6 +1143,19 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " txConverged=" << exportState.txConverged;
                 }
                 //@@end export-no-veto-quorum-branch
+                else if (quorumAligned() && !exportState.fullObservation())
+                {
+                    JLOG(ext.j_.info())
+                        << "Export: missing exportSigSetHash observation "
+                           "ignored"
+                        << " reason=quorum-aligned"
+                        << " buildSeq=" << buildSeqExport
+                        << " alignedParticipants="
+                        << exportState.alignedParticipants()
+                        << " quorum=" << exportQuorum
+                        << " peersSeen=" << exportState.peersSeen
+                        << " txConverged=" << exportState.txConverged;
+                }
                 else if (exportState.conflict || !quorumAligned())
                 {
                     auto const elapsed =
