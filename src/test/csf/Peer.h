@@ -33,7 +33,6 @@
 #include <xrpl/beast/utility/WrappedSink.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <boost/container/flat_map.hpp>
-#include <boost/container/flat_set.hpp>
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -366,6 +365,18 @@ struct Peer
         // Optional test hook: force a specific export sig-set hash
         std::optional<uint256> forcedExportSigSetHash_;
 
+        struct ProposalSidecarOverrides
+        {
+            std::optional<uint256> commitSetHash;
+            std::optional<uint256> entropySetHash;
+            std::optional<uint256> exportSigSetHash;
+        };
+
+        // Optional test hooks: send recipient-specific sidecar hashes in
+        // proposals. These model Byzantine equivocation without changing
+        // normal CSF broadcast behavior.
+        hash_map<PeerID, ProposalSidecarOverrides> equivocateSidecarsTo_;
+
         // Optional test hook: drop reveals from specific peers
         // (simulates asymmetric reveal delivery / packet loss)
         hash_set<PeerID> dropRevealFrom_;
@@ -600,6 +611,45 @@ struct Peer
             fetchRngSetIfNeeded(pos.commitSetHash, SidecarKind::commit);
             fetchRngSetIfNeeded(pos.entropySetHash, SidecarKind::reveal);
             fetchRngSetIfNeeded(pos.exportSigSetHash, SidecarKind::exportSig);
+        }
+
+        Proposal
+        proposalWithRecipientSidecarHashes(
+            Proposal const& proposal,
+            PeerID recipient) const
+        {
+            auto position = proposal.position();
+            auto const it = equivocateSidecarsTo_.find(recipient);
+            if (it == equivocateSidecarsTo_.end())
+                return proposal;
+
+            if (it->second.commitSetHash)
+                position.commitSetHash = it->second.commitSetHash;
+            if (it->second.entropySetHash)
+                position.entropySetHash = it->second.entropySetHash;
+            if (it->second.exportSigSetHash)
+                position.exportSigSetHash = it->second.exportSigSetHash;
+
+            return Proposal{
+                proposal.prevLedger(),
+                proposal.proposeSeq(),
+                position,
+                proposal.closeTime(),
+                proposal.seenTime(),
+                proposal.nodeID()};
+        }
+
+        bc::flat_map<PeerID, Proposal>
+        proposalEquivocations(Proposal const& proposal) const
+        {
+            bc::flat_map<PeerID, Proposal> out;
+            for (auto const& [recipient, _] : equivocateSidecarsTo_)
+            {
+                out.emplace(
+                    recipient,
+                    proposalWithRecipientSidecarHashes(proposal, recipient));
+            }
+            return out;
         }
 
         void
@@ -1485,6 +1535,16 @@ struct Peer
         send(BroadcastMesg<M>{m, router.nextSeq++, this->id}, this->id);
     }
 
+    void
+    share(Proposal const& p)
+    {
+        issue(Share<Proposal>{p});
+        send(
+            BroadcastMesg<Proposal>{
+                p, router.nextSeq++, this->id, ce().proposalEquivocations(p)},
+            this->id);
+    }
+
     // Unwrap the Position and share the raw proposal
     void
     share(Position const& p)
@@ -1554,6 +1614,10 @@ struct Peer
         M mesg;
         std::size_t seq;
         PeerID origin;
+        // Optional origin-authored recipient-specific messages. Used only by
+        // tests that model Byzantine equivocation; relays preserve the map so
+        // each recipient sees the origin's intended variant regardless of path.
+        bc::flat_map<PeerID, M> recipientMessages = {};
     };
 
     struct Router
@@ -1577,12 +1641,19 @@ struct Peer
                 // used on the other end
                 if (link.target->router.lastObservedSeq[bm.origin] < bm.seq)
                 {
-                    issue(Relay<M>{link.target->id, bm.mesg});
+                    auto outbound = bm;
+                    if (auto const it =
+                            bm.recipientMessages.find(link.target->id);
+                        it != bm.recipientMessages.end())
+                    {
+                        outbound.mesg = it->second;
+                    }
+                    issue(Relay<M>{link.target->id, outbound.mesg});
                     net.send(
                         this,
                         link.target,
-                        [to = link.target, bm, id = this->id] {
-                            to->receive(bm, id);
+                        [to = link.target, outbound, id = this->id] {
+                            to->receive(outbound, id);
                         });
                 }
             }

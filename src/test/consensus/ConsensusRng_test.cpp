@@ -860,6 +860,85 @@ public:
     }
 
     void
+    testRngEntropyRejectsEquivocatedSplitMajorities()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG entropy rejects equivocated split majorities");
+
+        // Five active validators. Peer 2 equivocates: left peers see it
+        // advertise H-left, right peers see it advertise H-right. Each side
+        // locally observes 2 honest peers + the equivocator = 3/5. A strict
+        // majority or naive ceil(0.6*n) threshold would admit both sides; the
+        // real participant threshold is 4/5, so both sides must fall back.
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup peers = sim.createGroup(5);
+        PeerGroup left{std::vector<Peer*>{peers[0], peers[1]}};
+        Peer* equivocator = peers[2];
+        PeerGroup right{std::vector<Peer*>{peers[3], peers[4]}};
+        PeerGroup honest = left + right;
+
+        for (Peer* peer : peers)
+            peer->ce().enableRngConsensus_ = true;
+
+        auto const fast = round<milliseconds>(0.2 * parms.ledgerGRANULARITY);
+        peers.trustAndConnect(peers, fast);
+
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
+        left.disconnect(right);
+
+        auto const leftHash = sha512Half(std::string("entropy-equiv-left"));
+        auto const rightHash = sha512Half(std::string("entropy-equiv-right"));
+        for (Peer* peer : left)
+            peer->ce().forcedEntropySetHash_ = leftHash;
+        for (Peer* peer : right)
+            peer->ce().forcedEntropySetHash_ = rightHash;
+
+        for (Peer* peer : left)
+            equivocator->ce().equivocateSidecarsTo_[peer->id].entropySetHash =
+                leftHash;
+        for (Peer* peer : right)
+            equivocator->ce().equivocateSidecarsTo_[peer->id].entropySetHash =
+                rightHash;
+
+        sim.sidecarStore.publish(
+            leftHash,
+            SidecarStore::Type::reveal,
+            SidecarStore::EntrySet{
+                {peers[0]->id, sha512Half(std::string("left-0"))},
+                {peers[1]->id, sha512Half(std::string("left-1"))},
+                {equivocator->id, sha512Half(std::string("left-equiv"))}});
+        sim.sidecarStore.publish(
+            rightHash,
+            SidecarStore::Type::reveal,
+            SidecarStore::EntrySet{
+                {equivocator->id, sha512Half(std::string("right-equiv"))},
+                {peers[3]->id, sha512Half(std::string("right-3"))},
+                {peers[4]->id, sha512Half(std::string("right-4"))}});
+
+        sim.run(3);
+
+        for (Peer const* peer : honest)
+        {
+            BEAST_EXPECT(peer->ce().lastEntropyWasFallback_);
+            BEAST_EXPECT(peer->ce().lastEntropyTier_ == 1);
+            BEAST_EXPECT(peer->ce().lastEntropyCount_ == 0);
+            BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
+        }
+        BEAST_EXPECT(
+            peers[0]->ce().lastEntropyDigest_ ==
+            peers[1]->ce().lastEntropyDigest_);
+        BEAST_EXPECT(
+            peers[3]->ce().lastEntropyDigest_ ==
+            peers[4]->ce().lastEntropyDigest_);
+    }
+
+    void
     testRngFastPathDoesNotOutrunPeerObservation()
     {
         using namespace csf;
@@ -1061,6 +1140,7 @@ public:
         RUN(testRngEntropyFallbackOnMajorRevealLoss);
         RUN(testRngSingleByzantineCannotDenyEntropy);
         RUN(testRngEntropyHashConflictWithoutQuorumFallsBackToZero);
+        RUN(testRngEntropyRejectsEquivocatedSplitMajorities);
         RUN(testRngFastPathDoesNotOutrunPeerObservation);
         RUN(testRngNoEntropyWithoutPeerAlignment);
         RUN(testRngAlignmentRequiredForNonZeroEntropy);
@@ -1269,6 +1349,69 @@ public:
     }
 
     void
+    testExportSigSetRejectsEquivocatedSplitMajorities()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("Export sig set rejects equivocated split majorities");
+
+        // Same shape as the entropy equivocation test: 2 honest validators on
+        // each side, one equivocator advertising a matching sidecar hash to
+        // each side. Each side sees 3/5 aligned, which must remain below the
+        // export quorum threshold of 4/5.
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup peers = sim.createGroup(5);
+        PeerGroup left{std::vector<Peer*>{peers[0], peers[1]}};
+        Peer* equivocator = peers[2];
+        PeerGroup right{std::vector<Peer*>{peers[3], peers[4]}};
+        PeerGroup honest = left + right;
+
+        for (Peer* peer : peers)
+            peer->ce().enableExportConsensus_ = true;
+
+        auto const fast = round<milliseconds>(0.2 * parms.ledgerGRANULARITY);
+        peers.trustAndConnect(peers, fast);
+
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
+        left.disconnect(right);
+
+        auto const leftHash = sha512Half(std::string("export-equiv-left"));
+        auto const rightHash = sha512Half(std::string("export-equiv-right"));
+        for (Peer* peer : left)
+        {
+            peer->ce().forcedExportSigSetHash_ = leftHash;
+            for (Peer const* blocked : right)
+                peer->ce().dropExportSigFrom_.insert(blocked->id);
+        }
+        for (Peer* peer : right)
+        {
+            peer->ce().forcedExportSigSetHash_ = rightHash;
+            for (Peer const* blocked : left)
+                peer->ce().dropExportSigFrom_.insert(blocked->id);
+        }
+
+        for (Peer* peer : left)
+            equivocator->ce().equivocateSidecarsTo_[peer->id].exportSigSetHash =
+                leftHash;
+        for (Peer* peer : right)
+            equivocator->ce().equivocateSidecarsTo_[peer->id].exportSigSetHash =
+                rightHash;
+
+        sim.run(3);
+
+        for (Peer const* peer : honest)
+        {
+            BEAST_EXPECT(!peer->ce().lastExportSucceeded_);
+            BEAST_EXPECT(peer->ce().lastExportRetried_);
+        }
+    }
+
+    void
     run() override
     {
         auto const* filter = std::getenv("XAHAU_EXPORT_TEST");
@@ -1286,6 +1429,7 @@ public:
         RUN(testExportOnlyFetchesPeerAdvertisedSigSet);
         RUN(testExportSigSetQuorumAlignmentIgnoresMinorityConflict);
         RUN(testExportSigSetConflictWithoutQuorumRetries);
+        RUN(testExportSigSetRejectsEquivocatedSplitMajorities);
 
 #undef RUN
     }
