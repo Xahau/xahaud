@@ -39,6 +39,15 @@ tests:
         4:
           XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333,"no_export_sig":true}}}'
 
+  - name: export_without_unl_report
+    script: .testnet/scenarios/export/export_without_unl_report.py
+    network:
+      features:
+        - Export
+      track_features:
+        - Export
+      unl_report: false
+
   # CE + Export: 1 node suppressed, 4/5 = 80% quorum, should succeed
   - name: export_ce_one_node_down
     script: .testnet/scenarios/export/export_quorum.py
