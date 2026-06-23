@@ -18,7 +18,8 @@ defaults:
       NetworkOPs: info
     env:
       XAHAU_RESOURCE_PER_PORT: "1"
-      XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333}}}'
+    rc:
+      - rng_poll_ms=333
 
 tests:
   - name: steady_state_entropy

@@ -205,6 +205,21 @@ makeRawSidecarSet(Application& app, std::string const& raw)
     return map->snapShot(false);
 }
 
+STObject
+makeExportSigSidecar(
+    uint256 const& txHash,
+    PublicKey const& publicKey,
+    Slice signature)
+{
+    STObject sidecar(sfGeneric);
+    sidecar.setFieldU8(sfSidecarType, sidecarExportSig);
+    sidecar.setFieldH256(sfTransactionHash, txHash);
+    sidecar.setFieldVL(sfSigningPubKey, publicKey.slice());
+    if (!signature.empty())
+        sidecar.setFieldVL(sfTxnSignature, signature);
+    return sidecar;
+}
+
 void
 publishAndFetchSidecarSet(
     Application& app,
@@ -1733,6 +1748,107 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExportSidecarRejectsInvalidFetchedEntries()
+    {
+        testcase("Export sidecar rejects invalid fetched entries");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& valPK = valKeys.keys->publicKey;
+        auto const& valSK = valKeys.keys->secretKey;
+        auto const signerAccount = calcAccountID(valPK);
+        auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
+        auto const innerObj = makeExportedPayment(signerAccount, dst);
+        auto const innerTx = makeSTTx(innerObj);
+        auto const exportTx = makeExportTx(innerObj, signerAccount);
+        auto const txHash = exportTx->getTransactionID();
+        auto const txSet = makeRCLTxSet(env.app(), {exportTx});
+
+        auto const sigData = buildMultiSigningData(innerTx, signerAccount);
+        auto const sig = sign(valPK, valSK, sigData.slice());
+        Buffer const validSig(sig.data(), sig.size());
+        std::uint8_t const invalidBytes[] = {0x30, 0x03, 0x01, 0x02, 0x03};
+        Buffer const invalidSig{invalidBytes, sizeof(invalidBytes)};
+
+        auto expectRejected = [&](ConsensusExtensions& ce,
+                                  std::shared_ptr<SHAMap> const& map,
+                                  uint256 const& expectedTxHash,
+                                  PublicKey const& expectedSigner) {
+            publishAndFetchSidecarSet(
+                env.app(),
+                ce,
+                map,
+                ConsensusExtensions::SidecarKind::exportSig);
+            BEAST_EXPECT(!ce.exportSigCollector().hasVerifiedSignature(
+                expectedTxHash, expectedSigner));
+            BEAST_EXPECT(
+                ce.exportSigCollector().signatureCount(expectedTxHash) == 0);
+        };
+
+        {
+            auto const [inactivePK, _] = randomKeyPair(KeyType::secp256k1);
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            ce.setExportEnabledThisRound(true);
+            ce.cacheUNLReport(ledger);
+            ce.cacheConsensusTxSet(txSet);
+
+            expectRejected(
+                ce,
+                makeSidecarSet(
+                    env.app(),
+                    {makeExportSigSidecar(
+                        txHash,
+                        inactivePK,
+                        Slice(validSig.data(), validSig.size()))}),
+                txHash,
+                inactivePK);
+        }
+
+        {
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            ce.setExportEnabledThisRound(true);
+            ce.cacheUNLReport(ledger);
+            ce.cacheConsensusTxSet(makeRCLTxSet(env.app(), {}));
+
+            expectRejected(
+                ce,
+                makeSidecarSet(
+                    env.app(),
+                    {makeExportSigSidecar(
+                        txHash,
+                        valPK,
+                        Slice(validSig.data(), validSig.size()))}),
+                txHash,
+                valPK);
+        }
+
+        {
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            ce.setExportEnabledThisRound(true);
+            ce.cacheUNLReport(ledger);
+            ce.cacheConsensusTxSet(txSet);
+
+            expectRejected(
+                ce,
+                makeSidecarSet(
+                    env.app(),
+                    {makeExportSigSidecar(
+                        txHash,
+                        valPK,
+                        Slice(invalidSig.data(), invalidSig.size()))}),
+                txHash,
+                valPK);
+        }
+    }
+
+    void
     testExportAgreedSignaturesIgnoreLiveCollectorMutation()
     {
         testcase("Export apply uses agreed sidecar signatures");
@@ -3185,6 +3301,7 @@ public:
         testProposalProofRoundTrip();
         testHarvestRngDataReplacementAndRejection();
         testExportSidecarBuildFetchAndMerge();
+        testExportSidecarRejectsInvalidFetchedEntries();
         testExportAgreedSignaturesIgnoreLiveCollectorMutation();
         testOnPreBuildPreservesExportDecision();
         testRngSidecarBuildFetchAndMerge();

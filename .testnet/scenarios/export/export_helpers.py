@@ -2,16 +2,51 @@
 
 from __future__ import annotations
 
-from xahaud_scripts.testnet.config import feature_name_to_hash
+from xahaud_scripts.testnet.config import _unl_report_index, feature_name_to_hash
 
 
-async def require_export(ctx, log):
-    """Wait for first ledger and assert Export is enabled."""
+async def require_export(
+    ctx, log, *, require_unl_report=True, require_runtime_config=True
+):
+    """Wait for first ledger and assert Export is enabled.
+
+    Network-mode Export success requires a parent-ledger UNLReport-backed
+    active validator view. Most export scenarios seed that report in genesis;
+    assert it here so a success-path test cannot accidentally pass setup
+    without the condition Export::doApply requires. The no-UNLReport retry
+    scenario opts out deliberately.
+
+    The tracked export suite also uses XAHAUD_RUNTIME_TEST_CONFIG for polling
+    and fault-injection knobs. Default binaries reject the runtime_config RPC,
+    so check it up front rather than silently running without those knobs.
+    """
     await ctx.wait_for_ledger_close(timeout=120)
+
+    if require_runtime_config:
+        result = ctx.rpc.runtime_config(0)
+        if not result or result.get("error"):
+            raise AssertionError(
+                "Export suite requires a binary built with "
+                "xahaud_runtime_test_config=ON; runtime_config RPC returned "
+                f"{result}"
+            )
+        log("RuntimeConfig RPC active")
+
     feature = ctx.feature_check(feature_name_to_hash("Export"), node_id=0)
     if not feature or not feature.get("enabled", False):
         raise AssertionError(f"Export not enabled: {feature}")
     log("Export enabled")
+
+    if require_unl_report:
+        result = ctx.rpc.ledger_entry(0, _unl_report_index())
+        node = (result or {}).get("node", {})
+        active = node.get("ActiveValidators", [])
+        if node.get("LedgerEntryType") != "UNLReport" or not active:
+            raise AssertionError(
+                "Export success scenario requires a ledger UNLReport with "
+                f"ActiveValidators, got: {result}"
+            )
+        log(f"UNLReport active validators: {len(active)}")
 
 
 def find_export_txns(ctx, seq):

@@ -20,7 +20,8 @@ defaults:
       NetworkOPs: info
     env:
       XAHAU_RESOURCE_PER_PORT: "1"
-      XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333}}}'
+    rc:
+      - rng_poll_ms=333
 
 tests:
   # --- CE + Export (80% quorum, SHAMap convergence) ---
@@ -33,11 +34,10 @@ tests:
   - name: export_degradation_ce
     script: .testnet/scenarios/export/export_degradation.py
     network:
-      node_env:
-        3:
-          XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333,"no_export_sig":true}}}'
-        4:
-          XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333,"no_export_sig":true}}}'
+      rc:
+        - rng_poll_ms=333
+        - n3:no_export_sig=true
+        - n4:no_export_sig=true
 
   - name: export_without_unl_report
     script: .testnet/scenarios/export/export_without_unl_report.py
@@ -51,9 +51,9 @@ tests:
   - name: export_no_veto_missing_observation
     script: .testnet/scenarios/export/export_no_veto_missing_observation.py
     network:
-      node_env:
-        4:
-          XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333,"no_export_sig_hash":true}}}'
+      rc:
+        - rng_poll_ms=333
+        - n4:no_export_sig_hash=true
 
   # CE + Export: 1 node suppressed, 4/5 = 80% quorum, should succeed
   - name: export_ce_one_node_down
@@ -61,9 +61,9 @@ tests:
     params:
       expect_success: true
     network:
-      node_env:
-        4:
-          XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333,"no_export_sig":true}}}'
+      rc:
+        - rng_poll_ms=333
+        - n4:no_export_sig=true
 
   # --- Export only, no CE (80% active-view quorum) ---
   - name: export_only_all_up
@@ -85,9 +85,9 @@ tests:
         - Export
       track_features:
         - Export
-      node_env:
-        4:
-          XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333,"no_export_sig":true}}}'
+      rc:
+        - rng_poll_ms=333
+        - n4:no_export_sig=true
 
   - name: export_only_two_nodes_down
     script: .testnet/scenarios/export/export_quorum.py
@@ -98,8 +98,7 @@ tests:
         - Export
       track_features:
         - Export
-      node_env:
-        3:
-          XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333,"no_export_sig":true}}}'
-        4:
-          XAHAUD_RUNTIME_TEST_CONFIG: '{"set":{"global":{"rng_poll_ms":333,"no_export_sig":true}}}'
+      rc:
+        - rng_poll_ms=333
+        - n3:no_export_sig=true
+        - n4:no_export_sig=true

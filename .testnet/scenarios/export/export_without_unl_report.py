@@ -12,7 +12,7 @@ from export_helpers import require_export, assert_shadow_ticket
 
 
 async def scenario(ctx, log):
-    await require_export(ctx, log)
+    await require_export(ctx, log, require_unl_report=False)
 
     await ctx.fund_accounts({"alice": 10000, "bob": 1000})
     log("Accounts funded")
