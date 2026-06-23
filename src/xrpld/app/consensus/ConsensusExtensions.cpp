@@ -523,13 +523,13 @@ ConsensusExtensions::selectEntropy(
     auto const digest = sha512Half(s.slice());
     auto const count = static_cast<std::uint16_t>(sorted.size());
 
+    //@@start entropy-selector-tier-ladder
     // Tier ladder over the AGREED participant count — deterministic on every
     // node holding this entropySetHash. quorumThreshold() = ceil(0.8 *
     // effective view); tier2Threshold() = the equivocation-safe intersection
     // floor over the original view (~0.6*n; see calculateParticipantThreshold).
     // Below tier2Threshold too few aligned participants contributed to trust
     // the result — fall back.
-    //@@start entropy-selector-tier-ladder
     if (count >= quorumThreshold())
         return {digest, entropyTierValidatorQuorum, count};
     if (count >= tier2Threshold())

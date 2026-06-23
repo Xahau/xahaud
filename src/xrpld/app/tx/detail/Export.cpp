@@ -172,6 +172,7 @@ Export::doApply()
 
     if (!ctx_.app.config().standalone())
     {
+        //@@start export-doapply-agreed-signature-snapshot
         std::size_t const threshold =
             unlSize == 0 ? 1 : calculateQuorumThreshold(unlSize);
 
@@ -187,6 +188,7 @@ Export::doApply()
             collectedSigs = consensusExtensions.agreedExportSignatures(
                 ctx_.tx, txId, *validatorView, threshold);
         }
+        //@@end export-doapply-agreed-signature-snapshot
 
         if (!collectedSigs)
         {
@@ -228,6 +230,7 @@ Export::doApply()
 
             upgradeUnverifiedForNextRound();
 
+            //@@start export-doapply-retry-without-signature-quorum
             JLOG(j_.info())
                 << "Export: insufficient signatures"
                 << " txHash=" << txId << " ledgerSeq=" << currentSeq
@@ -237,6 +240,7 @@ Export::doApply()
                                                                      : "no")
                 << " result=terRETRY_EXPORT";
             return terRETRY_EXPORT;
+            //@@end export-doapply-retry-without-signature-quorum
         }
     }
 
