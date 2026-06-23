@@ -451,6 +451,7 @@ ConsensusExtensions::selectEntropy(
     // different tiers. A non-standalone node therefore mints only
     // consensus_fallback until the round view is ledger-anchored.
     auto const validatorView = activeValidatorView();
+    //@@start entropy-selector-unlreport-gate
     if (!validatorView->fromUNLReport)
     {
         if (validatorView->sourceLedgerHash)
@@ -472,6 +473,7 @@ ConsensusExtensions::selectEntropy(
                         << " roundPrevLedgerHash=" << roundPrevLedgerHash_;
         return fallback();
     }
+    //@@end entropy-selector-unlreport-gate
 
     // No agreed entropy set (round failed, or none was built) → fallback. A
     // sub-quorum-but-aligned set may still qualify for participant_aligned
@@ -527,11 +529,13 @@ ConsensusExtensions::selectEntropy(
     // floor over the original view (~0.6*n; see calculateParticipantThreshold).
     // Below tier2Threshold too few aligned participants contributed to trust
     // the result — fall back.
+    //@@start entropy-selector-tier-ladder
     if (count >= quorumThreshold())
         return {digest, entropyTierValidatorQuorum, count};
     if (count >= tier2Threshold())
         return {digest, entropyTierParticipantAligned, count};
     return fallback();
+    //@@end entropy-selector-tier-ladder
 }
 
 bool

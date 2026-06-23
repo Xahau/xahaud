@@ -1104,6 +1104,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     exportState = inspectExportPeers(ctx.getPosition(), true);
                 }
 
+                //@@start export-no-veto-quorum-branch
                 if (exportState.conflict && quorumAligned())
                 {
                     // Export sidecar roots are signed through ExtendedPosition
@@ -1121,6 +1122,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " peersSeen=" << exportState.peersSeen
                         << " txConverged=" << exportState.txConverged;
                 }
+                //@@end export-no-veto-quorum-branch
                 else if (exportState.conflict || !quorumAligned())
                 {
                     auto const elapsed =
