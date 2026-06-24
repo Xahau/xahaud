@@ -125,10 +125,22 @@ cmake --build build-formal-cmake --target rippled
 
 This path builds `XahauConsensus:static`, links the resulting Lean archive and
 runtime into the test binary, and runs a C++ drift test that compares selected
-Lean formulas against the production C++ implementations. Today the exported
-surface is intentionally small: the Byzantine bound, participant threshold, and
-validator quorum threshold.
+Lean definitions against the production C++ implementations. The exported
+surface is intentionally scalar and reviewable:
+
+- Byzantine bound, participant threshold, and validator quorum threshold.
+- The safety-wrapped zero-view thresholds used by the live gates.
+- The cross-view entropy gate threshold, with effective and original view
+  denominators kept separate.
+- The entropy tier selector policy for `(fromUNLReport, participantCount,
+  effectiveView, originalView)`.
+- Sidecar aligned-participant counting, full-observation, and quorum-aligned
+  predicates.
+- Export's quorum-only proceed predicate, where `fullObservation` is diagnostic
+  rather than success-gating.
+- NegativeUNL cap/effective-view arithmetic.
 
 This is still a model-to-code cross-check, not a proof that the C++ implements
-the Lean model. Its value is narrower and practical: if a production threshold
-formula changes without the formal model changing too, the gated unit test fails.
+the Lean model. Its value is narrower and practical: if a production formula or
+decision ladder changes without the formal model changing too, the gated unit
+test fails.

@@ -267,7 +267,47 @@ ConsensusExtensions::entropyGateThreshold() const
     // allowed only when the round view is anchored by UNLReport; the
     // trusted-fallback view is local configuration and selectEntropy() maps it
     // to consensus_fallback.
-    return std::min(quorumThreshold(), tier2Threshold());
+    auto const view = activeValidatorView();
+    return entropyGateThresholdForView(view->size(), view->originalViewSize);
+}
+
+std::size_t
+ConsensusExtensions::entropyGateThresholdForView(
+    std::size_t effectiveViewSize,
+    std::size_t originalViewSize)
+{
+    auto const quorum = effectiveViewSize == 0
+        ? 1
+        : calculateQuorumThreshold(effectiveViewSize);
+    auto const tier2 = originalViewSize == 0
+        ? 1
+        : calculateParticipantThreshold(originalViewSize);
+    return std::min(quorum, tier2);
+}
+
+EntropyTier
+ConsensusExtensions::selectEntropyTierForView(
+    bool fromUNLReport,
+    std::size_t participantCount,
+    std::size_t effectiveViewSize,
+    std::size_t originalViewSize)
+{
+    if (!fromUNLReport)
+        return entropyTierConsensusFallback;
+
+    auto const quorum = effectiveViewSize == 0
+        ? 1
+        : calculateQuorumThreshold(effectiveViewSize);
+    if (participantCount >= quorum)
+        return entropyTierValidatorQuorum;
+
+    auto const tier2 = originalViewSize == 0
+        ? 1
+        : calculateParticipantThreshold(originalViewSize);
+    if (participantCount >= tier2)
+        return entropyTierParticipantAligned;
+
+    return entropyTierConsensusFallback;
 }
 
 void
@@ -534,10 +574,13 @@ ConsensusExtensions::selectEntropy(
     // floor over the original view (~0.6*n; see calculateParticipantThreshold).
     // Below tier2Threshold too few aligned participants contributed to trust
     // the result — fall back.
-    if (count >= quorumThreshold())
-        return {digest, entropyTierValidatorQuorum, count};
-    if (count >= tier2Threshold())
-        return {digest, entropyTierParticipantAligned, count};
+    auto const tier = selectEntropyTierForView(
+        validatorView->fromUNLReport,
+        count,
+        validatorView->size(),
+        validatorView->originalViewSize);
+    if (tier != entropyTierConsensusFallback)
+        return {digest, static_cast<std::uint8_t>(tier), count};
     return fallback();
     //@@end entropy-selector-tier-ladder
 }

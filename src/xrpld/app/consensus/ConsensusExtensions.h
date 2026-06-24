@@ -13,6 +13,7 @@
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <chrono>
 #include <map>
@@ -173,6 +174,25 @@ public:
     /// this local bar.
     std::size_t
     entropyGateThreshold() const;
+
+    /// Pure threshold helper used by the live gate and optional Lean drift
+    /// tests. `effectiveViewSize` is post-nUNL; `originalViewSize` is the
+    /// pre-nUNL UNLReport active count.
+    static std::size_t
+    entropyGateThresholdForView(
+        std::size_t effectiveViewSize,
+        std::size_t originalViewSize);
+
+    /// Pure selector helper for the tier label only. The digest/count bytes are
+    /// still derived from the agreed entropySetMap_ in selectEntropy(); this
+    /// isolates the policy that says which EntropyTier a given agreed count
+    /// earns under a ledger-anchored validator view.
+    static EntropyTier
+    selectEntropyTierForView(
+        bool fromUNLReport,
+        std::size_t participantCount,
+        std::size_t effectiveViewSize,
+        std::size_t originalViewSize);
 
     void
     setExpectedProposers(hash_set<NodeID> proposers);
