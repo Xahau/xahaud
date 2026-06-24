@@ -284,10 +284,12 @@ operator==(
     ConsensusProposal<NodeID_t, LedgerID_t, Position_t> const& a,
     ConsensusProposal<NodeID_t, LedgerID_t, Position_t> const& b)
 {
+    //@@start consensus-proposal-txset-identity
     return a.nodeID() == b.nodeID() && a.proposeSeq() == b.proposeSeq() &&
         a.prevLedger() == b.prevLedger() &&
         positionTxSetID(a.position()) == positionTxSetID(b.position()) &&
         a.closeTime() == b.closeTime() && a.seenTime() == b.seenTime();
+    //@@end consensus-proposal-txset-identity
 }
 }  // namespace ripple
 #endif

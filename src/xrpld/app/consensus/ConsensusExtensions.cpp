@@ -423,6 +423,7 @@ ConsensusExtensions::selectEntropy(
     uint256 const& baseTxSetHash,
     LedgerIndex seq) const
 {
+    //@@start entropy-selector-fallback
     // Tier 1 fallback: consensus-bound deterministic digest over already-agreed
     // round inputs. baseTxSetHash is the BASE (pre-injection) consensus tx set
     // hash — the digest must never depend on a set that could contain the
@@ -437,6 +438,7 @@ ConsensusExtensions::selectEntropy(
             entropyTierConsensusFallback,
             0};
     };
+    //@@end entropy-selector-fallback
 
     // Standalone/dev: synthetic deterministic entropy so hook dice/random work.
     if (app_.config().standalone())
@@ -569,7 +571,6 @@ ConsensusExtensions::bootstrapFastStartEnabled() const
 uint256
 ConsensusExtensions::buildCommitSet(LedgerIndex seq)
 {
-    //@@start rng-build-commit-set
     // Track the active RNG round explicitly. Nodes in observing/switching
     // mode can have a closed ledger index behind the consensus round while
     // still needing to fetch/merge that round's RNG sets.
@@ -633,13 +634,11 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
                      << " pendingCommits=" << pendingCommits_.size()
                      << " activeValidators=" << validatorView->size();
     return hash;
-    //@@end rng-build-commit-set
 }
 
 uint256
 ConsensusExtensions::buildEntropySet(LedgerIndex seq)
 {
-    //@@start rng-build-entropy-set
     rngRoundSeq_ = seq;
 
     auto map =
@@ -701,7 +700,6 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
                      << " pendingReveals=" << pendingReveals_.size()
                      << " activeValidators=" << validatorView->size();
     return hash;
-    //@@end rng-build-entropy-set
 }
 
 uint256
@@ -1781,7 +1779,7 @@ ConsensusExtensions::onPreBuild(
     // a digest (fallback when there is no validator entropy), so injection is
     // unconditional — every RNG-enabled ledger carries a ConsensusEntropy tx.
     {
-        // Design note: this is the canonical/implicit path that materializes
+        // Design note: this is the canonical path that materializes
         // the synthetic entropy-bearing tx-set in production.
         //
         // Why here (onAccept/buildLCL) instead of mutating proposals earlier?
@@ -1895,7 +1893,7 @@ ConsensusExtensions::harvestRngData(
                      << " proposeSeq=" << proposeSeq
                      << " prevLedger=" << prevLedger;
 
-    //@@start rng-harvest-trust-and-reveal-verification
+    //@@start rng-harvest-active-validator-gate
     // Reject data from validators not in the active UNL
     if (!isUNLReportMember(nodeId))
     {
@@ -1905,6 +1903,7 @@ ConsensusExtensions::harvestRngData(
                          << " prevLedger=" << prevLedger;
         return;
     }
+    //@@end rng-harvest-active-validator-gate
 
     //@@start runtime-rng-claim-drop
     // RuntimeConfig: randomly drop RNG claims for testing
@@ -2030,7 +2029,6 @@ ConsensusExtensions::harvestRngData(
         }
     }
     //@@end rng-harvest-reveal-verification
-    //@@end rng-harvest-trust-and-reveal-verification
 
     // Store proposal proofs for embedding in SHAMap entries.
     // commitProofs_: only seq=0 (commitments always ride on seq=0,

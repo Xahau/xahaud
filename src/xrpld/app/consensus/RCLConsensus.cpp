@@ -599,6 +599,7 @@ RCLConsensus::Adaptor::doAccept(
         ce().clearRngState();
     //@@end accept-time-cleanup-disabled
 
+    //@@start buildlcl-after-extension-state
     auto built = buildLCL(
         prevLedger,
         retriableTxs,
@@ -607,6 +608,7 @@ RCLConsensus::Adaptor::doAccept(
         closeResolution,
         result.roundTime.read(),
         failed);
+    //@@end buildlcl-after-extension-state
     //@@end auxiliary-pre-build-injection
 
     auto const newLCLHash = built.id();

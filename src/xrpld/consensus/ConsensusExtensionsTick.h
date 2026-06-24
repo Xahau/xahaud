@@ -109,7 +109,6 @@ template <class Ext, class Ctx>
 ExtensionTickResult
 extensionsTick(Ext& ext, Ctx const& ctx)
 {
-    //@@start rng-phase-establish-substates
     // --- RNG Sub-state Checkpoints ---
     // These sub-states use union convergence (not avalanche).
     // Commits and reveals arrive piggybacked on proposals, so by the time
@@ -320,6 +319,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             // waiting is worthwhile.
             if (ext.hasQuorumOfCommits())
             {
+                //@@start rng-commit-quorum-transition
                 auto commitSetHash = ext.buildCommitSet(buildSeq);
 
                 // Keep the same entropy secret from onClose() — do NOT
@@ -341,6 +341,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                                      << " commitSetHash=" << commitSetHash
                                      << " commits=" << ext.pendingCommitCount()
                                      << " quorum=" << ext.quorumThreshold();
+                //@@end rng-commit-quorum-transition
                 return {};  // Wait for next tick
             }
 
@@ -626,6 +627,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             !rngBootstrapSkip &&
             ext.estState_ == EstablishState::ConvergingReveal)
         {
+            //@@start rng-reveal-publish-gate
             // Wait for ALL committers to reveal (not just 80%).
             // Timeout measured from ConvergingReveal entry, not round
             // start.
@@ -675,6 +677,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 logRngDiag("rng-reveal-wait");
                 return {};
             }
+            //@@end rng-reveal-publish-gate
 
             // --- EntropySetHash convergence gate ---
             //
@@ -717,6 +720,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     // entropySetHash is an RNG-side disagreement to resolve or
                     // zero out, not something that should block ordinary
                     // tx-set consensus indefinitely.
+                    //@@start rng-entropy-observation-state
                     auto inspectEntropyPeers = [&](auto const& pos,
                                                    bool fetchMismatches) {
                         return detail::inspectTxConvergedSidecarPeers(
@@ -758,6 +762,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         if (ctx.mode == ConsensusMode::proposing)
                             ctx.propose();
                     };
+                    //@@end rng-entropy-observation-state
 
                     if (entropyState.conflict && !quorumAligned())
                     {
@@ -787,6 +792,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             inspectEntropyPeers(ctx.getPosition(), true);
                     }
 
+                    //@@start rng-entropy-conflict-gate
                     if (entropyState.conflict && quorumAligned() &&
                         fullObservation())
                     {
@@ -840,6 +846,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             << " txConverged=" << entropyState.txConverged;
                         logRngDiag("rng-entropy-hash-conflict-timeout");
                     }
+                    //@@end rng-entropy-conflict-gate
 
                     // Positive alignment check: require at least one
                     // tx-converged entropy-gate cohort with a matching
@@ -851,6 +858,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     // validator-derived entropy while peers that are still
                     // missing sidecar hashes hit the deadline and
                     // deterministically fall back.
+                    //@@start rng-entropy-positive-alignment-gate
                     if (!entropyState.conflict &&
                         (!quorumAligned() || !fullObservation()))
                     {
@@ -890,6 +898,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             << " deadlineMs=" << toMs(entropyDeadline);
                         logRngDiag("rng-entropy-hash-quorum-timeout");
                     }
+                    //@@end rng-entropy-positive-alignment-gate
 
                     JLOG(ext.j_.debug())
                         << "RNG: entropy gate"
@@ -914,9 +923,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             << " prevSeq=" << (static_cast<std::uint32_t>(ctx.buildSeq) - 1)
             << " mode=" << to_string(ctx.mode);
     }
-    //@@end rng-phase-establish-substates
 
-    //@@start export-sig-convergence-gate
     // Export sig convergence gate: runs after RNG sub-states when Export has
     // verified signatures to converge, or when a tx-converged peer advertises
     // an exportSigSetHash we may need to fetch. This is a bounded safety
@@ -1099,6 +1106,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 auto quorumAligned = [&] {
                     return exportState.quorumAligned(exportQuorum);
                 };
+                //@@start export-sigset-alignment-check
                 if (exportState.conflict && !quorumAligned())
                 {
                     auto const refreshedHash =
@@ -1123,6 +1131,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
                     exportState = inspectExportPeers(ctx.getPosition(), true);
                 }
+                //@@end export-sigset-alignment-check
 
                 //@@start export-no-veto-quorum-branches
                 if (exportState.conflict && quorumAligned())
@@ -1197,7 +1206,6 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             //@@end export-sigset-conflict-wait
         }
     }
-    //@@end export-sig-convergence-gate
 
     return {.readyForAccept = true};
 }
