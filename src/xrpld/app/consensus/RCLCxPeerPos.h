@@ -84,10 +84,6 @@ struct ExtendedPosition
         txSetHash = set;
     }
 
-    // TODO: replace operator== with a named method (e.g. txSetMatches())
-    //   so call sites read as intent, not as "full equality".  Overloading
-    //   operator== to ignore most fields is surprising and fragile.
-    //
     // CRITICAL: Only compare txSetHash for consensus convergence.
     //
     // Why not commitSetHash / entropySetHash?

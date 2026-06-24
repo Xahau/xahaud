@@ -755,8 +755,9 @@ Import::preflight(PreflightContext const& ctx)
 
     JLOG(ctx.j.trace()) << "totalValidatorCount: " << totalValidatorCount;
 
-    // TODO: upgrade to calculateQuorumThreshold() (ceiling) if Import is
-    // extended to handle Export transactions (symmetric import).
+    // Burn-to-mint import retains the legacy truncated 80% quorum calculation.
+    // If Import is extended to consume Export transactions directly, use
+    // calculateQuorumThreshold() for symmetry with Export/validator quorum.
     uint64_t quorum = totalValidatorCount * 0.8;
 
     if (quorum == 0)

@@ -445,10 +445,9 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             }
 
             auto version = hookSetObj.getFieldU16(sfHookApiVersion);
-            // TODO: clarify API version history - version 1 was possibly
-            // JSHooks? For now only version 0 is valid. Export APIs (xport,
-            // xport_reserve) are gated by featureExport amendment via
-            // rulesVersion, not by sfHookApiVersion.
+            // Hook bytecode ABI version remains 0. New hook APIs such as
+            // xport/xport_reserve are exposed through amendment-gated rules,
+            // not by accepting a new sfHookApiVersion value here.
             if (version != 0)
             {
                 // we currently only accept api version 0
