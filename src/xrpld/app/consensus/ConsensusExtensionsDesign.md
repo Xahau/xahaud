@@ -42,10 +42,12 @@ treated as complete and must retry or expire under transaction rules.
 
 1. Core consensus remains keyed by the transaction set.
 
-   `ExtendedPosition::operator==` intentionally compares only `txSetHash`.
-   RNG, export sig, commit-set, and entropy-set hashes are proposal sidecars.
-   They are coordinated during establish, but they do not define whether peers
-   agree on the ordinary transaction set.
+   `ExtendedPosition` has no whole-position equality or implicit `uint256`
+   conversion. Callers that need the ordinary consensus identity compare
+   `txSetHash` explicitly, or use the generic `positionTxSetID(position)` helper
+   in templated consensus code. RNG, export sig, commit-set, and entropy-set
+   hashes are proposal sidecars. They are coordinated during establish, but they
+   do not define whether peers agree on the ordinary transaction set.
 
 2. Extension waits are bounded.
 
@@ -129,7 +131,7 @@ signed proposal field remains the hash.
 This field is diagnostic only:
 
 - It is covered by the proposal signature and duplicate-suppression identity.
-- It does not participate in `ExtendedPosition::operator==`.
+- It does not participate in core tx-set identity.
 - It does not lower the active validator quorum denominator.
 - It is intended to explain timing/degraded-network cases where commits,
   reveals, or sidecar hashes arrive late or asymmetrically.
@@ -357,7 +359,7 @@ Export-only quorum behavior.
 
 When changing consensus extension code, check these questions:
 
-- Does this preserve transaction-set equality as the core consensus identity?
+- Does this preserve transaction-set identity as the core consensus identity?
 - Does every extension wait have a bounded fallback?
 - Does validator_quorum entropy require active-validator quorum alignment?
 - Can one bad validator deny entropy to an honest quorum? It must not.

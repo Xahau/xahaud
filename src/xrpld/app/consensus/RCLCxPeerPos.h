@@ -54,12 +54,13 @@ struct ExtendedPosition
     // === Core Convergence Target ===
     uint256 txSetHash;
 
-    // === Set Hashes (sub-state quorum, not in operator==) ===
+    // === Set Hashes (sub-state quorum, not core tx-set identity) ===
     std::optional<uint256> commitSetHash;
     std::optional<uint256> entropySetHash;
     std::optional<uint256> exportSigSetHash;
     std::optional<uint256> exportSignaturesHash;
-    // Signed diagnostic only: not a quorum input and not part of operator==.
+    // Signed diagnostic only: not a quorum input and not part of tx-set
+    // identity.
     std::optional<uint256> observedParticipantsHash;
 
     // === Per-Validator Leaves (unique per proposer) ===
@@ -100,13 +101,13 @@ struct ExtendedPosition
     //     entropy result is verified deterministically from collected reveals.
     //   - Leaves (myCommitment, myReveal) are also excluded — they are
     //     per-validator data unique to each proposer.
-    //@@start rng-extended-position-equality
+    //@@start rng-extended-position-identity
     // No operator== and no implicit uint256 conversion on purpose: comparing
     // an ExtendedPosition as if it were a whole value is misleading because
     // consensus convergence intentionally ignores sidecar hashes and leaves.
     // Callers that need tx-set identity compare txSetHash explicitly, or use
     // the generic positionTxSetID(position) helper.
-    //@@end rng-extended-position-equality
+    //@@end rng-extended-position-identity
 
     // CRITICAL: Include ALL fields for signing (prevents stripping attacks)
     //
@@ -260,7 +261,7 @@ operator<<(std::ostream& os, ExtendedPosition const& pos)
 
     The resulting digest is embedded in ExtendedPosition and therefore covered
     by the normal proposal signature. The raw protobuf field remains outside
-    consensus equality, but stripping or mutating it invalidates the signed
+    core tx-set identity, but stripping or mutating it invalidates the signed
     digest before duplicate suppression.
 */
 template <class ExportSignatures>
