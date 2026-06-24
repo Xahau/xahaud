@@ -173,8 +173,7 @@ Export::doApply()
     if (!ctx_.app.config().standalone())
     {
         //@@start export-doapply-agreed-signature-snapshot
-        std::size_t const threshold =
-            unlSize == 0 ? 1 : calculateQuorumThreshold(unlSize);
+        std::size_t const threshold = safeQuorumThreshold(unlSize);
 
         if (!validatorView->fromUNLReport)
         {

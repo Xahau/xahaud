@@ -10,9 +10,70 @@ namespace ripple {
 
 namespace detail {
 
+inline std::size_t
+sidecarLocalContribution(bool localCounts)
+{
+    return localCounts ? 1 : 0;
+}
+
+inline std::size_t
+sidecarLocalContribution(bool localIsMember, bool localPublished)
+{
+    return sidecarLocalContribution(localIsMember && localPublished);
+}
+
+inline std::size_t
+sidecarAlignedParticipants(std::size_t aligned, bool localCounts)
+{
+    return aligned + sidecarLocalContribution(localCounts);
+}
+
+inline std::size_t
+sidecarAlignedParticipants(
+    std::size_t aligned,
+    bool localIsMember,
+    bool localPublished)
+{
+    return aligned + sidecarLocalContribution(localIsMember, localPublished);
+}
+
+inline bool
+sidecarQuorumAligned(
+    std::size_t aligned,
+    bool localCounts,
+    std::size_t threshold)
+{
+    return sidecarAlignedParticipants(aligned, localCounts) >= threshold;
+}
+
+inline bool
+sidecarQuorumAligned(
+    std::size_t aligned,
+    bool localIsMember,
+    bool localPublished,
+    std::size_t threshold)
+{
+    return sidecarAlignedParticipants(aligned, localIsMember, localPublished) >=
+        threshold;
+}
+
+inline bool
+sidecarFullObservation(std::size_t peersSeen, std::size_t txConverged)
+{
+    return peersSeen == txConverged;
+}
+
+inline bool
+exportSigSetQuorumAligned(
+    std::size_t alignedParticipants,
+    std::size_t quorumThreshold)
+{
+    return alignedParticipants >= quorumThreshold;
+}
+
 struct SidecarPeerAlignment
 {
-    bool localPublished = false;
+    bool localCounts = false;
     bool conflict = false;
     std::size_t aligned = 0;
     std::size_t peersSeen = 0;
@@ -21,19 +82,19 @@ struct SidecarPeerAlignment
     std::size_t
     alignedParticipants() const
     {
-        return aligned + (localPublished ? 1 : 0);
+        return sidecarAlignedParticipants(aligned, localCounts);
     }
 
     bool
     quorumAligned(std::size_t quorum) const
     {
-        return alignedParticipants() >= quorum;
+        return sidecarQuorumAligned(aligned, localCounts, quorum);
     }
 
     bool
     fullObservation() const
     {
-        return peersSeen == txConverged;
+        return sidecarFullObservation(peersSeen, txConverged);
     }
 };
 
@@ -66,7 +127,7 @@ inspectTxConvergedSidecarPeers(
     // margin (2t - N) below the Byzantine floor f, breaking equivocation
     // uniqueness. Mirror buildEntropySet/hasQuorumOfCommits' containsNode
     // filter, and only count our own +1 when this node is itself active.
-    state.localPublished = localIsMember;
+    state.localCounts = localIsMember;
     for (auto const& [nodeId, peerPos] : peerPositions)
     {
         if (!isMember(nodeId))
@@ -1104,7 +1165,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 auto exportState = inspectExportPeers(ctx.getPosition(), true);
                 auto const exportQuorum = ext.exportSigQuorumThreshold();
                 auto quorumAligned = [&] {
-                    return exportState.quorumAligned(exportQuorum);
+                    return detail::exportSigSetQuorumAligned(
+                        exportState.alignedParticipants(), exportQuorum);
                 };
                 //@@start export-sigset-alignment-check
                 if (exportState.conflict && !quorumAligned())

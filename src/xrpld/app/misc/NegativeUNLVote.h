@@ -74,7 +74,19 @@ public:
     /**
      * We only want to put 25% of the UNL on the NegativeUNL.
      */
-    static constexpr float negativeUNLMaxListed = 0.25;
+    static constexpr size_t negativeUNLMaxListedDenominator = 4;
+
+    /** Maximum number of validators allowed on the NegativeUNL for a given
+     *  UNL size, rounded up. Kept as integer policy arithmetic so consensus
+     *  tests compare against the production helper, not a copied
+     *  floating-point expression.
+     */
+    static constexpr size_t
+    maxNegativeUNLListed(size_t unlSize)
+    {
+        return (unlSize + negativeUNLMaxListedDenominator - 1) /
+            negativeUNLMaxListedDenominator;
+    }
 
     /**
      * A flag indicating whether a UNLModify Tx is to disable or to re-enable

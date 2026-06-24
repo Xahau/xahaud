@@ -215,23 +215,19 @@ ConsensusExtensions::quorumThreshold() const
     // Use the shared validator view so Tier 3 RNG and Export use the same
     // denominator.
     auto const base = activeValidatorView()->size();
-    if (base == 0)
-        return 1;  // safety: need at least one commit
-    return calculateQuorumThreshold(base);
+    return safeQuorumThreshold(base);
 }
 
 std::size_t
 ConsensusExtensions::exportSigQuorumThreshold() const
 {
     auto const base = activeValidatorView()->size();
-    if (base == 0)
-        return 1;
 
     // Export sidecar hashes are signed through ExtendedPosition even when RNG
     // is disabled, so a quorum-aligned exportSigSetHash is deterministic
     // enough for Export-only mode. Unanimity would let one active validator
     // veto an otherwise converged export round.
-    return calculateQuorumThreshold(base);
+    return safeQuorumThreshold(base);
 }
 
 std::size_t
@@ -248,9 +244,7 @@ ConsensusExtensions::tier2Threshold() const
     // Regressing this to size() is a consensus fork under nUNL and is pinned by
     // ConsensusExtensions_test::testTier2ThresholdAnchorsToOriginalView.
     auto const base = activeValidatorView()->originalViewSize;
-    if (base == 0)
-        return 1;  // safety: need at least one aligned participant
-    return calculateParticipantThreshold(base);
+    return safeParticipantThreshold(base);
 }
 
 std::size_t
@@ -267,7 +261,39 @@ ConsensusExtensions::entropyGateThreshold() const
     // allowed only when the round view is anchored by UNLReport; the
     // trusted-fallback view is local configuration and selectEntropy() maps it
     // to consensus_fallback.
-    return std::min(quorumThreshold(), tier2Threshold());
+    auto const view = activeValidatorView();
+    return entropyGateThresholdForView(view->size(), view->originalViewSize);
+}
+
+std::size_t
+ConsensusExtensions::entropyGateThresholdForView(
+    std::size_t effectiveViewSize,
+    std::size_t originalViewSize)
+{
+    auto const quorum = safeQuorumThreshold(effectiveViewSize);
+    auto const tier2 = safeParticipantThreshold(originalViewSize);
+    return std::min(quorum, tier2);
+}
+
+EntropyTier
+ConsensusExtensions::selectEntropyTierForView(
+    bool fromUNLReport,
+    std::size_t participantCount,
+    std::size_t effectiveViewSize,
+    std::size_t originalViewSize)
+{
+    if (!fromUNLReport)
+        return entropyTierConsensusFallback;
+
+    auto const quorum = safeQuorumThreshold(effectiveViewSize);
+    if (participantCount >= quorum)
+        return entropyTierValidatorQuorum;
+
+    auto const tier2 = safeParticipantThreshold(originalViewSize);
+    if (participantCount >= tier2)
+        return entropyTierParticipantAligned;
+
+    return entropyTierConsensusFallback;
 }
 
 void
@@ -349,9 +375,7 @@ bool
 ConsensusExtensions::hasQuorumOfCommits() const
 {
     auto const validatorView = activeValidatorView();
-    auto const threshold = validatorView->size() == 0
-        ? std::size_t{1}
-        : calculateQuorumThreshold(validatorView->size());
+    auto const threshold = safeQuorumThreshold(validatorView->size());
     auto const proofedCommitCount = std::count_if(
         pendingCommits_.begin(),
         pendingCommits_.end(),
@@ -534,10 +558,13 @@ ConsensusExtensions::selectEntropy(
     // floor over the original view (~0.6*n; see calculateParticipantThreshold).
     // Below tier2Threshold too few aligned participants contributed to trust
     // the result — fall back.
-    if (count >= quorumThreshold())
-        return {digest, entropyTierValidatorQuorum, count};
-    if (count >= tier2Threshold())
-        return {digest, entropyTierParticipantAligned, count};
+    auto const tier = selectEntropyTierForView(
+        validatorView->fromUNLReport,
+        count,
+        validatorView->size(),
+        validatorView->originalViewSize);
+    if (tier != entropyTierConsensusFallback)
+        return {digest, static_cast<std::uint8_t>(tier), count};
     return fallback();
     //@@end entropy-selector-tier-ladder
 }
