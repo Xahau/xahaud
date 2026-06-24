@@ -211,6 +211,7 @@ if(xrpld)
     # This is likely not strictly necessary, but listed explicitly as a good practice.
     m
   )
+  include(XahaudFormalVerification)
   exclude_if_included(rippled)
   # define a macro for tests that might need to
   # be exluded or run differently in CI environment

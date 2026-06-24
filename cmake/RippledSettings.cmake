@@ -19,6 +19,14 @@ option(xahaud_runtime_test_config
 # [conf]
 # tools.cmake.cmaketoolchain:extra_variables={"xahaud_runtime_test_config":"ON"}
 
+option(formal_verification
+  "Enable Lean-backed formal-verification cross-check tests"
+  OFF)
+# Default off: this pulls the Lean runtime and the vendored formal model into
+# the test binary. Conan/local opt-in mirrors the runtime-test-config pattern:
+# [conf]
+# tools.cmake.cmaketoolchain:extra_variables={"formal_verification":"ON"}
+
 option(unity "Creates a build using UNITY support in cmake. This is the default" ON)
 if(unity)
   if(NOT is_ci)
