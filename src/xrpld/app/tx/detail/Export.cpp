@@ -190,6 +190,7 @@ Export::doApply()
         }
         //@@end export-doapply-agreed-signature-snapshot
 
+        //@@start export-doapply-retry-without-signature-quorum
         if (!collectedSigs)
         {
             auto const sigCount =
@@ -230,7 +231,6 @@ Export::doApply()
 
             upgradeUnverifiedForNextRound();
 
-            //@@start export-doapply-retry-without-signature-quorum
             JLOG(j_.info())
                 << "Export: insufficient signatures"
                 << " txHash=" << txId << " ledgerSeq=" << currentSeq
@@ -240,8 +240,8 @@ Export::doApply()
                                                                      : "no")
                 << " result=terRETRY_EXPORT";
             return terRETRY_EXPORT;
-            //@@end export-doapply-retry-without-signature-quorum
         }
+        //@@end export-doapply-retry-without-signature-quorum
     }
 
     ExportResultBuilder::SignatureSnapshot signatures;

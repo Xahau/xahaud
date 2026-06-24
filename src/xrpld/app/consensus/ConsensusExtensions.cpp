@@ -441,11 +441,13 @@ ConsensusExtensions::selectEntropy(
     //@@end entropy-selector-fallback
 
     // Standalone/dev: synthetic deterministic entropy so hook dice/random work.
+    //@@start entropy-selector-standalone
     if (app_.config().standalone())
         return {
             sha512Half(std::string("standalone-entropy"), seq),
             entropyTierValidatorQuorum,
             20};
+    //@@end entropy-selector-standalone
 
     // Non-fallback entropy labels depend on validator-view thresholds. Without
     // an on-ledger UNLReport, that view is derived from local trusted config,
