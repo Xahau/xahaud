@@ -931,13 +931,14 @@ Consensus<Adaptor>::peerProposalInternal(
                      << "/" << newPeerProp.position();
 
     {
-        auto const ait = acquired_.find(newPeerProp.position());
+        auto const txSetID = positionTxSetID(newPeerProp.position());
+        auto const ait = acquired_.find(txSetID);
         if (ait == acquired_.end())
         {
             // acquireTxSet will return the set if it is available, or
             // spawn a request for it and return nullopt/nullptr.  It will call
             // gotTxSet once it arrives
-            if (auto set = adaptor_.acquireTxSet(newPeerProp.position()))
+            if (auto set = adaptor_.acquireTxSet(txSetID))
                 gotTxSet(now_, *set);
             else
                 JLOG(j_.debug()) << "Don't have tx set for peer";
@@ -1012,12 +1013,12 @@ Consensus<Adaptor>::gotTxSet(
         // Our position is added to acquired_ as soon as we create it,
         // so this txSet must differ
         XRPL_ASSERT(
-            id != result_->position.position(),
+            id != positionTxSetID(result_->position.position()),
             "ripple::Consensus::gotTxSet : updated transaction set");
         bool any = false;
         for (auto const& [nodeId, peerPos] : currPeerPositions_)
         {
-            if (peerPos.proposal().position() == id)
+            if (positionTxSetID(peerPos.proposal().position()) == id)
             {
                 updateDisputes(nodeId, txSet);
                 any = true;
@@ -1730,7 +1731,7 @@ Consensus<Adaptor>::closeLedger(std::unique_ptr<std::stringstream> const& clog)
     for (auto const& pit : currPeerPositions_)
     {
         auto const& pos = pit.second.proposal().position();
-        auto const it = acquired_.find(pos);
+        auto const it = acquired_.find(positionTxSetID(pos));
         if (it != acquired_.end())
             createDisputes(it->second, clog);
     }
@@ -1948,7 +1949,7 @@ Consensus<Adaptor>::updateOurPositions(
             for (auto const& [nodeId, peerPos] : currPeerPositions_)
             {
                 Proposal_t const& p = peerPos.proposal();
-                if (p.position() == newID)
+                if (positionTxSetID(p.position()) == newID)
                     updateDisputes(nodeId, result_->txns);
             }
         }
@@ -1977,7 +1978,8 @@ Consensus<Adaptor>::haveConsensus(
     for (auto const& [nodeId, peerPos] : currPeerPositions_)
     {
         Proposal_t const& peerProp = peerPos.proposal();
-        if (peerProp.position() == ourPosition)
+        if (positionTxSetID(peerProp.position()) ==
+            positionTxSetID(ourPosition))
         {
             ++agree;
         }
@@ -2209,7 +2211,8 @@ Consensus<Adaptor>::createDisputes(
         for (auto const& [nodeId, peerPos] : currPeerPositions_)
         {
             Proposal_t const& peerProp = peerPos.proposal();
-            auto const cit = acquired_.find(peerProp.position());
+            auto const cit =
+                acquired_.find(positionTxSetID(peerProp.position()));
             if (cit != acquired_.end() &&
                 dtx.setVote(nodeId, cit->second.exists(txID)))
                 peerUnchangedCounter_ = 0;

@@ -29,6 +29,16 @@
 #include <sstream>
 
 namespace ripple {
+template <class Position_t>
+auto const&
+positionTxSetID(Position_t const& position)
+{
+    if constexpr (requires { position.txSetHash; })
+        return position.txSetHash;
+    else
+        return position;
+}
+
 /** Represents a proposed position taken during a round of consensus.
 
     During consensus, peers seek agreement on a set of transactions to
@@ -275,7 +285,8 @@ operator==(
     ConsensusProposal<NodeID_t, LedgerID_t, Position_t> const& b)
 {
     return a.nodeID() == b.nodeID() && a.proposeSeq() == b.proposeSeq() &&
-        a.prevLedger() == b.prevLedger() && a.position() == b.position() &&
+        a.prevLedger() == b.prevLedger() &&
+        positionTxSetID(a.position()) == positionTxSetID(b.position()) &&
         a.closeTime() == b.closeTime() && a.seenTime() == b.seenTime();
 }
 }  // namespace ripple

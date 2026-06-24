@@ -272,7 +272,7 @@ struct ConsensusResult
         : txns{std::move(s)}, position{std::move(p)}
     {
         XRPL_ASSERT(
-            txns.id() == position.position(),
+            txns.id() == positionTxSetID(position.position()),
             "ripple::ConsensusResult : valid inputs");
     }
 

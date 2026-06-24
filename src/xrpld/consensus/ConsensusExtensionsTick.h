@@ -73,7 +73,7 @@ inspectTxConvergedSidecarPeers(
             continue;  // outside the active view -> not in the counting
                        // universe
         auto const& pp = peerPos.proposal().position();
-        if (!(pp == pos))
+        if (positionTxSetID(pp) != positionTxSetID(pos))
             continue;  // not tx-converged
         ++state.txConverged;
 
@@ -445,7 +445,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 for (auto const& [nodeId, peerPos] : ctx.peerPositions)
                 {
                     auto const& peerPosition = peerPos.proposal().position();
-                    if (!(peerPosition == ourPos))
+                    if (peerPosition.txSetHash != ourPos.txSetHash)
                         continue;
                     ext.fetchRngSetIfNeeded(
                         peerPosition.commitSetHash, Ext::SidecarKind::commit);
@@ -483,7 +483,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 for (auto const& [nodeId, peerPos] : ctx.peerPositions)
                 {
                     auto const& peerPosition = peerPos.proposal().position();
-                    if (!(peerPosition == ourPos))
+                    if (peerPosition.txSetHash != ourPos.txSetHash)
                         continue;
                     if (note(peerPosition))
                         return true;
@@ -939,7 +939,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             for (auto const& [_, peerPos] : ctx.peerPositions)
             {
                 auto const& pp = peerPos.proposal().position();
-                if (!(pp == pos))
+                if (positionTxSetID(pp) != positionTxSetID(pos))
                     continue;  // not tx-converged
                 if (!pp.exportSigSetHash)
                     continue;

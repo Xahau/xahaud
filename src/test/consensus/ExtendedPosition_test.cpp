@@ -572,9 +572,9 @@ class ExtendedPosition_test : public beast::unit_test::suite
     }
 
     void
-    testEquality()
+    testTxSetIdentity()
     {
-        testcase("Equality is txSetHash only");
+        testcase("Tx-set identity is explicit");
 
         auto const txSet = makeHash("txset-eq");
         auto const txSet2 = makeHash("txset-eq-2");
@@ -585,40 +585,36 @@ class ExtendedPosition_test : public beast::unit_test::suite
         ExtendedPosition b{txSet};
         b.myCommitment = makeHash("commit2-eq");
 
-        // Same txSetHash, different leaves -> equal
-        BEAST_EXPECT(a == b);
+        // Same txSetHash, different leaves -> same consensus tx-set key.
+        BEAST_EXPECT(positionTxSetID(a) == positionTxSetID(b));
 
-        // Same txSetHash, different commitSetHash -> still equal
+        // Same txSetHash, different commitSetHash -> same tx-set key
         // (sub-state quorum handles commitSetHash agreement)
         b.commitSetHash = makeHash("cs-eq");
-        BEAST_EXPECT(a == b);
+        BEAST_EXPECT(positionTxSetID(a) == positionTxSetID(b));
 
-        // Same txSetHash, different entropySetHash -> still equal
+        // Same txSetHash, different entropySetHash -> same tx-set key
         b.entropySetHash = makeHash("es-eq");
-        BEAST_EXPECT(a == b);
+        BEAST_EXPECT(positionTxSetID(a) == positionTxSetID(b));
 
-        // Same txSetHash, different export signature digest -> still equal
+        // Same txSetHash, different export signature digest -> same tx-set key
         b.exportSignaturesHash = makeHash("export-sigs-eq");
-        BEAST_EXPECT(a == b);
+        BEAST_EXPECT(positionTxSetID(a) == positionTxSetID(b));
 
-        // Same txSetHash, different participant diagnostics -> still equal
+        // Same txSetHash, different participant diagnostics -> same tx-set key
         b.observedParticipantsHash = makeHash("participants-eq");
-        BEAST_EXPECT(a == b);
+        BEAST_EXPECT(positionTxSetID(a) == positionTxSetID(b));
 
-        // Different txSetHash -> not equal
+        // Different txSetHash -> different tx-set key
         ExtendedPosition c{txSet2};
-        BEAST_EXPECT(a != c);
+        BEAST_EXPECT(positionTxSetID(a) != positionTxSetID(c));
 
-        BEAST_EXPECT(a == txSet);
-        BEAST_EXPECT(txSet == a);
-        BEAST_EXPECT(!(a != txSet));
-        BEAST_EXPECT(!(txSet != a));
-        BEAST_EXPECT(a != txSet2);
-        BEAST_EXPECT(txSet2 != a);
+        BEAST_EXPECT(positionTxSetID(a) == txSet);
+        BEAST_EXPECT(positionTxSetID(a) != txSet2);
 
         a.updateTxSet(txSet2);
-        BEAST_EXPECT(a == txSet2);
-        BEAST_EXPECT(a != b);
+        BEAST_EXPECT(positionTxSetID(a) == txSet2);
+        BEAST_EXPECT(positionTxSetID(a) != positionTxSetID(b));
     }
 
     void
@@ -686,7 +682,8 @@ class ExtendedPosition_test : public beast::unit_test::suite
 
         auto sameTxDifferentSidecar = pos;
         sameTxDifferentSidecar.entropySetHash = makeHash("entropyset-other");
-        BEAST_EXPECT(pos == sameTxDifferentSidecar);
+        BEAST_EXPECT(
+            positionTxSetID(pos) == positionTxSetID(sameTxDifferentSidecar));
         BEAST_EXPECT(sha512Half(pos) != sha512Half(sameTxDifferentSidecar));
     }
 
@@ -699,7 +696,7 @@ public:
         testSuppressionConsistency();
         testPeerPosition();
         testMalformedPayload();
-        testEquality();
+        testTxSetIdentity();
         testExportSignatureDigest();
         testStringJsonAndHash();
     }

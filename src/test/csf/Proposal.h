@@ -53,53 +53,12 @@ struct RngPosition
     {
     }
 
-    operator TxSet::ID() const
-    {
-        return txSetHash;
-    }
-
     void
     updateTxSet(TxSet::ID txSet)
     {
         txSetHash = txSet;
     }
-
-    bool
-    operator==(RngPosition const& other) const
-    {
-        return txSetHash == other.txSetHash;
-    }
-
-    bool
-    operator!=(RngPosition const& other) const
-    {
-        return !(*this == other);
-    }
-
-    bool
-    operator==(TxSet::ID txSet) const
-    {
-        return txSetHash == txSet;
-    }
-
-    bool
-    operator!=(TxSet::ID txSet) const
-    {
-        return txSetHash != txSet;
-    }
 };
-
-inline bool
-operator==(TxSet::ID txSet, RngPosition const& pos)
-{
-    return pos == txSet;
-}
-
-inline bool
-operator!=(TxSet::ID txSet, RngPosition const& pos)
-{
-    return pos != txSet;
-}
 
 inline std::string
 to_string(RngPosition const& pos)

@@ -42,11 +42,11 @@ namespace ripple {
 /** Extended position for consensus with RNG entropy support.
 
     Carries the tx-set hash (the core convergence target), RNG set hashes
-    (agreed via sub-state quorum, not via operator==), and per-validator
+    (agreed via sub-state quorum), and per-validator
     leaves (unique to each proposer, piggybacked on proposals).
 
     Critical design:
-    - operator== compares txSetHash ONLY (sub-states handle the rest)
+    - consensus convergence compares txSetHash explicitly
     - add() includes ALL fields for signing (prevents stripping attacks)
 */
 struct ExtendedPosition
@@ -71,12 +71,6 @@ struct ExtendedPosition
     {
     }
 
-    // Implicit conversion for legacy compatibility
-    operator uint256() const
-    {
-        return txSetHash;
-    }
-
     // Helper to update TxSet while preserving sidecar data
     void
     updateTxSet(uint256 const& set)
@@ -84,7 +78,7 @@ struct ExtendedPosition
         txSetHash = set;
     }
 
-    // CRITICAL: Only compare txSetHash for consensus convergence.
+    // CRITICAL: consensus convergence compares txSetHash only.
     //
     // Why not commitSetHash / entropySetHash?
     //   Nodes transition through sub-states (ConvergingTx → ConvergingCommit
@@ -107,42 +101,11 @@ struct ExtendedPosition
     //   - Leaves (myCommitment, myReveal) are also excluded — they are
     //     per-validator data unique to each proposer.
     //@@start rng-extended-position-equality
-    bool
-    operator==(ExtendedPosition const& other) const
-    {
-        return txSetHash == other.txSetHash;
-    }
-
-    bool
-    operator!=(ExtendedPosition const& other) const
-    {
-        return !(*this == other);
-    }
-
-    // Comparison with uint256 (compares txSetHash only)
-    bool
-    operator==(uint256 const& hash) const
-    {
-        return txSetHash == hash;
-    }
-
-    bool
-    operator!=(uint256 const& hash) const
-    {
-        return txSetHash != hash;
-    }
-
-    friend bool
-    operator==(uint256 const& hash, ExtendedPosition const& pos)
-    {
-        return pos.txSetHash == hash;
-    }
-
-    friend bool
-    operator!=(uint256 const& hash, ExtendedPosition const& pos)
-    {
-        return pos.txSetHash != hash;
-    }
+    // No operator== and no implicit uint256 conversion on purpose: comparing
+    // an ExtendedPosition as if it were a whole value is misleading because
+    // consensus convergence intentionally ignores sidecar hashes and leaves.
+    // Callers that need tx-set identity compare txSetHash explicitly, or use
+    // the generic positionTxSetID(position) helper.
     //@@end rng-extended-position-equality
 
     // CRITICAL: Include ALL fields for signing (prevents stripping attacks)
