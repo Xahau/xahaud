@@ -123,9 +123,11 @@ cmake --build build-formal-cmake --target rippled
 ./build-formal-cmake/rippled --unittest=LeanConsensus
 ```
 
-This path builds `XahauConsensus:static`, links the resulting Lean archive and
-runtime into the test binary, and runs a C++ drift test that compares selected
-Lean definitions against the production C++ implementations. The exported
+This path currently supports native test builds only. It builds
+`XahauConsensus:static`, links the resulting Lean archive and runtime into the
+test binary, and runs C++ drift tests over selected scalar formulas and helper
+predicates. Some checks compare directly to named production helpers; others are
+review-oriented safety predicates computed from those helpers. The exported
 surface is intentionally scalar and reviewable:
 
 - Byzantine bound, participant threshold, and validator quorum threshold.
@@ -134,13 +136,16 @@ surface is intentionally scalar and reviewable:
   denominators kept separate.
 - The entropy tier selector policy for `(fromUNLReport, participantCount,
   effectiveView, originalView)`.
-- Sidecar aligned-participant counting, full-observation, and quorum-aligned
-  predicates.
+- Sidecar aligned-participant counting, full-observation, quorum-aligned
+  predicates, and active-view mask-counting samples.
 - Export's quorum-only proceed predicate, where `fullObservation` is diagnostic
-  rather than success-gating.
+  rather than success-gating, plus quorum-overlap safety predicates.
 - NegativeUNL cap/effective-view arithmetic.
+- View-universe safety predicates and naive-60% regression anchors.
 
 This is still a model-to-code cross-check, not a proof that the C++ implements
-the Lean model. Its value is narrower and practical: if a production formula or
-decision ladder changes without the formal model changing too, the gated unit
-test fails.
+the Lean model. Its value is narrower and practical: if a production formula,
+decision ladder, or helper predicate changes without the formal model changing
+too, the gated unit test fails. Lake still writes build artifacts under the
+Lean workspace's `.lake/` directory, so keep this option as a local/CI
+confidence build rather than a release packaging input.

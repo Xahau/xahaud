@@ -215,23 +215,19 @@ ConsensusExtensions::quorumThreshold() const
     // Use the shared validator view so Tier 3 RNG and Export use the same
     // denominator.
     auto const base = activeValidatorView()->size();
-    if (base == 0)
-        return 1;  // safety: need at least one commit
-    return calculateQuorumThreshold(base);
+    return safeQuorumThreshold(base);
 }
 
 std::size_t
 ConsensusExtensions::exportSigQuorumThreshold() const
 {
     auto const base = activeValidatorView()->size();
-    if (base == 0)
-        return 1;
 
     // Export sidecar hashes are signed through ExtendedPosition even when RNG
     // is disabled, so a quorum-aligned exportSigSetHash is deterministic
     // enough for Export-only mode. Unanimity would let one active validator
     // veto an otherwise converged export round.
-    return calculateQuorumThreshold(base);
+    return safeQuorumThreshold(base);
 }
 
 std::size_t
@@ -248,9 +244,7 @@ ConsensusExtensions::tier2Threshold() const
     // Regressing this to size() is a consensus fork under nUNL and is pinned by
     // ConsensusExtensions_test::testTier2ThresholdAnchorsToOriginalView.
     auto const base = activeValidatorView()->originalViewSize;
-    if (base == 0)
-        return 1;  // safety: need at least one aligned participant
-    return calculateParticipantThreshold(base);
+    return safeParticipantThreshold(base);
 }
 
 std::size_t
@@ -276,12 +270,8 @@ ConsensusExtensions::entropyGateThresholdForView(
     std::size_t effectiveViewSize,
     std::size_t originalViewSize)
 {
-    auto const quorum = effectiveViewSize == 0
-        ? 1
-        : calculateQuorumThreshold(effectiveViewSize);
-    auto const tier2 = originalViewSize == 0
-        ? 1
-        : calculateParticipantThreshold(originalViewSize);
+    auto const quorum = safeQuorumThreshold(effectiveViewSize);
+    auto const tier2 = safeParticipantThreshold(originalViewSize);
     return std::min(quorum, tier2);
 }
 
@@ -295,15 +285,11 @@ ConsensusExtensions::selectEntropyTierForView(
     if (!fromUNLReport)
         return entropyTierConsensusFallback;
 
-    auto const quorum = effectiveViewSize == 0
-        ? 1
-        : calculateQuorumThreshold(effectiveViewSize);
+    auto const quorum = safeQuorumThreshold(effectiveViewSize);
     if (participantCount >= quorum)
         return entropyTierValidatorQuorum;
 
-    auto const tier2 = originalViewSize == 0
-        ? 1
-        : calculateParticipantThreshold(originalViewSize);
+    auto const tier2 = safeParticipantThreshold(originalViewSize);
     if (participantCount >= tier2)
         return entropyTierParticipantAligned;
 
@@ -389,9 +375,7 @@ bool
 ConsensusExtensions::hasQuorumOfCommits() const
 {
     auto const validatorView = activeValidatorView();
-    auto const threshold = validatorView->size() == 0
-        ? std::size_t{1}
-        : calculateQuorumThreshold(validatorView->size());
+    auto const threshold = safeQuorumThreshold(validatorView->size());
     auto const proofedCommitCount = std::count_if(
         pendingCommits_.begin(),
         pendingCommits_.end(),

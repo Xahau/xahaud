@@ -19,6 +19,7 @@
 #if defined(XAHAUD_ENABLE_FORMAL_VERIFICATION)
 
 #include <xrpld/app/consensus/ConsensusExtensions.h>
+#include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/consensus/ConsensusExtensionsTick.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpl/beast/unit_test.h>
@@ -30,6 +31,7 @@
 #include <stdexcept>
 
 extern "C" {
+//@@start formal-ffi-c-abi-decls
 void
 lean_initialize_runtime_module();
 
@@ -92,12 +94,99 @@ xahau_disabled_cap(std::uint64_t originalView);
 
 std::uint64_t
 xahau_effective_view(std::uint64_t originalView, std::uint64_t disabled);
+
+std::uint8_t
+xahau_strict_intersection_safe(
+    std::uint64_t activeView,
+    std::uint64_t byzantineUniverse,
+    std::uint64_t threshold);
+
+std::uint8_t
+xahau_nonvacuous_strict_intersection_safe(
+    std::uint64_t activeView,
+    std::uint64_t byzantineUniverse,
+    std::uint64_t threshold);
+
+std::uint8_t
+xahau_participant_band_nonempty(
+    std::uint64_t effectiveView,
+    std::uint64_t originalView);
+
+std::uint64_t
+xahau_export_quorum_overlap_lower_bound(std::uint64_t activeView);
+
+std::uint8_t
+xahau_export_quorum_safe_under_nunl_cap(
+    std::uint64_t originalView,
+    std::uint64_t effectiveView,
+    std::uint64_t disabled);
+
+std::uint64_t
+xahau_active_aligned_count_mask(
+    std::uint64_t count,
+    std::uint64_t activeMask,
+    std::uint64_t alignedMask);
+
+std::uint8_t
+xahau_quorum_aligned_mask(
+    std::uint64_t threshold,
+    std::uint64_t count,
+    std::uint64_t activeMask,
+    std::uint64_t alignedMask,
+    std::uint64_t localIsMember,
+    std::uint64_t localPublished);
+
+std::uint64_t
+xahau_naive_sixty_percent_threshold(std::uint64_t count);
+
+std::uint8_t
+xahau_naive_sixty_percent_is_safe(std::uint64_t count);
+//@@end formal-ffi-c-abi-decls
 }
 
 namespace ripple {
 namespace test {
 
 namespace {
+
+bool
+strictIntersectionSafeCpp(
+    std::uint64_t activeView,
+    std::uint64_t byzantineUniverse,
+    std::uint64_t threshold)
+{
+    return activeView + byzantineUniverse / 5 < 2 * threshold;
+}
+
+bool
+participantBandNonemptyCpp(
+    std::uint64_t effectiveView,
+    std::uint64_t originalView)
+{
+    return calculateParticipantThreshold(originalView) <
+        calculateQuorumThreshold(effectiveView);
+}
+
+bool
+maskBit(std::uint64_t mask, std::uint64_t peer)
+{
+    return ((mask >> peer) & 1) != 0;
+}
+
+std::uint64_t
+activeAlignedCountMaskCpp(
+    std::uint64_t count,
+    std::uint64_t activeMask,
+    std::uint64_t alignedMask)
+{
+    std::uint64_t result = 0;
+    for (std::uint64_t peer = 0; peer < count; ++peer)
+    {
+        if (maskBit(activeMask, peer) && maskBit(alignedMask, peer))
+            ++result;
+    }
+    return result;
+}
 
 void
 initializeLean()
@@ -151,18 +240,15 @@ public:
         for (std::uint64_t effectiveView = 0; effectiveView <= 40;
              ++effectiveView)
         {
-            auto const expectedQuorum = effectiveView == 0
-                ? 1
-                : calculateQuorumThreshold(effectiveView);
+            auto const expectedQuorum = safeQuorumThreshold(effectiveView);
             BEAST_EXPECT(
                 xahau_safe_quorum_threshold(effectiveView) == expectedQuorum);
 
             for (std::uint64_t originalView = 0; originalView <= 40;
                  ++originalView)
             {
-                auto const expectedParticipant = originalView == 0
-                    ? 1
-                    : calculateParticipantThreshold(originalView);
+                auto const expectedParticipant =
+                    safeParticipantThreshold(originalView);
 
                 BEAST_EXPECT(
                     xahau_safe_participant_threshold(originalView) ==
@@ -211,23 +297,26 @@ public:
                 {
                     for (bool localPublished : {false, true})
                     {
-                        detail::SidecarPeerAlignment state;
-                        state.aligned = aligned;
-                        state.localPublished = localIsMember && localPublished;
+                        auto const expectedAligned =
+                            detail::sidecarAlignedParticipants(
+                                aligned, localIsMember, localPublished);
 
                         BEAST_EXPECT(
                             xahau_aligned_participants(
                                 aligned,
                                 localIsMember ? 1 : 0,
-                                localPublished ? 1 : 0) ==
-                            state.alignedParticipants());
+                                localPublished ? 1 : 0) == expectedAligned);
                         BEAST_EXPECT(
                             (xahau_quorum_aligned(
                                  threshold,
                                  aligned,
                                  localIsMember ? 1 : 0,
                                  localPublished ? 1 : 0) != 0) ==
-                            state.quorumAligned(threshold));
+                            detail::sidecarQuorumAligned(
+                                threshold,
+                                aligned,
+                                localIsMember,
+                                localPublished));
                     }
                 }
 
@@ -236,7 +325,7 @@ public:
                     BEAST_EXPECT(
                         (xahau_export_gate_proceed(
                              aligned, threshold, fullObservation ? 1 : 0) !=
-                         0) == (aligned >= threshold));
+                         0) == detail::exportGateProceed(aligned, threshold));
                 }
             }
         }
@@ -252,7 +341,7 @@ public:
 
                 BEAST_EXPECT(
                     (xahau_full_observation(peersSeen, txConverged) != 0) ==
-                    state.fullObservation());
+                    detail::sidecarFullObservation(peersSeen, txConverged));
             }
         }
     }
@@ -267,7 +356,8 @@ public:
         for (std::uint64_t originalView = 0; originalView <= 1024;
              ++originalView)
         {
-            auto const expectedCap = (originalView + 3) / 4;
+            auto const expectedCap =
+                NegativeUNLVote::maxNegativeUNLListed(originalView);
             BEAST_EXPECT(xahau_disabled_cap(originalView) == expectedCap);
 
             for (std::uint64_t disabled = 0; disabled <= 16; ++disabled)
@@ -282,12 +372,167 @@ public:
     }
 
     void
+    testViewUniverseDrift()
+    {
+        testcase("Lean/C++ view-universe safety predicate drift");
+
+        initializeLean();
+
+        for (std::uint64_t effectiveView = 0; effectiveView <= 40;
+             ++effectiveView)
+        {
+            for (std::uint64_t originalView = 0; originalView <= 40;
+                 ++originalView)
+            {
+                auto const threshold =
+                    calculateParticipantThreshold(originalView);
+                BEAST_EXPECT(
+                    (xahau_strict_intersection_safe(
+                         effectiveView, originalView, threshold) != 0) ==
+                    strictIntersectionSafeCpp(
+                        effectiveView, originalView, threshold));
+                BEAST_EXPECT(
+                    (xahau_nonvacuous_strict_intersection_safe(
+                         effectiveView, originalView, threshold) != 0) ==
+                    (threshold <= effectiveView &&
+                     strictIntersectionSafeCpp(
+                         effectiveView, originalView, threshold)));
+                BEAST_EXPECT(
+                    (xahau_participant_band_nonempty(
+                         effectiveView, originalView) != 0) ==
+                    participantBandNonemptyCpp(effectiveView, originalView));
+            }
+        }
+    }
+
+    void
+    testExportQuorumDrift()
+    {
+        testcase("Lean/C++ export quorum safety predicate drift");
+
+        initializeLean();
+
+        for (std::uint64_t activeView = 0; activeView <= 64; ++activeView)
+        {
+            auto const quorum = calculateQuorumThreshold(activeView);
+            auto const expectedOverlap =
+                2 * quorum > activeView ? 2 * quorum - activeView : 0;
+            BEAST_EXPECT(
+                xahau_export_quorum_overlap_lower_bound(activeView) ==
+                expectedOverlap);
+        }
+
+        for (std::uint64_t originalView = 0; originalView <= 64; ++originalView)
+        {
+            auto const cap =
+                NegativeUNLVote::maxNegativeUNLListed(originalView);
+            for (std::uint64_t disabled = 0; disabled <= cap + 2; ++disabled)
+            {
+                auto const effectiveView =
+                    disabled > originalView ? 0 : originalView - disabled;
+                auto const expected =
+                    disabled <= cap && effectiveView > 0 &&
+                    strictIntersectionSafeCpp(
+                        effectiveView,
+                        originalView,
+                        calculateQuorumThreshold(effectiveView));
+                BEAST_EXPECT(
+                    (xahau_export_quorum_safe_under_nunl_cap(
+                         originalView, effectiveView, disabled) != 0) ==
+                    expected);
+            }
+        }
+    }
+
+    void
+    testSidecarMaskDrift()
+    {
+        testcase("Lean/C++ active-view sidecar mask drift");
+
+        initializeLean();
+
+        struct MaskCase
+        {
+            std::uint64_t count;
+            std::uint64_t activeMask;
+            std::uint64_t alignedMask;
+        };
+
+        for (auto const& c : {
+                 MaskCase{0, 0b0, 0b0},
+                 MaskCase{1, 0b1, 0b1},
+                 MaskCase{6, 0b111111, 0b111111},
+                 MaskCase{6, 0b001111, 0b111111},
+                 MaskCase{8, 0b10110110, 0b11111111},
+                 MaskCase{12, 0b101010101010, 0b111100001111},
+             })
+        {
+            auto const aligned =
+                activeAlignedCountMaskCpp(c.count, c.activeMask, c.alignedMask);
+            BEAST_EXPECT(
+                xahau_active_aligned_count_mask(
+                    c.count, c.activeMask, c.alignedMask) == aligned);
+
+            for (std::uint64_t threshold = 0; threshold <= 12; ++threshold)
+            {
+                for (bool localIsMember : {false, true})
+                {
+                    for (bool localPublished : {false, true})
+                    {
+                        BEAST_EXPECT(
+                            (xahau_quorum_aligned_mask(
+                                 threshold,
+                                 c.count,
+                                 c.activeMask,
+                                 c.alignedMask,
+                                 localIsMember ? 1 : 0,
+                                 localPublished ? 1 : 0) != 0) ==
+                            detail::sidecarQuorumAligned(
+                                threshold,
+                                aligned,
+                                localIsMember,
+                                localPublished));
+                    }
+                }
+            }
+        }
+    }
+
+    void
+    testNaiveSixtyPercentRegression()
+    {
+        testcase("Lean/C++ naive 60 percent threshold regression anchors");
+
+        initializeLean();
+
+        for (std::uint64_t count = 0; count <= 1024; ++count)
+        {
+            auto const naive = (count * 60 + 99) / 100;
+            BEAST_EXPECT(xahau_naive_sixty_percent_threshold(count) == naive);
+            BEAST_EXPECT(
+                (xahau_naive_sixty_percent_is_safe(count) != 0) ==
+                strictIntersectionSafeCpp(count, count, naive));
+
+            if (count > 0 && count % 5 == 0)
+            {
+                BEAST_EXPECT(!strictIntersectionSafeCpp(count, count, naive));
+                BEAST_EXPECT(strictIntersectionSafeCpp(
+                    count, count, calculateParticipantThreshold(count)));
+            }
+        }
+    }
+
+    void
     run() override
     {
         testThresholdFormulaDrift();
         testSelectorAndGateDrift();
         testSidecarAndExportGateDrift();
         testNunlCapDrift();
+        testViewUniverseDrift();
+        testExportQuorumDrift();
+        testSidecarMaskDrift();
+        testNaiveSixtyPercentRegression();
     }
 };
 

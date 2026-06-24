@@ -368,8 +368,7 @@ NegativeUNLVote::findAllCandidates(
 {
     // Compute if need to find more validators to disable
     auto const canAdd = [&]() -> bool {
-        auto const maxNegativeListed = static_cast<std::size_t>(
-            std::ceil(unl.size() * negativeUNLMaxListed));
+        auto const maxNegativeListed = maxNegativeUNLListed(unl.size());
         std::size_t negativeListed = 0;
         for (auto const& n : unl)
         {

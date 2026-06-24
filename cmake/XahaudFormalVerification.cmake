@@ -10,6 +10,10 @@ if(NOT tests)
   message(FATAL_ERROR "formal_verification requires tests=ON")
 endif()
 
+if(CMAKE_CROSSCOMPILING)
+  message(FATAL_ERROR "formal_verification currently supports native builds only")
+endif()
+
 set(XAHAU_FORMAL_VERIFICATION_DIR
   "${CMAKE_CURRENT_SOURCE_DIR}/formal_verification"
   CACHE PATH
@@ -59,6 +63,10 @@ set(XAHAU_FORMAL_ARCHIVE
 file(GLOB_RECURSE XAHAU_FORMAL_SOURCES CONFIGURE_DEPENDS
   "${XAHAU_FORMAL_VERIFICATION_DIR}/*.lean")
 
+# Lake currently writes package artifacts under the Lean workspace's .lake/
+# directory. Keep this option native/test-only until the build is moved to a
+# copied CMake-binary-dir workspace or Lake grows a stable external build-dir
+# interface we can rely on here.
 add_custom_command(
   OUTPUT "${XAHAU_FORMAL_ARCHIVE}"
   COMMAND ${LAKE_EXECUTABLE} build XahauConsensus:static

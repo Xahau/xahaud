@@ -160,6 +160,10 @@ target_link_modules(xrpl PUBLIC
 #     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 #     $<INSTALL_INTERFACE:include>)
 
+if(formal_verification AND NOT xrpld)
+  message(FATAL_ERROR "formal_verification requires xrpld=ON")
+endif()
+
 if(xrpld)
   add_executable(rippled)
   if(tests)

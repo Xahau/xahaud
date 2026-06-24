@@ -134,6 +134,7 @@ class Xrpl(ConanFile):
         'cfg/*',
         'cmake/*',
         'external/*',
+        'formal_verification/*',
         'include/*',
         'src/*',
     )

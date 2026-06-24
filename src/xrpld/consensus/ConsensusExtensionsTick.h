@@ -10,6 +10,65 @@ namespace ripple {
 
 namespace detail {
 
+inline std::size_t
+sidecarLocalContribution(bool localPublished)
+{
+    return localPublished ? 1 : 0;
+}
+
+inline std::size_t
+sidecarLocalContribution(bool localIsMember, bool localPublished)
+{
+    return sidecarLocalContribution(localIsMember && localPublished);
+}
+
+inline std::size_t
+sidecarAlignedParticipants(std::size_t aligned, bool localPublished)
+{
+    return aligned + sidecarLocalContribution(localPublished);
+}
+
+inline std::size_t
+sidecarAlignedParticipants(
+    std::size_t aligned,
+    bool localIsMember,
+    bool localPublished)
+{
+    return aligned + sidecarLocalContribution(localIsMember, localPublished);
+}
+
+inline bool
+sidecarQuorumAligned(
+    std::size_t threshold,
+    std::size_t aligned,
+    bool localPublished)
+{
+    return sidecarAlignedParticipants(aligned, localPublished) >= threshold;
+}
+
+inline bool
+sidecarQuorumAligned(
+    std::size_t threshold,
+    std::size_t aligned,
+    bool localIsMember,
+    bool localPublished)
+{
+    return sidecarAlignedParticipants(aligned, localIsMember, localPublished) >=
+        threshold;
+}
+
+inline bool
+sidecarFullObservation(std::size_t peersSeen, std::size_t txConverged)
+{
+    return peersSeen == txConverged;
+}
+
+inline bool
+exportGateProceed(std::size_t alignedParticipants, std::size_t quorumThreshold)
+{
+    return alignedParticipants >= quorumThreshold;
+}
+
 struct SidecarPeerAlignment
 {
     bool localPublished = false;
@@ -21,19 +80,19 @@ struct SidecarPeerAlignment
     std::size_t
     alignedParticipants() const
     {
-        return aligned + (localPublished ? 1 : 0);
+        return sidecarAlignedParticipants(aligned, localPublished);
     }
 
     bool
     quorumAligned(std::size_t quorum) const
     {
-        return alignedParticipants() >= quorum;
+        return sidecarQuorumAligned(quorum, aligned, localPublished);
     }
 
     bool
     fullObservation() const
     {
-        return peersSeen == txConverged;
+        return sidecarFullObservation(peersSeen, txConverged);
     }
 };
 
@@ -1104,7 +1163,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 auto exportState = inspectExportPeers(ctx.getPosition(), true);
                 auto const exportQuorum = ext.exportSigQuorumThreshold();
                 auto quorumAligned = [&] {
-                    return exportState.quorumAligned(exportQuorum);
+                    return detail::exportGateProceed(
+                        exportState.alignedParticipants(), exportQuorum);
                 };
                 //@@start export-sigset-alignment-check
                 if (exportState.conflict && !quorumAligned())
