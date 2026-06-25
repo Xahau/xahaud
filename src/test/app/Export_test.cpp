@@ -845,6 +845,76 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportNetworkApplyDoesNotUseLiveCollectorFallback(
+        FeatureBitset features)
+    {
+        testcase("ttEXPORT network apply does not use live collector fallback");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& valPK = valKeys.keys->publicKey;
+        auto const& valSK = valKeys.keys->secretKey;
+        seedUNLReportLedger(env, {valPK});
+        forceNonStandalone(env.app());
+        BEAST_EXPECT(!env.app().config().standalone());
+
+        auto const seq = env.current()->seq();
+        auto const ticketSeq = std::uint32_t{1};
+        auto const lls = seq + 5;
+        auto innerObj = buildExportedPayment(
+            alice.id(), carol.id(), seq + 1, lls, ticketSeq);
+        auto const innerTx = makeSTTx(innerObj);
+        auto jt = makeExportJTx(env, alice, innerObj, lls);
+        auto const exportTx = jt.stx;
+        BEAST_EXPECT(exportTx);
+        if (!exportTx)
+            return;
+        auto const txHash = exportTx->getTransactionID();
+
+        auto& ce = env.app().getConsensusExtensions();
+        ce.setExportEnabledThisRound(true);
+        ce.cacheUNLReport(env.app().getLedgerMaster().getClosedLedger());
+        auto const view = ce.activeValidatorView();
+        BEAST_EXPECT(view->fromUNLReport);
+        ce.cacheConsensusTxSet(makeRCLTxSet(env.app(), {exportTx}));
+
+        auto const applySeq = env.closed()->seq() + 1;
+        auto const agreedHash = ce.buildExportSigSet(applySeq);
+        BEAST_EXPECT(ce.isSidecarSet(agreedHash));
+
+        // The agreed sidecar snapshot is empty. A later local collector quorum
+        // must not rescue this apply path; network-mode export applies only
+        // from the frozen exportSigSetHash map.
+        auto const lateSig =
+            ExportResultBuilder::signExportedTxn(innerTx, valPK, valSK);
+        ce.exportSigCollector().addVerifiedSignature(
+            txHash, valPK, lateSig, applySeq);
+
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        auto next = std::make_shared<Ledger>(
+            *parent, env.app().timeKeeper().closeTime());
+        OpenView accum(&*next);
+        auto const result =
+            ripple::apply(env.app(), accum, *exportTx, tapNONE, env.journal);
+        BEAST_EXPECT(result.ter == terRETRY_EXPORT);
+        BEAST_EXPECT(!result.applied);
+        BEAST_EXPECT(!next->read(keylet::shadowTicket(alice.id(), ticketSeq)));
+    }
+
+    void
     testExportNetworkRetryWithoutUNLReport(FeatureBitset features)
     {
         testcase("ttEXPORT network mode retries without UNLReport view");
@@ -1449,6 +1519,7 @@ struct Export_test : public beast::unit_test::suite
         testExportTxnOpenLedger(allWithExport);
         testExportNetworkRetryWithoutQuorum(allWithExport);
         testExportNetworkApplyUsesAgreedSidecar(allWithExport);
+        testExportNetworkApplyDoesNotUseLiveCollectorFallback(allWithExport);
         testExportNetworkRetryWithoutUNLReport(allWithExport);
         testExportNetworkLastLedgerSequenceBoundary(allWithExport);
         testOpenLedgerExportLimit(allWithExport);

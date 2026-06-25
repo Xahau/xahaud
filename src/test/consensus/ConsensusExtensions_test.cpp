@@ -1276,6 +1276,118 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testOnPreBuildFallsBackWithoutUNLReportEvenWithEntropySet()
+    {
+        testcase("onPreBuild ignores validator entropy without UNLReport view");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+        forceNonStandalone(env.app());
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& publicKey = valKeys.keys->publicKey;
+        auto const& secretKey = valKeys.keys->secretKey;
+        auto const nodeId = valKeys.nodeID;
+        auto const prevLedger = ledger->info().hash;
+        auto const seq = ledger->seq() + 1;
+        auto const closeTime = NetClock::time_point{NetClock::duration{322}};
+        auto const txSetHash = makeHash("prebuild-no-unlreport-txset");
+        auto const reveal = makeHash("prebuild-no-unlreport-reveal");
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.onRoundStart(RCLCxLedger{ledger}, {});
+        BEAST_EXPECT(!ce.activeValidatorView()->fromUNLReport);
+
+        harvestCommitReveal(
+            ce,
+            nodeId,
+            publicKey,
+            secretKey,
+            txSetHash,
+            seq,
+            closeTime,
+            prevLedger,
+            reveal);
+        auto const entropySetHash = ce.buildEntropySet(seq);
+        BEAST_EXPECT(ce.isSidecarSet(entropySetHash));
+
+        CanonicalTXSet retriableTxs{makeHash("no-unlreport-prebuild-salt")};
+        ce.onPreBuild(retriableTxs, seq, txSetHash);
+
+        auto const tx = singleCanonicalTx(retriableTxs);
+        BEAST_EXPECT(tx);
+        if (!tx)
+            return;
+        auto const expected = sha512Half(
+            HashPrefix::entropyFallback, ledger->info().hash, txSetHash, seq);
+        BEAST_EXPECT(tx->getTxnType() == ttCONSENSUS_ENTROPY);
+        BEAST_EXPECT(tx->getFieldH256(sfDigest) == expected);
+        BEAST_EXPECT(
+            tx->getFieldH256(sfDigest) != expectedEntropy(publicKey, reveal));
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 0);
+        BEAST_EXPECT(
+            tx->getFieldU8(sfEntropyTier) == entropyTierConsensusFallback);
+    }
+
+    void
+    testOnPreBuildFallsBackForEmptyEntropySet()
+    {
+        testcase("onPreBuild falls back for empty entropy-set map");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+        forceNonStandalone(env.app());
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const viewLedger = makeUNLReportLedger(
+            env, std::vector<PublicKey>{valKeys.keys->publicKey});
+        auto const seq = ledger->seq() + 1;
+        auto const txSetHash = makeHash("empty-entropy-map-txset");
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.onRoundStart(RCLCxLedger{ledger}, {});
+        ce.cacheUNLReport(viewLedger);
+        BEAST_EXPECT(ce.activeValidatorView()->fromUNLReport);
+
+        // This creates a real entropySetMap_, but with zero parseable leaves.
+        // selectEntropy must treat that residual as fallback, not as a
+        // non-fallback digest over an empty sidecar root.
+        auto const entropySetHash = ce.buildEntropySet(seq);
+        BEAST_EXPECT(ce.isSidecarSet(entropySetHash));
+
+        CanonicalTXSet retriableTxs{makeHash("empty-entropy-map-salt")};
+        ce.onPreBuild(retriableTxs, seq, txSetHash);
+
+        auto const tx = singleCanonicalTx(retriableTxs);
+        BEAST_EXPECT(tx);
+        if (!tx)
+            return;
+        auto const expected = sha512Half(
+            HashPrefix::entropyFallback, ledger->info().hash, txSetHash, seq);
+        BEAST_EXPECT(tx->getTxnType() == ttCONSENSUS_ENTROPY);
+        BEAST_EXPECT(tx->getFieldH256(sfDigest) == expected);
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 0);
+        BEAST_EXPECT(
+            tx->getFieldU8(sfEntropyTier) == entropyTierConsensusFallback);
+    }
+
+    void
     testOnPreBuildTier2ParticipantAligned()
     {
         testcase(
@@ -3295,6 +3407,8 @@ public:
         testDecoratePositionGeneratesCommitment();
         testOnPreBuildInjectsZeroEntropyFallback();
         testOnPreBuildInjectsEntropySetEntropy();
+        testOnPreBuildFallsBackWithoutUNLReportEvenWithEntropySet();
+        testOnPreBuildFallsBackForEmptyEntropySet();
         testOnPreBuildTier2ParticipantAligned();
         testTier2ThresholdAnchorsToOriginalView();
         testOnPreBuildTier2WithNegativeUNL();

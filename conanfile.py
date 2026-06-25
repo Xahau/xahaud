@@ -1,4 +1,5 @@
 from conan import ConanFile
+from conan.errors import ConanInvalidConfiguration
 from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
 import re
 
@@ -112,6 +113,14 @@ class Xrpl(ConanFile):
         if self.settings.compiler == 'apple-clang':
             self.options['boost/*'].visibility = 'global'
 
+    def validate(self):
+        if self.options.formal_verification and (
+            not self.options.tests or not self.options.xrpld
+        ):
+            raise ConanInvalidConfiguration(
+                'formal_verification=True requires tests=True and xrpld=True'
+            )
+
     def requirements(self):
         # Force sqlite3 version to avoid conflicts with soci
         self.requires('sqlite3/3.47.0', override=True)
@@ -178,6 +187,11 @@ class Xrpl(ConanFile):
         cmake.build()
 
     def package(self):
+        if self.options.formal_verification:
+            raise ConanInvalidConfiguration(
+                'formal_verification=True is a local/CI test build option and '
+                'is not supported for Conan packages'
+            )
         cmake = CMake(self)
         cmake.verbose = True
         cmake.install()

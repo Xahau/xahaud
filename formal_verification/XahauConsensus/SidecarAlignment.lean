@@ -41,6 +41,10 @@ theorem localPublishedCount_false :
     localPublishedCount false = 0 := by
   rfl
 
+theorem localPublishedCount_le_one (published : Bool) :
+    localPublishedCount published <= 1 := by
+  cases published <;> simp [localPublishedCount]
+
 /-- Core participant-count equation: aligned remotes plus the local published
 contribution. -/
 theorem alignedParticipants_eq_aligned_plus_localPublished
@@ -61,6 +65,13 @@ theorem alignedParticipants_local_member
     alignedParticipants aligned true localPublished =
       aligned + localPublishedCount localPublished := by
   cases localPublished <;> rfl
+
+/-- The local node can add at most one participant to the remote aligned count. -/
+theorem alignedParticipants_le_aligned_succ
+    (aligned : Nat) (localIsMember localPublished : Bool) :
+    alignedParticipants aligned localIsMember localPublished <= aligned + 1 := by
+  cases localIsMember <;> cases localPublished <;>
+    simp [alignedParticipants, localPublishedCount]
 
 /-- The boolean quorum predicate is exactly the threshold comparison over
 `alignedParticipants`. -/
@@ -88,6 +99,39 @@ theorem activeAlignedCount_succ_nonmember
     activeAlignedCount inActiveView peerAligned (peer + 1) =
       activeAlignedCount inActiveView peerAligned peer := by
   simp [activeAlignedCount, hNonmember, localPublishedCount]
+
+/-- A prefix of `n` peer positions can contribute at most `n` aligned active
+remote participants. -/
+theorem activeAlignedCount_le_prefix
+    (inActiveView peerAligned : Nat → Bool) (n : Nat) :
+    activeAlignedCount inActiveView peerAligned n <= n := by
+  induction n with
+  | zero =>
+      simp [activeAlignedCount]
+  | succ n ih =>
+      cases hAligned : inActiveView n && peerAligned n
+      · simp [activeAlignedCount, hAligned, localPublishedCount]
+        exact Nat.le_trans ih (Nat.le_succ n)
+      · simp [activeAlignedCount, hAligned, localPublishedCount]
+        exact ih
+
+/-- With the optional local contribution included, the participant count is
+bounded by the inspected remote prefix plus one. -/
+theorem alignedParticipants_le_prefix_succ
+    (inActiveView peerAligned : Nat → Bool)
+    (n : Nat)
+    (localIsMember localPublished : Bool) :
+    alignedParticipants
+        (activeAlignedCount inActiveView peerAligned n)
+        localIsMember
+        localPublished <= n + 1 := by
+  have hRemote := activeAlignedCount_le_prefix inActiveView peerAligned n
+  cases localIsMember <;> cases localPublished <;>
+    simp [alignedParticipants, localPublishedCount]
+  · exact Nat.le_trans hRemote (Nat.le_succ n)
+  · exact Nat.le_trans hRemote (Nat.le_succ n)
+  · exact Nat.le_trans hRemote (Nat.le_succ n)
+  · exact hRemote
 
 /-- Adding a nonmember peer to the inspected prefix cannot increase
 `alignedParticipants`. -/

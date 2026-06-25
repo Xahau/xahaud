@@ -13,8 +13,9 @@ structure ExportGate where
   fullObservation : Bool
   deriving DecidableEq, Repr
 
-/-- Export has no RNG-style deterministic fallback value. Below quorum it can
-only retry/expire; it must not proceed against local-only signature material. -/
+/-- Export sidecar-gate outcome. This is not the final `Export::doApply`
+result: closed-ledger apply re-validates the frozen agreed signature snapshot
+before it can create a shadow ticket. -/
 inductive ExportOutcome where
   | proceed
   | retryOrExpire
@@ -31,6 +32,63 @@ def ExportGate.proceed (gate : ExportGate) : Bool :=
 /-- Export's externally visible decision shape. -/
 def ExportGate.outcome (gate : ExportGate) : ExportOutcome :=
   if gate.proceed then ExportOutcome.proceed else ExportOutcome.retryOrExpire
+
+/-- Minimal model of the additional closed-ledger apply preconditions.
+
+The sidecar gate only proves that one `exportSigSetHash` had quorum alignment.
+Network-mode `Export::doApply` then independently requires a ledger-anchored
+validator view, no convergence failure for the round, a frozen agreed sidecar
+map, a parseable/valid signature set, and enough verified signers in that map.
+The model intentionally excludes cryptography and metadata construction; it
+exists to prevent reading `ExportGate.proceed` as final apply success.
+-/
+structure ExportApplySnapshot where
+  fromUNLReport : Bool
+  convergenceFailed : Bool
+  agreedSetPresent : Bool
+  agreedSetValid : Bool
+  signerCount : Nat
+  quorumThreshold : Nat
+  deriving DecidableEq, Repr
+
+/-- Closed-ledger apply can use only a valid, frozen agreed sidecar snapshot. -/
+def ExportApplySnapshot.validAgreedSnapshot
+    (snapshot : ExportApplySnapshot) : Bool :=
+  snapshot.fromUNLReport &&
+    !snapshot.convergenceFailed &&
+    snapshot.agreedSetPresent &&
+    snapshot.agreedSetValid &&
+    decide (snapshot.quorumThreshold <= snapshot.signerCount)
+
+/-- Minimal network-mode apply decision: valid agreed snapshot applies; all
+other cases retry or expire. -/
+def ExportApplySnapshot.outcome
+    (snapshot : ExportApplySnapshot) : ExportOutcome :=
+  if snapshot.validAgreedSnapshot then
+    ExportOutcome.proceed
+  else
+    ExportOutcome.retryOrExpire
+
+theorem apply_success_iff_valid_agreed_snapshot
+    (snapshot : ExportApplySnapshot) :
+    snapshot.outcome = ExportOutcome.proceed ↔
+      snapshot.validAgreedSnapshot = true := by
+  unfold ExportApplySnapshot.outcome
+  by_cases h : snapshot.validAgreedSnapshot <;> simp [h]
+
+/-- Gate success alone is not final apply success. For example, the sidecar
+gate may have quorum alignment while the final apply path has no frozen agreed
+sidecar map available and therefore retries. -/
+theorem gate_proceed_does_not_imply_apply_success :
+    ∃ gate : ExportGate, ∃ snapshot : ExportApplySnapshot,
+      ExportGate.proceed gate = true ∧
+        ExportApplySnapshot.outcome snapshot =
+          ExportOutcome.retryOrExpire := by
+  refine ⟨
+    ExportGate.mk 4 4 false,
+    ExportApplySnapshot.mk true false false true 4 4,
+    ?_,
+    ?_⟩ <;> rfl
 
 /-- A missing minority, represented by `fullObservation = false`, does not
 prevent export when the quorum threshold is met. -/

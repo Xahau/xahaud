@@ -7,7 +7,7 @@ function(xahaud_require_lean_toolchain project_dir)
 
   file(READ "${project_dir}/lean-toolchain" lean_toolchain)
   string(STRIP "${lean_toolchain}" lean_toolchain)
-  if(NOT lean_toolchain MATCHES "^leanprover/lean4:v(.+)$")
+  if(NOT lean_toolchain MATCHES "^leanprover/lean4:v([0-9]+\\.[0-9]+\\.[0-9]+([-+._A-Za-z0-9]+)?)$")
     message(FATAL_ERROR
       "Unsupported lean-toolchain format `${lean_toolchain}` in ${project_dir}")
   endif()
@@ -22,16 +22,8 @@ function(xahaud_require_lean_toolchain project_dir)
       "Install elan, then run `lake build` once in ${project_dir}.")
   endif()
 
-  find_program(LEAN_EXECUTABLE
-    NAMES lean
-    HINTS "$ENV{HOME}/.elan/bin")
-  if(NOT LEAN_EXECUTABLE)
-    message(FATAL_ERROR
-      "formal_verification=ON requires Lean on PATH or in ~/.elan/bin")
-  endif()
-
   execute_process(
-    COMMAND "${LEAN_EXECUTABLE}" --version
+    COMMAND "${LAKE_EXECUTABLE}" env lean --version
     WORKING_DIRECTORY "${project_dir}"
     OUTPUT_VARIABLE lean_version_output
     ERROR_VARIABLE lean_version_error
@@ -40,13 +32,20 @@ function(xahaud_require_lean_toolchain project_dir)
     RESULT_VARIABLE lean_version_result)
   if(NOT lean_version_result EQUAL 0)
     message(FATAL_ERROR
-      "Could not run `${LEAN_EXECUTABLE} --version`: ${lean_version_error}")
+      "Could not run `${LAKE_EXECUTABLE} env lean --version`: "
+      "${lean_version_error}")
   endif()
-  if(NOT lean_version_output MATCHES "Lean \\(version ${expected_lean_version}[,)]")
+  if(NOT lean_version_output MATCHES "^Lean \\(version ([^,)]+)[,)]")
+    message(FATAL_ERROR
+      "Could not parse Lean version from `${lean_version_output}`")
+  endif()
+  set(actual_lean_version "${CMAKE_MATCH_1}")
+  if(NOT actual_lean_version STREQUAL expected_lean_version)
     message(FATAL_ERROR
       "Lean version mismatch for formal_verification=ON. "
       "Expected ${expected_lean_version} from ${project_dir}/lean-toolchain, "
-      "but `${LEAN_EXECUTABLE} --version` returned `${lean_version_output}`")
+      "but `${LAKE_EXECUTABLE} env lean --version` returned "
+      "`${lean_version_output}`")
   endif()
 
   execute_process(
@@ -61,7 +60,12 @@ function(xahaud_require_lean_toolchain project_dir)
     message(FATAL_ERROR
       "Could not run `${LAKE_EXECUTABLE} --version`: ${lake_version_error}")
   endif()
-  if(NOT lake_version_output MATCHES "Lean version ${expected_lean_version}[)]")
+  if(NOT lake_version_output MATCHES "Lean version ([^)]+)\\)")
+    message(FATAL_ERROR
+      "Could not parse Lake's Lean version from `${lake_version_output}`")
+  endif()
+  set(lake_lean_version "${CMAKE_MATCH_1}")
+  if(NOT lake_lean_version STREQUAL expected_lean_version)
     message(FATAL_ERROR
       "Lake version mismatch for formal_verification=ON. "
       "Expected Lean ${expected_lean_version} from ${project_dir}/lean-toolchain, "
@@ -102,7 +106,6 @@ function(xahaud_require_lean_toolchain project_dir)
   endif()
 
   set(LAKE_EXECUTABLE "${LAKE_EXECUTABLE}" PARENT_SCOPE)
-  set(LEAN_EXECUTABLE "${LEAN_EXECUTABLE}" PARENT_SCOPE)
   set(LEAN_SYSROOT "${lean_sysroot}" PARENT_SCOPE)
   set(LEAN_INCLUDE_DIR "${lean_include_dir}" PARENT_SCOPE)
   set(LEAN_SHARED_LIBRARY "${lean_shared_library}" PARENT_SCOPE)

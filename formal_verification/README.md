@@ -107,10 +107,11 @@ The xahaud CMake build can also compile a Lean-backed unit-test path, but it is
 off by default and is not part of normal release builds:
 
 Install Lean through `elan` first. The CMake integration intentionally keeps the
-tooling rule simple: when `formal_verification=ON`, it looks for `lean` and
-`lake` on `PATH` or in `~/.elan/bin`, verifies both report the exact version
-specified by this package's `lean-toolchain`, then asks Lake for `LEAN_SYSROOT`
-and checks that `lean.h` and `libleanshared` exist.
+tooling rule simple: when `formal_verification=ON`, it looks for `lake` on
+`PATH` or in `~/.elan/bin`, asks that Lake environment to run `lean --version`,
+verifies the exact version specified by this package's `lean-toolchain`, then
+asks Lake for `LEAN_SYSROOT` and checks that `lean.h` and `libleanshared`
+exist.
 
 ```sh
 conan install . --output-folder=build-formal --build=missing \
@@ -144,8 +145,10 @@ surface is intentionally scalar and reviewable:
   effectiveView, originalView)`.
 - Sidecar aligned-participant counting, full-observation, quorum-aligned
   predicates, and active-view mask-counting samples.
-- Export's quorum-only proceed predicate, where `fullObservation` is diagnostic
-  rather than success-gating, plus quorum-overlap safety predicates.
+- Export's quorum-only sidecar-gate proceed predicate, where `fullObservation`
+  is diagnostic rather than success-gating; a small final-apply snapshot model
+  makes explicit that gate proceed is not the same as closed-ledger
+  `Export::doApply` success.
 - NegativeUNL cap/effective-view arithmetic.
 - View-universe safety predicates and naive-60% regression anchors.
 
@@ -158,4 +161,6 @@ are current; CMake does not trust an existing source-tree archive by timestamp.
 Lake still writes build artifacts under the Lean workspace's `.lake/`
 directory, and the Conan recipe intentionally excludes that directory from
 exported sources, so keep this option as a local/CI confidence build rather
-than a release packaging input.
+than a release packaging input. The Conan recipe rejects
+`formal_verification=True` unless `tests=True` and `xrpld=True`, and refuses to
+package formal-enabled builds.
