@@ -14,6 +14,10 @@ if(CMAKE_CROSSCOMPILING)
   message(FATAL_ERROR "formal_verification currently supports native builds only")
 endif()
 
+if(WIN32)
+  message(FATAL_ERROR "formal_verification currently supports Unix-like native builds only")
+endif()
+
 set(XAHAU_FORMAL_VERIFICATION_DIR
   "${CMAKE_CURRENT_SOURCE_DIR}/formal_verification"
   CACHE PATH
@@ -32,27 +36,28 @@ file(GLOB_RECURSE XAHAU_FORMAL_SOURCES CONFIGURE_DEPENDS
 # directory. Keep this option native/test-only until the build is moved to a
 # copied CMake-binary-dir workspace or Lake grows a stable external build-dir
 # interface we can rely on here.
-add_custom_command(
-  OUTPUT "${XAHAU_FORMAL_ARCHIVE}"
-  COMMAND ${LAKE_EXECUTABLE} build XahauConsensus:static
+#
+# This target deliberately invokes Lake whenever the formal-enabled `rippled`
+# target is built. Lake still performs its own incremental rebuild, but CMake
+# must not trust a source-tree `.lake` archive purely by timestamp.
+add_custom_target(xahaud_formal_verification_lean
+  COMMAND "${LAKE_EXECUTABLE}" build XahauConsensus:static
   WORKING_DIRECTORY "${XAHAU_FORMAL_VERIFICATION_DIR}"
   DEPENDS
     "${XAHAU_FORMAL_VERIFICATION_DIR}/lakefile.toml"
     "${XAHAU_FORMAL_VERIFICATION_DIR}/lean-toolchain"
     "${XAHAU_FORMAL_VERIFICATION_DIR}/lake-manifest.json"
     ${XAHAU_FORMAL_SOURCES}
+  BYPRODUCTS "${XAHAU_FORMAL_ARCHIVE}"
   COMMENT "Building Lean formal-verification archive"
   VERBATIM)
-
-add_custom_target(xahaud_formal_verification_lean
-  DEPENDS "${XAHAU_FORMAL_ARCHIVE}")
 
 add_dependencies(rippled xahaud_formal_verification_lean)
 target_compile_definitions(rippled PRIVATE XAHAUD_ENABLE_FORMAL_VERIFICATION=1)
 target_include_directories(rippled PRIVATE "${LEAN_INCLUDE_DIR}")
 target_link_libraries(rippled "${XAHAU_FORMAL_ARCHIVE}" "${LEAN_SHARED_LIBRARY}")
 
-if(APPLE)
+if(UNIX)
   set_property(TARGET rippled APPEND PROPERTY BUILD_RPATH "${LEAN_SYSROOT}/lib/lean")
 endif()
 

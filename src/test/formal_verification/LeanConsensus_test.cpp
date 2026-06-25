@@ -27,6 +27,7 @@
 #include <lean/lean.h>
 
 #include <cstdint>
+#include <limits>
 #include <mutex>
 #include <stdexcept>
 
@@ -228,6 +229,28 @@ public:
                 xahau_quorum_threshold(count) ==
                 calculateQuorumThreshold(count));
         }
+
+        auto const max = std::numeric_limits<std::uint64_t>::max();
+        for (std::uint64_t count :
+             {max / 100 - 1,
+              max / 100,
+              max / 80 - 1,
+              max / 80,
+              max / 5 - 1,
+              max / 5,
+              max / 2 - 1,
+              max / 2,
+              max - 1,
+              max})
+        {
+            BEAST_EXPECT(xahau_byzantine_bound(count) == count / 5);
+            BEAST_EXPECT(
+                xahau_participant_threshold(count) ==
+                calculateParticipantThreshold(count));
+            BEAST_EXPECT(
+                xahau_quorum_threshold(count) ==
+                calculateQuorumThreshold(count));
+        }
     }
 
     void
@@ -369,6 +392,15 @@ public:
                     expectedEffective);
             }
         }
+
+        auto const max = std::numeric_limits<std::uint64_t>::max();
+        for (std::uint64_t originalView :
+             {max / 4 - 1, max / 4, max / 2, max - 1, max})
+        {
+            BEAST_EXPECT(
+                xahau_disabled_cap(originalView) ==
+                NegativeUNLVote::maxNegativeUNLListed(originalView));
+        }
     }
 
     void
@@ -442,6 +474,25 @@ public:
                     expected);
             }
         }
+
+        struct NunlPremiseCase
+        {
+            std::uint64_t originalView;
+            std::uint64_t effectiveView;
+            std::uint64_t disabled;
+        };
+
+        for (auto const& c : {
+                 NunlPremiseCase{20, 15, 4},  // effective view should be 16
+                 NunlPremiseCase{20, 17, 4},  // effective view should be 16
+                 NunlPremiseCase{20, 14, 6},  // disabled is above cap
+                 NunlPremiseCase{10, 6, 4},   // disabled is above cap
+             })
+        {
+            BEAST_EXPECT(
+                xahau_export_quorum_safe_under_nunl_cap(
+                    c.originalView, c.effectiveView, c.disabled) == 0);
+        }
     }
 
     void
@@ -458,15 +509,7 @@ public:
             std::uint64_t alignedMask;
         };
 
-        for (auto const& c : {
-                 MaskCase{0, 0b0, 0b0},
-                 MaskCase{1, 0b1, 0b1},
-                 MaskCase{6, 0b111111, 0b111111},
-                 MaskCase{6, 0b001111, 0b111111},
-                 MaskCase{8, 0b10110110, 0b11111111},
-                 MaskCase{12, 0b101010101010, 0b111100001111},
-             })
-        {
+        auto const checkMaskCase = [&](MaskCase const& c) {
             auto const aligned =
                 activeAlignedCountMaskCpp(c.count, c.activeMask, c.alignedMask);
             BEAST_EXPECT(
@@ -495,6 +538,34 @@ public:
                     }
                 }
             }
+        };
+
+        for (std::uint64_t count = 0; count <= 6; ++count)
+        {
+            auto const maxMask = std::uint64_t{1} << count;
+            for (std::uint64_t activeMask = 0; activeMask < maxMask;
+                 ++activeMask)
+            {
+                for (std::uint64_t alignedMask = 0; alignedMask < maxMask;
+                     ++alignedMask)
+                {
+                    checkMaskCase(MaskCase{count, activeMask, alignedMask});
+                }
+            }
+        }
+
+        for (auto const& c : {
+                 MaskCase{8, 0b10110110, 0b11111111},
+                 MaskCase{12, 0b101010101010, 0b111100001111},
+                 MaskCase{63, std::uint64_t{1} << 62, std::uint64_t{1} << 62},
+                 MaskCase{64, std::uint64_t{1} << 63, std::uint64_t{1} << 63},
+                 MaskCase{
+                     64,
+                     (std::uint64_t{1} << 63) | 0b1011,
+                     (std::uint64_t{1} << 63) | 0b0110},
+             })
+        {
+            checkMaskCase(c);
         }
     }
 

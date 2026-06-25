@@ -72,8 +72,8 @@ Current modules:
   - records examples where changing view provenance or view sizes changes labels
 - `XahauConsensus.ExportGate`
   - models export's quorum-aligned success rule
-  - models export's outcome as `finalize` or `retryOrExpire`, with no
-    deterministic fallback signature set
+  - models export's sidecar-gate outcome as `proceed` or `retryOrExpire`, with
+    no deterministic fallback signature set
   - proves missing minority observation does not block a quorum-aligned export
   - proves `fullObservation` alone cannot change the export decision
 - `XahauConsensus.ExportQuorum`
@@ -152,6 +152,10 @@ surface is intentionally scalar and reviewable:
 This is still a model-to-code cross-check, not a proof that the C++ implements
 the Lean model. Its value is narrower and practical: if a production formula,
 decision ladder, or helper predicate changes without the formal model changing
-too, the gated unit test fails. Lake still writes build artifacts under the
-Lean workspace's `.lake/` directory, so keep this option as a local/CI
-confidence build rather than a release packaging input.
+too, the gated unit test fails. The formal CMake target invokes Lake on each
+formal-enabled `rippled` build and lets Lake decide whether its own artifacts
+are current; CMake does not trust an existing source-tree archive by timestamp.
+Lake still writes build artifacts under the Lean workspace's `.lake/`
+directory, and the Conan recipe intentionally excludes that directory from
+exported sources, so keep this option as a local/CI confidence build rather
+than a release packaging input.

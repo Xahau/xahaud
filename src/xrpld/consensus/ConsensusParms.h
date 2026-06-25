@@ -226,7 +226,9 @@ struct ConsensusParms
 inline std::size_t
 calculateQuorumThreshold(std::size_t count)
 {
-    return (count * 80 + 99) / 100;
+    auto const whole = count / 100;
+    auto const remainder = count % 100;
+    return whole * 80 + (remainder * 80 + 99) / 100;
 }
 
 /** Safe quorum helper for consensus-extension gates.
@@ -274,7 +276,8 @@ calculateParticipantThreshold(std::size_t count)
     // f = floor(0.2 * count) tolerated Byzantine validators; the smallest t
     // with 2t - count > f is floor((count + f) / 2) + 1.
     auto const byzantine = count / 5;
-    return (count + byzantine) / 2 + 1;
+    auto const carry = (count % 2 + byzantine % 2) / 2;
+    return count / 2 + byzantine / 2 + carry + 1;
 }
 
 /** Safe Tier-2 helper for consensus-extension gates.

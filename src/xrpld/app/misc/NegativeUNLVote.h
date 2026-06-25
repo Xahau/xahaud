@@ -85,8 +85,8 @@ public:
     static constexpr size_t
     maxNegativeUNLListed(size_t unlSize)
     {
-        return (unlSize + negativeUNLMaxListedDenominator - 1) /
-            negativeUNLMaxListedDenominator;
+        return unlSize / negativeUNLMaxListedDenominator +
+            (unlSize % negativeUNLMaxListedDenominator == 0 ? 0 : 1);
     }
 
     /**
