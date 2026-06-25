@@ -106,6 +106,12 @@ Run:
 The xahaud CMake build can also compile a Lean-backed unit-test path, but it is
 off by default and is not part of normal release builds:
 
+Install Lean through `elan` first. The CMake integration intentionally keeps the
+tooling rule simple: when `formal_verification=ON`, it looks for `lean` and
+`lake` on `PATH` or in `~/.elan/bin`, verifies both report the exact version
+specified by this package's `lean-toolchain`, then asks Lake for `LEAN_SYSROOT`
+and checks that `lean.h` and `libleanshared` exist.
+
 ```sh
 conan install . --output-folder=build-formal --build=missing \
   -s build_type=Release \

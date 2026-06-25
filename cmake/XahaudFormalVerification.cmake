@@ -19,43 +19,8 @@ set(XAHAU_FORMAL_VERIFICATION_DIR
   CACHE PATH
   "Lean formal-verification project used by formal_verification=ON")
 
-find_program(LAKE_EXECUTABLE
-  NAMES lake
-  HINTS "$ENV{HOME}/.elan/bin")
-
-if(NOT LAKE_EXECUTABLE)
-  message(FATAL_ERROR "formal_verification=ON requires Lake on PATH or in ~/.elan/bin")
-endif()
-
-if(NOT EXISTS "${XAHAU_FORMAL_VERIFICATION_DIR}/lakefile.toml")
-  message(FATAL_ERROR
-    "formal_verification=ON requires ${XAHAU_FORMAL_VERIFICATION_DIR}/lakefile.toml")
-endif()
-
-execute_process(
-  COMMAND ${LAKE_EXECUTABLE} env printenv LEAN_SYSROOT
-  WORKING_DIRECTORY "${XAHAU_FORMAL_VERIFICATION_DIR}"
-  OUTPUT_VARIABLE LEAN_SYSROOT
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  RESULT_VARIABLE LEAN_SYSROOT_RESULT)
-
-if(NOT LEAN_SYSROOT_RESULT EQUAL 0 OR NOT LEAN_SYSROOT)
-  message(FATAL_ERROR "Could not determine Lean sysroot via `${LAKE_EXECUTABLE} env printenv LEAN_SYSROOT`")
-endif()
-
-set(LEAN_INCLUDE_DIR "${LEAN_SYSROOT}/include")
-if(NOT EXISTS "${LEAN_INCLUDE_DIR}/lean/lean.h")
-  message(FATAL_ERROR "Lean header not found: ${LEAN_INCLUDE_DIR}/lean/lean.h")
-endif()
-
-find_library(LEAN_SHARED_LIBRARY
-  NAMES leanshared libleanshared
-  PATHS "${LEAN_SYSROOT}/lib/lean"
-  NO_DEFAULT_PATH)
-
-if(NOT LEAN_SHARED_LIBRARY)
-  message(FATAL_ERROR "Lean shared runtime not found under ${LEAN_SYSROOT}/lib/lean")
-endif()
+include(XahaudLean)
+xahaud_require_lean_toolchain("${XAHAU_FORMAL_VERIFICATION_DIR}")
 
 set(XAHAU_FORMAL_ARCHIVE
   "${XAHAU_FORMAL_VERIFICATION_DIR}/.lake/build/lib/libxahau__consensus_XahauConsensus.a")
@@ -92,4 +57,4 @@ if(APPLE)
 endif()
 
 message(STATUS "Formal verification enabled: ${XAHAU_FORMAL_VERIFICATION_DIR}")
-message(STATUS "Lean sysroot: ${LEAN_SYSROOT}")
+message(STATUS "Lean ${LEAN_EXPECTED_VERSION} sysroot: ${LEAN_SYSROOT}")
