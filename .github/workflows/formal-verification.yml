@@ -1,0 +1,127 @@
+name: Formal Verification (Lean)
+
+on:
+  push:
+    branches: ["feature-export-rng-lean"]
+  pull_request:
+    branches: ["**"]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lean-consensus:
+    name: Lean/C++ drift checks
+    runs-on: [self-hosted, macOS]
+    env:
+      BUILD_DIR: .build-formal
+      CMAKE_BUILD_DIR: .build-formal-cmake
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add Homebrew to PATH
+        run: |
+          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+          echo "/opt/homebrew/sbin" >> "$GITHUB_PATH"
+
+      - name: Install core tools
+        run: |
+          brew install coreutils
+          echo "Num proc: $(nproc)"
+
+      - name: Setup toolchain (mise)
+        uses: jdx/mise-action@v3.6.1
+        with:
+          cache: false
+          install: true
+          mise_toml: |
+            [tools]
+            cmake = "3.25.3"
+            python = "3.12"
+            pipx = "latest"
+            conan = "2"
+            ninja = "latest"
+
+      - name: Install tools via mise
+        run: |
+          mise install
+          mise reshim
+          echo "$HOME/.local/share/mise/shims" >> "$GITHUB_PATH"
+
+      - name: Install Lean toolchain
+        run: |
+          toolchain="$(cat formal_verification/lean-toolchain)"
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain "$toolchain"
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          "$HOME/.elan/bin/lake" --version
+          "$HOME/.elan/bin/lean" --version
+
+      - name: Build Lean proofs
+        run: |
+          cd formal_verification
+          "$HOME/.elan/bin/lake" build XahauConsensus:static
+
+      - name: Detect compiler version
+        id: detect-compiler
+        run: |
+          compiler_version=$(clang --version | grep -oE 'version [0-9]+' | grep -oE '[0-9]+')
+          echo "compiler_version=${compiler_version}" >> "$GITHUB_OUTPUT"
+          echo "Detected Apple Clang version: ${compiler_version}"
+
+      - name: Configure Conan profile
+        run: |
+          mkdir -p ~/.conan2/profiles
+          cat > ~/.conan2/profiles/default <<EOF
+          [settings]
+          arch=armv8
+          build_type=Debug
+          compiler=apple-clang
+          compiler.cppstd=20
+          compiler.libcxx=libc++
+          compiler.version=${{ steps.detect-compiler.outputs.compiler_version }}
+          os=Macos
+
+          [conf]
+          tools.build:cxxflags=["-Wno-missing-template-arg-list-after-template-kw"]
+          EOF
+          conan profile show
+
+      - name: Export custom Conan recipes
+        run: |
+          conan export external/snappy --version 1.1.10 --user xahaud --channel stable
+          conan export external/soci --version 4.0.3 --user xahaud --channel stable
+          conan export external/wasmedge --version 0.11.2 --user xahaud --channel stable
+
+      - name: Install Conan dependencies
+        env:
+          CONAN_REQUEST_TIMEOUT: 180
+        run: |
+          conan install . \
+            --output-folder "$BUILD_DIR" \
+            --build missing \
+            --settings build_type=Debug \
+            -o '&:tests=True' \
+            -o '&:xrpld=True' \
+            -o '&:formal_verification=True'
+
+      - name: Configure formal build
+        run: |
+          cmake -S . -B "$CMAKE_BUILD_DIR" -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/$BUILD_DIR/build/generators/conan_toolchain.cmake" \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -Dtests=ON \
+            -Dxrpld=ON \
+            -Dformal_verification=ON
+
+      - name: Build formal-enabled rippled
+        run: |
+          cmake --build "$CMAKE_BUILD_DIR" --target rippled --parallel "$(nproc)"
+
+      - name: Run Lean/C++ drift checks
+        run: |
+          "$CMAKE_BUILD_DIR/rippled" --unittest=LeanConsensus --unittest-log
