@@ -205,9 +205,13 @@ struct ExtendedPosition
 
         // Extended format: flags byte + optional uint256 fields
         if (sit.empty())
-            return pos;
+            return std::nullopt;
 
         std::uint8_t flags = sit.get8();
+
+        // A 32-byte payload is the only canonical no-extension encoding.
+        if (flags == 0)
+            return std::nullopt;
 
         // Reject unknown flag bits (reduces wire malleability)
         if (flags & 0x80)

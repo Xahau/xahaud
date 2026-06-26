@@ -522,17 +522,26 @@ class ExtendedPosition_test : public beast::unit_test::suite
             BEAST_EXPECT(!result.has_value());
         }
 
-        // Size says extended payload, but no flag byte remains. This accepts
-        // the legacy hash and ignores the inconsistent advertised size.
+        // Size says extended payload, but no flag byte remains.
         {
             auto const txSet = makeHash("txset-missing-flags");
             Serializer s;
             s.addBitString(txSet);
             SerialIter sit(s.slice());
             auto result = ExtendedPosition::fromSerialIter(sit, 33);
-            BEAST_EXPECT(result.has_value());
-            if (result)
-                BEAST_EXPECT(result->txSetHash == txSet);
+            BEAST_EXPECT(!result.has_value());
+        }
+
+        // Zero flags are a non-canonical duplicate of the 32-byte legacy form.
+        {
+            auto const txSet = makeHash("txset-zero-flags");
+            Serializer s;
+            s.addBitString(txSet);
+            s.add8(0);
+            SerialIter sit(s.slice());
+            auto result =
+                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
+            BEAST_EXPECT(!result.has_value());
         }
 
         // Trailing extra bytes after valid fields
