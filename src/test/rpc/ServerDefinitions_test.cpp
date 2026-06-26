@@ -186,10 +186,13 @@ public:
             bool expectObsolete =
                 (votes.at(feature[jss::name].asString()) ==
                  VoteBehavior::Obsolete);
+            // "enabled" is now the effective value (ledger_voted || forced);
+            // this default env votes nothing onto the ledger, so assert on the
+            // canonical on-ledger flag.
             BEAST_EXPECTS(
-                feature.isMember(jss::enabled) &&
-                    !feature[jss::enabled].asBool(),
-                feature[jss::name].asString() + " enabled");
+                feature.isMember(jss::ledger_enabled) &&
+                    !feature[jss::ledger_enabled].asBool(),
+                feature[jss::name].asString() + " ledger_enabled");
             BEAST_EXPECTS(
                 feature.isMember(jss::vetoed) &&
                     feature[jss::vetoed].isBool() == !expectObsolete &&
@@ -237,10 +240,12 @@ public:
             bool expectObsolete =
                 (votes.at((*it)[jss::name].asString()) ==
                  VoteBehavior::Obsolete);
+            // expectEnabled reflects the on-ledger amendment table, so compare
+            // against ledger_enabled (enabled is now ledger_voted || forced).
             BEAST_EXPECTS(
-                (*it).isMember(jss::enabled) &&
-                    (*it)[jss::enabled].asBool() == expectEnabled,
-                (*it)[jss::name].asString() + " enabled");
+                (*it).isMember(jss::ledger_enabled) &&
+                    (*it)[jss::ledger_enabled].asBool() == expectEnabled,
+                (*it)[jss::name].asString() + " ledger_enabled");
             if (expectEnabled)
                 BEAST_EXPECTS(
                     !(*it).isMember(jss::vetoed),
@@ -367,19 +372,18 @@ public:
 
         using namespace test::jtx;
 
-        // Force an amendment active via the [features] config stanza (Rules
-        // presets) without enabling it on-ledger. server_definitions must then
-        // report it as effectively enabled, while distinguishing the source:
+        // jtx enables amendments by inserting them into config.features (the
+        // same presets mechanism as the [features] config stanza), so passing
+        // a single-feature bitset gives us exactly one config-forced amendment
+        // and votes nothing onto the ledger. server_definitions must then
+        // report that one as effectively enabled, distinguishing the source:
         //   enabled        = ledger_enabled || cfg_forced
         //   ledger_enabled = false (never voted onto the ledger)
-        //   cfg_forced     = true  (forced via config)
+        //   cfg_forced     = true  (forced via config) for the one feature only
         auto const forced = featurePriceOracle;
         auto const forcedHex = to_string(forced);
 
-        Env env{*this, envconfig([forced](std::unique_ptr<Config> cfg) {
-                    cfg->features.insert(forced);
-                    return cfg;
-                })};
+        Env env{*this, FeatureBitset(forced)};
 
         auto jrr = env.rpc("server_definitions")[jss::result];
         if (!BEAST_EXPECT(jrr.isMember(jss::features)))
