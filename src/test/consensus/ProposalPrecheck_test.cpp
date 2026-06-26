@@ -220,6 +220,38 @@ public:
             BEAST_EXPECT(
                 detail::checkProposalExtensions(okSet, true, true).result ==
                 ok);
+
+            // A single oversized blob is rejected before its bytes are hashed,
+            // even though the count is within maxPendingExports. This bounds
+            // the pre-auth SHA512 work on the proposal ingress path.
+            protocol::TMProposeSet oversized;
+            setPreviousLedger(oversized);
+            std::string const bigSig(
+                ExportLimits::maxExportSignatureBytes + 1, 'x');
+            std::vector<std::string> const bigSigs{bigSig};
+            ExtendedPosition oversizedPos{
+                makeHash("export-oversized-position")};
+            oversizedPos.exportSignaturesHash =
+                proposalExportSignaturesHash(bigSigs);
+            setPosition(oversized, oversizedPos);
+            oversized.add_exportsignatures(bigSig);
+            BEAST_EXPECT(
+                detail::checkProposalExtensions(oversized, true, true).result ==
+                oversizedExportSignature);
+
+            // A maximum-size blob is still accepted.
+            protocol::TMProposeSet maxSized;
+            setPreviousLedger(maxSized);
+            std::string const maxSig(
+                ExportLimits::maxExportSignatureBytes, 'x');
+            std::vector<std::string> const maxSigs{maxSig};
+            ExtendedPosition maxPos{makeHash("export-maxsize-position")};
+            maxPos.exportSignaturesHash = proposalExportSignaturesHash(maxSigs);
+            setPosition(maxSized, maxPos);
+            maxSized.add_exportsignatures(maxSig);
+            BEAST_EXPECT(
+                detail::checkProposalExtensions(maxSized, true, true).result ==
+                ok);
         }
 
         testcase("rejection diagnostics");
@@ -259,6 +291,10 @@ public:
                 tooManyExportSignatures,
                 "Proposal: too many export signatures",
                 "too many export sigs");
+            check(
+                oversizedExportSignature,
+                "Proposal: oversized export signature",
+                "oversized export sig");
             check(
                 unsignedExportSignatures,
                 "Proposal: unsigned export signatures",

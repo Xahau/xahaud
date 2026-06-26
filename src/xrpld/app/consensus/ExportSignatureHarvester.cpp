@@ -18,7 +18,9 @@
 //==============================================================================
 
 #include <xrpld/app/consensus/ExportSignatureHarvester.h>
+
 #include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
@@ -134,6 +136,12 @@ harvestExportSignatures(
     for (auto const& blob : input.exportSignatures)
     {
         if (blob.size() < 65)
+            continue;
+
+        // Defense-in-depth: ProposalPrecheck already rejects oversized blobs at
+        // ingress, but bound the stored signature size here too so the merge/
+        // sidecar path can never cache an over-large buffer.
+        if (blob.size() > ExportLimits::maxExportSignatureBytes)
             continue;
 
         uint256 txHash;

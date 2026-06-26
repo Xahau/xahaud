@@ -58,6 +58,13 @@ class ExportSigCollector
 
     static constexpr std::uint32_t maxStaleLedgers = 256;
 
+    // Cap on distinct tracked export txns. Bounds the unverified cache: a
+    // malicious trusted validator can advertise proposal sigs with arbitrary
+    // txHashes for txns not in our open ledger (stored unverified, only TTL-
+    // evicted). Verified entries (real in-ledger exports) are never gated by
+    // this cap, so legitimate quorum collection is unaffected.
+    static constexpr std::size_t maxTrackedTxns = 4096;
+
     void
     touchSeq(SigEntry& entry, std::uint32_t seq)
     {
@@ -106,6 +113,12 @@ public:
             "ripple::ExportSigCollector::addUnverifiedSignature : "
             "non-empty signature");
         std::lock_guard lock(mutex_);
+        // Bound the unverified cache (see maxTrackedTxns). Only gate NEW
+        // txHashes; existing entries and the verified path are never blocked,
+        // so real exports still reach quorum.
+        if (sigs_.find(txnHash) == sigs_.end() &&
+            sigs_.size() >= maxTrackedTxns)
+            return;
         auto& entry = sigs_[txnHash];
         entry.validators.insert(validator);
         // Don't overwrite a verified sig with an unverified one.

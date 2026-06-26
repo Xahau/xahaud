@@ -18,6 +18,7 @@ enum class ProposalPrecheckResult {
     entropyDisabled,
     exportDisabled,
     tooManyExportSignatures,
+    oversizedExportSignature,
     unsignedExportSignatures,
     exportSignaturesHashMismatch,
     missingExportSignatures
@@ -71,6 +72,9 @@ proposalPrecheckRejection(ProposalPrecheckResult result)
         case ProposalPrecheckResult::tooManyExportSignatures:
             return ProposalPrecheckRejection{
                 "Proposal: too many export signatures", "too many export sigs"};
+        case ProposalPrecheckResult::oversizedExportSignature:
+            return ProposalPrecheckRejection{
+                "Proposal: oversized export signature", "oversized export sig"};
         case ProposalPrecheckResult::unsignedExportSignatures:
             return ProposalPrecheckRejection{
                 "Proposal: unsigned export signatures", "unsigned export sigs"};
@@ -118,6 +122,17 @@ checkProposalExtensions(
     if (set.exportsignatures_size() > ExportLimits::maxPendingExports)
         return {
             ProposalPrecheckResult::tooManyExportSignatures, parsedPosition};
+
+    // Reject oversized blobs BEFORE proposalExportSignaturesHash() hashes them.
+    // This runs before the proposal signature is verified, so an unbounded blob
+    // would otherwise let an unauthenticated peer force a large SHA512/copy.
+    for (auto const& blob : set.exportsignatures())
+    {
+        if (blob.size() > ExportLimits::maxExportSignatureBytes)
+            return {
+                ProposalPrecheckResult::oversizedExportSignature,
+                parsedPosition};
+    }
 
     if (set.exportsignatures_size() > 0)
     {

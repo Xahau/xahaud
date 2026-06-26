@@ -1,6 +1,7 @@
 #ifndef RIPPLE_PROTOCOL_EXPORT_LIMITS_H_INCLUDED
 #define RIPPLE_PROTOCOL_EXPORT_LIMITS_H_INCLUDED
 
+#include <cstddef>
 #include <cstdint>
 
 namespace ripple {
@@ -26,6 +27,14 @@ struct ExportLimits
     //   - inbound proposal signature processing (clamped to this)
     //   - validator signing work per round
     static constexpr std::uint8_t maxPendingExports = 8;
+
+    // Maximum byte length of a single export-signature wire blob:
+    //   txHash(32) + validator pubkey(33) + multisign signature(<= 72).
+    // A fully-canonical secp256k1 signature is at most 72 bytes (ed25519 is
+    // 64), so 137 is the true upper bound for a well-formed entry. The proposal
+    // ingress path hashes these blobs BEFORE the proposal signature is verified,
+    // so bounding the per-blob size caps pre-auth hashing/copy work (DoS).
+    static constexpr std::size_t maxExportSignatureBytes = 32 + 33 + 72;
 };
 
 }  // namespace ripple
