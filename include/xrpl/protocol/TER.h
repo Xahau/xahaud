@@ -68,8 +68,10 @@ enum TELcodes : TERUnderlyingType {
     telNON_LOCAL_EMITTED_TXN,
     telIMPORT_VL_KEY_NOT_RECOGNISED,
     telCAN_NOT_QUEUE_IMPORT,
-    telSHADOW_TICKET_REQUIRED,
+    // Keep test-only sentinels before appended branch-local TEL codes so their
+    // numeric values do not move.
     telENV_RPC_FAILED,
+    telSHADOW_TICKET_REQUIRED,
 };
 
 //------------------------------------------------------------------------------
