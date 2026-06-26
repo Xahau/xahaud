@@ -987,6 +987,13 @@ Import::preclaim(PreclaimContext const& ctx)
         // Verify the imported XPOP matches the export that created
         // this shadow ticket (prevents using a different XPOP with
         // the same TicketSequence).
+        //
+        // This guards only a *different* XPOP against a *live* latch. It does
+        // NOT prevent re-importing the SAME XPOP after the latch is consumed
+        // and recreated (see ExportLedgerOps::createShadowTicket): the ticket
+        // path deliberately skips the monotonic sfImportSequence guard used by
+        // the Burn-to-Mint path, so a value-bearing callback hook must itself
+        // dedup on the inner tx hash to be replay-safe.
         auto const expectedHash = stSle->getFieldH256(sfTransactionHash);
         JLOG(ctx.j.trace())
             << "Import preclaim: shadowTicket hash=" << expectedHash

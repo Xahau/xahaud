@@ -195,6 +195,18 @@ createShadowTicket(
     auto const ticketSeq = stx.getFieldU32(sfTicketSequence);
     auto const key = keylet::shadowTicket(account, ticketSeq);
 
+    // A shadow ticket is a pending-callback LATCH, not a permanent replay
+    // tombstone. This check only rejects a currently-LIVE latch: after an
+    // import consumes (erases) it, the same account can re-export the identical
+    // inner tx and recreate the same (account, ticketSeq) latch. Validator
+    // multisigning is deterministic, so the recreated latch stores the same
+    // signed-tx hash and the ORIGINAL XPOP passes the Import hash check again,
+    // firing the callback once more. Unlike Burn-to-Mint (guarded globally by
+    // the monotonic sfImportSequence), the ticket path has no protocol-level
+    // replay guard — value-bearing import-callback hooks must dedup on the
+    // inner tx hash in Hook State. A protocol-level exactly-once tombstone
+    // (consume-in-place, expiring with the XPOP validity window) is possible
+    // future work.
     if (view.exists(key))
     {
         JLOG(j.warn()) << "ExportLedgerOps: shadow ticket already exists for "
