@@ -218,7 +218,8 @@ struct ConsensusParms
 
     This is the standard quorum used for consensus validation, matching
     the formula in ValidatorList::calculateQuorum (std::ceil(n * 0.8f)).
-    Uses integer arithmetic: (count * 80 + 99) / 100 == ceil(count * 0.8).
+    Uses integer arithmetic equivalent to ceil(count * 0.8), split into
+    quotient/remainder terms so very large test inputs cannot overflow.
 
     @param count The number of validators or proposers
     @return The minimum number needed for quorum (80%, rounded up)
@@ -226,9 +227,9 @@ struct ConsensusParms
 inline std::size_t
 calculateQuorumThreshold(std::size_t count)
 {
-    auto const whole = count / 100;
+    auto const quotient = count / 100;
     auto const remainder = count % 100;
-    return whole * 80 + (remainder * 80 + 99) / 100;
+    return quotient * 80 + (remainder * 80 + 99) / 100;
 }
 
 /** Safe quorum helper for consensus-extension gates.
@@ -242,6 +243,17 @@ safeQuorumThreshold(std::size_t count)
 {
     return count == 0 ? 1 : calculateQuorumThreshold(count);
 }
+
+namespace detail {
+
+// floor((lhs + rhs) / 2), without forming the potentially overflowing sum.
+inline std::size_t
+floorHalfSum(std::size_t lhs, std::size_t rhs)
+{
+    return lhs / 2 + rhs / 2 + (lhs % 2 + rhs % 2) / 2;
+}
+
+}  // namespace detail
 
 /** Calculate the Tier 2 (participant_aligned) alignment floor.
 
@@ -276,8 +288,7 @@ calculateParticipantThreshold(std::size_t count)
     // f = floor(0.2 * count) tolerated Byzantine validators; the smallest t
     // with 2t - count > f is floor((count + f) / 2) + 1.
     auto const byzantine = count / 5;
-    auto const carry = (count % 2 + byzantine % 2) / 2;
-    return count / 2 + byzantine / 2 + carry + 1;
+    return detail::floorHalfSum(count, byzantine) + 1;
 }
 
 /** Safe Tier-2 helper for consensus-extension gates.

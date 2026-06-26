@@ -41,6 +41,7 @@
 #include <xrpl/protocol/digest.h>
 #include <cstring>
 #include <deque>
+#include <limits>
 
 namespace ripple {
 namespace test {
@@ -1139,6 +1140,17 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(safeParticipantThreshold(0) == 1);
         BEAST_EXPECT(
             safeParticipantThreshold(10) == calculateParticipantThreshold(10));
+        auto const max = std::numeric_limits<std::size_t>::max();
+        auto const maxByzantine = max / 5;
+        BEAST_EXPECT(detail::floorHalfSum(max, max) == max);
+        BEAST_EXPECT(detail::floorHalfSum(max, max - 1) == max - 1);
+        BEAST_EXPECT(detail::floorHalfSum(max, 0) == max / 2);
+        BEAST_EXPECT(
+            calculateQuorumThreshold(max) ==
+            max / 100 * 80 + (max % 100 * 80 + 99) / 100);
+        BEAST_EXPECT(
+            calculateParticipantThreshold(max) ==
+            detail::floorHalfSum(max, maxByzantine) + 1);
 
         // Gate threshold uses effective view for the 80% quorum and original
         // view for the Tier-2 floor, then takes the lower enabled bar.
