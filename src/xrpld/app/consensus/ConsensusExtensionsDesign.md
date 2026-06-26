@@ -289,6 +289,11 @@ conflicts and produce asymmetric zero/non-zero outcomes.
 
 ## Export Principles
 
+`ExportIntent.md` is the normative spine for Export invariants, especially the
+replay-witness rule. This section explains the current mechanics and should not
+be read as permission to make closed-ledger Export output depend on ephemeral
+sidecar memory.
+
 `featureExport` and `featureConsensusEntropy` are independently amendment
 gated.
 

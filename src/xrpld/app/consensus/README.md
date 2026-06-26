@@ -13,5 +13,7 @@ rippled-specific instance of consensus.
 
 Xahau-specific proposal sidecars, ConsensusEntropy/RNG, and export signature
 convergence follow the invariants in
-[`ConsensusExtensionsDesign.md`](ConsensusExtensionsDesign.md). Read that note
-before changing extension quorum, sidecar sync, or fallback behavior.
+[`ConsensusExtensionsDesign.md`](ConsensusExtensionsDesign.md),
+[`ConsensusEntropyIntent.md`](ConsensusEntropyIntent.md), and
+[`ExportIntent.md`](ExportIntent.md). Read those notes before changing extension
+quorum, sidecar sync, fallback behavior, or replay witnesses.
