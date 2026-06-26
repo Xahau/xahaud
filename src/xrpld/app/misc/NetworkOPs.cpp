@@ -1958,15 +1958,10 @@ NetworkOPsImp::processTrustedProposal(RCLCxPeerPos peerPos)
     auto const& peerKey = peerPos.publicKey();
     if (validatorPK_ == peerKey || validatorMasterPK_ == peerKey)
     {
-        // Could indicate a operator misconfiguration where two nodes are
-        // running with the same validator key configured, so this isn't fatal,
-        // and it doesn't necessarily indicate peer misbehavior. But since this
-        // is a trusted message, it could be a very big deal. Either way, we
-        // don't want to relay the proposal. Note that the byzantine behavior
-        // detection in handleNewValidation will notify other peers.
-        UNREACHABLE(
-            "ripple::NetworkOPsImp::processTrustedProposal : received own "
-            "proposal");
+        // Usually an operator has duplicated this validator key on another
+        // server. Treat it as severe local/network misconfiguration, not an
+        // internal invariant violation: assert-enabled builds should still
+        // drop the proposal instead of aborting.
         JLOG(m_journal.error())
             << "Received a TRUSTED proposal signed with my key from a peer";
         return false;
