@@ -3161,6 +3161,51 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testValidatorKeylessAuthoringNoops()
+    {
+        testcase("validator-keyless extension authoring no-ops");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(),
+            supported_amendments() | featureConsensusEntropy | featureExport,
+            nullptr};
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(!valKeys.keys);
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+
+        ExtendedPosition position{makeHash("keyless-authoring")};
+        ce.decoratePosition(position, ledger, true);
+        BEAST_EXPECT(!position.myCommitment);
+        BEAST_EXPECT(ce.pendingCommitCount() == 0);
+
+        ce.generateEntropySecret();
+        ce.selfSeedReveal();
+        BEAST_EXPECT(ce.pendingRevealCount() == 0);
+
+        protocol::TMProposeSet prop;
+        RCLCxPeerPos::Proposal proposal{
+            ledger->info().hash,
+            0,
+            position,
+            NetClock::time_point{},
+            NetClock::time_point{},
+            beast::zero};
+        ce.setExportEnabledThisRound(true);
+        ce.attachExportSignatures(prop, proposal);
+        BEAST_EXPECT(prop.exportsignatures_size() == 0);
+
+        position.myCommitment = makeHash("keyless-commitment");
+        position.myReveal = makeHash("keyless-reveal");
+        ce.decorateMessage(prop, proposal, position, Buffer{});
+        BEAST_EXPECT(ce.pendingRevealCount() == 0);
+        BEAST_EXPECT(ce.pendingCommitCount() == 0);
+    }
+
+    void
     testReplayedProposalHarvestsExportSigs()
     {
         testcase("Replayed proposal harvests export signatures");
@@ -3468,6 +3513,7 @@ public:
         testExportSigGateSkipsWhenExportDisabled();
         testParticipantDiagnosticsOnlyWhenExtensionEnabled();
         testExportDisabledRoundClearsCollector();
+        testValidatorKeylessAuthoringNoops();
         testReplayedProposalHarvestsExportSigs();
         testWireProposalHarvestsExportSigs();
         testPublicHookNoopAndFailureBranches();

@@ -1009,6 +1009,9 @@ void
 ConsensusExtensions::selfSeedReveal()
 {
     auto const& valKeys = app_.getValidatorKeys();
+    if (!valKeys.keys || valKeys.nodeID == beast::zero)
+        return;
+
     if (myEntropySecret_ != uint256{})
     {
         pendingReveals_[valKeys.nodeID] = myEntropySecret_;
@@ -2446,11 +2449,22 @@ ConsensusExtensions::decoratePosition(
         return;
     }
 
+    auto const& valKeys = app_.getValidatorKeys();
+    if (!valKeys.keys || valKeys.nodeID == beast::zero)
+    {
+        // Only validators author RNG sidecars. Observers still consume peer
+        // sidecars and diagnostics, but never seed local commit/reveal state.
+        JLOG(j_.debug()) << "RNG: decoratePosition skipped"
+                         << " reason=no-validator-key"
+                         << " prevLedgerSeq=" << prevLedger->info().seq
+                         << " prevLedger=" << prevLedger->info().hash;
+        return;
+    }
+
     setMode(ConsensusMode::proposing);
     cacheUNLReport(prevLedger);
     generateEntropySecret();
 
-    auto const& valKeys = app_.getValidatorKeys();
     pos.myCommitment = sha512Half(
         getEntropySecret(),
         valKeys.keys->publicKey,
@@ -2504,6 +2518,15 @@ ConsensusExtensions::attachExportSignatures(
     auto const openLedger = app_.openLedger().current();
     if (!openLedger || !openLedger->rules().enabled(featureExport))
         return;
+
+    if (!valKeys.keys || valKeys.nodeID == beast::zero)
+    {
+        // Export signatures are validator attestations. Non-validator nodes may
+        // relay proposals, but must not advertise locally authored signatures.
+        JLOG(j_.debug()) << "Export: skipping proposal signatures"
+                         << " reason=no-validator-key";
+        return;
+    }
 
     auto const& valPK = valKeys.keys->publicKey;
     auto const& valSK = valKeys.keys->secretKey;
@@ -2597,6 +2620,8 @@ ConsensusExtensions::decorateMessage(
     Buffer const& proposalSig)
 {
     auto const& valKeys = app_.getValidatorKeys();
+    if (!valKeys.keys || valKeys.nodeID == beast::zero)
+        return;
 
     // Self-seed our own reveal so we count toward reveal quorum
     // (harvestRngData only sees peer proposals, not our own).

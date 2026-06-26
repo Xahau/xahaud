@@ -249,6 +249,15 @@ RCLConsensus::Adaptor::share(RCLCxTx const& tx)
 void
 RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
 {
+    if (!validatorKeys_.keys)
+    {
+        // Proposal packets are signed consensus messages. Observing nodes can
+        // follow consensus, but cannot safely author proposals without a
+        // configured validator key.
+        JLOG(j_.warn()) << "Skipping proposal without validator keys";
+        return;
+    }
+
     JLOG(j_.trace()) << (proposal.isBowOut() ? "We bow out: " : "We propose: ")
                      << ripple::to_string(proposal.prevLedger()) << " -> "
                      << ripple::to_string(proposal.position());
@@ -892,6 +901,14 @@ RCLConsensus::Adaptor::validate(
     RCLTxSet const& txns,
     bool proposing)
 {
+    if (!validatorKeys_.keys)
+    {
+        // preStartRound normally prevents this path. Keep validate() itself
+        // fail-closed so future call sites cannot dereference an observer key.
+        JLOG(j_.warn()) << "Skipping validation without validator keys";
+        return;
+    }
+
     using namespace std::chrono_literals;
 
     auto validationTime = app_.timeKeeper().closeTime();
