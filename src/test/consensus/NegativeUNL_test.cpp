@@ -1614,6 +1614,20 @@ class NegativeUNLVoteOffline_test : public beast::unit_test::suite
 class NegativeUNLVoteMaxListed_test : public beast::unit_test::suite
 {
     void
+    testMaxListedPolicy()
+    {
+        testcase("Max listed policy");
+
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(0) == 0);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(1) == 1);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(4) == 1);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(5) == 2);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(8) == 2);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(9) == 3);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(32) == 8);
+    }
+
+    void
     testDoVoting()
     {
         testcase("Do Voting");
@@ -1640,6 +1654,7 @@ class NegativeUNLVoteMaxListed_test : public beast::unit_test::suite
     void
     run() override
     {
+        testMaxListedPolicy();
         testDoVoting();
     }
 };

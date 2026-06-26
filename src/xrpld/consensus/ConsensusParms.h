@@ -243,6 +243,18 @@ safeQuorumThreshold(std::size_t count)
     return count == 0 ? 1 : calculateQuorumThreshold(count);
 }
 
+/** Safe quorum helper for consensus-extension gates.
+
+    The raw quorum formula returns zero for an empty view. Consensus-extension
+    sidecar gates use a fail-closed floor of one participant instead: an empty
+    local view must not make a sidecar quorum vacuously true.
+*/
+inline std::size_t
+safeQuorumThreshold(std::size_t count)
+{
+    return count == 0 ? 1 : calculateQuorumThreshold(count);
+}
+
 /** Calculate the Tier 2 (participant_aligned) alignment floor.
 
     Tier 2 sub-quorum entropy aligns a cohort at this lower bar. The floor is
@@ -278,6 +290,17 @@ calculateParticipantThreshold(std::size_t count)
     auto const byzantine = count / 5;
     auto const carry = (count % 2 + byzantine % 2) / 2;
     return count / 2 + byzantine / 2 + carry + 1;
+}
+
+/** Safe Tier-2 helper for consensus-extension gates.
+
+    Like safeQuorumThreshold(), this floors empty-view sidecar gates at one
+    participant so they fail closed instead of succeeding vacuously.
+*/
+inline std::size_t
+safeParticipantThreshold(std::size_t count)
+{
+    return count == 0 ? 1 : calculateParticipantThreshold(count);
 }
 
 /** Safe Tier-2 helper for consensus-extension gates.

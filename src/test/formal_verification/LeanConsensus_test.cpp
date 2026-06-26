@@ -336,10 +336,10 @@ public:
                                  localIsMember ? 1 : 0,
                                  localPublished ? 1 : 0) != 0) ==
                             detail::sidecarQuorumAligned(
-                                threshold,
                                 aligned,
                                 localIsMember,
-                                localPublished));
+                                localPublished,
+                                threshold));
                     }
                 }
 
@@ -348,7 +348,8 @@ public:
                     BEAST_EXPECT(
                         (xahau_export_gate_proceed(
                              aligned, threshold, fullObservation ? 1 : 0) !=
-                         0) == detail::exportGateProceed(aligned, threshold));
+                         0) ==
+                        detail::exportSigSetQuorumAligned(aligned, threshold));
                 }
             }
         }
@@ -531,10 +532,10 @@ public:
                                  localIsMember ? 1 : 0,
                                  localPublished ? 1 : 0) != 0) ==
                             detail::sidecarQuorumAligned(
-                                threshold,
                                 aligned,
                                 localIsMember,
-                                localPublished));
+                                localPublished,
+                                threshold));
                     }
                 }
             }

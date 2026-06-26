@@ -788,6 +788,19 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     {
         testcase("Sidecar peer alignment helper");
 
+        BEAST_EXPECT(detail::sidecarLocalContribution(true) == 1);
+        BEAST_EXPECT(detail::sidecarLocalContribution(false) == 0);
+        BEAST_EXPECT(detail::sidecarLocalContribution(true, true) == 1);
+        BEAST_EXPECT(detail::sidecarLocalContribution(false, true) == 0);
+        BEAST_EXPECT(detail::sidecarAlignedParticipants(2, true) == 3);
+        BEAST_EXPECT(detail::sidecarAlignedParticipants(2, false) == 2);
+        BEAST_EXPECT(detail::sidecarQuorumAligned(2, true, 3));
+        BEAST_EXPECT(!detail::sidecarQuorumAligned(2, true, 4));
+        BEAST_EXPECT(detail::sidecarFullObservation(2, 2));
+        BEAST_EXPECT(!detail::sidecarFullObservation(2, 3));
+        BEAST_EXPECT(detail::exportSigSetQuorumAligned(4, 4));
+        BEAST_EXPECT(!detail::exportSigSetQuorumAligned(3, 4));
+
         ExportTickHarness harness;
         auto const localHash = makeHash("sidecar-local");
         auto const conflictHash = makeHash("sidecar-conflict");
@@ -814,7 +827,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                     fetched.push_back(*hash);
             });
 
-        BEAST_EXPECT(state.localPublished);
+        BEAST_EXPECT(state.localCounts);
         BEAST_EXPECT(state.conflict);
         BEAST_EXPECT(state.aligned == 1);
         BEAST_EXPECT(state.alignedParticipants() == 2);
@@ -835,7 +848,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             exportHashOf,
             allMembers,
             [](auto const&) {});
-        BEAST_EXPECT(!unpublishedState.localPublished);
+        BEAST_EXPECT(!unpublishedState.localCounts);
         BEAST_EXPECT(unpublishedState.alignedParticipants() == 0);
         BEAST_EXPECT(!unpublishedState.quorumAligned(1));
         BEAST_EXPECT(unpublishedState.fullObservation());
@@ -880,7 +893,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             exportHashOf,
             activeOnly,
             [](auto const&) {});
-        BEAST_EXPECT(!nonActiveLocal.localPublished);
+        BEAST_EXPECT(!nonActiveLocal.localCounts);
         BEAST_EXPECT(nonActiveLocal.alignedParticipants() == 1);  // node 1 only
         //@@end test-sidecar-active-view-filter
     }
@@ -1110,6 +1123,52 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             BEAST_EXPECT(2 * t > n + n / 5);  // overlap 2t-n > floor(n/5)
             BEAST_EXPECT(t <= calculateQuorumThreshold(n));
         }
+    }
+
+    void
+    testThresholdPolicyHelpers()
+    {
+        testcase("consensus-extension threshold policy helpers");
+
+        // Empty views fail closed at one participant. The raw formulas stay
+        // mathematical; sidecar gates use the safe wrappers.
+        BEAST_EXPECT(calculateQuorumThreshold(0) == 0);
+        BEAST_EXPECT(safeQuorumThreshold(0) == 1);
+        BEAST_EXPECT(safeQuorumThreshold(6) == calculateQuorumThreshold(6));
+        BEAST_EXPECT(calculateParticipantThreshold(0) == 1);
+        BEAST_EXPECT(safeParticipantThreshold(0) == 1);
+        BEAST_EXPECT(
+            safeParticipantThreshold(10) == calculateParticipantThreshold(10));
+
+        // Gate threshold uses effective view for the 80% quorum and original
+        // view for the Tier-2 floor, then takes the lower enabled bar.
+        BEAST_EXPECT(
+            ConsensusExtensions::entropyGateThresholdForView(0, 0) == 1);
+        BEAST_EXPECT(
+            ConsensusExtensions::entropyGateThresholdForView(6, 6) == 4);
+        BEAST_EXPECT(
+            ConsensusExtensions::entropyGateThresholdForView(8, 10) == 7);
+        BEAST_EXPECT(
+            ConsensusExtensions::entropyGateThresholdForView(6, 10) == 5);
+
+        // Tier labels require a ledger-anchored UNLReport view. With one, the
+        // ladder is validator_quorum first, then participant_aligned, then
+        // fallback.
+        BEAST_EXPECT(
+            ConsensusExtensions::selectEntropyTierForView(false, 99, 8, 10) ==
+            entropyTierConsensusFallback);
+        BEAST_EXPECT(
+            ConsensusExtensions::selectEntropyTierForView(true, 7, 8, 10) ==
+            entropyTierValidatorQuorum);
+        BEAST_EXPECT(
+            ConsensusExtensions::selectEntropyTierForView(true, 6, 8, 10) ==
+            entropyTierConsensusFallback);
+        BEAST_EXPECT(
+            ConsensusExtensions::selectEntropyTierForView(true, 5, 8, 8) ==
+            entropyTierParticipantAligned);
+        BEAST_EXPECT(
+            ConsensusExtensions::selectEntropyTierForView(true, 4, 8, 8) ==
+            entropyTierConsensusFallback);
     }
 
     void
@@ -3403,6 +3462,7 @@ public:
         testActiveValidatorViewAppliesNegativeUNL();
         testActiveValidatorViewNullSourceAndExpectedProposers();
         testParticipantThreshold();
+        testThresholdPolicyHelpers();
         testRuntimeConfigPolicyAccessors();
         testDecoratePositionGeneratesCommitment();
         testOnPreBuildInjectsZeroEntropyFallback();

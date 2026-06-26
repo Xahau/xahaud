@@ -175,9 +175,9 @@ public:
     std::size_t
     entropyGateThreshold() const;
 
-    /// Pure threshold helper used by the live gate and optional Lean drift
-    /// tests. `effectiveViewSize` is post-nUNL; `originalViewSize` is the
-    /// pre-nUNL UNLReport active count.
+    /// Pure threshold helper used by the live gate and optional drift tests.
+    /// `effectiveViewSize` is post-nUNL; `originalViewSize` is the pre-nUNL
+    /// UNLReport active count.
     static std::size_t
     entropyGateThresholdForView(
         std::size_t effectiveViewSize,
