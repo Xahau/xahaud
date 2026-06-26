@@ -485,7 +485,7 @@ struct Export_test : public beast::unit_test::suite
             json(jss::HookParameters, params),
             ter(tesSUCCESS));
 
-        // Verify hook fired successfully with exactly 1 emission.
+        // Verify hook fired successfully with exactly 1 export.
         {
             auto const m = env.meta();
             BEAST_EXPECT(m);
@@ -496,12 +496,14 @@ struct Export_test : public beast::unit_test::suite
 
             // result=3 is ExitType::ACCEPT
             BEAST_EXPECT(execs[0].getFieldU8(sfHookResult) == 3);
-            BEAST_EXPECT(execs[0].getFieldU16(sfHookEmitCount) == 1);
+            BEAST_EXPECT(execs[0].getFieldU16(sfHookEmitCount) == 0);
+            BEAST_EXPECT(execs[0].getFieldU16(sfHookExportCount) == 1);
             BEAST_EXPECT(execs[0].getFieldU64(sfHookReturnCode) == 0);
 
-            // Emissions metadata should be present.
-            BEAST_EXPECT(m->isFieldPresent(sfHookEmissions));
-            BEAST_EXPECT(m->getFieldArray(sfHookEmissions).size() == 1);
+            // HookEmissions tracks normal emitted transactions. Export wrappers
+            // use the emitted directory for scheduling but are counted
+            // separately as HookExportCount.
+            BEAST_EXPECT(!m->isFieldPresent(sfHookEmissions));
 
             // The emitted dir should NOT be empty (ttEXPORT is in it).
             BEAST_EXPECT(!dirIsEmpty(*env.current(), keylet::emittedDir()));

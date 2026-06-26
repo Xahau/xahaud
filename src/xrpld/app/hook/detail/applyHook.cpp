@@ -1533,8 +1533,12 @@ hook::finalizeHookResult(
                                               .getField(sfEmitDetails)
                                               .downcast<STObject>();
 
-                emission_txnid.emplace_back(
-                    id, emitDetails.getFieldH256(sfEmitNonce));
+                if (ptr->getTxnType() == ttEXPORT)
+                    exported_txnid.emplace_back(id);
+                else
+                    emission_txnid.emplace_back(
+                        id, emitDetails.getFieldH256(sfEmitNonce));
+
                 sleEmitted = std::make_shared<SLE>(emittedId);
 
                 // RH TODO: add a new constructor to STObject to avoid this
