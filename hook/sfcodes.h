@@ -164,7 +164,6 @@
 #define sfEmittedTxnID ((5U << 16U) + 97U)
 #define sfGovernanceMarks ((5U << 16U) + 98U)
 #define sfGovernanceFlags ((5U << 16U) + 99U)
-#define sfEntropyDigest ((5U << 16U) + 100U)
 #define sfNumber ((9U << 16U) + 1U)
 #define sfAmount ((6U << 16U) + 1U)
 #define sfBalance ((6U << 16U) + 2U)
