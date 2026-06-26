@@ -297,6 +297,7 @@
 #define sfRemark ((14U << 16U) + 97U)
 #define sfHighReward ((14U << 16U) + 98U)
 #define sfLowReward ((14U << 16U) + 99U)
+#define sfNamedHook ((14U << 16U) + 100U)
 #define sfSigners ((15U << 16U) + 3U)
 #define sfSignerEntries ((15U << 16U) + 4U)
 #define sfTemplate ((15U << 16U) + 5U)
@@ -325,3 +326,4 @@
 #define sfActiveValidators ((15U << 16U) + 95U)
 #define sfGenesisMints ((15U << 16U) + 96U)
 #define sfRemarks ((15U << 16U) + 97U)
+#define sfHookNames ((15U << 16U) + 98U)
