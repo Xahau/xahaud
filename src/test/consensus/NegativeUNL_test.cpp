@@ -27,6 +27,8 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/unit_test.h>
 
+#include <limits>
+
 namespace ripple {
 namespace test {
 
@@ -1625,6 +1627,11 @@ class NegativeUNLVoteMaxListed_test : public beast::unit_test::suite
         BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(8) == 2);
         BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(9) == 3);
         BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(32) == 8);
+
+        auto const max = std::numeric_limits<std::size_t>::max();
+        BEAST_EXPECT(
+            NegativeUNLVote::maxNegativeUNLListed(max) ==
+            max / NegativeUNLVote::negativeUNLMaxListedDenominator + 1);
     }
 
     void
