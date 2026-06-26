@@ -43,11 +43,12 @@ namespace ripple {
           leaves. Sub-states are checkpoints, not serial waits.
 
     @note Convergence model: commitSet and entropySet use UNION convergence,
-          not avalanche voting. This is sufficient because:
-          - Each validator contributes exactly one deterministic entry
+          not avalanche voting. For honest validators this is sufficient
+          because each validator contributes at most one deterministic entry and
+          every valid entry belongs in the eventual set. Byzantine equivocation,
+          missing sidecar roots, and stale material are handled by the sidecar
+          gates/fallback paths rather than by per-leaf avalanche voting.
           - Entries are piggybacked on proposals (already reliably propagated)
-          - There is no disagreement about inclusion — every valid entry belongs
-          - The only source of difference between nodes is timing
           - Union is monotonic (sets only grow) and bounded (one per UNL member)
           - SHAMap fetch/diff/merge handles late arrivals as a safety net
           Avalanche is needed when nodes disagree about what to include/exclude

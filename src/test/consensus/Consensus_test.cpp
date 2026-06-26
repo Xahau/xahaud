@@ -862,9 +862,12 @@ public:
             sim.run(1);
 
             //@@start fork-threshold
-            // Fork should not happen for 40% or greater overlap
-            // Since the overlapped nodes have a UNL that is the union of the
-            // two cliques, the maximum sized UNL list is the number of peers
+            // Historical CSF topology regression: in this symmetric two-clique
+            // setup, the overlapped nodes trust the union of both cliques and
+            // the legacy simulator expects synchronization above the 40%
+            // overlap boundary. This is not a general XRP LCP safety theorem;
+            // modern consensus analysis has stricter heterogeneous-UNL
+            // assumptions.
             if (overlap > 0.4 * numPeers)
                 BEAST_EXPECT(sim.synchronized());
             else
