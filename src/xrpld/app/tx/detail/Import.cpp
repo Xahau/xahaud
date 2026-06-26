@@ -215,8 +215,9 @@ Import::preflight(PreflightContext const& ctx)
                         << " hasResult="
                         << meta->isFieldPresent(sfTransactionResult);
 
-    if (stpTrans->isFieldPresent(sfTicketSequence) &&
-        !ctx.rules.enabled(featureExport))
+    bool const hasTicket = stpTrans->isFieldPresent(sfTicketSequence);
+
+    if (hasTicket && !ctx.rules.enabled(featureExport))
     {
         JLOG(ctx.j.warn()) << "Import: cannot use TicketSequence XPOP.";
         return temMALFORMED;
@@ -269,9 +270,10 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    // ensure inner txn is for networkid = 0 (network id must therefore be
-    // missing)
-    if (stpTrans->isFieldPresent(sfNetworkID))
+    // B2M imports use OperationLimit to target this network and therefore
+    // reject inner NetworkID.  Export callbacks may carry a target NetworkID;
+    // the shadow ticket binds that exact inner transaction hash.
+    if (!hasTicket && stpTrans->isFieldPresent(sfNetworkID))
     {
         JLOG(ctx.j.warn()) << "Import: attempted to import xpop containing a "
                               "txn with a sfNetworkID field. "
@@ -283,7 +285,7 @@ Import::preflight(PreflightContext const& ctx)
     // tx was destined for this network.  For the export callback path
     // (sfTicketSequence present), the shadow ticket already establishes
     // the relationship, so OperationLimit is not required.
-    if (!stpTrans->isFieldPresent(sfTicketSequence))
+    if (!hasTicket)
     {
         if (!stpTrans->isFieldPresent(sfOperationLimit))
         {
@@ -311,7 +313,7 @@ Import::preflight(PreflightContext const& ctx)
     // export callback path and is validator-multisigned (not alice-signed).
     // The shadow ticket already proves the relationship, so skip the
     // signing key match check.
-    if (!stpTrans->isFieldPresent(sfTicketSequence))
+    if (!hasTicket)
     {
         auto outer = tx.getSigningPubKey();
         auto inner = stpTrans->getSigningPubKey();

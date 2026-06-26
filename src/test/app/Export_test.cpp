@@ -1248,9 +1248,11 @@ struct Export_test : public beast::unit_test::suite
 
         Account const alice{"alice"};
         Account const carol{"carol"};
+        std::uint32_t const xahauNetworkID = 21337;
+        std::uint32_t const targetNetworkID = 31337;
 
         // ── Xahau env: export the inner tx ─────────────────────────────
-        Env xahau{*this, xpopCtx.makeEnvConfig(21337), features};
+        Env xahau{*this, xpopCtx.makeEnvConfig(xahauNetworkID), features};
 
         xahau.fund(XRP(10000), alice, carol);
         xahau.close();
@@ -1264,9 +1266,9 @@ struct Export_test : public beast::unit_test::suite
         // TicketSequence (required for exports — avoids sequence jams
         // if the tx bounces on XRPL).
         //
-        // OperationLimit tells Import::preflight which network this
-        // tx targets (must match Xahau's NETWORK_ID).
-        //
+        // sfNetworkID targets the destination network. Ticket-path imports
+        // must accept it back because the shadow ticket hash binds this exact
+        // inner transaction; OperationLimit is only for B2M imports.
         // We'll create the matching ticket on the XRPL side later.
         std::uint32_t const ticketSeq = 2;  // alice's first ticket on XRPL
 
@@ -1279,6 +1281,7 @@ struct Export_test : public beast::unit_test::suite
         innerObj.setFieldU32(sfFlags, tfFullyCanonicalSig);
         innerObj.setFieldU32(sfSequence, 0);
         innerObj.setFieldU32(sfTicketSequence, ticketSeq);
+        innerObj.setFieldU32(sfNetworkID, targetNetworkID);
         innerObj.setFieldU32(sfLastLedgerSequence, 100);
         innerObj.setFieldAmount(sfAmount, XRPAmount{1000000});
         innerObj.setFieldAmount(sfFee, XRPAmount{20});
@@ -1336,7 +1339,7 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(xahau.current()->exists(stKey));
 
         // ── XRPL env: submit the multisigned blob ──────────────────────
-        Env xrpl{*this};
+        Env xrpl{*this, xpopCtx.makeEnvConfig(targetNetworkID)};
 
         xrpl.fund(XRP(10000), alice, carol);
         xrpl.close();
@@ -1397,6 +1400,7 @@ struct Export_test : public beast::unit_test::suite
             noop.setFieldU16(sfTransactionType, ttACCOUNT_SET);
             noop.setFieldU32(sfFlags, tfFullyCanonicalSig);
             noop.setFieldU32(sfSequence, xrpl.seq(alice));
+            noop.setFieldU32(sfNetworkID, targetNetworkID);
             noop.setFieldAmount(sfFee, XRPAmount{20});  // (1+1)*base
             noop.setFieldVL(sfSigningPubKey, Blob{});
             noop.setAccountID(sfAccount, alice.id());
