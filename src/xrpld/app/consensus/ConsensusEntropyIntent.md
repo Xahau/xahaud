@@ -1,0 +1,120 @@
+# Consensus Entropy — Design Intent (canonical spine)
+
+This is the **normative** intent for `featureConsensusEntropy`: the invariants that
+must hold regardless of how the implementation is refactored. It is deliberately
+short. The verbose mechanics live in `ConsensusExtensionsDesign.md`; the
+reviewer-facing walkthrough lives in the PR description. **Both defer to this
+file.**
+
+How to use it: if code contradicts an invariant below, the *code* is wrong — or
+the invariant is being changed and **this file must be consciously edited in the
+same change, with the rationale**. A plausible-sounding comment added next to
+drifted code is not a design decision. (This document exists because the intent
+once lived only in a maintainer's head; an agent tightened past it and wrote a
+rationale that made the drift look deliberate. Git, not the docs, preserved the
+truth. Don't rely on that twice.)
+
+## Purpose (one line)
+
+Same-ledger consensus randomness for hooks — entropy finalized *after* user intent
+is locked but *before* normal execution — with **bounded, labeled** manipulation
+and **graceful degradation**, and **without ever weakening base-consensus
+determinism or liveness.**
+
+## Invariants
+
+**INV-1 — Determinism of the injected object.**
+Given the same parent ledger and the same *agreed* entropy sidecar, every honest
+node injects the byte-identical `ttCONSENSUS_ENTROPY` (digest, tier, count). That
+object is ledger state. Therefore **no injection input may be node-local mutable
+or timing-derived state.** The selector derives `(digest, tier, count)` only from
+the agreed `entropySetMap_` (matched to the hash the gate accepted) plus the
+parent-ledger active view.
+*Enforced:* `selectEntropy` + the `acceptedEntropySetHash_` gate. *Anti-pattern:*
+reading a local `entropyFailed_`/timeout flag at injection time (this was the H2
+bug).
+
+**INV-2 — No single validator can veto.**
+Entropy mints on **quorum, not unanimity**. A minority withholding reveals or
+sidecar-hash advertisements must not, by silence alone, force fallback or stall
+while the remaining fixed-denominator cohort still reaches the entropy gate. On
+timeout the round uses the revealed/quorum-aligned set it has when that set still
+meets the gate; it downgrades only when the remaining set is below threshold or
+conflicted/unresolved.
+*Enforced:* the clean (no-conflict) gate path accepts on `quorumAligned()` alone.
+*Anti-pattern:* requiring `peersSeen == txConverged` (full observation) on the
+clean path (this was the M6 over-correction).
+
+**INV-3 — Anchored denominator.**
+All thresholds are computed over the **fixed parent-ledger UNLReport active-view
+size** (tier-2 over the *original* pre-NegativeUNL size). No node-local
+observation may grow or shrink that denominator `N`. This is load-bearing for
+tier-2 equivocation-uniqueness (`2t − N > f`).
+*Enforced:* `quorumThreshold` / `tier2Threshold` over `activeValidatorView`; the
+alignment-counting universe is filtered to the active view. *Anti-pattern:*
+counting "valid/observed proposals" as the denominator — that lets a withholder
+shrink `N` and is also node-local (split).
+
+**INV-4 — Byzantine defense lives on the conflict path.**
+Equivocation (a peer showing different hashes to different peers) must be
+**detected, never committed-on**. Full observation is required **only** where a
+`conflict` exists; absent a conflict, quorum alignment is sufficient (INV-2).
+*Enforced:* the conflict branch keeps `fullObservation()`; the clean branch does
+not. This is exactly why INV-2's relaxation is scoped to the clean path.
+
+**INV-5 — Graceful, labeled, deterministic degradation.**
+Under no-UNLReport / lost reveals / failed alignment / timeout / impossible
+quorum, the round mints an **explicitly labeled lower tier**, never an unlabeled
+or non-deterministic value. The tier-1 fallback is a pure function of
+*already-agreed* inputs: `H(entropyFallback, parentLedgerHash, baseTxSetHash,
+seq)` — and must **never** depend on the post-injection tx set (no circular
+dependency on the set that carries the pseudo-tx).
+*Enforced:* `selectEntropy` fallback path; `baseTxSetHash` is the pre-injection
+set hash.
+
+**INV-6 — Bounded, opt-in entropy quality.**
+Hooks state `min_tier` / `min_count` explicitly (no hidden network default).
+Entropy is served iff it is **fresh** (current or previous ledger) **and** meets
+the requirement; otherwise the call **fails closed** (`TOO_LITTLE_ENTROPY`). A
+hook never silently receives weaker-than-requested entropy.
+*Enforced:* `fairRng` gate.
+
+**INV-7 — Inert when un-amended.**
+With `featureConsensusEntropy` off, no RNG sidecar state is consensus-visible and
+proposal bytes remain byte-identical to base XRPL.
+*Enforced:* per-round enable latch snapshotted from the *parent ledger's* rules;
+`ExtendedPosition` serializes to exactly the legacy 32-byte tx-set hash when no
+sidecar fields are set.
+
+**INV-8 — No unbounded liveness dependency.**
+Every sub-state has a bounded timeout with a deterministic downgrade. CE must
+never be the reason a round stalls once base consensus is itself making progress.
+*Enforced:* bounded reveal/entropy deadlines → fallback.
+
+## Known residuals (by design — not bugs)
+
+These are deliberate properties, documented so a future reader doesn't "fix" them
+into an INV violation:
+
+- **Commit/reveal withholding bias** of up to one bit per withholder exists on
+  **all** tiers, not just fallback; colluding withholders near a threshold can
+  force a downgrade. It is **bounded and labeled, not eliminated.** True
+  unbiasability would require a VRF / threshold-BLS construction (out of scope).
+  The accountability lever for *persistent* withholding is validator scoring /
+  NegativeUNL, **not** weakening any gate above (that would violate INV-2..INV-4).
+- **Fallback (tier 1) is user-influenceable** (a quiet-ledger submitter can grind
+  the tx set). That is why it is a distinct labeled tier hooks must opt into, and
+  never suitable for value-bearing outcomes.
+- **Provisional open-ledger entropy** differs from the closed-ledger value
+  (speculative execution sees the previous ledger's entropy in the open ledger,
+  the current ledger's at close). Open-ledger `dice()`/`random()` are previews,
+  not the authority.
+
+## Open design question (tracked, not yet decided)
+
+- **Conflict-path no-veto (INV-4 boundary):** Export already accepts a
+  quorum-aligned sidecar on its conflict path without full observation; entropy
+  currently keeps full observation there as the conservative choice. Whether
+  entropy can safely match Export is a *measured* question (CSF test: withholding
+  × equivocation × timing), not an argued one. Until that test says otherwise,
+  the conservative INV-4 stands.
