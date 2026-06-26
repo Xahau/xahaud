@@ -4147,10 +4147,29 @@ DEFINE_HOOK_FUNCTION(
     if (vec.size() != 32)
         return INTERNAL_ERROR;
 
-    uint32_t value;
-    std::memcpy(&value, vec.data(), sizeof(uint32_t));
+    auto bytes = std::move(vec);
+    std::uint64_t const sampleRange =
+        std::uint64_t{std::numeric_limits<std::uint32_t>::max()} + 1;
+    std::uint64_t const acceptLimit = sampleRange - (sampleRange % sides);
 
-    return value % sides;
+    for (;;)
+    {
+        for (std::size_t i = 0; i + sizeof(std::uint32_t) <= bytes.size();
+             i += sizeof(std::uint32_t))
+        {
+            std::uint32_t value;
+            std::memcpy(&value, bytes.data() + i, sizeof(std::uint32_t));
+            if (value < acceptLimit)
+                return value % sides;
+        }
+
+        // Rejection sampling removes modulo bias. If all 32-byte candidates are
+        // outside the largest fair multiple of sides, deterministically extend
+        // the draw instead of falling back to a biased residue.
+        auto const next = sha512Half(Slice(bytes.data(), bytes.size()));
+        bytes.resize(next.size());
+        std::memcpy(bytes.data(), next.data(), next.size());
+    }
 
     HOOK_TEARDOWN();
 }
