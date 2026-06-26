@@ -2403,6 +2403,13 @@ ConsensusExtensions::onTrustedPeerMessage(
     if (wireMsg.previousledger().size() != uint256::size())
         return;
 
+    auto const positionSlice = makeSlice(wireMsg.currenttxhash());
+    SerialIter positionSit{positionSlice};
+    auto const position = ExtendedPosition::fromSerialIter(
+        positionSit, wireMsg.currenttxhash().size());
+    if (!position || !position->exportSignaturesHash)
+        return;
+
     uint256 proposalPrevLedger;
     std::memcpy(
         proposalPrevLedger.data(),
@@ -2412,7 +2419,19 @@ ConsensusExtensions::onTrustedPeerMessage(
     std::vector<std::string> exportSignatures;
     exportSignatures.reserve(wireMsg.exportsignatures_size());
     for (int i = 0; i < wireMsg.exportsignatures_size(); ++i)
+    {
+        if (wireMsg.exportsignatures(i).size() >
+            ExportLimits::maxExportSignatureBytes)
+            return;
         exportSignatures.push_back(wireMsg.exportsignatures(i));
+    }
+
+    // The raw protobuf field is not signed directly; the ExtendedPosition
+    // digest is. Keep this check local so every harvesting path enforces the
+    // same binding, even when called outside PeerImp's proposal precheck.
+    if (proposalExportSignaturesHash(exportSignatures) !=
+        *position->exportSignaturesHash)
+        return;
 
     harvestExportSignatures(
         senderPK, proposalPrevLedger, exportSignatures, "wire proposal");

@@ -105,6 +105,14 @@ makeExportSigBlob(uint256 const& txHash, PublicKey const& publicKey)
     return blob;
 }
 
+void
+setWirePosition(protocol::TMProposeSet& wire, ExtendedPosition const& position)
+{
+    Serializer s;
+    position.add(s);
+    wire.set_currenttxhash(s.data(), s.size());
+}
+
 STTx
 makeSTTx(STObject const& obj)
 {
@@ -3223,6 +3231,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const tx = makeHash("wire-export-sig-tx");
         auto const blob = makeExportSigBlob(tx, senderPK);
         wire.add_exportsignatures(blob);
+        ExtendedPosition position{makeHash("wire-position")};
+        position.exportSignaturesHash =
+            proposalExportSignaturesHash(wire.exportsignatures());
+        setWirePosition(wire, position);
 
         ce.onTrustedPeerMessage(wire);
         BEAST_EXPECT(ce.exportSigCollector().hasUnverifiedSignatures());
@@ -3230,9 +3242,23 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             ce.exportSigCollector().unverifiedSignatures(tx);
         BEAST_EXPECT(beforeMalformed.size() == 1);
 
+        protocol::TMProposeSet mismatch;
+        mismatch.set_nodepubkey(senderPK.data(), senderPK.size());
+        mismatch.set_previousledger(prevLedger.data(), prevLedger.size());
+        mismatch.add_exportsignatures(blob);
+        ExtendedPosition mismatchPosition{makeHash("wire-mismatch-position")};
+        mismatchPosition.exportSignaturesHash =
+            proposalExportSignaturesHash(std::vector<std::string>{"other"});
+        setWirePosition(mismatch, mismatchPosition);
+        ce.onTrustedPeerMessage(mismatch);
+        BEAST_EXPECT(
+            ce.exportSigCollector().unverifiedSignatures(tx) ==
+            beforeMalformed);
+
         protocol::TMProposeSet malformed;
         malformed.add_exportsignatures(blob);
         malformed.set_nodepubkey("bad", 3);
+        setWirePosition(malformed, position);
         ce.onTrustedPeerMessage(malformed);
         auto const afterMalformed =
             ce.exportSigCollector().unverifiedSignatures(tx);
