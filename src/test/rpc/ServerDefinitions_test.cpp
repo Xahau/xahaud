@@ -361,11 +361,78 @@ public:
     }
 
     void
+    testConfigForced(FeatureBitset features)
+    {
+        testcase("Config-forced features ([features] stanza)");
+
+        using namespace test::jtx;
+
+        // Force an amendment active via the [features] config stanza (Rules
+        // presets) without enabling it on-ledger. server_definitions must then
+        // report it as effectively enabled, while distinguishing the source:
+        //   enabled        = ledger_enabled || cfg_forced
+        //   ledger_enabled = false (never voted onto the ledger)
+        //   cfg_forced     = true  (forced via config)
+        auto const forced = featurePriceOracle;
+        auto const forcedHex = to_string(forced);
+
+        Env env{*this, envconfig([forced](std::unique_ptr<Config> cfg) {
+                    cfg->features.insert(forced);
+                    return cfg;
+                })};
+
+        auto jrr = env.rpc("server_definitions")[jss::result];
+        if (!BEAST_EXPECT(jrr.isMember(jss::features)))
+            return;
+
+        bool sawForced = false;
+        for (auto it = jrr[jss::features].begin();
+             it != jrr[jss::features].end();
+             ++it)
+        {
+            auto const& f = *it;
+            auto const name = f[jss::name].asString();
+
+            // every entry now carries the split flags
+            if (!BEAST_EXPECTS(
+                    f.isMember(jss::enabled) &&
+                        f.isMember(jss::ledger_enabled) &&
+                        f.isMember(jss::cfg_forced),
+                    name + " split flags"))
+                return;
+
+            // nothing is enabled on-ledger in a fresh env
+            BEAST_EXPECTS(
+                !f[jss::ledger_enabled].asBool(), name + " ledger_enabled");
+
+            if (it.key().asString() == forcedHex)
+            {
+                sawForced = true;
+                BEAST_EXPECTS(
+                    f[jss::cfg_forced].asBool(), name + " cfg_forced");
+                // ledger_enabled(false) || cfg_forced(true) == true
+                BEAST_EXPECTS(f[jss::enabled].asBool(), name + " enabled");
+            }
+            else
+            {
+                BEAST_EXPECTS(
+                    !f[jss::cfg_forced].asBool(), name + " cfg_forced");
+                // not forced and not on-ledger => not effectively enabled
+                BEAST_EXPECTS(
+                    f[jss::enabled].asBool() == f[jss::ledger_enabled].asBool(),
+                    name + " enabled==ledger_enabled");
+            }
+        }
+        BEAST_EXPECT(sawForced);
+    }
+
+    void
     testServerFeatures(FeatureBitset features)
     {
         testNoParams(features);
         testSomeEnabled(features);
         testWithMajorities(features);
+        testConfigForced(features);
     }
 
     void

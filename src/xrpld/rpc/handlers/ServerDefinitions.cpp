@@ -22,6 +22,7 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/core/Config.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/json/json_writer.h>
@@ -544,6 +545,39 @@ doServerDefinitions(RPC::JsonContext& context)
         for (auto const& [h, t] : majorities)
             features[to_string(h)][jss::majority] =
                 t.time_since_epoch().count();
+
+        // Amendment activation has two independent sources; surface both so a
+        // consumer isn't misled by a node that force-enables amendments:
+        //   ledger_enabled : recorded in the on-ledger Amendments object
+        //                    (network-canonical; what the table reports as
+        //                    "enabled")
+        //   cfg_forced     : force-activated via the [features] config stanza
+        //                    (node-local; active in the Rules regardless of the
+        //                    ledger, casts no votes, never written on-ledger)
+        //   enabled        : effective for transaction processing on this
+        //                    server, i.e. ledger_enabled || cfg_forced
+        for (auto const& name : features.getMemberNames())
+        {
+            Json::Value& entry = features[name];
+            bool const ledgerEnabled = entry[jss::enabled].asBool();
+            entry[jss::ledger_enabled] = ledgerEnabled;
+            entry[jss::cfg_forced] = false;
+            // entry[jss::enabled] is left == ledgerEnabled here; only
+            // cfg_forced amendments below flip it.
+        }
+        for (auto const& h : context.app.config().features)
+        {
+            Json::Value& entry = features[to_string(h)];
+            if (!entry.isMember(jss::name))
+            {
+                if (auto const fname = featureToName(h); !fname.empty())
+                    entry[jss::name] = fname;
+            }
+            if (!entry.isMember(jss::ledger_enabled))
+                entry[jss::ledger_enabled] = false;
+            entry[jss::cfg_forced] = true;
+            entry[jss::enabled] = true;  // ledger_enabled || cfg_forced
+        }
 
         lastFeatures = features;
         {
