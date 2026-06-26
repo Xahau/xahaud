@@ -116,8 +116,17 @@ Export::doApply()
     }
 
     auto& consensusExtensions = ctx_.app.getConsensusExtensions();
+    bool const standalone = ctx_.app.config().standalone();
     auto const parentLedger =
         ctx_.app.getLedgerMaster().getLedgerByHash(view().info().parentHash);
+    if (!standalone && !parentLedger)
+    {
+        JLOG(j_.warn()) << "Export: retrying without parent ledger"
+                        << " txHash=" << txId << " ledgerSeq=" << currentSeq
+                        << " parentHash=" << view().info().parentHash;
+        return terRETRY_EXPORT;
+    }
+
     auto const validatorView =
         consensusExtensions.makeActiveValidatorView(parentLedger);
     auto const isActiveSigner = [&consensusExtensions,
@@ -148,7 +157,7 @@ Export::doApply()
     STTx innerTx(std::ref(sit));
 
     auto upgradeUnverifiedForNextRound = [&]() {
-        if (ctx_.app.config().standalone())
+        if (standalone)
             return;
 
         // Closed-ledger apply must not create new current-round quorum
@@ -170,7 +179,7 @@ Export::doApply()
     // succeeds; the agreed sidecar map is the ledger-defining snapshot.
     std::optional<std::map<PublicKey, Buffer>> collectedSigs;
 
-    if (!ctx_.app.config().standalone())
+    if (!standalone)
     {
         //@@start export-doapply-agreed-signature-snapshot
         std::size_t const threshold = safeQuorumThreshold(unlSize);
@@ -249,7 +258,7 @@ Export::doApply()
     }
 
     ExportResultBuilder::SignatureSnapshot signatures;
-    if (ctx_.app.config().standalone())
+    if (standalone)
     {
         // Standalone mode: no consensus proposals, so we sign
         // the inner tx directly with our own validator keys.
