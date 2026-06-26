@@ -180,7 +180,7 @@ validateTicketSequence(STTx const& stx, beast::Journal j)
 /// @param stx        The exported transaction (checked for sfTicketSequence)
 /// @param txnId      Hash of the exported transaction
 /// @param j          Journal for logging
-/// @return tesSUCCESS, tecDIR_FULL, or tefINTERNAL
+/// @return tesSUCCESS, tecDUPLICATE, tecDIR_FULL, or tefINTERNAL
 inline TER
 createShadowTicket(
     ApplyView& view,
@@ -211,7 +211,7 @@ createShadowTicket(
     {
         JLOG(j.warn()) << "ExportLedgerOps: shadow ticket already exists for "
                        << account << " seq=" << ticketSeq;
-        return tefINTERNAL;
+        return tecDUPLICATE;
     }
 
     auto const pending = shadowTicketCount(view, account);

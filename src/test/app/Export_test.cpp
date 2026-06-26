@@ -1053,7 +1053,9 @@ struct Export_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, carol);
         env.close();
 
-        auto submitClosedExport = [&](std::uint32_t ticketSeq, TER expected) {
+        auto submitClosedExport = [&](std::uint32_t ticketSeq,
+                                      TER expected,
+                                      bool expectShadow) {
             auto const seq = env.current()->seq();
             auto innerObj = buildExportedPayment(
                 alice.id(), carol.id(), seq + 1, seq + 50, ticketSeq);
@@ -1072,14 +1074,16 @@ struct Export_test : public beast::unit_test::suite
 
             auto const shadow =
                 env.le(keylet::shadowTicket(alice.id(), ticketSeq));
-            BEAST_EXPECT((expected == tesSUCCESS) == static_cast<bool>(shadow));
+            BEAST_EXPECT(expectShadow == static_cast<bool>(shadow));
             env.close();
         };
 
         for (std::uint32_t i = 1; i <= ExportLimits::maxPendingExports; ++i)
-            submitClosedExport(i, tesSUCCESS);
+            submitClosedExport(i, tesSUCCESS, true);
 
-        submitClosedExport(ExportLimits::maxPendingExports + 1, tecDIR_FULL);
+        submitClosedExport(1, tecDUPLICATE, true);
+        submitClosedExport(
+            ExportLimits::maxPendingExports + 1, tecDIR_FULL, false);
     }
 
     void
