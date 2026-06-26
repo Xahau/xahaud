@@ -116,6 +116,18 @@ maxNamespaceDelete(void)
     return 256;
 }
 
+// maximum number of HookName selectors carried in a transaction's sfHookNames
+// array (featureNamedHooks). Kept small: at most maxHookChainLength() named
+// hooks can exist on any one account, and a cron re-emits its carried selector
+// array on every execution, so an oversized array would amplify pseudo-txn
+// size. 32 leaves ample headroom for selecting across a sender + several TSH
+// accounts in a single transaction.
+inline uint32_t
+maxNamedHookSelectors(void)
+{
+    return 32;
+}
+
 enum TSHFlags : uint8_t {
     tshNONE = 0b000,
     tshROLLBACK = 0b001,

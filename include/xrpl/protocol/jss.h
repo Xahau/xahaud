@@ -77,6 +77,7 @@ JSS(HookApiVersion);      // field
 JSS(HookCanEmit);         // field
 JSS(HookHash);            // field
 JSS(HookName);            // field
+JSS(HookNames);           // field
 JSS(HookNamespace);       // field
 JSS(HookOn);              // field
 JSS(HookOnIncoming);      // field
@@ -102,6 +103,7 @@ JSS(FirstLedgerSequence);      // in: TransactionSign; field
 JSS(LastUpdateTime);           // field.
 JSS(LimitAmount);              // field.
 JSS(NetworkID);                // field.
+JSS(NamedHook);                // field.
 JSS(LPTokenOut);               // in: AMM Liquidity Provider deposit tokens
 JSS(LPTokenIn);                // in: AMM Liquidity Provider withdraw tokens
 JSS(LPToken);                  // out: AMM Liquidity Provider tokens info

@@ -27,6 +27,7 @@
 #include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
+#include <optional>
 
 namespace ripple {
 
@@ -45,6 +46,14 @@ Cron::preflight(PreflightContext const& ctx)
     auto const ret = preflight0(ctx);
     if (!isTesSuccess(ret))
         return ret;
+
+    bool const namedHooks = ctx.rules.enabled(featureNamedHooks);
+
+    //@@start named-hooks-cron-preflight-selector
+    auto const selectors = validateHookSelectors(ctx, true);
+    if (!isTesSuccess(selectors))
+        return selectors;
+    //@@end named-hooks-cron-preflight-selector
 
     auto account = ctx.tx.getAccountID(sfAccount);
     if (account != beast::zero)
@@ -75,6 +84,16 @@ Cron::preflight(PreflightContext const& ctx)
         return temBAD_SEQUENCE;
     }
 
+    //@@start named-hooks-cron-preflight-binding
+    if (namedHooks &&
+        (!ctx.tx.isFieldPresent(sfCron) ||
+         ctx.tx.getFieldH256(sfCron) == beast::zero))
+    {
+        JLOG(ctx.j.warn()) << "Cron: Missing cron object";
+        return temMALFORMED;
+    }
+    //@@end named-hooks-cron-preflight-binding
+
     return tesSUCCESS;
 }
 
@@ -92,6 +111,7 @@ Cron::doApply()
 {
     auto& view = ctx_.view();
     auto const& tx = ctx_.tx;
+    bool const namedHooks = view.rules().enabled(featureNamedHooks);
 
     if (view.rules().enabled(fixCronStacking))
     {
@@ -115,11 +135,30 @@ Cron::doApply()
 
     if (!sle->isFieldPresent(sfCron))
     {
+        if (namedHooks && tx.isFieldPresent(sfCron))
+        {
+            JLOG(j_.warn()) << "Cron: stale cron pseudo for account " << id;
+            return tesSUCCESS;
+        }
+
         JLOG(j_.warn()) << "Cron: sfCron missing from account " << id;
         return tefINTERNAL;
     }
 
+    //@@start named-hooks-cron-stale-pseudo
     uint256 ptr = sle->getFieldH256(sfCron);
+    // The Cron pseudo-txn is scheduled against a specific ltCRON object. If
+    // the owner replaced or removed that object earlier in this ledger, this
+    // pseudo is stale and must not execute the owner's new cron with the old
+    // pseudo's selector fields.
+    if (namedHooks && tx.isFieldPresent(sfCron) &&
+        ptr != tx.getFieldH256(sfCron))
+    {
+        JLOG(j_.warn()) << "Cron: stale cron pseudo for account " << id;
+        return tesSUCCESS;
+    }
+    //@@end named-hooks-cron-stale-pseudo
+
     Keylet klOld{ltCRON, ptr};
     auto sleCron = view.peek(klOld);
     if (!sleCron)
@@ -132,6 +171,20 @@ Cron::doApply()
     uint32_t recur = sleCron->getFieldU32(sfRepeatCount);
 
     uint32_t lastStartTime = sleCron->getFieldU32(sfStartTime);
+
+    //@@start named-hooks-cron-capture-selector
+    // capture the named-hook selector(s) (if any) before the object is erased,
+    // so they persist across recurring executions (featureNamedHooks)
+    std::optional<Blob> hookName;
+    std::optional<STArray> hookNames;
+    if (namedHooks)
+    {
+        if (sleCron->isFieldPresent(sfHookName))
+            hookName = sleCron->getFieldVL(sfHookName);
+        if (sleCron->isFieldPresent(sfHookNames))
+            hookNames = sleCron->getFieldArray(sfHookNames);
+    }
+    //@@end named-hooks-cron-capture-selector
 
     // do all this sanity checking before we modify the ledger...
     uint32_t afterTime = lastStartTime + delay;
@@ -175,6 +228,14 @@ Cron::doApply()
     sleCron->setFieldU32(sfRepeatCount, recur - 1);
     sleCron->setFieldU32(sfStartTime, afterTime);
     sleCron->setAccountID(sfOwner, id);
+
+    //@@start named-hooks-cron-carry-forward
+    // carry the named-hook selector(s) forward to the next execution
+    if (hookName)
+        sleCron->setFieldVL(sfHookName, *hookName);
+    if (hookNames)
+        sleCron->setFieldArray(sfHookNames, *hookNames);
+    //@@end named-hooks-cron-carry-forward
 
     sle->setFieldH256(sfCron, klCron.key);
 

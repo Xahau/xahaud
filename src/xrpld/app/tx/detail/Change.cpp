@@ -45,6 +45,14 @@ Change::preflight(PreflightContext const& ctx)
     if (!isTesSuccess(ret))
         return ret;
 
+    if (ctx.tx.isFieldPresent(sfHookNames) ||
+        (ctx.rules.enabled(featureNamedHooks) &&
+         ctx.tx.isFieldPresent(sfHookName)))
+    {
+        JLOG(ctx.j.warn()) << "Change: Hook selectors are not allowed";
+        return temMALFORMED;
+    }
+
     auto account = ctx.tx.getAccountID(sfAccount);
     if (account != beast::zero)
     {

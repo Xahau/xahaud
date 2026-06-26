@@ -36,14 +36,64 @@
 #include <xrpl/hook/Enum.h>
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/UintTypes.h>
 #include <limits>
+#include <optional>
 #include <set>
 
 namespace ripple {
+
+// Determines whether `hookObj` (a hook installed on an account's hook chain) is
+// selected to run by the triggering transaction `tx`, according to the
+// transaction's hook-name selector(s) (featureNamedHooks).
+//
+//   * A hook with no name (absent or empty sfHookName) is always selected.
+//   * A named hook is selected when the transaction carries a matching
+//     selector: either a single sfHookName equal to the hook's name, or an
+//     sfHookNames array containing an entry equal to it. The two forms are
+//     mutually exclusive at preflight, so the array is consulted first and,
+//     when present, is authoritative.
+//
+// No explicit amendment check is needed here: a hook can only carry a name when
+// featureNamedHooks is enabled (SetHook enforces this and amendments do not
+// deactivate), so for any hook with a non-empty name the amendment is
+// necessarily active. Pre-amendment no hook is named, so this function returns
+// true for every hook and the selector fields are inert. Validation of selector
+// fields on emitted/pseudo transactions is handled on their preflight paths.
+//
+// This mirrors the gate applied during fee calculation so that the fee charged
+// always matches the set of hooks that actually execute.
+static bool
+txSelectsHook(STObject const& hookObj, STTx const& tx)
+{
+    if (!hookObj.isFieldPresent(sfHookName))
+        return true;
+
+    Blob const required = hookObj.getFieldVL(sfHookName);
+    if (required.empty())
+        return true;
+
+    if (tx.isFieldPresent(sfHookNames))
+    {
+        for (auto const& entry : tx.getFieldArray(sfHookNames))
+        {
+            if (entry.getFName() == sfNamedHook &&
+                entry.isFieldPresent(sfHookName) &&
+                entry.getFieldVL(sfHookName) == required)
+                return true;
+        }
+        return false;
+    }
+
+    if (tx.isFieldPresent(sfHookName))
+        return tx.getFieldVL(sfHookName) == required;
+
+    return false;
+}
 
 /** Performs early sanity checks on the txid */
 NotTEC
@@ -90,6 +140,70 @@ preflight0(PreflightContext const& ctx)
     return tesSUCCESS;
 }
 
+NotTEC
+validateHookSelectors(PreflightContext const& ctx, bool allowLegacyHookName)
+{
+    if (ctx.tx.isFieldPresent(sfHookName))
+    {
+        if (!ctx.rules.enabled(featureHooks))
+            return temMALFORMED;
+
+        if (!ctx.rules.enabled(featureNamedHooks))
+        {
+            // Some pre-amendment paths (notably emitted transactions and
+            // pseudo-transactions) historically accepted the legacy single
+            // sfHookName field because they did not run this validation.
+            // Preserve that behavior where callers opt in. The new sfHookNames
+            // array remains rejected below unless featureNamedHooks is enabled.
+            if (!allowLegacyHookName)
+                return temMALFORMED;
+        }
+
+        if (ctx.rules.enabled(featureNamedHooks) &&
+            !SetHook::validateHookName(ctx.tx.getFieldVL(sfHookName), ctx.j))
+            return temMALFORMED;
+    }
+
+    if (ctx.tx.isFieldPresent(sfHookNames))
+    {
+        if (!ctx.rules.enabled(featureHooks) ||
+            !ctx.rules.enabled(featureNamedHooks))
+            return temMALFORMED;
+
+        // sfHookName (single selector) and sfHookNames (array selector) are
+        // mutually exclusive
+        if (ctx.tx.isFieldPresent(sfHookName))
+            return temMALFORMED;
+
+        auto const& names = ctx.tx.getFieldArray(sfHookNames);
+        if (names.empty() || names.size() > hook::maxNamedHookSelectors())
+            return temMALFORMED;
+
+        std::set<Blob> seen;
+        for (auto const& entry : names)
+        {
+            // each entry must be a canonical sfNamedHook wrapper, not some
+            // other inner object that merely happens to carry sfHookName
+            if (entry.getFName() != sfNamedHook)
+                return temMALFORMED;
+
+            if (!entry.isFieldPresent(sfHookName))
+                return temMALFORMED;
+
+            Blob const name = entry.getFieldVL(sfHookName);
+
+            // an empty name is "unnamed" and is meaningless as a selector
+            if (name.empty() || !SetHook::validateHookName(name, ctx.j))
+                return temMALFORMED;
+
+            if (!seen.insert(name).second)
+                return temMALFORMED;  // duplicate selector
+        }
+    }
+
+    return tesSUCCESS;
+}
+
 /** Performs early sanity checks on the account and fee fields */
 NotTEC
 preflight1(PreflightContext const& ctx)
@@ -121,14 +235,22 @@ preflight1(PreflightContext const& ctx)
         return temBAD_FEE;
     }
 
+    bool const emittedBypass = ctx.rules.enabled(featureHooks) &&
+        hook::isEmittedTxn(ctx.tx) &&
+        ((ctx.app.getHashRouter().getFlags(ctx.tx.getTransactionID()) &
+          SF_EMITTED) ||
+         (ctx.flags & tapPREFLIGHT_EMIT));
+
+    auto const selectors = validateHookSelectors(ctx, emittedBypass);
+    if (!isTesSuccess(selectors))
+        return selectors;
+
     // if a hook emitted this transaction we bypass signature checks
     // there is a bar to circularing emitted transactions on the network
     // in their prevalidated form so this is safe
     if (ctx.rules.enabled(featureHooks) && hook::isEmittedTxn(ctx.tx))
     {
-        if ((ctx.app.getHashRouter().getFlags(ctx.tx.getTransactionID()) &
-             SF_EMITTED) ||
-            (ctx.flags & tapPREFLIGHT_EMIT))
+        if (emittedBypass)
         {
             if (ctx.tx.getSeqProxy().isTicket() &&
                 ctx.tx.isFieldPresent(sfAccountTxnID))
@@ -147,16 +269,6 @@ preflight1(PreflightContext const& ctx)
             // state in the local instance.
             return telNON_LOCAL_EMITTED_TXN;
         }
-    }
-
-    if (ctx.tx.isFieldPresent(sfHookName))
-    {
-        if (!ctx.rules.enabled(featureHooks) ||
-            !ctx.rules.enabled(featureNamedHooks))
-            return temMALFORMED;
-
-        if (!SetHook::validateHookName(ctx.tx.getFieldVL(sfHookName), ctx.j))
-            return temMALFORMED;
     }
 
     auto const spk = ctx.tx.getSigningPubKey();
@@ -283,19 +395,11 @@ Transactor::calculateHookChainFee(
             // LCOV_EXCL_STOP
         }
 
-        std::optional<Blob> requiredHookName;
-        if (hookObj.isFieldPresent(sfHookName) &&
-            hookObj.getFieldVL(sfHookName).size() > 0)
-            requiredHookName = hookObj.getFieldVL(sfHookName);
-
-        if (requiredHookName)
-        {
-            // need to specify same hook name in the transaction
-            if (!tx.isFieldPresent(sfHookName))
-                continue;
-            if (*requiredHookName != tx.getFieldVL(sfHookName))
-                continue;
-        }
+        //@@start named-hooks-fee-gate
+        // skip hooks not selected by the transaction's hook-name selector(s)
+        if (!txSelectsHook(hookObj, tx))
+            continue;
+        //@@end named-hooks-fee-gate
 
         uint32_t flags = 0;
         if (hookObj.isFieldPresent(sfFlags))
@@ -1354,19 +1458,11 @@ Transactor::executeHookChain(
             // LCOV_EXCL_STOP
         }
 
-        std::optional<Blob> requiredHookName;
-        if (hookObj.isFieldPresent(sfHookName) &&
-            hookObj.getFieldVL(sfHookName).size() > 0)
-            requiredHookName = hookObj.getFieldVL(sfHookName);
-
-        if (requiredHookName)
-        {
-            // need to specify same hook name in the transaction
-            if (!ctx_.tx.isFieldPresent(sfHookName))
-                continue;
-            if (*requiredHookName != ctx_.tx.getFieldVL(sfHookName))
-                continue;
-        }
+        //@@start named-hooks-execution-gate
+        // skip hooks not selected by the transaction's hook-name selector(s)
+        if (!txSelectsHook(hookObj, ctx_.tx))
+            continue;
+        //@@end named-hooks-execution-gate
 
         // check if the hook can fire
         uint256 hookOn = hook::getHookOn(
@@ -1482,6 +1578,45 @@ Transactor::executeHookChain(
     return tesSUCCESS;
 }
 
+static std::optional<uint8_t>
+callbackHookChainPosition(
+    STObject const& emitDetails,
+    AccountID const& callbackAccountID,
+    uint256 const& callbackHookHash)
+{
+    if (!emitDetails.isFieldPresent(sfEmitNonce) ||
+        !emitDetails.isFieldPresent(sfEmitParentTxnID))
+        return std::nullopt;
+
+    auto const expectedNonce = emitDetails.getFieldH256(sfEmitNonce);
+    auto const parentTxnID = emitDetails.getFieldH256(sfEmitParentTxnID);
+
+    for (uint8_t position = 0; position < hook::maxHookChainLength();
+         ++position)
+    {
+        // etxn_nonce hashes the uint16_t emit_nonce_counter; hash_append
+        // includes integral width, so a uint32_t with the same value will not
+        // match.
+        for (uint16_t nonce = 0; nonce <= hook_api::max_nonce; ++nonce)
+        {
+            for (uint32_t flags = 0; flags < 4; ++flags)
+            {
+                auto const candidate = sha512Half(
+                    HashPrefix::emitTxnNonce,
+                    parentTxnID,
+                    nonce,
+                    callbackAccountID,
+                    callbackHookHash,
+                    (static_cast<uint32_t>(position) << 2U) | flags);
+                if (candidate == expectedNonce)
+                    return position;
+            }
+        }
+    }
+
+    return std::nullopt;
+}
+
 void
 Transactor::doHookCallback(
     std::shared_ptr<STObject const> const& provisionalMeta)
@@ -1501,6 +1636,21 @@ Transactor::doHookCallback(
     AccountID const& callbackAccountID =
         emitDetails.getAccountID(sfEmitCallback);
     uint256 const& callbackHookHash = emitDetails.getFieldH256(sfEmitHookHash);
+    bool const namedHooks = view().rules().enabled(featureNamedHooks);
+    bool const hasCallbackNonce = namedHooks &&
+        emitDetails.isFieldPresent(sfEmitNonce) &&
+        emitDetails.isFieldPresent(sfEmitParentTxnID);
+    std::optional<uint8_t> callbackPosition;
+    if (hasCallbackNonce)
+        callbackPosition = callbackHookChainPosition(
+            emitDetails, callbackAccountID, callbackHookHash);
+
+    if (hasCallbackNonce && !callbackPosition)
+    {
+        JLOG(j_.warn()) << "HookError[" << callbackAccountID
+                        << "]: Callback nonce did not identify hook slot";
+        return;
+    }
 
     auto const& hooksCallback = view().peek(keylet::hook(callbackAccountID));
     auto const& hookDef = view().peek(keylet::hookDefinition(callbackHookHash));
@@ -1532,6 +1682,17 @@ Transactor::doHookCallback(
 
     bool found = false;
     auto const& hooks = hooksCallback->getFieldArray(sfHooks);
+
+    // Count how many slots currently carry the callback hash. The emit-position
+    // filter below only needs to disambiguate genuinely duplicate-hash slots;
+    // when exactly one slot matches we deliver to it even if the emitting hook
+    // was relocated to a different chain index since it emitted.
+    std::size_t callbackHashSlots = 0;
+    for (auto const& hookObj : hooks)
+        if (hookObj.isFieldPresent(sfHookHash) &&
+            hookObj.getFieldH256(sfHookHash) == callbackHookHash)
+            ++callbackHashSlots;
+
     uint8_t hook_no = 0;
     for (auto const& hookObj : hooks)
     {
@@ -1542,6 +1703,15 @@ Transactor::doHookCallback(
 
         if (hookObj.getFieldH256(sfHookHash) != callbackHookHash)
             continue;
+
+        //@@start named-hooks-callback-slot-filter
+        // Only disambiguate by emit position when more than one slot carries
+        // the hash; an unambiguous callback is otherwise delivered even after a
+        // benign hook relocation within this transaction.
+        if (namedHooks && callbackPosition && callbackHashSlots > 1 &&
+            *callbackPosition != hook_no - 1)
+            continue;
+        //@@end named-hooks-callback-slot-filter
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
 
@@ -1813,7 +1983,7 @@ Transactor::doTSH(
 void
 Transactor::doAgainAsWeak(
     AccountID const& hookAccountID,
-    std::set<uint256> const& hookHashes,
+    std::set<std::pair<uint8_t, uint256>> const& requestedHooks,
     hook::HookStateMap& stateMap,
     std::vector<hook::HookResult>& results,
     std::shared_ptr<STObject const> const& provisionalMeta)
@@ -1833,6 +2003,7 @@ Transactor::doAgainAsWeak(
     }
 
     auto const& hooks = hooksArray->getFieldArray(sfHooks);
+    bool const namedHooks = view().rules().enabled(featureNamedHooks);
     uint8_t hook_no = 0;
     for (auto const& hookObj : hooks)
     {
@@ -1843,9 +2014,58 @@ Transactor::doAgainAsWeak(
 
         uint256 const& hookHash = hookObj.getFieldH256(sfHookHash);
 
-        if (hookHashes.find(hookObj.getFieldH256(sfHookHash)) ==
-            hookHashes.end())
+        //@@start named-hooks-aaw-exact-replay
+        if (namedHooks)
+        {
+            bool matched = requestedHooks.find({hook_no - 1, hookHash}) !=
+                requestedHooks.end();
+            if (!matched)
+            {
+                // Exact {position, hash} failed: fall back to hash matching
+                // only when this hash is unambiguous in both the requested set
+                // and the current chain (a single requesting slot whose index
+                // merely shifted within this same transaction). Ambiguous
+                // duplicate-hash cases still require the exact position.
+                std::size_t reqForHash = 0;
+                for (auto const& requestedHook : requestedHooks)
+                    if (requestedHook.second == hookHash)
+                        ++reqForHash;
+                std::size_t curForHash = 0;
+                for (auto const& other : hooks)
+                    if (other.isFieldPresent(sfHookHash) &&
+                        other.getFieldH256(sfHookHash) == hookHash)
+                        ++curForHash;
+                if (reqForHash == 1 && curForHash == 1)
+                    matched = true;
+            }
+            if (!matched)
+                continue;
+        }
+        else
+        {
+            bool requestedHash = false;
+            for (auto const& requestedHook : requestedHooks)
+            {
+                if (requestedHook.second == hookHash)
+                {
+                    requestedHash = true;
+                    break;
+                }
+            }
+            if (!requestedHash)
+                continue;
+        }
+        //@@end named-hooks-aaw-exact-replay
+
+        //@@start named-hooks-aaw-selector-gate
+        // honor the transaction's hook-name selector(s) on replay too, so a
+        // selected hook's "execute again as weak" request cannot replay an
+        // unselected slot that merely shares the same hook hash under a
+        // different name (featureNamedHooks; inert pre-amendment as no hook can
+        // be named)
+        if (namedHooks && !txSelectsHook(hookObj, ctx_.tx))
             continue;
+        //@@end named-hooks-aaw-selector-gate
 
         auto const& hookDef = view().peek(keylet::hookDefinition(hookHash));
         if (!hookDef)
@@ -1967,10 +2187,11 @@ Transactor::operator()()
 
     bool const hooksEnabled = view().rules().enabled(featureHooks);
 
-    // AgainAsWeak map stores information about accounts whose strongly executed
-    // hooks request an additional weak execution after the otxn has finished
-    // application to the ledger
-    std::map<AccountID, std::set<uint256>> aawMap;
+    // AgainAsWeak records the exact hook slot and hash that requested replay so
+    // featureNamedHooks can disambiguate duplicate-hash slots. Before that
+    // amendment is enabled, doAgainAsWeak deliberately falls back to the
+    // historical hash-only replay rule.
+    std::map<AccountID, std::set<std::pair<uint8_t, uint256>>> aawMap;
 
     std::vector<std::pair<AccountID, bool>> tsh =
         hook::getTransactionalStakeHolders(ctx_.tx, ctx_.view());
@@ -2027,9 +2248,11 @@ Transactor::operator()()
             if (hookResult.executeAgainAsWeak)
             {
                 if (aawMap.find(hookResult.account) == aawMap.end())
-                    aawMap[hookResult.account] = {hookResult.hookHash};
+                    aawMap[hookResult.account] = {
+                        {hookResult.hookChainPosition, hookResult.hookHash}};
                 else
-                    aawMap[hookResult.account].emplace(hookResult.hookHash);
+                    aawMap[hookResult.account].emplace(
+                        hookResult.hookChainPosition, hookResult.hookHash);
             }
         }
     }
@@ -2390,8 +2613,9 @@ Transactor::operator()()
         doTSH(false, tsh, stateMap, weakResults, proMeta);
 
         // execute any hooks that nominated for 'again as weak'
-        for (auto const& [accID, hookHashes] : aawMap)
-            doAgainAsWeak(accID, hookHashes, stateMap, weakResults, proMeta);
+        for (auto const& [accID, requestedHooks] : aawMap)
+            doAgainAsWeak(
+                accID, requestedHooks, stateMap, weakResults, proMeta);
 
         // write hook results
         hook::finalizeHookState(stateMap, ctx_, ctx_.tx.getTransactionID());

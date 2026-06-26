@@ -27,6 +27,8 @@
 #include <xrpld/ledger/detail/ApplyViewBase.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/XRPAmount.h>
+#include <set>
+#include <utility>
 #include <variant>
 
 namespace ripple {
@@ -200,7 +202,7 @@ protected:
     void
     doAgainAsWeak(
         AccountID const& hookAccountID,
-        std::set<uint256> const& hookHashes,
+        std::set<std::pair<uint8_t, uint256>> const& requestedHooks,
         hook::HookStateMap& stateMap,
         std::vector<hook::HookResult>& results,
         std::shared_ptr<STObject const> const& provisionalMeta);
@@ -276,6 +278,11 @@ private:
 /** Performs early sanity checks on the txid */
 NotTEC
 preflight0(PreflightContext const& ctx);
+
+NotTEC
+validateHookSelectors(
+    PreflightContext const& ctx,
+    bool allowLegacyHookName = false);
 
 /** Performs early sanity checks on the account and fee fields */
 NotTEC

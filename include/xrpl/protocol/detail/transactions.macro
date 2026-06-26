@@ -500,10 +500,12 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
 
-/* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
+/* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met.
+   The optional sfHookName / sfHookNames selector(s) it carries come from the common transaction fields. */
 TRANSACTION(ttCRON, 92, Cron, ({
     {sfOwner, soeREQUIRED},
     {sfLedgerSequence, soeREQUIRED},
+    {sfCron, soeOPTIONAL},
 }))
 
 /* Sechedule an alarm for later */

@@ -64,6 +64,16 @@ CronSet::preflight(PreflightContext const& ctx)
     bool const hasRepeat = tx.isFieldPresent(sfRepeatCount);
     bool const hasStartTime = tx.isFieldPresent(sfStartTime);
 
+    //@@start named-hooks-cronset-selector-note
+    // Note: sfHookName / sfHookNames are common transaction selectors,
+    // validated by preflight1 (which requires featureNamedHooks). On a CronSet
+    // they additionally serve as the selector persisted on the cron object (and
+    // carried by the emitted Cron pseudo-txn), gated in doApply. They are
+    // deliberately NOT rejected here: a CronSet (or a tfCronUnset) may carry
+    // sfHookName purely to select named hooks on its own hook chain, exactly as
+    // for any other transaction.
+    //@@end named-hooks-cronset-selector-note
+
     if (tx.isFlag(tfCronUnset))
     {
         // delete operation
@@ -267,6 +277,23 @@ CronSet::doApply()
     sleCron->setFieldU32(sfDelaySeconds, delay);
     sleCron->setFieldU32(sfRepeatCount, recur);
     sleCron->setAccountID(sfOwner, id);
+
+    //@@start named-hooks-cronset-persist-selector
+    // persist the optional named-hook selector(s) on the cron so the emitted
+    // Cron pseudo-txn triggers the selected named hook(s) on the owner
+    // (featureNamedHooks).
+    if (view.rules().enabled(featureNamedHooks))
+    {
+        if (tx.isFieldPresent(sfHookName))
+        {
+            Blob const hookName = tx.getFieldVL(sfHookName);
+            if (!hookName.empty())
+                sleCron->setFieldVL(sfHookName, hookName);
+        }
+        if (tx.isFieldPresent(sfHookNames))
+            sleCron->setFieldArray(sfHookNames, tx.getFieldArray(sfHookNames));
+    }
+    //@@end named-hooks-cronset-persist-selector
 
     sle->setFieldH256(sfCron, klCron.key);
 

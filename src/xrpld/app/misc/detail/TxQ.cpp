@@ -1510,7 +1510,13 @@ TxQ::accept(Application& app, OpenView& view)
         uint256 klStart = keylet::cron(0, accountID).key;
         uint256 const klEnd = keylet::cron(currentTime + 1, accountID).key;
 
-        std::set<AccountID> cronAccs;
+        bool const namedHooks = view.rules().enabled(featureNamedHooks);
+
+        //@@start named-hooks-cron-scan-auth
+        // owner account -> its cron ledger object (there is at most one cron
+        // per account). The SLE is retained so any named-hook selector(s) it
+        // carries can be copied onto the emitted Cron pseudo-txn.
+        std::map<AccountID, std::shared_ptr<SLE const>> cronAccs;
 
         auto counter = 0;
         // include max 128 cron txns in the ledger
@@ -1528,23 +1534,70 @@ TxQ::accept(Application& app, OpenView& view)
                 if (safe_cast<LedgerEntryType>(
                         sle->getFieldU16(sfLedgerEntryType)) == ltCRON)
                 {
-                    // valid cron object, add it to the list
-                    cronAccs.emplace(sle->getAccountID(sfOwner));
+                    AccountID const owner = sle->getAccountID(sfOwner);
+
+                    if (!namedHooks)
+                    {
+                        // Preserve the pre-NamedHooks Cron scheduler output:
+                        // every due ltCRON owner is pinged, even if a stale or
+                        // orphan object is encountered in the scan window.
+                        cronAccs.emplace(owner, sle);
+                    }
+                    else
+                    {
+                        // Only the account's current cron pointer is
+                        // authoritative once the selector amendment needs the
+                        // cron object for pseudo-txn field copying.
+                        // Stale/orphan entries still consume this scan loop's
+                        // 128-key budget; changing that accounting is a broader
+                        // Cron scheduler behavior change and is intentionally
+                        // left out here.
+                        auto const accountSle =
+                            view.read(keylet::account(owner));
+                        if (accountSle && accountSle->isFieldPresent(sfCron) &&
+                            accountSle->getFieldH256(sfCron) == sle->key())
+                        {
+                            cronAccs.emplace(owner, sle);
+                        }
+                    }
                 }
             }
-
             klStart = *next;
         }
+        //@@end named-hooks-cron-scan-auth
 
         auto const seq = view.info().seq;
 
         // insert Cron pseudos for each of the accs we need to ping
-        for (AccountID const& id : cronAccs)
+        for (auto const& cronAcc : cronAccs)
         {
-            STTx cronTx(ttCRON, [=](auto& obj) {
+            AccountID const& id = cronAcc.first;
+            std::shared_ptr<SLE const> const& cronSle = cronAcc.second;
+            STTx cronTx(ttCRON, [&](auto& obj) {
                 obj[sfAccount] = AccountID();
                 obj[sfLedgerSequence] = seq;
                 obj[sfOwner] = id;
+                //@@start named-hooks-cron-pseudo-selector
+                if (namedHooks)
+                {
+                    // Bind the pseudo-txn to the exact cron object found during
+                    // TxQ scheduling. Cron::doApply treats this as stale if the
+                    // owner replaced or removed the cron before the pseudo
+                    // applies.
+                    obj[sfCron] = cronSle->key();
+
+                    // carry the cron's named-hook selector(s), if any, so the
+                    // pseudo-txn triggers the selected named hook(s) on the
+                    // owner (in addition to the owner's unnamed hooks, as
+                    // always)
+                    if (cronSle->isFieldPresent(sfHookName))
+                        obj.setFieldVL(
+                            sfHookName, cronSle->getFieldVL(sfHookName));
+                    if (cronSle->isFieldPresent(sfHookNames))
+                        obj.setFieldArray(
+                            sfHookNames, cronSle->getFieldArray(sfHookNames));
+                }
+                //@@end named-hooks-cron-pseudo-selector
             });
 
             uint256 txID = cronTx.getTransactionID();

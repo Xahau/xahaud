@@ -2032,6 +2032,574 @@ public:
         }
     }
 
+    // Build an sfHookNames JSON array from a list of hex name strings:
+    //   [ { "NamedHook": { "HookName": "<hex>" } }, ... ]
+    static Json::Value
+    hookNamesArray(std::vector<std::string> const& names)
+    {
+        Json::Value arr{Json::arrayValue};
+        for (auto const& n : names)
+        {
+            Json::Value entry;
+            entry[jss::NamedHook][jss::HookName] = n;
+            arr.append(entry);
+        }
+        return arr;
+    }
+
+    void
+    testHookNamesArray(FeatureBitset features)
+    {
+        testcase("Test hook names array (multiple named hooks per txn)");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        auto const USD = alice["USD"];
+
+        bool const namedHooks =
+            features[featureHooks] && features[featureNamedHooks];
+
+        // sfHookNames requires featureNamedHooks
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookNames] = hookNamesArray({"41424344"});
+            env(jv,
+                M("HookNames requires featureNamedHooks"),
+                HSFEE,
+                namedHooks ? ter(tesSUCCESS) : ter(temMALFORMED));
+            env.close();
+        }
+
+        if (!namedHooks)
+            return;
+
+        // Malformed selector arrays
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            // sfHookName and sfHookNames are mutually exclusive
+            {
+                auto jv = invoke::invoke(alice);
+                jv[jss::HookName] = "41424344";
+                jv[jss::HookNames] = hookNamesArray({"41424345"});
+                env(jv,
+                    M("HookName + HookNames are mutually exclusive"),
+                    HSFEE,
+                    ter(temMALFORMED));
+            }
+            // empty array
+            {
+                auto jv = invoke::invoke(alice);
+                jv[jss::HookNames] = Json::Value{Json::arrayValue};
+                env(jv, M("empty HookNames"), HSFEE, ter(temMALFORMED));
+            }
+            // duplicate names
+            {
+                auto jv = invoke::invoke(alice);
+                jv[jss::HookNames] = hookNamesArray({"41424344", "41424344"});
+                env(jv, M("duplicate HookNames"), HSFEE, ter(temMALFORMED));
+            }
+            // invalid name (too short)
+            {
+                auto jv = invoke::invoke(alice);
+                jv[jss::HookNames] = hookNamesArray({"414243"});
+                env(jv,
+                    M("invalid HookNames entry (too short)"),
+                    HSFEE,
+                    ter(temMALFORMED));
+            }
+            // empty name in entry
+            {
+                auto jv = invoke::invoke(alice);
+                jv[jss::HookNames] = hookNamesArray({""});
+                env(jv, M("empty name in HookNames"), HSFEE, ter(temMALFORMED));
+            }
+            // entry too long (17 bytes / 34 hex)
+            {
+                auto jv = invoke::invoke(alice);
+                jv[jss::HookNames] =
+                    hookNamesArray({"4142434445464748494A4B4C4D4E4F5051"});
+                env(jv,
+                    M("HookNames entry too long"),
+                    HSFEE,
+                    ter(temMALFORMED));
+            }
+            // entry not valid utf-8
+            {
+                auto jv = invoke::invoke(alice);
+                jv[jss::HookNames] = hookNamesArray({"DEADBEEF"});
+                env(jv,
+                    M("HookNames entry not utf-8"),
+                    HSFEE,
+                    ter(temMALFORMED));
+            }
+            // entry wrapped in the wrong inner object (sfHook can also carry
+            // sfHookName) rather than the canonical sfNamedHook
+            {
+                auto jv = invoke::invoke(alice);
+                Json::Value arr{Json::arrayValue};
+                Json::Value entry;
+                entry[sfHook.jsonName][jss::HookName] = "41424344";
+                arr.append(entry);
+                jv[jss::HookNames] = arr;
+                env(jv,
+                    M("HookNames entry must be a NamedHook"),
+                    HSFEE,
+                    ter(temMALFORMED));
+            }
+
+            // selector-count boundary around maxNamedHookSelectors()
+            {
+                // distinct, valid 4-byte (8 hex) ASCII names: "HK??"
+                auto nthName = [](uint32_t i) {
+                    char const buf[4] = {
+                        'H',
+                        'K',
+                        static_cast<char>('A' + (i / 26)),
+                        static_cast<char>('A' + (i % 26))};
+                    return strHex(std::string(buf, 4));
+                };
+                auto buildN = [&](uint32_t n) {
+                    std::vector<std::string> v;
+                    v.reserve(n);
+                    for (uint32_t i = 0; i < n; ++i)
+                        v.push_back(nthName(i));
+                    return hookNamesArray(v);
+                };
+                // exactly the max is accepted
+                {
+                    auto jv = invoke::invoke(alice);
+                    jv[jss::HookNames] = buildN(hook::maxNamedHookSelectors());
+                    env(jv,
+                        M("max selectors accepted"),
+                        HSFEE,
+                        ter(tesSUCCESS));
+                    env.close();
+                }
+                // one over the max is malformed
+                {
+                    auto jv = invoke::invoke(alice);
+                    jv[jss::HookNames] =
+                        buildN(hook::maxNamedHookSelectors() + 1);
+                    env(jv, M("too many selectors"), HSFEE, ter(temMALFORMED));
+                }
+            }
+        }
+
+        // Two distinct NAMED hooks, selected individually and together
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            // accept  -> named "AAAA" (41414141)
+            // accept2 -> named "BBBB" (42424242)
+            auto jvh = hso(accept_wasm);
+            jvh[jss::HookName] = "41414141";
+            jvh[jss::Flags] = hsfCOLLECT;
+            auto jvh2 = hso(accept2_wasm);
+            jvh2[jss::HookName] = "42424242";
+            jvh2[jss::Flags] = hsfCOLLECT;
+            env(ripple::test::jtx::hook(alice, {{jvh, jvh2}}, 0),
+                M("Install two distinct named hooks"),
+                HSFEE);
+            env.close();
+
+            auto execCount = [&]() -> std::size_t {
+                if (!env.meta()->isFieldPresent(sfHookExecutions))
+                    return 0;
+                return env.meta()->getFieldArray(sfHookExecutions).size();
+            };
+
+            // No selector: neither named hook fires
+            {
+                auto jv = invoke::invoke(alice);
+                env(jv, M("no selector -> no named hooks"), HSFEE);
+                env.close();
+                BEAST_EXPECT(execCount() == 0);
+            }
+
+            //@@start named-hooks-test-array-selection
+            // Array with one name: only that hook fires
+            {
+                auto jv = invoke::invoke(alice);
+                jv[jss::HookNames] = hookNamesArray({"41414141"});
+                env(jv, M("array selects AAAA only"), HSFEE);
+                env.close();
+                auto const ex = env.meta()->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(ex.size() == 1);
+                BEAST_EXPECT(ex[0].getFieldH256(sfHookHash) == accept_hash);
+            }
+
+            // Array with the other name
+            {
+                auto jv = invoke::invoke(alice);
+                jv[jss::HookNames] = hookNamesArray({"42424242"});
+                env(jv, M("array selects BBBB only"), HSFEE);
+                env.close();
+                auto const ex = env.meta()->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(ex.size() == 1);
+                BEAST_EXPECT(ex[0].getFieldH256(sfHookHash) == accept2_hash);
+            }
+
+            // Array with both names: both hooks fire (in install order)
+            {
+                auto jv = invoke::invoke(alice);
+                jv[jss::HookNames] = hookNamesArray({"41414141", "42424242"});
+                env(jv, M("array selects both AAAA and BBBB"), HSFEE);
+                env.close();
+                auto const ex = env.meta()->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(ex.size() == 2);
+                BEAST_EXPECT(ex[0].getFieldH256(sfHookHash) == accept_hash);
+                BEAST_EXPECT(ex[1].getFieldH256(sfHookHash) == accept2_hash);
+            }
+            //@@end named-hooks-test-array-selection
+
+            // Single sfHookName still selects exactly one named hook
+            {
+                auto jv = invoke::invoke(alice);
+                jv[jss::HookName] = "42424242";
+                env(jv, M("single selector still works"), HSFEE);
+                env.close();
+                auto const ex = env.meta()->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(ex.size() == 1);
+                BEAST_EXPECT(ex[0].getFieldH256(sfHookHash) == accept2_hash);
+            }
+
+            //@@start named-hooks-test-fee-identity
+            // The fee gate uses the same selector logic as execution, so the
+            // per-hook cost is additive: fee(both) - fee(none) == the sum of
+            // each hook's individual incremental cost.
+            {
+                auto feeFor = [&](Json::Value const& jv) {
+                    return calculateBaseFee(*env.current(), *env.jt(jv).stx);
+                };
+                auto jvNone = invoke::invoke(alice);
+                auto jvA = invoke::invoke(alice);
+                jvA[jss::HookNames] = hookNamesArray({"41414141"});
+                auto jvB = invoke::invoke(alice);
+                jvB[jss::HookNames] = hookNamesArray({"42424242"});
+                auto jvBoth = invoke::invoke(alice);
+                jvBoth[jss::HookNames] =
+                    hookNamesArray({"41414141", "42424242"});
+                BEAST_EXPECT(feeFor(jvA) > feeFor(jvNone));
+                BEAST_EXPECT(feeFor(jvB) > feeFor(jvNone));
+                BEAST_EXPECT(feeFor(jvBoth) > feeFor(jvA));
+                BEAST_EXPECT(
+                    feeFor(jvBoth) + feeFor(jvNone) ==
+                    feeFor(jvA) + feeFor(jvB));
+                // a selector matching no installed hook costs the same as no
+                // selector at all
+                auto jvNon = invoke::invoke(alice);
+                jvNon[jss::HookNames] = hookNamesArray({"5A5A5A5A"});
+                BEAST_EXPECT(feeFor(jvNon) == feeFor(jvNone));
+            }
+            //@@end named-hooks-test-fee-identity
+
+            // Weak (collect) execution: alice is a weak TSH on bob's trustline.
+            // The selector gates the weak chain too.
+            env(fset(alice, asfTshCollect), fee(XRP(1)));
+            env.close();
+            {
+                // selecting only AAAA fires only accept
+                auto jv = trust(bob, USD(1000));
+                jv[jss::HookNames] = hookNamesArray({"41414141"});
+                env(jv, M("weak: array selects AAAA only"), HSFEE);
+                env.close();
+                auto const ex = env.meta()->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(ex.size() == 1);
+                BEAST_EXPECT(ex[0].getFieldH256(sfHookHash) == accept_hash);
+            }
+            {
+                // selecting both fires both
+                auto jv = trust(bob, USD(1001));
+                jv[jss::HookNames] = hookNamesArray({"41414141", "42424242"});
+                env(jv, M("weak: array selects both"), HSFEE);
+                env.close();
+                auto const ex = env.meta()->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(ex.size() == 2);
+                BEAST_EXPECT(ex[0].getFieldH256(sfHookHash) == accept_hash);
+                BEAST_EXPECT(ex[1].getFieldH256(sfHookHash) == accept2_hash);
+            }
+        }
+    }
+
+    void
+    testCronHookName(FeatureBitset features)
+    {
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        // end-to-end execution needs hooks + named hooks + cron. Guard before
+        // testcase() so we never open a testcase with no expectations.
+        if (!(features[featureHooks] && features[featureNamedHooks] &&
+              features[featureCron]))
+            return;
+
+        testcase("Test cron-targeted named hook execution");
+
+        // Set a one-time cron on `owner` carrying `cs` selector fields, advance
+        // until it fires, and return the hook-execution hashes from the cron
+        // pseudo-txn's metadata.
+        auto runCron = [this](Env& env, Account const& owner, Json::Value cs)
+            -> std::vector<uint256> {
+            using namespace std::literals::chrono_literals;
+            auto const baseTime =
+                env.current()->parentCloseTime().time_since_epoch().count();
+            cs[jss::TransactionType] = jss::CronSet;
+            cs[jss::Account] = owner.human();
+            cs[sfStartTime.jsonName] = Json::UInt(baseTime + 100);
+            env(cs, fee(XRP(1)), ter(tesSUCCESS));
+            env.close();
+
+            std::vector<uint256> hashes;
+            bool fired = false;
+            for (int i = 0; i < 40 && !fired; ++i)
+            {
+                env.close(10s);
+                auto const& txs = env.closed()->txs;
+                for (auto it = txs.begin(); it != txs.end(); ++it)
+                {
+                    if (it->first->getTxnType() != ttCRON)
+                        continue;
+                    fired = true;
+                    if (it->second &&
+                        it->second->isFieldPresent(sfHookExecutions))
+                        for (auto const& e :
+                             it->second->getFieldArray(sfHookExecutions))
+                            hashes.push_back(e.getFieldH256(sfHookHash));
+                }
+            }
+            BEAST_EXPECT(fired);
+            return hashes;
+        };
+
+        // A named hook coexisting with an unnamed hook
+        {
+            auto const alice = Account{"alice"};
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            // accept -> named "AAAA"; accept2 -> unnamed; both collect
+            auto jvh = hso(accept_wasm);
+            jvh[jss::HookName] = "41414141";
+            jvh[jss::Flags] = hsfCOLLECT;
+            auto jvh2 = hso(accept2_wasm);
+            jvh2[jss::Flags] = hsfCOLLECT;
+            env(ripple::test::jtx::hook(alice, {{jvh, jvh2}}, 0),
+                M("install named + unnamed cron hooks"),
+                HSFEE);
+            env.close();
+            env(fset(alice, asfTshCollect), fee(XRP(1)));
+            env.close();
+
+            // nameless cron: only the unnamed hook fires (existing behaviour)
+            {
+                auto const h = runCron(env, alice, Json::Value{});
+                BEAST_EXPECT(h.size() == 1);
+                if (h.size() == 1)
+                    BEAST_EXPECT(h[0] == accept2_hash);
+            }
+            // named cron "AAAA": the named hook fires alongside the unnamed one
+            {
+                Json::Value cs;
+                cs[jss::HookName] = "41414141";
+                auto const h = runCron(env, alice, cs);
+                BEAST_EXPECT(h.size() == 2);
+                if (h.size() == 2)
+                {
+                    BEAST_EXPECT(h[0] == accept_hash);
+                    BEAST_EXPECT(h[1] == accept2_hash);
+                }
+            }
+            // non-matching name: only the unnamed hook fires
+            {
+                Json::Value cs;
+                cs[jss::HookName] = "5A5A5A5A";
+                auto const h = runCron(env, alice, cs);
+                BEAST_EXPECT(h.size() == 1);
+                if (h.size() == 1)
+                    BEAST_EXPECT(h[0] == accept2_hash);
+            }
+        }
+
+        // A cron carrying an array selects multiple distinct named hooks
+        {
+            auto const bob = Account{"bob"};
+            Env env{*this, features};
+            env.fund(XRP(10000), bob);
+            env.close();
+
+            // accept -> named "AAAA"; accept2 -> named "BBBB"; both collect
+            auto jvh = hso(accept_wasm);
+            jvh[jss::HookName] = "41414141";
+            jvh[jss::Flags] = hsfCOLLECT;
+            auto jvh2 = hso(accept2_wasm);
+            jvh2[jss::HookName] = "42424242";
+            jvh2[jss::Flags] = hsfCOLLECT;
+            env(ripple::test::jtx::hook(bob, {{jvh, jvh2}}, 0),
+                M("install two named cron hooks"),
+                HSFEE);
+            env.close();
+            env(fset(bob, asfTshCollect), fee(XRP(1)));
+            env.close();
+
+            // array selects both named hooks
+            {
+                Json::Value cs;
+                cs[jss::HookNames] = hookNamesArray({"41414141", "42424242"});
+                auto const h = runCron(env, bob, cs);
+                BEAST_EXPECT(h.size() == 2);
+                if (h.size() == 2)
+                {
+                    BEAST_EXPECT(h[0] == accept_hash);
+                    BEAST_EXPECT(h[1] == accept2_hash);
+                }
+            }
+            // array selects just one of the two
+            {
+                Json::Value cs;
+                cs[jss::HookNames] = hookNamesArray({"42424242"});
+                auto const h = runCron(env, bob, cs);
+                BEAST_EXPECT(h.size() == 1);
+                if (h.size() == 1)
+                    BEAST_EXPECT(h[0] == accept2_hash);
+            }
+            // nameless cron fires neither named hook
+            {
+                auto const h = runCron(env, bob, Json::Value{});
+                BEAST_EXPECT(h.size() == 0);
+            }
+        }
+
+        // A recurring named cron keeps firing the named hook on every
+        // recurrence
+        {
+            auto const carol = Account{"carol"};
+            Env env{*this, features};
+            env.fund(XRP(10000), carol);
+            env.close();
+
+            auto jvh = hso(accept_wasm);
+            jvh[jss::HookName] = "41414141";
+            jvh[jss::Flags] = hsfCOLLECT;
+            env(ripple::test::jtx::hook(carol, {{jvh}}, 0),
+                M("install recurring named cron hook"),
+                HSFEE);
+            env.close();
+            env(fset(carol, asfTshCollect), fee(XRP(1)));
+            env.close();
+
+            auto const baseTime =
+                env.current()->parentCloseTime().time_since_epoch().count();
+            Json::Value cs;
+            cs[jss::TransactionType] = jss::CronSet;
+            cs[jss::Account] = carol.human();
+            cs[sfStartTime.jsonName] = Json::UInt(baseTime + 100);
+            cs[sfDelaySeconds.jsonName] = 100;
+            cs[sfRepeatCount.jsonName] = 2;  // fires 3 times in total
+            cs[jss::HookName] = "41414141";
+            env(cs, fee(XRP(1)), ter(tesSUCCESS));
+            env.close(10s);
+
+            int firings = 0;
+            int namedExecutions = 0;
+            for (int i = 0; i < 100 && firings < 3; ++i)
+            {
+                env.close(10s);
+                auto const& txs = env.closed()->txs;
+                for (auto it = txs.begin(); it != txs.end(); ++it)
+                {
+                    if (it->first->getTxnType() != ttCRON)
+                        continue;
+                    ++firings;
+                    if (it->second &&
+                        it->second->isFieldPresent(sfHookExecutions))
+                        for (auto const& e :
+                             it->second->getFieldArray(sfHookExecutions))
+                            if (e.getFieldH256(sfHookHash) == accept_hash)
+                                ++namedExecutions;
+                }
+            }
+            // the named hook fired on every recurrence, not just the first --
+            // i.e. the selector persisted across cron re-creation
+            BEAST_EXPECT(firings == 3);
+            BEAST_EXPECT(namedExecutions == 3);
+        }
+
+        //@@start named-hooks-test-recurring-cron-array
+        // A recurring cron carrying HookNames keeps firing both selected named
+        // hooks on every recurrence
+        {
+            auto const dave = Account{"dave"};
+            Env env{*this, features};
+            env.fund(XRP(10000), dave);
+            env.close();
+
+            auto jvh = hso(accept_wasm);
+            jvh[jss::HookName] = "41414141";
+            jvh[jss::Flags] = hsfCOLLECT;
+            auto jvh2 = hso(accept2_wasm);
+            jvh2[jss::HookName] = "42424242";
+            jvh2[jss::Flags] = hsfCOLLECT;
+            env(ripple::test::jtx::hook(dave, {{jvh, jvh2}}, 0),
+                M("install recurring named cron hooks"),
+                HSFEE);
+            env.close();
+            env(fset(dave, asfTshCollect), fee(XRP(1)));
+            env.close();
+
+            auto const baseTime =
+                env.current()->parentCloseTime().time_since_epoch().count();
+            Json::Value cs;
+            cs[jss::TransactionType] = jss::CronSet;
+            cs[jss::Account] = dave.human();
+            cs[sfStartTime.jsonName] = Json::UInt(baseTime + 100);
+            cs[sfDelaySeconds.jsonName] = 100;
+            cs[sfRepeatCount.jsonName] = 2;  // fires 3 times in total
+            cs[jss::HookNames] = hookNamesArray({"41414141", "42424242"});
+            env(cs, fee(XRP(1)), ter(tesSUCCESS));
+            env.close(10s);
+
+            int firings = 0;
+            int firstNamedExecutions = 0;
+            int secondNamedExecutions = 0;
+            for (int i = 0; i < 100 && firings < 3; ++i)
+            {
+                env.close(10s);
+                auto const& txs = env.closed()->txs;
+                for (auto it = txs.begin(); it != txs.end(); ++it)
+                {
+                    if (it->first->getTxnType() != ttCRON)
+                        continue;
+                    ++firings;
+                    if (it->second &&
+                        it->second->isFieldPresent(sfHookExecutions))
+                        for (auto const& e :
+                             it->second->getFieldArray(sfHookExecutions))
+                        {
+                            if (e.getFieldH256(sfHookHash) == accept_hash)
+                                ++firstNamedExecutions;
+                            if (e.getFieldH256(sfHookHash) == accept2_hash)
+                                ++secondNamedExecutions;
+                        }
+                }
+            }
+            BEAST_EXPECT(firings == 3);
+            BEAST_EXPECT(firstNamedExecutions == 3);
+            BEAST_EXPECT(secondNamedExecutions == 3);
+        }
+        //@@end named-hooks-test-recurring-cron-array
+    }
+
     void
     testFillCopy(FeatureBitset features)
     {
@@ -15099,6 +15667,8 @@ public:
 
         testHookOnV2(features);
         testHookName(features);
+        testHookNamesArray(features);
+        testCronHookName(features);
 
         testFillCopy(features);
 

@@ -108,6 +108,10 @@ InnerObjectFormats::InnerObjectFormats()
          {sfAuthorize, soeOPTIONAL},
          {sfFlags, soeOPTIONAL}});
 
+    add(sfNamedHook.jsonName,
+        sfNamedHook.getCode(),
+        {{sfHookName, soeREQUIRED}});
+
     add(sfHookParameter.jsonName,
         sfHookParameter.getCode(),
         {{sfHookParameterName, soeREQUIRED},

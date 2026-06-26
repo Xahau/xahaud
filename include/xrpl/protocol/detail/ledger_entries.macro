@@ -66,6 +66,8 @@ LEDGER_ENTRY_DUPLICATE(ltCRON, 0x0041, Cron, cron, ({
     {sfOwnerNode,            soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
+    {sfHookName,             soeOPTIONAL},
+    {sfHookNames,            soeOPTIONAL},
 }))
 
 /** A ledger object which describes a check.
