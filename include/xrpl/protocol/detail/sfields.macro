@@ -222,7 +222,6 @@ TYPED_SFIELD(sfHookCanEmit,              UINT256,   96)
 TYPED_SFIELD(sfEmittedTxnID,             UINT256,   97)
 TYPED_SFIELD(sfGovernanceMarks,          UINT256,   98)
 TYPED_SFIELD(sfGovernanceFlags,          UINT256,   99)
-TYPED_SFIELD(sfEntropyDigest,            UINT256,  100)
 
 // number (common)
 TYPED_SFIELD(sfNumber,                   NUMBER,     1)

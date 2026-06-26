@@ -949,6 +949,83 @@ public:
     }
 
     void
+    test_xport_reserve(FeatureBitset features)
+    {
+        testcase("Test xport_reserve");
+
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        {
+            // ALREADY_SET
+            StubHookContext stubCtx{.expected_export_count = 1};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            auto const result = api.xport_reserve(2);
+            BEAST_EXPECT(result.error() == ALREADY_SET);
+        }
+
+        {
+            // TOO_SMALL
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            auto const result = api.xport_reserve(0);
+            BEAST_EXPECT(result.error() == TOO_SMALL);
+        }
+
+        {
+            // TOO_BIG
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            auto const result = api.xport_reserve(hook_api::max_export + 1);
+            BEAST_EXPECT(result.error() == TOO_BIG);
+        }
+
+        {
+            // SUCCESS
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            auto const result = api.xport_reserve(2);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(hookCtx.expected_export_count == 2);
+            BEAST_EXPECT(hookCtx.expected_etxn_count == 2);
+        }
+
+        {
+            // xport_reserve composes with an earlier emit reservation.
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            BEAST_EXPECT(api.etxn_reserve(1).has_value());
+            BEAST_EXPECT(api.xport_reserve(2).has_value());
+            BEAST_EXPECT(hookCtx.expected_export_count == 2);
+            BEAST_EXPECT(hookCtx.expected_etxn_count == 3);
+        }
+
+        {
+            // xport_reserve consumes the shared emitted-txn reservation slot,
+            // so a later etxn_reserve cannot reset it.
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            BEAST_EXPECT(api.xport_reserve(1).has_value());
+            BEAST_EXPECT(api.etxn_reserve(1).error() == ALREADY_SET);
+            BEAST_EXPECT(hookCtx.expected_export_count == 1);
+            BEAST_EXPECT(hookCtx.expected_etxn_count == 1);
+        }
+    }
+
+    void
     test_fee_base(FeatureBitset features)
     {
         testcase("Test fee_base");
@@ -4855,6 +4932,7 @@ public:
         test_etxn_fee_base(features);
         test_etxn_nonce(features);
         test_etxn_reserve(features);
+        test_xport_reserve(features);
         test_fee_base(features);
 
         test_otxn_field(features);
