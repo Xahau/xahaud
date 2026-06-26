@@ -509,8 +509,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     auto const& peerPosition = peerPos.proposal().position();
                     if (peerPosition.txSetHash != ourPos.txSetHash)
                         continue;
-                    ext.fetchRngSetIfNeeded(
-                        peerPosition.commitSetHash, Ext::SidecarKind::commit);
+                    ext.fetchSidecarSetIfNeeded(
+                        peerPosition.commitSetHash,
+                        Ext::SidecarKind::commitSet);
                 }
             }
 
@@ -796,8 +797,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             },
                             [&](auto const& hash) {
                                 if (fetchMismatches)
-                                    ext.fetchRngSetIfNeeded(
-                                        hash, Ext::SidecarKind::reveal);
+                                    ext.fetchSidecarSetIfNeeded(
+                                        hash, Ext::SidecarKind::entropySet);
                             });
                     };
 
@@ -1013,8 +1014,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     continue;
 
                 ++peerSets;
-                ext.fetchRngSetIfNeeded(
-                    pp.exportSigSetHash, Ext::SidecarKind::exportSig);
+                ext.fetchSidecarSetIfNeeded(
+                    pp.exportSigSetHash, Ext::SidecarKind::exportSigSet);
             }
             return peerSets;
         };
@@ -1093,7 +1094,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
             auto currentPos = ctx.getPosition();
             bool publishedNewHash = false;
-            if (ext.suppressExportSigSetHash())
+            if (ext.testSuppressExportSigSetHash())
             {
                 if (currentPos.exportSigSetHash)
                 {
@@ -1157,8 +1158,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         },
                         [&](auto const& hash) {
                             if (fetchMismatches)
-                                ext.fetchRngSetIfNeeded(
-                                    hash, Ext::SidecarKind::exportSig);
+                                ext.fetchSidecarSetIfNeeded(
+                                    hash, Ext::SidecarKind::exportSigSet);
                         });
                 };
 
@@ -1177,6 +1178,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     if (!current.exportSigSetHash ||
                         *current.exportSigSetHash != refreshedHash)
                     {
+                        auto const oldHash = current.exportSigSetHash;
                         current.exportSigSetHash = refreshedHash;
                         ctx.updatePosition(current);
                         if (ctx.mode == ConsensusMode::proposing)
@@ -1185,9 +1187,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             << "Export: refreshed exportSigSetHash"
                             << " reason=merge"
                             << " buildSeq=" << buildSeqExport << " oldHash="
-                            << (current.exportSigSetHash
-                                    ? to_string(*current.exportSigSetHash)
-                                    : std::string{"none"})
+                            << (oldHash ? to_string(*oldHash)
+                                        : std::string{"none"})
                             << " newHash=" << refreshedHash;
                     }
 

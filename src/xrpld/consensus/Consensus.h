@@ -682,7 +682,7 @@ Consensus<Adaptor>::startRound(
         // adaptor once (startup config / env var), not on every round.
         if constexpr (requires(Adaptor const& a) { a.ce(); })
         {
-            bootstrapFastStart_ = adaptor_.ce().bootstrapFastStartEnabled();
+            bootstrapFastStart_ = adaptor_.ce().testBootstrapFastStartEnabled();
         }
 
         // take our initial view of closeTime_ from the seed ledger

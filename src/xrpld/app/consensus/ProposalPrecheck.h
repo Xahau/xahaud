@@ -38,6 +38,9 @@ struct ProposalPrecheckRejection
 inline bool
 proposalHasMalformedHashes(protocol::TMProposeSet const& set)
 {
+    // `currenttxhash` is a legacy protobuf field that may now carry serialized
+    // ExtendedPosition bytes. It must contain at least the base tx-set hash;
+    // full position validation happens in ExtendedPosition::fromSerialIter().
     return set.currenttxhash().size() < uint256::size() ||
         set.previousledger().size() != uint256::size();
 }

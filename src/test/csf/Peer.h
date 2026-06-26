@@ -58,7 +58,7 @@ namespace bc = boost::container;
 /// Shared across all peers in a simulation — peers publish sets by hash
 /// and fetch them by hash, just like the real SHAMap fetch pipeline.
 ///
-/// Each entry is tagged with its type so fetchRngSetIfNeeded can merge
+/// Each entry is tagged with its type so fetchSidecarSetIfNeeded can merge
 /// into the correct local set without content-sniffing heuristics.
 struct SidecarStore
 {
@@ -387,7 +387,7 @@ struct Peer
         bool suppressOwnExportSig_ = false;
         // Optional test hook: exercise generic Consensus bootstrap timing
         // without making the CSF runtime-config aware.
-        bool bootstrapFastStartEnabled_ = false;
+        bool testBootstrapFastStartEnabled_ = false;
 
         explicit Extensions(Peer& p) : peer(p), j_(p.j)
         {
@@ -408,7 +408,7 @@ struct Peer
         }
 
         bool
-        suppressExportSigSetHash() const
+        testSuppressExportSigSetHash() const
         {
             return false;
         }
@@ -572,12 +572,16 @@ struct Peer
             entropyFailed_ = true;
         }
 
-        enum class SidecarKind : uint8_t { commit, reveal, exportSig };
+        enum class SidecarKind : uint8_t {
+            commitSet,
+            entropySet,
+            exportSigSet
+        };
 
         void
-        fetchRngSetIfNeeded(
+        fetchSidecarSetIfNeeded(
             std::optional<uint256> const& hash,
-            SidecarKind kind = SidecarKind::commit)
+            SidecarKind kind = SidecarKind::commitSet)
         {
             if (!hash)
                 return;
@@ -608,9 +612,11 @@ struct Peer
         void
         fetchSidecarsIfNeeded(ProposalPosition const& pos)
         {
-            fetchRngSetIfNeeded(pos.commitSetHash, SidecarKind::commit);
-            fetchRngSetIfNeeded(pos.entropySetHash, SidecarKind::reveal);
-            fetchRngSetIfNeeded(pos.exportSigSetHash, SidecarKind::exportSig);
+            fetchSidecarSetIfNeeded(pos.commitSetHash, SidecarKind::commitSet);
+            fetchSidecarSetIfNeeded(
+                pos.entropySetHash, SidecarKind::entropySet);
+            fetchSidecarSetIfNeeded(
+                pos.exportSigSetHash, SidecarKind::exportSigSet);
         }
 
         Proposal
@@ -947,11 +953,6 @@ struct Peer
                 signature);
         }
 
-        void
-        onAcceptComplete()
-        {
-        }
-
         template <class Ledger_t>
         void
         decoratePosition(
@@ -1015,9 +1016,9 @@ struct Peer
 
         // --- Stubs for features CSF doesn't model ---
         bool
-        bootstrapFastStartEnabled() const
+        testBootstrapFastStartEnabled() const
         {
-            return bootstrapFastStartEnabled_;
+            return testBootstrapFastStartEnabled_;
         }
         bool
         hasPendingExportSigs() const

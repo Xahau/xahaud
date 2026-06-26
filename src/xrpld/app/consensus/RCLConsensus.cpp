@@ -802,8 +802,6 @@ RCLConsensus::Adaptor::doAccept(
 
         app_.timeKeeper().adjustCloseTime(offset);
     }
-
-    ce().onAcceptComplete();
 }
 
 void

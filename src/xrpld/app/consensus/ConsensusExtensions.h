@@ -48,7 +48,7 @@ public:
     beast::Journal j_;  // public: accessed by extensionsTick template
 
     // Type of sidecar set, known at fetch time from proposal context.
-    enum class SidecarKind : uint8_t { commit, reveal, exportSig };
+    enum class SidecarKind : uint8_t { commitSet, entropySet, exportSigSet };
 
     using ActiveValidatorView = ripple::ActiveValidatorView;
     using ActiveValidatorViewPtr = std::shared_ptr<ActiveValidatorView const>;
@@ -81,7 +81,7 @@ private:
     // Track pending sidecar set fetches by hash → kind.
     // Kind is known at fetch time (call site context), so
     // onAcquiredSidecarSet can dispatch without content-sniffing.
-    hash_map<uint256, SidecarKind> pendingRngFetches_;
+    hash_map<uint256, SidecarKind> pendingSidecarFetches_;
 
     // Parent-ledger validator view used by RNG and Export quorum logic.
     ActiveValidatorViewPtr activeValidatorView_ =
@@ -243,10 +243,10 @@ public:
     exportEnabled() const;
 
     bool
-    suppressExportSigSetHash() const;
+    testSuppressExportSigSetHash() const;
 
     bool
-    bootstrapFastStartEnabled() const;
+    testBootstrapFastStartEnabled() const;
 
     uint256
     buildCommitSet(LedgerIndex seq);
@@ -298,9 +298,9 @@ public:
     onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map);
 
     void
-    fetchRngSetIfNeeded(
+    fetchSidecarSetIfNeeded(
         std::optional<uint256> const& hash,
-        SidecarKind kind = SidecarKind::commit);
+        SidecarKind kind = SidecarKind::commitSet);
 
     /// Fetch any sidecar sets from a peer's position if needed.
     void
@@ -443,11 +443,6 @@ public:
         uint256 const& prevLedger,
         std::vector<std::string> const& exportSignatures,
         char const* source);
-
-    /** Signal that the accept/build path finished successfully.
-        Called from doAccept (frozen state, no consensus mutex). */
-    void
-    onAcceptComplete();
 
     /** Extract export signatures from the raw protobuf wire message.
         Called from PeerImp overlay ingress (outside consensus mutex).

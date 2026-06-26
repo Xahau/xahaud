@@ -284,6 +284,8 @@ operator==(
     ConsensusProposal<NodeID_t, LedgerID_t, Position_t> const& a,
     ConsensusProposal<NodeID_t, LedgerID_t, Position_t> const& b)
 {
+    // Equality here is consensus transaction-set identity, not byte-for-byte
+    // equality of signed ExtendedPosition sidecar fields.
     //@@start consensus-proposal-txset-identity
     return a.nodeID() == b.nodeID() && a.proposeSeq() == b.proposeSeq() &&
         a.prevLedger() == b.prevLedger() &&

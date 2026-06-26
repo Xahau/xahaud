@@ -230,7 +230,7 @@ publishAndFetchSidecarSet(
 {
     auto const hash = map->getHash().as_uint256();
     app.getInboundTransactions().giveSet(hash, map, false);
-    ce.fetchRngSetIfNeeded(hash, kind);
+    ce.fetchSidecarSetIfNeeded(hash, kind);
 }
 
 void
@@ -341,7 +341,7 @@ private:
 
 struct FakeExtensions
 {
-    enum class SidecarKind : uint8_t { commit, reveal, exportSig };
+    enum class SidecarKind : uint8_t { commitSet, entropySet, exportSigSet };
 
     beast::Journal j_{activeNoopJournal()};
     EstablishState estState_{EstablishState::ConvergingTx};
@@ -357,7 +357,7 @@ struct FakeExtensions
     bool consensusExportTxns{false};
     bool exportOn{true};
     bool entropyFailed{false};
-    std::size_t exportQuorum{4};
+    std::size_t sidecarQuorum{4};
     std::size_t commits{4};
     std::size_t reveals{4};
     bool commitQuorum{true};
@@ -391,7 +391,7 @@ struct FakeExtensions
     }
 
     bool
-    suppressExportSigSetHash() const
+    testSuppressExportSigSetHash() const
     {
         return false;
     }
@@ -399,7 +399,7 @@ struct FakeExtensions
     std::size_t
     quorumThreshold() const
     {
-        return exportQuorum;
+        return sidecarQuorum;
     }
 
     std::size_t
@@ -407,13 +407,13 @@ struct FakeExtensions
     {
         // Stub default mirrors quorumThreshold (tier-2 band collapsed); the
         // tier-2 step-down is exercised end-to-end in the CSF sims.
-        return exportQuorum;
+        return sidecarQuorum;
     }
 
     std::size_t
     exportSigQuorumThreshold() const
     {
-        return exportQuorum;
+        return sidecarQuorum;
     }
 
     // Membership is a no-op in the FakeExtensions tick tests (every peer
@@ -513,13 +513,15 @@ struct FakeExtensions
     }
 
     void
-    fetchRngSetIfNeeded(std::optional<uint256> const& hash, SidecarKind kind)
+    fetchSidecarSetIfNeeded(
+        std::optional<uint256> const& hash,
+        SidecarKind kind)
     {
-        if (kind == SidecarKind::reveal && hash)
+        if (kind == SidecarKind::entropySet && hash)
             fetchedEntropySets.push_back(*hash);
-        else if (kind == SidecarKind::commit && hash)
+        else if (kind == SidecarKind::commitSet && hash)
             fetchedCommitSets.push_back(*hash);
-        else if (kind == SidecarKind::exportSig && hash)
+        else if (kind == SidecarKind::exportSigSet && hash)
             fetchedExportSets.push_back(*hash);
     }
 
@@ -580,7 +582,7 @@ struct FakeExtensions
     }
 };
 
-struct ExportTickHarness
+struct ExtensionTickHarness
 {
     ExtendedPosition position{makeHash("tx-set")};
     FakeTxSet txns{position.txSetHash};
@@ -802,7 +804,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(detail::exportSigSetQuorumAligned(4, 4));
         BEAST_EXPECT(!detail::exportSigSetQuorumAligned(3, 4));
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         auto const localHash = makeHash("sidecar-local");
         auto const conflictHash = makeHash("sidecar-conflict");
         harness.position.exportSigSetHash = localHash;
@@ -915,7 +917,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                            uint256 const& localHash,
                            std::vector<std::uint8_t> const& hashANodes,
                            std::vector<std::uint8_t> const& hashBNodes) {
-            ExportTickHarness harness;
+            ExtensionTickHarness harness;
             harness.position.exportSigSetHash = localHash;
             auto addPeer = [&](std::uint8_t id, uint256 const& hash) {
                 if (id != localId)
@@ -1193,21 +1195,21 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             *this, envconfig(validator, ""), supported_amendments(), nullptr};
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
 
-        BEAST_EXPECT(!ce.bootstrapFastStartEnabled());
-        BEAST_EXPECT(!ce.suppressExportSigSetHash());
+        BEAST_EXPECT(!ce.testBootstrapFastStartEnabled());
+        BEAST_EXPECT(!ce.testSuppressExportSigSetHash());
 
         ConsensusTestConfig cfg;
         cfg.bootstrapFastStart = true;
         cfg.noExportSigHash = true;
         env.app().getRuntimeConfig().setGlobalConfig(cfg);
-        BEAST_EXPECT(ce.bootstrapFastStartEnabled());
-        BEAST_EXPECT(ce.suppressExportSigSetHash());
+        BEAST_EXPECT(ce.testBootstrapFastStartEnabled());
+        BEAST_EXPECT(ce.testSuppressExportSigSetHash());
 
         cfg.bootstrapFastStart = false;
         cfg.noExportSigHash = false;
         env.app().getRuntimeConfig().setGlobalConfig(cfg);
-        BEAST_EXPECT(!ce.bootstrapFastStartEnabled());
-        BEAST_EXPECT(!ce.suppressExportSigSetHash());
+        BEAST_EXPECT(!ce.testBootstrapFastStartEnabled());
+        BEAST_EXPECT(!ce.testSuppressExportSigSetHash());
     }
 
     void
@@ -1810,8 +1812,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         fetched.setExportEnabledThisRound(true);
         fetched.cacheUNLReport(ledger);
         fetched.cacheConsensusTxSet(txSet);
-        fetched.fetchRngSetIfNeeded(
-            exportSigSetHash, ConsensusExtensions::SidecarKind::exportSig);
+        fetched.fetchSidecarSetIfNeeded(
+            exportSigSetHash, ConsensusExtensions::SidecarKind::exportSigSet);
 
         BEAST_EXPECT(
             fetched.exportSigCollector().hasVerifiedSignature(txHash, valPK));
@@ -1856,7 +1858,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 env.app(),
                 ce,
                 map,
-                ConsensusExtensions::SidecarKind::exportSig);
+                ConsensusExtensions::SidecarKind::exportSigSet);
             BEAST_EXPECT(!ce.exportSigCollector().hasVerifiedSignature(
                 expectedTxHash, expectedSigner));
             BEAST_EXPECT(
@@ -2075,31 +2077,31 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         ConsensusExtensions fetched{env.app(), env.journal};
         fetched.cacheUNLReport(ledger);
-        fetched.fetchRngSetIfNeeded(
-            commitSetHash, ConsensusExtensions::SidecarKind::commit);
+        fetched.fetchSidecarSetIfNeeded(
+            commitSetHash, ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(fetched.pendingCommitCount() == 1);
         BEAST_EXPECT(fetched.buildCommitSet(seq) == commitSetHash);
 
-        fetched.fetchRngSetIfNeeded(
-            revealSetHash, ConsensusExtensions::SidecarKind::reveal);
+        fetched.fetchSidecarSetIfNeeded(
+            revealSetHash, ConsensusExtensions::SidecarKind::entropySet);
         BEAST_EXPECT(fetched.pendingRevealCount() == 1);
         BEAST_EXPECT(fetched.buildEntropySet(seq) == revealSetHash);
 
-        fetched.fetchRngSetIfNeeded(
-            std::nullopt, ConsensusExtensions::SidecarKind::commit);
-        fetched.fetchRngSetIfNeeded(
-            uint256{}, ConsensusExtensions::SidecarKind::reveal);
-        fetched.fetchRngSetIfNeeded(
-            commitSetHash, ConsensusExtensions::SidecarKind::commit);
-        fetched.fetchRngSetIfNeeded(
-            revealSetHash, ConsensusExtensions::SidecarKind::reveal);
+        fetched.fetchSidecarSetIfNeeded(
+            std::nullopt, ConsensusExtensions::SidecarKind::commitSet);
+        fetched.fetchSidecarSetIfNeeded(
+            uint256{}, ConsensusExtensions::SidecarKind::entropySet);
+        fetched.fetchSidecarSetIfNeeded(
+            commitSetHash, ConsensusExtensions::SidecarKind::commitSet);
+        fetched.fetchSidecarSetIfNeeded(
+            revealSetHash, ConsensusExtensions::SidecarKind::entropySet);
 
         auto const rawMap =
             makeRawSidecarSet(env.app(), std::string{"cached-sidecar"});
         auto const rawHash = rawMap->getHash().as_uint256();
         env.app().getInboundTransactions().giveSet(rawHash, rawMap, false);
-        fetched.fetchRngSetIfNeeded(
-            rawHash, ConsensusExtensions::SidecarKind::commit);
+        fetched.fetchSidecarSetIfNeeded(
+            rawHash, ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(fetched.pendingCommitCount() == 1);
 
         fetched.setRngEnabledThisRound(true);
@@ -2174,7 +2176,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 env.app(),
                 {makeRngSidecar(
                     sidecarRngCommit, nodeId, publicKey, digest, seq)}),
-            ConsensusExtensions::SidecarKind::commit);
+            ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(ce.pendingCommitCount() == 0);
 
         // Entries from outside the active validator view are ignored.
@@ -2185,7 +2187,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 env.app(),
                 {makeRngSidecar(
                     sidecarRngReveal, makeNode(99), publicKey, digest, seq)}),
-            ConsensusExtensions::SidecarKind::reveal);
+            ConsensusExtensions::SidecarKind::entropySet);
         BEAST_EXPECT(ce.pendingRevealCount() == 0);
 
         // A valid active NodeID cannot be paired with an untrusted signing key.
@@ -2197,7 +2199,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 env.app(),
                 {makeRngSidecar(
                     sidecarRngReveal, nodeId, untrustedPk, digest, seq)}),
-            ConsensusExtensions::SidecarKind::reveal);
+            ConsensusExtensions::SidecarKind::entropySet);
         BEAST_EXPECT(ce.pendingRevealCount() == 0);
 
         // Reveal sidecars are only valid after their matching commitment.
@@ -2208,7 +2210,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 env.app(),
                 {makeRngSidecar(
                     sidecarRngReveal, nodeId, publicKey, digest, seq)}),
-            ConsensusExtensions::SidecarKind::reveal);
+            ConsensusExtensions::SidecarKind::entropySet);
         BEAST_EXPECT(ce.pendingRevealCount() == 0);
 
         // Corrupt leaf bytes should not make the merge path throw outward.
@@ -2216,7 +2218,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app(),
             ce,
             makeRawSidecarSet(env.app(), std::string{"not-an-stobject"}),
-            ConsensusExtensions::SidecarKind::commit);
+            ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(ce.pendingCommitCount() == 0);
 
         // A proof must verify the digest carried by the sidecar leaf.
@@ -2228,7 +2230,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app(),
             ce,
             makeSidecarSet(env.app(), {invalidProofSidecar}),
-            ConsensusExtensions::SidecarKind::commit);
+            ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(ce.pendingCommitCount() == 0);
 
         // verifyProof ignores trailing bytes, but deserializeProof rejects them
@@ -2242,7 +2244,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app(),
             ce,
             makeSidecarSet(env.app(), {malformedProofSidecar}),
-            ConsensusExtensions::SidecarKind::commit);
+            ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(ce.pendingCommitCount() == 0);
 
         auto outOfRoundSidecar = makeRngSidecar(
@@ -2252,7 +2254,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app(),
             ce,
             makeSidecarSet(env.app(), {outOfRoundSidecar}),
-            ConsensusExtensions::SidecarKind::commit);
+            ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(ce.pendingCommitCount() == 0);
 
         auto nonZeroProofSidecar =
@@ -2262,7 +2264,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app(),
             ce,
             makeSidecarSet(env.app(), {nonZeroProofSidecar}),
-            ConsensusExtensions::SidecarKind::commit);
+            ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(ce.pendingCommitCount() == 1);
         BEAST_EXPECT(
             ce.buildCommitSet(seq) !=
@@ -2284,7 +2286,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app(),
             replacement,
             makeSidecarSet(env.app(), {commit1Sidecar}),
-            ConsensusExtensions::SidecarKind::commit);
+            ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(replacement.pendingCommitCount() == 1);
 
         auto reveal1Sidecar =
@@ -2294,7 +2296,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app(),
             replacement,
             makeSidecarSet(env.app(), {reveal1Sidecar}),
-            ConsensusExtensions::SidecarKind::reveal);
+            ConsensusExtensions::SidecarKind::entropySet);
         BEAST_EXPECT(replacement.pendingRevealCount() == 1);
 
         auto commit2Sidecar =
@@ -2304,7 +2306,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app(),
             replacement,
             makeSidecarSet(env.app(), {commit2Sidecar}),
-            ConsensusExtensions::SidecarKind::commit);
+            ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(replacement.pendingCommitCount() == 1);
         BEAST_EXPECT(replacement.pendingRevealCount() == 0);
 
@@ -2313,7 +2315,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app(),
             replacement,
             makeSidecarSet(env.app(), {reveal1Sidecar}),
-            ConsensusExtensions::SidecarKind::reveal);
+            ConsensusExtensions::SidecarKind::entropySet);
         BEAST_EXPECT(replacement.pendingRevealCount() == 0);
 
         // With a local map already built, fetched deltas merge only missing
@@ -2324,7 +2326,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app(),
             replacement,
             makeRawSidecarSet(env.app(), std::string{"bad-diff-entry"}),
-            ConsensusExtensions::SidecarKind::commit);
+            ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(replacement.pendingCommitCount() == 1);
     }
 
@@ -2489,7 +2491,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         testcase("Export sig gate requires quorum alignment");
 
         FakeExtensions ext;
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         auto const localHash = ext.exportHash;
 
         harness.addPeer(1, localHash);
@@ -2521,7 +2523,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.exportOn = false;
         ext.estState_ = EstablishState::ConvergingReveal;
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         auto const localHash = ext.entropyHash;
 
         harness.addEntropyPeer(1, localHash);
@@ -2560,7 +2562,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.exportOn = false;
         ext.estState_ = EstablishState::ConvergingCommit;
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         auto const localHash = ext.entropyHash;
 
         harness.addEntropyPeer(1, localHash);
@@ -2589,7 +2591,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.rngOn = true;
         ext.exportOn = false;
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         harness.prevProposers = 2;
 
         auto result = harness.tick(ext);
@@ -2610,7 +2612,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.commitQuorum = false;
         ext.commits = 2;
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         harness.addCommitPeer(1, std::nullopt);
         harness.addCommitPeer(2, std::nullopt);
         harness.addCommitPeer(3, std::nullopt);
@@ -2633,7 +2635,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.commitQuorum = false;
         ext.commits = 4;
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         harness.addCommitPeer(1, std::nullopt);
         harness.addCommitPeer(2, std::nullopt);
         harness.addCommitPeer(3, std::nullopt);
@@ -2658,7 +2660,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.rngOn = true;
         ext.exportOn = false;
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         harness.mode = ConsensusMode::observing;
 
         auto result = harness.tick(ext);
@@ -2684,7 +2686,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const conflictHash = makeHash("conflicting-commit-set");
         ext.commitHashSequence.push_back(refreshedHash);
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         harness.start =
             std::chrono::steady_clock::time_point{} + std::chrono::seconds{1};
         harness.position.commitSetHash = staleHash;
@@ -2712,7 +2714,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.estState_ = EstablishState::ConvergingCommit;
         ext.commitHash = makeHash("commit-local");
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         harness.start =
             std::chrono::steady_clock::time_point{} + std::chrono::seconds{1};
         harness.position.commitSetHash = ext.commitHash;
@@ -2749,7 +2751,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.minimumReveals = false;
         ext.reveals = 1;
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         harness.position.commitSetHash = ext.commitHash;
 
         auto result = harness.tick(ext);
@@ -2775,7 +2777,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.minimumReveals = false;
         ext.anyReveals = false;
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
 
         auto result = harness.tick(
             ext,
@@ -2795,7 +2797,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.exportOn = false;
         ext.estState_ = EstablishState::ConvergingReveal;
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         harness.position.entropySetHash = ext.entropyHash;
 
         auto result = harness.tick(ext);
@@ -2817,7 +2819,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.exportOn = false;
         ext.estState_ = EstablishState::ConvergingReveal;
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         harness.position.entropySetHash = ext.entropyHash;
         ext.entropySetPublished_ = true;
         ext.entropyPublishStart_ = harness.start;
@@ -2854,7 +2856,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.entropyHashSequence.push_back(staleHash);
         ext.entropyHashSequence.push_back(refreshedHash);
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         harness.start =
             std::chrono::steady_clock::time_point{} + std::chrono::seconds{1};
         harness.position.entropySetHash = staleHash;
@@ -2882,7 +2884,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.exportOn = false;
         ext.estState_ = EstablishState::ConvergingReveal;
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         auto const localHash = ext.entropyHash;
         harness.position.entropySetHash = localHash;
         ext.entropySetPublished_ = true;
@@ -2906,7 +2908,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         testcase("Export sig gate ignores minority conflict after quorum");
 
         FakeExtensions ext;
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         auto const localHash = ext.exportHash;
         auto const conflictHash = makeHash("conflicting-export-sig-set");
 
@@ -2933,7 +2935,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             "observation");
 
         FakeExtensions ext;
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         auto const localHash = ext.exportHash;
 
         harness.addPeer(1, localHash);
@@ -2960,7 +2962,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         FakeExtensions ext;
         ext.localExportSigs = false;
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         auto const peerHash = makeHash("peer-export-sig-set");
 
         harness.addPeer(1, peerHash);
@@ -2985,7 +2987,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         testcase("Export sig gate observing mode does not propose");
 
         FakeExtensions ext;
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         harness.mode = ConsensusMode::observing;
 
         auto result = harness.tick(ext);
@@ -3007,7 +3009,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ext.exportHashSequence.push_back(staleHash);
         ext.exportHashSequence.push_back(refreshedHash);
 
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
         harness.start =
             std::chrono::steady_clock::time_point{} + std::chrono::seconds{1};
         harness.position.exportSigSetHash = staleHash;
@@ -3033,7 +3035,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         FakeExtensions ext;
         ext.localExportSigs = false;
         ext.consensusExportTxns = true;
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
 
         auto result = harness.tick(ext);
         BEAST_EXPECT(!result.readyForAccept);
@@ -3060,7 +3062,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         FakeExtensions ext;
         ext.exportOn = false;
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
 
         harness.addPeer(1, ext.exportHash);
 
@@ -3080,7 +3082,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         FakeExtensions ext;
         ext.rngOn = false;
         ext.exportOn = false;
-        ExportTickHarness harness;
+        ExtensionTickHarness harness;
 
         auto result = harness.tick(ext);
         BEAST_EXPECT(result.readyForAccept);

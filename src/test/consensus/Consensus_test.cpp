@@ -507,7 +507,7 @@ public:
 
         for (Peer* peer : peers)
         {
-            peer->ce().bootstrapFastStartEnabled_ = true;
+            peer->ce().testBootstrapFastStartEnabled_ = true;
             peer->targetLedgers =
                 static_cast<int>(parms.bootstrapStableRoundsRequired);
             peer->start();

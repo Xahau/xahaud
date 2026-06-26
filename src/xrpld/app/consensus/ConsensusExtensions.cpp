@@ -193,12 +193,12 @@ sidecarKindName(ConsensusExtensions::SidecarKind kind)
 {
     switch (kind)
     {
-        case ConsensusExtensions::SidecarKind::commit:
-            return "commit";
-        case ConsensusExtensions::SidecarKind::reveal:
-            return "reveal";
-        case ConsensusExtensions::SidecarKind::exportSig:
-            return "exportSig";
+        case ConsensusExtensions::SidecarKind::commitSet:
+            return "commitSet";
+        case ConsensusExtensions::SidecarKind::entropySet:
+            return "entropySet";
+        case ConsensusExtensions::SidecarKind::exportSigSet:
+            return "exportSigSet";
     }
     return "unknown";
 }
@@ -582,14 +582,14 @@ ConsensusExtensions::exportEnabled() const
 }
 
 bool
-ConsensusExtensions::suppressExportSigSetHash() const
+ConsensusExtensions::testSuppressExportSigSetHash() const
 {
     auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();
     return cfg && cfg->noExportSigHash.has_value() && *cfg->noExportSigHash;
 }
 
 bool
-ConsensusExtensions::bootstrapFastStartEnabled() const
+ConsensusExtensions::testBootstrapFastStartEnabled() const
 {
     auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();
     if (cfg && cfg->bootstrapFastStart.has_value())
@@ -985,8 +985,9 @@ ConsensusExtensions::clearRngStatePreservingExport()
     entropySetMap_.reset();
     rngRoundSeq_.reset();
     consensusTxSetMap_.reset();
+    consensusExportTxns_.clear();
     consensusTxSetHash_.reset();
-    pendingRngFetches_.clear();
+    pendingSidecarFetches_.clear();
     observedParticipantsHash_.reset();
     observedParticipantsCount_ = 0;
     observedParticipantsBitmapBin_.clear();
@@ -1116,7 +1117,7 @@ ConsensusExtensions::isSidecarSet(uint256 const& hash) const
         return true;
     if (exportSigSetMap_ && exportSigSetMap_->getHash().as_uint256() == hash)
         return true;
-    return pendingRngFetches_.find(hash) != pendingRngFetches_.end();
+    return pendingSidecarFetches_.find(hash) != pendingSidecarFetches_.end();
 }
 //@@end is-sidecar-set
 
@@ -1128,22 +1129,23 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
     auto const hash = map->getHash().as_uint256();
 
     // Look up the expected kind before erasing.
-    auto const kindIt = pendingRngFetches_.find(hash);
-    auto const kind = (kindIt != pendingRngFetches_.end())
+    auto const kindIt = pendingSidecarFetches_.find(hash);
+    auto const kind = (kindIt != pendingSidecarFetches_.end())
         ? kindIt->second
-        : SidecarKind::commit;  // fallback for non-fetch paths
-    if (kindIt != pendingRngFetches_.end())
-        pendingRngFetches_.erase(kindIt);
+        : SidecarKind::commitSet;  // fallback for non-fetch paths
+    if (kindIt != pendingSidecarFetches_.end())
+        pendingSidecarFetches_.erase(kindIt);
     //@@end handle-acquired-sidecar-entry
 
-    JLOG(j_.debug()) << "RNGFETCH: handle acquired"
+    JLOG(j_.debug()) << "SIDECARFETCH: handle acquired"
                      << " hash=" << hash << " kind=" << sidecarKindName(kind)
-                     << " pending-after-erase=" << pendingRngFetches_.size();
+                     << " pending-after-erase="
+                     << pendingSidecarFetches_.size();
 
     // Dispatch by kind — no content-sniffing needed.
     // The kind was recorded at fetch time from the typed call site
     // (commitSetHash / entropySetHash / exportSigSetHash).
-    if (kind == SidecarKind::exportSig)
+    if (kind == SidecarKind::exportSigSet)
     {
         // If we already have this exact export sig set, skip.
         if (exportSigSetMap_ &&
@@ -1251,21 +1253,21 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 
     enum class RngSetKind { commit, reveal };
     std::optional<RngSetKind> setKind;
-    if (kind == SidecarKind::commit)
+    if (kind == SidecarKind::commitSet)
         setKind = RngSetKind::commit;
-    else if (kind == SidecarKind::reveal)
+    else if (kind == SidecarKind::entropySet)
         setKind = RngSetKind::reveal;
 
     if (!setKind)
     {
-        JLOG(j_.warn()) << "RNGFETCH: acquired set rejected"
+        JLOG(j_.warn()) << "SIDECARFETCH: acquired set rejected"
                         << " hash=" << hash << " kind=" << sidecarKindName(kind)
                         << " reason=unrecognized-rng-kind";
         return;
     }
 
     bool const isCommitSet = *setKind == RngSetKind::commit;
-    JLOG(j_.debug()) << "RNGFETCH: classified"
+    JLOG(j_.debug()) << "SIDECARFETCH: classified"
                      << " hash=" << hash << " setKind="
                      << (isCommitSet ? "commitSet" : "entropySet")
                      << " fetchKind=" << sidecarKindName(kind);
@@ -1503,7 +1505,7 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             });
     }
 
-    JLOG(j_.info()) << "RNGFETCH: merged acquired set"
+    JLOG(j_.info()) << "SIDECARFETCH: merged acquired set"
                     << " hash=" << hash
                     << " kind=" << (isCommitSet ? "commit" : "reveal")
                     << " setKind=" << (isCommitSet ? "commitSet" : "entropySet")
@@ -1512,20 +1514,20 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 //@@end handle-acquired-sidecar
 
 void
-ConsensusExtensions::fetchRngSetIfNeeded(
+ConsensusExtensions::fetchSidecarSetIfNeeded(
     std::optional<uint256> const& hash,
     SidecarKind kind)
 {
     if (!hash)
     {
-        JLOG(j_.trace()) << "RNGFETCH: skip"
+        JLOG(j_.trace()) << "SIDECARFETCH: skip"
                          << " kind=" << sidecarKindName(kind)
                          << " reason=no-hash";
         return;
     }
     if (*hash == uint256{})
     {
-        JLOG(j_.trace()) << "RNGFETCH: skip"
+        JLOG(j_.trace()) << "SIDECARFETCH: skip"
                          << " kind=" << sidecarKindName(kind)
                          << " hash=" << *hash << " reason=zero-hash";
         return;
@@ -1534,14 +1536,14 @@ ConsensusExtensions::fetchRngSetIfNeeded(
     // Check if we already have this set
     if (commitSetMap_ && commitSetMap_->getHash().as_uint256() == *hash)
     {
-        JLOG(j_.trace()) << "RNGFETCH: skip"
+        JLOG(j_.trace()) << "SIDECARFETCH: skip"
                          << " kind=" << sidecarKindName(kind)
                          << " hash=" << *hash << " reason=already-local-commit";
         return;
     }
     if (entropySetMap_ && entropySetMap_->getHash().as_uint256() == *hash)
     {
-        JLOG(j_.trace()) << "RNGFETCH: skip"
+        JLOG(j_.trace()) << "SIDECARFETCH: skip"
                          << " kind=" << sidecarKindName(kind)
                          << " hash=" << *hash
                          << " reason=already-local-entropy";
@@ -1549,7 +1551,7 @@ ConsensusExtensions::fetchRngSetIfNeeded(
     }
     if (exportSigSetMap_ && exportSigSetMap_->getHash().as_uint256() == *hash)
     {
-        JLOG(j_.trace()) << "RNGFETCH: skip"
+        JLOG(j_.trace()) << "SIDECARFETCH: skip"
                          << " kind=" << sidecarKindName(kind)
                          << " hash=" << *hash
                          << " reason=already-local-exportSig";
@@ -1557,21 +1559,21 @@ ConsensusExtensions::fetchRngSetIfNeeded(
     }
 
     // Check if already fetching
-    if (pendingRngFetches_.count(*hash))
+    if (pendingSidecarFetches_.count(*hash))
     {
         // Keep polling InboundTransactions while pending, so we can merge as
         // soon as the asynchronous fetch completes.
         if (auto existing = app_.getInboundTransactions().getSet(*hash, false))
         {
             JLOG(j_.debug())
-                << "RNGFETCH: pending fetch completed"
+                << "SIDECARFETCH: pending fetch completed"
                 << " kind=" << sidecarKindName(kind) << " hash=" << *hash;
             onAcquiredSidecarSet(existing);
         }
         else
         {
             JLOG(j_.debug())
-                << "RNGFETCH: still pending"
+                << "SIDECARFETCH: still pending"
                 << " kind=" << sidecarKindName(kind) << " hash=" << *hash;
         }
         return;
@@ -1580,11 +1582,11 @@ ConsensusExtensions::fetchRngSetIfNeeded(
     // Check if InboundTransactions already has it
     if (auto existing = app_.getInboundTransactions().getSet(*hash, false))
     {
-        JLOG(j_.debug()) << "RNGFETCH: local cache hit"
+        JLOG(j_.debug()) << "SIDECARFETCH: local cache hit"
                          << " kind=" << sidecarKindName(kind)
                          << " hash=" << *hash;
         // Record the kind so onAcquiredSidecarSet can look it up.
-        pendingRngFetches_.emplace(*hash, kind);
+        pendingSidecarFetches_.emplace(*hash, kind);
         onAcquiredSidecarSet(existing);
         return;
     }
@@ -1592,13 +1594,13 @@ ConsensusExtensions::fetchRngSetIfNeeded(
     // Trusted proposals advertise the sidecar root; acquisition is
     // content-addressed, so peers can only supply nodes matching that root.
     // Per-leaf trust/schema checks happen when the completed map is merged.
-    JLOG(j_.debug()) << "RNGFETCH: triggering network fetch"
+    JLOG(j_.debug()) << "SIDECARFETCH: triggering network fetch"
                      << " kind=" << sidecarKindName(kind) << " hash=" << *hash;
-    pendingRngFetches_.emplace(*hash, kind);
+    pendingSidecarFetches_.emplace(*hash, kind);
     if (auto immediate = app_.getInboundTransactions().getSet(
             *hash, true, InboundSetKind::sidecar))
     {
-        JLOG(j_.debug()) << "RNGFETCH: immediate fetch hit"
+        JLOG(j_.debug()) << "SIDECARFETCH: immediate fetch hit"
                          << " kind=" << sidecarKindName(kind)
                          << " hash=" << *hash;
         onAcquiredSidecarSet(immediate);
@@ -1608,9 +1610,10 @@ ConsensusExtensions::fetchRngSetIfNeeded(
 void
 ConsensusExtensions::fetchSidecarsIfNeeded(ExtendedPosition const& peerPos)
 {
-    fetchRngSetIfNeeded(peerPos.commitSetHash, SidecarKind::commit);
-    fetchRngSetIfNeeded(peerPos.entropySetHash, SidecarKind::reveal);
-    fetchRngSetIfNeeded(peerPos.exportSigSetHash, SidecarKind::exportSig);
+    fetchSidecarSetIfNeeded(peerPos.commitSetHash, SidecarKind::commitSet);
+    fetchSidecarSetIfNeeded(peerPos.entropySetHash, SidecarKind::entropySet);
+    fetchSidecarSetIfNeeded(
+        peerPos.exportSigSetHash, SidecarKind::exportSigSet);
 }
 
 void
@@ -2229,13 +2232,6 @@ ConsensusExtensions::onTrustedPeerProposal(
         harvestExportSignatures(
             publicKey, prevLedger, exportSignatures, "stored proposal");
     }
-}
-
-void
-ConsensusExtensions::onAcceptComplete()
-{
-    // Cleanup deferred to onRoundStart. This hook exists so extensions
-    // can optionally do eager cleanup or emit metrics at accept time.
 }
 
 void
