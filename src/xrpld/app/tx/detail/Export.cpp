@@ -182,8 +182,13 @@ Export::doApply()
                 << " txHash=" << txId << " ledgerSeq=" << currentSeq
                 << " unlSize=" << unlSize << " threshold=" << threshold;
         }
-        else if (!consensusExtensions.exportSigConvergenceFailed())
+        else
         {
+            // The tick gate decides when a round may stop waiting.
+            // Closed-ledger apply must still be a pure function of the agreed
+            // export sidecar and the parent-ledger validator view; local
+            // timeout flags must not veto a sidecar that already carries
+            // deterministic quorum.
             collectedSigs = consensusExtensions.agreedExportSignatures(
                 ctx_.tx, txId, *validatorView, threshold);
         }

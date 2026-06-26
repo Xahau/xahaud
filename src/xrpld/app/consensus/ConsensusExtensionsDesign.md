@@ -165,6 +165,11 @@ ledger forever.
 Final entropy is computed from the agreed entropy sidecar SHAMap, not from a
 node's opportunistic local `pendingReveals_` map. This prevents different
 local reveal subsets at timeout boundaries from producing different entropy.
+The accepted-hash latch is the ledger-material boundary: a node that misses the
+bounded observation window falls back instead of injecting from a local candidate
+map. That does not make accept-vs-timeout decisions global; it makes any
+non-fallback injection depend only on the sidecar root that this node accepted,
+with ordinary validation quorum resolving boundary timing.
 
 ## Entropy Alignment Rules
 
@@ -337,6 +342,10 @@ export round to retry or expire. Full observation remains useful diagnostics; it
 is not an Export success precondition. If no export signature hash reaches quorum
 alignment by the bounded deadline, do not choose the largest non-quorum set; the
 export retries or expires according to normal transaction rules.
+Closed-ledger apply consumes only the accepted `exportSigSetHash` root. A node
+that times out before accepting a root retries; a node that proceeds assembles
+from the accepted sidecar map, never from its live collector. This avoids
+successful-but-different export blobs while preserving the bounded wait model.
 
 Closed-ledger apply must not promote unverified proposal-carried signatures into
 current-round quorum material. It may verify and retain them for a future retry,

@@ -442,6 +442,18 @@ ConsensusExtensions::hasAnyReveals() const
     return !pendingReveals_.empty();
 }
 
+void
+ConsensusExtensions::acceptEntropySet(uint256 const& hash)
+{
+    acceptedEntropySetHash_ = hash;
+}
+
+void
+ConsensusExtensions::clearAcceptedEntropySet()
+{
+    acceptedEntropySetHash_.reset();
+}
+
 ConsensusExtensions::EntropySelection
 ConsensusExtensions::selectEntropy(
     uint256 const& baseTxSetHash,
@@ -503,11 +515,11 @@ ConsensusExtensions::selectEntropy(
     }
     //@@end entropy-selector-unlreport-gate
 
-    // No agreed entropy set (round failed, or none was built) → fallback. A
-    // sub-quorum-but-aligned set may still qualify for participant_aligned
-    // (tier 2); the tier ladder below decides from the agreed participant
-    // count.
-    if (entropyFailed_ || !entropySetMap_)
+    // A cached entropySetMap_ is only candidate material. The tick gate marks
+    // the sidecar hash accepted after peer-observation/alignment checks have
+    // completed; injection never consults timeout state directly.
+    if (!acceptedEntropySetHash_ || !entropySetMap_ ||
+        entropySetMap_->getHash().as_uint256() != *acceptedEntropySetHash_)
         return fallback();
 
     // Derive from the AGREED entropySetMap_ — NOT local pendingReveals_. The
@@ -830,6 +842,18 @@ ConsensusExtensions::exportSigConvergenceFailed() const
     return exportSigConvergenceFailed_;
 }
 
+void
+ConsensusExtensions::acceptExportSigSet(uint256 const& hash)
+{
+    acceptedExportSigSetHash_ = hash;
+}
+
+void
+ConsensusExtensions::clearAcceptedExportSigSet()
+{
+    acceptedExportSigSetHash_.reset();
+}
+
 std::optional<ConsensusExtensions::ExportSignatureSnapshot>
 ConsensusExtensions::agreedExportSignatures(
     STTx const& exportTx,
@@ -847,6 +871,27 @@ ConsensusExtensions::agreedExportSignatures(
     ExportSignatureSnapshot signatures;
     bool invalid = false;
     auto const agreedHash = exportSigSetMap_->getHash().as_uint256();
+    // A local exportSigSetMap_ is only candidate material until the sidecar
+    // gate accepts its root. Without this guard, a timed-out node with a local
+    // partial-but-quorum map could mint a different signed export blob from
+    // the quorum-aligned nodes.
+    if (!acceptedExportSigSetHash_)
+    {
+        JLOG(j_.warn()) << "Export: exportSigSet not accepted"
+                        << " setHash=" << agreedHash << " txHash=" << txHash
+                        << " threshold=" << threshold;
+        return std::nullopt;
+    }
+
+    if (agreedHash != *acceptedExportSigSetHash_)
+    {
+        JLOG(j_.warn()) << "Export: exportSigSet hash not accepted"
+                        << " setHash=" << agreedHash
+                        << " acceptedHash=" << *acceptedExportSigSetHash_
+                        << " txHash=" << txHash << " threshold=" << threshold;
+        return std::nullopt;
+    }
+
     exportSigSetMap_->visitLeaves(
         [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
             if (invalid)
@@ -983,6 +1028,7 @@ ConsensusExtensions::clearRngStatePreservingExport()
     entropyFailed_ = false;
     commitSetMap_.reset();
     entropySetMap_.reset();
+    acceptedEntropySetHash_.reset();
     rngRoundSeq_.reset();
     consensusTxSetMap_.reset();
     consensusExportTxns_.clear();
@@ -1017,6 +1063,7 @@ ConsensusExtensions::clearRngState()
         exportSigCollector_.clearAll();
     }
     exportSigSetMap_.reset();
+    acceptedExportSigSetHash_.reset();
     consensusExportTxns_.clear();
     exportSigGateStarted_ = false;
     exportSigGateStart_ = {};

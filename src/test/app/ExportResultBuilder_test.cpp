@@ -207,11 +207,58 @@ public:
     }
 
     void
+    testCapsSignerArray()
+    {
+        testcase("caps exported signer array");
+
+        auto const src = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const innerTx = makeExportedPayment(
+            calcAccountID(src.first), calcAccountID(dst.first));
+
+        ExportResultBuilder::SignatureSnapshot signatures;
+        while (signatures.size() < STTx::maxMultiSigners() + 5)
+        {
+            auto const signer = randomKeyPair(KeyType::secp256k1);
+            signatures.emplace(
+                signer.first,
+                ExportResultBuilder::signExportedTxn(
+                    innerTx, signer.first, signer.second));
+        }
+
+        auto assembled = ExportResultBuilder::assemble(
+            innerTx, signatures, 789, makeHash("many-sig-export"));
+
+        BEAST_EXPECT(assembled.signerCount == STTx::maxMultiSigners());
+
+        auto const& multiSigned =
+            assembled.metadata.peekAtField(sfExportedTxn).downcast<STObject>();
+        BEAST_EXPECT(multiSigned.isFieldPresent(sfSigners));
+
+        if (multiSigned.isFieldPresent(sfSigners))
+        {
+            auto const& signers = multiSigned.getFieldArray(sfSigners);
+            BEAST_EXPECT(signers.size() == STTx::maxMultiSigners());
+            for (std::size_t i = 1; i < signers.size(); ++i)
+            {
+                BEAST_EXPECT(
+                    signers[i - 1].getAccountID(sfAccount) <
+                    signers[i].getAccountID(sfAccount));
+            }
+        }
+
+        BEAST_EXPECT(
+            assembled.signedTxHash ==
+            multiSigned.getHash(HashPrefix::transactionID));
+    }
+
+    void
     run() override
     {
         testAssemblesSignedMetadata();
         testSkipsEmptySignatures();
         testBuildMultiSignedExportedTxnDirect();
+        testCapsSignerArray();
     }
 };
 

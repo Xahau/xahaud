@@ -70,6 +70,14 @@ private:
     std::shared_ptr<SHAMap> commitSetMap_;
     std::shared_ptr<SHAMap> entropySetMap_;
     std::shared_ptr<SHAMap> exportSigSetMap_;
+    // Candidate entropy maps can be fetched/merged before they are safe to
+    // inject. This hash is set only by the entropy sidecar gate after the
+    // alignment/observation checks pass.
+    std::optional<uint256> acceptedEntropySetHash_;
+    // Export signature maps are also built from local collector state before
+    // accept. Closed-ledger export apply may only consume the map root the
+    // sidecar gate accepted for this round.
+    std::optional<uint256> acceptedExportSigSetHash_;
     std::optional<LedgerIndex> rngRoundSeq_;
     // Consensus parent ledger hash, pinned at round start. Input to the
     // Tier 1 consensus_fallback entropy digest.
@@ -215,6 +223,12 @@ public:
     bool
     hasAnyReveals() const;
 
+    void
+    acceptEntropySet(uint256 const& hash);
+
+    void
+    clearAcceptedEntropySet();
+
     /// Result of the shared deterministic entropy selector: the digest to
     /// inject plus its tier/count labels. Both injection paths derive these
     /// identically from the AGREED entropySetMap_ so they cannot drift.
@@ -226,13 +240,13 @@ public:
     };
 
     /// Deterministically choose the entropy to inject for this round from the
-    /// AGREED entropySetMap_ (never local pendingReveals_), labelled by agreed
-    /// participant count: validator_quorum (>= quorumThreshold),
-    /// participant_aligned (>= tier2Threshold) or consensus_fallback. In
-    /// non-standalone mode, non-fallback labels require an UNLReport-backed
-    /// active view; the trusted-fallback view is local config and mints Tier 1.
-    /// baseTxSetHash is the BASE (pre-injection) tx set hash used for the
-    /// fallback digest.
+    /// entropy sidecar accepted by the tick gate (never local pendingReveals_),
+    /// labelled by agreed participant count: validator_quorum (>=
+    /// quorumThreshold), participant_aligned (>= tier2Threshold) or
+    /// consensus_fallback. In non-standalone mode, non-fallback labels require
+    /// an UNLReport-backed active view; the trusted-fallback view is local
+    /// config and mints Tier 1. baseTxSetHash is the BASE (pre-injection) tx
+    /// set hash used for the fallback digest.
     EntropySelection
     selectEntropy(uint256 const& baseTxSetHash, LedgerIndex seq) const;
 
@@ -268,6 +282,12 @@ public:
 
     bool
     exportSigConvergenceFailed() const;
+
+    void
+    acceptExportSigSet(uint256 const& hash);
+
+    void
+    clearAcceptedExportSigSet();
 
     std::optional<ExportSignatureSnapshot>
     agreedExportSignatures(

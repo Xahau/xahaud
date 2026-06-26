@@ -817,6 +817,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     };
                     auto clearEntropyHash = [&] {
                         auto failedPos = ctx.getPosition();
+                        ext.clearAcceptedEntropySet();
                         if (!failedPos.entropySetHash)
                             return;
                         failedPos.entropySetHash.reset();
@@ -973,6 +974,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " txConverged=" << entropyState.txConverged
                         << " conflict="
                         << (entropyState.conflict ? "yes" : "no");
+
+                    if (auto const accepted = ctx.getPosition().entropySetHash)
+                        ext.acceptEntropySet(*accepted);
                 }
             }
         }
@@ -1046,6 +1050,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     }
 
                     ext.setExportSigConvergenceFailed();
+                    ext.clearAcceptedExportSigSet();
                     JLOG(ext.j_.warn())
                         << "Export: advertised exportSigSet fetch timeout"
                         << " buildSeq=" << ctx.buildSeq
@@ -1077,6 +1082,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 }
 
                 ext.setExportSigConvergenceFailed();
+                ext.clearAcceptedExportSigSet();
                 JLOG(ext.j_.warn())
                     << "Export: exportSigSet advertisement timeout"
                     << " buildSeq=" << ctx.buildSeq
@@ -1169,6 +1175,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     return detail::exportSigSetQuorumAligned(
                         exportState.alignedParticipants(), exportQuorum);
                 };
+                bool acceptedExportSigHash = false;
                 //@@start export-sigset-alignment-check
                 if (exportState.conflict && !quorumAligned())
                 {
@@ -1213,6 +1220,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " quorum=" << exportQuorum
                         << " peersSeen=" << exportState.peersSeen
                         << " txConverged=" << exportState.txConverged;
+                    acceptedExportSigHash = true;
                 }
                 else if (quorumAligned() && !exportState.fullObservation())
                 {
@@ -1226,6 +1234,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " quorum=" << exportQuorum
                         << " peersSeen=" << exportState.peersSeen
                         << " txConverged=" << exportState.txConverged;
+                    acceptedExportSigHash = true;
                 }
                 //@@end export-no-veto-quorum-branches
                 else if (exportState.conflict || !quorumAligned())
@@ -1252,6 +1261,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     }
 
                     ext.setExportSigConvergenceFailed();
+                    ext.clearAcceptedExportSigSet();
                     JLOG(ext.j_.warn())
                         << "Export: exportSigSet quorum alignment timeout"
                         << " buildSeq=" << buildSeqExport
@@ -1264,6 +1274,21 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " conflict=" << (exportState.conflict ? "yes" : "no")
                         << " elapsedMs=" << toMs(elapsed)
                         << " deadlineMs=" << toMs(deadline);
+                }
+                else
+                {
+                    acceptedExportSigHash = true;
+                }
+
+                if (acceptedExportSigHash)
+                {
+                    // Apply must consume exactly the sidecar root that passed
+                    // the export gate. Local collector state may continue to
+                    // grow after this point, but it is not part of the agreed
+                    // closed-ledger export material.
+                    if (auto const accepted =
+                            ctx.getPosition().exportSigSetHash)
+                        ext.acceptExportSigSet(*accepted);
                 }
             }
             //@@end export-sigset-conflict-wait

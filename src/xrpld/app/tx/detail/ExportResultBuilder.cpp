@@ -34,6 +34,13 @@ buildSigners(SignatureSnapshot const& signatures)
             return a.getAccountID(sfAccount) < b.getAccountID(sfAccount);
         });
 
+    // XRPL validates the Signers array size before checking signer weights.
+    // Export quorum is decided earlier from the agreed sidecar snapshot; this
+    // cap only materializes a target-chain-valid canonical prefix.
+    auto const maxSigners = STTx::maxMultiSigners();
+    if (signers.size() > maxSigners)
+        signers.erase(signers.begin() + maxSigners, signers.end());
+
     return signers;
 }
 

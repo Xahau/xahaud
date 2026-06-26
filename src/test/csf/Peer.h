@@ -341,12 +341,12 @@ struct Peer
         hash_map<PeerID, PeerKey> nodeKeys_;
         uint256 myEntropySecret_;
         // Hash of the entropy reveal set this peer last advertised
-        // (buildEntropySet). finalizeRoundEntropy injects from the snapshot the
-        // sidecar store holds under this hash — the analog of production's
-        // FROZEN entropySetMap_ — not live pendingReveals_, so late-fetched or
-        // conflicting reveals that never entered the advertised set are not
-        // counted (matches ConsensusExtensions::selectEntropy).
+        // (buildEntropySet). The tick gate copies it to
+        // acceptedEntropySetHash_ after observation/alignment checks pass; only
+        // that accepted snapshot may feed finalizeRoundEntropy.
         uint256 lastEntropySetHash_{};
+        std::optional<uint256> acceptedEntropySetHash_;
+        std::optional<uint256> acceptedExportSigSetHash_;
         bool entropyFailed_ = false;
 
         // Last round summary (for test assertions)
@@ -572,6 +572,30 @@ struct Peer
             entropyFailed_ = true;
         }
 
+        void
+        acceptEntropySet(uint256 const& hash)
+        {
+            acceptedEntropySetHash_ = hash;
+        }
+
+        void
+        clearAcceptedEntropySet()
+        {
+            acceptedEntropySetHash_.reset();
+        }
+
+        void
+        acceptExportSigSet(uint256 const& hash)
+        {
+            acceptedExportSigSetHash_ = hash;
+        }
+
+        void
+        clearAcceptedExportSigSet()
+        {
+            acceptedExportSigSetHash_.reset();
+        }
+
         enum class SidecarKind : uint8_t {
             commitSet,
             entropySet,
@@ -668,6 +692,8 @@ struct Peer
             likelyParticipants_.clear();
             myEntropySecret_.zero();
             lastEntropySetHash_.zero();
+            acceptedEntropySetHash_.reset();
+            acceptedExportSigSetHash_.reset();
             entropyFailed_ = false;
             exportSigGateStarted_ = false;
             exportSigGateStart_ = {};
@@ -817,8 +843,8 @@ struct Peer
                 return;
             }
 
-            // Fallback when the round failed alignment (entropyFailed_ is set
-            // by the tick entropy gate) or yielded no reveals.
+            // Fallback when the tick gate did not accept an entropy sidecar or
+            // the accepted sidecar yielded no reveals.
             auto const fallback = [&] {
                 lastEntropyDigest_ = fallbackEntropy();
                 lastEntropyCount_ = 0;
@@ -832,8 +858,9 @@ struct Peer
             // entropySetMap_, NOT live pendingReveals_. Late-fetched or
             // conflicting reveals that never entered the advertised/aligned set
             // are not counted, matching ConsensusExtensions::selectEntropy.
-            auto const* acceptedSet =
-                peer.sidecarStore.fetch(lastEntropySetHash_);
+            auto const* acceptedSet = acceptedEntropySetHash_
+                ? peer.sidecarStore.fetch(*acceptedEntropySetHash_)
+                : nullptr;
 
             std::vector<std::pair<PeerKey, uint256>> ordered;
             // Defensive: lastEntropySetHash_ only ever names a reveal set (the
@@ -852,7 +879,7 @@ struct Peer
                 }
             }
 
-            if (entropyFailed_ || ordered.empty())
+            if (ordered.empty())
             {
                 fallback();
                 return;
@@ -907,15 +934,22 @@ struct Peer
                 return;
             }
 
-            auto const activeSigCount = std::count_if(
-                pendingExportSigs_.begin(),
-                pendingExportSigs_.end(),
-                [&](auto const& entry) {
-                    return isUNLReportMember(entry.first);
-                });
-            lastExportSucceeded_ = !exportSigConvergenceFailed_ &&
-                static_cast<std::size_t>(activeSigCount) >=
-                    exportSigQuorumThreshold();
+            auto const* acceptedSet = acceptedExportSigSetHash_
+                ? peer.sidecarStore.fetch(*acceptedExportSigSetHash_)
+                : nullptr;
+            std::size_t activeSigCount = 0;
+            if (acceptedSet &&
+                acceptedSet->type == SidecarStore::Type::exportSig)
+            {
+                activeSigCount = std::count_if(
+                    acceptedSet->entries.begin(),
+                    acceptedSet->entries.end(),
+                    [&](auto const& entry) {
+                        return isUNLReportMember(entry.first);
+                    });
+            }
+
+            lastExportSucceeded_ = activeSigCount >= exportSigQuorumThreshold();
             lastExportRetried_ = !lastExportSucceeded_;
         }
 

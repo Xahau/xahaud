@@ -811,10 +811,12 @@ struct Export_test : public beast::unit_test::suite
             txHash, valPK, originalSig, applySeq);
         auto const agreedHash = ce.buildExportSigSet(applySeq);
         BEAST_EXPECT(ce.isSidecarSet(agreedHash));
+        ce.acceptExportSigSet(agreedHash);
+        ce.setExportSigConvergenceFailed();
 
         // Simulate an asynchronous collector mutation after sidecar agreement.
-        // A bad revert to the live collector at apply would assemble this late
-        // signature and write a different shadow-ticket hash.
+        // Closed-ledger apply must derive the signature snapshot from the
+        // agreed sidecar, not from the live collector or a local timeout flag.
         std::uint8_t const lateBytes[] = {9, 8, 7};
         Buffer const lateSig{lateBytes, sizeof(lateBytes)};
         ce.exportSigCollector().addVerifiedSignature(
@@ -895,6 +897,7 @@ struct Export_test : public beast::unit_test::suite
             txHash, valPK, sig, applySeq);
         auto const agreedHash = ce.buildExportSigSet(applySeq);
         BEAST_EXPECT(ce.isSidecarSet(agreedHash));
+        ce.acceptExportSigSet(agreedHash);
 
         auto const parent = env.app().getLedgerMaster().getClosedLedger();
         auto next = std::make_shared<Ledger>(
@@ -964,6 +967,7 @@ struct Export_test : public beast::unit_test::suite
                     txHash, valPK, sig, applySeq);
                 auto const agreedHash = ce.buildExportSigSet(applySeq);
                 BEAST_EXPECT(ce.isSidecarSet(agreedHash));
+                ce.acceptExportSigSet(agreedHash);
             }
 
             auto next = std::make_shared<Ledger>(

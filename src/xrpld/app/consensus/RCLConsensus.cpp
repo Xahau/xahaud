@@ -999,6 +999,10 @@ RCLConsensus::phase() const
 bool
 RCLConsensus::extensionsBusy() const
 {
+    // ConsensusExtensions state is mutated by timer, peer-proposal and
+    // sidecar-acquisition paths under this mutex. Busy polling observes the
+    // same state, so it must share the same synchronization boundary.
+    std::lock_guard _{mutex_};
     return consensus_->extensionsBusy();
 }
 

@@ -494,6 +494,16 @@ struct FakeExtensions
         return entropyHash;
     }
 
+    void
+    acceptEntropySet(uint256 const&)
+    {
+    }
+
+    void
+    clearAcceptedEntropySet()
+    {
+    }
+
     uint256
     getEntropySecret() const
     {
@@ -554,6 +564,16 @@ struct FakeExtensions
     setExportSigConvergenceFailed()
     {
         exportSigConvergenceFailed_ = true;
+    }
+
+    void
+    acceptExportSigSet(uint256 const&)
+    {
+    }
+
+    void
+    clearAcceptedExportSigSet()
+    {
     }
 
     template <class PeerPositions>
@@ -1331,7 +1351,12 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(ce.hasMinimumReveals());
 
         auto const entropySetHash = ce.buildEntropySet(seq);
+        ce.acceptEntropySet(entropySetHash);
         BEAST_EXPECT(ce.isSidecarSet(entropySetHash));
+        // Once the sidecar gate has accepted a hash, injection is derived from
+        // that sidecar snapshot. A local failure flag is diagnostic state, not
+        // an additional selector input.
+        ce.setEntropyFailed();
 
         CanonicalTXSet retriableTxs{makeHash("entropy-set-prebuild-salt")};
         ce.onPreBuild(retriableTxs, seq, txSetHash);
@@ -1419,7 +1444,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                     prevLedger,
                     reveal);
             }
-            ce.buildEntropySet(seq);
+            auto const entropySetHash = ce.buildEntropySet(seq);
+            ce.acceptEntropySet(entropySetHash);
             CanonicalTXSet txs{makeHash("tier2-salt")};
             ce.onPreBuild(txs, seq, txSetHash);
             auto const tx = singleCanonicalTx(txs);
@@ -1585,7 +1611,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                     prevLedger,
                     reveal);
             }
-            ce.buildEntropySet(seq);
+            auto const entropySetHash = ce.buildEntropySet(seq);
+            ce.acceptEntropySet(entropySetHash);
             CanonicalTXSet txs{makeHash("tier2-nunl-salt")};
             ce.onPreBuild(txs, seq, txSetHash);
             auto const tx = singleCanonicalTx(txs);
@@ -1958,6 +1985,14 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             txHash, valPK, originalSig, seq);
         auto const exportSigSetHash = ce.buildExportSigSet(seq);
         BEAST_EXPECT(ce.isSidecarSet(exportSigSetHash));
+        auto const view = ce.activeValidatorView();
+
+        // A locally-built export signature map is not closed-ledger material
+        // until the export sidecar gate accepts that exact root.
+        BEAST_EXPECT(!ce.agreedExportSignatures(*exportTx, txHash, *view, 1));
+        ce.acceptExportSigSet(makeHash("wrong-export-sigset-root"));
+        BEAST_EXPECT(!ce.agreedExportSignatures(*exportTx, txHash, *view, 1));
+        ce.acceptExportSigSet(exportSigSetHash);
 
         // Simulate a late local collector mutation after the sidecar hash has
         // converged. The live collector now differs from the agreed sidecar
@@ -1967,7 +2002,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ce.exportSigCollector().addVerifiedSignature(
             txHash, valPK, lateSig, seq);
 
-        auto const view = ce.activeValidatorView();
         auto const live = ce.exportSigCollector().checkQuorumAndSnapshot(
             txHash, 1, [&](PublicKey const& pk) {
                 return ce.isActiveValidator(pk, *view);
