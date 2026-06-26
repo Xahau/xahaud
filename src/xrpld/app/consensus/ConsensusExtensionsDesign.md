@@ -197,9 +197,12 @@ a non-active local node does not add its own +1 (gated on
 `localIsActiveValidator()`). This mirrors the `buildEntropySet`/`hasQuorumOfCommits`
 membership filter and keeps the counting universe from inflating above the
 active-view size, preserving the Tier-2 intersection margin (`2t - n`) and
-equivocation uniqueness. The round proceeds when this count reaches
-`entropyGateThreshold() = min(quorumThreshold(), tier2Threshold())` and the node
-has full observation of the tx-converged active set; otherwise it falls back at
+equivocation uniqueness. On the clean path, the round proceeds when this count
+reaches `entropyGateThreshold() = min(quorumThreshold(), tier2Threshold())`;
+silence from a tx-converged active validator is not itself a conflicting value
+and must not become a one-validator RNG veto. If a conflicting entropy hash is
+observed, the gate remains stricter: the node waits for full local observation
+of the tx-converged active set before ignoring the conflict, or falls back at
 the bounded deadline.
 
 The **tier label** is then derived from the agreed entropy set itself — the
@@ -216,8 +219,10 @@ Under nUNL, exact integer thresholds can cross either way. For example, a
 the proceed gate; the final tier label is still derived from the agreed entropy
 set count by the ladder above.
 
-In both label cases, a below-threshold minority can advertise a conflicting or
-unacquirable entropy hash without vetoing the aligned cohort.
+In both label cases, a silent or below-threshold minority cannot veto the
+aligned cohort. A below-threshold conflicting or unacquirable entropy hash is
+handled by the conflict path and falls back if the bounded observation window
+does not resolve it.
 
 If no entropy hash reaches the entropy gate threshold before the bounded
 deadline, the round must fall back to the Tier 1 consensus-bound digest. This
