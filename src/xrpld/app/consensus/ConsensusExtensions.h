@@ -15,6 +15,7 @@
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/PublicKey.h>
+#include <atomic>
 #include <chrono>
 #include <map>
 #include <memory>
@@ -63,8 +64,11 @@ private:
     // Ephemeral entropy secret (in-memory only, crash = non-revealer)
     uint256 myEntropySecret_;
     bool entropyFailed_ = false;
-    bool rngEnabledThisRound_ = false;
-    bool exportEnabledThisRound_ = false;
+    // Proposal ingress can harvest export signatures outside the consensus
+    // mutex, so round-enable latches are atomic snapshots of the parent-ledger
+    // amendment state. Ordering is not used to publish any other data.
+    std::atomic<bool> rngEnabledThisRound_{false};
+    std::atomic<bool> exportEnabledThisRound_{false};
 
     // Real SHAMaps for the current round (unbacked, ephemeral)
     std::shared_ptr<SHAMap> commitSetMap_;
@@ -468,7 +472,8 @@ public:
 
     /** Extract export signatures from the raw protobuf wire message.
         Called from PeerImp overlay ingress (outside consensus mutex).
-        Only touches the independently synchronized ExportSigCollector. */
+        Reads only atomic round latches before touching the independently
+        synchronized ExportSigCollector. */
     void
     onTrustedPeerMessage(::protocol::TMProposeSet const& wireMsg);
 
@@ -506,13 +511,13 @@ public:
     void
     setRngEnabledThisRound(bool v)
     {
-        rngEnabledThisRound_ = v;
+        rngEnabledThisRound_.store(v, std::memory_order_relaxed);
     }
 
     void
     setExportEnabledThisRound(bool v)
     {
-        exportEnabledThisRound_ = v;
+        exportEnabledThisRound_.store(v, std::memory_order_relaxed);
     }
 
     bool

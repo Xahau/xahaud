@@ -1014,6 +1014,31 @@ RCLConsensus::phase() const
 }
 
 bool
+RCLConsensus::isExtensionSet(uint256 const& hash) const
+{
+    std::lock_guard _{mutex_};
+    if (consensus_->phase() == ConsensusPhase::accepted)
+        return false;
+    return adaptor_.ce().isSidecarSet(hash);
+}
+
+void
+RCLConsensus::gotExtensionSet(std::shared_ptr<SHAMap> const& map)
+{
+    std::lock_guard _{mutex_};
+    // Accept builds run without the consensus mutex and clear extension
+    // working state. Late sidecar fetches belong to the previous establish
+    // phase, so drop them before they can mutate CE maps during accept.
+    if (consensus_->phase() == ConsensusPhase::accepted)
+    {
+        JLOG(j_.debug()) << "Ignoring accepted-phase sidecar set "
+                         << map->getHash().as_uint256();
+        return;
+    }
+    adaptor_.ce().onAcquiredSidecarSet(map);
+}
+
+bool
 RCLConsensus::extensionsBusy() const
 {
     // ConsensusExtensions state is mutated by timer, peer-proposal and

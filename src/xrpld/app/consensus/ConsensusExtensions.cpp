@@ -584,13 +584,13 @@ ConsensusExtensions::selectEntropy(
 bool
 ConsensusExtensions::rngEnabled() const
 {
-    return rngEnabledThisRound_;
+    return rngEnabledThisRound_.load(std::memory_order_relaxed);
 }
 
 bool
 ConsensusExtensions::exportEnabled() const
 {
-    return exportEnabledThisRound_;
+    return exportEnabledThisRound_.load(std::memory_order_relaxed);
 }
 
 bool
@@ -1057,7 +1057,7 @@ ConsensusExtensions::clearRngState()
     exportSigCollector_.clearRound();
     if (auto const closed = app_.getLedgerMaster().getClosedLedger())
         exportSigCollector_.cleanupStale(closed->info().seq);
-    if (!exportEnabledThisRound_)
+    if (!exportEnabled())
     {
         // Export disabled is an amendment boundary, not a retry boundary.
         // Drop cached signatures so an emergency stop cannot leave old quorum
@@ -1733,7 +1733,7 @@ ConsensusExtensions::recordParticipantDiagnostics(
 void
 ConsensusExtensions::attachParticipantDiagnostics(ExtendedPosition& pos) const
 {
-    if (!rngEnabledThisRound_ && !exportEnabledThisRound_)
+    if (!rngEnabled() && !exportEnabled())
         return;
 
     if (observedParticipantsHash_)

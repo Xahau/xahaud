@@ -503,19 +503,11 @@ public:
 
     //! Check if hash is a known extension sidecar set (under mutex)
     bool
-    isExtensionSet(uint256 const& hash) const
-    {
-        std::lock_guard _{mutex_};
-        return adaptor_.ce().isSidecarSet(hash);
-    }
+    isExtensionSet(uint256 const& hash) const;
 
     //! Route acquired extension sidecar set (under mutex)
     void
-    gotExtensionSet(std::shared_ptr<SHAMap> const& map)
-    {
-        std::lock_guard _{mutex_};
-        adaptor_.ce().onAcquiredSidecarSet(map);
-    }
+    gotExtensionSet(std::shared_ptr<SHAMap> const& map);
 
     //! @see Consensus::getJson
     Json::Value
