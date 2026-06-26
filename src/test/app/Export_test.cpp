@@ -696,6 +696,7 @@ struct Export_test : public beast::unit_test::suite
         Json::Value jv;
         jv[jss::TransactionType] = jss::Export;
         jv[jss::Account] = alice.human();
+        jv[jss::LastLedgerSequence] = seq + 5;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
 
         env(jv, fee(XRP(1)), ter(tesSUCCESS));
@@ -1029,6 +1030,7 @@ struct Export_test : public beast::unit_test::suite
             Json::Value jv;
             jv[jss::TransactionType] = jss::Export;
             jv[jss::Account] = alice.human();
+            jv[jss::LastLedgerSequence] = seq + 50;
             jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
 
             env(jv, fee(XRP(1)), ter(expected));
@@ -1065,6 +1067,7 @@ struct Export_test : public beast::unit_test::suite
             Json::Value jv;
             jv[jss::TransactionType] = jss::Export;
             jv[jss::Account] = alice.human();
+            jv[jss::LastLedgerSequence] = seq + 50;
             jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
 
             env(jv, fee(XRP(1)), ter(tesSUCCESS));
@@ -1111,6 +1114,7 @@ struct Export_test : public beast::unit_test::suite
         Json::Value jv;
         jv[jss::TransactionType] = jss::Export;
         jv[jss::Account] = alice.human();
+        jv[jss::LastLedgerSequence] = seq + 5;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
 
         env(jv, fee(XRP(1)), ter(tesSUCCESS));
@@ -1162,6 +1166,35 @@ struct Export_test : public beast::unit_test::suite
         auto const seq = env.current()->seq();
         auto innerObj = buildExportedPayment(
             alice.id(), carol.id(), seq + 1, seq + 5, std::nullopt);
+
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::Export;
+        jv[jss::Account] = alice.human();
+        jv[jss::LastLedgerSequence] = seq + 5;
+        jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+
+        env(jv, fee(XRP(1)), ter(temMALFORMED));
+        env.close();
+    }
+
+    void
+    testExportRejectsMissingLastLedgerSequence(FeatureBitset features)
+    {
+        testcase("ttEXPORT rejects export without LastLedgerSequence");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto const seq = env.current()->seq();
+        auto innerObj =
+            buildExportedPayment(alice.id(), carol.id(), seq + 1, seq + 5);
 
         Json::Value jv;
         jv[jss::TransactionType] = jss::Export;
@@ -1263,6 +1296,7 @@ struct Export_test : public beast::unit_test::suite
         Json::Value jvExport;
         jvExport[jss::TransactionType] = jss::Export;
         jvExport[jss::Account] = alice.human();
+        jvExport[jss::LastLedgerSequence] = xahau.current()->seq() + 5;
         jvExport[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
 
         xahau(jvExport, fee(XRP(1)), ter(tesSUCCESS));
@@ -1466,6 +1500,7 @@ struct Export_test : public beast::unit_test::suite
         testShadowTicketLifecycle(allWithExport);
         testCancelShadowTicketViaTxn(allWithExport);
         testExportRejectsNoTicketSequence(allWithExport);
+        testExportRejectsMissingLastLedgerSequence(allWithExport);
         testExportRejectsMalformed(allWithExport);
 
         // Round-trip test

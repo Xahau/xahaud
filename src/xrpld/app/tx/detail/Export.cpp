@@ -37,6 +37,12 @@ Export::preflight(PreflightContext const& ctx)
     if (hasExport == hasCancel)  // neither or both
         return temMALFORMED;
 
+    // Exported transactions can retry across consensus rounds; every retrying
+    // export needs an explicit outer expiry.  Cancel-only exports are
+    // immediate.
+    if (hasExport && !ctx.tx.isFieldPresent(sfLastLedgerSequence))
+        return temMALFORMED;
+
     return preflight2(ctx);
 }
 
