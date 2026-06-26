@@ -162,6 +162,16 @@ public:
                 detail::checkProposalExtensions(entropySet, false, true)
                     .result == entropyDisabled);
 
+            protocol::TMProposeSet observedSet;
+            setPreviousLedger(observedSet);
+            ExtendedPosition observed{makeHash("observed-position")};
+            observed.observedParticipantsHash =
+                makeHash("observed-participants");
+            setPosition(observedSet, observed);
+            BEAST_EXPECT(
+                detail::checkProposalExtensions(observedSet, false, true)
+                    .result == entropyDisabled);
+
             protocol::TMProposeSet exportSet;
             setPreviousLedger(exportSet);
             ExtendedPosition exportPos{makeHash("export-position")};

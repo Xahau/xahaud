@@ -111,7 +111,7 @@ checkProposalExtensions(
 
     bool const hasEntropyMaterial = parsedPosition->commitSetHash ||
         parsedPosition->entropySetHash || parsedPosition->myCommitment ||
-        parsedPosition->myReveal;
+        parsedPosition->myReveal || parsedPosition->observedParticipantsHash;
     bool const hasExportMaterial = parsedPosition->exportSigSetHash ||
         parsedPosition->exportSignaturesHash || set.exportsignatures_size() > 0;
     if (hasEntropyMaterial && !isEntropyEnabled())
