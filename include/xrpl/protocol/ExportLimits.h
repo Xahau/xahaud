@@ -32,8 +32,9 @@ struct ExportLimits
     //   txHash(32) + validator pubkey(33) + multisign signature(<= 72).
     // A fully-canonical secp256k1 signature is at most 72 bytes (ed25519 is
     // 64), so 137 is the true upper bound for a well-formed entry. The proposal
-    // ingress path hashes these blobs BEFORE the proposal signature is verified,
-    // so bounding the per-blob size caps pre-auth hashing/copy work (DoS).
+    // ingress path hashes these blobs BEFORE the proposal signature is
+    // verified, so bounding the per-blob size caps pre-auth hashing/copy work
+    // (DoS).
     static constexpr std::size_t maxExportSignatureBytes = 32 + 33 + 72;
 };
 
