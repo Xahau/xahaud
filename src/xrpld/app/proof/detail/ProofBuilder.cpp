@@ -92,35 +92,6 @@ MerkleProof::toJsonV1() const
 
 namespace {
 
-/// Hash a transaction blob: SHA512Half(TXN prefix + blob)
-uint256
-hashTxBlob(Slice const& txBlob)
-{
-    return sha512Half(HashPrefix::transactionID, txBlob);
-}
-
-/// Hash a tx+meta pair: SHA512Half(SND prefix + vl(tx) + tx + vl(meta) + meta +
-/// hashTxBlob(tx)) This matches SHAMapInnerNode's leaf hash computation.
-uint256
-hashTxAndMeta(Slice const& txBlob, Slice const& metaBlob)
-{
-    Serializer s(txBlob.size() + metaBlob.size() + 256);
-
-    // The SHAMap stores tx leaves as:
-    //   HashPrefix::txNode + vl(tx) + vl(meta) + txHash
-    // where vl() is the variable-length encoding.
-
-    s.addRaw(txBlob);
-    Serializer metaSer;
-    metaSer.addRaw(metaBlob);
-
-    return sha512Half(
-        HashPrefix::txNode,
-        makeSlice(s.peekData()),
-        makeSlice(metaSer.peekData()),
-        hashTxBlob(txBlob));
-}
-
 /// Simple in-memory radix trie node for proof construction.
 struct TrieNode
 {
