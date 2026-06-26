@@ -1340,26 +1340,6 @@ Import::doApply()
         return tefINTERNAL;
     }
 
-    //
-    // Now deal with the account creation and crediting
-    //
-
-    STAmount burn = stpTrans->getFieldAmount(sfFee);
-
-    if (!isXRP(burn) || burn < beast::zero)
-    {
-        JLOG(ctx_.journal.warn()) << "Import: inner fee was not XRP value.";
-        return tefINTERNAL;
-    }
-
-    // ensure header is not going to overflow
-    if (burn <= beast::zero ||
-        burn.xrp() + view().info().drops < view().info().drops)
-    {
-        JLOG(ctx_.journal.warn()) << "Import: ledger header overflowed\n";
-        return tecINTERNAL;
-    }
-
     uint32_t importSequence = stpTrans->getFieldU32(sfSequence);
     auto const id = ctx_.tx[sfAccount];
     auto sle = view().peek(keylet::account(id));
@@ -1391,6 +1371,22 @@ Import::doApply()
     // Burn-to-mint path: original Import flow for XRPL → Xahau
     // account bootstrapping. Credits XAH based on burned XRP.
     // ---------------------------------------------------------------
+
+    STAmount burn = stpTrans->getFieldAmount(sfFee);
+
+    if (!isXRP(burn) || burn < beast::zero)
+    {
+        JLOG(ctx_.journal.warn()) << "Import: inner fee was not XRP value.";
+        return tefINTERNAL;
+    }
+
+    // ensure header is not going to overflow
+    if (burn <= beast::zero ||
+        burn.xrp() + view().info().drops < view().info().drops)
+    {
+        JLOG(ctx_.journal.warn()) << "Import: ledger header overflowed\n";
+        return tecINTERNAL;
+    }
 
     if (sle && sle->getFieldU32(sfImportSequence) >= importSequence)
     {
