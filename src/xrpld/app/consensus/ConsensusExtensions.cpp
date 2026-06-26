@@ -1039,7 +1039,6 @@ ConsensusExtensions::clearRngStatePreservingExport()
     observedParticipantsBitmapBin_.clear();
     likelyParticipants_.clear();
     commitProofs_.clear();
-    proposalProofs_.clear();
     //@@end round-stop-rng-reset
     // Keep the round-level enable latches intact here. Consensus::startRound()
     // calls preStartRound() first to snapshot which extensions are enabled for
@@ -1460,7 +1459,6 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                     // A changed commitment invalidates any previously accepted
                     // reveal for this node in the same round.
                     pendingReveals_.erase(nodeId);
-                    proposalProofs_.erase(nodeId);
                 }
             }
             else
@@ -1509,10 +1507,6 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                         << " proposeSeq=" << parsedProof->proposeSeq
                         << " seq=" << seq;
                 }
-            }
-            else if (parsedProof)
-            {
-                proposalProofs_.insert_or_assign(nodeId, *parsedProof);
             }
             ++merged;
 
@@ -2033,8 +2027,7 @@ ConsensusExtensions::harvestRngData(
 
             // Any reveal accepted against the prior commitment is now stale.
             // Drop it so reveal quorum cannot be satisfied by mismatched data.
-            if (pendingReveals_.erase(nodeId) > 0)
-                proposalProofs_.erase(nodeId);
+            pendingReveals_.erase(nodeId);
         }
         else if (inserted)
         {
@@ -2109,11 +2102,10 @@ ConsensusExtensions::harvestRngData(
     }
     //@@end rng-harvest-reveal-verification
 
-    // Store proposal proofs for embedding in SHAMap entries.
-    // commitProofs_: only seq=0 (commitments always ride on seq=0,
-    //   so all nodes store the same proof → deterministic commitSet).
-    // proposalProofs_: latest proof carrying a reveal (for entropySet).
-    if (position.myCommitment || position.myReveal)
+    // Store deterministic commit proofs for embedding in commitSet entries.
+    // Reveal sidecars intentionally omit proofs so entropySet hashes do not
+    // depend on proposal timing or sequence.
+    if (position.myCommitment)
     {
         auto makeProof = [&]() {
             ProposalProof proof;
@@ -2130,9 +2122,6 @@ ConsensusExtensions::harvestRngData(
 
         if (position.myCommitment && proposeSeq == 0)
             commitProofs_.emplace(nodeId, makeProof());
-
-        if (position.myReveal)
-            proposalProofs_[nodeId] = makeProof();
     }
 }
 
@@ -2621,10 +2610,9 @@ ConsensusExtensions::decorateMessage(
                          << " prevLedger=" << proposal.prevLedger();
     }
 
-    // Store our own proposal proof for embedding in SHAMap entries.
-    // commitProofs_ gets seq=0 only (deterministic commitSet).
-    // proposalProofs_ gets the latest with a reveal (for entropySet).
-    if (signedPosition.myCommitment || signedPosition.myReveal)
+    // Store our own deterministic commit proof for commitSet entries.
+    // Reveal sidecars deliberately omit proofs.
+    if (signedPosition.myCommitment)
     {
         auto makeProof = [&]() {
             ProposalProof proof;
@@ -2641,9 +2629,6 @@ ConsensusExtensions::decorateMessage(
 
         if (signedPosition.myCommitment && proposal.proposeSeq() == 0)
             commitProofs_.emplace(valKeys.nodeID, makeProof());
-
-        if (signedPosition.myReveal)
-            proposalProofs_[valKeys.nodeID] = makeProof();
     }
 }
 

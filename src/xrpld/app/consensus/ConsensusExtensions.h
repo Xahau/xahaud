@@ -131,11 +131,9 @@ private:
     void
     clearRngStatePreservingExport();
 
-    // Proposal proofs keyed by NodeID.
-    // commitProofs_: only seq=0 proofs (deterministic across all nodes).
-    // proposalProofs_: latest proof with reveal (for entropySet).
+    // Commit proofs keyed by NodeID. Only seq=0 proofs are cached because the
+    // commit sidecar hash must be deterministic across all nodes.
     hash_map<NodeID, ProposalProof> commitProofs_;
-    hash_map<NodeID, ProposalProof> proposalProofs_;
 
 public:
     ConsensusExtensions(Application& app, beast::Journal j);
