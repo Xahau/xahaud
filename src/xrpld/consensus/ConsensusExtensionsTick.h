@@ -304,6 +304,28 @@ extensionsTick(Ext& ext, Ctx const& ctx)
         auto publishEntropySet = [&]() {
             auto entropySetHash = ext.buildEntropySet(buildSeq);
             auto newPos = ctx.getPosition();
+            if constexpr (requires { ext.testSuppressEntropySetHash(); })
+            {
+                if (ext.testSuppressEntropySetHash())
+                {
+                    if (newPos.entropySetHash)
+                    {
+                        newPos.entropySetHash.reset();
+                        ctx.updatePosition(newPos);
+
+                        if (ctx.mode == ConsensusMode::proposing)
+                            ctx.propose();
+                    }
+
+                    JLOG(ext.j_.debug())
+                        << "RNG: withholding entropySetHash"
+                        << " reason=test-suppress-entropy-set-hash"
+                        << " buildSeq=" << buildSeq
+                        << " hash=" << entropySetHash;
+                    return;
+                }
+            }
+
             if (newPos.entropySetHash &&
                 *newPos.entropySetHash == entropySetHash)
             {
@@ -808,11 +830,6 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         return entropyState.quorumAligned(entropyQuorum);
                     };
                     auto fullObservation = [&] {
-                        // Local quorum alignment is not enough if some
-                        // tx-converged peers have not advertised their
-                        // entropy sidecar hash yet. Otherwise one node can
-                        // accept non-zero from an asymmetric local view while
-                        // the rest of the network times out to zero.
                         return entropyState.fullObservation();
                     };
                     auto clearEntropyHash = [&] {
@@ -911,19 +928,15 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     }
                     //@@end rng-entropy-conflict-gate
 
-                    // Positive alignment check: require at least one
-                    // tx-converged entropy-gate cohort with a matching
-                    // entropySetHash before accepting validator-derived
-                    // entropy, and require every
-                    // tx-converged peer we are counting to have advertised
-                    // some entropySetHash.  Without the full-observation
-                    // part, asymmetric proposal delivery lets a node accept
-                    // validator-derived entropy while peers that are still
-                    // missing sidecar hashes hit the deadline and
-                    // deterministically fall back.
+                    // Positive alignment check: silence is not a conflicting
+                    // entropy value. A quorum-aligned clean hash can proceed
+                    // without waiting for every tx-converged validator to
+                    // advertise; otherwise one silent validator gets a free
+                    // RNG off-switch. Observed conflicts still take the
+                    // fullObservation path above, where equivocation must be
+                    // judged with the complete local advertisement set.
                     //@@start rng-entropy-positive-alignment-gate
-                    if (!entropyState.conflict &&
-                        (!quorumAligned() || !fullObservation()))
+                    if (!entropyState.conflict && !quorumAligned())
                     {
                         auto const entropyElapsed =
                             ctx.nowSteady - ext.entropyPublishStart_;
@@ -960,6 +973,21 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             << " elapsedMs=" << toMs(entropyElapsed)
                             << " deadlineMs=" << toMs(entropyDeadline);
                         logRngDiag("rng-entropy-hash-quorum-timeout");
+                    }
+                    else if (
+                        !entropyState.conflict && quorumAligned() &&
+                        !fullObservation())
+                    {
+                        JLOG(ext.j_.info())
+                            << "RNG: missing entropySetHash observation "
+                               "ignored"
+                            << " reason=quorum-aligned"
+                            << " buildSeq=" << buildSeq
+                            << " alignedParticipants="
+                            << entropyState.alignedParticipants()
+                            << " quorum=" << entropyQuorum
+                            << " peersSeen=" << entropyState.peersSeen
+                            << " txConverged=" << entropyState.txConverged;
                     }
                     //@@end rng-entropy-positive-alignment-gate
 

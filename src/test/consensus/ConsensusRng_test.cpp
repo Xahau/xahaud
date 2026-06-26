@@ -815,6 +815,52 @@ public:
     }
 
     void
+    testRngSingleSilentValidatorCannotDenyEntropy()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+
+        testcase("RNG single silent validator cannot deny entropy");
+
+        // Peer 0 remains active in tx consensus and builds its reveal sidecar,
+        // but does not advertise entropySetHash. The fixed active-view
+        // denominator still includes it; the remaining 4/5 quorum must be
+        // enough to accept the clean, non-conflicting entropy set.
+        ConsensusParms const parms{};
+        Sim sim;
+
+        PeerGroup peers = sim.createGroup(5);
+        for (Peer* peer : peers)
+            peer->ce().enableRngConsensus_ = true;
+
+        peers.trustAndConnect(
+            peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+        // Warmup: populate prevProposers.
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+
+        peers[0]->ce().suppressOwnEntropySetHash_ = true;
+
+        sim.run(3);
+
+        PeerGroup honest{
+            std::vector<Peer*>{peers[1], peers[2], peers[3], peers[4]}};
+        BEAST_EXPECT(sim.branches(honest) == 1);
+        BEAST_EXPECT(sim.synchronized(honest));
+
+        for (Peer const* peer : honest)
+        {
+            BEAST_EXPECT(!peer->ce().lastEntropyWasFallback_);
+            BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
+            BEAST_EXPECT(peer->ce().lastEntropyCount_ >= 4);
+            BEAST_EXPECT(
+                peer->ce().lastEntropyDigest_ ==
+                honest[0]->ce().lastEntropyDigest_);
+        }
+    }
+
+    void
     testRngEntropyHashConflictWithoutQuorumFallsBackToZero()
     {
         using namespace csf;
@@ -1139,6 +1185,7 @@ public:
         RUN(testRngEntropyConvergesWithPartialReveals);
         RUN(testRngEntropyFallbackOnMajorRevealLoss);
         RUN(testRngSingleByzantineCannotDenyEntropy);
+        RUN(testRngSingleSilentValidatorCannotDenyEntropy);
         RUN(testRngEntropyHashConflictWithoutQuorumFallsBackToZero);
         RUN(testRngEntropyRejectsEquivocatedSplitMajorities);
         RUN(testRngFastPathDoesNotOutrunPeerObservation);

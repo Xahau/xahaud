@@ -2556,9 +2556,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testRngEntropyGateRequiresFullObservation()
+    testRngEntropyGateAllowsQuorumDespiteMissingObservation()
     {
-        testcase("RNG entropy gate requires full sidecar observation");
+        testcase("RNG entropy gate allows quorum despite missing observation");
 
         FakeExtensions ext;
         ext.rngOn = true;
@@ -2578,9 +2578,43 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(harness.position.entropySetHash == localHash);
         BEAST_EXPECT(ext.entropySetPublished_);
 
-        // Quorum alignment is not safe if a tx-converged peer has not
-        // advertised any entropySetHash. Otherwise local observation order
-        // can split validator entropy from deterministic consensus_fallback.
+        // A silent peer did not advertise a conflicting value; once a quorum
+        // has signed the same entropySetHash, waiting for that peer only gives
+        // it a veto over otherwise healthy validator entropy.
+        result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(!ext.entropyFailed);
+        BEAST_EXPECT(harness.position.entropySetHash == localHash);
+    }
+
+    void
+    testRngEntropyConflictStillRequiresFullObservation()
+    {
+        testcase("RNG entropy conflict still requires full observation");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.estState_ = EstablishState::ConvergingReveal;
+
+        ExtensionTickHarness harness;
+        auto const localHash = ext.entropyHash;
+        auto const conflictingHash = makeHash("conflicting-entropy-set");
+
+        harness.addEntropyPeer(1, localHash);
+        harness.addEntropyPeer(2, localHash);
+        harness.addEntropyPeer(3, localHash);
+        harness.addEntropyPeer(4, conflictingHash);
+        harness.addEntropyPeer(5, std::nullopt);
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(harness.position.entropySetHash == localHash);
+        BEAST_EXPECT(ext.entropySetPublished_);
+
+        // Conflict means the missing observation could hide more of the
+        // competing side. Keep waiting until all tx-converged peers have
+        // advertised or the bounded fallback deadline expires.
         result = harness.tick(ext, std::chrono::milliseconds{100});
         BEAST_EXPECT(!result.readyForAccept);
         BEAST_EXPECT(!ext.entropyFailed);
@@ -3490,7 +3524,8 @@ public:
         testDiagnosticsJsonAndPositionLogging();
         testDecoratePositionSkipsWhenDisabled();
         testExportSigGateRequiresQuorumAlignment();
-        testRngEntropyGateRequiresFullObservation();
+        testRngEntropyGateAllowsQuorumDespiteMissingObservation();
+        testRngEntropyConflictStillRequiresFullObservation();
         testRngFastPathWaitsAfterEntropyPublish();
         testRngBootstrapSkipWhenPreviousParticipantsBelowGate();
         testRngCommitWaitsWhenQuorumPossible();

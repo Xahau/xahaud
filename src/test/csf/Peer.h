@@ -364,6 +364,11 @@ struct Peer
         std::optional<uint256> forcedEntropySetHash_;
         // Optional test hook: force a specific export sig-set hash
         std::optional<uint256> forcedExportSigSetHash_;
+        // Optional test hook: remain an active proposer but omit the
+        // entropySetHash advertisement after building the sidecar. This models
+        // a silent sidecar advertiser without shrinking the fixed UNL
+        // denominator.
+        bool suppressOwnEntropySetHash_ = false;
 
         struct ProposalSidecarOverrides
         {
@@ -411,6 +416,12 @@ struct Peer
         testSuppressExportSigSetHash() const
         {
             return false;
+        }
+
+        bool
+        testSuppressEntropySetHash() const
+        {
+            return suppressOwnEntropySetHash_;
         }
 
         std::size_t
