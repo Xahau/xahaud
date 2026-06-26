@@ -189,6 +189,9 @@ checkConsensus(
     beast::Journal j,
     std::unique_ptr<std::stringstream> const& clog)
 {
+    // These liveness exits are generic consensus-engine behavior, coordinated
+    // by software release like the other ConsensusParms values. Ledger-rule or
+    // amendment-dependent behavior belongs in the adaptor/extension layer.
     CLOG(clog) << "checkConsensus: prop=" << currentProposers << "/"
                << prevProposers << " agree=" << currentAgree
                << " validated=" << currentFinished
