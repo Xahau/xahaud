@@ -302,6 +302,10 @@ public:
     ActiveValidatorViewPtr
     activeValidatorView() const;
 
+    /// Build an active validator view from a known consensus parent ledger.
+    /// A null parent falls back to the local validated ledger for startup,
+    /// standalone, and diagnostics paths only; closed-ledger apply paths must
+    /// fail closed before calling this if their parent ledger is unavailable.
     ActiveValidatorViewPtr
     makeActiveValidatorView(
         std::shared_ptr<Ledger const> const& prevLedger) const;
