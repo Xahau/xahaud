@@ -1,8 +1,39 @@
-""":descr: 4/5 liveness, 3/5 fallback-entropy (consensus_fallback), recovery"""
+""":descr: 4/5 liveness, 3/5 fail-closed sub-quorum window, recovery"""
 
 from __future__ import annotations
 
-from helpers import ZERO_DIGEST, require_entropy, get_entropy_tx, entropy_fields
+from helpers import (
+    require_entropy,
+    get_entropy_tx,
+    entropy_fields,
+    assert_consensus_fallback,
+)
+
+
+def _closed_entropy(result):
+    """Return (seq, ConsensusEntropy tx) from a closed-ledger RPC result.
+
+    The 3/5 window is below validation quorum, so validated-ledger history is
+    expected to stall. Sampling a surviving node's closed ledger catches any
+    local LCL that advanced despite the sub-quorum condition.
+    """
+    if not result or not isinstance(result.get("ledger"), dict):
+        return None, None
+    ledger = result["ledger"]
+    try:
+        seq = int(ledger.get("ledger_index"))
+    except (TypeError, ValueError):
+        return None, None
+    ce = [
+        tx
+        for tx in ledger.get("transactions", [])
+        if isinstance(tx, dict) and tx.get("TransactionType") == "ConsensusEntropy"
+    ]
+    if len(ce) != 1:
+        raise AssertionError(
+            f"Closed ledger {seq}: expected 1 ConsensusEntropy txn, got {len(ce)}"
+        )
+    return seq, ce[0]
 
 
 async def scenario(ctx, log):
@@ -30,46 +61,31 @@ async def scenario(ctx, log):
     val_after = ctx.validated_ledger_index(0)
     log(f"3/5: validated ledger {val_before} → {val_after}")
 
-    # Accepted/built ledgers may still later appear as validated once the full
-    # network rejoins. For ConsensusEntropy the key invariant is that every
-    # ledger created during this sub-quorum window carries FALLBACK entropy
-    # (consensus_fallback: non-zero consensus-bound digest, count 0) — never
-    # validator-tier entropy.
+    if val_after and val_before and val_after > val_before:
+        raise AssertionError(
+            f"3/5 sub-quorum window unexpectedly validated ledgers "
+            f"({val_before} -> {val_after})"
+        )
+
+    # If the surviving cohort exposes an advanced closed ledger despite being
+    # below validation quorum, it must fail closed to consensus_fallback. This
+    # keeps the entropy assertion live without pretending validated history
+    # should advance at 3/5.
     degraded_fallback = 0
-    degraded_end = val_after or val_before
-    if val_before and degraded_end and degraded_end > val_before:
-        for seq in range(val_before + 1, degraded_end + 1):
-            ce, _ = get_entropy_tx(ctx, seq)
-            digest, entropy_count, is_fallback = entropy_fields(ce)
-            tier = ce.get("EntropyTier")
-
-            # consensus_fallback (EntropyTier=1): explicit tier, count 0,
-            # deterministic NON-zero digest.
-            if tier != 1:
-                raise AssertionError(
-                    f"Ledger {seq}: expected EntropyTier==1 "
-                    f"(consensus_fallback) during 3/5 window, got {tier} "
-                    f"(EntropyCount={entropy_count})"
-                )
-            if entropy_count != 0:
-                raise AssertionError(
-                    f"Ledger {seq}: fallback EntropyCount must be 0, got "
-                    f"{entropy_count}"
-                )
-            if not digest or digest == ZERO_DIGEST:
-                raise AssertionError(
-                    f"Ledger {seq}: fallback digest must be non-zero "
-                    f"(consensus_fallback), got {digest[:16]}..."
-                )
-            assert is_fallback  # tier==1 implies fallback
-
+    last_closed = None
+    for _ in range(5):
+        seq, ce = _closed_entropy(ctx.ledger("closed", transactions=True, node_id=0))
+        if seq and val_before and seq > val_before and seq != last_closed:
+            last_closed = seq
+            digest, count = assert_consensus_fallback(ce, seq)
             degraded_fallback += 1
             log(
-                f"  Degraded ledger {seq}: EntropyCount={entropy_count} "
-                f"FALLBACK"
+                f"  3/5 closed ledger {seq}: EntropyCount={count} "
+                f"Digest={digest[:16]}... FALLBACK"
             )
+        await ctx.sleep(2)
 
-    log(f"3/5 entropy summary: {degraded_fallback} fallback")
+    log(f"3/5 closed-ledger fallback samples: {degraded_fallback}")
 
     # Log checks tied to current transition mechanics:
     # - commit-set SHAMap publication is the observable output of entering the
