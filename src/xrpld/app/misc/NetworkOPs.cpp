@@ -1988,12 +1988,23 @@ NetworkOPsImp::mapComplete(std::shared_ptr<SHAMap> const& map, bool fromAcquire)
     if (fromAcquire)
     {
         auto const hash = map->getHash().as_uint256();
-        if (mConsensus.isExtensionSet(hash))
+        if (map->mapType() == SHAMapType::SIDECAR)
         {
-            // Extension sidecar set (commitSet, entropySet, or
-            // exportSigSet) — route through RCLConsensus to acquire
-            // consensus mutex before merging into extension state.
-            mConsensus.gotExtensionSet(map);
+            if (mConsensus.isExtensionSet(hash))
+            {
+                // Extension sidecar set (commitSet, entropySet, or
+                // exportSigSet) — route through RCLConsensus to acquire
+                // consensus mutex before merging into extension state.
+                mConsensus.gotExtensionSet(map);
+            }
+            else
+            {
+                // Sidecar acquisition can finish after the round that requested
+                // it. The map type is authoritative: a stale sidecar must not
+                // be reinterpreted as a candidate transaction set.
+                JLOG(m_journal.debug())
+                    << "Ignoring stale acquired sidecar set " << hash;
+            }
             return;
         }
         mConsensus.gotTxSet(app_.timeKeeper().closeTime(), RCLTxSet{map});
