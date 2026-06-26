@@ -8,6 +8,7 @@ import XahauConsensus.HonestOverlap
 import XahauConsensus.ViewUniverse
 import XahauConsensus.NunlCap
 import XahauConsensus.SidecarAlignment
+import XahauConsensus.SidecarObservation
 import XahauConsensus.EntropySelector
 import XahauConsensus.SelectorDeterminism
 import XahauConsensus.ExportGate
