@@ -410,7 +410,8 @@ doApply(
             calculateBaseFee(view, preclaimResult.tx),
             preclaimResult.flags,
             preclaimResult.j,
-            options.exportSignatureWitnesses);
+            options.exportSignatureWitnesses,
+            options.historicalLedgerReplay);
         return invoke_apply(ctx);
     }
     catch (std::exception const& e)

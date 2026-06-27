@@ -50,6 +50,12 @@ struct ApplyOptions
     // until another feature needs the same sibling-pseudo lookup.
     ExportResultBuilder::SignatureWitnesses const* exportSignatureWitnesses =
         nullptr;
+
+    // LedgerReplay rebuilds already-validated ledgers from persisted inputs.
+    // Export witnesses carry signing keys and signatures, but not the
+    // historical manifest map; current ManifestCache state may have rotated
+    // since the ledger closed.
+    bool historicalLedgerReplay = false;
 };
 
 /** Return true if the transaction can claim a fee (tec),

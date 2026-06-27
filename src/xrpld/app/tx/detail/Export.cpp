@@ -137,12 +137,16 @@ Export::doApply()
 
     auto const validatorView =
         consensusExtensions.makeActiveValidatorView(parentLedger);
+    bool const historicalReplay = ctx_.historicalLedgerReplay();
     auto const isActiveSigner = [standalone,
+                                 historicalReplay,
                                  &valKeys,
                                  &consensusExtensions,
                                  validatorView](PublicKey const& key) {
         if (standalone)
             return valKeys.keys && key == valKeys.keys->publicKey;
+        if (historicalReplay)
+            return true;
         return consensusExtensions.isActiveValidator(key, *validatorView);
     };
     // Closed-ledger export builds a local parent-ledger validator view, not the
@@ -201,6 +205,13 @@ Export::doApply()
         // sidecars, standalone helpers, or replay all hand signatures to Export
         // through the same transaction-stream witness; apply re-checks the
         // witness against this parent ledger before creating ledger effects.
+        //
+        // Historical LedgerReplay is reconstructing an already-validated
+        // ledger. The witness does not carry historical manifests, and the
+        // current ManifestCache may no longer map old rotated signing keys to
+        // their validator masters. In that mode, the persisted witness supplies
+        // membership material; apply still verifies each signature against the
+        // export transaction and requires the parent-view threshold.
         if (auto witness = ctx_.exportSignatureWitness(txId))
         {
             exportSignatureHash = witness->witnessHash;
@@ -227,9 +238,10 @@ Export::doApply()
     //@@start export-doapply-retry-without-signature-quorum
     if (signatures.size() < threshold)
     {
-        auto const sigCount =
-            consensusExtensions.exportSigCollector().signatureCount(
-                txId, isActiveSigner);
+        auto const sigCount = historicalReplay
+            ? std::size_t{0}
+            : consensusExtensions.exportSigCollector().signatureCount(
+                  txId, isActiveSigner);
         // LLS semantics for retriable exports:
         //
         // Transactor::preclaim rejects with tefMAX_LEDGER when
@@ -250,8 +262,10 @@ Export::doApply()
             auto const lls = ctx_.tx.getFieldU32(sfLastLedgerSequence);
             if (currentSeq >= lls)
             {
-                ctx_.app.getConsensusExtensions().exportSigCollector().clear(
-                    txId);
+                if (!historicalReplay)
+                    ctx_.app.getConsensusExtensions()
+                        .exportSigCollector()
+                        .clear(txId);
                 JLOG(j_.info())
                     << "Export: last ledger expired"
                     << " txHash=" << txId << " ledgerSeq=" << currentSeq
@@ -262,7 +276,8 @@ Export::doApply()
             }
         }
 
-        upgradeUnverifiedForNextRound();
+        if (!historicalReplay)
+            upgradeUnverifiedForNextRound();
 
         JLOG(j_.info()) << "Export: insufficient signatures"
                         << " txHash=" << txId << " ledgerSeq=" << currentSeq
@@ -303,7 +318,8 @@ Export::doApply()
     avi->setExportResultMetaData(std::move(assembled.metadata));
 
     // Clean up the collector.
-    ctx_.app.getConsensusExtensions().exportSigCollector().clear(txId);
+    if (!historicalReplay)
+        ctx_.app.getConsensusExtensions().exportSigCollector().clear(txId);
 
     JLOG(j_.info()) << "Export: success"
                     << " txHash=" << txId << " ledgerSeq=" << currentSeq

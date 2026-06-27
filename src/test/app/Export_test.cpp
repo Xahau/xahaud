@@ -892,6 +892,89 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportHistoricalReplayIgnoresCurrentManifestMap(FeatureBitset features)
+    {
+        testcase(
+            "ttEXPORT historical replay does not require current manifest");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        seedUNLReportLedger(env, {valKeys.keys->publicKey});
+        forceNonStandalone(env.app());
+        BEAST_EXPECT(!env.app().config().standalone());
+
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        auto const applySeq = parent->seq() + 1;
+        auto const ticketSeq = std::uint32_t{1};
+        auto innerObj = buildExportedPayment(
+            alice.id(), carol.id(), applySeq, applySeq + 5, ticketSeq);
+        auto const innerTx = makeSTTx(innerObj);
+        auto jt = makeExportJTx(env, alice, innerObj, applySeq + 5);
+        auto const exportTx = jt.stx;
+        BEAST_EXPECT(exportTx);
+        if (!exportTx)
+            return;
+        auto const txHash = exportTx->getTransactionID();
+
+        auto const oldSigningKey = randomKeyPair(KeyType::secp256k1);
+        auto const sig = ExportResultBuilder::signExportedTxn(
+            innerTx, oldSigningKey.first, oldSigningKey.second);
+
+        ExportResultBuilder::SignatureSnapshot signatures;
+        signatures.emplace(oldSigningKey.first, sig);
+        auto const exportSignatureWitnesses =
+            makeExportSignatureWitnesses(txHash, signatures, applySeq);
+
+        ApplyOptions const liveOptions{&exportSignatureWitnesses};
+        {
+            auto next = std::make_shared<Ledger>(
+                *parent, env.app().timeKeeper().closeTime());
+            OpenView accum(&*next);
+            auto const result = ripple::apply(
+                env.app(), accum, *exportTx, tapNONE, env.journal, liveOptions);
+            BEAST_EXPECT(result.ter == terRETRY_EXPORT);
+            BEAST_EXPECT(!result.applied);
+        }
+
+        // Historical replay reconstructs an already-validated ledger. The
+        // persisted witness supplies the historical signing-key membership;
+        // current ManifestCache may no longer know a rotated signing key.
+        ApplyOptions const replayOptions{&exportSignatureWitnesses, true};
+        auto const expectedSignedTxHash =
+            ExportResultBuilder::assemble(innerTx, signatures, applySeq, txHash)
+                .signedTxHash;
+
+        auto replayed = std::make_shared<Ledger>(
+            *parent, env.app().timeKeeper().closeTime());
+        OpenView accum(&*replayed);
+        auto const replayResult = ripple::apply(
+            env.app(), accum, *exportTx, tapNONE, env.journal, replayOptions);
+        BEAST_EXPECT(replayResult.ter == tesSUCCESS);
+        BEAST_EXPECT(replayResult.applied);
+        accum.apply(*replayed);
+
+        auto const st =
+            replayed->read(keylet::shadowTicket(alice.id(), ticketSeq));
+        BEAST_EXPECT(st);
+        if (st)
+            BEAST_EXPECT(
+                st->getFieldH256(sfTransactionHash) == expectedSignedTxHash);
+    }
+
+    void
     testExportNetworkRetryWithoutUNLReport(FeatureBitset features)
     {
         testcase("ttEXPORT network mode retries without UNLReport view");
@@ -1568,6 +1651,7 @@ struct Export_test : public beast::unit_test::suite
         testExportTxnOpenLedger(allWithExport);
         testExportNetworkRetryWithoutQuorum(allWithExport);
         testExportNetworkApplyUsesAgreedSidecar(allWithExport);
+        testExportHistoricalReplayIgnoresCurrentManifestMap(allWithExport);
         testExportNetworkRetryWithoutUNLReport(allWithExport);
         testExportNetworkLastLedgerSequenceBoundary(allWithExport);
         testOpenLedgerExportLimit(allWithExport);

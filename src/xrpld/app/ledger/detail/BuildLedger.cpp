@@ -28,13 +28,17 @@
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/TxFormats.h>
 
+#include <set>
+
 namespace ripple {
 namespace {
 
 void
 collectExportSignatureWitness(
     ExportResultBuilder::SignatureWitnesses& witnesses,
+    std::set<uint256>& ambiguousWitnesses,
     STTx const& tx,
+    LedgerIndex ledgerSeq,
     beast::Journal j)
 {
     if (tx.getTxnType() != ttEXPORT_SIGNATURES)
@@ -42,7 +46,37 @@ collectExportSignatureWitness(
 
     try
     {
+        if (!tx.isFieldPresent(sfTransactionHash) ||
+            !tx.isFieldPresent(sfLedgerSequence) ||
+            !tx.isFieldPresent(sfAccount) || !tx.isFieldPresent(sfSequence) ||
+            !tx.isFieldPresent(sfFee))
+        {
+            JLOG(j.warn()) << "Export: ignoring incomplete signature witness"
+                           << " witnessHash=" << tx.getTransactionID();
+            return;
+        }
+
         auto const exportTxHash = tx.getFieldH256(sfTransactionHash);
+        if (ambiguousWitnesses.count(exportTxHash))
+        {
+            JLOG(j.warn()) << "Export: ignoring ambiguous signature witness"
+                           << " witnessHash=" << tx.getTransactionID()
+                           << " exportTxHash=" << exportTxHash;
+            return;
+        }
+
+        if (tx.getFieldU32(sfLedgerSequence) != ledgerSeq ||
+            tx.getAccountID(sfAccount) != AccountID{} ||
+            tx.getFieldU32(sfSequence) != 0 ||
+            tx.getFieldAmount(sfFee) != beast::zero)
+        {
+            JLOG(j.warn()) << "Export: ignoring non-canonical signature witness"
+                           << " witnessHash=" << tx.getTransactionID()
+                           << " exportTxHash=" << exportTxHash
+                           << " ledgerSeq=" << ledgerSeq;
+            return;
+        }
+
         auto signatures = ExportResultBuilder::signaturesFromWitness(tx);
         if (!signatures)
         {
@@ -53,15 +87,20 @@ collectExportSignatureWitness(
         }
 
         auto const witnessHash = tx.getTransactionID();
-        auto const [_, inserted] = witnesses.emplace(
+        auto const [it, inserted] = witnesses.emplace(
             exportTxHash,
             ExportResultBuilder::SignatureWitness{
                 witnessHash, std::move(*signatures)});
         if (!inserted)
         {
+            auto const existingHash = it->second.witnessHash;
+            ambiguousWitnesses.insert(exportTxHash);
+            witnesses.erase(it);
             JLOG(j.warn()) << "Export: duplicate signature witness"
                            << " witnessHash=" << witnessHash
-                           << " exportTxHash=" << exportTxHash;
+                           << " existingHash=" << existingHash
+                           << " exportTxHash=" << exportTxHash
+                           << " action=drop-ambiguous";
         }
     }
     catch (std::exception const& e)
@@ -153,11 +192,16 @@ applyTransactions(
     std::size_t count = 0;
 
     ExportResultBuilder::SignatureWitnesses exportSignatureWitnesses;
+    std::set<uint256> ambiguousExportSignatureWitnesses;
     for (auto const& entry : txns)
     {
         if (entry.second)
             collectExportSignatureWitness(
-                exportSignatureWitnesses, *entry.second, j);
+                exportSignatureWitnesses,
+                ambiguousExportSignatureWitnesses,
+                *entry.second,
+                view.seq(),
+                j);
     }
     ApplyOptions const applyOptions{&exportSignatureWitnesses};
 
@@ -338,13 +382,18 @@ buildLedger(
         j,
         [&](OpenView& accum, std::shared_ptr<Ledger> const& built) {
             ExportResultBuilder::SignatureWitnesses exportSignatureWitnesses;
+            std::set<uint256> ambiguousExportSignatureWitnesses;
             for (auto const& tx : replayData.orderedTxns())
             {
                 if (tx.second)
                     collectExportSignatureWitness(
-                        exportSignatureWitnesses, *tx.second, j);
+                        exportSignatureWitnesses,
+                        ambiguousExportSignatureWitnesses,
+                        *tx.second,
+                        accum.seq(),
+                        j);
             }
-            ApplyOptions const applyOptions{&exportSignatureWitnesses};
+            ApplyOptions const applyOptions{&exportSignatureWitnesses, true};
 
             for (auto& tx : replayData.orderedTxns())
                 applyTransaction(

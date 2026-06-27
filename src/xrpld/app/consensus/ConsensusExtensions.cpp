@@ -2055,16 +2055,16 @@ ConsensusExtensions::onPreBuild(
                 {
                     auto const existingHash =
                         existing->second->getTransactionID();
-                    if (existingHash != witnessHash)
-                    {
-                        JLOG(j_.error())
-                            << "Export: signature witness pseudo-tx mismatch"
-                            << " exportTxHash=" << exportTxHash
-                            << " witnessHash=" << witnessHash
-                            << " existingHash=" << existingHash
-                            << " action=keep-agreed-and-flag";
-                    }
-                    continue;
+                    if (existingHash == witnessHash)
+                        continue;
+
+                    JLOG(j_.error())
+                        << "Export: signature witness pseudo-tx mismatch"
+                        << " exportTxHash=" << exportTxHash
+                        << " witnessHash=" << witnessHash
+                        << " existingHash=" << existingHash
+                        << " action=replace-with-agreed";
+                    retriableTxs.erase(existing);
                 }
 
                 // Export signatures change the shadow-ticket hash, so they

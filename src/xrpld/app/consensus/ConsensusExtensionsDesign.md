@@ -369,7 +369,14 @@ Closed-ledger apply consumes the pre-scanned `ttEXPORT_SIGNATURES` witness, not
 the live collector and not ephemeral sidecar state. `Export::doApply` rebuilds
 the active validator view from the parent ledger, verifies each witness
 signature against the `ttEXPORT` inner transaction, requires source-view quorum,
-then canonically assembles the target-chain multisigned transaction. A node that
+then canonically assembles the target-chain multisigned transaction. During live
+build/validation, signing keys must still map through the node's current
+manifest cache to active parent-ledger validators. Historical `LedgerReplay` is
+different: it is reconstructing an already-validated ledger from its persisted
+transaction stream, and the witness does not carry a historical manifest map. In
+that mode, the witness supplies the historical membership material; apply still
+checks signatures and threshold, but does not reject an old signing key merely
+because today's manifest cache no longer maps it after rotation. A node that
 times out before accepting a root has no witness and retries/expires; a node
 that proceeds uses the same transaction-stream witness during live build and
 historical replay. The build-scoped witness map is only an index over that
@@ -381,6 +388,13 @@ the witness pseudo, rather than duplicating the full signature payload. Clients
 assemble the final foreign-chain blob from `ttEXPORT` plus the witness
 signatures, or can use a convenience RPC/helper that performs that pure
 read-time assembly.
+
+This is intentionally leaner than XPOP. XPOP carries its own UNL and manifest
+bundle so it can be independently verified as an external proof. Export witnesses
+are not external proof bundles; they are inputs that made it into validated
+ledger history. Making them self-contained would require embedding manifest
+material or equivalent signing-key history in every witness, which is a separate
+protocol/storage design.
 
 Closed-ledger apply must not promote unverified proposal-carried signatures into
 current-round quorum material. It may verify and retain them for a future retry,

@@ -37,7 +37,8 @@ ApplyContext::ApplyContext(
     XRPAmount baseFee_,
     ApplyFlags flags,
     beast::Journal journal_,
-    ExportResultBuilder::SignatureWitnesses const* exportSignatureWitnesses)
+    ExportResultBuilder::SignatureWitnesses const* exportSignatureWitnesses,
+    bool historicalLedgerReplay)
     : app(app_)
     , tx(tx_)
     , preclaimResult(preclaimResult_)
@@ -46,6 +47,7 @@ ApplyContext::ApplyContext(
     , base_(base)
     , flags_(flags)
     , exportSignatureWitnesses_(exportSignatureWitnesses)
+    , historicalLedgerReplay_(historicalLedgerReplay)
 {
     view_.emplace(&base_, flags_);
 }

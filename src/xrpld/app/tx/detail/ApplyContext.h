@@ -45,7 +45,8 @@ public:
         ApplyFlags flags,
         beast::Journal = beast::Journal{beast::Journal::getNullSink()},
         ExportResultBuilder::SignatureWitnesses const*
-            exportSignatureWitnesses = nullptr);
+            exportSignatureWitnesses = nullptr,
+        bool historicalLedgerReplay = false);
 
     Application& app;
     STTx const& tx;
@@ -145,6 +146,12 @@ public:
         return it->second;
     }
 
+    bool
+    historicalLedgerReplay() const
+    {
+        return historicalLedgerReplay_;
+    }
+
     ApplyFlags const&
     flags()
     {
@@ -166,6 +173,7 @@ private:
     ApplyFlags flags_;
     std::optional<ApplyViewImpl> view_;
     ExportResultBuilder::SignatureWitnesses const* exportSignatureWitnesses_;
+    bool historicalLedgerReplay_;
 };
 
 }  // namespace ripple

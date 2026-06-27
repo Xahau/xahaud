@@ -56,9 +56,13 @@ accepted sidecar set; standalone/dev helpers may produce the same witness from
 the local validator key. Ledger build pre-scans the ordered transaction stream
 into a build-local index, and `ttEXPORT` apply consumes that pre-scanned witness.
 The index is not an extra consensus input; it is only an efficient lookup over
-the canonical transaction set. Apply re-verifies signer activity and signatures
-against the parent-ledger active view (or the standalone validator key), and
-derives the signed target-chain transaction hash from that replayable input.
+the canonical transaction set. Live build/validation re-verifies signer
+activity through the parent-ledger active view plus current manifest cache (or
+the standalone validator key), verifies signatures, and derives the signed
+target-chain transaction hash from that replayable input. Historical
+`LedgerReplay` still verifies signatures and threshold, but it treats the
+persisted witness as the historical membership source because current manifests
+may no longer map old rotated signing keys.
 
 **INV-5 — Store the witness once.**
 The signature witness is canonical input; metadata is output. Metadata may carry
@@ -93,3 +97,10 @@ Metadata stores `sfExportSignatureHash`, a direct reference to the witness
 pseudo, rather than duplicating the signature payload as an assembled
 `sfExportedTxn` blob. Clients assemble the final foreign-chain transaction from
 the original `ttEXPORT` inner transaction plus the witness signatures.
+
+This is not an XPOP-style self-contained proof. XPOP embeds its UNL and manifest
+bundle because it is imported as external proof material. Export witnesses are
+validated-history replay inputs. If we later want trustless historical
+re-verification without relying on validated inclusion, the larger design is to
+ledger-anchor validator signing-key history (for example via `UNLReport`) or to
+embed manifest proof material; that is intentionally out of scope here.
