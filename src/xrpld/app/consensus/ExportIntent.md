@@ -96,7 +96,12 @@ for the validator signatures.
 Metadata stores `sfExportSignatureHash`, a direct reference to the witness
 pseudo, rather than duplicating the signature payload as an assembled
 `sfExportedTxn` blob. Clients assemble the final foreign-chain transaction from
-the original `ttEXPORT` inner transaction plus the witness signatures.
+the original `ttEXPORT` inner transaction plus the witness signatures. Assembly
+must follow the same deterministic contract as `ExportResultBuilder`: sort
+signers canonically by AccountID, use an empty `SigningPubKey`, and cap the
+target-chain `Signers` array at `STTx::maxMultiSigners()` before computing or
+submitting the blob. The witness may contain extra source-side signatures that
+are valid replay input but are not part of the target-chain blob.
 
 This is not an XPOP-style self-contained proof. XPOP embeds its UNL and manifest
 bundle because it is imported as external proof material. Export witnesses are

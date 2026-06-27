@@ -387,7 +387,10 @@ successful-but-different export blobs while preserving the bounded wait model.
 the witness pseudo, rather than duplicating the full signature payload. Clients
 assemble the final foreign-chain blob from `ttEXPORT` plus the witness
 signatures, or can use a convenience RPC/helper that performs that pure
-read-time assembly.
+read-time assembly. That expansion must match `ExportResultBuilder`: canonical
+AccountID signer ordering, empty `SigningPubKey`, and the target-chain signer
+cap (`STTx::maxMultiSigners()`) before hashing or submitting. The witness can
+carry more source-side signatures than the destination transaction may include.
 
 This is intentionally leaner than XPOP. XPOP carries its own UNL and manifest
 bundle so it can be independently verified as an external proof. Export witnesses

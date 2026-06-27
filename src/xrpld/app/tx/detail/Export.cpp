@@ -306,7 +306,9 @@ Export::doApply()
 
     // Write the export result to metadata. The metadata references the replay
     // witness pseudo instead of duplicating the validator signatures; clients
-    // assemble the destination transaction from ttEXPORT + ttEXPORT_SIGNATURES.
+    // assemble the destination transaction from ttEXPORT + ttEXPORT_SIGNATURES
+    // using the same canonical signer order and target-chain cap as
+    // ExportResultBuilder.
     auto* avi = dynamic_cast<ApplyViewImpl*>(&view());
     if (!avi)
     {
