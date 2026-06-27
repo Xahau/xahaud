@@ -31,6 +31,7 @@
 #include <xrpld/consensus/Validations.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/utility/WrappedSink.h>
+#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <boost/container/flat_map.hpp>
 #include <algorithm>
@@ -353,7 +354,7 @@ struct Peer
         uint256 lastEntropyDigest_;
         std::uint16_t lastEntropyCount_ = 0;
         bool lastEntropyWasFallback_ = true;
-        std::uint8_t lastEntropyTier_ = 0;  // mirrors EntropyTier values
+        EntropyTier lastEntropyTier_ = entropyTierNone;
         bool lastExportSucceeded_ = false;
         bool lastExportRetried_ = false;
         std::size_t exportSigFetchMerges_ = 0;
@@ -858,7 +859,7 @@ struct Peer
                 lastEntropyDigest_.zero();
                 lastEntropyCount_ = 0;
                 lastEntropyWasFallback_ = true;
-                lastEntropyTier_ = 0;
+                lastEntropyTier_ = entropyTierNone;
                 return;
             }
 
@@ -868,7 +869,7 @@ struct Peer
                 lastEntropyDigest_ = fallbackEntropy();
                 lastEntropyCount_ = 0;
                 lastEntropyWasFallback_ = true;
-                lastEntropyTier_ = 1;  // consensus_fallback
+                lastEntropyTier_ = entropyTierConsensusFallback;
             };
 
             // Finalize from the snapshot of the entropy set this peer last
@@ -930,9 +931,9 @@ struct Peer
             // participant_aligned, else too few aligned to trust -> fall back.
             auto const count = ordered.size();
             if (count >= quorumThreshold())
-                lastEntropyTier_ = 3;  // validator_quorum
+                lastEntropyTier_ = entropyTierValidatorQuorum;
             else if (count >= tier2Threshold())
-                lastEntropyTier_ = 2;  // participant_aligned
+                lastEntropyTier_ = entropyTierParticipantAligned;
             else
             {
                 fallback();

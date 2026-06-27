@@ -2420,16 +2420,14 @@ ConsensusExtensions::verifyProof(
 {
     try
     {
-        SerialIter sit(makeSlice(proofBlob));
+        auto const proof = deserializeProof(proofBlob);
+        if (!proof)
+            return false;
 
-        auto proposeSeq = sit.get32();
-        auto closeTime = sit.get32();
-        auto prevLedger = sit.get256();
-        auto positionData = sit.getVL();
-        auto signature = sit.getVL();
+        auto const positionData = proof->positionData.slice();
 
         // Deserialize ExtendedPosition from the proof
-        SerialIter posIter(makeSlice(positionData));
+        SerialIter posIter(positionData);
         auto maybePos =
             ExtendedPosition::fromSerialIter(posIter, positionData.size());
         if (!maybePos)
@@ -2452,10 +2450,17 @@ ConsensusExtensions::verifyProof(
         // Recompute the signing hash (must match
         // ConsensusProposal::signingHash)
         auto signingHash = sha512Half(
-            HashPrefix::proposal, proposeSeq, closeTime, prevLedger, position);
+            HashPrefix::proposal,
+            proof->proposeSeq,
+            proof->closeTime,
+            proof->prevLedger,
+            position);
 
         // Verify the proposal signature
-        return verifyDigest(publicKey, signingHash, makeSlice(signature));
+        return verifyDigest(
+            publicKey,
+            signingHash,
+            Slice(proof->signature.data(), proof->signature.size()));
     }
     catch (std::exception const&)
     {

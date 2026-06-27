@@ -20,6 +20,7 @@
 #include <test/unit_test/SuiteJournal.h>
 #include <xrpld/consensus/Consensus.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/EntropyTier.h>
 
 namespace ripple {
 namespace test {
@@ -154,7 +155,9 @@ public:
                 // still converges (no hang, no fork): same non-zero digest and
                 // count across all.
                 BEAST_EXPECT(!peer->ce().lastEntropyWasFallback_);
-                BEAST_EXPECT(peer->ce().lastEntropyTier_ == 2);
+                BEAST_EXPECT(
+                    peer->ce().lastEntropyTier_ ==
+                    entropyTierParticipantAligned);
                 BEAST_EXPECT(peer->ce().lastEntropyCount_ == 2);
                 BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
                 BEAST_EXPECT(
@@ -209,7 +212,9 @@ public:
                 // hook still rejects this). Deterministic + identical across
                 // the group — no fork.
                 BEAST_EXPECT(!peer->ce().lastEntropyWasFallback_);
-                BEAST_EXPECT(peer->ce().lastEntropyTier_ == 2);
+                BEAST_EXPECT(
+                    peer->ce().lastEntropyTier_ ==
+                    entropyTierParticipantAligned);
                 BEAST_EXPECT(peer->ce().lastEntropyCount_ == 2);
                 BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
                 BEAST_EXPECT(
@@ -260,7 +265,9 @@ public:
             for (Peer const* peer : cohort)
             {
                 BEAST_EXPECT(!peer->ce().lastEntropyWasFallback_);
-                BEAST_EXPECT(peer->ce().lastEntropyTier_ == 2);
+                BEAST_EXPECT(
+                    peer->ce().lastEntropyTier_ ==
+                    entropyTierParticipantAligned);
                 BEAST_EXPECT(peer->ce().lastEntropyCount_ == 4);
                 BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
                 BEAST_EXPECT(
@@ -970,7 +977,9 @@ public:
         for (Peer const* peer : honest)
         {
             BEAST_EXPECT(peer->ce().lastEntropyWasFallback_);
-            BEAST_EXPECT(peer->ce().lastEntropyTier_ == 1);
+            BEAST_EXPECT(
+                peer->ce().lastEntropyTier_ ==
+                entropyTierConsensusFallback);
             BEAST_EXPECT(peer->ce().lastEntropyCount_ == 0);
             BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
         }

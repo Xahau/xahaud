@@ -2301,8 +2301,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(ce.pendingCommitCount() == 0);
 
-        // verifyProof ignores trailing bytes, but deserializeProof rejects them
-        // before caching the proof for deterministic sidecar rebuilds.
+        // The shared proof parser rejects trailing bytes before verification
+        // or deterministic proof caching.
         auto malformedProof = makeCommitProof(digest);
         malformedProof.push_back(0);
         auto malformedProofSidecar =
