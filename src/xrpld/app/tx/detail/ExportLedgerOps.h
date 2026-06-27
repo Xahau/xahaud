@@ -6,6 +6,7 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/TER.h>
 
@@ -99,11 +100,11 @@ checkExportTxnLimit(ReadView const& view, beast::Journal j)
 /// the local network. Returns tesSUCCESS if OK, or a TER error code.
 ///
 /// Rules (per upstream rippled Transactor.cpp):
-///   - Networks <= 1024: sfNetworkID must NOT be present on txns
-///   - Networks > 1024:  sfNetworkID is REQUIRED and must match
+///   - Legacy networks: sfNetworkID must NOT be present on txns
+///   - Other networks:  sfNetworkID is REQUIRED and must match
 ///
 /// So: if exported tx has sfNetworkID matching local → self-target.
-///     if local NETWORK_ID <= 1024 and tx has no sfNetworkID → can't
+///     if local NETWORK_ID is legacy and tx has no sfNetworkID → can't
 ///     distinguish self from another low-ID chain, reject.
 inline TER
 validateNetworkID(
@@ -120,7 +121,8 @@ validateNetworkID(
         return temMALFORMED;
     }
 
-    if (localNetworkID <= 1024 && !stx.isFieldPresent(sfNetworkID))
+    if (!requiresTxNetworkID(localNetworkID) &&
+        !stx.isFieldPresent(sfNetworkID))
     {
         JLOG(j.warn()) << "ExportLedgerOps: rejected export with "
                           "ambiguous low NETWORK_ID";

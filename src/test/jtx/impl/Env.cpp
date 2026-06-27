@@ -42,6 +42,7 @@
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/LedgerFormats.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/SystemParameters.h>
 #include <xrpl/protocol/TER.h>
@@ -511,7 +512,7 @@ Env::acct_autofill(JTx& jt, Account const& account)
         jtx::fill_seq(jv, *current());
 
     uint32_t networkID = app().config().NETWORK_ID;
-    if (!jv.isMember(jss::NetworkID) && networkID > 1024)
+    if (!jv.isMember(jss::NetworkID) && requiresTxNetworkID(networkID))
         jv[jss::NetworkID] = std::to_string(networkID);
 
     // Must come last
@@ -538,7 +539,7 @@ Env::autofill(JTx& jt)
     if (jt.fill_netid)
     {
         uint32_t networkID = app().config().NETWORK_ID;
-        if (!jv.isMember(jss::NetworkID) && networkID > 1024)
+        if (!jv.isMember(jss::NetworkID) && requiresTxNetworkID(networkID))
             jv[jss::NetworkID] = std::to_string(networkID);
     }
 

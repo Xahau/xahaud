@@ -38,6 +38,7 @@
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/jss.h>
@@ -673,13 +674,14 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(
             ExportLedgerOps::validateNetworkID(innerTx, 0, j) == temMALFORMED);
         BEAST_EXPECT(
-            ExportLedgerOps::validateNetworkID(innerTx, 1024, j) ==
-            temMALFORMED);
+            ExportLedgerOps::validateNetworkID(
+                innerTx, maxNetworkIDWithoutTxField, j) == temMALFORMED);
 
         // A high-ID source chain can still export to a legacy low-ID
         // destination whose transactions omit sfNetworkID.
         BEAST_EXPECT(
-            ExportLedgerOps::validateNetworkID(innerTx, 1025, j) == tesSUCCESS);
+            ExportLedgerOps::validateNetworkID(
+                innerTx, maxNetworkIDWithoutTxField + 1, j) == tesSUCCESS);
     }
 
     void

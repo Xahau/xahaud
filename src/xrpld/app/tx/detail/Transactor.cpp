@@ -59,10 +59,9 @@ preflight0(PreflightContext const& ctx)
         uint32_t nodeNID = ctx.app.config().NETWORK_ID;
         std::optional<uint32_t> txNID = ctx.tx[~sfNetworkID];
 
-        if (nodeNID <= 1024)
+        if (!requiresTxNetworkID(nodeNID))
         {
-            // legacy networks have ids less than 1024, these networks cannot
-            // specify NetworkID in txn
+            // Legacy networks cannot specify NetworkID in txn.
             if (txNID)
                 return telNETWORK_ID_MAKES_TX_NON_CANONICAL;
         }
