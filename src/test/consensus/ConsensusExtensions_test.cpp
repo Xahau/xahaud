@@ -2204,11 +2204,16 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             sidecar.setFieldVL(sfSigningPubKey, pk.slice());
             return sidecar;
         };
-        auto makeCommitProof = [&](uint256 const& value, std::uint32_t n = 0) {
+        auto makeCommitProofWithPrev = [&](uint256 const& value,
+                                           std::uint32_t n,
+                                           uint256 const& proofPrevLedger) {
             ExtendedPosition position{txSetHash};
             position.myCommitment = value;
             return makeProofBlob(
-                publicKey, secretKey, position, n, closeTime, prevLedger);
+                publicKey, secretKey, position, n, closeTime, proofPrevLedger);
+        };
+        auto makeCommitProof = [&](uint256 const& value, std::uint32_t n = 0) {
+            return makeCommitProofWithPrev(value, n, prevLedger);
         };
         auto makeRevealProof = [&](uint256 const& value, std::uint32_t n = 1) {
             ExtendedPosition position{txSetHash};
@@ -2273,9 +2278,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(ce.pendingCommitCount() == 0);
 
-        // A fetched leaf is still untrusted even when it decodes as an STObject.
-        // Malformed sfSigningPubKey bytes must be rejected before PublicKey
-        // construction, which aborts on invalid key material.
+        // A fetched leaf is still untrusted even when it decodes as an
+        // STObject. Malformed sfSigningPubKey bytes must be rejected before
+        // PublicKey construction, which aborts on invalid key material.
         auto malformedKeySidecar =
             makeRngSidecar(sidecarRngReveal, nodeId, publicKey, digest, seq);
         Blob const malformedKey{0xff, 0x00, 0x01};
@@ -2320,6 +2325,19 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app(),
             ce,
             makeSidecarSet(env.app(), {outOfRoundSidecar}),
+            ConsensusExtensions::SidecarKind::commitSet);
+        BEAST_EXPECT(ce.pendingCommitCount() == 0);
+
+        auto crossRoundProofSidecar =
+            makeRngSidecar(sidecarRngCommit, nodeId, publicKey, digest, seq);
+        crossRoundProofSidecar.setFieldVL(
+            sfBlob,
+            makeCommitProofWithPrev(
+                digest, 0, makeHash("invalid-fetched-old-parent")));
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            makeSidecarSet(env.app(), {crossRoundProofSidecar}),
             ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(ce.pendingCommitCount() == 0);
 
@@ -3368,8 +3386,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!ce.exportSigCollector().hasUnverifiedSignatures());
         BEAST_EXPECT(ce.pendingCommitCount() == 0);
 
-        auto const sig =
-            signPosition(senderPK, senderSK, position, 0, closeTime, prevLedger);
+        auto const sig = signPosition(
+            senderPK, senderSK, position, 0, closeTime, prevLedger);
 
         ce.onTrustedPeerProposal(
             calcNodeID(senderPK),

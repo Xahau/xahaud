@@ -337,6 +337,13 @@ Do not use avalanche-style transaction inclusion logic for sidecar inputs.
 For RNG and export sidecars, the disagreement to resolve is usually timing or
 delivery, not whether a valid contribution should be included.
 
+Fetched RNG proofs must be bound to the consensus parent ledger for the round
+being merged. A proof that verifies a proposal signature for some older parent
+is not valid sidecar evidence for the current round, even if the sidecar leaf
+claims the current sequence. The parent-ledger binding is what prevents a stale
+commit proof from being relabeled into a new round and displacing the in-round
+commit/reveal pair.
+
 The entropy sidecar gate always gives peers at least one observation tick after
 publishing `entropySetHash`. Publishing and accepting in the same tick can hide
 conflicts and produce asymmetric zero/non-zero outcomes.

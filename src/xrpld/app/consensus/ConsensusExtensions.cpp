@@ -1433,6 +1433,35 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                         << " hash=" << hash;
                     return;
                 }
+                // The proposal proof authenticates a digest for one parent
+                // ledger. A fetched sidecar leaf must be bound to this round's
+                // parent too; otherwise an old commit proof can be relabeled
+                // with the current sequence and suppress the in-round reveal.
+                auto const expectedProofPrevLedger =
+                    [&]() -> std::optional<uint256> {
+                    if (!roundPrevLedgerHash_.isZero())
+                        return roundPrevLedgerHash_;
+                    auto const validatorView = activeValidatorView();
+                    if (validatorView->sourceLedgerHash)
+                        return *validatorView->sourceLedgerHash;
+                    return std::nullopt;
+                }();
+                if (!expectedProofPrevLedger ||
+                    parsedProof->prevLedger != *expectedProofPrevLedger)
+                {
+                    JLOG(j_.warn())
+                        << "RNG: rejecting acquired entry"
+                        << " reason=wrong-proof-parent"
+                        << " kind=" << (isCommitSet ? "commit" : "reveal")
+                        << " source=" << sourceTag << " node=" << nodeId
+                        << " hash=" << hash
+                        << " proofPrev=" << parsedProof->prevLedger
+                        << " expected="
+                        << (expectedProofPrevLedger
+                                ? to_string(*expectedProofPrevLedger)
+                                : std::string{"unknown"});
+                    return;
+                }
             }
             else if (isCommitSet)
             {
