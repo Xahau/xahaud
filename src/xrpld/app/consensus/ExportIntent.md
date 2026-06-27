@@ -101,7 +101,9 @@ must follow the same deterministic contract as `ExportResultBuilder`: sort
 signers canonically by AccountID, use an empty `SigningPubKey`, and cap the
 target-chain `Signers` array at `STTx::maxMultiSigners()` before computing or
 submitting the blob. The witness may contain extra source-side signatures that
-are valid replay input but are not part of the target-chain blob.
+are valid replay input but are not part of the target-chain blob. Source-chain
+export does not prove the destination account's SignerList or quorum policy;
+that compatibility is an operator/client contract for the chosen target chain.
 
 This is not an XPOP-style self-contained proof. XPOP embeds its UNL and manifest
 bundle because it is imported as external proof material. Export witnesses are

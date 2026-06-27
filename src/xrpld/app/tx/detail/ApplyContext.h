@@ -27,10 +27,13 @@
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/XRPAmount.h>
+#include <memory>
 #include <optional>
 #include <utility>
 
 namespace ripple {
+
+class Ledger;
 
 /** State information when applying a tx. */
 class ApplyContext
@@ -46,7 +49,8 @@ public:
         beast::Journal = beast::Journal{beast::Journal::getNullSink()},
         ExportResultBuilder::SignatureWitnesses const*
             exportSignatureWitnesses = nullptr,
-        bool historicalLedgerReplay = false);
+        bool historicalLedgerReplay = false,
+        std::shared_ptr<Ledger const> replayParentLedger = nullptr);
 
     Application& app;
     STTx const& tx;
@@ -152,6 +156,12 @@ public:
         return historicalLedgerReplay_;
     }
 
+    std::shared_ptr<Ledger const>
+    replayParentLedger() const
+    {
+        return replayParentLedger_;
+    }
+
     ApplyFlags const&
     flags()
     {
@@ -174,6 +184,7 @@ private:
     std::optional<ApplyViewImpl> view_;
     ExportResultBuilder::SignatureWitnesses const* exportSignatureWitnesses_;
     bool historicalLedgerReplay_;
+    std::shared_ptr<Ledger const> replayParentLedger_;
 };
 
 }  // namespace ripple

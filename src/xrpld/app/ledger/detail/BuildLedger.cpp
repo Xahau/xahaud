@@ -68,7 +68,9 @@ collectExportSignatureWitness(
         if (tx.getFieldU32(sfLedgerSequence) != ledgerSeq ||
             tx.getAccountID(sfAccount) != AccountID{} ||
             tx.getFieldU32(sfSequence) != 0 ||
-            tx.getFieldAmount(sfFee) != beast::zero)
+            tx.getFieldAmount(sfFee) != beast::zero ||
+            !tx.getSigningPubKey().empty() || !tx.getSignature().empty() ||
+            tx.isFieldPresent(sfPreviousTxnID))
         {
             JLOG(j.warn()) << "Export: ignoring non-canonical signature witness"
                            << " witnessHash=" << tx.getTransactionID()
@@ -203,7 +205,7 @@ applyTransactions(
                 view.seq(),
                 j);
     }
-    ApplyOptions const applyOptions{&exportSignatureWitnesses};
+    ApplyOptions const applyOptions{&exportSignatureWitnesses, false, nullptr};
 
     //@@start rng-entropy-first-application
     // CRITICAL: Apply consensus entropy pseudo-tx FIRST before any other
@@ -393,7 +395,8 @@ buildLedger(
                         accum.seq(),
                         j);
             }
-            ApplyOptions const applyOptions{&exportSignatureWitnesses, true};
+            ApplyOptions const applyOptions{
+                &exportSignatureWitnesses, true, replayData.parent()};
 
             for (auto& tx : replayData.orderedTxns())
                 applyTransaction(

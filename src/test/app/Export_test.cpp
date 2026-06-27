@@ -656,6 +656,33 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportRejectsAmbiguousLowNetworkID()
+    {
+        testcase("Export rejects absent NetworkID on low source networks");
+
+        using namespace jtx;
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+        auto innerObj = buildExportedPayment(alice.id(), carol.id(), 2, 6);
+        auto const innerTx = makeSTTx(innerObj);
+        auto const j = beast::Journal{beast::Journal::getNullSink()};
+
+        // Low-ID networks do not encode sfNetworkID on ordinary transactions,
+        // so an absent destination ID is ambiguous with a self-target.
+        BEAST_EXPECT(
+            ExportLedgerOps::validateNetworkID(innerTx, 0, j) == temMALFORMED);
+        BEAST_EXPECT(
+            ExportLedgerOps::validateNetworkID(innerTx, 1024, j) ==
+            temMALFORMED);
+
+        // A high-ID source chain can still export to a legacy low-ID
+        // destination whose transactions omit sfNetworkID.
+        BEAST_EXPECT(
+            ExportLedgerOps::validateNetworkID(innerTx, 1025, j) == tesSUCCESS);
+    }
+
+    void
     testXportEmissionLimit(FeatureBitset features)
     {
         testcase("Xport emitted export limit");
@@ -868,7 +895,8 @@ struct Export_test : public beast::unit_test::suite
         expectedSigs.emplace(valPK, originalSig);
         auto const exportSignatureWitnesses =
             makeExportSignatureWitnesses(txHash, expectedSigs, applySeq);
-        ApplyOptions const applyOptions{&exportSignatureWitnesses};
+        ApplyOptions const applyOptions{
+            &exportSignatureWitnesses, false, nullptr};
         auto const expectedSignedTxHash =
             ExportResultBuilder::assemble(
                 innerTx, expectedSigs, applySeq, txHash)
@@ -938,7 +966,8 @@ struct Export_test : public beast::unit_test::suite
         auto const exportSignatureWitnesses =
             makeExportSignatureWitnesses(txHash, signatures, applySeq);
 
-        ApplyOptions const liveOptions{&exportSignatureWitnesses};
+        ApplyOptions const liveOptions{
+            &exportSignatureWitnesses, false, nullptr};
         {
             auto next = std::make_shared<Ledger>(
                 *parent, env.app().timeKeeper().closeTime());
@@ -952,7 +981,8 @@ struct Export_test : public beast::unit_test::suite
         // Historical replay reconstructs an already-validated ledger. The
         // persisted witness supplies the historical signing-key membership;
         // current ManifestCache may no longer know a rotated signing key.
-        ApplyOptions const replayOptions{&exportSignatureWitnesses, true};
+        ApplyOptions const replayOptions{
+            &exportSignatureWitnesses, true, nullptr};
         auto const expectedSignedTxHash =
             ExportResultBuilder::assemble(innerTx, signatures, applySeq, txHash)
                 .signedTxHash;
@@ -1104,7 +1134,8 @@ struct Export_test : public beast::unit_test::suite
                 exportSignatureWitnesses =
                     makeExportSignatureWitnesses(txHash, signatures, applySeq);
             }
-            ApplyOptions const applyOptions{&exportSignatureWitnesses};
+            ApplyOptions const applyOptions{
+                &exportSignatureWitnesses, false, nullptr};
 
             auto next = std::make_shared<Ledger>(
                 *parent, env.app().timeKeeper().closeTime());
@@ -1645,6 +1676,7 @@ struct Export_test : public beast::unit_test::suite
         testXportPayment(allWithExport);
         testXportRejectsLocalNetworkID(allWithExport);
         testXportRejectsUnconfiguredNetworkID(allWithExport);
+        testExportRejectsAmbiguousLowNetworkID();
         testXportEmissionLimit(allWithExport);
 
         // ttEXPORT transactor tests

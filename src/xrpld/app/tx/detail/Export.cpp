@@ -125,8 +125,18 @@ Export::doApply()
     auto& consensusExtensions = ctx_.app.getConsensusExtensions();
     bool const standalone = ctx_.app.config().standalone();
     auto const& valKeys = ctx_.app.getValidatorKeys();
-    auto const parentLedger =
-        ctx_.app.getLedgerMaster().getLedgerByHash(view().info().parentHash);
+    auto parentLedger = ctx_.replayParentLedger();
+    if (parentLedger && parentLedger->info().hash != view().info().parentHash)
+    {
+        JLOG(j_.warn()) << "Export: ignoring mismatched replay parent"
+                        << " txHash=" << txId << " ledgerSeq=" << currentSeq
+                        << " parentHash=" << view().info().parentHash
+                        << " replayParentHash=" << parentLedger->info().hash;
+        parentLedger.reset();
+    }
+    if (!parentLedger)
+        parentLedger = ctx_.app.getLedgerMaster().getLedgerByHash(
+            view().info().parentHash);
     if (!standalone && !parentLedger)
     {
         JLOG(j_.warn()) << "Export: retrying without parent ledger"

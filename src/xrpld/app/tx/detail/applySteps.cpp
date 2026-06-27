@@ -411,7 +411,8 @@ doApply(
             preclaimResult.flags,
             preclaimResult.j,
             options.exportSignatureWitnesses,
-            options.historicalLedgerReplay);
+            options.historicalLedgerReplay,
+            options.replayParentLedger);
         return invoke_apply(ctx);
     }
     catch (std::exception const& e)

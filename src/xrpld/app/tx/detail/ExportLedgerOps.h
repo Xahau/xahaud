@@ -103,8 +103,8 @@ checkExportTxnLimit(ReadView const& view, beast::Journal j)
 ///   - Networks > 1024:  sfNetworkID is REQUIRED and must match
 ///
 /// So: if exported tx has sfNetworkID matching local → self-target.
-///     if local NETWORK_ID is 0 (unconfigured) and tx has no
-///     sfNetworkID → can't distinguish self from cross-chain, reject.
+///     if local NETWORK_ID <= 1024 and tx has no sfNetworkID → can't
+///     distinguish self from another low-ID chain, reject.
 inline TER
 validateNetworkID(
     STTx const& stx,
@@ -120,10 +120,10 @@ validateNetworkID(
         return temMALFORMED;
     }
 
-    if (localNetworkID == 0 && !stx.isFieldPresent(sfNetworkID))
+    if (localNetworkID <= 1024 && !stx.isFieldPresent(sfNetworkID))
     {
         JLOG(j.warn()) << "ExportLedgerOps: rejected export with "
-                          "unconfigured NETWORK_ID";
+                          "ambiguous low NETWORK_ID";
         return temMALFORMED;
     }
 

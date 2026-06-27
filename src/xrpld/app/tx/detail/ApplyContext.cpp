@@ -38,7 +38,8 @@ ApplyContext::ApplyContext(
     ApplyFlags flags,
     beast::Journal journal_,
     ExportResultBuilder::SignatureWitnesses const* exportSignatureWitnesses,
-    bool historicalLedgerReplay)
+    bool historicalLedgerReplay,
+    std::shared_ptr<Ledger const> replayParentLedger)
     : app(app_)
     , tx(tx_)
     , preclaimResult(preclaimResult_)
@@ -48,6 +49,7 @@ ApplyContext::ApplyContext(
     , flags_(flags)
     , exportSignatureWitnesses_(exportSignatureWitnesses)
     , historicalLedgerReplay_(historicalLedgerReplay)
+    , replayParentLedger_(std::move(replayParentLedger))
 {
     view_.emplace(&base_, flags_);
 }

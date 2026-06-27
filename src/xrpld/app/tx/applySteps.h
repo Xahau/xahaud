@@ -24,9 +24,12 @@
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/beast/utility/Journal.h>
 
+#include <memory>
+
 namespace ripple {
 
 class Application;
+class Ledger;
 class STTx;
 class TxQ;
 
@@ -56,6 +59,11 @@ struct ApplyOptions
     // historical manifest map; current ManifestCache state may have rotated
     // since the ledger closed.
     bool historicalLedgerReplay = false;
+
+    // LedgerReplay can build consecutive ledgers before the rebuilt parent is
+    // visible through LedgerMaster. Export apply needs the exact replay parent
+    // to rebuild the historical validator view.
+    std::shared_ptr<Ledger const> replayParentLedger;
 };
 
 /** Return true if the transaction can claim a fee (tec),

@@ -333,6 +333,34 @@ public:
     }
 
     void
+    testRejectsNonCanonicalWitnessSigner()
+    {
+        testcase("signature witness validates signer account");
+
+        auto const src = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const signer = randomKeyPair(KeyType::secp256k1);
+        auto const wrongAccount = randomKeyPair(KeyType::secp256k1);
+        auto const innerTx = makeExportedPayment(
+            calcAccountID(src.first), calcAccountID(dst.first));
+        auto const exportTxHash = makeHash("bad-witness-signer");
+
+        ExportResultBuilder::SignatureSnapshot signatures;
+        signatures.emplace(
+            signer.first,
+            ExportResultBuilder::signExportedTxn(
+                innerTx, signer.first, signer.second));
+
+        auto witness = ExportResultBuilder::buildSignatureWitness(
+            exportTxHash, signatures, 654);
+        auto signers = witness.getFieldArray(sfSigners);
+        signers[0].setAccountID(sfAccount, calcAccountID(wrongAccount.first));
+        witness.setFieldArray(sfSigners, signers);
+
+        BEAST_EXPECT(!ExportResultBuilder::signaturesFromWitness(witness));
+    }
+
+    void
     run() override
     {
         testAssemblesSignedMetadata();
@@ -341,6 +369,7 @@ public:
         testCapsSignerArray();
         testAssemblesWitnessReferenceMetadata();
         testSignatureWitnessRoundTrip();
+        testRejectsNonCanonicalWitnessSigner();
     }
 };
 

@@ -1010,6 +1010,7 @@ RCLConsensus::Adaptor::onModeChange(ConsensusMode before, ConsensusMode after)
 ConsensusPhase
 RCLConsensus::phase() const
 {
+    std::lock_guard _{mutex_};
     return consensus_->phase();
 }
 

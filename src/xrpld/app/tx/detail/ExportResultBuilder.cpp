@@ -40,7 +40,8 @@ buildSigners(SignatureSnapshot const& signatures, bool capForTargetChain)
 
     // XRPL validates the Signers array size before checking signer weights.
     // Export quorum is decided earlier from the agreed sidecar snapshot; this
-    // cap only materializes a target-chain-valid canonical prefix.
+    // cap only materializes a protocol-size-valid canonical prefix. The
+    // destination account's SignerList/quorum remains an operator contract.
     if (capForTargetChain)
     {
         auto const maxSigners = STTx::maxMultiSigners();
@@ -114,12 +115,17 @@ signaturesFromWitness(STTx const& witness)
     for (auto const& signer : witness.getFieldArray(sfSigners))
     {
         if (signer.getFName() != sfSigner ||
+            !signer.isFieldPresent(sfAccount) ||
             !signer.isFieldPresent(sfSigningPubKey) ||
             !signer.isFieldPresent(sfTxnSignature))
             return std::nullopt;
 
         auto const pkBlob = signer.getFieldVL(sfSigningPubKey);
         if (!publicKeyType(makeSlice(pkBlob)))
+            return std::nullopt;
+
+        if (signer.getAccountID(sfAccount) !=
+            calcAccountID(PublicKey(makeSlice(pkBlob))))
             return std::nullopt;
 
         auto const sigBlob = signer.getFieldVL(sfTxnSignature);
