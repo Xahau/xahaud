@@ -115,7 +115,22 @@ sidecar gate has had its bounded chance to use proofed/quorum material.
    validating key and ledger. A protobuf field outside the signed validation is
    only transport metadata; it must not affect consensus-extension behavior.
 
-7. Ledger-defining sidecar material crosses apply as transaction-stream input.
+7. Fetched sidecar bytes are untrusted until semantic validation passes.
+
+   Content-addressed sidecar SHAMaps prove only byte identity under the advertised
+   root. They do not prove that a leaf is well-formed, authorized, or safe to
+   parse with unchecked protocol constructors. Every fetched leaf must first pass
+   cheap structural checks, safe key-type checks, active-view membership, and the
+   relevant cryptographic proof before it can enter pending RNG/export state.
+
+   This includes stored/cluster-relayed proposals: cluster trust may affect relay
+   and resource policy, but extension sidecars become ledger inputs and must be
+   harvested only after the proposal proof verifies against the claimed validator
+   key. *Anti-pattern:* constructing `PublicKey` from fetched `sfSigningPubKey`
+   bytes before `publicKeyType()`, or harvesting RNG/export sidecars from a
+   proposal whose signature failed validation.
+
+8. Ledger-defining sidecar material crosses apply as transaction-stream input.
 
    Sidecars are an establish-phase convergence mechanism, not a ledger replay
    input. If sidecar material changes a closed-ledger effect that cannot be
