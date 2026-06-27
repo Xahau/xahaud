@@ -559,7 +559,11 @@ ConsensusExtensions::selectEntropy(
         return fallback();
 
     std::sort(sorted.begin(), sorted.end(), [](auto const& a, auto const& b) {
-        return a.first.slice() < b.first.slice();
+        if (a.first.slice() < b.first.slice())
+            return true;
+        if (b.first.slice() < a.first.slice())
+            return false;
+        return a.second < b.second;
     });
 
     Serializer s;
@@ -2433,8 +2437,7 @@ ConsensusExtensions::onTrustedPeerProposal(
     {
         JLOG(j_.debug()) << "ConsensusExtensions: ignoring unsigned proposal "
                             "sidecars"
-                         << " node=" << nodeId
-                         << " proposeSeq=" << proposeSeq;
+                         << " node=" << nodeId << " proposeSeq=" << proposeSeq;
         return;
     }
 
