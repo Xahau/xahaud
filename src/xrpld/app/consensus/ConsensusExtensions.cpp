@@ -870,19 +870,8 @@ std::optional<ConsensusExtensions::ExportSignatureSnapshot>
 ConsensusExtensions::agreedExportSignatures(
     STTx const& exportTx,
     uint256 const& txHash,
-    ActiveValidatorView const& validatorView,
     std::size_t threshold) const
 {
-    if (!exportSigSetMap_)
-    {
-        JLOG(j_.warn()) << "Export: agreed exportSigSet missing"
-                        << " txHash=" << txHash << " threshold=" << threshold;
-        return std::nullopt;
-    }
-
-    ExportSignatureSnapshot signatures;
-    bool invalid = false;
-    auto const agreedHash = exportSigSetMap_->getHash().as_uint256();
     // A local exportSigSetMap_ is only candidate material until the sidecar
     // gate accepts its root. Without this guard, a timed-out node with a local
     // partial-but-quorum map could mint a different signed export blob from
@@ -890,21 +879,50 @@ ConsensusExtensions::agreedExportSignatures(
     if (!acceptedExportSigSetHash_)
     {
         JLOG(j_.warn()) << "Export: exportSigSet not accepted"
-                        << " setHash=" << agreedHash << " txHash=" << txHash
-                        << " threshold=" << threshold;
-        return std::nullopt;
-    }
-
-    if (agreedHash != *acceptedExportSigSetHash_)
-    {
-        JLOG(j_.warn()) << "Export: exportSigSet hash not accepted"
-                        << " setHash=" << agreedHash
-                        << " acceptedHash=" << *acceptedExportSigSetHash_
                         << " txHash=" << txHash << " threshold=" << threshold;
         return std::nullopt;
     }
 
-    exportSigSetMap_->visitLeaves(
+    auto const acceptedHash = *acceptedExportSigSetHash_;
+    std::shared_ptr<SHAMap> agreedMap;
+    if (exportSigSetMap_ &&
+        exportSigSetMap_->getHash().as_uint256() == acceptedHash)
+    {
+        agreedMap = exportSigSetMap_;
+    }
+    else
+    {
+        agreedMap = app_.getInboundTransactions().getSet(acceptedHash, false);
+    }
+
+    if (!agreedMap)
+    {
+        JLOG(j_.warn()) << "Export: accepted exportSigSet missing"
+                        << " acceptedHash=" << acceptedHash
+                        << " txHash=" << txHash << " threshold=" << threshold;
+        return std::nullopt;
+    }
+    if (agreedMap->mapType() != SHAMapType::SIDECAR)
+    {
+        JLOG(j_.warn()) << "Export: accepted exportSigSet has wrong map type"
+                        << " acceptedHash=" << acceptedHash
+                        << " txHash=" << txHash;
+        return std::nullopt;
+    }
+
+    auto const agreedHash = agreedMap->getHash().as_uint256();
+    if (agreedHash != acceptedHash)
+    {
+        JLOG(j_.warn()) << "Export: accepted exportSigSet hash mismatch"
+                        << " setHash=" << agreedHash
+                        << " acceptedHash=" << acceptedHash
+                        << " txHash=" << txHash;
+        return std::nullopt;
+    }
+
+    ExportSignatureSnapshot signatures;
+    bool invalid = false;
+    agreedMap->visitLeaves(
         [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
             if (invalid)
                 return;
@@ -943,8 +961,6 @@ ConsensusExtensions::agreedExportSignatures(
                     return;
 
                 PublicKey const valPK{makeSlice(pk)};
-                if (!isActiveValidator(valPK, validatorView))
-                    return;
 
                 auto const sigVL = sidecar.getFieldVL(sfTxnSignature);
                 auto const sigSlice = makeSlice(sigVL);
@@ -966,7 +982,7 @@ ConsensusExtensions::agreedExportSignatures(
                     !inserted)
                 {
                     JLOG(j_.warn())
-                        << "Export: agreed exportSigSet duplicate signer"
+                        << "Export: accepted exportSigSet duplicate signer"
                         << " setHash=" << agreedHash << " txHash=" << txHash
                         << " signer=" << toBase58(TokenType::NodePublic, valPK);
                     invalid = true;
@@ -987,7 +1003,7 @@ ConsensusExtensions::agreedExportSignatures(
 
     if (signatures.size() < threshold)
     {
-        JLOG(j_.info()) << "Export: agreed exportSigSet below quorum"
+        JLOG(j_.info()) << "Export: accepted exportSigSet below quorum"
                         << " setHash=" << agreedHash << " txHash=" << txHash
                         << " signers=" << signatures.size()
                         << " threshold=" << threshold;
@@ -2009,6 +2025,20 @@ ConsensusExtensions::onPreBuild(
     if (exportEnabled())
     {
         auto const validatorView = activeValidatorView();
+        for (auto it = retriableTxs.begin(); it != retriableTxs.end();)
+        {
+            auto const& tx = it->second;
+            if (tx && tx->getTxnType() == ttEXPORT_SIGNATURES)
+            {
+                // Live witnesses are build-time materializations of the
+                // accepted sidecar root. Remove stale or externally supplied
+                // pseudos before reinserting the deterministic witness below.
+                it = retriableTxs.erase(it);
+                continue;
+            }
+            ++it;
+        }
+
         if (app_.config().standalone())
         {
             auto const& valKeys = app_.getValidatorKeys();
@@ -2090,8 +2120,8 @@ ConsensusExtensions::onPreBuild(
                     continue;
 
                 auto const exportTxHash = stx->getTransactionID();
-                auto sigs = agreedExportSignatures(
-                    *stx, exportTxHash, *validatorView, threshold);
+                auto sigs =
+                    agreedExportSignatures(*stx, exportTxHash, threshold);
                 if (!sigs)
                     continue;
 

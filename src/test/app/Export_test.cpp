@@ -896,7 +896,10 @@ struct Export_test : public beast::unit_test::suite
         auto const exportSignatureWitnesses =
             makeExportSignatureWitnesses(txHash, expectedSigs, applySeq);
         ApplyOptions const applyOptions{
-            &exportSignatureWitnesses, false, nullptr};
+            &exportSignatureWitnesses,
+            ApplyOptions::ExportWitnessMembership::TrustConsensusMaterialized,
+            false,
+            nullptr};
         auto const expectedSignedTxHash =
             ExportResultBuilder::assemble(
                 innerTx, expectedSigs, applySeq, txHash)
@@ -967,7 +970,10 @@ struct Export_test : public beast::unit_test::suite
             makeExportSignatureWitnesses(txHash, signatures, applySeq);
 
         ApplyOptions const liveOptions{
-            &exportSignatureWitnesses, false, nullptr};
+            &exportSignatureWitnesses,
+            ApplyOptions::ExportWitnessMembership::FilterLiveManifest,
+            false,
+            nullptr};
         {
             auto next = std::make_shared<Ledger>(
                 *parent, env.app().timeKeeper().closeTime());
@@ -978,14 +984,51 @@ struct Export_test : public beast::unit_test::suite
             BEAST_EXPECT(!result.applied);
         }
 
+        auto const expectedSignedTxHash =
+            ExportResultBuilder::assemble(innerTx, signatures, applySeq, txHash)
+                .signedTxHash;
+
+        // A live consensus build only reaches Export::doApply after onPreBuild
+        // has replaced witnesses with material from the accepted sidecar root.
+        // That tx-stream witness is the membership source; the current
+        // ManifestCache is not.
+        ApplyOptions const consensusOptions{
+            &exportSignatureWitnesses,
+            ApplyOptions::ExportWitnessMembership::TrustConsensusMaterialized,
+            false,
+            nullptr};
+        {
+            auto next = std::make_shared<Ledger>(
+                *parent, env.app().timeKeeper().closeTime());
+            OpenView accum(&*next);
+            auto const result = ripple::apply(
+                env.app(),
+                accum,
+                *exportTx,
+                tapNONE,
+                env.journal,
+                consensusOptions);
+            BEAST_EXPECT(result.ter == tesSUCCESS);
+            BEAST_EXPECT(result.applied);
+            accum.apply(*next);
+
+            auto const st =
+                next->read(keylet::shadowTicket(alice.id(), ticketSeq));
+            BEAST_EXPECT(st);
+            if (st)
+                BEAST_EXPECT(
+                    st->getFieldH256(sfTransactionHash) ==
+                    expectedSignedTxHash);
+        }
+
         // Historical replay reconstructs an already-validated ledger. The
         // persisted witness supplies the historical signing-key membership;
         // current ManifestCache may no longer know a rotated signing key.
         ApplyOptions const replayOptions{
-            &exportSignatureWitnesses, true, nullptr};
-        auto const expectedSignedTxHash =
-            ExportResultBuilder::assemble(innerTx, signatures, applySeq, txHash)
-                .signedTxHash;
+            &exportSignatureWitnesses,
+            ApplyOptions::ExportWitnessMembership::TrustHistoricalReplay,
+            true,
+            nullptr};
 
         auto replayed = std::make_shared<Ledger>(
             *parent, env.app().timeKeeper().closeTime());
@@ -1135,7 +1178,11 @@ struct Export_test : public beast::unit_test::suite
                     makeExportSignatureWitnesses(txHash, signatures, applySeq);
             }
             ApplyOptions const applyOptions{
-                &exportSignatureWitnesses, false, nullptr};
+                &exportSignatureWitnesses,
+                ApplyOptions::ExportWitnessMembership::
+                    TrustConsensusMaterialized,
+                false,
+                nullptr};
 
             auto next = std::make_shared<Ledger>(
                 *parent, env.app().timeKeeper().closeTime());

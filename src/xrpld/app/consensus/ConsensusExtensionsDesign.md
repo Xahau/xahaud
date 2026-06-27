@@ -389,9 +389,10 @@ in that candidate set may become quorum material or enter `exportSigSetHash`.
 
 Export sidecar publication is local-material only. A node may publish only the
 verified export signatures it actually has locally, and only for `ttEXPORT`
-transactions in the consensus candidate set. A fetched export sidecar is not a
-separate apply input: on merge, each leaf must be active-view checked, verified
-against the candidate transaction, and promoted into `ExportSigCollector`.
+transactions in the consensus candidate set. A fetched export sidecar may be
+merged into `ExportSigCollector` only after active-view and signature checks,
+but the collector is still only a cache. The accepted sidecar root, once
+quorum-aligned, is the source for the ledger witness.
 `ttEXPORT_SIGNATURES` is the export signature witness interface. Network mode
 derives it from the accepted `exportSigSetHash` sidecar snapshot; standalone/dev
 helpers may synthesize the same witness from the local validator key. The pseudo
@@ -421,17 +422,17 @@ Closed-ledger apply consumes the pre-scanned `ttEXPORT_SIGNATURES` witness, not
 the live collector and not ephemeral sidecar state. `Export::doApply` rebuilds
 the active validator view from the parent ledger, verifies each witness
 signature against the `ttEXPORT` inner transaction, requires source-view quorum,
-then canonically assembles the target-chain multisigned transaction. During live
-build/validation, signing keys must still map through the node's current
-manifest cache to active parent-ledger validators. Historical `LedgerReplay` is
-different: it is reconstructing an already-validated ledger from its persisted
-transaction stream, and the witness does not carry a historical manifest map. In
-that mode, the witness supplies the historical membership material; apply still
-checks signatures and threshold, but does not reject an old signing key merely
-because today's manifest cache no longer maps it after rotation. A node that
-times out before accepting a root has no witness and retries/expires; a node
-that proceeds uses the same transaction-stream witness during live build and
-historical replay. The build-scoped witness map is only an index over that
+then canonically assembles the target-chain multisigned transaction. In live
+consensus builds, `onPreBuild` first removes any pre-existing export witness and
+re-materializes the witness from the accepted `exportSigSetHash` root. That
+accepted transaction-stream witness supplies signer membership; apply must not
+re-resolve those signing keys through the current manifest cache, because
+manifest gossip can differ while the parent-ledger active view is the same.
+Historical `LedgerReplay` consumes the same persisted witness after manifests
+may have rotated. In both modes, apply still checks signatures and threshold. A
+node that times out before accepting a root has no witness and retries/expires;
+a node that proceeds uses the same transaction-stream witness during live build
+and historical replay. The build-scoped witness map is only an index over that
 ordered transaction stream, not hidden consensus state. This avoids
 successful-but-different export blobs while preserving the bounded wait model.
 

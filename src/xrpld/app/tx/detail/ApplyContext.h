@@ -21,6 +21,7 @@
 #define RIPPLE_TX_APPLYCONTEXT_H_INCLUDED
 
 #include <xrpld/app/main/Application.h>
+#include <xrpld/app/tx/applySteps.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
@@ -49,6 +50,8 @@ public:
         beast::Journal = beast::Journal{beast::Journal::getNullSink()},
         ExportResultBuilder::SignatureWitnesses const*
             exportSignatureWitnesses = nullptr,
+        ApplyOptions::ExportWitnessMembership exportWitnessMembership =
+            ApplyOptions::ExportWitnessMembership::FilterLiveManifest,
         bool historicalLedgerReplay = false,
         std::shared_ptr<Ledger const> replayParentLedger = nullptr);
 
@@ -156,6 +159,13 @@ public:
         return historicalLedgerReplay_;
     }
 
+    bool
+    trustExportSignatureWitnessMembership() const
+    {
+        return exportWitnessMembership_ !=
+            ApplyOptions::ExportWitnessMembership::FilterLiveManifest;
+    }
+
     std::shared_ptr<Ledger const>
     replayParentLedger() const
     {
@@ -183,6 +193,7 @@ private:
     ApplyFlags flags_;
     std::optional<ApplyViewImpl> view_;
     ExportResultBuilder::SignatureWitnesses const* exportSignatureWitnesses_;
+    ApplyOptions::ExportWitnessMembership exportWitnessMembership_;
     bool historicalLedgerReplay_;
     std::shared_ptr<Ledger const> replayParentLedger_;
 };

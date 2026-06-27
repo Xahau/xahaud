@@ -57,13 +57,15 @@ accepted sidecar set; standalone/dev helpers may produce the same witness from
 the local validator key. Ledger build pre-scans the ordered transaction stream
 into a build-local index, and `ttEXPORT` apply consumes that pre-scanned witness.
 The index is not an extra consensus input; it is only an efficient lookup over
-the canonical transaction set. Live build/validation re-verifies signer
-activity through the parent-ledger active view plus current manifest cache (or
-the standalone validator key), verifies signatures, and derives the signed
-target-chain transaction hash from that replayable input. Historical
-`LedgerReplay` still verifies signatures and threshold, but it treats the
-persisted witness as the historical membership source because current manifests
-may no longer map old rotated signing keys.
+the canonical transaction set. In live consensus builds, `onPreBuild` first
+removes any pre-existing export witness and re-materializes the witness from the
+accepted sidecar root. That witness is the signer-membership source for apply;
+current manifest-cache state must not re-decide which accepted signing keys
+count. Historical `LedgerReplay` uses the same membership rule because current
+manifests may no longer map old rotated signing keys. Both paths still verify
+each signature against the inner transaction and require the parent-view
+threshold. Direct apply paths that did not run `onPreBuild` remain conservative
+and filter witness signers through the live active-validator view.
 
 **INV-5 — Store the witness once.**
 The signature witness is canonical input; metadata is output. Metadata may carry

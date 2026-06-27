@@ -411,6 +411,7 @@ doApply(
             preclaimResult.flags,
             preclaimResult.j,
             options.exportSignatureWitnesses,
+            options.exportWitnessMembership,
             options.historicalLedgerReplay,
             options.replayParentLedger);
         return invoke_apply(ctx);

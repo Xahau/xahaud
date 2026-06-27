@@ -298,7 +298,6 @@ public:
     agreedExportSignatures(
         STTx const& exportTx,
         uint256 const& txHash,
-        ActiveValidatorView const& validatorView,
         std::size_t threshold) const;
 
     bool

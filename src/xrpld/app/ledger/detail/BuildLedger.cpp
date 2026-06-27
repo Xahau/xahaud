@@ -205,7 +205,11 @@ applyTransactions(
                 view.seq(),
                 j);
     }
-    ApplyOptions const applyOptions{&exportSignatureWitnesses, false, nullptr};
+    ApplyOptions const applyOptions{
+        &exportSignatureWitnesses,
+        ApplyOptions::ExportWitnessMembership::TrustConsensusMaterialized,
+        false,
+        nullptr};
 
     //@@start rng-entropy-first-application
     // CRITICAL: Apply consensus entropy pseudo-tx FIRST before any other
@@ -396,7 +400,10 @@ buildLedger(
                         j);
             }
             ApplyOptions const applyOptions{
-                &exportSignatureWitnesses, true, replayData.parent()};
+                &exportSignatureWitnesses,
+                ApplyOptions::ExportWitnessMembership::TrustHistoricalReplay,
+                true,
+                replayData.parent()};
 
             for (auto& tx : replayData.orderedTxns())
                 applyTransaction(

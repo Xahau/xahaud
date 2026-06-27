@@ -148,16 +148,21 @@ Export::doApply()
     auto const validatorView =
         consensusExtensions.makeActiveValidatorView(parentLedger);
     bool const historicalReplay = ctx_.historicalLedgerReplay();
+    bool const trustWitnessMembership =
+        ctx_.trustExportSignatureWitnessMembership();
     auto const isActiveSigner = [standalone,
-                                 historicalReplay,
                                  &valKeys,
                                  &consensusExtensions,
                                  validatorView](PublicKey const& key) {
         if (standalone)
             return valKeys.keys && key == valKeys.keys->publicKey;
-        if (historicalReplay)
-            return true;
         return consensusExtensions.isActiveValidator(key, *validatorView);
+    };
+    auto const isWitnessSigner = [trustWitnessMembership,
+                                  &isActiveSigner](PublicKey const& key) {
+        if (trustWitnessMembership)
+            return true;
+        return isActiveSigner(key);
     };
     // Closed-ledger export builds a local parent-ledger validator view, not the
     // mutable apply view or cached RNG state, so apply order cannot move
@@ -216,18 +221,17 @@ Export::doApply()
         // through the same transaction-stream witness; apply re-checks the
         // witness against this parent ledger before creating ledger effects.
         //
-        // Historical LedgerReplay is reconstructing an already-validated
-        // ledger. The witness does not carry historical manifests, and the
-        // current ManifestCache may no longer map old rotated signing keys to
-        // their validator masters. In that mode, the persisted witness supplies
-        // membership material; apply still verifies each signature against the
-        // export transaction and requires the parent-view threshold.
+        // In live consensus builds, onPreBuild has scrubbed any pre-existing
+        // witness and re-materialized this one from the accepted sidecar root.
+        // Historical replay consumes the same persisted witness after manifests
+        // may have rotated. In both modes, membership comes from the validated
+        // tx stream; apply still verifies every signature and requires quorum.
         if (auto witness = ctx_.exportSignatureWitness(txId))
         {
             exportSignatureHash = witness->witnessHash;
             for (auto const& [pk, sig] : witness->signatures)
             {
-                if (!isActiveSigner(pk))
+                if (!isWitnessSigner(pk))
                     continue;
 
                 if (!verifyExportSignatureAgainstTx(

@@ -2007,9 +2007,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         // A locally-built export signature map is not closed-ledger material
         // until the export sidecar gate accepts that exact root.
-        BEAST_EXPECT(!ce.agreedExportSignatures(*exportTx, txHash, *view, 1));
+        BEAST_EXPECT(!ce.agreedExportSignatures(*exportTx, txHash, 1));
         ce.acceptExportSigSet(makeHash("wrong-export-sigset-root"));
-        BEAST_EXPECT(!ce.agreedExportSignatures(*exportTx, txHash, *view, 1));
+        BEAST_EXPECT(!ce.agreedExportSignatures(*exportTx, txHash, 1));
         ce.acceptExportSigSet(exportSigSetHash);
 
         // Simulate a late local collector mutation after the sidecar hash has
@@ -2028,8 +2028,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         if (live)
             BEAST_EXPECT(live->at(valPK) == lateSig);
 
-        auto const agreed =
-            ce.agreedExportSignatures(*exportTx, txHash, *view, 1);
+        auto const agreed = ce.agreedExportSignatures(*exportTx, txHash, 1);
         BEAST_EXPECT(agreed);
         if (agreed)
         {
