@@ -624,3 +624,8 @@ TRANSACTION(ttCONSENSUS_ENTROPY, 105, ConsensusEntropy, ({
     {sfEntropyCount, soeREQUIRED},
     {sfEntropyTier, soeREQUIRED},
 }))
+
+TRANSACTION(ttEXPORT_SIGNATURES, 106, ExportSignatures, ({
+    {sfLedgerSequence, soeREQUIRED},
+    {sfTransactionHash, soeREQUIRED},
+}))

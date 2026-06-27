@@ -49,6 +49,17 @@ companion pseudo transaction or equivalent transaction-stream artifact.
 *Anti-pattern:* using ephemeral accepted sidecar state to create a shadow ticket
 or result that cannot be reconstructed by ledger delta replay.
 
+Current shape: `ttEXPORT_SIGNATURES` is the signature witness interface. It
+carries the full source-validator signature witness and binds it to the matching
+`ttEXPORT` via `sfTransactionHash`. Network consensus produces it from the
+accepted sidecar set; standalone/dev helpers may produce the same witness from
+the local validator key. Ledger build pre-scans the ordered transaction stream
+into a build-local index, and `ttEXPORT` apply consumes that pre-scanned witness.
+The index is not an extra consensus input; it is only an efficient lookup over
+the canonical transaction set. Apply re-verifies signer activity and signatures
+against the parent-ledger active view (or the standalone validator key), and
+derives the signed target-chain transaction hash from that replayable input.
+
 **INV-5 — Store the witness once.**
 The signature witness is canonical input; metadata is output. Metadata may carry
 hashes and references for client discovery, but it should not duplicate the full
@@ -69,10 +80,16 @@ same live latch, but deletion permits a later re-mint of the same
 `(account, ticketSequence)` latch. Replay protection beyond that is a separate
 protocol decision, not an implicit property of shadow tickets.
 
-## Current Open Repair
+## Replay Witness Shape
 
-`INV-4` is the open replay repair. The current sidecar-only signature witness is
-safe for live consensus, but historical delta replay cannot reconstruct a
-successful Export without reacquiring the ledger. The intended fix is to make the
-accepted export signature witness a canonical transaction-stream input, then have
-metadata reference that witness instead of owning the signature payload.
+The accepted export sidecar set is not consumed directly by `Export::doApply`.
+Before ledger build, a producer injects one `ttEXPORT_SIGNATURES` pseudo for
+each export that has usable signatures. In network mode that producer is the
+consensus sidecar gate; in standalone/dev mode it can be a local helper. The
+pseudo has no ledger-state effect by itself; it is the ledger's replay witness
+for the validator signatures.
+
+Metadata stores `sfExportSignatureHash`, a direct reference to the witness
+pseudo, rather than duplicating the signature payload as an assembled
+`sfExportedTxn` blob. Clients assemble the final foreign-chain transaction from
+the original `ttEXPORT` inner transaction plus the witness signatures.

@@ -40,6 +40,8 @@ makeExportResult()
     exportResult.setFieldU32(sfLedgerSequence, 4321);
     exportResult.setFieldH256(sfLedgerHash, makeHash("export-ledger"));
     exportResult.setFieldH256(sfTransactionHash, makeHash("exported-tx"));
+    exportResult.setFieldH256(
+        sfExportSignatureHash, makeHash("export-signature-witness"));
     return exportResult;
 }
 
@@ -57,6 +59,11 @@ expectExportResult(beast::unit_test::suite& suite, STObject const& obj)
         __LINE__);
     suite.expect(
         exportResult.getFieldH256(sfTransactionHash) == makeHash("exported-tx"),
+        __FILE__,
+        __LINE__);
+    suite.expect(
+        exportResult.getFieldH256(sfExportSignatureHash) ==
+            makeHash("export-signature-witness"),
         __FILE__,
         __LINE__);
 }

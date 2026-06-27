@@ -64,8 +64,10 @@ Change::preflight(PreflightContext const& ctx)
         return temBAD_FEE;
     }
 
+    bool const exportSignatureWitness =
+        ctx.tx.getTxnType() == ttEXPORT_SIGNATURES;
     if (!ctx.tx.getSigningPubKey().empty() || !ctx.tx.getSignature().empty() ||
-        ctx.tx.isFieldPresent(sfSigners))
+        (ctx.tx.isFieldPresent(sfSigners) && !exportSignatureWitness))
     {
         JLOG(ctx.j.warn()) << "Change: Bad signature";
         return temBAD_SIGNATURE;
@@ -113,6 +115,22 @@ Change::preflight(PreflightContext const& ctx)
         if (!ctx.tx.isFieldPresent(sfDigest))
         {
             JLOG(ctx.j.warn()) << "Change: ConsensusEntropy must have sfDigest";
+            return temMALFORMED;
+        }
+    }
+
+    if (ctx.tx.getTxnType() == ttEXPORT_SIGNATURES)
+    {
+        if (!ctx.rules.enabled(featureExport))
+        {
+            JLOG(ctx.j.warn()) << "Change: ExportSignatures is not enabled.";
+            return temDISABLED;
+        }
+
+        if (!ctx.tx.isFieldPresent(sfSigners) ||
+            ctx.tx.getFieldArray(sfSigners).empty())
+        {
+            JLOG(ctx.j.warn()) << "Change: ExportSignatures missing signers";
             return temMALFORMED;
         }
     }
@@ -176,6 +194,7 @@ Change::preclaim(PreclaimContext const& ctx)
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
         case ttCONSENSUS_ENTROPY:
+        case ttEXPORT_SIGNATURES:
             return tesSUCCESS;
         case ttUNL_REPORT: {
             if (!ctx.tx.isFieldPresent(sfImportVLKey) ||
@@ -233,10 +252,21 @@ Change::doApply()
             return applyUNLReport();
         case ttCONSENSUS_ENTROPY:
             return applyConsensusEntropy();
+        case ttEXPORT_SIGNATURES:
+            return applyExportSignatures();
         default:
             UNREACHABLE("ripple::Change::doApply : invalid transaction type");
             return tefFAILURE;
     }
+}
+
+TER
+Change::applyExportSignatures()
+{
+    // The signature witness is transaction-stream input for ttEXPORT replay.
+    // It intentionally has no ledger-state effect; Export::doApply consumes the
+    // pre-scanned witness snapshot when the matching ttEXPORT applies.
+    return tesSUCCESS;
 }
 
 TER

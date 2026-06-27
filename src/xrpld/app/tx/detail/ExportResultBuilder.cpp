@@ -1,5 +1,6 @@
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/Serializer.h>
@@ -11,8 +12,11 @@ namespace ripple {
 namespace ExportResultBuilder {
 namespace {
 
+constexpr std::size_t maxTxnSignatureBytes =
+    ExportLimits::maxExportSignatureBytes - 32 - 33;
+
 STArray
-buildSigners(SignatureSnapshot const& signatures)
+buildSigners(SignatureSnapshot const& signatures, bool capForTargetChain)
 {
     STArray signers(sfSigners);
     for (auto const& [valPK, sigBuf] : signatures)
@@ -37,9 +41,12 @@ buildSigners(SignatureSnapshot const& signatures)
     // XRPL validates the Signers array size before checking signer weights.
     // Export quorum is decided earlier from the agreed sidecar snapshot; this
     // cap only materializes a target-chain-valid canonical prefix.
-    auto const maxSigners = STTx::maxMultiSigners();
-    if (signers.size() > maxSigners)
-        signers.erase(signers.begin() + maxSigners, signers.end());
+    if (capForTargetChain)
+    {
+        auto const maxSigners = STTx::maxMultiSigners();
+        if (signers.size() > maxSigners)
+            signers.erase(signers.begin() + maxSigners, signers.end());
+    }
 
     return signers;
 }
@@ -62,7 +69,7 @@ buildMultiSignedExportedTxn(
     STTx const& innerTx,
     SignatureSnapshot const& signatures)
 {
-    auto signers = buildSigners(signatures);
+    auto signers = buildSigners(signatures, true);
 
     STObject multiSigned(sfExportedTxn);
     {
@@ -80,12 +87,65 @@ buildMultiSignedExportedTxn(
     return multiSigned;
 }
 
+STTx
+buildSignatureWitness(
+    uint256 const& exportTxHash,
+    SignatureSnapshot const& signatures,
+    LedgerIndex currentSeq)
+{
+    return STTx(ttEXPORT_SIGNATURES, [&](auto& obj) {
+        obj.setFieldU32(sfLedgerSequence, currentSeq);
+        obj.setAccountID(sfAccount, AccountID{});
+        obj.setFieldU32(sfSequence, 0);
+        obj.setFieldAmount(sfFee, STAmount{});
+        obj.setFieldH256(sfTransactionHash, exportTxHash);
+        obj.setFieldArray(sfSigners, buildSigners(signatures, false));
+    });
+}
+
+std::optional<SignatureSnapshot>
+signaturesFromWitness(STTx const& witness)
+{
+    if (witness.getTxnType() != ttEXPORT_SIGNATURES ||
+        !witness.isFieldPresent(sfSigners))
+        return std::nullopt;
+
+    SignatureSnapshot signatures;
+    for (auto const& signer : witness.getFieldArray(sfSigners))
+    {
+        if (signer.getFName() != sfSigner ||
+            !signer.isFieldPresent(sfSigningPubKey) ||
+            !signer.isFieldPresent(sfTxnSignature))
+            return std::nullopt;
+
+        auto const pkBlob = signer.getFieldVL(sfSigningPubKey);
+        if (!publicKeyType(makeSlice(pkBlob)))
+            return std::nullopt;
+
+        auto const sigBlob = signer.getFieldVL(sfTxnSignature);
+        if (sigBlob.empty() || sigBlob.size() > maxTxnSignatureBytes)
+            return std::nullopt;
+
+        auto const [_, inserted] = signatures.emplace(
+            PublicKey(makeSlice(pkBlob)),
+            Buffer(sigBlob.data(), sigBlob.size()));
+        if (!inserted)
+            return std::nullopt;
+    }
+
+    if (signatures.empty())
+        return std::nullopt;
+
+    return signatures;
+}
+
 AssembledExportResult
 assemble(
     STTx const& innerTx,
     SignatureSnapshot const& signatures,
     LedgerIndex currentSeq,
-    uint256 const& exportTxHash)
+    uint256 const& exportTxHash,
+    std::optional<uint256> const& exportSignatureHash)
 {
     auto multiSigned = buildMultiSignedExportedTxn(innerTx, signatures);
     auto const signerCount = multiSigned.isFieldPresent(sfSigners)
@@ -96,7 +156,10 @@ assemble(
     STObject exportResult(sfExportResult);
     exportResult.setFieldU32(sfLedgerSequence, currentSeq);
     exportResult.setFieldH256(sfTransactionHash, exportTxHash);
-    exportResult.set(std::move(multiSigned));
+    if (exportSignatureHash)
+        exportResult.setFieldH256(sfExportSignatureHash, *exportSignatureHash);
+    else
+        exportResult.set(std::move(multiSigned));
 
     return {std::move(exportResult), signedTxHash, signerCount};
 }

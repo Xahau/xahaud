@@ -5777,6 +5777,16 @@ private:
     }
 
     void
+    testExportSignaturesTSH(FeatureBitset features)
+    {
+        testcase("export signatures tsh");
+
+        // Pseudo transaction consumed by ttEXPORT during ledger replay; it is
+        // never a hook-dispatched originating transaction.
+        pass();
+    }
+
+    void
     testSetFeeTSH(FeatureBitset features)
     {
         testcase("set fee tsh");

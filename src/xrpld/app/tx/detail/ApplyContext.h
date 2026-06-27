@@ -21,6 +21,7 @@
 #define RIPPLE_TX_APPLYCONTEXT_H_INCLUDED
 
 #include <xrpld/app/main/Application.h>
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/beast/utility/Journal.h>
@@ -42,7 +43,9 @@ public:
         TER preclaimResult,
         XRPAmount baseFee,
         ApplyFlags flags,
-        beast::Journal = beast::Journal{beast::Journal::getNullSink()});
+        beast::Journal = beast::Journal{beast::Journal::getNullSink()},
+        ExportResultBuilder::SignatureWitnesses const*
+            exportSignatureWitnesses = nullptr);
 
     Application& app;
     STTx const& tx;
@@ -131,6 +134,17 @@ public:
         return tx.isFieldPresent(sfEmitDetails);
     }
 
+    std::optional<ExportResultBuilder::SignatureWitness>
+    exportSignatureWitness(uint256 const& txHash) const
+    {
+        if (!exportSignatureWitnesses_)
+            return std::nullopt;
+        auto const it = exportSignatureWitnesses_->find(txHash);
+        if (it == exportSignatureWitnesses_->end())
+            return std::nullopt;
+        return it->second;
+    }
+
     ApplyFlags const&
     flags()
     {
@@ -151,6 +165,7 @@ private:
     OpenView& base_;
     ApplyFlags flags_;
     std::optional<ApplyViewImpl> view_;
+    ExportResultBuilder::SignatureWitnesses const* exportSignatureWitnesses_;
 };
 
 }  // namespace ripple

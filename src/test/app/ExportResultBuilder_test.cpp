@@ -30,6 +30,7 @@
 #include <xrpl/protocol/digest.h>
 
 #include <cstring>
+#include <optional>
 
 namespace ripple {
 namespace test {
@@ -253,12 +254,93 @@ public:
     }
 
     void
+    testAssemblesWitnessReferenceMetadata()
+    {
+        testcase("assembles witness-reference metadata");
+
+        auto const signer = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const innerTx = makeExportedPayment(
+            calcAccountID(signer.first), calcAccountID(dst.first));
+        auto const exportTxHash = makeHash("outer-export-reference");
+        auto const witnessHash = makeHash("export-signature-witness");
+
+        ExportResultBuilder::SignatureSnapshot signatures;
+        signatures.emplace(
+            signer.first,
+            ExportResultBuilder::signExportedTxn(
+                innerTx, signer.first, signer.second));
+
+        auto assembled = ExportResultBuilder::assemble(
+            innerTx,
+            signatures,
+            321,
+            exportTxHash,
+            std::optional<uint256>{witnessHash});
+
+        BEAST_EXPECT(assembled.signerCount == 1);
+        BEAST_EXPECT(assembled.metadata.getFieldU32(sfLedgerSequence) == 321);
+        BEAST_EXPECT(
+            assembled.metadata.getFieldH256(sfTransactionHash) == exportTxHash);
+        BEAST_EXPECT(
+            assembled.metadata.getFieldH256(sfExportSignatureHash) ==
+            witnessHash);
+        BEAST_EXPECT(!assembled.metadata.isFieldPresent(sfExportedTxn));
+    }
+
+    void
+    testSignatureWitnessRoundTrip()
+    {
+        testcase("signature witness round trip");
+
+        auto const src = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const innerTx = makeExportedPayment(
+            calcAccountID(src.first), calcAccountID(dst.first));
+        auto const exportTxHash = makeHash("outer-export-witness");
+
+        ExportResultBuilder::SignatureSnapshot signatures;
+        while (signatures.size() < STTx::maxMultiSigners() + 5)
+        {
+            auto const signer = randomKeyPair(KeyType::secp256k1);
+            signatures.emplace(
+                signer.first,
+                ExportResultBuilder::signExportedTxn(
+                    innerTx, signer.first, signer.second));
+        }
+
+        auto witness = ExportResultBuilder::buildSignatureWitness(
+            exportTxHash, signatures, 654);
+        BEAST_EXPECT(witness.getTxnType() == ttEXPORT_SIGNATURES);
+        BEAST_EXPECT(witness.getFieldU32(sfLedgerSequence) == 654);
+        BEAST_EXPECT(witness.getFieldH256(sfTransactionHash) == exportTxHash);
+        BEAST_EXPECT(
+            witness.getFieldArray(sfSigners).size() == signatures.size());
+
+        auto decoded = ExportResultBuilder::signaturesFromWitness(witness);
+        BEAST_EXPECT(decoded);
+        if (decoded)
+        {
+            BEAST_EXPECT(decoded->size() == signatures.size());
+            for (auto const& [pk, sig] : signatures)
+            {
+                auto const it = decoded->find(pk);
+                BEAST_EXPECT(it != decoded->end());
+                if (it != decoded->end())
+                    BEAST_EXPECT(it->second == sig);
+            }
+        }
+    }
+
+    void
     run() override
     {
         testAssemblesSignedMetadata();
         testSkipsEmptySignatures();
         testBuildMultiSignedExportedTxnDirect();
         testCapsSignerArray();
+        testAssemblesWitnessReferenceMetadata();
+        testSignatureWitnessRoundTrip();
     }
 };
 

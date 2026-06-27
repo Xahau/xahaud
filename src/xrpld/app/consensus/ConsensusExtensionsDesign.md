@@ -94,6 +94,15 @@ treated as complete and must retry or expire under transaction rules.
    validating key and ledger. A protobuf field outside the signed validation is
    only transport metadata; it must not affect consensus-extension behavior.
 
+7. Ledger-defining sidecar material crosses apply as transaction-stream input.
+
+   Sidecars are an establish-phase convergence mechanism, not a ledger replay
+   input. If sidecar material changes a closed-ledger effect that cannot be
+   recomputed from the parent ledger and ordered transaction set, the accepted
+   material must first be represented by a deterministic pseudo transaction (or
+   an equivalent transaction-stream witness). Apply/replay then consumes that
+   witness and re-validates it; it must not depend on ephemeral sidecar memory.
+
 ## Validator Set And Quorum
 
 The active validator view is the shared denominator for RNG and export:
@@ -331,9 +340,13 @@ verified export signatures it actually has locally, and only for `ttEXPORT`
 transactions in the consensus candidate set. A fetched export sidecar is not a
 separate apply input: on merge, each leaf must be active-view checked, verified
 against the candidate transaction, and promoted into `ExportSigCollector`.
-Closed-ledger apply must assemble the signer set from the agreed
-`exportSigSetHash` sidecar map, not from the still-growing live collector, so
-late local arrivals cannot change the ledger-defining export result.
+`ttEXPORT_SIGNATURES` is the export signature witness interface. Network mode
+derives it from the accepted `exportSigSetHash` sidecar snapshot; standalone/dev
+helpers may synthesize the same witness from the local validator key. The pseudo
+carries the full source-side validator signature witness and binds it to the
+matching `ttEXPORT` via `sfTransactionHash`. It has no ledger-state effect by
+itself; it exists so apply/replay sees the same signature material through the
+transaction stream regardless of which producer supplied it.
 
 If the consensus candidate contains a `ttEXPORT` but the node has no eligible
 local export signatures yet, the export sidecar gate opens only a bounded
@@ -352,10 +365,22 @@ export round to retry or expire. Full observation remains useful diagnostics; it
 is not an Export success precondition. If no export signature hash reaches quorum
 alignment by the bounded deadline, do not choose the largest non-quorum set; the
 export retries or expires according to normal transaction rules.
-Closed-ledger apply consumes only the accepted `exportSigSetHash` root. A node
-that times out before accepting a root retries; a node that proceeds assembles
-from the accepted sidecar map, never from its live collector. This avoids
+Closed-ledger apply consumes the pre-scanned `ttEXPORT_SIGNATURES` witness, not
+the live collector and not ephemeral sidecar state. `Export::doApply` rebuilds
+the active validator view from the parent ledger, verifies each witness
+signature against the `ttEXPORT` inner transaction, requires source-view quorum,
+then canonically assembles the target-chain multisigned transaction. A node that
+times out before accepting a root has no witness and retries/expires; a node
+that proceeds uses the same transaction-stream witness during live build and
+historical replay. The build-scoped witness map is only an index over that
+ordered transaction stream, not hidden consensus state. This avoids
 successful-but-different export blobs while preserving the bounded wait model.
+
+`sfExportResult` metadata stores `sfExportSignatureHash`, a direct reference to
+the witness pseudo, rather than duplicating the full signature payload. Clients
+assemble the final foreign-chain blob from `ttEXPORT` plus the witness
+signatures, or can use a convenience RPC/helper that performs that pure
+read-time assembly.
 
 Closed-ledger apply must not promote unverified proposal-carried signatures into
 current-round quorum material. It may verify and retain them for a future retry,
@@ -365,10 +390,10 @@ Export sig convergence runs in parallel with RNG. An export-side convergence
 failure must not change RNG semantics; an RNG fallback must not make export
 unsafe. Each feature has its own gate and fallback.
 
-Accept-time cleanup must preserve Export state through `buildLCL` whenever
-`featureExport` is enabled. RNG-disabled does not mean extensions-disabled:
-`ttEXPORT` still needs the round's export sidecar convergence state when it
-applies.
+Accept-time cleanup must preserve Export state through `onPreBuild` whenever
+`featureExport` is enabled so the signature witness pseudo can be injected.
+After the ordered transaction set contains that witness, replay must not need
+the round's export sidecar convergence state.
 
 CSF consensus tests model the export sidecar gate directly. Testnet scenarios
 under `.testnet/scenarios/export/` cover live-node Export+CE behavior and
@@ -398,6 +423,8 @@ When changing consensus extension code, check these questions:
 - Are export signatures verified before they count?
 - Does export success require `exportSigSetHash` alignment, not just local
   collector quorum?
+- Does every ledger-defining export signature enter replay as a
+  `ttEXPORT_SIGNATURES` witness before `ttEXPORT` applies?
 - Can one bad validator deny Export to an honest quorum? It must not.
 - Can timeout select a largest-but-below-quorum export sidecar set? It must not.
 - Are CE and Export still independently gated and independently stoppable?

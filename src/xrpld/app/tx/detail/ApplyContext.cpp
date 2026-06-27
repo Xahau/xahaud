@@ -36,7 +36,8 @@ ApplyContext::ApplyContext(
     TER preclaimResult_,
     XRPAmount baseFee_,
     ApplyFlags flags,
-    beast::Journal journal_)
+    beast::Journal journal_,
+    ExportResultBuilder::SignatureWitnesses const* exportSignatureWitnesses)
     : app(app_)
     , tx(tx_)
     , preclaimResult(preclaimResult_)
@@ -44,6 +45,7 @@ ApplyContext::ApplyContext(
     , journal(journal_)
     , base_(base)
     , flags_(flags)
+    , exportSignatureWitnesses_(exportSignatureWitnesses)
 {
     view_.emplace(&base_, flags_);
 }

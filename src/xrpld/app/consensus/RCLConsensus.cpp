@@ -598,11 +598,11 @@ RCLConsensus::Adaptor::doAccept(
     }
 
     //@@start auxiliary-pre-build-injection
-    // Inject consensus entropy pseudo-transaction (if amendment enabled).
-    // Export-only rounds still need extension state preserved through buildLCL
-    // so ttEXPORT can observe exportSigSetHash convergence at apply time.
+    // Inject extension pseudo-transactions (if amendments are enabled).
+    // Entropy and Export witness injection are independently gated inside
+    // onPreBuild; export-only rounds still need this hook even when RNG is off.
     //@@start accept-time-cleanup-disabled
-    if (ce().rngEnabled())
+    if (ce().rngEnabled() || ce().exportEnabled())
         ce().onPreBuild(retriableTxs, prevLedger.seq() + 1, result.txns.id());
     else if (!ce().exportEnabled())
         ce().clearRngState();

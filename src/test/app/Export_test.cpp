@@ -98,6 +98,24 @@ struct Export_test : public beast::unit_test::suite
         return RCLTxSet{map->snapShot(false)};
     }
 
+    static ExportResultBuilder::SignatureWitnesses
+    makeExportSignatureWitnesses(
+        uint256 const& exportTxHash,
+        ExportResultBuilder::SignatureSnapshot signatures,
+        LedgerIndex seq)
+    {
+        auto witness = ExportResultBuilder::buildSignatureWitness(
+            exportTxHash, signatures, seq);
+        auto const witnessHash = witness.getTransactionID();
+
+        ExportResultBuilder::SignatureWitnesses witnesses;
+        witnesses.emplace(
+            exportTxHash,
+            ExportResultBuilder::SignatureWitness{
+                witnessHash, std::move(signatures)});
+        return witnesses;
+    }
+
     void
     seedUNLReportLedger(jtx::Env& env, std::vector<PublicKey> const& activeKeys)
     {
@@ -527,17 +545,38 @@ struct Export_test : public beast::unit_test::suite
         // applies the emitted ttEXPORT through the transactor.
         env.close();
 
-        // The emitted ttEXPORT should now appear in the closed ledger.
+        // The emitted ttEXPORT and its per-export signature witness should now
+        // appear in the closed ledger. The witness is transaction-stream input,
+        // not metadata decoration, so replay has the same signatures apply saw.
         {
             auto const ledger = env.closed();
-            int txcount = 0;
+            int exportCount = 0;
+            int witnessCount = 0;
+            std::optional<uint256> exportHash;
+            std::optional<uint256> witnessExportHash;
             for (auto const& [stx, meta] : ledger->txs)
             {
-                BEAST_EXPECT(stx->getTxnType() == ttEXPORT);
-                BEAST_EXPECT(stx->isFieldPresent(sfEmitDetails));
-                txcount++;
+                if (stx->getTxnType() == ttEXPORT)
+                {
+                    BEAST_EXPECT(stx->isFieldPresent(sfEmitDetails));
+                    exportHash = stx->getTransactionID();
+                    ++exportCount;
+                    continue;
+                }
+
+                BEAST_EXPECT(stx->getTxnType() == ttEXPORT_SIGNATURES);
+                BEAST_EXPECT(stx->isFieldPresent(sfTransactionHash));
+                witnessExportHash = stx->getFieldH256(sfTransactionHash);
+                auto signatures =
+                    ExportResultBuilder::signaturesFromWitness(*stx);
+                BEAST_EXPECT(signatures);
+                ++witnessCount;
             }
-            BEAST_EXPECT(txcount == 1);
+            BEAST_EXPECT(exportCount == 1);
+            BEAST_EXPECT(witnessCount == 1);
+            BEAST_EXPECT(exportHash && witnessExportHash);
+            if (exportHash && witnessExportHash)
+                BEAST_EXPECT(*witnessExportHash == *exportHash);
         }
     }
 
@@ -827,6 +866,9 @@ struct Export_test : public beast::unit_test::suite
 
         ExportResultBuilder::SignatureSnapshot expectedSigs;
         expectedSigs.emplace(valPK, originalSig);
+        auto const exportSignatureWitnesses =
+            makeExportSignatureWitnesses(txHash, expectedSigs, applySeq);
+        ApplyOptions const applyOptions{&exportSignatureWitnesses};
         auto const expectedSignedTxHash =
             ExportResultBuilder::assemble(
                 innerTx, expectedSigs, applySeq, txHash)
@@ -836,8 +878,8 @@ struct Export_test : public beast::unit_test::suite
         auto next = std::make_shared<Ledger>(
             *parent, env.app().timeKeeper().closeTime());
         OpenView accum(&*next);
-        auto const result =
-            ripple::apply(env.app(), accum, *exportTx, tapNONE, env.journal);
+        auto const result = ripple::apply(
+            env.app(), accum, *exportTx, tapNONE, env.journal, applyOptions);
         BEAST_EXPECT(result.ter == tesSUCCESS);
         BEAST_EXPECT(result.applied);
         accum.apply(*next);
@@ -962,6 +1004,8 @@ struct Export_test : public beast::unit_test::suite
             BEAST_EXPECT(view->fromUNLReport);
             ce.cacheConsensusTxSet(makeRCLTxSet(env.app(), {exportTx}));
 
+            ExportResultBuilder::SignatureWitnesses exportSignatureWitnesses;
+
             if (withQuorum)
             {
                 auto const sig =
@@ -971,14 +1015,25 @@ struct Export_test : public beast::unit_test::suite
                 auto const agreedHash = ce.buildExportSigSet(applySeq);
                 BEAST_EXPECT(ce.isSidecarSet(agreedHash));
                 ce.acceptExportSigSet(agreedHash);
+
+                ExportResultBuilder::SignatureSnapshot signatures;
+                signatures.emplace(valPK, sig);
+                exportSignatureWitnesses =
+                    makeExportSignatureWitnesses(txHash, signatures, applySeq);
             }
+            ApplyOptions const applyOptions{&exportSignatureWitnesses};
 
             auto next = std::make_shared<Ledger>(
                 *parent, env.app().timeKeeper().closeTime());
             BEAST_EXPECT(next->seq() == applySeq);
             OpenView accum(&*next);
             auto const result = ripple::apply(
-                env.app(), accum, *exportTx, tapNONE, env.journal);
+                env.app(),
+                accum,
+                *exportTx,
+                tapNONE,
+                env.journal,
+                applyOptions);
 
             if (withQuorum)
             {
@@ -1235,14 +1290,15 @@ struct Export_test : public beast::unit_test::suite
 
         // The export round-trip is a 3-way handshake:
         //   1. Xahau: ttEXPORT → validators sign the inner tx →
-        //      shadow ticket + multisigned blob in metadata
+        //      shadow ticket + metadata pointing to the signature witness
         //   2. XRPL:  submit the multisigned blob raw (alice's
         //      SignerList on XRPL contains the Xahau validator keys)
         //   3. Xahau: build XPOP from execution, import it back →
         //      shadow ticket consumed
         //
-        // In standalone mode, Export::doApply signs directly with
-        // the node's validator keys — no consensus needed.
+        // In standalone mode, the same ttEXPORT_SIGNATURES witness is
+        // synthesized locally from the node's validator key — no consensus
+        // proposals needed.
 
         auto const xpopCtx = xpop::TestXPOPContext::create(3);
 
@@ -1293,9 +1349,9 @@ struct Export_test : public beast::unit_test::suite
         // in Import::preflight.  OperationLimit is only required for
         // the B2M (burn-to-mint) import path.
 
-        // Submit ttEXPORT — in standalone mode, Export::doApply
-        // signs the inner tx with the node's validator keys and
-        // puts the multisigned blob in sfExportResult metadata.
+        // Submit ttEXPORT. Standalone mode produces the same replay witness
+        // shape as network consensus, then Export::doApply consumes that
+        // witness before creating the shadow ticket and metadata.
         Json::Value jvExport;
         jvExport[jss::TransactionType] = jss::Export;
         jvExport[jss::Account] = alice.human();
@@ -1305,7 +1361,8 @@ struct Export_test : public beast::unit_test::suite
         xahau(jvExport, fee(XRP(1)), ter(tesSUCCESS));
         xahau.close();
 
-        // Extract the multisigned blob from the Export metadata.
+        // Resolve the signature witness from Export metadata and assemble the
+        // destination-chain multisigned blob locally.
         auto const exportMeta = xahau.meta();
         BEAST_EXPECT(exportMeta);
 
@@ -1314,18 +1371,32 @@ struct Export_test : public beast::unit_test::suite
         {
             auto const& result =
                 exportMeta->peekAtField(sfExportResult).downcast<STObject>();
-            if (result.isFieldPresent(sfExportedTxn))
+            BEAST_EXPECT(result.isFieldPresent(sfExportSignatureHash));
+            if (result.isFieldPresent(sfExportSignatureHash))
             {
-                // Serialize the nested object to get the raw blob
-                // for submission to XRPL.
-                auto const& expTxn =
-                    const_cast<STObject&>(result).peekFieldObject(
-                        sfExportedTxn);
+                auto const witnessHash =
+                    result.getFieldH256(sfExportSignatureHash);
+                auto const witnessRead = xahau.current()->txRead(witnessHash);
+                auto const& witnessTx = witnessRead.first;
+                BEAST_EXPECT(witnessTx);
+                auto signatures = witnessTx
+                    ? ExportResultBuilder::signaturesFromWitness(*witnessTx)
+                    : std::nullopt;
+                BEAST_EXPECT(signatures);
+
+                STTx const innerTx = makeSTTx(innerObj);
+                auto expTxn = ExportResultBuilder::buildMultiSignedExportedTxn(
+                    innerTx,
+                    signatures ? *signatures
+                               : ExportResultBuilder::SignatureSnapshot{});
+
                 Serializer s;
                 expTxn.add(s);
                 multisignedBlob = s.peekData();
 
-                log << "Xahau: ExportResult.ExportedTxn = "
+                log << "Xahau: ExportResult.ExportSignatureHash = "
+                    << witnessHash << std::endl;
+                log << "Xahau: assembled ExportedTxn = "
                     << expTxn.getJson(JsonOptions::none).toStyledString()
                     << std::endl;
             }

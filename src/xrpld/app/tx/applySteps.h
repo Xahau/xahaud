@@ -20,6 +20,7 @@
 #ifndef RIPPLE_TX_APPLYSTEPS_H_INCLUDED
 #define RIPPLE_TX_APPLYSTEPS_H_INCLUDED
 
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/beast/utility/Journal.h>
 
@@ -39,6 +40,16 @@ struct ApplyResult
         : ter(t), applied(a), metadata(std::move(m))
     {
     }
+};
+
+struct ApplyOptions
+{
+    // Build-scoped export signature witnesses. These are transaction-stream
+    // inputs collected before apply, so concurrent ledger builds must not share
+    // them through process-global consensus state. Keep this export-specific
+    // until another feature needs the same sibling-pseudo lookup.
+    ExportResultBuilder::SignatureWitnesses const* exportSignatureWitnesses =
+        nullptr;
 };
 
 /** Return true if the transaction can claim a fee (tec),
@@ -346,7 +357,11 @@ calculateDefaultBaseFee(ReadView const& view, STTx const& tx);
     whether or not the transaction was applied.
 */
 ApplyResult
-doApply(PreclaimResult const& preclaimResult, Application& app, OpenView& view);
+doApply(
+    PreclaimResult const& preclaimResult,
+    Application& app,
+    OpenView& view,
+    ApplyOptions const& options = {});
 
 XRPAmount
 invoke_calculateBaseFee(ReadView const& view, STTx const& tx);

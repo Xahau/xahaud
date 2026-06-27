@@ -385,7 +385,11 @@ calculateDefaultBaseFee(ReadView const& view, STTx const& tx)
 }
 
 ApplyResult
-doApply(PreclaimResult const& preclaimResult, Application& app, OpenView& view)
+doApply(
+    PreclaimResult const& preclaimResult,
+    Application& app,
+    OpenView& view,
+    ApplyOptions const& options)
 {
     if (preclaimResult.view.seq() != view.seq())
     {
@@ -405,7 +409,8 @@ doApply(PreclaimResult const& preclaimResult, Application& app, OpenView& view)
             preclaimResult.ter,
             calculateBaseFee(view, preclaimResult.tx),
             preclaimResult.flags,
-            preclaimResult.j);
+            preclaimResult.j,
+            options.exportSignatureWitnesses);
         return invoke_apply(ctx);
     }
     catch (std::exception const& e)

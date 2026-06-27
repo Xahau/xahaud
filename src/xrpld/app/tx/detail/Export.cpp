@@ -1,4 +1,5 @@
 #include <xrpld/app/consensus/ConsensusExtensions.h>
+#include <xrpld/app/consensus/ExportSignatureHarvester.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
@@ -123,6 +124,7 @@ Export::doApply()
 
     auto& consensusExtensions = ctx_.app.getConsensusExtensions();
     bool const standalone = ctx_.app.config().standalone();
+    auto const& valKeys = ctx_.app.getValidatorKeys();
     auto const parentLedger =
         ctx_.app.getLedgerMaster().getLedgerByHash(view().info().parentHash);
     if (!standalone && !parentLedger)
@@ -135,8 +137,12 @@ Export::doApply()
 
     auto const validatorView =
         consensusExtensions.makeActiveValidatorView(parentLedger);
-    auto const isActiveSigner = [&consensusExtensions,
+    auto const isActiveSigner = [standalone,
+                                 &valKeys,
+                                 &consensusExtensions,
                                  validatorView](PublicKey const& key) {
+        if (standalone)
+            return valKeys.keys && key == valKeys.keys->publicKey;
         return consensusExtensions.isActiveValidator(key, *validatorView);
     };
     // Closed-ledger export builds a local parent-ledger validator view, not the
@@ -144,13 +150,9 @@ Export::doApply()
     // quorum.
     auto const unlSize = validatorView->size();
 
-    // Standalone mode: no consensus running, so we skip the quorum
-    // check and sign directly with our validator keys in the blob
-    // assembly step below.
-    //
-    // Network mode: active-view 80% quorum. Export-only rounds are still
-    // deterministic because exportSigSetHash is signed in ExtendedPosition and
-    // converged before closed-ledger apply can use the signatures.
+    // Network mode: active-view 80% quorum. Standalone mode uses a local
+    // one-signer witness synthesized in onPreBuild. Both paths consume the same
+    // ttEXPORT_SIGNATURES replay witness before creating ledger effects.
     // Deserialize the inner tx early — needed both for the upgrade
     // pass (verify unverified sigs) and for blob assembly.
     auto const& exportedObj =
@@ -180,112 +182,104 @@ Export::doApply()
             j_);
     };
 
-    // Network mode must assemble from the agreed exportSigSetHash sidecar map,
-    // not the live collector. The collector can keep growing after the gate
-    // succeeds; the agreed sidecar map is the ledger-defining snapshot.
-    std::optional<std::map<PublicKey, Buffer>> collectedSigs;
-
-    if (!standalone)
-    {
-        //@@start export-doapply-agreed-signature-snapshot
-        std::size_t const threshold = safeQuorumThreshold(unlSize);
-
-        if (!validatorView->fromUNLReport)
-        {
-            JLOG(j_.warn())
-                << "Export: retrying without ledger-anchored validator view"
-                << " txHash=" << txId << " ledgerSeq=" << currentSeq
-                << " unlSize=" << unlSize << " threshold=" << threshold;
-        }
-        else
-        {
-            // The tick gate decides when a round may stop waiting.
-            // Closed-ledger apply must still be a pure function of the agreed
-            // export sidecar and the parent-ledger validator view; local
-            // timeout flags must not veto a sidecar that already carries
-            // deterministic quorum.
-            collectedSigs = consensusExtensions.agreedExportSignatures(
-                ctx_.tx, txId, *validatorView, threshold);
-        }
-        //@@end export-doapply-agreed-signature-snapshot
-
-        //@@start export-doapply-retry-without-signature-quorum
-        if (!collectedSigs)
-        {
-            auto const sigCount =
-                consensusExtensions.exportSigCollector().signatureCount(
-                    txId, isActiveSigner);
-            // LLS semantics for retriable exports:
-            //
-            // Transactor::preclaim rejects with tefMAX_LEDGER when
-            // seq > LLS, so this tx can never run past ledger LLS.
-            // Within that window the export has three possible outcomes
-            // each ledger:
-            //
-            //   ledger < LLS:  tesSUCCESS (quorum) or terRETRY_EXPORT
-            //   ledger == LLS: tesSUCCESS (quorum) or tecEXPORT_EXPIRED
-            //   ledger > LLS:  tefMAX_LEDGER (never reaches doApply)
-            //
-            // The >= check here only fires in the no-quorum branch, so
-            // if quorum IS met on the LLS ledger it still succeeds.
-            // tecEXPORT_EXPIRED consumes the sequence cleanly rather
-            // than letting tefMAX_LEDGER silently drop the tx.
-            if (ctx_.tx.isFieldPresent(sfLastLedgerSequence))
-            {
-                auto const lls = ctx_.tx.getFieldU32(sfLastLedgerSequence);
-                if (currentSeq >= lls)
-                {
-                    ctx_.app.getConsensusExtensions()
-                        .exportSigCollector()
-                        .clear(txId);
-                    JLOG(j_.info())
-                        << "Export: last ledger expired"
-                        << " txHash=" << txId << " ledgerSeq=" << currentSeq
-                        << " lastLedgerSequence=" << lls << " sigs=" << sigCount
-                        << " threshold=" << threshold << " unlSize=" << unlSize
-                        << " result=tecEXPORT_EXPIRED";
-                    return tecEXPORT_EXPIRED;
-                }
-            }
-
-            upgradeUnverifiedForNextRound();
-
-            JLOG(j_.info())
-                << "Export: insufficient signatures"
-                << " txHash=" << txId << " ledgerSeq=" << currentSeq
-                << " sigs=" << sigCount << " threshold=" << threshold
-                << " unlSize=" << unlSize << " exportSigConvergenceFailed="
-                << (consensusExtensions.exportSigConvergenceFailed() ? "yes"
-                                                                     : "no")
-                << " result=terRETRY_EXPORT";
-            return terRETRY_EXPORT;
-        }
-        //@@end export-doapply-retry-without-signature-quorum
-    }
-
     ExportResultBuilder::SignatureSnapshot signatures;
-    if (standalone)
+    std::optional<uint256> exportSignatureHash;
+
+    //@@start export-doapply-replay-witness-snapshot
+    std::size_t const threshold = standalone ? 1 : safeQuorumThreshold(unlSize);
+
+    if (!standalone && !validatorView->fromUNLReport)
     {
-        // Standalone mode: no consensus proposals, so we sign
-        // the inner tx directly with our own validator keys.
-        auto const& valKeys = ctx_.app.getValidatorKeys();
-        if (valKeys.keys)
-        {
-            auto const& pk = valKeys.keys->publicKey;
-            auto const& sk = valKeys.keys->secretKey;
-            signatures.emplace(
-                pk, ExportResultBuilder::signExportedTxn(innerTx, pk, sk));
-        }
+        JLOG(j_.warn())
+            << "Export: retrying without ledger-anchored validator view"
+            << " txHash=" << txId << " ledgerSeq=" << currentSeq
+            << " unlSize=" << unlSize << " threshold=" << threshold;
     }
     else
     {
-        // Network mode: use the atomically-snapshotted sigs from
-        // the quorum check above.
-        signatures = *collectedSigs;
-    }
+        // ttEXPORT_SIGNATURES is the export signature interface. Consensus
+        // sidecars, standalone helpers, or replay all hand signatures to Export
+        // through the same transaction-stream witness; apply re-checks the
+        // witness against this parent ledger before creating ledger effects.
+        if (auto witness = ctx_.exportSignatureWitness(txId))
+        {
+            exportSignatureHash = witness->witnessHash;
+            for (auto const& [pk, sig] : witness->signatures)
+            {
+                if (!isActiveSigner(pk))
+                    continue;
 
-    auto assembled =
-        ExportResultBuilder::assemble(innerTx, signatures, currentSeq, txId);
+                if (!verifyExportSignatureAgainstTx(
+                        ctx_.tx,
+                        pk,
+                        Slice(sig.data(), sig.size()),
+                        txId,
+                        j_,
+                        "export signature witness"))
+                    continue;
+
+                signatures.emplace(pk, sig);
+            }
+        }
+    }
+    //@@end export-doapply-replay-witness-snapshot
+
+    //@@start export-doapply-retry-without-signature-quorum
+    if (signatures.size() < threshold)
+    {
+        auto const sigCount =
+            consensusExtensions.exportSigCollector().signatureCount(
+                txId, isActiveSigner);
+        // LLS semantics for retriable exports:
+        //
+        // Transactor::preclaim rejects with tefMAX_LEDGER when
+        // seq > LLS, so this tx can never run past ledger LLS.
+        // Within that window the export has three possible outcomes
+        // each ledger:
+        //
+        //   ledger < LLS:  tesSUCCESS (quorum) or terRETRY_EXPORT
+        //   ledger == LLS: tesSUCCESS (quorum) or tecEXPORT_EXPIRED
+        //   ledger > LLS:  tefMAX_LEDGER (never reaches doApply)
+        //
+        // The >= check here only fires in the no-quorum branch, so
+        // if quorum IS met on the LLS ledger it still succeeds.
+        // tecEXPORT_EXPIRED consumes the sequence cleanly rather
+        // than letting tefMAX_LEDGER silently drop the tx.
+        if (ctx_.tx.isFieldPresent(sfLastLedgerSequence))
+        {
+            auto const lls = ctx_.tx.getFieldU32(sfLastLedgerSequence);
+            if (currentSeq >= lls)
+            {
+                ctx_.app.getConsensusExtensions().exportSigCollector().clear(
+                    txId);
+                JLOG(j_.info())
+                    << "Export: last ledger expired"
+                    << " txHash=" << txId << " ledgerSeq=" << currentSeq
+                    << " lastLedgerSequence=" << lls << " sigs=" << sigCount
+                    << " threshold=" << threshold << " unlSize=" << unlSize
+                    << " result=tecEXPORT_EXPIRED";
+                return tecEXPORT_EXPIRED;
+            }
+        }
+
+        upgradeUnverifiedForNextRound();
+
+        JLOG(j_.info()) << "Export: insufficient signatures"
+                        << " txHash=" << txId << " ledgerSeq=" << currentSeq
+                        << " witnessSigs=" << signatures.size()
+                        << " collectorSigs=" << sigCount
+                        << " threshold=" << threshold << " unlSize=" << unlSize
+                        << " exportSigConvergenceFailed="
+                        << (consensusExtensions.exportSigConvergenceFailed()
+                                ? "yes"
+                                : "no")
+                        << " result=terRETRY_EXPORT";
+        return terRETRY_EXPORT;
+    }
+    //@@end export-doapply-retry-without-signature-quorum
+
+    auto assembled = ExportResultBuilder::assemble(
+        innerTx, signatures, currentSeq, txId, exportSignatureHash);
 
     // Create the shadow ticket with the signed tx hash.
     {
@@ -295,9 +289,9 @@ Export::doApply()
             return ter;
     }
 
-    // Write the export result to metadata.  The multisigned tx is
-    // stored as sfExportedTxn (OBJECT) so it renders as readable
-    // JSON in metadata, not an opaque hex blob.
+    // Write the export result to metadata. The metadata references the replay
+    // witness pseudo instead of duplicating the validator signatures; clients
+    // assemble the destination transaction from ttEXPORT + ttEXPORT_SIGNATURES.
     auto* avi = dynamic_cast<ApplyViewImpl*>(&view());
     if (!avi)
     {

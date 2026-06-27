@@ -24,10 +24,55 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/TxFormats.h>
 
 namespace ripple {
+namespace {
+
+void
+collectExportSignatureWitness(
+    ExportResultBuilder::SignatureWitnesses& witnesses,
+    STTx const& tx,
+    beast::Journal j)
+{
+    if (tx.getTxnType() != ttEXPORT_SIGNATURES)
+        return;
+
+    try
+    {
+        auto const exportTxHash = tx.getFieldH256(sfTransactionHash);
+        auto signatures = ExportResultBuilder::signaturesFromWitness(tx);
+        if (!signatures)
+        {
+            JLOG(j.warn()) << "Export: ignoring malformed signature witness"
+                           << " witnessHash=" << tx.getTransactionID()
+                           << " exportTxHash=" << exportTxHash;
+            return;
+        }
+
+        auto const witnessHash = tx.getTransactionID();
+        auto const [_, inserted] = witnesses.emplace(
+            exportTxHash,
+            ExportResultBuilder::SignatureWitness{
+                witnessHash, std::move(*signatures)});
+        if (!inserted)
+        {
+            JLOG(j.warn()) << "Export: duplicate signature witness"
+                           << " witnessHash=" << witnessHash
+                           << " exportTxHash=" << exportTxHash;
+        }
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j.warn()) << "Export: failed to parse signature witness"
+                       << " witnessHash=" << tx.getTransactionID()
+                       << " error=" << e.what();
+    }
+}
+
+}  // namespace
 
 /* Generic buildLedgerImpl that dispatches to ApplyTxs invocable with signature
     void(OpenView&, std::shared_ptr<Ledger> const&)
@@ -107,6 +152,15 @@ applyTransactions(
     bool certainRetry = true;
     std::size_t count = 0;
 
+    ExportResultBuilder::SignatureWitnesses exportSignatureWitnesses;
+    for (auto const& entry : txns)
+    {
+        if (entry.second)
+            collectExportSignatureWitness(
+                exportSignatureWitnesses, *entry.second, j);
+    }
+    ApplyOptions const applyOptions{&exportSignatureWitnesses};
+
     //@@start rng-entropy-first-application
     // CRITICAL: Apply consensus entropy pseudo-tx FIRST before any other
     // transactions. This ensures hooks can read entropy during this ledger.
@@ -123,8 +177,8 @@ applyTransactions(
 
         try
         {
-            auto const result =
-                applyTransaction(app, view, *it->second, true, tapNONE, j);
+            auto const result = applyTransaction(
+                app, view, *it->second, true, tapNONE, j, applyOptions);
 
             if (result == ApplyTransactionResult::Success)
             {
@@ -170,7 +224,13 @@ applyTransactions(
                 }
 
                 switch (applyTransaction(
-                    app, view, *it->second, certainRetry, tapNONE, j))
+                    app,
+                    view,
+                    *it->second,
+                    certainRetry,
+                    tapNONE,
+                    j,
+                    applyOptions))
                 {
                     case ApplyTransactionResult::Success:
                         it = txns.erase(it);
@@ -277,8 +337,18 @@ buildLedger(
         app,
         j,
         [&](OpenView& accum, std::shared_ptr<Ledger> const& built) {
+            ExportResultBuilder::SignatureWitnesses exportSignatureWitnesses;
+            for (auto const& tx : replayData.orderedTxns())
+            {
+                if (tx.second)
+                    collectExportSignatureWitness(
+                        exportSignatureWitnesses, *tx.second, j);
+            }
+            ApplyOptions const applyOptions{&exportSignatureWitnesses};
+
             for (auto& tx : replayData.orderedTxns())
-                applyTransaction(app, accum, *tx.second, false, applyFlags, j);
+                applyTransaction(
+                    app, accum, *tx.second, false, applyFlags, j, applyOptions);
         });
 }
 

@@ -142,14 +142,15 @@ apply(
     OpenView& view,
     STTx const& tx,
     ApplyFlags flags,
-    beast::Journal j)
+    beast::Journal j,
+    ApplyOptions const& options)
 {
     STAmountSO stAmountSO{view.rules().enabled(fixSTAmountCanonicalize)};
     NumberSO stNumberSO{view.rules().enabled(fixUniversalNumber)};
 
     auto pfresult = preflight(app, view.rules(), tx, flags, j);
     auto pcresult = preclaim(pfresult, app, view);
-    return doApply(pcresult, app, view);
+    return doApply(pcresult, app, view, options);
 }
 
 ApplyTransactionResult
@@ -159,7 +160,8 @@ applyTransaction(
     STTx const& txn,
     bool retryAssured,
     ApplyFlags flags,
-    beast::Journal j)
+    beast::Journal j,
+    ApplyOptions const& options)
 {
     // Returns false if the transaction has need not be retried.
     if (retryAssured)
@@ -170,7 +172,7 @@ applyTransaction(
 
     try
     {
-        auto const result = apply(app, view, txn, flags, j);
+        auto const result = apply(app, view, txn, flags, j, options);
         if (result.applied)
         {
             JLOG(j.debug())
