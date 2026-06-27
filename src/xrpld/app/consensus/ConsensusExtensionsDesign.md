@@ -204,12 +204,12 @@ Sidecar reconciliation is the recovery path for that gap. A sidecar SHAMap is a
 secondary distribution path for the proposal material that matters to the fixed
 quorum, not a second authority. Fetched leaves are admitted only after semantic
 validation. For RNG commits, that means the sidecar leaf carries a
-`ProposalProof`: the signed proposal position bytes plus the proposal signature,
-so a node that missed the original proposal relay can verify that the validator
-really advertised the commitment. RNG reveals are leaner: they verify against
-the already-proven commitment. Export signature leaves similarly carry the
-signed export material and are re-verified before they can become quorum
-material.
+`ProposalProof`: the signed proposal fields (sequence, close time, previous
+ledger, position) plus the signature, so a node that missed the original
+proposal relay can verify that the validator really advertised the commitment.
+RNG reveals are leaner: they verify against the already-proven commitment. Export
+signature leaves similarly carry the signed export material and are re-verified
+before they can become quorum material.
 
 Without reconciliation, the design would still be safe: the node would count
 only material it observed through the primary proposal relay and would degrade
