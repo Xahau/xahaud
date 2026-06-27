@@ -978,8 +978,7 @@ public:
         {
             BEAST_EXPECT(peer->ce().lastEntropyWasFallback_);
             BEAST_EXPECT(
-                peer->ce().lastEntropyTier_ ==
-                entropyTierConsensusFallback);
+                peer->ce().lastEntropyTier_ == entropyTierConsensusFallback);
             BEAST_EXPECT(peer->ce().lastEntropyCount_ == 0);
             BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
         }
