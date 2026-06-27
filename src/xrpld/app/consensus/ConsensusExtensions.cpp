@@ -1995,18 +1995,31 @@ ConsensusExtensions::onPreBuild(
                     if (existing != retriableTxs.end())
                         continue;
 
-                    auto const& exportedObj =
-                        stx->peekAtField(sfExportedTxn).downcast<STObject>();
-                    Serializer innerSer;
-                    exportedObj.add(innerSer);
-                    SerialIter sit(innerSer.slice());
-                    STTx innerTx(std::ref(sit));
+                    std::optional<STTx> innerTx;
+                    try
+                    {
+                        auto const& exportedObj =
+                            stx->peekAtField(sfExportedTxn)
+                                .downcast<STObject>();
+                        Serializer innerSer;
+                        exportedObj.add(innerSer);
+                        SerialIter sit(innerSer.slice());
+                        innerTx.emplace(std::ref(sit));
+                    }
+                    catch (std::exception const& e)
+                    {
+                        JLOG(j_.warn()) << "Export: standalone witness skipped"
+                                        << " exportTxHash=" << exportTxHash
+                                        << " reason=inner-tx-parse-failed"
+                                        << " error=" << e.what();
+                        continue;
+                    }
 
                     ExportResultBuilder::SignatureSnapshot signatures;
                     signatures.emplace(
                         valKeys.keys->publicKey,
                         ExportResultBuilder::signExportedTxn(
-                            innerTx,
+                            *innerTx,
                             valKeys.keys->publicKey,
                             valKeys.keys->secretKey));
 
@@ -2064,6 +2077,10 @@ ConsensusExtensions::onPreBuild(
                         << " witnessHash=" << witnessHash
                         << " existingHash=" << existingHash
                         << " action=replace-with-agreed";
+                    // The witness is build-time materialization of the
+                    // accepted sidecar, not a base consensus-set transaction.
+                    // Replacing a mismatch keeps the tx stream tied to the
+                    // accepted root instead of preserving stale local input.
                     retriableTxs.erase(existing);
                 }
 

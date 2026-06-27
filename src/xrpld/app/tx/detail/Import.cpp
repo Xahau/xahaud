@@ -22,6 +22,7 @@
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
+#include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/base64.h>
@@ -758,9 +759,10 @@ Import::preflight(PreflightContext const& ctx)
     JLOG(ctx.j.trace()) << "totalValidatorCount: " << totalValidatorCount;
 
     // Burn-to-mint import retains the legacy truncated 80% quorum calculation.
-    // If Import is extended to consume Export transactions directly, use
-    // calculateQuorumThreshold() for symmetry with Export/validator quorum.
-    uint64_t quorum = totalValidatorCount * 0.8;
+    // Export callbacks are tied to Export's source-side validator quorum, so
+    // their XPOP proof uses the same ceiling threshold.
+    uint64_t quorum = hasTicket ? calculateQuorumThreshold(totalValidatorCount)
+                                : totalValidatorCount * 0.8;
 
     if (quorum == 0)
     {

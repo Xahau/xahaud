@@ -23,6 +23,7 @@
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/detail/Change.h>
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/app/tx/detail/XahauGenesis.h>
@@ -131,6 +132,31 @@ Change::preflight(PreflightContext const& ctx)
             ctx.tx.getFieldArray(sfSigners).empty())
         {
             JLOG(ctx.j.warn()) << "Change: ExportSignatures missing signers";
+            return temMALFORMED;
+        }
+
+        if (!ctx.tx.isFieldPresent(sfTransactionHash) ||
+            !ctx.tx.isFieldPresent(sfLedgerSequence))
+        {
+            JLOG(ctx.j.warn())
+                << "Change: ExportSignatures missing witness binding";
+            return temMALFORMED;
+        }
+
+        try
+        {
+            if (!ExportResultBuilder::signaturesFromWitness(ctx.tx))
+            {
+                JLOG(ctx.j.warn())
+                    << "Change: ExportSignatures malformed signer payload";
+                return temMALFORMED;
+            }
+        }
+        catch (std::exception const& e)
+        {
+            JLOG(ctx.j.warn())
+                << "Change: ExportSignatures malformed signer payload: "
+                << e.what();
             return temMALFORMED;
         }
     }
