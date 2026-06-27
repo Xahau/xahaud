@@ -170,7 +170,13 @@ public:
             setPosition(observedSet, observed);
             BEAST_EXPECT(
                 detail::checkProposalExtensions(observedSet, false, true)
-                    .result == entropyDisabled);
+                    .result == ok);
+            BEAST_EXPECT(
+                detail::checkProposalExtensions(observedSet, true, false)
+                    .result == ok);
+            BEAST_EXPECT(
+                detail::checkProposalExtensions(observedSet, false, false)
+                    .result == extensionDiagnosticsDisabled);
 
             protocol::TMProposeSet exportSet;
             setPreviousLedger(exportSet);
@@ -288,6 +294,11 @@ public:
                 badPosition,
                 "Proposal: malformed extended position",
                 "bad proposal position");
+            check(
+                extensionDiagnosticsDisabled,
+                "Proposal: extension diagnostics while consensus extensions "
+                "disabled",
+                "extension diagnostics disabled");
             check(
                 entropyDisabled,
                 "Proposal: entropy fields while featureConsensusEntropy "

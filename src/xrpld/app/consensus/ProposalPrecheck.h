@@ -15,6 +15,7 @@ enum class ProposalPrecheckResult {
     ok,
     badHashes,
     badPosition,
+    extensionDiagnosticsDisabled,
     entropyDisabled,
     exportDisabled,
     tooManyExportSignatures,
@@ -60,6 +61,11 @@ proposalPrecheckRejection(ProposalPrecheckResult result)
             return ProposalPrecheckRejection{
                 "Proposal: malformed extended position",
                 "bad proposal position"};
+        case ProposalPrecheckResult::extensionDiagnosticsDisabled:
+            return ProposalPrecheckRejection{
+                "Proposal: extension diagnostics while consensus extensions "
+                "disabled",
+                "extension diagnostics disabled"};
         case ProposalPrecheckResult::entropyDisabled:
             return ProposalPrecheckRejection{
                 "Proposal: entropy fields while featureConsensusEntropy "
@@ -111,13 +117,19 @@ checkProposalExtensions(
 
     bool const hasEntropyMaterial = parsedPosition->commitSetHash ||
         parsedPosition->entropySetHash || parsedPosition->myCommitment ||
-        parsedPosition->myReveal || parsedPosition->observedParticipantsHash;
+        parsedPosition->myReveal;
+    bool const hasExtensionDiagnostics =
+        parsedPosition->observedParticipantsHash.has_value();
     bool const hasExportMaterial = parsedPosition->exportSigSetHash ||
         parsedPosition->exportSignaturesHash || set.exportsignatures_size() > 0;
     if (hasEntropyMaterial && !isEntropyEnabled())
         return {ProposalPrecheckResult::entropyDisabled, parsedPosition};
     if (hasExportMaterial && !isExportEnabled())
         return {ProposalPrecheckResult::exportDisabled, parsedPosition};
+    if (hasExtensionDiagnostics && !isEntropyEnabled() && !isExportEnabled())
+        return {
+            ProposalPrecheckResult::extensionDiagnosticsDisabled,
+            parsedPosition};
 
     if (set.exportsignatures_size() > ExportLimits::maxPendingExports)
         return {

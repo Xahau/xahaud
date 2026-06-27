@@ -176,6 +176,9 @@ This field is diagnostic only:
 - It is covered by the proposal signature and duplicate-suppression identity.
 - It does not participate in core tx-set identity.
 - It does not lower the active validator quorum denominator.
+- It is shared extension diagnostics, not RNG-only material. Proposals may
+  carry it when either `featureConsensusEntropy` or `featureExport` is active,
+  and ingress validation must reject it only when both extensions are disabled.
 - It is intended to explain timing/degraded-network cases where commits,
   reveals, or sidecar hashes arrive late or asymmetrically.
 
