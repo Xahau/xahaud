@@ -38,6 +38,21 @@ under validator-entropy semantics. Export has no equivalent fallback value:
 without quorum-aligned verified export signatures, the export must not be
 treated as complete and must retry or expire under transaction rules.
 
+The fallback/non-fallback decision is itself ledger-defining. A local node may
+diagnose that progress looks unlikely from its current peer view, but it must
+not close with fallback solely because local previous-proposer or peer-position
+counts are low while proofed sidecar material already meets the entropy gate.
+Local observations can bound waits; they cannot bypass available quorum
+material.
+
+There is still a bounded consensus-edge residual: one node may observe a
+quorum-aligned sidecar before its deadline while another times out and builds
+the fallback pseudo. Validation resolves that as ordinary ledger disagreement.
+Eliminating it entirely would require making the accept/fallback decision itself
+part of the agreed consensus object. The rule here is therefore narrower and
+enforceable: no additional node-local shortcut may create fallback before the
+sidecar gate has had its bounded chance to use proofed/quorum material.
+
 ## Core Invariants
 
 1. Core consensus remains keyed by the transaction set.
@@ -57,6 +72,12 @@ treated as complete and must retry or expire under transaction rules.
    consensus_fallback digest (labeled `consensus_fallback`, count 0). If export
    signatures cannot converge, export retries or expires according to
    transaction rules.
+
+   The bounded fallback rule is not permission for local shortcuts to decide
+   ledger output. "Cannot establish" means the accepted-hash gate did not
+   produce usable material before its bounded deadline; it does not mean one
+   node locally under-observed proposers or peers while proofed/quorum material
+   was already available.
 
 3. Safety is in validation; extension logic is deliberation.
 
@@ -117,12 +138,10 @@ The active validator view is the shared denominator for RNG and export:
   UNL from whichever source produced the view.
 - Use the same snapshot throughout the round.
 
-`quorumThreshold()` is 80% of that active validator view. Recent or expected
-proposers are liveness hints only; they do not shrink the quorum denominator.
-
-Be careful with `prevProposers`: in the generic consensus code it is peer-only.
-When checking whether the previous round had enough active participants, count
-our own proposer slot if this node is proposing.
+`quorumThreshold()` is 80% of that active validator view. Recent proposers,
+expected proposers, and currently visible peer positions are liveness hints and
+diagnostic context only; they do not shrink the quorum denominator and do not
+decide fallback-vs-non-fallback output.
 
 ## Participant Diagnostics
 
@@ -236,6 +255,14 @@ does not resolve it.
 If no entropy hash reaches the entropy gate threshold before the bounded
 deadline, the round must fall back to the Tier 1 consensus-bound digest. This
 is the safe degradation path, not a consensus failure.
+
+That fallback condition is a gate result, not a local reachability guess. A
+node-local count such as "previous proposers seen" or "current peer positions
+visible here" is not a stable consensus input and must not skip the pipeline
+when the proofed sidecar material already meets the entropy gate. At the
+deadline boundary, nodes can still disagree about accept-vs-fallback until
+validation chooses the ledger; that residual is bounded and tracked, not a
+license for extra local gates.
 
 Examples with six active validators on a UNLReport-anchored view (validator_quorum
 threshold five, participant_aligned threshold four; six is the smallest view with

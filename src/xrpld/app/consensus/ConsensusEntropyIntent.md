@@ -34,6 +34,20 @@ parent-ledger active view.
 reading a local `entropyFailed_`/timeout flag at injection time (this was the H2
 bug).
 
+**INV-1A — Accept-vs-fallback is also ledger-defining.**
+The choice between a non-fallback sidecar and `consensus_fallback` is part of the
+same injected object. It must be tied to the accepted sidecar-hash discipline and
+the proofed/quorum sidecar material, not to one node's local observation counts.
+Local signals such as previous proposers, currently visible peer positions, or
+"quorum seems impossible from here" may influence logging, diagnostics, and
+bounded waits, but they must not short-circuit the gate while enough proofed
+sidecar material exists to continue toward non-fallback entropy.
+*Enforced:* the same accepted-hash boundary as INV-1, plus tests that compare
+nodes with asymmetric local observation. *Anti-pattern:* a bootstrap or
+"impossible quorum" shortcut that falls through to close with fallback from
+`prevProposers` or visible `peerPositions` while the proofed commit set already
+meets the entropy gate.
+
 **INV-2 — No single validator can veto.**
 Entropy mints on **quorum, not unanimity**. A minority withholding reveals or
 sidecar-hash advertisements must not, by silence alone, force fallback or stall
@@ -109,6 +123,13 @@ into an INV violation:
   (speculative execution sees the previous ledger's entropy in the open ledger,
   the current ledger's at close). Open-ledger `dice()`/`random()` are previews,
   not the authority.
+- **Bounded accept-vs-fallback timing asymmetry** remains possible at the edge of
+  observation deadlines: one node may see a quorum-aligned entropy sidecar before
+  its deadline while another times out to `consensus_fallback`. That is a
+  validation-backstopped liveness/resync residual of doing sidecar agreement
+  outside the base transaction-set hash, not permission for additional local
+  shortcut gates. Removing it entirely would require making the fallback/accept
+  decision itself an agreed consensus object.
 
 ## Open design question (tracked, not yet decided)
 

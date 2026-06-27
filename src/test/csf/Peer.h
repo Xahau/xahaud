@@ -469,6 +469,14 @@ struct Peer
         }
 
         std::size_t
+        proofedCommitCount() const
+        {
+            // CSF models commit sidecars directly and has no separate proposal
+            // proof cache; every pending commit is emit-eligible in this model.
+            return pendingCommitCount();
+        }
+
+        std::size_t
         pendingRevealCount() const
         {
             return pendingReveals_.size();

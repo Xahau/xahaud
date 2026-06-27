@@ -364,42 +364,11 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             << " roundMs=" << ctx.roundTime.count()
             << " mode=" << to_string(ctx.mode);
 
-        // Bootstrap fast-path: if the previous round didn't have
-        // enough proposers for RNG to reach the entropy gate threshold, the
-        // network is still converging.  Skip the entire commit/reveal
-        // pipeline — it can only produce consensus_fallback anyway, but
-        // each substate transition and timeout (PIPELINE_TIMEOUT,
-        // REVEAL_TIMEOUT, conflict-wait) adds seconds of latency
-        // per round that compound across staggered startup.
-        //
-        // Once prevProposers reaches the entropy gate threshold the pipeline
-        // engages normally with all its coordination delays intact.
-        bool rngBootstrapSkip = false;
+        if (ext.estState_ == EstablishState::ConvergingTx)
         {
-            auto const threshold = ext.entropyGateThreshold();
-            // prevProposers is peer-only. Include our own proposer slot when
-            // we are actively proposing, otherwise a 4/5 honest quorum appears
-            // as only three previous proposers after one validator diverges.
-            auto const previousParticipants = ctx.prevProposers +
-                (ctx.mode == ConsensusMode::proposing ? 1 : 0);
-            if (previousParticipants < threshold)
-            {
-                JLOG(ext.j_.debug())
-                    << "RNG: bootstrap skip"
-                    << " previousParticipants=" << previousParticipants
-                    << " threshold=" << threshold
-                    << " prevProposers=" << ctx.prevProposers
-                    << " buildSeq=" << buildSeq;
-                rngBootstrapSkip = true;
-            }
-        }
-
-        if (!rngBootstrapSkip && ext.estState_ == EstablishState::ConvergingTx)
-        {
-            // Commit quorum is fixed to 80% of the active UNL snapshot for
-            // the round. We move immediately once that floor is met;
-            // recent-proposer tracking is only for deciding whether more
-            // waiting is worthwhile.
+            // Commit quorum is fixed to the active UNL snapshot for the round.
+            // We move immediately once that floor is met; recent-proposer and
+            // peer-visibility counts are diagnostics only.
             if (ext.hasQuorumOfCommits())
             {
                 //@@start rng-commit-quorum-transition
@@ -434,86 +403,52 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             // while others are still collecting — causing ledger
             // mismatches.
             //
-            // However, if we've already converged on the txSet (which we
-            // have — haveConsensus() passed above) and there aren't enough
-            // currently participating validators to ever reach the entropy
-            // gate threshold, skip immediately. For a badly degraded view below
-            // the Tier 2 floor, waiting 3s per round just delays recovery.
-            //
-            // NOTE: Late-joining nodes (e.g. restarting after a crash)
-            // cannot help here.  They enter the round as proposing=false
-            // and onClose() skips commitment generation for non-proposers.
-            // It takes at least one full round of observing before
-            // consensus promotes them to proposing.
+            // Local proposer counts are not stable consensus inputs.  They may
+            // tell us whether to keep waiting, but they must not make this node
+            // close with fallback while another node has quorum sidecar
+            // material for the same parent/base transaction set.
+            bool timeout = ctx.roundTime > ctx.parms.rngPIPELINE_TIMEOUT;
+            if (!timeout)
             {
-                // participants = peers + ourselves
-                auto const participants = ctx.peerPositions.size() + 1;
-                auto const threshold = ext.entropyGateThreshold();
-                bool const impossible = participants < threshold;
-
-                if (impossible)
-                {
-                    JLOG(ext.j_.debug()) << "RNG: skipping commit wait"
-                                         << " reason=impossible-entropy-gate"
-                                         << " participants=" << participants
-                                         << " threshold=" << threshold
-                                         << " buildSeq=" << buildSeq;
-                    logRngDiag("rng-commit-wait-impossible-entropy-gate");
-                    // Fall through to close with consensus_fallback entropy.
-                }
-                else
-                {
-                    bool timeout =
-                        ctx.roundTime > ctx.parms.rngPIPELINE_TIMEOUT;
-                    if (!timeout)
-                    {
-                        logRngDiag("rng-commit-wait");
-                        return {};  // Wait for more commits
-                    }
-
-                    // Timeout waiting for additional likely participants.
-                    // If we already meet the entropy-gate threshold (the lowest
-                    // accepted tier's bar — min(quorum, tier2)), proceed with
-                    // what we have — the SHAMap merge handles any remaining
-                    // straggler fuzz for this transition round.
-                    auto const commits = ext.pendingCommitCount();
-                    auto const quorum = ext.entropyGateThreshold();
-                    if (commits >= quorum)
-                    {
-                        JLOG(ext.j_.info())
-                            << "RNG: commit timeout with entropy gate threshold"
-                            << " buildSeq=" << buildSeq
-                            << " commits=" << commits
-                            << " entropyGateThreshold=" << quorum
-                            << " roundMs=" << ctx.roundTime.count()
-                            << " timeoutMs="
-                            << ctx.parms.rngPIPELINE_TIMEOUT.count();
-                        // Jump to the same path as ext.hasQuorumOfCommits
-                        auto commitSetHash = ext.buildCommitSet(buildSeq);
-                        auto newPos = ctx.getPosition();
-                        newPos.commitSetHash = commitSetHash;
-                        ctx.updatePosition(newPos);
-                        if (ctx.mode == ConsensusMode::proposing)
-                            ctx.propose();
-                        ext.estState_ = EstablishState::ConvergingCommit;
-                        ext.commitHashConflictStart_ = {};
-                        JLOG(ext.j_.debug())
-                            << "RNG: transitioned to ConvergingCommit"
-                            << " reason=timeout-with-quorum"
-                            << " buildSeq=" << buildSeq
-                            << " commitSetHash=" << commitSetHash
-                            << " commits=" << commits << " quorum=" << quorum;
-                        return {};
-                    }
-                    logRngDiag("rng-commit-timeout-below-quorum");
-                    // Truly below the entropy gate: fall through to
-                    // consensus_fallback entropy.
-                }
+                logRngDiag("rng-commit-wait");
+                return {};  // Wait for more commits
             }
+
+            // Timeout waiting for additional likely participants.  If the
+            // proofed commit set already meets the entropy gate threshold
+            // (the lowest accepted tier's bar — min(quorum, tier2)), proceed
+            // with what we have; otherwise this round degrades to fallback.
+            auto const commits = ext.proofedCommitCount();
+            auto const quorum = ext.entropyGateThreshold();
+            if (commits >= quorum)
+            {
+                JLOG(ext.j_.info())
+                    << "RNG: commit timeout with entropy gate threshold"
+                    << " buildSeq=" << buildSeq << " commits=" << commits
+                    << " entropyGateThreshold=" << quorum
+                    << " roundMs=" << ctx.roundTime.count()
+                    << " timeoutMs=" << ctx.parms.rngPIPELINE_TIMEOUT.count();
+                // Jump to the same path as ext.hasQuorumOfCommits.
+                auto commitSetHash = ext.buildCommitSet(buildSeq);
+                auto newPos = ctx.getPosition();
+                newPos.commitSetHash = commitSetHash;
+                ctx.updatePosition(newPos);
+                if (ctx.mode == ConsensusMode::proposing)
+                    ctx.propose();
+                ext.estState_ = EstablishState::ConvergingCommit;
+                ext.commitHashConflictStart_ = {};
+                JLOG(ext.j_.debug())
+                    << "RNG: transitioned to ConvergingCommit"
+                    << " reason=timeout-with-quorum" << " buildSeq=" << buildSeq
+                    << " commitSetHash=" << commitSetHash
+                    << " commits=" << commits << " quorum=" << quorum;
+                return {};
+            }
+            logRngDiag("rng-commit-timeout-below-quorum");
+            // Truly below the entropy gate: fall through to
+            // consensus_fallback entropy.
         }
-        else if (
-            !rngBootstrapSkip &&
-            ext.estState_ == EstablishState::ConvergingCommit)
+        else if (ext.estState_ == EstablishState::ConvergingCommit)
         {
             // If commit hashes diverge, we may not receive any additional
             // tx-converged proposals in this state (peers can move to the
@@ -707,9 +642,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 return {};  // Wait for next tick
             }
         }
-        else if (
-            !rngBootstrapSkip &&
-            ext.estState_ == EstablishState::ConvergingReveal)
+        else if (ext.estState_ == EstablishState::ConvergingReveal)
         {
             //@@start rng-reveal-publish-gate
             // Wait for ALL committers to reveal (not just 80%).

@@ -52,9 +52,8 @@ public:
         for (Peer* peer : peers)
             peer->ce().enableRngConsensus_ = true;
 
-        // Warmup: run 1 round so prevProposers_ is populated (bootstrap
-        // skip bypasses the RNG pipeline when prevProposers is below the
-        // entropy gate threshold).
+        // Warmup: let peer proposals and close times settle before checking
+        // the RNG pipeline.
         sim.run(1);
         BEAST_EXPECT(sim.synchronized());
 
@@ -89,9 +88,8 @@ public:
         for (Peer* peer : peers)
             peer->ce().enableRngConsensus_ = true;
 
-        // Warmup: run 1 round so prevProposers_ is populated (bootstrap
-        // skip bypasses the RNG pipeline when previous participants are below
-        // the entropy gate threshold).
+        // Warmup: let peer proposals and close times settle before checking
+        // the RNG pipeline.
         sim.run(1);
         BEAST_EXPECT(sim.synchronized());
 
@@ -646,8 +644,8 @@ public:
         auto const fast = round<milliseconds>(0.2 * parms.ledgerGRANULARITY);
         network.connect(network, fast);
 
-        // Warmup: populate prevProposers (bootstrap skip bypasses RNG when
-        // previous participants are below the entropy gate threshold).
+        // Warmup: let peer proposals and close times settle before checking
+        // the RNG pipeline.
         sim.run(1);
         BEAST_EXPECT(sim.synchronized(network));
 
@@ -1130,8 +1128,8 @@ public:
             peers[0]->ce().dropRevealFrom_.insert(peers[i]->id);
 
         // Run just 1 round — enough to exercise the gate.
-        // More rounds cause peer 0 to desync, dropping prevProposers
-        // and triggering bootstrap skip on the final round.
+        // Run just one round so the scenario stays focused on the reveal
+        // alignment gate.
         sim.run(1);
 
         // The majority (peers 1-4) should agree on validator entropy
@@ -1333,8 +1331,8 @@ public:
         peers.trustAndConnect(
             peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
 
-        // Warmup: populate prevProposers so the RNG path does not bootstrap
-        // skip the extension tick scenario.
+        // Warmup: let peer proposals and close times settle before checking
+        // the extension tick scenario.
         sim.run(1);
         BEAST_EXPECT(sim.synchronized(peers));
 

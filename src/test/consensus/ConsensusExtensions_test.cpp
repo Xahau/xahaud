@@ -367,6 +367,7 @@ struct FakeExtensions
     bool entropyFailed{false};
     std::size_t sidecarQuorum{4};
     std::size_t commits{4};
+    std::size_t proofedCommits{4};
     std::size_t reveals{4};
     bool commitQuorum{true};
     bool minimumReveals{true};
@@ -444,6 +445,12 @@ struct FakeExtensions
     pendingCommitCount() const
     {
         return rngOn ? commits : 0;
+    }
+
+    std::size_t
+    proofedCommitCount() const
+    {
+        return rngOn ? proofedCommits : 0;
     }
 
     std::size_t
@@ -1345,6 +1352,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             makeUNLReportLedger(env, std::vector<PublicKey>{publicKey});
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
         ce.cacheUNLReport(viewLedger);
+        ce.setRngEnabledThisRound(true);
         harvestCommitReveal(
             ce,
             nodeId,
@@ -1437,6 +1445,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto runWith = [&](std::size_t revealers) {
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.cacheUNLReport(viewLedger);
+            ce.setRngEnabledThisRound(true);
             for (std::size_t i = 0; i < revealers; ++i)
             {
                 auto const reveal =
@@ -1603,6 +1612,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto runWith = [&](std::size_t revealers) {
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.cacheUNLReport(viewLedger);
+            ce.setRngEnabledThisRound(true);
             for (std::size_t i = 0; i < revealers; ++i)
             {
                 auto const idx = i + kDisabled;  // skip disabled validator
@@ -2382,6 +2392,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             *this, envconfig(validator, ""), supported_amendments(), nullptr};
 
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.setRngEnabledThisRound(true);
         CanonicalTXSet retriableTxs{makeHash("rng-on-pre-build-salt")};
         auto const seq = env.closed()->seq() + 1;
 
@@ -2439,6 +2450,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         // branch keeps the agreed one, does not insert ours, stays at one.
         {
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            ce.setRngEnabledThisRound(true);
             CanonicalTXSet txs{makeHash("mismatch-wellformed-salt")};
             auto const present =
                 makeEntropyTx(makeHash("a-different-digest"), 7);
@@ -2659,9 +2671,11 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testRngBootstrapSkipWhenPreviousParticipantsBelowGate()
+    testRngPrevProposerUnderObservationDoesNotSuppressCommitQuorum()
     {
-        testcase("RNG bootstrap skip below previous participant entropy gate");
+        testcase(
+            "RNG previous proposer under-observation does not suppress commit "
+            "quorum");
 
         FakeExtensions ext;
         ext.rngOn = true;
@@ -2671,10 +2685,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         harness.prevProposers = 2;
 
         auto result = harness.tick(ext);
-        BEAST_EXPECT(result.readyForAccept);
-        BEAST_EXPECT(ext.estState_ == EstablishState::ConvergingTx);
-        BEAST_EXPECT(ext.commitBuilds == 0);
-        BEAST_EXPECT(!harness.position.commitSetHash);
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(ext.estState_ == EstablishState::ConvergingCommit);
+        BEAST_EXPECT(ext.commitBuilds == 1);
+        BEAST_EXPECT(harness.position.commitSetHash == ext.commitHash);
     }
 
     void
@@ -2725,6 +2739,55 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(harness.position.commitSetHash == ext.commitHash);
         BEAST_EXPECT(harness.updates == 1);
         BEAST_EXPECT(harness.proposes == 1);
+    }
+
+    void
+    testRngCommitTimeoutUsesProofedCommitsNotVisiblePeers()
+    {
+        testcase(
+            "RNG commit timeout uses proofed commits, not visible peer "
+            "count");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.commitQuorum = false;
+        ext.commits = 4;
+
+        ExtensionTickHarness harness;
+
+        auto result = harness.tick(
+            ext,
+            harness.parms.rngPIPELINE_TIMEOUT + std::chrono::milliseconds{1});
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(ext.estState_ == EstablishState::ConvergingCommit);
+        BEAST_EXPECT(ext.commitBuilds == 1);
+        BEAST_EXPECT(harness.position.commitSetHash == ext.commitHash);
+        BEAST_EXPECT(harness.updates == 1);
+        BEAST_EXPECT(harness.proposes == 1);
+    }
+
+    void
+    testRngCommitTimeoutRejectsUnproofedCommits()
+    {
+        testcase("RNG commit timeout rejects unproofed commits");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.commitQuorum = false;
+        ext.commits = 4;
+        ext.proofedCommits = 3;
+
+        ExtensionTickHarness harness;
+
+        auto result = harness.tick(
+            ext,
+            harness.parms.rngPIPELINE_TIMEOUT + std::chrono::milliseconds{1});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(ext.estState_ == EstablishState::ConvergingTx);
+        BEAST_EXPECT(ext.commitBuilds == 0);
+        BEAST_EXPECT(!harness.position.commitSetHash);
     }
 
     void
@@ -3527,9 +3590,11 @@ public:
         testRngEntropyGateAllowsQuorumDespiteMissingObservation();
         testRngEntropyConflictStillRequiresFullObservation();
         testRngFastPathWaitsAfterEntropyPublish();
-        testRngBootstrapSkipWhenPreviousParticipantsBelowGate();
+        testRngPrevProposerUnderObservationDoesNotSuppressCommitQuorum();
         testRngCommitWaitsWhenQuorumPossible();
         testRngCommitTimeoutWithEntropyGatePublishesCommitSet();
+        testRngCommitTimeoutUsesProofedCommitsNotVisiblePeers();
+        testRngCommitTimeoutRejectsUnproofedCommits();
         testRngCommitQuorumInObservingModeDoesNotPropose();
         testRngCommitConflictRefreshesHashBeforeWaiting();
         testRngCommitHashConflictTimeoutFallsBack();

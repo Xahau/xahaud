@@ -15,7 +15,8 @@ closed transaction set alone.
 
 Export lets a quorum of active validators produce a foreign-chain-submittable
 transaction from an agreed `ttEXPORT`, without letting local sidecar timing,
-collector state, or validator silence change the closed ledger result.
+collector state, or validator silence change the bytes of a successful closed
+ledger result.
 
 ## Invariants
 
@@ -77,6 +78,13 @@ An Export that cannot obtain quorum-aligned signatures within its bounded ledger
 window retries or expires through normal transaction semantics. It must not wait
 unboundedly, pick the largest sub-quorum set, or finalize against local trusted
 configuration as a fallback.
+
+The success-vs-retry decision remains a bounded timing edge, like ordinary
+consensus convergence: one node may observe the quorum-aligned witness before
+its deadline while another retries. Validation resolves that ledger disagreement.
+What must never happen is a "successful" export whose signature bytes come from
+live collector state, late fetches, or a node-local sub-quorum set instead of the
+accepted witness in the transaction stream.
 
 **INV-7 — Shadow tickets are latches, not global tombstones.**
 The current shadow-ticket object prevents a different XPOP from consuming the

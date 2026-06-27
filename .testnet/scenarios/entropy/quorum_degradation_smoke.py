@@ -91,7 +91,7 @@ async def scenario(ctx, log):
     # - commit-set SHAMap publication is the observable output of entering the
     #   commit sidecar phase
     # - ConvergingCommit transition is the gateway out of seq=0-only behavior
-    # - reason=impossible-entropy-gate is the explicit degraded-window fallback path
+    # - rng-commit-timeout-below-quorum is the degraded-window fallback path
     ctx.log_level("LedgerConsensus", "trace")
     ctx.log_level("ConsensusExtensions", "trace")
     op = await ctx.sleep(6, name="stall_window")
@@ -110,12 +110,12 @@ async def scenario(ctx, log):
     )
     log(f"3/5: establish gate-blocked logs in 6s: {gate_blocked.count}")
 
-    impossible = ctx.search_logs(
-        r"RNG: skipping commit wait reason=impossible-entropy-gate",
+    below_quorum = ctx.search_logs(
+        r"STALLDIAG: rng-commit-timeout-below-quorum",
         within=op.window,
         nodes=[0, 1, 2],
     )
-    log(f"3/5: RNG impossible-entropy-gate skips in 6s: {impossible.count}")
+    log(f"3/5: RNG commit timeout below quorum logs in 6s: {below_quorum.count}")
 
     # --- Recovery: restart nodes, verify ledger advancement ---
     ctx.start_node(3)

@@ -361,6 +361,22 @@ ConsensusExtensions::pendingCommitCount() const
 }
 
 std::size_t
+ConsensusExtensions::proofedCommitCount() const
+{
+    auto const validatorView = activeValidatorView();
+    return std::count_if(
+        pendingCommits_.begin(),
+        pendingCommits_.end(),
+        [this, validatorView](auto const& entry) {
+            auto const& nid = entry.first;
+            // Match buildCommitSet(): only commits that can be emitted as
+            // verifiable sidecar leaves count toward any commit threshold.
+            return validatorView->containsNode(nid) &&
+                nodeIdToKey_.count(nid) > 0 && commitProofs_.count(nid) > 0;
+        });
+}
+
+std::size_t
 ConsensusExtensions::pendingRevealCount() const
 {
     return pendingReveals_.size();
@@ -377,16 +393,7 @@ ConsensusExtensions::hasQuorumOfCommits() const
 {
     auto const validatorView = activeValidatorView();
     auto const threshold = safeQuorumThreshold(validatorView->size());
-    auto const proofedCommitCount = std::count_if(
-        pendingCommits_.begin(),
-        pendingCommits_.end(),
-        [this, validatorView](auto const& entry) {
-            auto const& nid = entry.first;
-            // Commit quorum only counts entries that can be emitted as
-            // verifiable sidecar leaves under the shared active view.
-            return validatorView->containsNode(nid) &&
-                nodeIdToKey_.count(nid) > 0 && commitProofs_.count(nid) > 0;
-        });
+    auto const proofedCommitCount = this->proofedCommitCount();
     bool result = static_cast<std::size_t>(proofedCommitCount) >= threshold;
     JLOG(j_.trace()) << "RNG: commit quorum check"
                      << " proofedCommits=" << proofedCommitCount

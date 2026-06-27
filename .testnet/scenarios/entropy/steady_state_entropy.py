@@ -8,7 +8,7 @@ from helpers import require_entropy, get_entropy_tx, assert_valid_entropy
 async def scenario(ctx, log):
     await require_entropy(ctx, log)
 
-    # Wait for RNG pipeline to warm up past bootstrap skip.
+    # Wait for the RNG pipeline to warm up past initial proposal/sidecar gossip.
     await ctx.wait_for_ledgers(3, node_id=0, timeout=60)
     log("Pipeline warmed up")
 

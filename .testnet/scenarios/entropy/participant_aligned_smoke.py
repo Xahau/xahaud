@@ -98,8 +98,8 @@ async def scenario(ctx, log):
     await ctx.wait_for_nodes_down(nodes=[4], timeout=30)
 
     # ~12s window: confirm tier-2 INJECTION from the cohort's logs, and that the
-    # round is NOT the impossible/fallback path (which is what distinguishes the
-    # tier-2 band from the tier-1 fallback regime).
+    # round is NOT the below-quorum fallback path (which is what distinguishes
+    # the tier-2 band from the tier-1 fallback regime).
     op = await ctx.sleep(12, name="tier2_window")
     selected_t2 = ctx.search_logs(
         r"RNG: entropy selected seq=\d+ tier=2 count=4",
@@ -113,7 +113,9 @@ async def scenario(ctx, log):
             "'RNG: entropy selected ... tier=2 count=4' on the surviving cohort"
         )
     ctx.assert_not_log(
-        r"reason=impossible-entropy-gate", within=op.window, nodes=[0, 1, 2, 3]
+        r"STALLDIAG: rng-commit-timeout-below-quorum",
+        within=op.window,
+        nodes=[0, 1, 2, 3],
     )
 
     # Verify the on-ledger EntropyTier=2 DIRECTLY: validation is stalled (4 < 5),

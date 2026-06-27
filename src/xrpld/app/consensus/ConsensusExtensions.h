@@ -211,6 +211,9 @@ public:
     pendingCommitCount() const;
 
     std::size_t
+    proofedCommitCount() const;
+
+    std::size_t
     pendingRevealCount() const;
 
     std::size_t
