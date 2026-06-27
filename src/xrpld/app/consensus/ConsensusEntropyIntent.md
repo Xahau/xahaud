@@ -69,12 +69,18 @@ alignment-counting universe is filtered to the active view. *Anti-pattern:*
 counting "valid/observed proposals" as the denominator — that lets a withholder
 shrink `N` and is also node-local (split).
 
-**INV-4 — Byzantine defense lives on the conflict path.**
-Equivocation (a peer showing different hashes to different peers) must be
-**detected, never committed-on**. Full observation is required **only** where a
-`conflict` exists; absent a conflict, quorum alignment is sufficient (INV-2).
-*Enforced:* the conflict branch keeps `fullObservation()`; the clean branch does
-not. This is exactly why INV-2's relaxation is scoped to the clean path.
+**INV-4 — Quorum alignment is the conflict boundary.**
+Equivocation (a peer showing different hashes to different peers) must not let
+two sidecar hashes both become ledger material. The fixed-denominator entropy
+threshold is sized so any two quorum-aligned cohorts intersect above the
+Byzantine floor, so at most one entropy hash can be quorum-aligned. Once our
+hash reaches that gate, a below-threshold conflicting minority or silent peer
+must not force fallback by withholding full observation; ordinary validation
+resolves the bounded deadline edge.
+*Enforced:* both clean and conflicting entropy-hash gates proceed on
+`quorumAligned()`; conflicting states below that threshold wait only for the
+bounded deadline. *Anti-pattern:* requiring `fullObservation()` before ignoring a
+below-quorum conflict, which lets a minority equivocation recreate a veto.
 
 **INV-5 — Graceful, labeled, deterministic degradation.**
 Under no-UNLReport / lost reveals / failed alignment / timeout / impossible
@@ -133,12 +139,3 @@ into an INV violation:
   outside the base transaction-set hash, not permission for additional local
   shortcut gates. Removing it entirely would require making the fallback/accept
   decision itself an agreed consensus object.
-
-## Open design question (tracked, not yet decided)
-
-- **Conflict-path no-veto (INV-4 boundary):** Export already accepts a
-  quorum-aligned sidecar on its conflict path without full observation; entropy
-  currently keeps full observation there as the conservative choice. Whether
-  entropy can safely match Export is a *measured* question (CSF test: withholding
-  × equivocation × timing), not an argued one. Until that test says otherwise,
-  the conservative INV-4 stands.

@@ -2631,9 +2631,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testRngEntropyConflictStillRequiresFullObservation()
+    testRngEntropyConflictAllowsQuorumDespiteMissingObservation()
     {
-        testcase("RNG entropy conflict still requires full observation");
+        testcase(
+            "RNG entropy conflict allows quorum despite missing observation");
 
         FakeExtensions ext;
         ext.rngOn = true;
@@ -2655,20 +2656,13 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(harness.position.entropySetHash == localHash);
         BEAST_EXPECT(ext.entropySetPublished_);
 
-        // Conflict means the missing observation could hide more of the
-        // competing side. Keep waiting until all tx-converged peers have
-        // advertised or the bounded fallback deadline expires.
+        // A quorum-aligned hash is unique over the fixed active-view
+        // denominator. A below-quorum conflicting minority plus a silent peer
+        // must not veto otherwise healthy validator entropy.
         result = harness.tick(ext, std::chrono::milliseconds{100});
-        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(result.readyForAccept);
         BEAST_EXPECT(!ext.entropyFailed);
         BEAST_EXPECT(harness.position.entropySetHash == localHash);
-
-        result = harness.tick(
-            ext,
-            harness.parms.rngREVEAL_TIMEOUT * 2 + std::chrono::milliseconds{1});
-        BEAST_EXPECT(result.readyForAccept);
-        BEAST_EXPECT(ext.entropyFailed);
-        BEAST_EXPECT(!harness.position.entropySetHash);
     }
 
     void
@@ -3642,7 +3636,7 @@ public:
         testDecoratePositionSkipsWhenDisabled();
         testExportSigGateRequiresQuorumAlignment();
         testRngEntropyGateAllowsQuorumDespiteMissingObservation();
-        testRngEntropyConflictStillRequiresFullObservation();
+        testRngEntropyConflictAllowsQuorumDespiteMissingObservation();
         testRngFastPathWaitsAfterEntropyPublish();
         testRngPrevProposerUnderObservationDoesNotSuppressCommitQuorum();
         testRngCommitWaitsWhenQuorumPossible();

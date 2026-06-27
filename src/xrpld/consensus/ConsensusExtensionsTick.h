@@ -806,8 +806,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     }
 
                     //@@start rng-entropy-conflict-gate
-                    if (entropyState.conflict && quorumAligned() &&
-                        fullObservation())
+                    if (entropyState.conflict && quorumAligned())
                     {
                         JLOG(ext.j_.debug())
                             << "RNG: entropySetHash conflict ignored"
@@ -822,7 +821,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     else if (entropyState.conflict)
                     {
                         // Bounded grace window for unresolved entropy-side
-                        // conflicts.
+                        // conflicts that have not reached the quorum-aligned
+                        // threshold.
                         auto const entropyElapsed =
                             ctx.nowSteady - ext.entropyPublishStart_;
                         auto const entropyDeadline =
@@ -865,9 +865,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     // entropy value. A quorum-aligned clean hash can proceed
                     // without waiting for every tx-converged validator to
                     // advertise; otherwise one silent validator gets a free
-                    // RNG off-switch. Observed conflicts still take the
-                    // fullObservation path above, where equivocation must be
-                    // judged with the complete local advertisement set.
+                    // RNG off-switch. Observed minority conflicts use the same
+                    // quorum-aligned threshold: intersection math gives a
+                    // single aligned winner, while validation resolves the
+                    // bounded deadline edge.
                     //@@start rng-entropy-positive-alignment-gate
                     if (!entropyState.conflict && !quorumAligned())
                     {

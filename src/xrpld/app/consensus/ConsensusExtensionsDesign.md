@@ -247,9 +247,11 @@ equivocation uniqueness. On the clean path, the round proceeds when this count
 reaches `entropyGateThreshold() = min(quorumThreshold(), tier2Threshold())`;
 silence from a tx-converged active validator is not itself a conflicting value
 and must not become a one-validator RNG veto. If a conflicting entropy hash is
-observed, the gate remains stricter: the node waits for full local observation
-of the tx-converged active set before ignoring the conflict, or falls back at
-the bounded deadline.
+observed, the same fixed-denominator threshold remains the deciding boundary:
+only one entropy hash can be quorum-aligned under the intersection margin, so a
+below-threshold conflicting minority or silent peer must not force fallback once
+our hash reaches the gate. Conflicting states below the threshold still wait
+only until the bounded deadline, then fall back.
 
 The **tier label** is then derived from the agreed entropy set itself — the
 number of validator reveals (leaves) in the agreed `entropySetMap_`, not the
@@ -267,8 +269,8 @@ set count by the ladder above.
 
 In both label cases, a silent or below-threshold minority cannot veto the
 aligned cohort. A below-threshold conflicting or unacquirable entropy hash is
-handled by the conflict path and falls back if the bounded observation window
-does not resolve it.
+handled by the conflict path and falls back if the bounded window does not
+produce a quorum-aligned hash.
 
 If no entropy hash reaches the entropy gate threshold before the bounded
 deadline, the round must fall back to the Tier 1 consensus-bound digest. This
