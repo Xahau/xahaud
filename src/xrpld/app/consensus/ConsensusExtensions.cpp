@@ -80,6 +80,15 @@ buildObservedParticipantBitmap(
     return bitmapBin;
 }
 
+uint256
+entropyCommitment(
+    uint256 const& reveal,
+    PublicKey const& validatorKey,
+    LedgerIndex seq)
+{
+    return sha512Half(reveal, validatorKey, seq);
+}
+
 //@@start active-validator-view-build
 ActiveValidatorViewSource
 buildActiveValidatorViewSource(
@@ -1538,7 +1547,8 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                         << " hash=" << hash << " seq=" << seq;
                     return;
                 }
-                auto const expectedCommit = sha512Half(digest, pubKey, seq);
+                auto const expectedCommit =
+                    entropyCommitment(digest, pubKey, seq);
                 if (expectedCommit != commitIt->second)
                 {
                     JLOG(j_.warn())
@@ -2303,7 +2313,8 @@ ConsensusExtensions::harvestRngData(
         }
 
         auto const seq = prevLgr->info().seq + 1;
-        auto const calculated = sha512Half(*position.myReveal, publicKey, seq);
+        auto const calculated =
+            entropyCommitment(*position.myReveal, publicKey, seq);
 
         if (calculated != commitIt->second)
         {
@@ -2713,7 +2724,7 @@ ConsensusExtensions::decoratePosition(
     cacheUNLReport(prevLedger);
     generateEntropySecret();
 
-    pos.myCommitment = sha512Half(
+    pos.myCommitment = entropyCommitment(
         getEntropySecret(),
         valKeys.keys->publicKey,
         prevLedger->info().seq + 1);

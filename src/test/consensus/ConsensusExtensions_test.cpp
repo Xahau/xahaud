@@ -836,8 +836,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!detail::sidecarQuorumAligned(2, true, 4));
         BEAST_EXPECT(detail::sidecarFullObservation(2, 2));
         BEAST_EXPECT(!detail::sidecarFullObservation(2, 3));
-        BEAST_EXPECT(detail::exportSigSetQuorumAligned(4, 4));
-        BEAST_EXPECT(!detail::exportSigSetQuorumAligned(3, 4));
 
         ExtensionTickHarness harness;
         auto const localHash = makeHash("sidecar-local");

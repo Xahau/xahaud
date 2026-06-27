@@ -63,12 +63,11 @@ sidecarFullObservation(std::size_t peersSeen, std::size_t txConverged)
     return peersSeen == txConverged;
 }
 
-inline bool
-exportSigSetQuorumAligned(
-    std::size_t alignedParticipants,
-    std::size_t quorumThreshold)
+template <class Parms>
+auto
+sidecarConvergenceTimeout(Parms const& parms)
 {
-    return alignedParticipants >= quorumThreshold;
+    return parms.rngREVEAL_TIMEOUT * 2;
 }
 
 struct SidecarPeerAlignment
@@ -826,7 +825,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         auto const entropyElapsed =
                             ctx.nowSteady - ext.entropyPublishStart_;
                         auto const entropyDeadline =
-                            ctx.parms.rngREVEAL_TIMEOUT * 2;
+                            detail::sidecarConvergenceTimeout(ctx.parms);
                         if (entropyElapsed <= entropyDeadline)
                         {
                             JLOG(ext.j_.debug())
@@ -875,7 +874,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         auto const entropyElapsed =
                             ctx.nowSteady - ext.entropyPublishStart_;
                         auto const entropyDeadline =
-                            ctx.parms.rngREVEAL_TIMEOUT * 2;
+                            detail::sidecarConvergenceTimeout(ctx.parms);
                         if (entropyElapsed <= entropyDeadline)
                         {
                             JLOG(ext.j_.debug())
@@ -998,7 +997,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 {
                     auto const elapsed =
                         ctx.nowSteady - ext.exportSigGateStart_;
-                    auto const deadline = ctx.parms.rngREVEAL_TIMEOUT * 2;
+                    auto const deadline =
+                        detail::sidecarConvergenceTimeout(ctx.parms);
                     if (elapsed <= deadline)
                     {
                         JLOG(ext.j_.debug())
@@ -1030,7 +1030,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 // appears in time, apply takes the retry/expire path.
                 startExportSigGate();
                 auto const elapsed = ctx.nowSteady - ext.exportSigGateStart_;
-                auto const deadline = ctx.parms.rngREVEAL_TIMEOUT * 2;
+                auto const deadline =
+                    detail::sidecarConvergenceTimeout(ctx.parms);
                 if (elapsed <= deadline)
                 {
                     JLOG(ext.j_.debug())
@@ -1134,8 +1135,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 auto exportState = inspectExportPeers(ctx.getPosition(), true);
                 auto const exportQuorum = ext.exportSigQuorumThreshold();
                 auto quorumAligned = [&] {
-                    return detail::exportSigSetQuorumAligned(
-                        exportState.alignedParticipants(), exportQuorum);
+                    return exportState.quorumAligned(exportQuorum);
                 };
                 bool acceptedExportSigHash = false;
                 //@@start export-sigset-alignment-check
@@ -1203,7 +1203,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 {
                     auto const elapsed =
                         ctx.nowSteady - ext.exportSigGateStart_;
-                    auto const deadline = ctx.parms.rngREVEAL_TIMEOUT * 2;
+                    auto const deadline =
+                        detail::sidecarConvergenceTimeout(ctx.parms);
                     if (elapsed <= deadline)
                     {
                         JLOG(ext.j_.debug())

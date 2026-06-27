@@ -16,8 +16,8 @@ namespace ripple {
 //   signing throughput and inbound processing are transitively bounded by it
 struct ExportLimits
 {
-    // Maximum exports a single hook execution may produce
-    // (also enforced by hook_api::max_export in Enum.h)
+    // Maximum exports a single hook execution may produce. Hook API ABI
+    // constant hook_api::max_export must stay equal.
     static constexpr std::uint8_t maxExportsPerHook = 2;
 
     // Maximum pending export transactions in an open/apply ledger.

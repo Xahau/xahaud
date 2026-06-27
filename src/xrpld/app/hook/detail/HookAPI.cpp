@@ -6,12 +6,15 @@
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/Import.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/STParsedJSON.h>
 
 namespace hook {
 
 using namespace ripple;
 using namespace hook_float;
+
+static_assert(ExportLimits::maxExportsPerHook == hook_api::max_export);
 
 /// control APIs
 // _g
@@ -957,7 +960,7 @@ HookAPI::xport_reserve(uint64_t count) const
     if (count < 1)
         return Unexpected(TOO_SMALL);
 
-    if (count > hook_api::max_export)
+    if (count > ExportLimits::maxExportsPerHook)
         return Unexpected(TOO_BIG);
 
     // Also reserve emit slots so the wrapper ttEXPORT can flow
