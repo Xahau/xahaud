@@ -182,6 +182,43 @@ This field is diagnostic only:
 - It is intended to explain timing/degraded-network cases where commits,
   reveals, or sidecar hashes arrive late or asymmetrically.
 
+## Proposal Relay And Sidecar Reconciliation
+
+In the common case, extension material arrives the same way proposals do:
+through relay and observation over time. There is no "fetch missing proposal X"
+mechanism in base consensus. Transaction sets are fetchable by hash; proposals
+are not. A node that joins or falls behind mid-round normally observes for a few
+ticks/rounds until the relayed proposal stream is coherent enough to participate.
+
+RNG and Export add a stricter requirement on top of that proposal stream: their
+sidecar roots are accepted by absolute quorum over a fixed parent-ledger
+validator denominator, not by percentages over whichever proposers this node
+happens to observe. That fixed denominator is intentional. It gives the
+sidecar gates deterministic, intersection-safe semantics: two quorum-aligned
+cohorts cannot both make conflicting sidecar roots ledger material under the
+same active-view assumptions. The cost is that missed proposal-borne material
+does not shrink the target the way observed-proposer percentages do; it leaves
+the node short of the fixed quorum.
+
+Sidecar reconciliation is the recovery path for that gap. A sidecar SHAMap is a
+secondary distribution path for the proposal material that matters to the fixed
+quorum, not a second authority. Fetched leaves are admitted only after semantic
+validation. For RNG commits, that means the sidecar leaf carries a
+`ProposalProof`: the signed proposal position bytes plus the proposal signature,
+so a node that missed the original proposal relay can verify that the validator
+really advertised the commitment. RNG reveals are leaner: they verify against
+the already-proven commitment. Export signature leaves similarly carry the
+signed export material and are re-verified before they can become quorum
+material.
+
+Without reconciliation, the design would still be safe: the node would count
+only material it observed through the primary proposal relay and would degrade
+or retry when that observed intersection missed the fixed quorum. Reconciliation
+is what lets a healthy network recover missing leaves and keep higher RNG tiers
+or same-ledger Export success more often. It is therefore liveness/quality
+machinery with a real semantic admission boundary, not part of base transaction
+set agreement.
+
 ## RNG Commit/Reveal Principles
 
 RNG proceeds through establish sub-states:
