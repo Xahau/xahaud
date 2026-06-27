@@ -1013,6 +1013,33 @@ public:
         }
 
         {
+            // xport_reserve can fill the remaining emitted-txn budget.
+            StubHookContext stubCtx{
+                .expected_etxn_count =
+                    static_cast<int64_t>(hook_api::max_emit) -
+                    hook_api::max_export};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            BEAST_EXPECT(api.xport_reserve(hook_api::max_export).has_value());
+            BEAST_EXPECT(hookCtx.expected_export_count == hook_api::max_export);
+            BEAST_EXPECT(hookCtx.expected_etxn_count == hook_api::max_emit);
+        }
+
+        {
+            // xport_reserve shares the emitted-txn budget and must fail
+            // without partially setting the export reservation.
+            StubHookContext stubCtx{.expected_etxn_count = hook_api::max_emit};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            auto const result = api.xport_reserve(1);
+            BEAST_EXPECT(result.error() == TOO_BIG);
+            BEAST_EXPECT(hookCtx.expected_export_count == -1);
+            BEAST_EXPECT(hookCtx.expected_etxn_count == hook_api::max_emit);
+        }
+
+        {
             // xport_reserve consumes the shared emitted-txn reservation slot,
             // so a later etxn_reserve cannot reset it.
             auto hookCtx =

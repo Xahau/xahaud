@@ -960,13 +960,18 @@ HookAPI::xport_reserve(uint64_t count) const
     if (count > hook_api::max_export)
         return Unexpected(TOO_BIG);
 
-    hookCtx.expected_export_count = count;
-
     // Also reserve emit slots so the wrapper ttEXPORT can flow
-    // through the normal emitted txn path.
-    if (hookCtx.expected_etxn_count < 0)
-        hookCtx.expected_etxn_count = 0;
-    hookCtx.expected_etxn_count += count;
+    // through the normal emitted txn path. Validate the combined reservation
+    // before mutating either counter so failure leaves the reservation state
+    // unchanged.
+    auto const reservedEmits =
+        hookCtx.expected_etxn_count < 0 ? 0 : hookCtx.expected_etxn_count;
+    auto const exportCount = static_cast<int64_t>(count);
+    if (reservedEmits + exportCount > hook_api::max_emit)
+        return Unexpected(TOO_BIG);
+
+    hookCtx.expected_export_count = count;
+    hookCtx.expected_etxn_count = reservedEmits + exportCount;
 
     return count;
 }
