@@ -4096,10 +4096,12 @@ fairRng(
     // we'll generate bytes in lots of 32
 
     // Domain-separate by the execution role known AT DRAW TIME: hr.isStrong is
-    // set per pass (strong pre-apply vs weak/again-as-weak post-apply). The old
-    // executeAgainAsWeak flag is only set during the strong pass by hook_again
-    // and is false during the actual weak pass, so it mislabelled the weak draw
-    // "strong" and reused the strong-pass stream within one transaction.
+    // set per pass (strong pre-apply vs weak/again-as-weak post-apply) and
+    // hr.isCallback distinguishes emitted-transaction callbacks from ordinary
+    // hook dispatch. The old executeAgainAsWeak flag is only set during the
+    // strong pass by hook_again and is false during the actual weak pass, so it
+    // mislabelled the weak draw "strong" and reused the strong-pass stream
+    // within one transaction.
     uint256 rndData = sha512Half(
         view.info().seq,
         applyCtx.tx.getTransactionID(),
@@ -4108,6 +4110,7 @@ fairRng(
         hr.account,
         hr.hookChainPosition,
         hr.isStrong ? std::string("strong") : std::string("weak"),
+        hr.isCallback ? std::string("callback") : std::string("direct"),
         sleEntropy->getFieldH256(sfDigest),
         hr.rngCallCounter++);
 

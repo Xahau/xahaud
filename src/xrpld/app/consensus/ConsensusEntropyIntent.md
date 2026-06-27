@@ -90,7 +90,10 @@ set hash.
 Hooks state `min_tier` / `min_count` explicitly (no hidden network default).
 Entropy is served iff it is **fresh** (current or previous ledger) **and** meets
 the requirement; otherwise the call **fails closed** (`TOO_LITTLE_ENTROPY`). A
-hook never silently receives weaker-than-requested entropy.
+hook never silently receives weaker-than-requested entropy. Draws are also
+domain-separated by the hook execution role that can share a transaction and
+hook hash: strong vs weak, callback vs direct dispatch, and hook chain
+position.
 *Enforced:* `fairRng` gate.
 
 **INV-7 — Inert when un-amended.**
