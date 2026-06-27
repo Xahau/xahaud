@@ -2273,6 +2273,20 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(ce.pendingCommitCount() == 0);
 
+        // A fetched leaf is still untrusted even when it decodes as an STObject.
+        // Malformed sfSigningPubKey bytes must be rejected before PublicKey
+        // construction, which aborts on invalid key material.
+        auto malformedKeySidecar =
+            makeRngSidecar(sidecarRngReveal, nodeId, publicKey, digest, seq);
+        Blob const malformedKey{0xff, 0x00, 0x01};
+        malformedKeySidecar.setFieldVL(sfSigningPubKey, malformedKey);
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            makeSidecarSet(env.app(), {malformedKeySidecar}),
+            ConsensusExtensions::SidecarKind::entropySet);
+        BEAST_EXPECT(ce.pendingRevealCount() == 0);
+
         // A proof must verify the digest carried by the sidecar leaf.
         auto invalidProofSidecar =
             makeRngSidecar(sidecarRngCommit, nodeId, publicKey, digest, seq);
@@ -3325,6 +3339,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             return;
 
         auto const senderPK = valKeys.keys->publicKey;
+        auto const senderSK = valKeys.keys->secretKey;
         BEAST_EXPECT(ce.isActiveValidator(senderPK, *activeView));
         if (!ce.isActiveValidator(senderPK, *activeView))
             return;
@@ -3332,20 +3347,42 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const tx = makeHash("replayed-export-sig-tx");
         auto const blob = makeExportSigBlob(tx, senderPK);
         ExtendedPosition position{makeHash("replayed-position")};
+        position.myCommitment = makeHash("replayed-position-commitment");
         position.exportSignaturesHash =
             proposalExportSignaturesHash(std::vector<std::string>{blob});
+        auto const prevLedger = *activeView->sourceLedgerHash;
+        auto const closeTime = NetClock::time_point{NetClock::duration{77}};
+
+        // Stored proposals can arrive from cluster relay paths. Extension
+        // sidecars are ledger inputs, so an invalid proposal signature must
+        // harvest neither RNG claims nor export signature blobs.
+        ce.onTrustedPeerProposal(
+            calcNodeID(senderPK),
+            senderPK,
+            position,
+            0,
+            closeTime,
+            prevLedger,
+            Slice{},
+            std::vector<std::string>{blob});
+        BEAST_EXPECT(!ce.exportSigCollector().hasUnverifiedSignatures());
+        BEAST_EXPECT(ce.pendingCommitCount() == 0);
+
+        auto const sig =
+            signPosition(senderPK, senderSK, position, 0, closeTime, prevLedger);
 
         ce.onTrustedPeerProposal(
             calcNodeID(senderPK),
             senderPK,
             position,
             0,
-            NetClock::time_point{},
-            *activeView->sourceLedgerHash,
-            Slice{},
+            closeTime,
+            prevLedger,
+            Slice(sig.data(), sig.size()),
             std::vector<std::string>{blob});
 
         BEAST_EXPECT(ce.exportSigCollector().hasUnverifiedSignatures());
+        BEAST_EXPECT(ce.pendingCommitCount() == 1);
     }
 
     void

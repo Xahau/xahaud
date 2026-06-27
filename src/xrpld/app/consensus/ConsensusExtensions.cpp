@@ -1354,6 +1354,10 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                 return;
 
             auto const pk = sidecar.getFieldVL(sfSigningPubKey);
+            // Fetched sidecar leaves are untrusted until semantic checks pass.
+            // PublicKey(Slice) aborts on malformed bytes, so validate first.
+            if (!publicKeyType(makeSlice(pk)))
+                return;
             PublicKey pubKey(makeSlice(pk));
             auto const digest = sidecar.getFieldH256(sfDigest);
 
@@ -2416,6 +2420,24 @@ ConsensusExtensions::onTrustedPeerProposal(
     Slice const& signature,
     std::vector<std::string> const& exportSignatures)
 {
+    // Cluster peers may relay proposals that failed the overlay signature
+    // check. Extension sidecars become ledger inputs, so harvest them only
+    // after re-checking the proposal proof against the claimed validator key.
+    auto const signingHash = sha512Half(
+        HashPrefix::proposal,
+        proposeSeq,
+        closeTime.time_since_epoch().count(),
+        prevLedger,
+        position);
+    if (!verifyDigest(publicKey, signingHash, signature))
+    {
+        JLOG(j_.debug()) << "ConsensusExtensions: ignoring unsigned proposal "
+                            "sidecars"
+                         << " node=" << nodeId
+                         << " proposeSeq=" << proposeSeq;
+        return;
+    }
+
     harvestRngData(
         nodeId,
         publicKey,
