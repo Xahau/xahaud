@@ -734,6 +734,12 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
         if (!validatorView->containsNode(nid))
             continue;
 
+        // The entropy set is the reveal side of the proofed commit set. Late
+        // proofless commits/reveals may sit in the local harvest cache, but
+        // they must not affect the agreed digest/count/tier.
+        if (pendingCommits_.count(nid) == 0 || commitProofs_.count(nid) == 0)
+            continue;
+
         auto kit = nodeIdToKey_.find(nid);
         if (kit == nodeIdToKey_.end())
             continue;
@@ -1279,6 +1285,20 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                                 sidecarExportSig)
                             return;
 
+                        auto const sidecarHash =
+                            sidecar.getHash(HashPrefix::sidecar);
+                        if (sidecarHash != item->key())
+                        {
+                            JLOG(j_.warn())
+                                << "Export: rejecting acquired entry"
+                                << " reason=item-key-mismatch"
+                                << " kind=" << sidecarKindName(kind)
+                                << " setHash=" << hash
+                                << " itemKey=" << item->key()
+                                << " sidecarHash=" << sidecarHash;
+                            return;
+                        }
+
                         if (!sidecar.isFieldPresent(sfTransactionHash) ||
                             !sidecar.isFieldPresent(sfSigningPubKey))
                             return;
@@ -1571,6 +1591,16 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                     JLOG(j_.debug())
                         << "RNG: rejecting acquired entry"
                         << " reason=reveal-without-commitment"
+                        << " kind=reveal"
+                        << " source=" << sourceTag << " node=" << nodeId
+                        << " hash=" << hash << " seq=" << seq;
+                    return;
+                }
+                if (commitProofs_.count(nodeId) == 0)
+                {
+                    JLOG(j_.debug())
+                        << "RNG: rejecting acquired entry"
+                        << " reason=reveal-without-proofed-commit"
                         << " kind=reveal"
                         << " source=" << sourceTag << " node=" << nodeId
                         << " hash=" << hash << " seq=" << seq;
@@ -2324,6 +2354,15 @@ ConsensusExtensions::harvestRngData(
             JLOG(j_.warn())
                 << "RNG: rejecting reveal"
                 << " reason=no-commitment"
+                << " node=" << nodeId << " proposeSeq=" << proposeSeq
+                << " prevLedger=" << prevLedger;
+            return;
+        }
+        if (commitProofs_.count(nodeId) == 0)
+        {
+            JLOG(j_.warn())
+                << "RNG: rejecting reveal"
+                << " reason=no-proofed-commit"
                 << " node=" << nodeId << " proposeSeq=" << proposeSeq
                 << " prevLedger=" << prevLedger;
             return;

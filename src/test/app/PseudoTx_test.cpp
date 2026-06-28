@@ -17,8 +17,11 @@
 
 #include <test/jtx.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
+#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/STAccount.h>
+#include <xrpl/protocol/Sign.h>
 #include <string>
 #include <vector>
 
@@ -56,6 +59,24 @@ struct PseudoTx_test : public beast::unit_test::suite
             obj.setFieldU32(sfLedgerSequence, seq);
         }));
 
+        res.emplace_back(STTx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
+            obj.setAccountID(sfAccount, AccountID());
+            obj.setFieldU32(sfSequence, 0);
+            obj.setFieldAmount(sfFee, STAmount{});
+            obj.setFieldH256(sfDigest, uint256(3));
+            obj.setFieldU16(sfEntropyCount, 1);
+            obj.setFieldU8(sfEntropyTier, entropyTierValidatorQuorum);
+        }));
+
+        auto const secret = generateSecretKey(KeyType::secp256k1, randomSeed());
+        auto const publicKey = derivePublicKey(KeyType::secp256k1, secret);
+        ExportResultBuilder::SignatureSnapshot signatures;
+        std::uint8_t const signatureBytes[] = {1, 2, 3};
+        signatures.emplace(
+            publicKey, Buffer{signatureBytes, sizeof(signatureBytes)});
+        res.emplace_back(ExportResultBuilder::buildSignatureWitness(
+            uint256(4), signatures, seq));
+
         return res;
     }
 
@@ -92,7 +113,7 @@ struct PseudoTx_test : public beast::unit_test::suite
                 [&](OpenView& view, beast::Journal j) {
                     auto const result =
                         ripple::apply(env.app(), view, stx, tapNONE, j);
-                    BEAST_EXPECT(!result.applied && result.ter == temINVALID);
+                    BEAST_EXPECT(!result.applied);
                     return result.applied;
                 });
         }

@@ -1822,7 +1822,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             closeTime,
             prevLedger,
             Slice(revealSig.data(), revealSig.size()));
-        BEAST_EXPECT(ce.pendingRevealCount() == 1);
+        // The replacement commitment is not in the proofed seq-0 commit set,
+        // so its reveal must not affect the entropy set.
+        BEAST_EXPECT(ce.pendingRevealCount() == 0);
     }
 
     void
@@ -1979,6 +1981,24 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                         txHash,
                         valPK,
                         Slice(invalidSig.data(), invalidSig.size()))}),
+                txHash,
+                valPK);
+        }
+
+        {
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            ce.setExportEnabledThisRound(true);
+            ce.cacheUNLReport(ledger);
+            ce.cacheConsensusTxSet(txSet);
+
+            expectRejected(
+                ce,
+                makeMiskeyedSidecarSet(
+                    env.app(),
+                    makeExportSigSidecar(
+                        txHash,
+                        valPK,
+                        Slice(validSig.data(), validSig.size()))),
                 txHash,
                 valPK);
         }
