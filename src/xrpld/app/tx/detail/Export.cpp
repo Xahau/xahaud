@@ -125,6 +125,7 @@ Export::doApply()
     auto& consensusExtensions = ctx_.app.getConsensusExtensions();
     bool const standalone = ctx_.app.config().standalone();
     auto const& valKeys = ctx_.app.getValidatorKeys();
+    bool const historicalReplay = ctx_.historicalLedgerReplay();
     auto parentLedger = ctx_.replayParentLedger();
     if (parentLedger && parentLedger->info().hash != view().info().parentHash)
     {
@@ -132,7 +133,16 @@ Export::doApply()
                         << " txHash=" << txId << " ledgerSeq=" << currentSeq
                         << " parentHash=" << view().info().parentHash
                         << " replayParentHash=" << parentLedger->info().hash;
+        if (historicalReplay)
+            return terRETRY_EXPORT;
         parentLedger.reset();
+    }
+    if (historicalReplay && !parentLedger)
+    {
+        JLOG(j_.warn()) << "Export: retrying historical replay without parent"
+                        << " txHash=" << txId << " ledgerSeq=" << currentSeq
+                        << " parentHash=" << view().info().parentHash;
+        return terRETRY_EXPORT;
     }
     if (!parentLedger)
         parentLedger = ctx_.app.getLedgerMaster().getLedgerByHash(
@@ -147,7 +157,6 @@ Export::doApply()
 
     auto const validatorView =
         consensusExtensions.makeActiveValidatorView(parentLedger);
-    bool const historicalReplay = ctx_.historicalLedgerReplay();
     bool const trustWitnessMembership =
         ctx_.trustExportSignatureWitnessMembership();
     auto const isActiveSigner = [standalone,

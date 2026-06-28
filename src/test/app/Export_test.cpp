@@ -1355,14 +1355,36 @@ struct Export_test : public beast::unit_test::suite
                     expectedSignedTxHash);
         }
 
-        // Historical replay reconstructs an already-validated ledger. The
-        // persisted witness supplies the historical signing-key membership;
-        // current ManifestCache may no longer know a rotated signing key.
-        ApplyOptions const replayOptions{
+        ApplyOptions const missingParentReplayOptions{
             &exportSignatureWitnesses,
             ApplyOptions::ExportWitnessMembership::TrustHistoricalReplay,
             true,
             nullptr};
+        {
+            auto next = std::make_shared<Ledger>(
+                *parent, env.app().timeKeeper().closeTime());
+            OpenView accum(&*next);
+            auto const result = ripple::apply(
+                env.app(),
+                accum,
+                *exportTx,
+                tapNONE,
+                env.journal,
+                missingParentReplayOptions);
+            BEAST_EXPECT(result.ter == terRETRY_EXPORT);
+            BEAST_EXPECT(!result.applied);
+        }
+
+        // Historical replay reconstructs an already-validated ledger. The
+        // persisted witness supplies the historical signing-key membership;
+        // current ManifestCache may no longer know a rotated signing key. The
+        // replay parent must be threaded explicitly so apply never consults
+        // process-global ledger state for the validator view.
+        ApplyOptions const replayOptions{
+            &exportSignatureWitnesses,
+            ApplyOptions::ExportWitnessMembership::TrustHistoricalReplay,
+            true,
+            parent};
 
         auto replayed = std::make_shared<Ledger>(
             *parent, env.app().timeKeeper().closeTime());
