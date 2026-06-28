@@ -842,11 +842,6 @@ struct Export_test : public beast::unit_test::suite
         Account const carol{"carol"};
 
         env.fund(XRP(10000), alice, carol);
-        {
-            uint256 const nftId0{token::getNextID(env, alice, 0u)};
-            env(token::mint(alice, 0u));
-            env(token::burn(alice, nftId0));
-        }
         env.close();
 
         auto const& valKeys = env.app().getValidatorKeys();
@@ -942,6 +937,11 @@ struct Export_test : public beast::unit_test::suite
         Account const carol{"carol"};
 
         env.fund(XRP(10000), alice, carol);
+        {
+            uint256 const nftId0{token::getNextID(env, alice, 0u)};
+            env(token::mint(alice, 0u));
+            env(token::burn(alice, nftId0));
+        }
         env.close();
 
         auto const& valKeys = env.app().getValidatorKeys();
