@@ -576,6 +576,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     // If conflict persists past a bounded wait, force
                     // deterministic fallback for this round.
                     ext.setEntropyFailed();
+                    ext.freezeRngCommitSet();
                     ext.estState_ = EstablishState::ConvergingReveal;
                     // Backdate ext.revealPhaseStart_ so the ConvergingReveal
                     // timeout path fires immediately next tick.
@@ -599,6 +600,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             //@@start rng-reveal-transition
             auto newPos = ctx.getPosition();
             newPos.myReveal = ext.getEntropySecret();
+            ext.freezeRngCommitSet();
 
             // Self-seed our own reveal into pendingReveals so it
             // counts toward reveal quorum and appears in the

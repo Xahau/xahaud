@@ -381,6 +381,7 @@ struct FakeExtensions
     bool consensusExportTxns{false};
     bool exportOn{true};
     bool entropyFailed{false};
+    bool commitFrozen{false};
     std::size_t sidecarQuorum{4};
     std::size_t commits{4};
     std::size_t proofedCommits{4};
@@ -551,6 +552,12 @@ struct FakeExtensions
     setEntropyFailed()
     {
         entropyFailed = true;
+    }
+
+    void
+    freezeRngCommitSet()
+    {
+        commitFrozen = true;
     }
 
     void
@@ -2525,6 +2532,50 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             ConsensusExtensions::SidecarKind::entropySet);
         BEAST_EXPECT(replacement.pendingRevealCount() == 0);
 
+        ConsensusExtensions frozen{env.app(), activeNoopJournal()};
+        frozen.cacheUNLReport(ledger);
+        auto const frozenReveal1 = makeHash("frozen-reveal-1");
+        auto const frozenReveal2 = makeHash("frozen-reveal-2");
+        auto const frozenCommit1 = sha512Half(frozenReveal1, publicKey, seq);
+        auto const frozenCommit2 = sha512Half(frozenReveal2, publicKey, seq);
+
+        auto frozenCommit1Sidecar = makeRngSidecar(
+            sidecarRngCommit, nodeId, publicKey, frozenCommit1, seq);
+        frozenCommit1Sidecar.setFieldVL(sfBlob, makeCommitProof(frozenCommit1));
+        auto frozenCommit1Map =
+            makeSidecarSet(env.app(), {frozenCommit1Sidecar});
+        publishAndFetchSidecarSet(
+            env.app(),
+            frozen,
+            frozenCommit1Map,
+            ConsensusExtensions::SidecarKind::commitSet);
+        BEAST_EXPECT(frozen.pendingCommitCount() == 1);
+
+        frozen.freezeRngCommitSet();
+
+        auto frozenReveal1Sidecar = makeRngSidecar(
+            sidecarRngReveal, nodeId, publicKey, frozenReveal1, seq);
+        publishAndFetchSidecarSet(
+            env.app(),
+            frozen,
+            makeSidecarSet(env.app(), {frozenReveal1Sidecar}),
+            ConsensusExtensions::SidecarKind::entropySet);
+        BEAST_EXPECT(frozen.pendingRevealCount() == 1);
+
+        auto frozenCommit2Sidecar = makeRngSidecar(
+            sidecarRngCommit, nodeId, publicKey, frozenCommit2, seq);
+        frozenCommit2Sidecar.setFieldVL(sfBlob, makeCommitProof(frozenCommit2));
+        publishAndFetchSidecarSet(
+            env.app(),
+            frozen,
+            makeSidecarSet(env.app(), {frozenCommit2Sidecar}),
+            ConsensusExtensions::SidecarKind::commitSet);
+        BEAST_EXPECT(frozen.pendingCommitCount() == 1);
+        BEAST_EXPECT(frozen.pendingRevealCount() == 1);
+        BEAST_EXPECT(
+            frozen.buildCommitSet(seq) ==
+            frozenCommit1Map->getHash().as_uint256());
+
         // With a local map already built, fetched deltas merge only missing
         // leaves; corrupt remote additions are ignored without disturbing local
         // state.
@@ -3022,6 +3073,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!result.readyForAccept);
         BEAST_EXPECT(ext.entropyFailed);
         BEAST_EXPECT(ext.estState_ == EstablishState::ConvergingReveal);
+        BEAST_EXPECT(ext.commitFrozen);
         BEAST_EXPECT(
             ext.commitHashConflictStart_ ==
             std::chrono::steady_clock::time_point{});
@@ -3045,6 +3097,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto result = harness.tick(ext);
         BEAST_EXPECT(!result.readyForAccept);
         BEAST_EXPECT(ext.estState_ == EstablishState::ConvergingReveal);
+        BEAST_EXPECT(ext.commitFrozen);
         BEAST_EXPECT(ext.selfSeeds == 1);
         BEAST_EXPECT(ext.entropyBuilds == 0);
         BEAST_EXPECT(harness.position.myReveal);

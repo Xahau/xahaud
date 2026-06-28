@@ -530,6 +530,28 @@ ConsensusExtensions::ingestRngContribution(
     {
         auto const existing = pendingCommits_.find(nodeId);
         bool const hasSeq0Proof = proof && proof->proposeSeq == 0;
+        if (commitSetFrozen_)
+        {
+            if (existing != pendingCommits_.end() && existing->second == digest)
+            {
+                JLOG(j_.trace())
+                    << "RNG: ignoring duplicate commitment after freeze"
+                    << " source=" << sourceTag << " node=" << nodeId
+                    << " commit=" << digest;
+            }
+            else
+            {
+                JLOG(j_.warn())
+                    << "RNG: rejecting changed commitment after freeze"
+                    << " source=" << sourceTag << " node=" << nodeId
+                    << " new=" << digest << " existing="
+                    << (existing != pendingCommits_.end()
+                            ? to_string(existing->second)
+                            : std::string{"none"});
+            }
+            return false;
+        }
+
         if (existing != pendingCommits_.end() && existing->second != digest)
         {
             if (hasProofedCommit(nodeId) &&
@@ -1272,6 +1294,12 @@ ConsensusExtensions::setEntropyFailed()
 }
 
 void
+ConsensusExtensions::freezeRngCommitSet()
+{
+    commitSetFrozen_ = true;
+}
+
+void
 ConsensusExtensions::selfSeedReveal()
 {
     auto const& valKeys = app_.getValidatorKeys();
@@ -1295,6 +1323,7 @@ ConsensusExtensions::clearRngStatePreservingExport()
     nodeIdToKey_.clear();
     myEntropySecret_ = uint256{};
     entropyFailed_ = false;
+    commitSetFrozen_ = false;
     commitSetMap_.reset();
     entropySetMap_.reset();
     acceptedEntropySetHash_.reset();

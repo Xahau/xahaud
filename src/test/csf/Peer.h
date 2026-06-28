@@ -341,6 +341,7 @@ struct Peer
         hash_map<PeerID, uint256> pendingExportSigs_;
         hash_map<PeerID, PeerKey> nodeKeys_;
         uint256 myEntropySecret_;
+        bool commitSetFrozen_ = false;
         // Hash of the entropy reveal set this peer last advertised
         // (buildEntropySet). The tick gate copies it to
         // acceptedEntropySetHash_ after observation/alignment checks pass; only
@@ -593,6 +594,14 @@ struct Peer
         }
 
         void
+        freezeRngCommitSet()
+        {
+            if (!enableRngConsensus_)
+                return;
+            commitSetFrozen_ = true;
+        }
+
+        void
         acceptEntropySet(uint256 const& hash)
         {
             acceptedEntropySetHash_ = hash;
@@ -631,6 +640,8 @@ struct Peer
                 return;
             auto const* fetched = peer.sidecarStore.fetch(*hash);
             if (!fetched)
+                return;
+            if (fetched->type == SidecarStore::Type::commit && commitSetFrozen_)
                 return;
             // Union merge into the correct local set based on type.
             auto& target = [&]() -> hash_map<PeerID, uint256>& {
@@ -715,6 +726,7 @@ struct Peer
             acceptedEntropySetHash_.reset();
             acceptedExportSigSetHash_.reset();
             entropyFailed_ = false;
+            commitSetFrozen_ = false;
             exportSigGateStarted_ = false;
             exportSigGateStart_ = {};
             exportSigConvergenceFailed_ = false;
@@ -775,7 +787,8 @@ struct Peer
 
             nodeKeys_.insert_or_assign(nodeId, publicKey);
 
-            if (enableRngConsensus_ && position.myCommitment)
+            if (enableRngConsensus_ && position.myCommitment &&
+                !commitSetFrozen_)
             {
                 auto [it, inserted] =
                     pendingCommits_.emplace(nodeId, *position.myCommitment);
@@ -1112,6 +1125,7 @@ struct Peer
             commitHashConflictStart_ = {};
             entropySetPublished_ = false;
             entropyPublishStart_ = {};
+            commitSetFrozen_ = false;
             exportSigGateStarted_ = false;
             exportSigGateStart_ = {};
             exportSigConvergenceFailed_ = false;

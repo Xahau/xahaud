@@ -79,6 +79,7 @@ private:
     // Ephemeral entropy secret (in-memory only, crash = non-revealer)
     uint256 myEntropySecret_;
     bool entropyFailed_ = false;
+    bool commitSetFrozen_ = false;
     // Proposal ingress can harvest export signatures outside the consensus
     // mutex, so round-enable latches are atomic snapshots of the parent-ledger
     // amendment state. Ordering is not used to publish any other data.
@@ -419,6 +420,10 @@ public:
 
     void
     setEntropyFailed();
+
+    /// Freeze commit admission before reveal material can affect the round.
+    void
+    freezeRngCommitSet();
 
     /// Self-seed our own reveal into pendingReveals_.
     /// Called from extensionsTick at reveal transition.
