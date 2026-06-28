@@ -163,6 +163,22 @@ makeSidecarItem(STObject const& sidecar)
     return make_shamapitem(itemKey, s.slice());
 }
 
+bool
+sidecarLeafCountWithin(SHAMap const& map, std::size_t maxLeaves)
+{
+    std::size_t leaves = 0;
+    bool within = true;
+    map.visitNodes([&](SHAMapTreeNode& node) {
+        if (!node.isInner() && ++leaves > maxLeaves)
+        {
+            within = false;
+            return false;
+        }
+        return true;
+    });
+    return within;
+}
+
 //@@start active-validator-view-build
 ActiveValidatorViewSource
 buildActiveValidatorViewSource(
@@ -1516,6 +1532,21 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             auto const currentSeq = currentClosedLedgerSeq(app_);
 
             auto const validatorView = activeValidatorView();
+            auto const maxExportSidecarLeaves =
+                validatorView->size() *
+                std::min(
+                    exportTxns.size(),
+                    static_cast<std::size_t>(ExportLimits::maxPendingExports));
+            if (!sidecarLeafCountWithin(*map, maxExportSidecarLeaves))
+            {
+                JLOG(j_.warn())
+                    << "Export: acquired exportSigSet rejected"
+                    << " reason=too-many-leaves"
+                    << " kind=" << sidecarKindName(kind) << " hash=" << hash
+                    << " maxLeaves=" << maxExportSidecarLeaves;
+                return;
+            }
+
             auto const isActiveSigner =
                 activeSignerFilter(*this, validatorView);
             std::size_t merged = 0;
@@ -1636,6 +1667,16 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
     auto& localMap = isCommitSet ? commitSetMap_ : entropySetMap_;
 
     std::size_t merged = 0;
+    auto const validatorView = activeValidatorView();
+    if (!sidecarLeafCountWithin(*map, validatorView->size()))
+    {
+        JLOG(j_.warn()) << "RNG: acquired set rejected"
+                        << " reason=too-many-leaves"
+                        << " kind=" << (isCommitSet ? "commit" : "reveal")
+                        << " hash=" << hash
+                        << " maxLeaves=" << validatorView->size();
+        return;
+    }
 
     auto mergeEntry = [&](uint256 const& itemKey,
                           Slice const& entry,
@@ -1706,7 +1747,6 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                     [&]() -> std::optional<uint256> {
                     if (!roundPrevLedgerHash_.isZero())
                         return roundPrevLedgerHash_;
-                    auto const validatorView = activeValidatorView();
                     if (validatorView->sourceLedgerHash)
                         return *validatorView->sourceLedgerHash;
                     return std::nullopt;

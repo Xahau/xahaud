@@ -245,6 +245,23 @@ makeExportSigSidecar(
     return sidecar;
 }
 
+STObject
+makeRngSidecar(
+    std::uint8_t type,
+    NodeID const& owner,
+    PublicKey const& pk,
+    uint256 const& value,
+    LedgerIndex ledgerSeq)
+{
+    STObject sidecar(sfGeneric);
+    sidecar.setFieldU8(sfSidecarType, type);
+    sidecar.setFieldU32(sfLedgerSequence, ledgerSeq);
+    sidecar.setAccountID(sfAccount, accountFromNode(owner));
+    sidecar.setFieldH256(sfDigest, value);
+    sidecar.setFieldVL(sfSigningPubKey, pk.slice());
+    return sidecar;
+}
+
 void
 publishAndFetchSidecarSet(
     Application& app,
@@ -2013,6 +2030,58 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExportSidecarRejectsOversizedFetchedSet()
+    {
+        testcase("Export sidecar rejects oversized fetched set");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& valPK = valKeys.keys->publicKey;
+        auto const& valSK = valKeys.keys->secretKey;
+        auto const signerAccount = calcAccountID(valPK);
+        auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
+        auto const innerObj = makeExportedPayment(signerAccount, dst);
+        auto const innerTx = makeSTTx(innerObj);
+        auto const exportTx = makeExportTx(innerObj, signerAccount);
+        auto const txHash = exportTx->getTransactionID();
+        auto const txSet = makeRCLTxSet(env.app(), {exportTx});
+
+        auto const sigData = buildMultiSigningData(innerTx, signerAccount);
+        auto const sig = sign(valPK, valSK, sigData.slice());
+
+        auto const [extraPK, _] = randomKeyPair(KeyType::secp256k1);
+        auto const oversized = makeSidecarSet(
+            env.app(),
+            {makeExportSigSidecar(txHash, valPK, Slice(sig.data(), sig.size())),
+             makeExportSigSidecar(
+                 makeHash("oversized-export-extra"),
+                 extraPK,
+                 Slice(sig.data(), sig.size()))});
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.setExportEnabledThisRound(true);
+        ce.cacheUNLReport(ledger);
+        ce.cacheConsensusTxSet(txSet);
+
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            oversized,
+            ConsensusExtensions::SidecarKind::exportSigSet);
+
+        BEAST_EXPECT(
+            !ce.exportSigCollector().hasVerifiedSignature(txHash, valPK));
+        BEAST_EXPECT(ce.exportSigCollector().signatureCount(txHash) == 0);
+    }
+
+    void
     testExportAgreedSignaturesIgnoreLiveCollectorMutation()
     {
         testcase("Export apply uses agreed sidecar signatures");
@@ -2214,6 +2283,59 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testRngSidecarRejectsOversizedFetchedSet()
+    {
+        testcase("RNG sidecar rejects oversized fetched set");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& publicKey = valKeys.keys->publicKey;
+        auto const& secretKey = valKeys.keys->secretKey;
+        auto const nodeId = valKeys.nodeID;
+        auto const prevLedger = ledger->info().hash;
+        auto const seq = ledger->seq() + 1;
+        auto const closeTime = NetClock::time_point{NetClock::duration{777}};
+        auto const txSetHash = makeHash("oversized-rng-sidecar-txset");
+        auto const reveal = makeHash("oversized-rng-reveal");
+        auto const commitment = sha512Half(reveal, publicKey, seq);
+
+        ExtendedPosition position{txSetHash};
+        position.myCommitment = commitment;
+        auto commitSidecar = makeRngSidecar(
+            sidecarRngCommit, nodeId, publicKey, commitment, seq);
+        commitSidecar.setFieldVL(
+            sfBlob,
+            makeProofBlob(
+                publicKey, secretKey, position, 0, closeTime, prevLedger));
+
+        auto extraSidecar = makeRngSidecar(
+            sidecarRngCommit,
+            makeNode(99),
+            publicKey,
+            makeHash("oversized-rng-extra"),
+            seq);
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.cacheUNLReport(ledger);
+
+        publishAndFetchSidecarSet(
+            env.app(),
+            ce,
+            makeSidecarSet(env.app(), {commitSidecar, extraSidecar}),
+            ConsensusExtensions::SidecarKind::commitSet);
+
+        BEAST_EXPECT(ce.pendingCommitCount() == 0);
+        BEAST_EXPECT(ce.proofedCommitCount() == 0);
+    }
+
+    void
     testRngSidecarRejectsInvalidFetchedEntries()
     {
         testcase("RNG sidecar rejects invalid fetched entries");
@@ -2236,19 +2358,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const txSetHash = makeHash("invalid-fetched-txset");
         auto const digest = makeHash("invalid-fetched-digest");
 
-        auto makeRngSidecar = [&](std::uint8_t type,
-                                  NodeID const& owner,
-                                  PublicKey const& pk,
-                                  uint256 const& value,
-                                  LedgerIndex ledgerSeq) {
-            STObject sidecar(sfGeneric);
-            sidecar.setFieldU8(sfSidecarType, type);
-            sidecar.setFieldU32(sfLedgerSequence, ledgerSeq);
-            sidecar.setAccountID(sfAccount, accountFromNode(owner));
-            sidecar.setFieldH256(sfDigest, value);
-            sidecar.setFieldVL(sfSigningPubKey, pk.slice());
-            return sidecar;
-        };
         auto makeCommitProofWithPrev = [&](uint256 const& value,
                                            std::uint32_t n,
                                            uint256 const& proofPrevLedger) {
@@ -3803,9 +3912,11 @@ public:
         testHarvestRngDataReplacementAndRejection();
         testExportSidecarBuildFetchAndMerge();
         testExportSidecarRejectsInvalidFetchedEntries();
+        testExportSidecarRejectsOversizedFetchedSet();
         testExportAgreedSignaturesIgnoreLiveCollectorMutation();
         testOnPreBuildPreservesExportDecision();
         testRngSidecarBuildFetchAndMerge();
+        testRngSidecarRejectsOversizedFetchedSet();
         testRngSidecarRejectsInvalidFetchedEntries();
         testOnPreBuildInjectsStandaloneEntropy();
         testOnPreBuildEntropyMismatchKeepsAgreed();
