@@ -488,6 +488,163 @@ ConsensusExtensions::proofedRevealCount() const
         });
 }
 
+bool
+ConsensusExtensions::ingestRngContribution(
+    NodeID const& nodeId,
+    PublicKey const& publicKey,
+    RngContributionKind kind,
+    uint256 const& digest,
+    std::optional<LedgerIndex> seq,
+    std::optional<ProposalProof> const& proof,
+    char const* sourceTag,
+    RngProofCachePolicy proofCachePolicy)
+{
+    bool const isCommit = kind == RngContributionKind::commit;
+    char const* kindName = isCommit ? "commit" : "reveal";
+
+    if (!isUNLReportMember(nodeId))
+    {
+        JLOG(j_.trace()) << "RNG: rejecting contribution"
+                         << " reason=non-active-validator"
+                         << " kind=" << kindName << " source=" << sourceTag
+                         << " node=" << nodeId;
+        return false;
+    }
+
+    //@@start rng-contribution-identity-gate
+    auto const directMaster = calcNodeID(publicKey) == nodeId;
+    auto const trustedMaster = directMaster
+        ? std::optional<PublicKey>{publicKey}
+        : app_.validators().getTrustedKey(publicKey);
+    if (!trustedMaster || calcNodeID(*trustedMaster) != nodeId)
+    {
+        JLOG(j_.warn()) << "RNG: rejecting contribution"
+                        << " reason=node-key-mismatch"
+                        << " kind=" << kindName << " source=" << sourceTag
+                        << " node=" << nodeId;
+        return false;
+    }
+    //@@end rng-contribution-identity-gate
+
+    if (isCommit)
+    {
+        auto const existing = pendingCommits_.find(nodeId);
+        bool const hasSeq0Proof = proof && proof->proposeSeq == 0;
+        if (existing != pendingCommits_.end() && existing->second != digest)
+        {
+            if (hasProofedCommit(nodeId) &&
+                proofCachePolicy == RngProofCachePolicy::keepExisting)
+            {
+                JLOG(j_.warn())
+                    << "RNG: ignoring changed commitment"
+                    << " reason=existing-proofed-commit"
+                    << " source=" << sourceTag << " node=" << nodeId
+                    << " old=" << existing->second << " new=" << digest;
+                return false;
+            }
+
+            JLOG(j_.warn()) << "RNG: replacing changed commitment"
+                            << " source=" << sourceTag << " node=" << nodeId
+                            << " old=" << existing->second << " new=" << digest
+                            << " proofed=" << (hasSeq0Proof ? "yes" : "no");
+
+            existing->second = digest;
+            pendingReveals_.erase(nodeId);
+            if (!hasSeq0Proof)
+                commitProofs_.erase(nodeId);
+        }
+        else
+        {
+            pendingCommits_.emplace(nodeId, digest);
+        }
+
+        nodeIdToKey_.insert_or_assign(nodeId, publicKey);
+
+        if (proof)
+        {
+            if (proof->proposeSeq == 0)
+            {
+                if (proofCachePolicy == RngProofCachePolicy::replaceExisting)
+                    commitProofs_.insert_or_assign(nodeId, *proof);
+                else
+                    commitProofs_.emplace(nodeId, *proof);
+            }
+            else
+            {
+                JLOG(j_.debug())
+                    << "RNG: commit proof not cached"
+                    << " reason=nonzero-propose-seq"
+                    << " source=" << sourceTag << " node=" << nodeId
+                    << " proposeSeq=" << proof->proposeSeq << " seq="
+                    << (seq ? std::to_string(*seq) : std::string{"unknown"});
+            }
+        }
+
+        JLOG(j_.trace()) << "RNG: admitted contribution"
+                         << " kind=commit"
+                         << " source=" << sourceTag << " node=" << nodeId
+                         << " proofed="
+                         << (commitProofs_.count(nodeId) ? "yes" : "no");
+        return true;
+    }
+
+    if (!seq)
+    {
+        JLOG(j_.warn()) << "RNG: rejecting contribution"
+                        << " reason=unknown-sequence"
+                        << " kind=reveal"
+                        << " source=" << sourceTag << " node=" << nodeId;
+        return false;
+    }
+
+    auto const commitIt = pendingCommits_.find(nodeId);
+    if (commitIt == pendingCommits_.end())
+    {
+        JLOG(j_.debug()) << "RNG: rejecting contribution"
+                         << " reason=reveal-without-commitment"
+                         << " kind=reveal"
+                         << " source=" << sourceTag << " node=" << nodeId
+                         << " seq=" << *seq;
+        return false;
+    }
+    if (!hasProofedCommit(nodeId))
+    {
+        JLOG(j_.debug()) << "RNG: rejecting contribution"
+                         << " reason=reveal-without-proofed-commit"
+                         << " kind=reveal"
+                         << " source=" << sourceTag << " node=" << nodeId
+                         << " seq=" << *seq;
+        return false;
+    }
+
+    auto const expectedCommit = entropyCommitment(digest, publicKey, *seq);
+    if (expectedCommit != commitIt->second)
+    {
+        JLOG(j_.warn()) << "RNG: rejecting contribution"
+                        << " reason=reveal-commitment-mismatch"
+                        << " kind=reveal"
+                        << " source=" << sourceTag << " node=" << nodeId
+                        << " seq=" << *seq << " expected=" << commitIt->second
+                        << " calculated=" << expectedCommit;
+        return false;
+    }
+
+    auto [it, inserted] = pendingReveals_.emplace(nodeId, digest);
+    if (!inserted && it->second != digest)
+    {
+        JLOG(j_.warn()) << "RNG: validator changed reveal"
+                        << " source=" << sourceTag << " node=" << nodeId
+                        << " old=" << it->second << " new=" << digest;
+        it->second = digest;
+    }
+    nodeIdToKey_.insert_or_assign(nodeId, publicKey);
+    JLOG(j_.trace()) << "RNG: admitted contribution"
+                     << " kind=reveal"
+                     << " source=" << sourceTag << " node=" << nodeId
+                     << " seq=" << *seq;
+    return true;
+}
+
 std::size_t
 ConsensusExtensions::expectedProposerCount() const
 {
@@ -1439,7 +1596,6 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
     // belongs in the set. Differences arise only from propagation timing,
     // not from conflicting opinions about inclusion.
     auto& localMap = isCommitSet ? commitSetMap_ : entropySetMap_;
-    auto& pendingData = isCommitSet ? pendingCommits_ : pendingReveals_;
 
     std::size_t merged = 0;
 
@@ -1478,43 +1634,6 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             auto const acctId = sidecar.getAccountID(sfAccount);
             NodeID nodeId;
             std::memcpy(nodeId.data(), acctId.data(), nodeId.size());
-
-            if (!isUNLReportMember(nodeId))
-            {
-                JLOG(j_.debug())
-                    << "RNG: rejecting acquired entry"
-                    << " reason=non-active-validator"
-                    << " kind=" << (isCommitSet ? "commit" : "reveal")
-                    << " source=" << sourceTag << " node=" << nodeId
-                    << " hash=" << hash;
-                return;
-            }
-
-            // Bind the claimed nodeId to a trusted validator identity. This
-            // maps signing keys to masters and also admits listed master keys;
-            // proposal-proof verification below enforces the signing-key
-            // rules before accepting the fetched leaf.
-            auto const trustedMaster = app_.validators().getTrustedKey(pubKey);
-            if (!trustedMaster)
-            {
-                JLOG(j_.warn())
-                    << "RNG: rejecting acquired entry"
-                    << " reason=untrusted-signing-key"
-                    << " kind=" << (isCommitSet ? "commit" : "reveal")
-                    << " source=" << sourceTag << " node=" << nodeId
-                    << " hash=" << hash;
-                return;
-            }
-            if (calcNodeID(*trustedMaster) != nodeId)
-            {
-                JLOG(j_.warn())
-                    << "RNG: rejecting acquired entry"
-                    << " reason=node-key-mismatch"
-                    << " kind=" << (isCommitSet ? "commit" : "reveal")
-                    << " source=" << sourceTag << " node=" << nodeId
-                    << " hash=" << hash;
-                return;
-            }
 
             std::optional<ProposalProof> parsedProof;
             if (sidecar.isFieldPresent(sfBlob))
@@ -1606,75 +1725,18 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                 return;
             }
 
-            if (isCommitSet)
-            {
-                auto const existingCommit = pendingCommits_.find(nodeId);
-                if (existingCommit != pendingCommits_.end() &&
-                    existingCommit->second != digest)
-                {
-                    // A changed commitment invalidates any previously accepted
-                    // reveal for this node in the same round.
-                    pendingReveals_.erase(nodeId);
-                }
-            }
-            else
-            {
-                auto const commitIt = pendingCommits_.find(nodeId);
-                if (commitIt == pendingCommits_.end())
-                {
-                    JLOG(j_.debug())
-                        << "RNG: rejecting acquired entry"
-                        << " reason=reveal-without-commitment"
-                        << " kind=reveal"
-                        << " source=" << sourceTag << " node=" << nodeId
-                        << " hash=" << hash << " seq=" << seq;
-                    return;
-                }
-                if (!hasProofedCommit(nodeId))
-                {
-                    JLOG(j_.debug())
-                        << "RNG: rejecting acquired entry"
-                        << " reason=reveal-without-proofed-commit"
-                        << " kind=reveal"
-                        << " source=" << sourceTag << " node=" << nodeId
-                        << " hash=" << hash << " seq=" << seq;
-                    return;
-                }
-                auto const expectedCommit =
-                    entropyCommitment(digest, pubKey, seq);
-                if (expectedCommit != commitIt->second)
-                {
-                    JLOG(j_.warn())
-                        << "RNG: rejecting acquired entry"
-                        << " reason=reveal-commitment-mismatch"
-                        << " kind=reveal"
-                        << " source=" << sourceTag << " node=" << nodeId
-                        << " hash=" << hash << " seq=" << seq;
-                    return;
-                }
-            }
+            if (!ingestRngContribution(
+                    nodeId,
+                    pubKey,
+                    isCommitSet ? RngContributionKind::commit
+                                : RngContributionKind::reveal,
+                    digest,
+                    seq,
+                    parsedProof,
+                    sourceTag,
+                    RngProofCachePolicy::replaceExisting))
+                return;
 
-            pendingData[nodeId] = digest;
-            nodeIdToKey_.insert_or_assign(nodeId, pubKey);
-            // Preserve fetched proofs so any subsequent local rebuild emits
-            // byte-identical SHAMap leaves for these entries.
-            if (isCommitSet)
-            {
-                if (parsedProof && parsedProof->proposeSeq == 0)
-                {
-                    commitProofs_.insert_or_assign(nodeId, *parsedProof);
-                }
-                else if (parsedProof)
-                {
-                    JLOG(j_.debug())
-                        << "RNG: commit proof not cached"
-                        << " reason=nonzero-propose-seq"
-                        << " source=" << sourceTag << " node=" << nodeId
-                        << " hash=" << hash
-                        << " proposeSeq=" << parsedProof->proposeSeq
-                        << " seq=" << seq;
-                }
-            }
             ++merged;
 
             JLOG(j_.trace()) << "RNG: merged acquired entry"
@@ -2303,18 +2365,6 @@ ConsensusExtensions::harvestRngData(
                      << " proposeSeq=" << proposeSeq
                      << " prevLedger=" << prevLedger;
 
-    //@@start rng-harvest-active-validator-gate
-    // Reject data from validators not in the active UNL
-    if (!isUNLReportMember(nodeId))
-    {
-        JLOG(j_.trace()) << "RNG: rejecting proposal data"
-                         << " reason=non-active-validator"
-                         << " node=" << nodeId << " proposeSeq=" << proposeSeq
-                         << " prevLedger=" << prevLedger;
-        return;
-    }
-    //@@end rng-harvest-active-validator-gate
-
     //@@start runtime-rng-claim-drop
     // RuntimeConfig: randomly drop RNG claims for testing
     auto& rc = app_.getRuntimeConfig();
@@ -2340,33 +2390,34 @@ ConsensusExtensions::harvestRngData(
     }
     //@@end runtime-rng-claim-drop
 
-    // Store nodeId -> publicKey mapping for deterministic ordering
-    nodeIdToKey_.insert_or_assign(nodeId, publicKey);
-
     //@@start rng-harvest-commit
     // Harvest commitment if present
     if (position.myCommitment)
     {
-        auto [it, inserted] =
-            pendingCommits_.emplace(nodeId, *position.myCommitment);
-        if (!inserted && it->second != *position.myCommitment)
+        std::optional<ProposalProof> proof;
+        if (proposeSeq == 0)
         {
-            JLOG(j_.warn())
-                << "RNG: validator changed commitment"
-                << " node=" << nodeId << " proposeSeq=" << proposeSeq
-                << " old=" << it->second << " new=" << *position.myCommitment;
-            it->second = *position.myCommitment;
-
-            // commitProofs_ stores seq=0 proofs. If a validator changes its
-            // commitment later in the round, that old proof no longer matches
-            // the new digest and must not be embedded into a fetched commitSet.
-            commitProofs_.erase(nodeId);
-
-            // Any reveal accepted against the prior commitment is now stale.
-            // Drop it so reveal quorum cannot be satisfied by mismatched data.
-            pendingReveals_.erase(nodeId);
+            ProposalProof p;
+            p.proposeSeq = proposeSeq;
+            p.closeTime = static_cast<std::uint32_t>(
+                closeTime.time_since_epoch().count());
+            p.prevLedger = prevLedger;
+            Serializer s;
+            position.add(s);
+            p.positionData = std::move(s);
+            p.signature = Buffer(signature.data(), signature.size());
+            proof = std::move(p);
         }
-        else if (inserted)
+
+        if (ingestRngContribution(
+                nodeId,
+                publicKey,
+                RngContributionKind::commit,
+                *position.myCommitment,
+                std::nullopt,
+                proof,
+                "proposal",
+                RngProofCachePolicy::keepExisting))
         {
             JLOG(j_.trace())
                 << "RNG: harvested commitment"
@@ -2380,28 +2431,6 @@ ConsensusExtensions::harvestRngData(
     // Harvest reveal if present — verify it matches the stored commitment
     if (position.myReveal)
     {
-        auto commitIt = pendingCommits_.find(nodeId);
-        if (commitIt == pendingCommits_.end())
-        {
-            // No commitment on record — cannot verify. Ignore to prevent
-            // grinding attacks where a validator skips the commit phase.
-            JLOG(j_.warn())
-                << "RNG: rejecting reveal"
-                << " reason=no-commitment"
-                << " node=" << nodeId << " proposeSeq=" << proposeSeq
-                << " prevLedger=" << prevLedger;
-            return;
-        }
-        if (!hasProofedCommit(nodeId))
-        {
-            JLOG(j_.warn())
-                << "RNG: rejecting reveal"
-                << " reason=no-proofed-commit"
-                << " node=" << nodeId << " proposeSeq=" << proposeSeq
-                << " prevLedger=" << prevLedger;
-            return;
-        }
-
         // Verify Hash(reveal | pubKey | seq) == commitment
         auto const prevLgr = app_.getLedgerMaster().getLedgerByHash(prevLedger);
         if (!prevLgr)
@@ -2415,31 +2444,16 @@ ConsensusExtensions::harvestRngData(
         }
 
         auto const seq = prevLgr->info().seq + 1;
-        auto const calculated =
-            entropyCommitment(*position.myReveal, publicKey, seq);
 
-        if (calculated != commitIt->second)
-        {
-            JLOG(j_.warn())
-                << "RNG: rejecting reveal"
-                << " reason=commitment-mismatch"
-                << " node=" << nodeId << " proposeSeq=" << proposeSeq
-                << " seq=" << seq << " expected=" << commitIt->second
-                << " calculated=" << calculated;
-            return;
-        }
-
-        auto [it, inserted] =
-            pendingReveals_.emplace(nodeId, *position.myReveal);
-        if (!inserted && it->second != *position.myReveal)
-        {
-            JLOG(j_.warn())
-                << "RNG: validator changed reveal"
-                << " node=" << nodeId << " proposeSeq=" << proposeSeq
-                << " old=" << it->second << " new=" << *position.myReveal;
-            it->second = *position.myReveal;
-        }
-        else if (inserted)
+        if (ingestRngContribution(
+                nodeId,
+                publicKey,
+                RngContributionKind::reveal,
+                *position.myReveal,
+                seq,
+                std::nullopt,
+                "proposal",
+                RngProofCachePolicy::keepExisting))
         {
             JLOG(j_.trace())
                 << "RNG: harvested reveal"
@@ -2448,28 +2462,6 @@ ConsensusExtensions::harvestRngData(
         }
     }
     //@@end rng-harvest-reveal-verification
-
-    // Store deterministic commit proofs for embedding in commitSet entries.
-    // Reveal sidecars intentionally omit proofs so entropySet hashes do not
-    // depend on proposal timing or sequence.
-    if (position.myCommitment)
-    {
-        auto makeProof = [&]() {
-            ProposalProof proof;
-            proof.proposeSeq = proposeSeq;
-            proof.closeTime = static_cast<std::uint32_t>(
-                closeTime.time_since_epoch().count());
-            proof.prevLedger = prevLedger;
-            Serializer s;
-            position.add(s);
-            proof.positionData = std::move(s);
-            proof.signature = Buffer(signature.data(), signature.size());
-            return proof;
-        };
-
-        if (position.myCommitment && proposeSeq == 0)
-            commitProofs_.emplace(nodeId, makeProof());
-    }
 }
 
 Blob

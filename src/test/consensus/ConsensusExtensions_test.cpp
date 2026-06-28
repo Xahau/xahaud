@@ -1803,12 +1803,12 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             prevLedger,
             Slice(commitSig.data(), commitSig.size()));
         BEAST_EXPECT(ce.pendingCommitCount() == 1);
-        BEAST_EXPECT(ce.pendingRevealCount() == 0);
-        BEAST_EXPECT(!ce.hasQuorumOfCommits());
+        BEAST_EXPECT(ce.pendingRevealCount() == 1);
+        BEAST_EXPECT(ce.hasQuorumOfCommits());
 
         ce.harvestRngData(
             nodeId, publicKey, earlyReveal, 3, closeTime, prevLedger, Slice{});
-        BEAST_EXPECT(ce.pendingRevealCount() == 0);
+        BEAST_EXPECT(ce.pendingRevealCount() == 1);
 
         ExtendedPosition reveal2Pos{txSetHash};
         reveal2Pos.myReveal = reveal2;
@@ -1822,9 +1822,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             closeTime,
             prevLedger,
             Slice(revealSig.data(), revealSig.size()));
-        // The replacement commitment is not in the proofed seq-0 commit set,
-        // so its reveal must not affect the entropy set.
-        BEAST_EXPECT(ce.pendingRevealCount() == 0);
+        // The later proofless commitment was ignored, so the original proofed
+        // commit remains authoritative and the mismatched reveal cannot replace
+        // the already-accepted reveal.
+        BEAST_EXPECT(ce.pendingRevealCount() == 1);
     }
 
     void
@@ -2427,6 +2428,56 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 ->getHash()
                 .as_uint256());
 
+        ConsensusExtensions proposalThenFetch{env.app(), activeNoopJournal()};
+        proposalThenFetch.cacheUNLReport(ledger);
+        auto const pReveal1 = makeHash("proposal-fetch-reveal-1");
+        auto const pReveal2 = makeHash("proposal-fetch-reveal-2");
+        auto const pCommit1 = sha512Half(pReveal1, publicKey, seq);
+        auto const pCommit2 = sha512Half(pReveal2, publicKey, seq);
+
+        ExtendedPosition pCommitPos1{txSetHash};
+        pCommitPos1.myCommitment = pCommit1;
+        auto const pCommitSig1 = signPosition(
+            publicKey, secretKey, pCommitPos1, 0, closeTime, prevLedger);
+        proposalThenFetch.onTrustedPeerProposal(
+            nodeId,
+            publicKey,
+            pCommitPos1,
+            0,
+            closeTime,
+            prevLedger,
+            Slice(pCommitSig1.data(), pCommitSig1.size()),
+            {});
+        BEAST_EXPECT(proposalThenFetch.pendingCommitCount() == 1);
+        BEAST_EXPECT(proposalThenFetch.proofedCommitCount() == 1);
+
+        ExtendedPosition pCommitPos2{txSetHash};
+        pCommitPos2.myCommitment = pCommit2;
+        auto const pCommitSig2 = signPosition(
+            publicKey, secretKey, pCommitPos2, 1, closeTime, prevLedger);
+        proposalThenFetch.onTrustedPeerProposal(
+            nodeId,
+            publicKey,
+            pCommitPos2,
+            1,
+            closeTime,
+            prevLedger,
+            Slice(pCommitSig2.data(), pCommitSig2.size()),
+            {});
+        BEAST_EXPECT(proposalThenFetch.pendingCommitCount() == 1);
+        BEAST_EXPECT(proposalThenFetch.proofedCommitCount() == 1);
+
+        auto pCommit1Sidecar =
+            makeRngSidecar(sidecarRngCommit, nodeId, publicKey, pCommit1, seq);
+        pCommit1Sidecar.setFieldVL(sfBlob, makeCommitProof(pCommit1));
+        publishAndFetchSidecarSet(
+            env.app(),
+            proposalThenFetch,
+            makeSidecarSet(env.app(), {pCommit1Sidecar}),
+            ConsensusExtensions::SidecarKind::commitSet);
+        BEAST_EXPECT(proposalThenFetch.pendingCommitCount() == 1);
+        BEAST_EXPECT(proposalThenFetch.proofedCommitCount() == 1);
+
         ConsensusExtensions replacement{env.app(), activeNoopJournal()};
         replacement.cacheUNLReport(ledger);
         auto const reveal1 = makeHash("fetched-reveal-1");
@@ -2465,7 +2516,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(replacement.pendingCommitCount() == 1);
         BEAST_EXPECT(replacement.pendingRevealCount() == 0);
 
-        // The old reveal is no longer valid after the commitment changes.
+        // A fetched proofed replacement can still be adopted for convergence,
+        // but the old reveal is no longer valid after the commitment changes.
         publishAndFetchSidecarSet(
             env.app(),
             replacement,

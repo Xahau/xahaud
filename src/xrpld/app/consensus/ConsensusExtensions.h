@@ -51,11 +51,26 @@ public:
     // Type of sidecar set, known at fetch time from proposal context.
     enum class SidecarKind : uint8_t { commitSet, entropySet, exportSigSet };
 
+    /** Proof data from a proposal signature, for embedding in SHAMap
+        entries. Contains everything needed to independently verify
+        that a validator committed/revealed a specific value. */
+    struct ProposalProof
+    {
+        std::uint32_t proposeSeq;
+        std::uint32_t closeTime;
+        uint256 prevLedger;
+        Serializer positionData;  // serialized ExtendedPosition
+        Buffer signature;
+    };
+
     using ActiveValidatorView = ripple::ActiveValidatorView;
     using ActiveValidatorViewPtr = std::shared_ptr<ActiveValidatorView const>;
     using ExportSignatureSnapshot = std::map<PublicKey, Buffer>;
 
 private:
+    enum class RngContributionKind : uint8_t { commit, reveal };
+    enum class RngProofCachePolicy : uint8_t { keepExisting, replaceExisting };
+
     // --- RNG Pipelined Storage ---
     hash_map<NodeID, uint256> pendingCommits_;
     hash_map<NodeID, uint256> pendingReveals_;
@@ -119,17 +134,6 @@ public:
     bool exportSigGateStarted_{false};
     std::chrono::steady_clock::time_point exportSigGateStart_{};
     bool exportSigConvergenceFailed_{false};
-    /** Proof data from a proposal signature, for embedding in SHAMap
-        entries. Contains everything needed to independently verify
-        that a validator committed/revealed a specific value. */
-    struct ProposalProof
-    {
-        std::uint32_t proposeSeq;
-        std::uint32_t closeTime;
-        uint256 prevLedger;
-        Serializer positionData;  // serialized ExtendedPosition
-        Buffer signature;
-    };
 
 private:
     void
@@ -142,6 +146,17 @@ private:
     hasActiveProofedCommit(
         NodeID const& nodeId,
         ActiveValidatorView const& validatorView) const;
+
+    bool
+    ingestRngContribution(
+        NodeID const& nodeId,
+        PublicKey const& publicKey,
+        RngContributionKind kind,
+        uint256 const& digest,
+        std::optional<LedgerIndex> seq,
+        std::optional<ProposalProof> const& proof,
+        char const* sourceTag,
+        RngProofCachePolicy proofCachePolicy);
 
     // Commit proofs keyed by NodeID. Only seq=0 proofs are cached because the
     // commit sidecar hash must be deterministic across all nodes.
