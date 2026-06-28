@@ -1399,6 +1399,7 @@ ConsensusExtensions::clearRngStatePreservingExport()
     entropySetMap_.reset();
     acceptedEntropySetHash_.reset();
     rngRoundSeq_.reset();
+    roundPrevLedgerHash_ = uint256{};
     consensusTxSetMap_.reset();
     consensusExportTxns_.clear();
     consensusTxSetHash_.reset();
@@ -1493,6 +1494,13 @@ ConsensusExtensions::makeActiveValidatorView(
 {
     // Prefer the consensus parent ledger so all validators evaluate the round
     // against the same frozen UNLReport, not a local latest-validated ledger.
+    if (!prevLedger)
+    {
+        XRPL_ASSERT(
+            roundPrevLedgerHash_.isZero(),
+            "ripple::ConsensusExtensions::makeActiveValidatorView : "
+            "null parent is outside an active consensus round");
+    }
     auto const sourceLedger =
         prevLedger ? prevLedger : app_.getLedgerMaster().getValidatedLedger();
     XRPL_ASSERT(
@@ -2687,6 +2695,7 @@ ConsensusExtensions::onRoundStart(
 {
     clearRngState();
     roundPrevLedgerHash_ = prevLedger.ledger_->info().hash;
+    rngRoundSeq_ = prevLedger.ledger_->info().seq + 1;
     cacheUNLReport(prevLedger.ledger_);
     auto const validatorView = activeValidatorView();
     if (validatorView->sourceLedgerHash)

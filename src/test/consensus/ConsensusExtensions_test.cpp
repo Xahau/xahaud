@@ -2554,6 +2554,30 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
         ce.cacheUNLReport(ledger);
 
+        {
+            auto const roundParent =
+                makeUNLReportLedger(env, std::vector<PublicKey>{publicKey});
+            auto const roundSeq = roundParent->info().seq + 1;
+            BEAST_EXPECT(roundSeq != ledger->info().seq + 1);
+
+            ConsensusExtensions roundPinned{env.app(), activeNoopJournal()};
+            roundPinned.onRoundStart(RCLCxLedger{roundParent}, {});
+            auto const roundCommit = makeHash("round-pinned-commit");
+            auto roundSidecar = makeRngSidecar(
+                sidecarRngCommit, nodeId, publicKey, roundCommit, roundSeq);
+            roundSidecar.setFieldVL(
+                sfBlob,
+                makeCommitProofWithPrev(
+                    roundCommit, 0, roundParent->info().hash));
+
+            publishAndFetchSidecarSet(
+                env.app(),
+                roundPinned,
+                makeSidecarSet(env.app(), {roundSidecar}),
+                ConsensusExtensions::SidecarKind::commitSet);
+            BEAST_EXPECT(roundPinned.pendingCommitCount() == 1);
+        }
+
         // Commit sidecars need a verifiable proposal proof.
         publishAndFetchSidecarSet(
             env.app(),
