@@ -807,6 +807,12 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     //@@start rng-entropy-conflict-gate
                     if (entropyState.conflict && quorumAligned())
                     {
+                        // Safety here is the fixed-denominator intersection
+                        // invariant in entropyGateThreshold(): any two
+                        // quorum-aligned entropy cohorts must share an honest
+                        // validator. fullObservation is intentionally not the
+                        // equivocation backstop; it would only reintroduce a
+                        // liveness veto by nodes that withhold observations.
                         JLOG(ext.j_.debug())
                             << "RNG: entropySetHash conflict ignored"
                             << " reason=quorum-aligned"

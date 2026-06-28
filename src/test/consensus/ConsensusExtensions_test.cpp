@@ -203,6 +203,22 @@ makeSidecarSet(Application& app, std::vector<STObject> const& sidecars)
 }
 
 std::shared_ptr<SHAMap>
+makeMiskeyedSidecarSet(Application& app, STObject const& sidecar)
+{
+    auto map =
+        std::make_shared<SHAMap>(SHAMapType::SIDECAR, app.getNodeFamily());
+    map->setUnbacked();
+
+    Serializer s(2048);
+    sidecar.add(s);
+    map->addItem(
+        SHAMapNodeType::tnSIDECAR,
+        make_shamapitem(makeHash("wrong-sidecar-item-key"), s.slice()));
+
+    return map->snapShot(false);
+}
+
+std::shared_ptr<SHAMap>
 makeRawSidecarSet(Application& app, std::string const& raw)
 {
     auto map =
@@ -2341,6 +2357,40 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             makeSidecarSet(env.app(), {crossRoundProofSidecar}),
             ConsensusExtensions::SidecarKind::commitSet);
         BEAST_EXPECT(ce.pendingCommitCount() == 0);
+
+        {
+            ConsensusExtensions keyBound{env.app(), activeNoopJournal()};
+            keyBound.cacheUNLReport(ledger);
+
+            auto const keyReveal = makeHash("key-bound-reveal");
+            auto const keyCommit = sha512Half(keyReveal, publicKey, seq);
+            auto keyCommitSidecar = makeRngSidecar(
+                sidecarRngCommit, nodeId, publicKey, keyCommit, seq);
+            keyCommitSidecar.setFieldVL(sfBlob, makeCommitProof(keyCommit));
+
+            publishAndFetchSidecarSet(
+                env.app(),
+                keyBound,
+                makeMiskeyedSidecarSet(env.app(), keyCommitSidecar),
+                ConsensusExtensions::SidecarKind::commitSet);
+            BEAST_EXPECT(keyBound.pendingCommitCount() == 0);
+
+            publishAndFetchSidecarSet(
+                env.app(),
+                keyBound,
+                makeSidecarSet(env.app(), {keyCommitSidecar}),
+                ConsensusExtensions::SidecarKind::commitSet);
+            BEAST_EXPECT(keyBound.pendingCommitCount() == 1);
+
+            auto keyRevealSidecar = makeRngSidecar(
+                sidecarRngReveal, nodeId, publicKey, keyReveal, seq);
+            publishAndFetchSidecarSet(
+                env.app(),
+                keyBound,
+                makeMiskeyedSidecarSet(env.app(), keyRevealSidecar),
+                ConsensusExtensions::SidecarKind::entropySet);
+            BEAST_EXPECT(keyBound.pendingRevealCount() == 0);
+        }
 
         auto nonZeroProofSidecar =
             makeRngSidecar(sidecarRngCommit, nodeId, publicKey, digest, seq);

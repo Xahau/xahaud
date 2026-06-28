@@ -1382,7 +1382,9 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 
     std::size_t merged = 0;
 
-    auto mergeEntry = [&](Slice const& entry, char const* sourceTag) {
+    auto mergeEntry = [&](uint256 const& itemKey,
+                          Slice const& entry,
+                          char const* sourceTag) {
         try
         {
             SerialIter sit(entry);
@@ -1395,6 +1397,18 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             if ((isCommitSet && entryType != sidecarRngCommit) ||
                 (!isCommitSet && entryType != sidecarRngReveal))
                 return;
+
+            auto const sidecarHash = sidecar.getHash(HashPrefix::sidecar);
+            if (sidecarHash != itemKey)
+            {
+                JLOG(j_.warn())
+                    << "RNG: rejecting acquired entry"
+                    << " reason=item-key-mismatch"
+                    << " kind=" << (isCommitSet ? "commit" : "reveal")
+                    << " source=" << sourceTag << " setHash=" << hash
+                    << " itemKey=" << itemKey << " sidecarHash=" << sidecarHash;
+                return;
+            }
 
             auto const pk = sidecar.getFieldVL(sfSigningPubKey);
             // Fetched sidecar leaves are untrusted until semantic checks pass.
@@ -1623,7 +1637,7 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             // pair.first = our entry, pair.second = their entry.
             // If we don't have it (pair.first is null), merge it.
             if (!pair.first && pair.second)
-                mergeEntry(pair.second->slice(), "diff");
+                mergeEntry(key, pair.second->slice(), "diff");
         }
     }
     else
@@ -1631,7 +1645,7 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
         // We don't have a local set yet — extract all entries.
         map->visitLeaves(
             [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                mergeEntry(item->slice(), "visit");
+                mergeEntry(item->key(), item->slice(), "visit");
             });
     }
 
