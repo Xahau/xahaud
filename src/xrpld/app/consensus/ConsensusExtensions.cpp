@@ -861,24 +861,35 @@ ConsensusExtensions::selectEntropy(
     if (!acceptedEntropySetHash_ || !entropySetMap_ ||
         entropySetMap_->getHash().as_uint256() != *acceptedEntropySetHash_)
         return fallback();
+    auto const agreedHash = *acceptedEntropySetHash_;
 
     // Derive from the AGREED entropySetMap_ — NOT local pendingReveals_. The
     // map's hash was published in proposals and converged via fetch/merge, so
     // every node holding the same entropySetHash produces byte-identical
-    // entropy and the same tier/count. Each leaf is an STObject(sfGeneric) with
-    // sfSigningPubKey + sfDigest.
+    // entropy and the same tier/count. Read leaves through the shared sidecar
+    // admission gate so accepted-map consumption enforces the same content
+    // address/type contract as fetched-map merge.
     std::vector<std::pair<PublicKey, uint256>> sorted;
     entropySetMap_->visitLeaves(
         [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
             try
             {
-                SerialIter sit(item->slice());
-                STObject obj(sit, sfGeneric);
-                auto const pk = obj.getFieldVL(sfSigningPubKey);
+                auto admitted = admitSidecarLeaf(
+                    item->key(),
+                    item->slice(),
+                    agreedHash,
+                    j_,
+                    "RNG",
+                    "entropySet",
+                    "select");
+                if (!admitted || admitted->type != sidecarRngReveal)
+                    return;
+                auto const& sidecar = admitted->sidecar;
+                auto const pk = sidecar.getFieldVL(sfSigningPubKey);
                 if (!publicKeyType(makeSlice(pk)))
                     return;
                 sorted.emplace_back(
-                    PublicKey(makeSlice(pk)), obj.getFieldH256(sfDigest));
+                    PublicKey(makeSlice(pk)), sidecar.getFieldH256(sfDigest));
             }
             catch (...)
             {
