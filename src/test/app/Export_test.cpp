@@ -1158,7 +1158,7 @@ struct Export_test : public beast::unit_test::suite
             false,
             nullptr};
         auto const expectedSignedTxHash =
-            ExportResultBuilder::assemble(
+            ExportResultBuilder::assembleDirect(
                 innerTx, expectedSigs, applySeq, txHash)
                 .signedTxHash;
 
@@ -1319,7 +1319,8 @@ struct Export_test : public beast::unit_test::suite
         }
 
         auto const expectedSignedTxHash =
-            ExportResultBuilder::assemble(innerTx, signatures, applySeq, txHash)
+            ExportResultBuilder::assembleDirect(
+                innerTx, signatures, applySeq, txHash)
                 .signedTxHash;
 
         // A live consensus build only reaches Export::doApply after onPreBuild

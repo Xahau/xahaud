@@ -145,8 +145,10 @@ signaturesFromWitness(STTx const& witness)
     return signatures;
 }
 
+namespace {
+
 AssembledExportResult
-assemble(
+assembleImpl(
     STTx const& innerTx,
     SignatureSnapshot const& signatures,
     LedgerIndex currentSeq,
@@ -168,6 +170,31 @@ assemble(
         exportResult.set(std::move(multiSigned));
 
     return {std::move(exportResult), signedTxHash, signerCount};
+}
+
+}  // namespace
+
+AssembledExportResult
+assembleDirect(
+    STTx const& innerTx,
+    SignatureSnapshot const& signatures,
+    LedgerIndex currentSeq,
+    uint256 const& exportTxHash)
+{
+    return assembleImpl(
+        innerTx, signatures, currentSeq, exportTxHash, std::nullopt);
+}
+
+AssembledExportResult
+assembleClosedLedger(
+    STTx const& innerTx,
+    SignatureSnapshot const& signatures,
+    LedgerIndex currentSeq,
+    uint256 const& exportTxHash,
+    uint256 const& exportSignatureHash)
+{
+    return assembleImpl(
+        innerTx, signatures, currentSeq, exportTxHash, exportSignatureHash);
 }
 
 }  // namespace ExportResultBuilder

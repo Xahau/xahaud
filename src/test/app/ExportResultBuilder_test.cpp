@@ -30,8 +30,6 @@
 #include <xrpl/protocol/digest.h>
 
 #include <cstring>
-#include <optional>
-
 namespace ripple {
 namespace test {
 namespace {
@@ -95,7 +93,7 @@ public:
             ExportResultBuilder::signExportedTxn(
                 innerTx, signerB.first, signerB.second));
 
-        auto assembled = ExportResultBuilder::assemble(
+        auto assembled = ExportResultBuilder::assembleDirect(
             innerTx, signatures, 123, exportTxHash);
 
         BEAST_EXPECT(assembled.signerCount == 2);
@@ -151,7 +149,7 @@ public:
         ExportResultBuilder::SignatureSnapshot signatures;
         signatures.emplace(signer.first, Buffer{});
 
-        auto assembled = ExportResultBuilder::assemble(
+        auto assembled = ExportResultBuilder::assembleDirect(
             innerTx, signatures, 456, makeHash("empty-sig-export"));
 
         BEAST_EXPECT(assembled.signerCount == 0);
@@ -227,7 +225,7 @@ public:
                     innerTx, signer.first, signer.second));
         }
 
-        auto assembled = ExportResultBuilder::assemble(
+        auto assembled = ExportResultBuilder::assembleDirect(
             innerTx, signatures, 789, makeHash("many-sig-export"));
 
         BEAST_EXPECT(assembled.signerCount == STTx::maxMultiSigners());
@@ -271,12 +269,8 @@ public:
             ExportResultBuilder::signExportedTxn(
                 innerTx, signer.first, signer.second));
 
-        auto assembled = ExportResultBuilder::assemble(
-            innerTx,
-            signatures,
-            321,
-            exportTxHash,
-            std::optional<uint256>{witnessHash});
+        auto assembled = ExportResultBuilder::assembleClosedLedger(
+            innerTx, signatures, 321, exportTxHash, witnessHash);
 
         BEAST_EXPECT(assembled.signerCount == 1);
         BEAST_EXPECT(assembled.metadata.getFieldU32(sfLedgerSequence) == 321);

@@ -317,8 +317,16 @@ Export::doApply()
     }
     //@@end export-doapply-retry-without-signature-quorum
 
-    auto assembled = ExportResultBuilder::assemble(
-        innerTx, signatures, currentSeq, txId, exportSignatureHash);
+    if (!exportSignatureHash)
+    {
+        JLOG(j_.fatal()) << "Export: quorum signatures without witness hash"
+                         << " txHash=" << txId << " ledgerSeq=" << currentSeq
+                         << " signatures=" << signatures.size();
+        return tefINTERNAL;
+    }
+
+    auto assembled = ExportResultBuilder::assembleClosedLedger(
+        innerTx, signatures, currentSeq, txId, *exportSignatureHash);
 
     // Create the shadow ticket with the signed tx hash.
     {

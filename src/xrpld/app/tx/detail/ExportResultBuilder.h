@@ -55,12 +55,19 @@ std::optional<SignatureSnapshot>
 signaturesFromWitness(STTx const& witness);
 
 AssembledExportResult
-assemble(
+assembleDirect(
+    STTx const& innerTx,
+    SignatureSnapshot const& signatures,
+    LedgerIndex currentSeq,
+    uint256 const& exportTxHash);
+
+AssembledExportResult
+assembleClosedLedger(
     STTx const& innerTx,
     SignatureSnapshot const& signatures,
     LedgerIndex currentSeq,
     uint256 const& exportTxHash,
-    std::optional<uint256> const& exportSignatureHash = std::nullopt);
+    uint256 const& exportSignatureHash);
 
 }  // namespace ExportResultBuilder
 }  // namespace ripple
