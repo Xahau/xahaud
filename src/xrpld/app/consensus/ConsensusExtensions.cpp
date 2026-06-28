@@ -95,6 +95,9 @@ verifyProposalDigest(
     uint256 const& signingHash,
     Slice const& signature)
 {
+    // Proposal/validation signatures are secp256k1 digest signatures today.
+    // Fetched sidecars can still name a valid ed25519 manifest/master key, so
+    // reject non-secp keys before verifyDigest, which aborts on them.
     auto const type = publicKeyType(publicKey);
     return type && *type == KeyType::secp256k1 &&
         verifyDigest(publicKey, signingHash, signature);
@@ -1419,9 +1422,10 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                 return;
             }
 
-            // Bind the claimed nodeId to a trusted validator key identity.
-            // This prevents a fetched set from impersonating arbitrary UNL
-            // members via sfAccount.
+            // Bind the claimed nodeId to a trusted validator identity. This
+            // maps signing keys to masters and also admits listed master keys;
+            // proposal-proof verification below enforces the signing-key
+            // rules before accepting the fetched leaf.
             auto const trustedMaster = app_.validators().getTrustedKey(pubKey);
             if (!trustedMaster)
             {
@@ -2467,9 +2471,8 @@ ConsensusExtensions::verifyProof(
             proof->prevLedger,
             position);
 
-        // Proposal signatures are digest signatures and therefore
-        // secp256k1-only. Reject other valid key types before verifyDigest,
-        // which aborts on non-secp256k1 input.
+        // Use the proposal verifier rather than calling verifyDigest directly:
+        // fetched proof bytes are untrusted.
         return verifyProposalDigest(
             publicKey,
             signingHash,
