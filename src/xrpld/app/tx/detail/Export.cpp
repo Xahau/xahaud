@@ -52,36 +52,21 @@ Export::preclaim(PreclaimContext const& ctx)
     if (!ctx.tx.isFieldPresent(sfExportedTxn))
         return tesSUCCESS;
 
-    // Validate the inner exported transaction.
-    auto const& exportedObj = const_cast<STTx&>(ctx.tx)
-                                  .peekAtField(sfExportedTxn)
-                                  .downcast<STObject>();
-
-    Serializer s;
-    exportedObj.add(s);
-    SerialIter sit(s.slice());
-
-    std::shared_ptr<STTx const> stpTrans;
-    try
-    {
-        stpTrans = std::make_shared<STTx const>(sit);
-    }
-    catch (std::exception const&)
-    {
+    auto innerTx = ExportLedgerOps::innerExportedTx(ctx.tx);
+    if (!innerTx)
         return temMALFORMED;
-    }
 
     if (auto ter = ExportLedgerOps::validateExportAccount(
-            *stpTrans, ctx.tx.getAccountID(sfAccount), ctx.j);
+            *innerTx, ctx.tx.getAccountID(sfAccount), ctx.j);
         !isTesSuccess(ter))
         return ter;
 
     if (auto ter = ExportLedgerOps::validateNetworkID(
-            *stpTrans, ctx.app.config().NETWORK_ID, ctx.j);
+            *innerTx, ctx.app.config().NETWORK_ID, ctx.j);
         !isTesSuccess(ter))
         return ter;
 
-    if (auto ter = ExportLedgerOps::validateTicketSequence(*stpTrans, ctx.j);
+    if (auto ter = ExportLedgerOps::validateTicketSequence(*innerTx, ctx.j);
         !isTesSuccess(ter))
         return ter;
 
@@ -182,14 +167,13 @@ Export::doApply()
     // ttEXPORT_SIGNATURES replay witness before creating ledger effects.
     // Deserialize the inner tx early — needed both for the upgrade
     // pass (verify unverified sigs) and for blob assembly.
-    auto const& exportedObj =
-        ctx_.tx.peekAtField(sfExportedTxn).downcast<STObject>();
-
-    Serializer innerSer;
-    exportedObj.add(innerSer);
-    SerialIter sit(innerSer.slice());
-
-    STTx innerTx(std::ref(sit));
+    auto innerTx = ExportLedgerOps::innerExportedTx(ctx_.tx);
+    if (!innerTx)
+    {
+        JLOG(j_.warn()) << "Export: malformed inner exported tx"
+                        << " txHash=" << txId << " ledgerSeq=" << currentSeq;
+        return temMALFORMED;
+    }
 
     auto upgradeUnverifiedForNextRound = [&]() {
         if (standalone)
@@ -202,7 +186,7 @@ Export::doApply()
         // stay cached, but they must not become quorum material.
         ExportSignatureUpgrader::upgradeUnverifiedSignatures(
             consensusExtensions.exportSigCollector(),
-            innerTx,
+            *innerTx,
             txId,
             currentSeq,
             isActiveSigner,
@@ -326,14 +310,14 @@ Export::doApply()
     }
 
     auto assembled = ExportResultBuilder::assembleClosedLedger(
-        innerTx, signatures, currentSeq, txId, *exportSignatureHash);
+        *innerTx, signatures, currentSeq, txId, *exportSignatureHash);
 
     // Create the shadow ticket with the signed tx hash.
     {
         TER ter = ExportLedgerOps::createShadowTicket(
             view(),
             account,
-            innerTx,
+            *innerTx,
             assembled.signedTxHash,
             mPriorBalance,
             j_);

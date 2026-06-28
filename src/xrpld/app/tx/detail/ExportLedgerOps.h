@@ -7,9 +7,14 @@
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Protocol.h>
+#include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
+#include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/XRPAmount.h>
+
+#include <functional>
+#include <optional>
 
 namespace ripple {
 
@@ -35,6 +40,28 @@ isPendingExportWorkTxn(STTx const& stx)
     return isExportTxn(stx) &&
         (stx.isFieldPresent(sfExportedTxn) ||
          stx.isFieldPresent(sfEmitDetails));
+}
+
+inline std::optional<STTx>
+innerExportedTx(STTx const& stx)
+{
+    if (!stx.isFieldPresent(sfExportedTxn))
+        return std::nullopt;
+
+    try
+    {
+        auto const& exportedObj = const_cast<STTx&>(stx)
+                                      .peekAtField(sfExportedTxn)
+                                      .downcast<STObject>();
+        Serializer innerSer;
+        exportedObj.add(innerSer);
+        SerialIter sit(innerSer.slice());
+        return STTx(std::ref(sit));
+    }
+    catch (std::exception const&)
+    {
+        return std::nullopt;
+    }
 }
 
 inline std::size_t

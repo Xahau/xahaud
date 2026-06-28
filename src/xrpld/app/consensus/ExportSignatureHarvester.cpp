@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/consensus/ExportSignatureHarvester.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ExportLimits.h>
@@ -47,19 +48,20 @@ verifyExportSignatureAgainstTx(
         return false;
     }
 
+    auto innerTx = ExportLedgerOps::innerExportedTx(exportTx);
+    if (!innerTx)
+    {
+        JLOG(j.warn()) << "Export: failed to verify sig"
+                       << " txHash=" << txHash << " source=" << source
+                       << " validator=" << calcNodeID(validator)
+                       << " reason=inner-tx-parse-failed";
+        return false;
+    }
+
     try
     {
-        auto const& exportedObj = const_cast<STTx&>(exportTx)
-                                      .peekAtField(sfExportedTxn)
-                                      .downcast<STObject>();
-
-        Serializer innerSer;
-        exportedObj.add(innerSer);
-        SerialIter sit(innerSer.slice());
-        STTx innerTx(std::ref(sit));
-
         auto const signerAcctID = calcAccountID(validator);
-        auto const sigData = buildMultiSigningData(innerTx, signerAcctID);
+        auto const sigData = buildMultiSigningData(*innerTx, signerAcctID);
         if (!verify(validator, sigData.slice(), sigSlice))
         {
             JLOG(j.warn()) << "Export: invalid multisign sig"
@@ -68,7 +70,6 @@ verifyExportSignatureAgainstTx(
                            << " reason=signature-verify-failed";
             return false;
         }
-        return true;
     }
     catch (std::exception const& e)
     {
@@ -78,6 +79,7 @@ verifyExportSignatureAgainstTx(
                        << " error=" << e.what();
         return false;
     }
+    return true;
 }
 
 std::size_t

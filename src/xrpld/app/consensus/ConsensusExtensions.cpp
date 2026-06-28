@@ -2338,23 +2338,12 @@ ConsensusExtensions::onPreBuild(
                     if (existing != retriableTxs.end())
                         continue;
 
-                    std::optional<STTx> innerTx;
-                    try
-                    {
-                        auto const& exportedObj =
-                            stx->peekAtField(sfExportedTxn)
-                                .downcast<STObject>();
-                        Serializer innerSer;
-                        exportedObj.add(innerSer);
-                        SerialIter sit(innerSer.slice());
-                        innerTx.emplace(std::ref(sit));
-                    }
-                    catch (std::exception const& e)
+                    auto innerTx = ExportLedgerOps::innerExportedTx(*stx);
+                    if (!innerTx)
                     {
                         JLOG(j_.warn()) << "Export: standalone witness skipped"
                                         << " exportTxHash=" << exportTxHash
-                                        << " reason=inner-tx-parse-failed"
-                                        << " error=" << e.what();
+                                        << " reason=inner-tx-parse-failed";
                         continue;
                     }
 
@@ -3025,19 +3014,23 @@ ConsensusExtensions::attachExportSignatures(
         Buffer sigBuf;
         if (stx->isFieldPresent(sfExportedTxn))
         {
-            auto const& exportedObj = const_cast<STTx&>(*stx)
-                                          .peekAtField(sfExportedTxn)
-                                          .downcast<STObject>();
-
-            Serializer innerSer;
-            exportedObj.add(innerSer);
-            SerialIter sit(innerSer.slice());
-
             try
             {
-                STTx innerTx(std::ref(sit));
-                auto sigData = buildMultiSigningData(innerTx, signerAcctID);
-                sigBuf = sign(valPK, valSK, sigData.slice());
+                auto innerTx = ExportLedgerOps::innerExportedTx(*stx);
+                if (!innerTx)
+                {
+                    JLOG(j_.warn())
+                        << "Export: failed to sign inner tx"
+                        << " txHash=" << txHash
+                        << " openLedgerSeq=" << openLedger->info().seq
+                        << " reason=inner-tx-parse-failed";
+                }
+                else
+                {
+                    auto sigData =
+                        buildMultiSigningData(*innerTx, signerAcctID);
+                    sigBuf = sign(valPK, valSK, sigData.slice());
+                }
             }
             catch (std::exception const& e)
             {
