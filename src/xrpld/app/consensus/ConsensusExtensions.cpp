@@ -63,6 +63,17 @@ ConsensusExtensions::ConsensusExtensions(Application& app, beast::Journal j)
 
 namespace {
 
+auto
+activeSignerFilter(
+    ConsensusExtensions const& extensions,
+    ConsensusExtensions::ActiveValidatorViewPtr validatorView)
+{
+    auto const* ext = &extensions;
+    return [ext, validatorView](PublicKey const& key) {
+        return ext->isActiveValidator(key, *validatorView);
+    };
+}
+
 std::string
 buildObservedParticipantBitmap(
     std::vector<NodeID> const& activeSorted,
@@ -1030,9 +1041,7 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
     // Export sidecar convergence should not advertise signatures from trusted
     // but inactive validators; those signatures cannot count at apply time.
     auto const allSigs = exportSigCollector_.snapshotWithSigs(
-        [this, validatorView](PublicKey const& key) {
-            return isActiveValidator(key, *validatorView);
-        });
+        activeSignerFilter(*this, validatorView));
     // Only signatures for export txns in the consensus candidate can affect
     // this round's sidecar hash; open-ledger-only txns stay cached for later.
     std::size_t entryCount = 0;
@@ -1081,9 +1090,7 @@ ConsensusExtensions::hasPendingExportSigs() const
     // The export convergence gate only needs to run for signatures that are
     // eligible under the active view used by final quorum evaluation.
     auto const allSigs = exportSigCollector_.snapshotWithSigs(
-        [this, validatorView](PublicKey const& key) {
-            return isActiveValidator(key, *validatorView);
-        });
+        activeSignerFilter(*this, validatorView));
     if (allSigs.empty() || !consensusTxSetMap_)
         return false;
 
@@ -1509,6 +1516,8 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             auto const currentSeq = currentClosedLedgerSeq(app_);
 
             auto const validatorView = activeValidatorView();
+            auto const isActiveSigner =
+                activeSignerFilter(*this, validatorView);
             std::size_t merged = 0;
             map->visitLeaves(
                 [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
@@ -1540,7 +1549,7 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                         // Fetched export sidecars are only useful if the signer
                         // is active in the same view that final quorum will
                         // use.
-                        if (!isActiveValidator(valPK, *validatorView))
+                        if (!isActiveSigner(valPK))
                             return;
 
                         // Require a real signature (not pubkey-only).
@@ -2040,6 +2049,7 @@ ConsensusExtensions::verifyPendingExportSigs(
         return 0;
 
     auto const validatorView = activeValidatorView();
+    auto const isActiveSigner = activeSignerFilter(*this, validatorView);
     std::size_t upgraded = 0;
     for (auto const& [txHash, stx] : consensusExportTxns_)
     {
@@ -2047,7 +2057,7 @@ ConsensusExtensions::verifyPendingExportSigs(
             exportSigCollector_.unverifiedSignatures(txHash);
         for (auto const& [valPK, sigBuf] : unverified)
         {
-            if (!isActiveValidator(valPK, *validatorView))
+            if (!isActiveSigner(valPK))
                 continue;
 
             if (!verifyExportSignatureAgainstTx(
@@ -2756,9 +2766,7 @@ ConsensusExtensions::harvestExportSignatures(
             proposalPrevLedger,
             exportSignatures,
             validatorView->sourceLedgerHash,
-            [this, validatorView](PublicKey const& pk) {
-                return isActiveValidator(pk, *validatorView);
-            },
+            activeSignerFilter(*this, validatorView),
             exportTxns,
             currentSeq,
             source,
