@@ -177,9 +177,10 @@ async def scenario(ctx, log):
     trigger_seq = ctx.validated_ledger_index(0)
     log(f"Export triggered at ledger {trigger_seq}")
 
-    # Assert hook fired with ACCEPT and emitted 1 tx
+    # xport() schedules a ttEXPORT through the emitted directory, but hook
+    # metadata reports it separately from ordinary HookEmissions.
     trigger_meta = trigger_result.get("meta", {})
-    assert_hook_accepted(trigger_meta, log, expected_emits=1)
+    assert_hook_accepted(trigger_meta, log, expected_emits=0, expected_exports=1)
 
     # --- Verify: check each ledger close for the Export transaction ---
     max_ledgers = 10

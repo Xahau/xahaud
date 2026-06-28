@@ -95,8 +95,10 @@ def dst_param(address):
     }
 
 
-def assert_hook_accepted(meta, log, *, expected_emits=1):
-    """Assert hook executed with ACCEPT and the expected emit count.
+def assert_hook_accepted(
+    meta, log, *, expected_emits=1, expected_exports=None
+):
+    """Assert hook executed with ACCEPT and expected emission counts.
 
     Checks sfHookExecutions in transaction metadata.
     Returns the hook execution entry for further inspection.
@@ -108,9 +110,13 @@ def assert_hook_accepted(meta, log, *, expected_emits=1):
     exec_entry = hook_execs[0].get("HookExecution", {})
     hook_result = exec_entry.get("HookResult", -1)
     emit_count = exec_entry.get("HookEmitCount", -1)
+    export_count = exec_entry.get("HookExportCount")
     return_code = exec_entry.get("HookReturnCode", "")
 
-    log(f"  HookResult={hook_result} EmitCount={emit_count} ReturnCode={return_code}")
+    log(
+        f"  HookResult={hook_result} EmitCount={emit_count} "
+        f"ExportCount={export_count} ReturnCode={return_code}"
+    )
 
     # HookResult 3 = ExitType::ACCEPT
     if hook_result != 3:
@@ -122,6 +128,11 @@ def assert_hook_accepted(meta, log, *, expected_emits=1):
     if emit_count != expected_emits:
         raise AssertionError(
             f"Expected {expected_emits} emits, got {emit_count}"
+        )
+
+    if expected_exports is not None and export_count != expected_exports:
+        raise AssertionError(
+            f"Expected {expected_exports} exports, got {export_count}"
         )
 
     # ReturnCode 0 = success; non-zero = ASSERT line number in hook
@@ -140,6 +151,12 @@ def _signer_entries(witness):
         signer = entry.get("Signer", entry)
         entries.append(signer)
     return entries
+
+
+def _account_sort_key(address):
+    from xrpl.core.addresscodec import decode_classic_address
+
+    return decode_classic_address(address)
 
 
 def assert_export_result(meta, log, *, ctx=None, require_signers=True):
@@ -196,7 +213,7 @@ def assert_export_result(meta, log, *, ctx=None, require_signers=True):
         if not signers:
             raise AssertionError("ExportSignatures witness has no Signers")
         accounts = [s.get("Account") for s in signers]
-        if accounts != sorted(accounts):
+        if accounts != sorted(accounts, key=_account_sort_key):
             raise AssertionError("ExportSignatures Signers are not Account-sorted")
         log(f"  Witness signers: {len(signers)} validator(s)")
         export_result["_Witness"] = witness
