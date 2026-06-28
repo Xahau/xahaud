@@ -990,6 +990,9 @@ HookAPI::xport(Slice const& txBlob) const
     if (hookCtx.expected_export_count < 0)
         return Unexpected(PREREQUISITE_NOT_MET);
 
+    if (hookCtx.result.emittedTxn.size() >= hookCtx.expected_etxn_count)
+        return Unexpected(TOO_MANY_EMITTED_TXN);
+
     if (hookCtx.export_count >= hookCtx.expected_export_count)
         return Unexpected(TOO_MANY_EXPORTED_TXN);
 

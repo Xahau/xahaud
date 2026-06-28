@@ -1050,6 +1050,30 @@ public:
             BEAST_EXPECT(hookCtx.expected_export_count == 1);
             BEAST_EXPECT(hookCtx.expected_etxn_count == 1);
         }
+
+        {
+            // xport shares emit()'s emitted transaction queue and must not
+            // append after normal emits fill the reserved budget.
+            std::string reason;
+            auto tx = std::make_shared<ripple::Transaction>(
+                std::make_shared<ripple::STTx const>(invokeTx),
+                reason,
+                env.app());
+            std::queue<std::shared_ptr<ripple::Transaction>> emittedTxn;
+            emittedTxn.push(tx);
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {
+                    .expected_etxn_count = 1,
+                    .expected_export_count = 1,
+                    .result = {.emittedTxn = emittedTxn},
+                });
+            auto& api = hookCtx.api();
+            auto const result = api.xport(Slice{});
+            BEAST_EXPECT(result.error() == TOO_MANY_EMITTED_TXN);
+        }
     }
 
     void
