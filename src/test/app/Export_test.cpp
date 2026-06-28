@@ -127,6 +127,251 @@ struct Export_test : public beast::unit_test::suite
         return 0;
     }
 
+    struct CallbackXPOP
+    {
+        Json::Value xpopJson;
+        std::uint32_t ticketSeq;
+        std::optional<std::pair<std::uint32_t, PublicKey>> vlInfo;
+    };
+
+    CallbackXPOP
+    buildExportCallbackXPOP(
+        jtx::Env& xahau,
+        jtx::xpop::TestXPOPContext const& xpopCtx,
+        jtx::Account const& alice,
+        jtx::Account const& carol,
+        std::uint32_t targetNetworkID,
+        std::uint32_t ticketSeq)
+    {
+        using namespace jtx;
+
+        STObject innerObj(sfExportedTxn);
+        innerObj.setFieldU16(sfTransactionType, ttPAYMENT);
+        innerObj.setFieldU32(sfFlags, tfFullyCanonicalSig);
+        innerObj.setFieldU32(sfSequence, 0);
+        innerObj.setFieldU32(sfTicketSequence, ticketSeq);
+        innerObj.setFieldU32(sfNetworkID, targetNetworkID);
+        innerObj.setFieldU32(sfLastLedgerSequence, 100);
+        innerObj.setFieldAmount(sfAmount, XRPAmount{1000000});
+        innerObj.setFieldAmount(sfFee, XRPAmount{20});
+        innerObj.setFieldVL(sfSigningPubKey, Blob{});
+        innerObj.setAccountID(sfAccount, alice.id());
+        innerObj.setAccountID(sfDestination, carol.id());
+
+        Json::Value jvExport;
+        jvExport[jss::TransactionType] = jss::Export;
+        jvExport[jss::Account] = alice.human();
+        jvExport[jss::LastLedgerSequence] = xahau.current()->seq() + 5;
+        jvExport[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+
+        xahau(jvExport, fee(XRP(1)), ter(tesSUCCESS));
+        xahau.close();
+
+        auto const exportMeta = xahau.meta();
+        BEAST_EXPECT(exportMeta);
+
+        Blob multisignedBlob;
+        if (exportMeta && exportMeta->isFieldPresent(sfExportResult))
+        {
+            auto const& result =
+                exportMeta->peekAtField(sfExportResult).downcast<STObject>();
+            BEAST_EXPECT(result.isFieldPresent(sfExportSignatureHash));
+            if (result.isFieldPresent(sfExportSignatureHash))
+            {
+                auto const witnessHash =
+                    result.getFieldH256(sfExportSignatureHash);
+                auto const witnessRead = xahau.current()->txRead(witnessHash);
+                auto const& witnessTx = witnessRead.first;
+                BEAST_EXPECT(witnessTx);
+                auto signatures = witnessTx
+                    ? ExportResultBuilder::signaturesFromWitness(*witnessTx)
+                    : std::nullopt;
+                BEAST_EXPECT(signatures);
+
+                STTx const innerTx = makeSTTx(innerObj);
+                auto expTxn = ExportResultBuilder::buildMultiSignedExportedTxn(
+                    innerTx,
+                    signatures ? *signatures
+                               : ExportResultBuilder::SignatureSnapshot{});
+
+                Serializer s;
+                expTxn.add(s);
+                multisignedBlob = s.peekData();
+
+                log << "Xahau: ExportResult.ExportSignatureHash = "
+                    << witnessHash << std::endl;
+                log << "Xahau: assembled ExportedTxn = "
+                    << expTxn.getJson(JsonOptions::none).toStyledString()
+                    << std::endl;
+            }
+        }
+        log << "Xahau: multisigned blob size = " << multisignedBlob.size()
+            << std::endl;
+        BEAST_EXPECT(!multisignedBlob.empty());
+
+        BEAST_EXPECT(xahau.current()->exists(
+            keylet::shadowTicket(alice.id(), ticketSeq)));
+
+        Env xrpl{*this, xpopCtx.makeEnvConfig(targetNetworkID)};
+
+        xrpl.fund(XRP(10000), alice, carol);
+        xrpl.close();
+
+        std::uint32_t const xrplTicketSeq = xrpl.seq(alice) + 1;
+        xrpl(ticket::create(alice, 1));
+        xrpl.close();
+        BEAST_EXPECT(xrplTicketSeq == ticketSeq);
+
+        auto const valPK = xahau.app().getValidationPublicKey();
+        auto const valSK = xahau.app().getValidationSecretKey();
+        BEAST_EXPECT(valPK.has_value());
+
+        auto const valAccountID = calcAccountID(*valPK);
+        log << "XRPL: validator AccountID = " << toBase58(valAccountID)
+            << std::endl;
+        log << "XRPL: validator PK = " << strHex(*valPK) << std::endl;
+
+        {
+            Json::Value jvSigners;
+            jvSigners[jss::TransactionType] = jss::SignerListSet;
+            jvSigners[jss::Account] = alice.human();
+            jvSigners[sfSignerQuorum.jsonName] = 1;
+
+            Json::Value signerEntry(Json::objectValue);
+            signerEntry[sfAccount.jsonName] = toBase58(valAccountID);
+            signerEntry[sfSignerWeight.jsonName] = 1;
+
+            Json::Value entryWrapper(Json::objectValue);
+            entryWrapper[sfSignerEntry.jsonName] = signerEntry;
+
+            Json::Value entries(Json::arrayValue);
+            entries.append(entryWrapper);
+            jvSigners[sfSignerEntries.jsonName] = entries;
+
+            log << "XRPL: SignerListSet JSON = " << jvSigners.toStyledString()
+                << std::endl;
+
+            xrpl(jvSigners, fee(XRP(1)), ter(tesSUCCESS));
+            log << "XRPL: SignerListSet result = " << transToken(xrpl.ter())
+                << std::endl;
+            xrpl.close();
+        }
+
+        {
+            STObject noop(sfGeneric);
+            noop.setFieldU16(sfTransactionType, ttACCOUNT_SET);
+            noop.setFieldU32(sfFlags, tfFullyCanonicalSig);
+            noop.setFieldU32(sfSequence, xrpl.seq(alice));
+            noop.setFieldU32(sfNetworkID, targetNetworkID);
+            noop.setFieldAmount(sfFee, XRPAmount{20});
+            noop.setFieldVL(sfSigningPubKey, Blob{});
+            noop.setAccountID(sfAccount, alice.id());
+
+            auto const sigData = buildMultiSigningData(noop, valAccountID);
+            auto const sig = ripple::sign(*valPK, valSK, sigData.slice());
+
+            STArray signers(sfSigners);
+            STObject signer(sfSigner);
+            signer.setAccountID(sfAccount, valAccountID);
+            signer.setFieldVL(sfSigningPubKey, valPK->slice());
+            signer.setFieldVL(sfTxnSignature, sig);
+            signers.push_back(std::move(signer));
+
+            noop.setFieldArray(sfSigners, signers);
+
+            Serializer ser;
+            noop.add(ser);
+            auto const jr = xrpl.rpc("submit", strHex(ser.slice()));
+            log << "XRPL: smoke test noop result = "
+                << jr[jss::result][jss::engine_result].asString() << std::endl;
+            xrpl.close();
+        }
+
+        {
+            auto const jr =
+                xrpl.rpc("submit", strHex(makeSlice(multisignedBlob)));
+            log << "XRPL: export blob submit result = "
+                << jr[jss::result][jss::engine_result].asString() << std::endl;
+            if (jr[jss::result][jss::engine_result].asString() != "tesSUCCESS")
+            {
+                log << "XRPL: full result = " << jr.toStyledString()
+                    << std::endl;
+            }
+        }
+        xrpl.close();
+
+        auto const xrplLcl = xrpl.app().getLedgerMaster().getClosedLedger();
+        BEAST_EXPECT(xrplLcl);
+
+        uint256 xrplMapKey;
+        xrplLcl->txMap().visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                xrplMapKey = item->key();
+            });
+
+        auto const xpopJson = xpopCtx.buildXPOP(*xrplLcl, xrplMapKey);
+        log << "XPOP null? " << xpopJson.isNull() << std::endl;
+        BEAST_EXPECT(!xpopJson.isNull());
+
+        auto const nullJournal = beast::Journal{beast::Journal::getNullSink()};
+        auto const vlInfo = getVLInfo(xpopJson, nullJournal);
+        BEAST_EXPECT(vlInfo);
+
+        return CallbackXPOP{xpopJson, ticketSeq, vlInfo};
+    }
+
+    void
+    ratchetImportVLWithBurnToMint(
+        jtx::Env& dstEnv,
+        jtx::xpop::TestXPOPContext const& xpopCtx,
+        std::uint32_t dstNetworkID,
+        jtx::Account const& account,
+        std::uint32_t vlSequence)
+    {
+        using namespace jtx;
+
+        auto ratchetCtx = xpopCtx;
+        ratchetCtx.vlData =
+            ratchetCtx.publisher.buildVLData(ratchetCtx.validators, vlSequence);
+
+        Env srcEnv{*this};
+        Account const sink{"ratchetSink"};
+
+        srcEnv.fund(XRP(10000), account, sink);
+        srcEnv.close();
+
+        Json::Value payTx;
+        payTx[jss::TransactionType] = jss::Payment;
+        payTx[jss::Account] = account.human();
+        payTx[jss::Destination] = sink.human();
+        payTx[jss::Amount] = "100000000";
+        payTx[sfOperationLimit.jsonName] = dstNetworkID;
+        srcEnv(payTx, fee(XRP(1)), ter(tesSUCCESS));
+        srcEnv.close();
+
+        auto const srcLcl = srcEnv.app().getLedgerMaster().getClosedLedger();
+        BEAST_EXPECT(srcLcl);
+
+        uint256 paymentHash;
+        srcLcl->txMap().visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                paymentHash = item->key();
+            });
+
+        auto const xpopJson = ratchetCtx.buildXPOP(*srcLcl, paymentHash);
+        BEAST_EXPECT(!xpopJson.isNull());
+
+        dstEnv.fund(XRP(1000), account);
+        dstEnv.close();
+
+        auto const feeDrops = dstEnv.current()->fees().base;
+        dstEnv(
+            import::import(account, xpopJson),
+            fee(feeDrops * 10),
+            ter(tesSUCCESS));
+        dstEnv.close();
+    }
+
     void
     seedUNLReportLedger(jtx::Env& env, std::vector<PublicKey> const& activeKeys)
     {
@@ -1568,236 +1813,84 @@ struct Export_test : public beast::unit_test::suite
         xahau(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
         xahau.close();
 
-        // The inner tx is a payment from alice→carol on XRPL, using
-        // TicketSequence (required for exports — avoids sequence jams
-        // if the tx bounces on XRPL).
-        //
-        // sfNetworkID targets the destination network. Ticket-path imports
-        // must accept it back because the shadow ticket hash binds this exact
-        // inner transaction; OperationLimit is only for B2M imports.
-        // We'll create the matching ticket on the XRPL side later.
         std::uint32_t const ticketSeq = 2;  // alice's first ticket on XRPL
 
-        // Build the inner tx.  Use wide ledger sequence bounds so
-        // it's valid regardless of how many ledgers the XRPL env
-        // needs for setup.  Fee must cover multisign overhead:
-        // (1 + signerCount) * baseFee = (1+1)*10 = 20.
-        STObject innerObj(sfExportedTxn);
-        innerObj.setFieldU16(sfTransactionType, ttPAYMENT);
-        innerObj.setFieldU32(sfFlags, tfFullyCanonicalSig);
-        innerObj.setFieldU32(sfSequence, 0);
-        innerObj.setFieldU32(sfTicketSequence, ticketSeq);
-        innerObj.setFieldU32(sfNetworkID, targetNetworkID);
-        innerObj.setFieldU32(sfLastLedgerSequence, 100);
-        innerObj.setFieldAmount(sfAmount, XRPAmount{1000000});
-        innerObj.setFieldAmount(sfFee, XRPAmount{20});
-        innerObj.setFieldVL(sfSigningPubKey, Blob{});
-        innerObj.setAccountID(sfAccount, alice.id());
-        innerObj.setAccountID(sfDestination, carol.id());
-        // Note: no sfOperationLimit needed — the export callback path
-        // (sfTicketSequence present) skips the OperationLimit check
-        // in Import::preflight.  OperationLimit is only required for
-        // the B2M (burn-to-mint) import path.
-
-        // Submit ttEXPORT. Standalone mode produces the same replay witness
-        // shape as network consensus, then Export::doApply consumes that
-        // witness before creating the shadow ticket and metadata.
-        Json::Value jvExport;
-        jvExport[jss::TransactionType] = jss::Export;
-        jvExport[jss::Account] = alice.human();
-        jvExport[jss::LastLedgerSequence] = xahau.current()->seq() + 5;
-        jvExport[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
-
-        xahau(jvExport, fee(XRP(1)), ter(tesSUCCESS));
-        xahau.close();
-
-        // Resolve the signature witness from Export metadata and assemble the
-        // destination-chain multisigned blob locally.
-        auto const exportMeta = xahau.meta();
-        BEAST_EXPECT(exportMeta);
-
-        Blob multisignedBlob;
-        if (exportMeta && exportMeta->isFieldPresent(sfExportResult))
+        auto const callback = buildExportCallbackXPOP(
+            xahau, xpopCtx, alice, carol, targetNetworkID, ticketSeq);
+        if (callback.vlInfo)
         {
-            auto const& result =
-                exportMeta->peekAtField(sfExportResult).downcast<STObject>();
-            BEAST_EXPECT(result.isFieldPresent(sfExportSignatureHash));
-            if (result.isFieldPresent(sfExportSignatureHash))
-            {
-                auto const witnessHash =
-                    result.getFieldH256(sfExportSignatureHash);
-                auto const witnessRead = xahau.current()->txRead(witnessHash);
-                auto const& witnessTx = witnessRead.first;
-                BEAST_EXPECT(witnessTx);
-                auto signatures = witnessTx
-                    ? ExportResultBuilder::signaturesFromWitness(*witnessTx)
-                    : std::nullopt;
-                BEAST_EXPECT(signatures);
-
-                STTx const innerTx = makeSTTx(innerObj);
-                auto expTxn = ExportResultBuilder::buildMultiSignedExportedTxn(
-                    innerTx,
-                    signatures ? *signatures
-                               : ExportResultBuilder::SignatureSnapshot{});
-
-                Serializer s;
-                expTxn.add(s);
-                multisignedBlob = s.peekData();
-
-                log << "Xahau: ExportResult.ExportSignatureHash = "
-                    << witnessHash << std::endl;
-                log << "Xahau: assembled ExportedTxn = "
-                    << expTxn.getJson(JsonOptions::none).toStyledString()
-                    << std::endl;
-            }
-        }
-        log << "Xahau: multisigned blob size = " << multisignedBlob.size()
-            << std::endl;
-        BEAST_EXPECT(!multisignedBlob.empty());
-
-        // Verify shadow ticket was created.
-        auto const stKey = keylet::shadowTicket(alice.id(), ticketSeq);
-        BEAST_EXPECT(xahau.current()->exists(stKey));
-
-        // ── XRPL env: submit the multisigned blob ──────────────────────
-        Env xrpl{*this, xpopCtx.makeEnvConfig(targetNetworkID)};
-
-        xrpl.fund(XRP(10000), alice, carol);
-        xrpl.close();
-
-        // Create a ticket on XRPL for the exported tx.
-        std::uint32_t const xrplTicketSeq = xrpl.seq(alice) + 1;
-        xrpl(ticket::create(alice, 1));
-        xrpl.close();
-        BEAST_EXPECT(xrplTicketSeq == ticketSeq);
-
-        // Set alice's SignerList on XRPL to the Xahau validator key.
-        // The validator key is a "phantom signer" — it doesn't need
-        // a funded account on XRPL, just an entry in alice's SignerList.
-        auto const valPK = xahau.app().getValidationPublicKey();
-        auto const valSK = xahau.app().getValidationSecretKey();
-        BEAST_EXPECT(valPK.has_value());
-
-        auto const valAccountID = calcAccountID(*valPK);
-        log << "XRPL: validator AccountID = " << toBase58(valAccountID)
-            << std::endl;
-        log << "XRPL: validator PK = " << strHex(*valPK) << std::endl;
-
-        // Use the jtx signers() helper with a phantom Account whose
-        // AccountID matches the validator key.
-        // We can't use signers() directly because it takes Account
-        // objects.  Build the JSON manually instead.
-        {
-            Json::Value jvSigners;
-            jvSigners[jss::TransactionType] = jss::SignerListSet;
-            jvSigners[jss::Account] = alice.human();
-            jvSigners[sfSignerQuorum.jsonName] = 1;
-
-            Json::Value signerEntry(Json::objectValue);
-            signerEntry[sfAccount.jsonName] = toBase58(valAccountID);
-            signerEntry[sfSignerWeight.jsonName] = 1;
-
-            Json::Value entryWrapper(Json::objectValue);
-            entryWrapper[sfSignerEntry.jsonName] = signerEntry;
-
-            Json::Value entries(Json::arrayValue);
-            entries.append(entryWrapper);
-            jvSigners[sfSignerEntries.jsonName] = entries;
-
-            log << "XRPL: SignerListSet JSON = " << jvSigners.toStyledString()
-                << std::endl;
-
-            xrpl(jvSigners, fee(XRP(1)), ter(tesSUCCESS));
-            log << "XRPL: SignerListSet result = " << transToken(xrpl.ter())
-                << std::endl;
-            xrpl.close();
-        }
-
-        // Smoke test: submit a simple multisigned noop to verify
-        // the SignerList works before trying the exported payment.
-        {
-            // Build a noop AccountSet, multisigned by the validator.
-            STObject noop(sfGeneric);
-            noop.setFieldU16(sfTransactionType, ttACCOUNT_SET);
-            noop.setFieldU32(sfFlags, tfFullyCanonicalSig);
-            noop.setFieldU32(sfSequence, xrpl.seq(alice));
-            noop.setFieldU32(sfNetworkID, targetNetworkID);
-            noop.setFieldAmount(sfFee, XRPAmount{20});  // (1+1)*base
-            noop.setFieldVL(sfSigningPubKey, Blob{});
-            noop.setAccountID(sfAccount, alice.id());
-
-            auto const sigData = buildMultiSigningData(noop, valAccountID);
-            auto const sig = ripple::sign(*valPK, valSK, sigData.slice());
-
-            STArray signers(sfSigners);
-            STObject signer(sfSigner);
-            signer.setAccountID(sfAccount, valAccountID);
-            signer.setFieldVL(sfSigningPubKey, valPK->slice());
-            signer.setFieldVL(sfTxnSignature, sig);
-            signers.push_back(std::move(signer));
-
-            noop.setFieldArray(sfSigners, signers);
-
-            Serializer ser;
-            noop.add(ser);
-            auto const jr = xrpl.rpc("submit", strHex(ser.slice()));
-            log << "XRPL: smoke test noop result = "
-                << jr[jss::result][jss::engine_result].asString() << std::endl;
-            xrpl.close();
-        }
-
-        // Now submit the actual multisigned export blob.
-        {
-            auto const jr =
-                xrpl.rpc("submit", strHex(makeSlice(multisignedBlob)));
-            log << "XRPL: export blob submit result = "
-                << jr[jss::result][jss::engine_result].asString() << std::endl;
-            if (jr[jss::result][jss::engine_result].asString() != "tesSUCCESS")
-            {
-                log << "XRPL: full result = " << jr.toStyledString()
-                    << std::endl;
-            }
-        }
-        xrpl.close();
-
-        // Build XPOP from the XRPL ledger.
-        auto const xrplLcl = xrpl.app().getLedgerMaster().getClosedLedger();
-        BEAST_EXPECT(xrplLcl);
-
-        uint256 xrplMapKey;
-        xrplLcl->txMap().visitLeaves(
-            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                xrplMapKey = item->key();
-            });
-
-        auto const xpopJson = xpopCtx.buildXPOP(*xrplLcl, xrplMapKey);
-        log << "XPOP null? " << xpopJson.isNull() << std::endl;
-        BEAST_EXPECT(!xpopJson.isNull());
-
-        auto const nullJournal = beast::Journal{beast::Journal::getNullSink()};
-        auto const vlInfo = getVLInfo(xpopJson, nullJournal);
-        BEAST_EXPECT(vlInfo);
-        if (vlInfo)
-        {
-            BEAST_EXPECT(importVLSequence(xahau, vlInfo->second) == 0);
+            BEAST_EXPECT(importVLSequence(xahau, callback.vlInfo->second) == 0);
         }
 
         // ── Back to Xahau: import the XPOP ────────────────────────────
         auto const feeDrops = xahau.current()->fees().base;
 
         xahau(
-            import::import(alice, xpopJson),
+            import::import(alice, callback.xpopJson),
             fee(feeDrops * 10),
             ter(tesSUCCESS));
         xahau.close();
 
         // Shadow ticket should be consumed after import.
-        BEAST_EXPECT(!xahau.current()->exists(stKey));
-        if (vlInfo)
+        BEAST_EXPECT(!xahau.current()->exists(
+            keylet::shadowTicket(alice.id(), callback.ticketSeq)));
+        if (callback.vlInfo)
         {
             BEAST_EXPECT(
-                importVLSequence(xahau, vlInfo->second) == vlInfo->first);
+                importVLSequence(xahau, callback.vlInfo->second) ==
+                callback.vlInfo->first);
         }
+    }
+
+    void
+    testExportImportRejectsStaleImportVL(FeatureBitset features)
+    {
+        testcase("Export callback rejects stale ImportVL");
+
+        using namespace jtx;
+
+        auto const xpopCtx = xpop::TestXPOPContext::create(3);
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+        Account const dave{"dave"};
+        std::uint32_t const xahauNetworkID = 21337;
+        std::uint32_t const targetNetworkID = 31337;
+        std::uint32_t const ticketSeq = 2;
+
+        Env xahau{*this, xpopCtx.makeEnvConfig(xahauNetworkID), features};
+
+        xahau.fund(XRP(10000), alice, carol);
+        xahau.close();
+
+        auto const master = Account("masterpassphrase");
+        xahau(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+        xahau.close();
+
+        auto const callback = buildExportCallbackXPOP(
+            xahau, xpopCtx, alice, carol, targetNetworkID, ticketSeq);
+        BEAST_EXPECT(callback.vlInfo);
+        if (!callback.vlInfo)
+            return;
+
+        auto const freshSeq = callback.vlInfo->first + 1;
+
+        ratchetImportVLWithBurnToMint(
+            xahau, xpopCtx, xahauNetworkID, dave, freshSeq);
+        BEAST_EXPECT(
+            importVLSequence(xahau, callback.vlInfo->second) == freshSeq);
+
+        auto const feeDrops = xahau.current()->fees().base;
+        xahau(
+            import::import(alice, callback.xpopJson),
+            fee(feeDrops * 10),
+            ter(tefPAST_IMPORT_VL_SEQ));
+        xahau.close();
+
+        BEAST_EXPECT(xahau.current()->exists(
+            keylet::shadowTicket(alice.id(), callback.ticketSeq)));
+        BEAST_EXPECT(
+            importVLSequence(xahau, callback.vlInfo->second) == freshSeq);
     }
 
     // Override focused_test() to run a specific test in isolation.
@@ -1846,6 +1939,7 @@ struct Export_test : public beast::unit_test::suite
 
         // Round-trip test
         testExportImportRoundTrip(allWithExport);
+        testExportImportRejectsStaleImportVL(allWithExport);
     }
 };
 
