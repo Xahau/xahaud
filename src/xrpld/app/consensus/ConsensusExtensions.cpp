@@ -103,6 +103,43 @@ verifyProposalDigest(
         verifyDigest(publicKey, signingHash, signature);
 }
 
+struct AdmittedSidecarLeaf
+{
+    STObject sidecar;
+    std::uint8_t type;
+};
+
+std::optional<AdmittedSidecarLeaf>
+admitSidecarLeaf(
+    uint256 const& itemKey,
+    Slice const& entry,
+    uint256 const& setHash,
+    beast::Journal j,
+    char const* owner,
+    char const* kind,
+    char const* source)
+{
+    SerialIter sit(entry);
+    STObject sidecar(sit, sfGeneric);
+
+    if (!sidecar.isFieldPresent(sfSidecarType))
+        return std::nullopt;
+
+    auto const sidecarHash = sidecar.getHash(HashPrefix::sidecar);
+    if (sidecarHash != itemKey)
+    {
+        JLOG(j.warn()) << owner << ": rejecting acquired entry"
+                       << " reason=item-key-mismatch"
+                       << " kind=" << kind << " source=" << source
+                       << " setHash=" << setHash << " itemKey=" << itemKey
+                       << " sidecarHash=" << sidecarHash;
+        return std::nullopt;
+    }
+
+    auto const type = sidecar.getFieldU8(sfSidecarType);
+    return AdmittedSidecarLeaf{std::move(sidecar), type};
+}
+
 //@@start active-validator-view-build
 ActiveValidatorViewSource
 buildActiveValidatorViewSource(
@@ -383,6 +420,21 @@ ConsensusExtensions::pendingCommitCount() const
     return pendingCommits_.size();
 }
 
+bool
+ConsensusExtensions::hasProofedCommit(NodeID const& nodeId) const
+{
+    return pendingCommits_.count(nodeId) > 0 && commitProofs_.count(nodeId) > 0;
+}
+
+bool
+ConsensusExtensions::hasActiveProofedCommit(
+    NodeID const& nodeId,
+    ActiveValidatorView const& validatorView) const
+{
+    return validatorView.containsNode(nodeId) &&
+        nodeIdToKey_.count(nodeId) > 0 && hasProofedCommit(nodeId);
+}
+
 std::size_t
 ConsensusExtensions::proofedCommitCount() const
 {
@@ -394,8 +446,7 @@ ConsensusExtensions::proofedCommitCount() const
             auto const& nid = entry.first;
             // Match buildCommitSet(): only commits that can be emitted as
             // verifiable sidecar leaves count toward any commit threshold.
-            return validatorView->containsNode(nid) &&
-                nodeIdToKey_.count(nid) > 0 && commitProofs_.count(nid) > 0;
+            return hasActiveProofedCommit(nid, *validatorView);
         });
 }
 
@@ -446,16 +497,14 @@ ConsensusExtensions::hasMinimumReveals() const
         pendingCommits_.end(),
         [this, validatorView](auto const& entry) {
             auto const& nid = entry.first;
-            return validatorView->containsNode(nid) &&
-                nodeIdToKey_.count(nid) > 0 && commitProofs_.count(nid) > 0;
+            return hasActiveProofedCommit(nid, *validatorView);
         });
     auto const revealCount = std::count_if(
         pendingReveals_.begin(),
         pendingReveals_.end(),
         [this, validatorView](auto const& entry) {
             auto const& nid = entry.first;
-            return validatorView->containsNode(nid) &&
-                pendingCommits_.count(nid) > 0 && commitProofs_.count(nid) > 0;
+            return hasActiveProofedCommit(nid, *validatorView);
         });
     bool result = revealCount >= expected;
     JLOG(j_.trace()) << "RNG: reveal quorum check"
@@ -666,8 +715,8 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
         auto const& commit = entry.second;
 
         // Commit sidecars are consensus inputs, so only publish leaves from
-        // the frozen validator view used by quorum calculation.
-        if (!validatorView->containsNode(nid))
+        // the proofed commit set over the frozen quorum validator view.
+        if (!hasActiveProofedCommit(nid, *validatorView))
             continue;
 
         auto kit = nodeIdToKey_.find(nid);
@@ -729,15 +778,10 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
         auto const& nid = entry.first;
         auto const& reveal = entry.second;
 
-        // Reveal sidecars must use the same validator view as the commit set
-        // so timeout/fetch paths cannot expand the entropy participant set.
-        if (!validatorView->containsNode(nid))
-            continue;
-
         // The entropy set is the reveal side of the proofed commit set. Late
         // proofless commits/reveals may sit in the local harvest cache, but
         // they must not affect the agreed digest/count/tier.
-        if (pendingCommits_.count(nid) == 0 || commitProofs_.count(nid) == 0)
+        if (!hasActiveProofedCommit(nid, *validatorView))
             continue;
 
         auto kit = nodeIdToKey_.find(nid);
@@ -1276,28 +1320,17 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                 [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
                     try
                     {
-                        SerialIter sit(item->slice());
-                        STObject sidecar(sit, sfGeneric);
-
-                        // Enforce the self-describing type tag.
-                        if (!sidecar.isFieldPresent(sfSidecarType) ||
-                            sidecar.getFieldU8(sfSidecarType) !=
-                                sidecarExportSig)
+                        auto admitted = admitSidecarLeaf(
+                            item->key(),
+                            item->slice(),
+                            hash,
+                            j_,
+                            "Export",
+                            sidecarKindName(kind),
+                            "visit");
+                        if (!admitted || admitted->type != sidecarExportSig)
                             return;
-
-                        auto const sidecarHash =
-                            sidecar.getHash(HashPrefix::sidecar);
-                        if (sidecarHash != item->key())
-                        {
-                            JLOG(j_.warn())
-                                << "Export: rejecting acquired entry"
-                                << " reason=item-key-mismatch"
-                                << " kind=" << sidecarKindName(kind)
-                                << " setHash=" << hash
-                                << " itemKey=" << item->key()
-                                << " sidecarHash=" << sidecarHash;
-                            return;
-                        }
+                        auto const& sidecar = admitted->sidecar;
 
                         if (!sidecar.isFieldPresent(sfTransactionHash) ||
                             !sidecar.isFieldPresent(sfSigningPubKey))
@@ -1407,28 +1440,21 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                           char const* sourceTag) {
         try
         {
-            SerialIter sit(entry);
-            STObject sidecar(sit, sfGeneric);
-
-            if (!sidecar.isFieldPresent(sfSidecarType))
+            auto admitted = admitSidecarLeaf(
+                itemKey,
+                entry,
+                hash,
+                j_,
+                "RNG",
+                (isCommitSet ? "commit" : "reveal"),
+                sourceTag);
+            if (!admitted)
                 return;
-
-            auto const entryType = sidecar.getFieldU8(sfSidecarType);
+            auto const& sidecar = admitted->sidecar;
+            auto const entryType = admitted->type;
             if ((isCommitSet && entryType != sidecarRngCommit) ||
                 (!isCommitSet && entryType != sidecarRngReveal))
                 return;
-
-            auto const sidecarHash = sidecar.getHash(HashPrefix::sidecar);
-            if (sidecarHash != itemKey)
-            {
-                JLOG(j_.warn())
-                    << "RNG: rejecting acquired entry"
-                    << " reason=item-key-mismatch"
-                    << " kind=" << (isCommitSet ? "commit" : "reveal")
-                    << " source=" << sourceTag << " setHash=" << hash
-                    << " itemKey=" << itemKey << " sidecarHash=" << sidecarHash;
-                return;
-            }
 
             auto const pk = sidecar.getFieldVL(sfSigningPubKey);
             // Fetched sidecar leaves are untrusted until semantic checks pass.
@@ -1596,7 +1622,7 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                         << " hash=" << hash << " seq=" << seq;
                     return;
                 }
-                if (commitProofs_.count(nodeId) == 0)
+                if (!hasProofedCommit(nodeId))
                 {
                     JLOG(j_.debug())
                         << "RNG: rejecting acquired entry"
@@ -2358,7 +2384,7 @@ ConsensusExtensions::harvestRngData(
                 << " prevLedger=" << prevLedger;
             return;
         }
-        if (commitProofs_.count(nodeId) == 0)
+        if (!hasProofedCommit(nodeId))
         {
             JLOG(j_.warn())
                 << "RNG: rejecting reveal"

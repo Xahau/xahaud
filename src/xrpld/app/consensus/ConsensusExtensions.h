@@ -135,6 +135,14 @@ private:
     void
     clearRngStatePreservingExport();
 
+    bool
+    hasProofedCommit(NodeID const& nodeId) const;
+
+    bool
+    hasActiveProofedCommit(
+        NodeID const& nodeId,
+        ActiveValidatorView const& validatorView) const;
+
     // Commit proofs keyed by NodeID. Only seq=0 proofs are cached because the
     // commit sidecar hash must be deterministic across all nodes.
     hash_map<NodeID, ProposalProof> commitProofs_;
