@@ -61,6 +61,7 @@
 #include <cstring>
 #include <mutex>
 #include <random>
+#include <stdexcept>
 
 namespace ripple {
 
@@ -868,7 +869,17 @@ RCLConsensus::Adaptor::buildLCL(
             XRPL_ASSERT(
                 replayData->parent()->info().hash == previousLedger.id(),
                 "ripple::RCLConsensus::Adaptor::buildLCL : parent hash match");
-            return buildLedger(*replayData, tapNONE, app_, j_);
+            auto built = buildLedger(*replayData, tapNONE, app_, j_);
+            auto const expectedHash = replayData->replay()->info().hash;
+            if (!built || built->info().hash != expectedHash)
+            {
+                JLOG(j_.error()) << "Replay build produced wrong ledger"
+                                 << " expected=" << expectedHash << " actual="
+                                 << (built ? to_string(built->info().hash)
+                                           : std::string{"none"});
+                Throw<std::runtime_error>("Cannot replay ledger");
+            }
+            return built;
         }
         return buildLedger(
             previousLedger.ledger_,
