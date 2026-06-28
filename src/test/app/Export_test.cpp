@@ -925,6 +925,78 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportShadowTicketInsufficientReserve(FeatureBitset features)
+    {
+        testcase("ttEXPORT shadow ticket requires owner reserve");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& valPK = valKeys.keys->publicKey;
+        auto const& valSK = valKeys.keys->secretKey;
+        seedUNLReportLedger(env, {valPK});
+        forceNonStandalone(env.app());
+
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        auto const applySeq = parent->seq() + 1;
+        auto const ticketSeq = std::uint32_t{1};
+        auto innerObj = buildExportedPayment(
+            alice.id(), carol.id(), applySeq, applySeq + 5, ticketSeq);
+        auto const innerTx = makeSTTx(innerObj);
+        auto jt = makeExportJTx(env, alice, innerObj, applySeq + 5);
+        auto const exportTx = jt.stx;
+        BEAST_EXPECT(exportTx);
+        if (!exportTx)
+            return;
+        auto const txHash = exportTx->getTransactionID();
+
+        auto const sig =
+            ExportResultBuilder::signExportedTxn(innerTx, valPK, valSK);
+        ExportResultBuilder::SignatureSnapshot signatures;
+        signatures.emplace(valPK, sig);
+        auto const exportSignatureWitnesses =
+            makeExportSignatureWitnesses(txHash, signatures, applySeq);
+        ApplyOptions const applyOptions{
+            &exportSignatureWitnesses,
+            ApplyOptions::ExportWitnessMembership::TrustConsensusMaterialized,
+            false,
+            nullptr};
+
+        auto next = std::make_shared<Ledger>(
+            *parent, env.app().timeKeeper().closeTime());
+        auto const account = next->read(keylet::account(alice.id()));
+        BEAST_EXPECT(account);
+        if (!account)
+            return;
+
+        auto replacement = std::make_shared<SLE>(*account, account->key());
+        auto const insufficient = next->fees().accountReserve(
+                                      account->getFieldU32(sfOwnerCount) + 1) -
+            drops(1);
+        replacement->setFieldAmount(sfBalance, insufficient);
+        next->rawReplace(replacement);
+
+        OpenView accum(&*next);
+        auto const result = ripple::apply(
+            env.app(), accum, *exportTx, tapNONE, env.journal, applyOptions);
+        BEAST_EXPECT(result.ter == tecINSUFFICIENT_RESERVE);
+
+        BEAST_EXPECT(!accum.read(keylet::shadowTicket(alice.id(), ticketSeq)));
+    }
+
+    void
     testExportHistoricalReplayIgnoresCurrentManifestMap(FeatureBitset features)
     {
         testcase(
@@ -1732,6 +1804,7 @@ struct Export_test : public beast::unit_test::suite
         testExportTxnOpenLedger(allWithExport);
         testExportNetworkRetryWithoutQuorum(allWithExport);
         testExportNetworkApplyUsesAgreedSidecar(allWithExport);
+        testExportShadowTicketInsufficientReserve(allWithExport);
         testExportHistoricalReplayIgnoresCurrentManifestMap(allWithExport);
         testExportNetworkRetryWithoutUNLReport(allWithExport);
         testExportNetworkLastLedgerSequenceBoundary(allWithExport);

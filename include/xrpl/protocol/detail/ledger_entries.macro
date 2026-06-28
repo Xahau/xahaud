@@ -608,10 +608,12 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
 }))
 
 //@@start shadow-ticket-ledger-entry
-/** A shadow ticket for export replay protection.
+/** A live callback latch for an exported ticket transaction.
 
     Created when a transaction is exported. Consumed when
     proof-of-execution is imported back. Account-owned (pays reserve).
+    This is not a permanent replay tombstone; hook callbacks that move
+    value must still deduplicate their business action.
 
     \sa keylet::shadowTicket
  */

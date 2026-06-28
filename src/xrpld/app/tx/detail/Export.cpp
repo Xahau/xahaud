@@ -313,7 +313,12 @@ Export::doApply()
     // Create the shadow ticket with the signed tx hash.
     {
         TER ter = ExportLedgerOps::createShadowTicket(
-            view(), account, innerTx, assembled.signedTxHash, j_);
+            view(),
+            account,
+            innerTx,
+            assembled.signedTxHash,
+            mPriorBalance,
+            j_);
         if (!isTesSuccess(ter))
             return ter;
     }

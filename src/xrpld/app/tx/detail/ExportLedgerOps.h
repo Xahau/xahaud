@@ -9,6 +9,7 @@
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/TER.h>
+#include <xrpl/protocol/XRPAmount.h>
 
 namespace ripple {
 
@@ -180,14 +181,17 @@ validateTicketSequence(STTx const& stx, beast::Journal j)
 /// @param account    The exporting account (pays reserve)
 /// @param stx        The exported transaction (checked for sfTicketSequence)
 /// @param txnId      Hash of the exported transaction
+/// @param priorBalance Exporting account balance before this transaction fee
 /// @param j          Journal for logging
-/// @return tesSUCCESS, tecDUPLICATE, tecDIR_FULL, or tefINTERNAL
+/// @return tesSUCCESS, tecDUPLICATE, tecDIR_FULL, tecINSUFFICIENT_RESERVE,
+///         or tefINTERNAL
 inline TER
 createShadowTicket(
     ApplyView& view,
     AccountID const& account,
     STTx const& stx,
     uint256 const& txnId,
+    XRPAmount const& priorBalance,
     beast::Journal j)
 {
     if (!stx.isFieldPresent(sfTicketSequence))
@@ -224,6 +228,25 @@ createShadowTicket(
         return tecDIR_FULL;
     }
 
+    auto sleAccount = view.peek(keylet::account(account));
+    if (!sleAccount)
+        return tefINTERNAL;
+
+    // Like TicketCreate, use the pre-fee balance so fees may dip into reserve,
+    // but the new owned object itself still requires the next owner reserve.
+    auto const requiredReserve =
+        view.fees().accountReserve(sleAccount->getFieldU32(sfOwnerCount) + 1);
+    if (priorBalance < requiredReserve)
+    {
+        JLOG(j.warn())
+            << "ExportLedgerOps: insufficient reserve for shadow ticket"
+            << " account=" << account
+            << " ownerCount=" << sleAccount->getFieldU32(sfOwnerCount)
+            << " required=" << requiredReserve
+            << " priorBalance=" << priorBalance;
+        return tecINSUFFICIENT_RESERVE;
+    }
+
     auto sle = std::make_shared<SLE>(key);
     sle->setAccountID(sfAccount, account);
     sle->setFieldU32(sfTicketSequence, ticketSeq);
@@ -245,9 +268,7 @@ createShadowTicket(
     view.insert(sle);
 
     // Bump owner count for reserve.
-    auto sleAccount = view.peek(keylet::account(account));
-    if (sleAccount)
-        adjustOwnerCount(view, sleAccount, 1, j);
+    adjustOwnerCount(view, sleAccount, 1, j);
 
     JLOG(j.debug()) << "ExportLedgerOps: created shadow ticket for " << account
                     << " seq=" << ticketSeq << " tx=" << txnId;

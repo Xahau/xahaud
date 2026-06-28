@@ -1078,6 +1078,10 @@ Import::preclaim(PreclaimContext const& ctx)
     }
 
     auto const& sleVL = ctx.view.read(keylet::import_vlseq(vlInfo->second));
+    // Ticket-callback imports skip the destination account's sfImportSequence
+    // gate above, but they still share the source-validator-list ordering
+    // gate with Burn-to-Mint imports. A newer ImportVL sequence therefore
+    // rejects older callback XPOPs from the same source after the fact.
     if (sleVL && sleVL->getFieldU32(sfImportSequence) > vlInfo->first)
     {
         JLOG(ctx.j.warn())
