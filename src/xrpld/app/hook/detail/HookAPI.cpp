@@ -1013,7 +1013,6 @@ HookAPI::xport(Slice const& txBlob) const
         return Unexpected(built.error());
 
     auto builtValue = std::move(built.value());
-    auto innerTxHash = builtValue.innerTxHash;
     auto exportStx = std::move(builtValue.wrapperTx);
 
     // Preflight the wrapper.
@@ -1038,6 +1037,7 @@ HookAPI::xport(Slice const& txBlob) const
                         << "]: tpTrans->getStatus() != NEW for wrapper";
         return Unexpected(EXPORT_FAILURE);
     }
+    auto const wrapperTxHash = tpTrans->getID();
 
     // Push onto emittedTxn. The wrapper ttEXPORT flows through the
     // normal emitted txn path (emitted dir → TxQ → open ledger →
@@ -1045,9 +1045,10 @@ HookAPI::xport(Slice const& txBlob) const
     hookCtx.result.emittedTxn.push(tpTrans);
     ++hookCtx.export_count;
 
-    // Return the inner tx hash — this is what the hook author cares
-    // about (the cross-chain transaction they built).
-    return innerTxHash;
+    // Return the emitted ttEXPORT wrapper hash. This is the Xahau-side
+    // lifecycle handle the hook/client can use to find metadata, the replay
+    // witness, and eventually assemble the signed target-chain transaction.
+    return wrapperTxHash;
 }
 
 Expected<uint64_t, HookReturnCode>

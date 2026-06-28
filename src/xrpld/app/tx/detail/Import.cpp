@@ -272,8 +272,8 @@ Import::preflight(PreflightContext const& ctx)
     }
 
     // B2M imports use OperationLimit to target this network and therefore
-    // reject inner NetworkID.  Export callbacks may carry a target NetworkID;
-    // the shadow ticket binds that exact inner transaction hash.
+    // reject inner NetworkID. Export callbacks may carry a target NetworkID;
+    // the shadow ticket binds the exact signed target transaction hash.
     if (!hasTicket && stpTrans->isFieldPresent(sfNetworkID))
     {
         JLOG(ctx.j.warn()) << "Import: attempted to import xpop containing a "
@@ -997,7 +997,8 @@ Import::preclaim(PreclaimContext const& ctx)
         // and recreated (see ExportLedgerOps::createShadowTicket): the ticket
         // path deliberately skips the monotonic sfImportSequence guard used by
         // the Burn-to-Mint path, so a value-bearing callback hook must itself
-        // dedup on the inner tx hash to be replay-safe.
+        // dedup on the XPOP/signed target transaction hash or a hook-defined
+        // business key to be replay-safe.
         auto const expectedHash = stSle->getFieldH256(sfTransactionHash);
         JLOG(ctx.j.trace())
             << "Import preclaim: shadowTicket hash=" << expectedHash

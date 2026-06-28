@@ -13,8 +13,7 @@
 namespace ripple {
 
 /// Shared ledger operations and validation for the export system.
-/// Used by both the hook xport() API (inline path) and the
-/// Export transactor (user-submitted ttEXPORT path).
+/// Used by both hook-emitted and user-submitted ttEXPORT paths.
 namespace ExportLedgerOps {
 
 inline bool
@@ -206,9 +205,9 @@ createShadowTicket(
     // firing the callback once more. Unlike Burn-to-Mint (guarded globally by
     // the monotonic sfImportSequence), the ticket path has no protocol-level
     // replay guard — value-bearing import-callback hooks must dedup on the
-    // inner tx hash in Hook State. A protocol-level exactly-once tombstone
-    // (consume-in-place, expiring with the XPOP validity window) is possible
-    // future work.
+    // XPOP/signed target transaction hash or a hook-defined business key in
+    // Hook State. A protocol-level exactly-once tombstone (consume-in-place,
+    // expiring with the XPOP validity window) is possible future work.
     if (view.exists(key))
     {
         JLOG(j.warn()) << "ExportLedgerOps: shadow ticket already exists for "

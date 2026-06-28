@@ -4020,19 +4020,19 @@ DEFINE_HOOK_FUNCTION(
     if (!res)
         return res.error();
 
-    auto const& innerTxHash = *res;
+    auto const& wrapperTxHash = *res;
 
-    if (innerTxHash.size() > write_len)
+    if (wrapperTxHash.size() > write_len)
         return TOO_SMALL;
 
-    if (NOT_IN_BOUNDS(write_ptr, innerTxHash.size(), memory_length))
+    if (NOT_IN_BOUNDS(write_ptr, wrapperTxHash.size(), memory_length))
         return OUT_OF_BOUNDS;
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr,
-        innerTxHash.size(),
-        innerTxHash.data(),
-        innerTxHash.size(),
+        wrapperTxHash.size(),
+        wrapperTxHash.data(),
+        wrapperTxHash.size(),
         memory,
         memory_length);
     HOOK_TEARDOWN();

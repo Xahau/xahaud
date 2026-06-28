@@ -101,7 +101,7 @@ build(Input const& input)
     exportObj.add(exportSer);
     STTx wrapperTx(SerialIter{exportSer.slice()});
 
-    return Result{std::move(wrapperTx), innerTx->getTransactionID()};
+    return Result{std::move(wrapperTx)};
 }
 
 }  // namespace XportWrapperBuilder

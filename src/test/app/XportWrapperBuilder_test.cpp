@@ -144,7 +144,7 @@ public:
             return;
 
         auto const& wrapper = result->wrapperTx;
-        BEAST_EXPECT(result->innerTxHash == innerTx.getTransactionID());
+        BEAST_EXPECT(wrapper.getTransactionID() != innerTx.getTransactionID());
         BEAST_EXPECT(wrapper.getTxnType() == ttEXPORT);
         BEAST_EXPECT(
             wrapper.getAccountID(sfAccount) == calcAccountID(exporter.first));

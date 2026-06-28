@@ -42,7 +42,6 @@ struct Input
 struct Result
 {
     ripple::STTx wrapperTx;
-    ripple::uint256 innerTxHash;
 };
 
 ripple::Expected<Result, HookReturnCode>
