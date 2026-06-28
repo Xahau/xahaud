@@ -406,6 +406,20 @@ public:
         return sentThisRound_.insert(txnHash).second;
     }
 
+    /// Returns true if this is a new tx for the round and the distinct sent
+    /// count remains below the caller's per-round publication cap.
+    bool
+    markSent(uint256 const& txnHash, std::size_t maxDistinct)
+    {
+        std::lock_guard lock(mutex_);
+        if (sentThisRound_.find(txnHash) != sentThisRound_.end())
+            return false;
+        if (sentThisRound_.size() >= maxDistinct)
+            return false;
+        sentThisRound_.insert(txnHash);
+        return true;
+    }
+
     /// Clear per-round state. Call at the start of each consensus round.
     void
     clearRound()

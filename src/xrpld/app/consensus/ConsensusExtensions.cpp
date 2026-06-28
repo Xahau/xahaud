@@ -240,6 +240,21 @@ buildActiveValidatorViewFallback(Application& app)
 }
 //@@end active-validator-view-build
 
+bool
+addExportSidecarCandidate(
+    ExportTxnLookup& exportTxns,
+    std::shared_ptr<STTx const> stx)
+{
+    // Export signature sidecars are bounded by maxPendingExports. Overflow
+    // ttEXPORTs may still be present in the base consensus tx set; they are
+    // just not sidecar-signature candidates for this round.
+    if (exportTxns.size() >= ExportLimits::maxPendingExports)
+        return false;
+
+    exportTxns.emplace(stx->getTransactionID(), std::move(stx));
+    return true;
+}
+
 ExportTxnLookup
 buildExportTxnLookup(SHAMap const& txns, beast::Journal j)
 {
@@ -250,7 +265,7 @@ buildExportTxnLookup(SHAMap const& txns, beast::Journal j)
             SerialIter sit(item->slice());
             auto stx = std::make_shared<STTx const>(sit);
             if (stx->getTxnType() == ttEXPORT)
-                exportTxns.emplace(stx->getTransactionID(), std::move(stx));
+                addExportSidecarCandidate(exportTxns, std::move(stx));
         }
         catch (std::exception const& e)
         {
@@ -275,7 +290,7 @@ buildOpenLedgerExportTxnLookup(Application& app)
     {
         auto const& stx = entry.first;
         if (stx && stx->getTxnType() == ttEXPORT)
-            exportTxns.emplace(stx->getTransactionID(), stx);
+            addExportSidecarCandidate(exportTxns, stx);
     }
     return exportTxns;
 }
@@ -1084,6 +1099,14 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
             ++entryCount;
         }
     }
+
+    auto const maxExportSidecarLeaves = validatorView->size() *
+        std::min(consensusExportTxns_.size(),
+                 static_cast<std::size_t>(ExportLimits::maxPendingExports));
+    XRPL_ASSERT(
+        entryCount <= maxExportSidecarLeaves,
+        "ripple::ConsensusExtensions::buildExportSigSet : "
+        "export sidecar leaf count must match fetch cap");
 
     map = map->snapShot(false);
     exportSigSetMap_ = map;
@@ -2990,8 +3013,10 @@ ConsensusExtensions::attachExportSignatures(
 
         auto const txHash = stx->getTransactionID();
 
-        // Only attach our sig on the first proposal this round.
-        if (!exportSigCollector_.markSent(txHash))
+        // Only attach our sig on the first proposal this round, and only for
+        // the bounded export sidecar candidate set.
+        if (!exportSigCollector_.markSent(
+                txHash, ExportLimits::maxPendingExports))
             continue;
 
         //@@start export-compute-proposal-sig

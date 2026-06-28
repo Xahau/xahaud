@@ -221,6 +221,14 @@ public:
         BEAST_EXPECT(!collector.markSent(tx));
         collector.clearRound();
         BEAST_EXPECT(collector.markSent(tx));
+
+        auto const tx2 = makeHash("standalone-round-2");
+        auto const tx3 = makeHash("standalone-round-3");
+        BEAST_EXPECT(collector.markSent(tx2, 2));
+        BEAST_EXPECT(!collector.markSent(tx3, 2));
+        BEAST_EXPECT(!collector.markSent(tx2, 2));
+        collector.clearRound();
+        BEAST_EXPECT(collector.markSent(tx3, 2));
     }
 
     void

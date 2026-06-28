@@ -29,6 +29,7 @@
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/EntropyTier.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STAmount.h>
@@ -216,6 +217,15 @@ makeMiskeyedSidecarSet(Application& app, STObject const& sidecar)
         make_shamapitem(makeHash("wrong-sidecar-item-key"), s.slice()));
 
     return map->snapShot(false);
+}
+
+std::size_t
+sidecarLeafCount(SHAMap const& map)
+{
+    std::size_t count = 0;
+    map.visitLeaves(
+        [&](boost::intrusive_ptr<SHAMapItem const> const&) { ++count; });
+    return count;
 }
 
 std::shared_ptr<SHAMap>
@@ -1907,6 +1917,71 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         BEAST_EXPECT(
             fetched.exportSigCollector().hasVerifiedSignature(txHash, valPK));
+        BEAST_EXPECT(fetched.buildExportSigSet(seq) == exportSigSetHash);
+    }
+
+    void
+    testExportSidecarBuildCapsConsensusCandidates()
+    {
+        testcase("Export sidecar build caps consensus candidates");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& valPK = valKeys.keys->publicKey;
+        auto const& valSK = valKeys.keys->secretKey;
+        auto const signerAccount = calcAccountID(valPK);
+        auto const seq = ledger->seq() + 1;
+
+        std::vector<std::shared_ptr<STTx const>> exportTxs;
+        std::vector<std::pair<uint256, Buffer>> signatures;
+        for (std::size_t i = 0; i <= ExportLimits::maxPendingExports; ++i)
+        {
+            auto const dst =
+                calcAccountID(randomKeyPair(KeyType::secp256k1).first);
+            auto const innerObj = makeExportedPayment(signerAccount, dst);
+            auto const innerTx = makeSTTx(innerObj);
+            auto const exportTx = makeExportTx(innerObj, signerAccount);
+            auto const txHash = exportTx->getTransactionID();
+            auto const sigData = buildMultiSigningData(innerTx, signerAccount);
+            auto const sig = sign(valPK, valSK, sigData.slice());
+
+            exportTxs.push_back(exportTx);
+            signatures.emplace_back(txHash, Buffer(sig.data(), sig.size()));
+        }
+
+        auto const txSet = makeRCLTxSet(env.app(), exportTxs);
+
+        ConsensusExtensions source{env.app(), activeNoopJournal()};
+        source.setExportEnabledThisRound(true);
+        source.cacheUNLReport(ledger);
+        source.cacheConsensusTxSet(txSet);
+        for (auto const& [txHash, sig] : signatures)
+            source.exportSigCollector().addVerifiedSignature(
+                txHash, valPK, sig, seq);
+
+        auto const exportSigSetHash = source.buildExportSigSet(seq);
+        auto const exportedSet =
+            env.app().getInboundTransactions().getSet(exportSigSetHash, false);
+        BEAST_EXPECT(exportedSet);
+        if (exportedSet)
+            BEAST_EXPECT(
+                sidecarLeafCount(*exportedSet) ==
+                ExportLimits::maxPendingExports);
+
+        ConsensusExtensions fetched{env.app(), activeNoopJournal()};
+        fetched.setExportEnabledThisRound(true);
+        fetched.cacheUNLReport(ledger);
+        fetched.cacheConsensusTxSet(txSet);
+        fetched.fetchSidecarSetIfNeeded(
+            exportSigSetHash, ConsensusExtensions::SidecarKind::exportSigSet);
+
         BEAST_EXPECT(fetched.buildExportSigSet(seq) == exportSigSetHash);
     }
 
@@ -3911,6 +3986,7 @@ public:
         testProposalProofRoundTrip();
         testHarvestRngDataReplacementAndRejection();
         testExportSidecarBuildFetchAndMerge();
+        testExportSidecarBuildCapsConsensusCandidates();
         testExportSidecarRejectsInvalidFetchedEntries();
         testExportSidecarRejectsOversizedFetchedSet();
         testExportAgreedSignaturesIgnoreLiveCollectorMutation();
