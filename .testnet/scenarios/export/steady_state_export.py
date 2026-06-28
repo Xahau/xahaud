@@ -197,7 +197,7 @@ async def scenario(ctx, log):
                 raise AssertionError(f"Export did not succeed: {result}")
 
             # Assert ExportResult is well-formed with signers and inner tx
-            assert_export_result(meta, log, require_signers=True)
+            assert_export_result(meta, log, ctx=ctx, require_signers=True)
 
             # Assert shadow ticket was created
             assert_shadow_ticket(ctx, alice.address, log, expect_exists=True)

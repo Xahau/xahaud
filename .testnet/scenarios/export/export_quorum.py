@@ -73,7 +73,7 @@ async def scenario(ctx, log, expect_success=True):
             )
 
         # Assert ExportResult is well-formed with signers
-        assert_export_result(meta, log, require_signers=True)
+        assert_export_result(meta, log, ctx=ctx, require_signers=True)
 
         # Assert shadow ticket was created
         assert_shadow_ticket(ctx, alice.address, log, expect_exists=True)

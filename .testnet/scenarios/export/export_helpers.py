@@ -62,6 +62,26 @@ def find_export_txns(ctx, seq):
     return [tx for tx in txns if tx.get("TransactionType") == "Export"]
 
 
+def find_export_signature_witness(ctx, seq, witness_hash):
+    """Find the same-ledger ExportSignatures witness by transaction hash."""
+    result = ctx.ledger(seq, transactions=True)
+    txns = (result or {}).get("ledger", {}).get("transactions", [])
+    for tx in txns:
+        if not isinstance(tx, dict):
+            continue
+        if tx.get("hash") != witness_hash:
+            continue
+        if tx.get("TransactionType") != "ExportSignatures":
+            raise AssertionError(
+                f"ExportSignatureHash {witness_hash} resolved to "
+                f"{tx.get('TransactionType')}, not ExportSignatures"
+            )
+        return tx
+    raise AssertionError(
+        f"ExportSignatures witness {witness_hash} not found in ledger {seq}"
+    )
+
+
 def dst_param(address):
     """Encode an address as a HookParameter entry for the DST param."""
     from xrpl.core.addresscodec import decode_classic_address
@@ -114,10 +134,20 @@ def assert_hook_accepted(meta, log, *, expected_emits=1):
     return exec_entry
 
 
-def assert_export_result(meta, log, *, require_signers=True):
+def _signer_entries(witness):
+    entries = []
+    for entry in witness.get("Signers", []):
+        signer = entry.get("Signer", entry)
+        entries.append(signer)
+    return entries
+
+
+def assert_export_result(meta, log, *, ctx=None, require_signers=True):
     """Assert ExportResult is present and well-formed in metadata.
 
-    Returns the ExportResult dict.
+    Returns the ExportResult dict. When signers are required, the result is
+    annotated with _Witness and _WitnessSigners from the same-ledger
+    ttEXPORT_SIGNATURES pseudo transaction.
     """
     export_result = meta.get("ExportResult", {})
     if not export_result:
@@ -128,33 +158,49 @@ def assert_export_result(meta, log, *, require_signers=True):
         raise AssertionError("ExportResult missing LedgerSequence")
     if "TransactionHash" not in export_result:
         raise AssertionError("ExportResult missing TransactionHash")
-
-    # Must have the inner ExportedTxn object
-    inner = export_result.get("ExportedTxn", {})
-    if not inner:
-        raise AssertionError("ExportResult missing ExportedTxn (multisigned blob)")
+    if "ExportSignatureHash" not in export_result:
+        raise AssertionError("ExportResult missing ExportSignatureHash")
 
     log(f"  ExportResult: seq={export_result['LedgerSequence']} "
-        f"hash={export_result['TransactionHash'][:16]}...")
+        f"hash={export_result['TransactionHash'][:16]}... "
+        f"witness={export_result['ExportSignatureHash'][:16]}...")
 
-    # Inner tx should have Account, Destination, TransactionType
-    if "Account" not in inner:
-        raise AssertionError("ExportedTxn missing Account")
-    if "TransactionType" not in inner:
-        raise AssertionError("ExportedTxn missing TransactionType")
-
-    # Should have empty SigningPubKey (multisigned)
-    if inner.get("SigningPubKey", "NOT_EMPTY") != "":
+    if "ExportedTxn" in export_result:
         raise AssertionError(
-            f"ExportedTxn SigningPubKey should be empty, "
-            f"got '{inner.get('SigningPubKey')}'"
+            "ExportResult should reference ExportSignatureHash, not embed "
+            "ExportedTxn"
         )
 
     if require_signers:
-        signers = inner.get("Signers", [])
+        if ctx is None:
+            raise AssertionError(
+                "assert_export_result(require_signers=True) needs ctx to "
+                "dereference ExportSignatureHash"
+            )
+        witness = find_export_signature_witness(
+            ctx,
+            export_result["LedgerSequence"],
+            export_result["ExportSignatureHash"],
+        )
+        if witness.get("TransactionHash") != export_result["TransactionHash"]:
+            raise AssertionError(
+                "ExportSignatures witness TransactionHash does not match "
+                "ExportResult.TransactionHash"
+            )
+        if witness.get("LedgerSequence") != export_result["LedgerSequence"]:
+            raise AssertionError(
+                "ExportSignatures witness LedgerSequence does not match "
+                "ExportResult.LedgerSequence"
+            )
+        signers = _signer_entries(witness)
         if not signers:
-            raise AssertionError("ExportedTxn has no Signers (multisig not applied)")
-        log(f"  Signers: {len(signers)} validator(s)")
+            raise AssertionError("ExportSignatures witness has no Signers")
+        accounts = [s.get("Account") for s in signers]
+        if accounts != sorted(accounts):
+            raise AssertionError("ExportSignatures Signers are not Account-sorted")
+        log(f"  Witness signers: {len(signers)} validator(s)")
+        export_result["_Witness"] = witness
+        export_result["_WitnessSigners"] = signers
 
     return export_result
 

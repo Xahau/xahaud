@@ -62,8 +62,8 @@ async def scenario(ctx, log):
     if engine_result != "tesSUCCESS":
         raise AssertionError(f"Expected tesSUCCESS, got {engine_result}")
 
-    export_result = assert_export_result(meta, log, require_signers=True)
-    signers = export_result.get("ExportedTxn", {}).get("Signers", [])
+    export_result = assert_export_result(meta, log, ctx=ctx, require_signers=True)
+    signers = export_result.get("_WitnessSigners", [])
     if len(signers) < 4:
         raise AssertionError(f"Expected at least 4 signers, got {len(signers)}")
     log(f"Export signer count: {len(signers)}")
