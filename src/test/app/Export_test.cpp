@@ -24,7 +24,9 @@
 #include <test/jtx/unl.h>
 #include <test/jtx/xpop.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
+#include <xrpld/app/ledger/BuildLedger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/LedgerReplay.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
 #include <xrpld/app/misc/HashRouter.h>
@@ -45,6 +47,7 @@
 #include <xrpl/protocol/jss.h>
 
 #include <map>
+#include <set>
 
 namespace ripple {
 namespace test {
@@ -1405,6 +1408,86 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testBuildLedgerReplayPrescansExportWitness(FeatureBitset features)
+    {
+        testcase("BuildLedger replay pre-scans persisted export witness");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        seedUNLReportLedger(env, {valKeys.keys->publicKey});
+        forceNonStandalone(env.app());
+        BEAST_EXPECT(!env.app().config().standalone());
+
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        auto const applySeq = parent->seq() + 1;
+        auto const ticketSeq = std::uint32_t{1};
+        auto innerObj = buildExportedPayment(
+            alice.id(), carol.id(), applySeq, applySeq + 5, ticketSeq);
+        auto const innerTx = makeSTTx(innerObj);
+        auto jt = makeExportJTx(env, alice, innerObj, applySeq + 5);
+        auto const exportTx = jt.stx;
+        BEAST_EXPECT(exportTx);
+        if (!exportTx)
+            return;
+        auto const txHash = exportTx->getTransactionID();
+
+        ExportResultBuilder::SignatureSnapshot signatures;
+        signatures.emplace(
+            valKeys.keys->publicKey,
+            ExportResultBuilder::signExportedTxn(
+                innerTx, valKeys.keys->publicKey, valKeys.keys->secretKey));
+        auto const witnessTx = std::make_shared<STTx const>(
+            ExportResultBuilder::buildSignatureWitness(
+                txHash, signatures, applySeq));
+
+        CanonicalTXSet txns{parent->info().hash};
+        txns.insert(exportTx);
+        txns.insert(witnessTx);
+        std::set<TxID> failed;
+
+        auto const built = buildLedger(
+            parent,
+            env.app().timeKeeper().closeTime(),
+            true,
+            parent->info().closeTimeResolution,
+            env.app(),
+            txns,
+            failed,
+            env.journal);
+        BEAST_EXPECT(txns.empty());
+        BEAST_EXPECT(failed.empty());
+
+        auto const expectedSignedTxHash =
+            ExportResultBuilder::assembleDirect(
+                innerTx, signatures, applySeq, txHash)
+                .signedTxHash;
+        auto const builtTicket =
+            built->read(keylet::shadowTicket(alice.id(), ticketSeq));
+        BEAST_EXPECT(builtTicket);
+        if (builtTicket)
+            BEAST_EXPECT(
+                builtTicket->getFieldH256(sfTransactionHash) ==
+                expectedSignedTxHash);
+
+        auto const replayed = buildLedger(
+            LedgerReplay(parent, built), tapNONE, env.app(), env.journal);
+        BEAST_EXPECT(replayed->info().hash == built->info().hash);
+    }
+
+    void
     testExportNetworkRetryWithoutUNLReport(FeatureBitset features)
     {
         testcase("ttEXPORT network mode retries without UNLReport view");
@@ -1950,6 +2033,7 @@ struct Export_test : public beast::unit_test::suite
         testExportNetworkApplyUsesAgreedSidecar(allWithExport);
         testExportShadowTicketInsufficientReserve(allWithExport);
         testExportHistoricalReplayIgnoresCurrentManifestMap(allWithExport);
+        testBuildLedgerReplayPrescansExportWitness(allWithExport);
         testExportNetworkRetryWithoutUNLReport(allWithExport);
         testExportNetworkLastLedgerSequenceBoundary(allWithExport);
         testOpenLedgerExportLimit(allWithExport);
