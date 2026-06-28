@@ -1256,6 +1256,8 @@ ConsensusExtensions::agreedExportSignatures(
         return std::nullopt;
     }
 
+    auto const validatorView = activeValidatorView();
+    auto const isActiveSigner = activeSignerFilter(*this, validatorView);
     ExportSignatureSnapshot signatures;
     bool invalid = false;
     agreedMap->visitLeaves(
@@ -1292,6 +1294,8 @@ ConsensusExtensions::agreedExportSignatures(
                     return;
 
                 PublicKey const valPK{makeSlice(pk)};
+                if (!isActiveSigner(valPK))
+                    return;
 
                 auto const sigVL = sidecar.getFieldVL(sfTxnSignature);
                 auto const sigSlice = makeSlice(sigVL);
