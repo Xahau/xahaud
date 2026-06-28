@@ -89,6 +89,17 @@ entropyCommitment(
     return sha512Half(reveal, validatorKey, seq);
 }
 
+bool
+verifyProposalDigest(
+    PublicKey const& publicKey,
+    uint256 const& signingHash,
+    Slice const& signature)
+{
+    auto const type = publicKeyType(publicKey);
+    return type && *type == KeyType::secp256k1 &&
+        verifyDigest(publicKey, signingHash, signature);
+}
+
 //@@start active-validator-view-build
 ActiveValidatorViewSource
 buildActiveValidatorViewSource(
@@ -2456,8 +2467,10 @@ ConsensusExtensions::verifyProof(
             proof->prevLedger,
             position);
 
-        // Verify the proposal signature
-        return verifyDigest(
+        // Proposal signatures are digest signatures and therefore
+        // secp256k1-only. Reject other valid key types before verifyDigest,
+        // which aborts on non-secp256k1 input.
+        return verifyProposalDigest(
             publicKey,
             signingHash,
             Slice(proof->signature.data(), proof->signature.size()));
@@ -2508,7 +2521,7 @@ ConsensusExtensions::onTrustedPeerProposal(
         closeTime.time_since_epoch().count(),
         prevLedger,
         position);
-    if (!verifyDigest(publicKey, signingHash, signature))
+    if (!verifyProposalDigest(publicKey, signingHash, signature))
     {
         JLOG(j_.debug()) << "ConsensusExtensions: ignoring unsigned proposal "
                             "sidecars"

@@ -1690,6 +1690,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!ConsensusExtensions::verifyProof(
             blob, publicKey, makeHash("wrong-commitment"), true));
 
+        auto const edKeys = randomKeyPair(KeyType::ed25519);
+        BEAST_EXPECT(!ConsensusExtensions::verifyProof(
+            blob, edKeys.first, *position.myCommitment, true));
+
         Blob malformed{1, 2, 3};
         BEAST_EXPECT(!ConsensusExtensions::deserializeProof(malformed));
         BEAST_EXPECT(!ConsensusExtensions::verifyProof(
