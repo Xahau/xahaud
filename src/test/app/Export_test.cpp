@@ -1774,8 +1774,7 @@ struct Export_test : public beast::unit_test::suite
         log << "XPOP null? " << xpopJson.isNull() << std::endl;
         BEAST_EXPECT(!xpopJson.isNull());
 
-        auto const nullJournal =
-            beast::Journal{beast::Journal::getNullSink()};
+        auto const nullJournal = beast::Journal{beast::Journal::getNullSink()};
         auto const vlInfo = getVLInfo(xpopJson, nullJournal);
         BEAST_EXPECT(vlInfo);
         if (vlInfo)
