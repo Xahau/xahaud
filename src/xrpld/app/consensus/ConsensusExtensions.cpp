@@ -414,8 +414,8 @@ ConsensusExtensions::expectedProposerCount() const
 bool
 ConsensusExtensions::hasQuorumOfCommits() const
 {
-    auto const validatorView = activeValidatorView();
-    auto const threshold = safeQuorumThreshold(validatorView->size());
+    auto const threshold = quorumThreshold();
+    auto const activeValidators = activeValidatorView()->size();
     auto const proofedCommitCount = this->proofedCommitCount();
     bool result = static_cast<std::size_t>(proofedCommitCount) >= threshold;
     JLOG(j_.trace()) << "RNG: commit quorum check"
@@ -423,7 +423,7 @@ ConsensusExtensions::hasQuorumOfCommits() const
                      << " threshold=" << threshold
                      << " result=" << (result ? "yes" : "no")
                      << " pendingCommits=" << pendingCommits_.size()
-                     << " activeValidators=" << validatorView->size()
+                     << " activeValidators=" << activeValidators
                      << " likelyParticipants=" << likelyParticipants_.size();
     return result;
 }
