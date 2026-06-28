@@ -7,7 +7,6 @@
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/app/tx/detail/ExportSignatureUpgrader.h>
-#include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/AccountID.h>
@@ -214,7 +213,9 @@ Export::doApply()
     std::optional<uint256> exportSignatureHash;
 
     //@@start export-doapply-replay-witness-snapshot
-    std::size_t const threshold = standalone ? 1 : safeQuorumThreshold(unlSize);
+    std::size_t const threshold = standalone
+        ? 1
+        : ConsensusExtensions::exportSigQuorumThreshold(*validatorView);
 
     if (!standalone && !validatorView->fromUNLReport)
     {

@@ -140,6 +140,18 @@ admitSidecarLeaf(
     return AdmittedSidecarLeaf{std::move(sidecar), type};
 }
 
+boost::intrusive_ptr<SHAMapItem>
+makeSidecarItem(STObject const& sidecar)
+{
+    Serializer s;
+    sidecar.add(s);
+    auto const itemKey = sidecar.getHash(HashPrefix::sidecar);
+    XRPL_ASSERT(
+        itemKey == sha512Half(HashPrefix::sidecar, s.slice()),
+        "ripple::makeSidecarItem : sidecar hash matches serialized bytes");
+    return make_shamapitem(itemKey, s.slice());
+}
+
 //@@start active-validator-view-build
 ActiveValidatorViewSource
 buildActiveValidatorViewSource(
@@ -282,7 +294,14 @@ ConsensusExtensions::quorumThreshold() const
 std::size_t
 ConsensusExtensions::exportSigQuorumThreshold() const
 {
-    auto const base = activeValidatorView()->size();
+    return exportSigQuorumThreshold(*activeValidatorView());
+}
+
+std::size_t
+ConsensusExtensions::exportSigQuorumThreshold(
+    ActiveValidatorView const& validatorView)
+{
+    auto const base = validatorView.size();
 
     // Export sidecar hashes are signed through ExtendedPosition even when RNG
     // is disabled, so a quorum-aligned exportSigSetHash is deterministic
@@ -457,6 +476,19 @@ ConsensusExtensions::pendingRevealCount() const
 }
 
 std::size_t
+ConsensusExtensions::proofedRevealCount() const
+{
+    auto const validatorView = activeValidatorView();
+    return std::count_if(
+        pendingReveals_.begin(),
+        pendingReveals_.end(),
+        [this, validatorView](auto const& entry) {
+            auto const& nid = entry.first;
+            return hasActiveProofedCommit(nid, *validatorView);
+        });
+}
+
+std::size_t
 ConsensusExtensions::expectedProposerCount() const
 {
     return likelyParticipants_.size();
@@ -488,31 +520,19 @@ ConsensusExtensions::hasMinimumReveals() const
     // node builds the same entropy set.  rngPIPELINE_TIMEOUT in
     // Consensus.h is the safety valve for nodes that crash/partition
     // between commit and reveal.
-    auto const validatorView = activeValidatorView();
     // Reveal quorum targets the commit sidecar set, not every later proposal
     // commitment we heard. That keeps proofless late commits from extending
     // the reveal wait after they were excluded from buildCommitSet().
-    auto const expected = std::count_if(
-        pendingCommits_.begin(),
-        pendingCommits_.end(),
-        [this, validatorView](auto const& entry) {
-            auto const& nid = entry.first;
-            return hasActiveProofedCommit(nid, *validatorView);
-        });
-    auto const revealCount = std::count_if(
-        pendingReveals_.begin(),
-        pendingReveals_.end(),
-        [this, validatorView](auto const& entry) {
-            auto const& nid = entry.first;
-            return hasActiveProofedCommit(nid, *validatorView);
-        });
+    auto const expected = proofedCommitCount();
+    auto const revealCount = proofedRevealCount();
+    auto const activeValidators = activeValidatorView()->size();
     bool result = revealCount >= expected;
     JLOG(j_.trace()) << "RNG: reveal quorum check"
                      << " reveals=" << revealCount << " expected=" << expected
                      << " result=" << (result ? "yes" : "no")
                      << " pendingReveals=" << pendingReveals_.size()
                      << " pendingCommits=" << pendingCommits_.size()
-                     << " activeValidators=" << validatorView->size();
+                     << " activeValidators=" << activeValidators;
     return result;
 }
 
@@ -739,11 +759,7 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
         sidecar.setFieldVL(sfSigningPubKey, kit->second.slice());
         sidecar.setFieldVL(sfBlob, serializeProof(proofIt->second));
 
-        auto const itemKey = sidecar.getHash(HashPrefix::sidecar);
-        Serializer s(2048);
-        sidecar.add(s);
-        map->addItem(
-            SHAMapNodeType::tnSIDECAR, make_shamapitem(itemKey, s.slice()));
+        map->addItem(SHAMapNodeType::tnSIDECAR, makeSidecarItem(sidecar));
         ++entryCount;
     }
 
@@ -806,11 +822,7 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
         // (validator identity + digest) for fetch/merge and entropy
         // calculation.
 
-        auto const itemKey = sidecar.getHash(HashPrefix::sidecar);
-        Serializer s(2048);
-        sidecar.add(s);
-        map->addItem(
-            SHAMapNodeType::tnSIDECAR, make_shamapitem(itemKey, s.slice()));
+        map->addItem(SHAMapNodeType::tnSIDECAR, makeSidecarItem(sidecar));
         ++entryCount;
     }
 
@@ -864,11 +876,7 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
                 sidecar.setFieldVL(
                     sfTxnSignature, Slice(sigBuf.data(), sigBuf.size()));
 
-            auto const itemKey = sidecar.getHash(HashPrefix::sidecar);
-            Serializer s;
-            sidecar.add(s);
-            map->addItem(
-                SHAMapNodeType::tnSIDECAR, make_shamapitem(itemKey, s.slice()));
+            map->addItem(SHAMapNodeType::tnSIDECAR, makeSidecarItem(sidecar));
             ++entryCount;
         }
     }
@@ -2206,7 +2214,7 @@ ConsensusExtensions::onPreBuild(
         }
         else if (validatorView->fromUNLReport)
         {
-            auto const threshold = safeQuorumThreshold(validatorView->size());
+            auto const threshold = exportSigQuorumThreshold(*validatorView);
             for (auto const& entry : retriableTxs)
             {
                 auto const& stx = entry.second;

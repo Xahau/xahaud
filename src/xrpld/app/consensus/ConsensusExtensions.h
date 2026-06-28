@@ -177,6 +177,9 @@ public:
     std::size_t
     exportSigQuorumThreshold() const;
 
+    static std::size_t
+    exportSigQuorumThreshold(ActiveValidatorView const& validatorView);
+
     /// Tier 2 (participant_aligned) alignment floor: the smallest cohort whose
     /// pairwise intersection exceeds the tolerated Byzantine count (~0.6 of the
     /// ORIGINAL pre-nUNL view; exact value from calculateParticipantThreshold).
@@ -223,6 +226,9 @@ public:
 
     std::size_t
     pendingRevealCount() const;
+
+    std::size_t
+    proofedRevealCount() const;
 
     std::size_t
     expectedProposerCount() const;
