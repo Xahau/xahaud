@@ -2187,6 +2187,21 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 txHash,
                 valPK);
         }
+
+        {
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            ce.setExportEnabledThisRound(true);
+            ce.cacheUNLReport(ledger);
+            ce.cacheConsensusTxSet(txSet);
+
+            auto oversizedLeaf = makeExportSigSidecar(
+                txHash, valPK, Slice(validSig.data(), validSig.size()));
+            oversizedLeaf.setFieldVL(
+                sfBlob, Blob(ExportLimits::maxExportSignatureSidecarBytes, 0));
+
+            expectRejected(
+                ce, makeSidecarSet(env.app(), {oversizedLeaf}), txHash, valPK);
+        }
     }
 
     void

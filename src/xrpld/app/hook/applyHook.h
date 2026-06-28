@@ -202,6 +202,10 @@ struct HookContext
     std::queue<uint32_t> slot_free{};
     uint32_t slot_counter{0};  // uint16 to avoid accidental overflow and to
                                // allow more slots in future
+    mutable std::optional<std::pair<
+        std::shared_ptr<ripple::STObject const>,
+        std::shared_ptr<ripple::STObject const>>>
+        xpopSlotCache;
     uint16_t emit_nonce_counter{
         0};  // incremented whenever nonce is called to ensure unique nonces
     uint16_t ledger_nonce_counter{0};

@@ -133,6 +133,8 @@ Import::getInnerTxn(
     if (!xpop && outer.isFieldPresent(sfBlob))
     {
         xpop_storage = syntaxCheckXPOP(outer.getFieldVL(sfBlob), j);
+        if (!xpop_storage)
+            return {};
         xpop = &(*xpop_storage);
     }
 
@@ -498,21 +500,28 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    if (!list.isMember(jss::sequence) || !list[jss::sequence].isInt())
+    auto const isNonNegativeUInt = [](Json::Value const& value) {
+        return value.isUInt() || (value.isInt() && value.asInt() >= 0);
+    };
+
+    if (!list.isMember(jss::sequence) ||
+        !isNonNegativeUInt(list[jss::sequence]))
     {
         JLOG(ctx.j.warn()) << "Import: unl blob json (after base64 decoding) "
                               "lacked required field (sequence) and/or types "
                            << tx.getTransactionID();
         return temMALFORMED;
     }
-    if (!list.isMember(jss::expiration) || !list[jss::expiration].isInt())
+    if (!list.isMember(jss::expiration) ||
+        !isNonNegativeUInt(list[jss::expiration]))
     {
         JLOG(ctx.j.warn()) << "Import: unl blob json (after base64 decoding) "
                               "lacked required field (expiration) and/or types "
                            << tx.getTransactionID();
         return temMALFORMED;
     }
-    if (list.isMember(jss::effective) && !list[jss::effective].isInt())
+    if (list.isMember(jss::effective) &&
+        !isNonNegativeUInt(list[jss::effective]))
     {
         JLOG(ctx.j.warn()) << "Import: unl blob json (after base64 decoding) "
                               "lacked required field (effective) and/or types "

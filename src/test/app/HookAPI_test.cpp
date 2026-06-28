@@ -24,7 +24,9 @@
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STAccount.h>
+#include <xrpl/protocol/TxFlags.h>
 #include <limits>
+#include <optional>
 #include <tuple>
 #include <vector>
 
@@ -35,6 +37,45 @@ namespace test {
 class HookAPI_test : public beast::unit_test::suite
 {
 private:
+    STTx
+    makeSTTx(STObject const& obj)
+    {
+        Serializer s;
+        obj.add(s);
+        SerialIter sit{s.slice()};
+        return STTx{std::ref(sit)};
+    }
+
+    Blob
+    serialize(STTx const& tx)
+    {
+        Serializer s;
+        tx.add(s);
+        return {s.begin(), s.end()};
+    }
+
+    STTx
+    makeExportedPayment(
+        AccountID const& src,
+        AccountID const& dst,
+        std::optional<std::uint32_t> ticketSequence = 1)
+    {
+        STObject obj(sfExportedTxn);
+        obj.setFieldU16(sfTransactionType, ttPAYMENT);
+        obj.setFieldU32(sfFlags, tfFullyCanonicalSig);
+        obj.setFieldU32(sfSequence, 0);
+        if (ticketSequence)
+            obj.setFieldU32(sfTicketSequence, *ticketSequence);
+        obj.setFieldU32(sfFirstLedgerSequence, 2);
+        obj.setFieldU32(sfLastLedgerSequence, 6);
+        obj.setFieldAmount(sfAmount, XRPAmount{1000000});
+        obj.setFieldAmount(sfFee, XRPAmount{10});
+        obj.setFieldVL(sfSigningPubKey, Blob{});
+        obj.setAccountID(sfAccount, src);
+        obj.setAccountID(sfDestination, dst);
+        return makeSTTx(obj);
+    }
+
     ApplyContext
     createApplyContext(jtx::Env& env, OpenView& ov, STTx const& tx)
     {
@@ -1073,6 +1114,47 @@ public:
             auto& api = hookCtx.api();
             auto const result = api.xport(Slice{});
             BEAST_EXPECT(result.error() == TOO_MANY_EMITTED_TXN);
+        }
+
+        {
+            // xport must enforce the emitted-txn generation cap before
+            // constructing a generation-10 wrapper.
+            auto const bob = Account{"bob"};
+            auto const innerTx = makeExportedPayment(alice.id(), bob.id());
+            auto const serialized = serialize(innerTx);
+            StubHookContext stubCtx{
+                .expected_etxn_count = 1,
+                .expected_export_count = 1,
+                .generation = 9,
+                .burden = 1,
+                .result = {.hookHash = uint256{3}},
+            };
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            auto const result =
+                api.xport(Slice(serialized.data(), serialized.size()));
+            BEAST_EXPECT(result.error() == EXPORT_FAILURE);
+        }
+
+        {
+            // xport shares emit()'s burden accounting; overflow must fail
+            // instead of silently substituting burden=1 in EmitDetails.
+            auto const bob = Account{"bob"};
+            auto const innerTx = makeExportedPayment(alice.id(), bob.id());
+            auto const serialized = serialize(innerTx);
+            StubHookContext stubCtx{
+                .expected_etxn_count = 2,
+                .expected_export_count = 1,
+                .burden = std::numeric_limits<uint64_t>::max(),
+                .result = {.hookHash = uint256{3}},
+            };
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            auto const result =
+                api.xport(Slice(serialized.data(), serialized.size()));
+            BEAST_EXPECT(result.error() == FEE_TOO_LARGE);
         }
     }
 
@@ -2795,6 +2877,30 @@ public:
         }
 
         // TODO: test INVALID_TXN
+
+        {
+            // Auto-allocation must not choose the explicit destination slot.
+            auto const xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
+            std::string xpopStr = Json::FastWriter().write(xpopJson);
+            STTx invokeTx = STTx(ttIMPORT, [&](STObject& obj) {
+                obj.setFieldVL(sfBlob, *strUnHex(strHex(xpopStr)));
+            });
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+
+            auto const result = api.xpop_slot(0, 1);
+            BEAST_EXPECT(result.has_value());
+            if (result)
+            {
+                BEAST_EXPECT(result.value().first != result.value().second);
+                BEAST_EXPECT(result.value().second == 1);
+                BEAST_EXPECT(hookCtx.slot.count(result.value().first) == 1);
+                BEAST_EXPECT(hookCtx.slot.count(result.value().second) == 1);
+            }
+        }
 
         {
             // Success

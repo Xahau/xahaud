@@ -454,6 +454,15 @@ getVLInfo(Json::Value const& xpop, beast::Journal const& j)
             << "Import: unl blob was not valid json (after base64 decoding)";
         return {};
     }
+    auto const isNonNegativeUInt = [](Json::Value const& value) {
+        return value.isUInt() || (value.isInt() && value.asInt() >= 0);
+    };
+    if (!list.isMember(jss::sequence) ||
+        !isNonNegativeUInt(list[jss::sequence]))
+    {
+        JLOG(j.warn()) << "Import: unl blob sequence was missing or negative";
+        return {};
+    }
     auto const sequence = list[jss::sequence].asUInt();
     auto const m = deserializeManifest(base64_decode(
         xpop[jss::validation][jss::unl][jss::manifest].asString()));

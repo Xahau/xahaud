@@ -36,6 +36,11 @@ struct ExportLimits
     // verified, so bounding the per-blob size caps pre-auth hashing/copy work
     // (DoS).
     static constexpr std::size_t maxExportSignatureBytes = 32 + 33 + 72;
+
+    // Export-signature sidecar leaves wrap one export-signature blob in an
+    // STObject envelope. Keep this comfortably above the canonical encoding
+    // while bounding fetched, peer-supplied leaf bytes before parse/hash work.
+    static constexpr std::size_t maxExportSignatureSidecarBytes = 256;
 };
 
 }  // namespace ripple

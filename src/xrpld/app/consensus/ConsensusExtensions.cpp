@@ -129,8 +129,23 @@ admitSidecarLeaf(
     beast::Journal j,
     char const* owner,
     char const* kind,
-    char const* source)
+    char const* source,
+    std::optional<std::size_t> maxEntryBytes = std::nullopt,
+    bool* malformed = nullptr)
 {
+    if (maxEntryBytes && entry.size() > *maxEntryBytes)
+    {
+        if (malformed)
+            *malformed = true;
+        JLOG(j.warn()) << owner << ": rejecting acquired entry"
+                       << " reason=entry-too-large"
+                       << " kind=" << kind << " source=" << source
+                       << " setHash=" << setHash << " itemKey=" << itemKey
+                       << " entryBytes=" << entry.size()
+                       << " maxEntryBytes=" << *maxEntryBytes;
+        return std::nullopt;
+    }
+
     SerialIter sit(entry);
     STObject sidecar(sit, sfGeneric);
 
@@ -140,6 +155,8 @@ admitSidecarLeaf(
     auto const sidecarHash = sidecar.getHash(HashPrefix::sidecar);
     if (sidecarHash != itemKey)
     {
+        if (malformed)
+            *malformed = true;
         JLOG(j.warn()) << owner << ": rejecting acquired entry"
                        << " reason=item-key-mismatch"
                        << " kind=" << kind << " source=" << source
@@ -1237,24 +1254,19 @@ ConsensusExtensions::agreedExportSignatures(
 
             try
             {
-                SerialIter sit(item->slice());
-                STObject sidecar(sit, sfGeneric);
-
-                if (!sidecar.isFieldPresent(sfSidecarType) ||
-                    sidecar.getFieldU8(sfSidecarType) != sidecarExportSig)
+                auto admitted = admitSidecarLeaf(
+                    item->key(),
+                    item->slice(),
+                    agreedHash,
+                    j_,
+                    "Export",
+                    "exportSigSet",
+                    "agreed",
+                    ExportLimits::maxExportSignatureSidecarBytes,
+                    &invalid);
+                if (!admitted || admitted->type != sidecarExportSig)
                     return;
-
-                auto const sidecarHash = sidecar.getHash(HashPrefix::sidecar);
-                if (sidecarHash != item->key())
-                {
-                    JLOG(j_.warn())
-                        << "Export: agreed exportSigSet item hash mismatch"
-                        << " setHash=" << agreedHash
-                        << " itemKey=" << item->key()
-                        << " computedHash=" << sidecarHash;
-                    invalid = true;
-                    return;
-                }
+                auto const& sidecar = admitted->sidecar;
 
                 if (!sidecar.isFieldPresent(sfTransactionHash) ||
                     !sidecar.isFieldPresent(sfSigningPubKey) ||
@@ -1586,7 +1598,8 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                             j_,
                             "Export",
                             sidecarKindName(kind),
-                            "visit");
+                            "visit",
+                            ExportLimits::maxExportSignatureSidecarBytes);
                         if (!admitted || admitted->type != sidecarExportSig)
                             return;
                         auto const& sidecar = admitted->sidecar;
