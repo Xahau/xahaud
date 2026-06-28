@@ -157,6 +157,20 @@ makeExportTx(STObject const& inner, AccountID const& account)
     return std::make_shared<STTx const>(makeSTTx(exportObj));
 }
 
+std::shared_ptr<STTx const>
+makeCancelExportTx(AccountID const& account, std::uint32_t sequence)
+{
+    STObject exportObj(sfGeneric);
+    exportObj.setFieldU16(sfTransactionType, ttEXPORT);
+    exportObj.setAccountID(sfAccount, account);
+    exportObj.setFieldU32(sfSequence, sequence);
+    exportObj.setFieldU32(sfCancelTicketSequence, 1000 + sequence);
+    exportObj.setFieldVL(sfSigningPubKey, Blob{});
+    exportObj.setFieldAmount(sfFee, XRPAmount{0});
+
+    return std::make_shared<STTx const>(makeSTTx(exportObj));
+}
+
 RCLTxSet
 makeRCLTxSet(Application& app, std::vector<std::shared_ptr<STTx const>> txns)
 {
@@ -1921,6 +1935,77 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExportSidecarIgnoresCancelOnlyExports()
+    {
+        testcase("Export sidecar ignores cancel-only exports");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& valPK = valKeys.keys->publicKey;
+        auto const& valSK = valKeys.keys->secretKey;
+        auto const signerAccount = calcAccountID(valPK);
+        auto const seq = ledger->seq() + 1;
+
+        auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
+        auto const innerObj = makeExportedPayment(signerAccount, dst);
+        auto const innerTx = makeSTTx(innerObj);
+        auto const exportTx = makeExportTx(innerObj, signerAccount);
+        auto const txHash = exportTx->getTransactionID();
+
+        std::vector<std::shared_ptr<STTx const>> txs;
+        for (std::uint32_t sequence = 1;
+             txs.size() < ExportLimits::maxPendingExports && sequence < 1000;
+             ++sequence)
+        {
+            auto cancelTx = makeCancelExportTx(signerAccount, sequence);
+            if (cancelTx->getTransactionID() < txHash)
+                txs.push_back(std::move(cancelTx));
+        }
+        BEAST_EXPECT(txs.size() == ExportLimits::maxPendingExports);
+        if (txs.size() != ExportLimits::maxPendingExports)
+            return;
+        txs.push_back(exportTx);
+
+        auto const txSet = makeRCLTxSet(env.app(), txs);
+
+        ConsensusExtensions source{env.app(), activeNoopJournal()};
+        source.setExportEnabledThisRound(true);
+        source.cacheUNLReport(ledger);
+        source.cacheConsensusTxSet(txSet);
+
+        auto const sigData = buildMultiSigningData(innerTx, signerAccount);
+        auto const sig = sign(valPK, valSK, sigData.slice());
+        Buffer sigBuf(sig.data(), sig.size());
+        source.exportSigCollector().addVerifiedSignature(
+            txHash, valPK, sigBuf, seq);
+
+        auto const exportSigSetHash = source.buildExportSigSet(seq);
+        auto const exportedSet =
+            env.app().getInboundTransactions().getSet(exportSigSetHash, false);
+        BEAST_EXPECT(exportedSet);
+        if (exportedSet)
+            BEAST_EXPECT(sidecarLeafCount(*exportedSet) == 1);
+
+        ConsensusExtensions fetched{env.app(), activeNoopJournal()};
+        fetched.setExportEnabledThisRound(true);
+        fetched.cacheUNLReport(ledger);
+        fetched.cacheConsensusTxSet(txSet);
+        fetched.fetchSidecarSetIfNeeded(
+            exportSigSetHash, ConsensusExtensions::SidecarKind::exportSigSet);
+
+        BEAST_EXPECT(
+            fetched.exportSigCollector().hasVerifiedSignature(txHash, valPK));
+        BEAST_EXPECT(fetched.buildExportSigSet(seq) == exportSigSetHash);
+    }
+
+    void
     testExportSidecarBuildCapsConsensusCandidates()
     {
         testcase("Export sidecar build caps consensus candidates");
@@ -3487,6 +3572,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         FakeExtensions ext;
         ext.localExportSigs = false;
+        ext.consensusExportTxns = true;
         ExtensionTickHarness harness;
         auto const peerHash = makeHash("peer-export-sig-set");
 
@@ -3504,6 +3590,26 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             harness.parms.rngREVEAL_TIMEOUT * 2 + std::chrono::milliseconds{1});
         BEAST_EXPECT(result.readyForAccept);
         BEAST_EXPECT(ext.exportSigConvergenceFailed_);
+    }
+
+    void
+    testExportSigGateIgnoresAdvertisedSetsWithoutExportTxns()
+    {
+        testcase("Export sig gate ignores advertised sets without export txns");
+
+        FakeExtensions ext;
+        ext.localExportSigs = false;
+        ext.consensusExportTxns = false;
+        ExtensionTickHarness harness;
+        auto const peerHash = makeHash("empty-round-export-sig-set");
+
+        harness.addPeer(1, peerHash);
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(!ext.exportSigGateStarted_);
+        BEAST_EXPECT(ext.fetchedExportSets.empty());
+        BEAST_EXPECT(!ext.exportSigConvergenceFailed_);
     }
 
     void
@@ -3986,6 +4092,7 @@ public:
         testProposalProofRoundTrip();
         testHarvestRngDataReplacementAndRejection();
         testExportSidecarBuildFetchAndMerge();
+        testExportSidecarIgnoresCancelOnlyExports();
         testExportSidecarBuildCapsConsensusCandidates();
         testExportSidecarRejectsInvalidFetchedEntries();
         testExportSidecarRejectsOversizedFetchedSet();
@@ -4019,6 +4126,7 @@ public:
         testExportSigGateAllowsAlignedQuorumDespiteMinorityConflict();
         testExportSigGateAllowsQuorumDespiteMissingObservation();
         testExportSigGateFetchesAdvertisedPeerSets();
+        testExportSigGateIgnoresAdvertisedSetsWithoutExportTxns();
         testExportSigGateObservingModeDoesNotPropose();
         testExportSigGateRefreshesHashBeforeWaiting();
         testExportSigGateBoundsCandidateObservationWindow();

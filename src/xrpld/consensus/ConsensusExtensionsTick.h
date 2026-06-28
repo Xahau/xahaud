@@ -994,7 +994,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
         };
 
         bool hasLocalExportSigs = ext.hasPendingExportSigs();
-        if (!hasLocalExportSigs)
+        if (!hasLocalExportSigs && ext.hasConsensusExportTxns())
         {
             auto const peerSets = fetchPeerExportSigSets(ctx.getPosition());
             if (peerSets > 0)
@@ -1030,7 +1030,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " action=retry-or-expire";
                 }
             }
-            else if (ext.hasConsensusExportTxns())
+            else
             {
                 // A candidate ttEXPORT with no local sig material gets one
                 // short observation window so an already-reachable peer

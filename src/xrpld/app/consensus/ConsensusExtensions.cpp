@@ -29,6 +29,7 @@
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/consensus/Consensus.h>
 #include <xrpld/consensus/ConsensusExtensionsTick.h>
@@ -246,8 +247,9 @@ addExportSidecarCandidate(
     std::shared_ptr<STTx const> stx)
 {
     // Export signature sidecars are bounded by maxPendingExports. Overflow
-    // ttEXPORTs may still be present in the base consensus tx set; they are
-    // just not sidecar-signature candidates for this round.
+    // export-work txns may still be present in the base consensus tx set; they
+    // are just not sidecar-signature candidates for this round. Cancel-only
+    // ttEXPORTs are not export work and must not consume scarce signing slots.
     if (exportTxns.size() >= ExportLimits::maxPendingExports)
         return false;
 
@@ -264,7 +266,7 @@ buildExportTxnLookup(SHAMap const& txns, beast::Journal j)
         {
             SerialIter sit(item->slice());
             auto stx = std::make_shared<STTx const>(sit);
-            if (stx->getTxnType() == ttEXPORT)
+            if (ExportLedgerOps::isPendingExportWorkTxn(*stx))
                 addExportSidecarCandidate(exportTxns, std::move(stx));
         }
         catch (std::exception const& e)
@@ -289,7 +291,7 @@ buildOpenLedgerExportTxnLookup(Application& app)
     for (auto const& entry : openLedger->txs)
     {
         auto const& stx = entry.first;
-        if (stx && stx->getTxnType() == ttEXPORT)
+        if (stx && ExportLedgerOps::isPendingExportWorkTxn(*stx))
             addExportSidecarCandidate(exportTxns, stx);
     }
     return exportTxns;
@@ -2999,7 +3001,7 @@ ConsensusExtensions::attachExportSignatures(
 
     for (auto const& [stx, meta] : openLedger->txs)
     {
-        if (!stx || stx->getTxnType() != ttEXPORT)
+        if (!stx || !ExportLedgerOps::isPendingExportWorkTxn(*stx))
             continue;
 
         if (attached >= ExportLimits::maxPendingExports)
