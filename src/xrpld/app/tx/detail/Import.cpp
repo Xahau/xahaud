@@ -540,24 +540,9 @@ Import::preflight(PreflightContext const& ctx)
         list.isMember(jss::effective) ? list[jss::effective].asUInt() : 0}};
     auto const validUntil = TimeKeeper::time_point{
         TimeKeeper::duration{list[jss::expiration].asUInt()}};
-    auto const now = ctx.app.timeKeeper().now();
     if (validUntil <= validFrom)
     {
         JLOG(ctx.j.warn()) << "Import: unl blob validUntil <= validFrom "
-                           << tx.getTransactionID();
-        return temMALFORMED;
-    }
-
-    if (validUntil <= now)
-    {
-        JLOG(ctx.j.warn()) << "Import: unl blob expired "
-                           << tx.getTransactionID();
-        return temMALFORMED;
-    }
-
-    if (validFrom > now)
-    {
-        JLOG(ctx.j.warn()) << "Import: unl blob not yet valid "
                            << tx.getTransactionID();
         return temMALFORMED;
     }
@@ -1135,6 +1120,36 @@ Import::preclaim(PreclaimContext const& ctx)
         JLOG(ctx.j.warn())
             << "Import: during preclaim could not parse vlInfo, bailing.";
         return tefINTERNAL;
+    }
+
+    auto const data =
+        base64_decode((*xpop)[jss::validation][jss::unl][jss::blob].asString());
+    Json::Reader r;
+    Json::Value list;
+    if (!r.parse(data, list))
+    {
+        JLOG(ctx.j.warn())
+            << "Import: during preclaim could not parse unl blob, bailing.";
+        return tefINTERNAL;
+    }
+
+    auto const validFrom = TimeKeeper::time_point{TimeKeeper::duration{
+        list.isMember(jss::effective) ? list[jss::effective].asUInt() : 0}};
+    auto const validUntil = TimeKeeper::time_point{
+        TimeKeeper::duration{list[jss::expiration].asUInt()}};
+    auto const now = ctx.view.parentCloseTime();
+    if (validUntil <= now)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: unl blob expired at parent ledger close time.";
+        return temMALFORMED;
+    }
+
+    if (validFrom > now)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: unl blob not yet valid at parent ledger close time.";
+        return temMALFORMED;
     }
 
     // Shared XPOP verification includes the source VL anti-downgrade ratchet.
