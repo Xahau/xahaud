@@ -37,6 +37,7 @@
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Import.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STTx.h>
@@ -115,6 +116,15 @@ struct Export_test : public beast::unit_test::suite
             ExportResultBuilder::SignatureWitness{
                 witnessHash, std::move(signatures)});
         return witnesses;
+    }
+
+    static std::uint32_t
+    importVLSequence(jtx::Env const& env, PublicKey const& pk)
+    {
+        auto const sle = env.le(keylet::import_vlseq(pk));
+        if (sle && sle->isFieldPresent(sfImportSequence))
+            return (*sle)[sfImportSequence];
+        return 0;
     }
 
     void
@@ -1764,6 +1774,15 @@ struct Export_test : public beast::unit_test::suite
         log << "XPOP null? " << xpopJson.isNull() << std::endl;
         BEAST_EXPECT(!xpopJson.isNull());
 
+        auto const nullJournal =
+            beast::Journal{beast::Journal::getNullSink()};
+        auto const vlInfo = getVLInfo(xpopJson, nullJournal);
+        BEAST_EXPECT(vlInfo);
+        if (vlInfo)
+        {
+            BEAST_EXPECT(importVLSequence(xahau, vlInfo->second) == 0);
+        }
+
         // ── Back to Xahau: import the XPOP ────────────────────────────
         auto const feeDrops = xahau.current()->fees().base;
 
@@ -1775,6 +1794,11 @@ struct Export_test : public beast::unit_test::suite
 
         // Shadow ticket should be consumed after import.
         BEAST_EXPECT(!xahau.current()->exists(stKey));
+        if (vlInfo)
+        {
+            BEAST_EXPECT(
+                importVLSequence(xahau, vlInfo->second) == vlInfo->first);
+        }
     }
 
     // Override focused_test() to run a specific test in isolation.

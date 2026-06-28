@@ -43,6 +43,55 @@
 
 namespace ripple {
 
+namespace {
+
+enum class ImportPath { burnToMint, exportCallback };
+
+ImportPath
+importPath(STTx const& inner)
+{
+    return inner.isFieldPresent(sfTicketSequence) ? ImportPath::exportCallback
+                                                  : ImportPath::burnToMint;
+}
+
+TER
+updateImportVLSequence(
+    ApplyView& view,
+    std::pair<std::uint32_t, PublicKey> const& infoVL,
+    beast::Journal const& j)
+{
+    auto const keyletVL = keylet::import_vlseq(infoVL.second);
+    auto sleVL = view.peek(keyletVL);
+
+    if (!sleVL)
+    {
+        JLOG(j.trace())
+            << "Import: create vl seq - insert import sequence + public key";
+        sleVL = std::make_shared<SLE>(keyletVL);
+        sleVL->setFieldU32(sfImportSequence, infoVL.first);
+        sleVL->setFieldVL(sfPublicKey, infoVL.second.slice());
+        view.insert(sleVL);
+        return tesSUCCESS;
+    }
+
+    auto const current = sleVL->getFieldU32(sfImportSequence);
+    if (current > infoVL.first)
+    {
+        // preclaim should have rejected stale XPOPs.
+        return tefINTERNAL;
+    }
+
+    if (infoVL.first > current)
+    {
+        sleVL->setFieldU32(sfImportSequence, infoVL.first);
+        view.update(sleVL);
+    }
+
+    return tesSUCCESS;
+}
+
+}  // namespace
+
 TxConsequences
 Import::makeTxConsequences(PreflightContext const& ctx)
 {
@@ -216,7 +265,8 @@ Import::preflight(PreflightContext const& ctx)
                         << " hasResult="
                         << meta->isFieldPresent(sfTransactionResult);
 
-    bool const hasTicket = stpTrans->isFieldPresent(sfTicketSequence);
+    auto const path = importPath(*stpTrans);
+    bool const hasTicket = path == ImportPath::exportCallback;
 
     if (hasTicket && !ctx.rules.enabled(featureExport))
     {
@@ -967,7 +1017,8 @@ Import::preclaim(PreclaimContext const& ctx)
         return tefINTERNAL;
     }
 
-    bool const hasTicket = stpTrans->isFieldPresent(sfTicketSequence);
+    auto const path = importPath(*stpTrans);
+    bool const hasTicket = path == ImportPath::exportCallback;
 
     if (hasTicket)
     {
@@ -1077,11 +1128,11 @@ Import::preclaim(PreclaimContext const& ctx)
         return tefINTERNAL;
     }
 
+    // Shared XPOP verification includes the source VL anti-downgrade ratchet.
+    // A shadow ticket is the callback replay latch; it does not replace the
+    // requirement that imports use the newest validator list this chain has
+    // already accepted from the publisher.
     auto const& sleVL = ctx.view.read(keylet::import_vlseq(vlInfo->second));
-    // Ticket-callback imports skip the destination account's sfImportSequence
-    // gate above, but they still share the source-validator-list ordering
-    // gate with Burn-to-Mint imports. A newer ImportVL sequence therefore
-    // rejects older callback XPOPs from the same source after the fact.
     if (sleVL && sleVL->getFieldU32(sfImportSequence) > vlInfo->first)
     {
         JLOG(ctx.j.warn())
@@ -1290,9 +1341,6 @@ Import::doApply()
     if (!ctx_.tx.isFieldPresent(sfBlob))
         return tefINTERNAL;
 
-    //
-    // Before starting decode and validate XPOP, update ImportVL seq
-    //
     auto const xpop = syntaxCheckXPOP(ctx_.tx.getFieldVL(sfBlob), ctx_.journal);
 
     if (!xpop)
@@ -1302,40 +1350,6 @@ Import::doApply()
 
     if (!infoVL)
         return tefINTERNAL;
-
-    auto const keyletVL = keylet::import_vlseq(infoVL->second);
-    auto sleVL = view().peek(keyletVL);
-
-    if (!sleVL)
-    {
-        // create VL import seq counter
-        JLOG(ctx_.journal.trace())
-            << "Import: create vl seq - insert import sequence + public key";
-        sleVL = std::make_shared<SLE>(keyletVL);
-        sleVL->setFieldU32(sfImportSequence, infoVL->first);
-        sleVL->setFieldVL(sfPublicKey, infoVL->second.slice());
-        view().insert(sleVL);
-    }
-    else
-    {
-        uint32_t current = sleVL->getFieldU32(sfImportSequence);
-
-        if (current > infoVL->first)
-        {
-            // should never happen
-            return tefINTERNAL;
-        }
-        else if (infoVL->first > current)
-        {
-            // perform an update because the sequence number is newer
-            sleVL->setFieldU32(sfImportSequence, infoVL->first);
-            view().update(sleVL);
-        }
-        else
-        {
-            // it's the same sequence number so leave it be
-        }
-    }
 
     auto const [stpTrans, meta] = getInnerTxn(ctx_.tx, ctx_.journal, &(*xpop));
 
@@ -1350,15 +1364,22 @@ Import::doApply()
     }
 
     uint32_t importSequence = stpTrans->getFieldU32(sfSequence);
+    auto const path = importPath(*stpTrans);
     auto const id = ctx_.tx[sfAccount];
     auto sle = view().peek(keylet::account(id));
+
+    // Both Import paths rely on XPOP/VL authority, so both ratchet the source
+    // publisher's VL sequence before path-specific replay handling.
+    if (auto const ter = updateImportVLSequence(view(), *infoVL, ctx_.journal);
+        !isTesSuccess(ter))
+        return ter;
 
     // ---------------------------------------------------------------
     // Export callback path: ticket-based import consumes the shadow
     // ticket and fires hooks — no B2M crediting, no account creation.
     // The hook inspects the result via xpop_slot().
     // ---------------------------------------------------------------
-    if (stpTrans->isFieldPresent(sfTicketSequence))
+    if (path == ImportPath::exportCallback)
     {
         if (!sle)
         {
