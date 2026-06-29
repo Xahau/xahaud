@@ -2555,8 +2555,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ce.cacheUNLReport(ledger);
 
         {
-            auto const roundParent =
+            auto const roundView =
                 makeUNLReportLedger(env, std::vector<PublicKey>{publicKey});
+            auto const roundParent = std::make_shared<Ledger>(
+                *roundView, env.app().timeKeeper().closeTime());
             auto const roundSeq = roundParent->info().seq + 1;
             BEAST_EXPECT(roundSeq != ledger->info().seq + 1);
 
