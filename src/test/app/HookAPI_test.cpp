@@ -19,6 +19,7 @@
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/json/json_writer.h>
@@ -1156,6 +1157,68 @@ public:
                 api.xport(Slice(serialized.data(), serialized.size()));
             BEAST_EXPECT(result.error() == FEE_TOO_LARGE);
         }
+    }
+
+    void
+    test_xport_cancel(FeatureBitset features)
+    {
+        testcase("Test xport_cancel");
+
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        Env env{*this, features};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        std::uint32_t const importingTicket = 7;
+        std::uint32_t const otherTicket = 8;
+        auto importingTx =
+            makeExportedPayment(alice.id(), bob.id(), importingTicket);
+        auto otherTx = makeExportedPayment(alice.id(), bob.id(), otherTicket);
+
+        auto xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
+        xpopJson[jss::transaction][jss::blob] = strHex(serialize(importingTx));
+        std::string const xpopStr = Json::FastWriter().write(xpopJson);
+        STTx importTx = STTx(ttIMPORT, [&](STObject& obj) {
+            obj.setAccountID(sfAccount, alice.id());
+            obj.setFieldVL(sfBlob, *strUnHex(strHex(xpopStr)));
+        });
+
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, importTx);
+        auto const priorBalance = XRPAmount{10'000 * DROPS_PER_XRP};
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::createShadowTicket(
+            applyCtx.view(),
+            alice.id(),
+            importingTx,
+            importingTx.getTransactionID(),
+            priorBalance,
+            env.journal)));
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::createShadowTicket(
+            applyCtx.view(),
+            alice.id(),
+            otherTx,
+            otherTx.getTransactionID(),
+            priorBalance,
+            env.journal)));
+
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        auto& api = hookCtx.api();
+
+        auto const blocked = api.xport_cancel(importingTicket);
+        BEAST_EXPECT(!blocked.has_value());
+        BEAST_EXPECT(blocked.error() == PREREQUISITE_NOT_MET);
+        BEAST_EXPECT(hookCtx.applyCtx.view().exists(
+            keylet::shadowTicket(alice.id(), importingTicket)));
+
+        auto const cancelled = api.xport_cancel(otherTicket);
+        BEAST_EXPECT(cancelled.has_value());
+        BEAST_EXPECT(!hookCtx.applyCtx.view().exists(
+            keylet::shadowTicket(alice.id(), otherTicket)));
     }
 
     void
@@ -5090,6 +5153,7 @@ public:
         test_etxn_nonce(features);
         test_etxn_reserve(features);
         test_xport_reserve(features);
+        test_xport_cancel(features);
         test_fee_base(features);
 
         test_otxn_field(features);

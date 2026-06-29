@@ -1068,6 +1068,21 @@ HookAPI::xport_cancel(uint32_t ticketSeq) const
     auto& app = hookCtx.applyCtx.app;
     auto j = app.journal("View");
 
+    if (hookCtx.applyCtx.tx.getTxnType() == ttIMPORT)
+    {
+        auto const [innerTx, meta] =
+            Import::getInnerTxn(hookCtx.applyCtx.tx, j);
+        if (innerTx && innerTx->isFieldPresent(sfTicketSequence) &&
+            innerTx->getAccountID(sfAccount) == hookCtx.result.account &&
+            innerTx->getFieldU32(sfTicketSequence) == ticketSeq)
+        {
+            // Import consumes this callback latch after strong hooks finish.
+            // Letting the hook pre-cancel it would make the Import fail after
+            // hook state already finalized.
+            return Unexpected(PREREQUISITE_NOT_MET);
+        }
+    }
+
     TER const ter = ExportLedgerOps::cancelShadowTicket(
         hookCtx.applyCtx.view(), hookCtx.result.account, ticketSeq, j);
 

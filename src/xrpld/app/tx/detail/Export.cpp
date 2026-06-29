@@ -143,6 +143,10 @@ Export::doApply()
         consensusExtensions.makeActiveValidatorView(parentLedger);
     bool const trustWitnessMembership =
         ctx_.trustExportSignatureWitnessMembership();
+    // Direct/apply-test callers that supply a witness without consensus
+    // materialization use this live-manifest filter. Live builds and replay
+    // set trustWitnessMembership, so apply does not re-resolve accepted witness
+    // signers through mutable manifests.
     auto const isActiveSigner = [standalone,
                                  &valKeys,
                                  &consensusExtensions,
