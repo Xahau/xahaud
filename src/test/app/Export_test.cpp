@@ -915,9 +915,9 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
-    testExportRejectsAmbiguousLowNetworkID()
+    testExportRejectsAmbiguousAbsentNetworkID()
     {
-        testcase("Export rejects absent NetworkID on low source networks");
+        testcase("Export rejects ambiguous absent target NetworkID");
 
         using namespace jtx;
 
@@ -927,16 +927,16 @@ struct Export_test : public beast::unit_test::suite
         auto const innerTx = makeSTTx(innerObj);
         auto const j = beast::Journal{beast::Journal::getNullSink()};
 
-        // Low-ID networks do not encode sfNetworkID on ordinary transactions,
-        // so an absent destination ID is ambiguous with a self-target.
+        // A source chain that also omits sfNetworkID cannot distinguish an
+        // absent target ID from self-target.
         BEAST_EXPECT(
             ExportLedgerOps::validateNetworkID(innerTx, 0, j) == temMALFORMED);
         BEAST_EXPECT(
             ExportLedgerOps::validateNetworkID(
                 innerTx, maxNetworkIDWithoutTxField, j) == temMALFORMED);
 
-        // A high-ID source chain can still export to a legacy low-ID
-        // destination whose transactions omit sfNetworkID.
+        // A source chain that requires sfNetworkID for itself can export a
+        // target transaction using the no-NetworkID/XRPL-mainnet encoding.
         BEAST_EXPECT(
             ExportLedgerOps::validateNetworkID(
                 innerTx, maxNetworkIDWithoutTxField + 1, j) == tesSUCCESS);
@@ -2024,7 +2024,7 @@ struct Export_test : public beast::unit_test::suite
         testXportPayment(allWithExport);
         testXportRejectsLocalNetworkID(allWithExport);
         testXportRejectsUnconfiguredNetworkID(allWithExport);
-        testExportRejectsAmbiguousLowNetworkID();
+        testExportRejectsAmbiguousAbsentNetworkID();
         testXportEmissionLimit(allWithExport);
 
         // ttEXPORT transactor tests

@@ -126,13 +126,11 @@ checkExportTxnLimit(ReadView const& view, beast::Journal j)
 /// Validate that the exported transaction's NetworkID doesn't target
 /// the local network. Returns tesSUCCESS if OK, or a TER error code.
 ///
-/// Rules (per upstream rippled Transactor.cpp):
-///   - Legacy networks: sfNetworkID must NOT be present on txns
-///   - Other networks:  sfNetworkID is REQUIRED and must match
-///
-/// So: if exported tx has sfNetworkID matching local → self-target.
-///     if local NETWORK_ID is legacy and tx has no sfNetworkID → can't
-///     distinguish self from another low-ID chain, reject.
+/// Export only needs to prove the target is not this chain. An explicit
+/// sfNetworkID names a target network, so matching the local NETWORK_ID is a
+/// self-target. An absent sfNetworkID is the no-NetworkID target encoding used
+/// by XRPL mainnet; if this source chain also uses that encoding, absent target
+/// identity is ambiguous with self-target and must be rejected.
 inline TER
 validateNetworkID(
     STTx const& stx,
@@ -152,7 +150,7 @@ validateNetworkID(
         !stx.isFieldPresent(sfNetworkID))
     {
         JLOG(j.warn()) << "ExportLedgerOps: rejected export with "
-                          "ambiguous low NETWORK_ID";
+                          "ambiguous absent NetworkID";
         return temMALFORMED;
     }
 
