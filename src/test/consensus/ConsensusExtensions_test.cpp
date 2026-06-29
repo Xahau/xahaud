@@ -43,6 +43,7 @@
 #include <cstring>
 #include <deque>
 #include <limits>
+#include <string>
 
 namespace ripple {
 namespace test {
@@ -124,13 +125,16 @@ makeSTTx(STObject const& obj)
 }
 
 STObject
-makeExportedPayment(AccountID const& src, AccountID const& dst)
+makeExportedPayment(
+    AccountID const& src,
+    AccountID const& dst,
+    std::uint32_t ticketSequence = 1)
 {
     STObject obj(sfExportedTxn);
     obj.setFieldU16(sfTransactionType, ttPAYMENT);
     obj.setFieldU32(sfFlags, tfFullyCanonicalSig);
     obj.setFieldU32(sfSequence, 0);
-    obj.setFieldU32(sfTicketSequence, 1);
+    obj.setFieldU32(sfTicketSequence, ticketSequence);
     obj.setFieldU32(sfFirstLedgerSequence, 2);
     obj.setFieldU32(sfLastLedgerSequence, 6);
     obj.setFieldAmount(sfAmount, XRPAmount{1000000});
@@ -2088,19 +2092,32 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const& valSK = valKeys.keys->secretKey;
         auto const signerAccount = calcAccountID(valPK);
         auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
-        auto const innerObj = makeExportedPayment(signerAccount, dst);
-        auto const innerTx = makeSTTx(innerObj);
-        auto const exportTx = makeExportTx(innerObj, signerAccount);
-        auto const txHash = exportTx->getTransactionID();
-        auto const txSet = makeRCLTxSet(env.app(), {exportTx});
-
-        auto const sigData = buildMultiSigningData(innerTx, signerAccount);
-        auto const sig = sign(valPK, valSK, sigData.slice());
-        Buffer const validSig(sig.data(), sig.size());
         std::uint8_t const invalidBytes[] = {0x30, 0x03, 0x01, 0x02, 0x03};
         Buffer const invalidSig{invalidBytes, sizeof(invalidBytes)};
 
-        auto expectRejected = [&](ConsensusExtensions& ce,
+        struct ExportSigCase
+        {
+            uint256 txHash;
+            RCLTxSet txSet;
+            Buffer validSig;
+        };
+
+        auto makeExportSigCase =
+            [&](std::uint32_t ticketSequence) -> ExportSigCase {
+            auto const innerObj =
+                makeExportedPayment(signerAccount, dst, ticketSequence);
+            auto const innerTx = makeSTTx(innerObj);
+            auto const exportTx = makeExportTx(innerObj, signerAccount);
+            auto const sigData = buildMultiSigningData(innerTx, signerAccount);
+            auto const sig = sign(valPK, valSK, sigData.slice());
+            return ExportSigCase{
+                exportTx->getTransactionID(),
+                makeRCLTxSet(env.app(), {exportTx}),
+                Buffer(sig.data(), sig.size())};
+        };
+
+        auto expectRejected = [&](std::string const& label,
+                                  ConsensusExtensions& ce,
                                   std::shared_ptr<SHAMap> const& map,
                                   uint256 const& expectedTxHash,
                                   PublicKey const& expectedSigner) {
@@ -2109,98 +2126,114 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 ce,
                 map,
                 ConsensusExtensions::SidecarKind::exportSigSet);
-            BEAST_EXPECT(!ce.exportSigCollector().hasVerifiedSignature(
-                expectedTxHash, expectedSigner));
-            BEAST_EXPECT(
-                ce.exportSigCollector().signatureCount(expectedTxHash) == 0);
+            BEAST_EXPECTS(
+                !ce.exportSigCollector().hasVerifiedSignature(
+                    expectedTxHash, expectedSigner),
+                label + ": fetched signature was admitted");
+            BEAST_EXPECTS(
+                ce.exportSigCollector().signatureCount(expectedTxHash) == 0,
+                label + ": signature count is non-zero");
         };
 
         {
+            auto const c = makeExportSigCase(101);
             auto const [inactivePK, _] = randomKeyPair(KeyType::secp256k1);
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.setExportEnabledThisRound(true);
             ce.cacheUNLReport(ledger);
-            ce.cacheConsensusTxSet(txSet);
+            ce.cacheConsensusTxSet(c.txSet);
 
             expectRejected(
+                "inactive-signer",
                 ce,
                 makeSidecarSet(
                     env.app(),
                     {makeExportSigSidecar(
-                        txHash,
+                        c.txHash,
                         inactivePK,
-                        Slice(validSig.data(), validSig.size()))}),
-                txHash,
+                        Slice(c.validSig.data(), c.validSig.size()))}),
+                c.txHash,
                 inactivePK);
         }
 
         {
+            auto const c = makeExportSigCase(102);
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.setExportEnabledThisRound(true);
             ce.cacheUNLReport(ledger);
             ce.cacheConsensusTxSet(makeRCLTxSet(env.app(), {}));
 
             expectRejected(
+                "tx-not-in-consensus-set",
                 ce,
                 makeSidecarSet(
                     env.app(),
                     {makeExportSigSidecar(
-                        txHash,
+                        c.txHash,
                         valPK,
-                        Slice(validSig.data(), validSig.size()))}),
-                txHash,
+                        Slice(c.validSig.data(), c.validSig.size()))}),
+                c.txHash,
                 valPK);
         }
 
         {
+            auto const c = makeExportSigCase(103);
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.setExportEnabledThisRound(true);
             ce.cacheUNLReport(ledger);
-            ce.cacheConsensusTxSet(txSet);
+            ce.cacheConsensusTxSet(c.txSet);
 
             expectRejected(
+                "invalid-signature",
                 ce,
                 makeSidecarSet(
                     env.app(),
                     {makeExportSigSidecar(
-                        txHash,
+                        c.txHash,
                         valPK,
                         Slice(invalidSig.data(), invalidSig.size()))}),
-                txHash,
+                c.txHash,
                 valPK);
         }
 
         {
+            auto const c = makeExportSigCase(104);
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.setExportEnabledThisRound(true);
             ce.cacheUNLReport(ledger);
-            ce.cacheConsensusTxSet(txSet);
+            ce.cacheConsensusTxSet(c.txSet);
 
             expectRejected(
+                "item-key-mismatch",
                 ce,
                 makeMiskeyedSidecarSet(
                     env.app(),
                     makeExportSigSidecar(
-                        txHash,
+                        c.txHash,
                         valPK,
-                        Slice(validSig.data(), validSig.size()))),
-                txHash,
+                        Slice(c.validSig.data(), c.validSig.size()))),
+                c.txHash,
                 valPK);
         }
 
         {
+            auto const c = makeExportSigCase(105);
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.setExportEnabledThisRound(true);
             ce.cacheUNLReport(ledger);
-            ce.cacheConsensusTxSet(txSet);
+            ce.cacheConsensusTxSet(c.txSet);
 
             auto oversizedLeaf = makeExportSigSidecar(
-                txHash, valPK, Slice(validSig.data(), validSig.size()));
+                c.txHash, valPK, Slice(c.validSig.data(), c.validSig.size()));
             oversizedLeaf.setFieldVL(
                 sfBlob, Blob(ExportLimits::maxExportSignatureSidecarBytes, 0));
 
             expectRejected(
-                ce, makeSidecarSet(env.app(), {oversizedLeaf}), txHash, valPK);
+                "oversized-leaf",
+                ce,
+                makeSidecarSet(env.app(), {oversizedLeaf}),
+                c.txHash,
+                valPK);
         }
     }
 
