@@ -100,6 +100,9 @@ enum class HashPrefix : std::uint32_t {
     /** consensus extension sidecar object */
     sidecar = detail::make_hash_prefix('S', 'C', 'R'),
 
+    /** consensus diagnostic observed participant set */
+    observedParticipants = detail::make_hash_prefix('O', 'B', 'P'),
+
     /** consensus-bound fallback entropy digest (Tier 1: derived from
         already-agreed round inputs when no agreed reveal set reaches an
         accepted validator-participant tier; never to be confused with

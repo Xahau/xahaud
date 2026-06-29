@@ -2070,7 +2070,7 @@ ConsensusExtensions::recordParticipantDiagnostics(
     for (auto const& nodeId : observedSorted)
         s.addBitString(nodeId);
 
-    auto const hash = s.getSHA512Half();
+    auto const hash = sha512Half(HashPrefix::observedParticipants, s.slice());
     bool const changed = !observedParticipantsHash_ ||
         *observedParticipantsHash_ != hash ||
         observedParticipantsCount_ != observedSorted.size() ||
