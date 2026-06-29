@@ -796,20 +796,20 @@ ConsensusExtensions::clearAcceptedEntropySet()
 
 ConsensusExtensions::EntropySelection
 ConsensusExtensions::selectEntropy(
-    uint256 const& baseTxSetHash,
+    uint256 const& agreedTxSetHash,
     LedgerIndex seq) const
 {
     //@@start entropy-selector-fallback
     // Tier 1 fallback: consensus-bound deterministic digest over already-agreed
-    // round inputs. baseTxSetHash is the BASE (pre-injection) consensus tx set
-    // hash — the digest must never depend on a set that could contain the
-    // pseudo-tx carrying it (circular).
+    // round inputs. agreedTxSetHash is the pre-injection consensus tx set hash:
+    // the digest must never depend on a set that could contain the pseudo-tx
+    // carrying it (circular).
     auto const fallback = [&]() -> EntropySelection {
         return {
             sha512Half(
                 HashPrefix::entropyFallback,
                 roundPrevLedgerHash_,
-                baseTxSetHash,
+                agreedTxSetHash,
                 seq),
             entropyTierConsensusFallback,
             0};
@@ -940,6 +940,23 @@ bool
 ConsensusExtensions::rngEnabled() const
 {
     return rngEnabledThisRound_.load(std::memory_order_relaxed);
+}
+
+uint256
+ConsensusExtensions::txnOrderingSalt(
+    uint256 const& agreedTxSetHash,
+    LedgerIndex seq) const
+{
+    if (!rngEnabled())
+        return agreedTxSetHash;
+
+    auto const selection = selectEntropy(agreedTxSetHash, seq);
+    return sha512Half(
+        HashPrefix::entropyTxnOrder,
+        agreedTxSetHash,
+        selection.digest,
+        selection.tier,
+        selection.count);
 }
 
 bool
@@ -2207,7 +2224,7 @@ ConsensusExtensions::onPreBuild(
         //@@start rng-inject-entropy-selection
         // One deterministic selector over the AGREED entropySetMap_ chooses the
         // digest and its tier/count. Every node derives the same entropy for
-        // the same agreed round inputs. txSetHash is the BASE (pre-injection)
+        // the same agreed round inputs. txSetHash is the agreed pre-injection
         // consensus tx set hash.
         auto const selection = selectEntropy(txSetHash, seq);
         uint256 const finalEntropy = selection.digest;

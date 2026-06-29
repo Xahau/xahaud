@@ -108,6 +108,9 @@ enum class HashPrefix : std::uint32_t {
         accepted validator-participant tier; never to be confused with
         validator entropy) */
     entropyFallback = detail::make_hash_prefix('E', 'F', 'B'),
+
+    /** consensus entropy transaction-ordering salt */
+    entropyTxnOrder = detail::make_hash_prefix('E', 'T', 'O'),
 };
 
 template <class Hasher>

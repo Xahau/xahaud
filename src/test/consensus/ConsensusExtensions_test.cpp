@@ -1389,6 +1389,43 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testTxnOrderingSaltExtendsLegacySalt()
+    {
+        testcase("transaction ordering salt extends legacy salt");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+        forceNonStandalone(env.app());
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const seq = ledger->seq() + 1;
+        auto const txSetHash = makeHash("txn-order-base-set");
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.onRoundStart(RCLCxLedger{ledger}, {});
+
+        ce.setRngEnabledThisRound(false);
+        BEAST_EXPECT(ce.txnOrderingSalt(txSetHash, seq) == txSetHash);
+
+        ce.setRngEnabledThisRound(true);
+        auto const fallbackDigest = sha512Half(
+            HashPrefix::entropyFallback, ledger->info().hash, txSetHash, seq);
+        auto const expected = sha512Half(
+            HashPrefix::entropyTxnOrder,
+            txSetHash,
+            fallbackDigest,
+            static_cast<std::uint8_t>(entropyTierConsensusFallback),
+            static_cast<std::uint16_t>(0));
+
+        auto const salt = ce.txnOrderingSalt(txSetHash, seq);
+        BEAST_EXPECT(salt == expected);
+        BEAST_EXPECT(salt != txSetHash);
+    }
+
+    void
     testOnPreBuildInjectsEntropySetEntropy()
     {
         testcase("onPreBuild injects entropy-set entropy");
@@ -4159,6 +4196,7 @@ public:
         testRuntimeConfigPolicyAccessors();
         testDecoratePositionGeneratesCommitment();
         testOnPreBuildInjectsZeroEntropyFallback();
+        testTxnOrderingSaltExtendsLegacySalt();
         testOnPreBuildInjectsEntropySetEntropy();
         testOnPreBuildTier2ParticipantAligned();
         testTier2ThresholdAnchorsToOriginalView();

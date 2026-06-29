@@ -574,11 +574,15 @@ RCLConsensus::Adaptor::doAccept(
     //--------------------------------------------------------------------------
     std::set<TxID> failed;
 
-    // We want to put transactions in an unpredictable but deterministic order:
-    // we use the hash of the set.
+    // We want to put transactions in an unpredictable but deterministic order.
+    // ConsensusEntropy extends the agreed tx-set salt with the selected
+    // ledger entropy; when disabled this remains the legacy tx-set hash salt.
     //
     // FIXME: Use a std::vector and a custom sorter instead of CanonicalTXSet?
-    CanonicalTXSet retriableTxs{result.txns.map_->getHash().as_uint256()};
+    auto const agreedTxSetHash = result.txns.map_->getHash().as_uint256();
+    auto const buildSeq = prevLedger.seq() + 1;
+    CanonicalTXSet retriableTxs{
+        ce().txnOrderingSalt(agreedTxSetHash, buildSeq)};
 
     JLOG(j_.debug()) << "Building canonical tx set: " << retriableTxs.key();
 
@@ -604,7 +608,7 @@ RCLConsensus::Adaptor::doAccept(
     // onPreBuild; export-only rounds still need this hook even when RNG is off.
     //@@start accept-time-cleanup-disabled
     if (ce().rngEnabled() || ce().exportEnabled())
-        ce().onPreBuild(retriableTxs, prevLedger.seq() + 1, result.txns.id());
+        ce().onPreBuild(retriableTxs, buildSeq, agreedTxSetHash);
     else if (!ce().exportEnabled())
         ce().clearRngState();
     //@@end accept-time-cleanup-disabled

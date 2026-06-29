@@ -340,7 +340,7 @@ non-UNLReport (config-fallback) view, every case below instead mints
 - No peer entropy hash is observed in time: fall back to the Tier 1 digest.
 
 The fallback pseudo-transaction is deterministic — every node derives the same
-digest from `(HashPrefix::entropyFallback, parentLedgerHash, baseTxSetHash,
+digest from `(HashPrefix::entropyFallback, parentLedgerHash, agreedTxSetHash,
 seq)` — and labeled with `EntropyTier = consensus_fallback` and
 `EntropyCount = 0`. Hooks state their own requirements via the required
 `min_tier`/`min_count` arguments to `dice()`/`random()`: a hook that demands
@@ -357,7 +357,7 @@ entropy; final buildLCL execution sees the current ledger's entropy pseudo-tx
 after it updates the SLE. Hooks that need final entropy must treat open-ledger
 RNG results as previews.
 
-The fallback digest derives from the BASE (pre-injection) tx set hash to avoid
+The fallback digest derives from the agreed pre-injection tx set hash to avoid
 circularity, and entropy pseudo-tx deduplication is value-based: if the agreed
 set already contains the exact pseudo-tx, injection skips it; a
 present-but-different pseudo-tx is logged as a determinism violation and left in

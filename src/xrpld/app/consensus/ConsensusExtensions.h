@@ -280,10 +280,15 @@ public:
     /// quorumThreshold), participant_aligned (>= tier2Threshold) or
     /// consensus_fallback. In non-standalone mode, non-fallback labels require
     /// an UNLReport-backed active view; the trusted-fallback view is local
-    /// config and mints Tier 1. baseTxSetHash is the BASE (pre-injection) tx
-    /// set hash used for the fallback digest.
+    /// config and mints Tier 1. agreedTxSetHash is the pre-injection consensus
+    /// tx set hash used for the fallback digest.
     EntropySelection
-    selectEntropy(uint256 const& baseTxSetHash, LedgerIndex seq) const;
+    selectEntropy(uint256 const& agreedTxSetHash, LedgerIndex seq) const;
+
+    /// Extend the legacy closed-ledger transaction-order salt with the same
+    /// consensus entropy selected for the ledger's entropy pseudo-tx.
+    uint256
+    txnOrderingSalt(uint256 const& agreedTxSetHash, LedgerIndex seq) const;
 
     bool
     rngEnabled() const;
@@ -434,9 +439,9 @@ public:
     void
     clearRngState();
 
-    /// txSetHash is the BASE (pre-injection) consensus tx set hash —
-    /// an input to the Tier 1 consensus_fallback digest. It must never be the
-    /// hash of a set that could contain the entropy pseudo-tx itself.
+    /// txSetHash is the agreed pre-injection consensus tx set hash — an input
+    /// to the Tier 1 consensus_fallback digest. It must never be the hash of a
+    /// set that could contain the entropy pseudo-tx itself.
     void
     onPreBuild(
         CanonicalTXSet& retriableTxs,
