@@ -19,6 +19,7 @@
 #include <xrpld/app/hook/detail/XportWrapperBuilder.h>
 #include <xrpl/basics/Expected.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/STAmount.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
@@ -150,7 +151,9 @@ public:
             wrapper.getAccountID(sfAccount) == calcAccountID(exporter.first));
         BEAST_EXPECT(wrapper.getFieldU32(sfSequence) == 0);
         BEAST_EXPECT(wrapper.getFieldU32(sfFirstLedgerSequence) == 11);
-        BEAST_EXPECT(wrapper.getFieldU32(sfLastLedgerSequence) == 15);
+        BEAST_EXPECT(
+            wrapper.getFieldU32(sfLastLedgerSequence) ==
+            10 + ExportLimits::maxRetryLedgers);
         BEAST_EXPECT(wrapper.getFieldAmount(sfFee) == STAmount{12345});
         BEAST_EXPECT(wrapper.getFieldVL(sfSigningPubKey).empty());
 

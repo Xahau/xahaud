@@ -1,6 +1,7 @@
 #include <xrpld/app/hook/detail/XportWrapperBuilder.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/STAmount.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/Serializer.h>
@@ -63,7 +64,8 @@ build(Input const& input)
     exportObj[sfSequence] = 0u;
     exportObj.setFieldVL(sfSigningPubKey, Blob{});
     exportObj[sfFirstLedgerSequence] = input.ledgerSeq + 1;
-    exportObj[sfLastLedgerSequence] = input.ledgerSeq + 5;
+    exportObj[sfLastLedgerSequence] =
+        input.ledgerSeq + ExportLimits::maxRetryLedgers;
     exportObj[sfFee] = STAmount{0};
 
     SerialIter sit(innerSer.slice());

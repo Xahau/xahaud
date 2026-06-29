@@ -70,6 +70,11 @@ Export::preclaim(PreclaimContext const& ctx)
         !isTesSuccess(ter))
         return ter;
 
+    if (auto ter =
+            ExportLedgerOps::validateRetryWindow(ctx.tx, ctx.view.seq(), ctx.j);
+        !isTesSuccess(ter))
+        return ter;
+
     if (auto ter = ExportLedgerOps::checkExportTxnLimit(ctx.view, ctx.j);
         !isTesSuccess(ter))
         return ter;

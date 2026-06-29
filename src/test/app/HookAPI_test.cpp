@@ -23,6 +23,7 @@
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/json/json_writer.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/TxFlags.h>
@@ -208,7 +209,9 @@ public:
             BEAST_EXPECT(st.getAccountID(sfAccount) == alice.id());
             auto const seq = applyCtx.view().info().seq;
             BEAST_EXPECT(st.getFieldU32(sfFirstLedgerSequence) == seq + 1);
-            BEAST_EXPECT(st.getFieldU32(sfLastLedgerSequence) == seq + 5);
+            BEAST_EXPECT(
+                st.getFieldU32(sfLastLedgerSequence) ==
+                seq + ExportLimits::maxRetryLedgers);
             BEAST_EXPECT(st.isFieldPresent(sfEmitDetails));
 
             auto const result2 =
@@ -238,7 +241,8 @@ public:
             obj[sfSequence] = 0;
             obj[sfSigningPubKey] = Slice{};
             obj[sfFirstLedgerSequence] = env.closed()->seq() + 1;
-            obj[sfLastLedgerSequence] = env.closed()->seq() + 5;
+            obj[sfLastLedgerSequence] =
+                env.closed()->seq() + ExportLimits::maxRetryLedgers;
             obj[sfFee] = env.closed()->fees().base;
 
             auto& emitDetails = obj.peekFieldObject(sfEmitDetails);
@@ -254,7 +258,8 @@ public:
             obj[sfSequence] = 0;
             obj[sfSigningPubKey] = Slice{};
             obj[sfFirstLedgerSequence] = env.closed()->seq() + 1;
-            obj[sfLastLedgerSequence] = env.closed()->seq() + 5;
+            obj[sfLastLedgerSequence] =
+                env.closed()->seq() + ExportLimits::maxRetryLedgers;
             obj[sfFee] = env.closed()->fees().base;
             STObject hookobj(sfHook);
             auto& hooks = obj.peekFieldArray(sfHooks);
@@ -591,10 +596,12 @@ public:
             }
             {
                 // Invalid sfLastLedgerSequence
-                // (greater than current ledger seq + 5)
+                // (greater than the export retry window)
                 auto tx = emitInvokeTx;
                 auto const currentSeq = applyCtx.view().info().seq;
-                tx.setFieldU32(sfLastLedgerSequence, currentSeq + 6);
+                tx.setFieldU32(
+                    sfLastLedgerSequence,
+                    currentSeq + ExportLimits::maxRetryLedgers + 1);
                 auto const result = api.emit(tx.getSerializer().slice());
                 BEAST_EXPECT(result.error() == EMISSION_FAILURE);
             }

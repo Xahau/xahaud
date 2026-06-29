@@ -123,6 +123,31 @@ checkExportTxnLimit(ReadView const& view, beast::Journal j)
     return tecDIR_FULL;
 }
 
+inline TER
+validateRetryWindow(STTx const& stx, LedgerIndex ledgerSeq, beast::Journal j)
+{
+    if (!stx.isFieldPresent(sfLastLedgerSequence))
+    {
+        JLOG(j.warn()) << "ExportLedgerOps: export missing "
+                          "sfLastLedgerSequence";
+        return temMALFORMED;
+    }
+
+    auto const lls = stx.getFieldU32(sfLastLedgerSequence);
+    auto const maxLLS =
+        static_cast<std::uint64_t>(ledgerSeq) + ExportLimits::maxRetryLedgers;
+    if (lls > maxLLS)
+    {
+        JLOG(j.warn()) << "ExportLedgerOps: export LastLedgerSequence too far "
+                          "ahead ledgerSeq="
+                       << ledgerSeq << " lastLedgerSequence=" << lls
+                       << " maxRetryLedgers=" << ExportLimits::maxRetryLedgers;
+        return temMALFORMED;
+    }
+
+    return tesSUCCESS;
+}
+
 /// Validate that the exported transaction's NetworkID doesn't target
 /// the local network. Returns tesSUCCESS if OK, or a TER error code.
 ///

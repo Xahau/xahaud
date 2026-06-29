@@ -28,6 +28,11 @@ struct ExportLimits
     //   - validator signing work per round
     static constexpr std::uint8_t maxPendingExports = 8;
 
+    // Maximum number of ledgers a pending export may retry before its
+    // mandatory LastLedgerSequence expires. This bounds validator signing work
+    // for both hook-emitted and user-submitted exports.
+    static constexpr std::uint32_t maxRetryLedgers = 5;
+
     // Maximum byte length of a single export-signature wire blob:
     //   txHash(32) + validator pubkey(33) + multisign signature(<= 72).
     // A fully-canonical secp256k1 signature is at most 72 bytes (ed25519 is

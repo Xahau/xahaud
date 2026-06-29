@@ -428,7 +428,8 @@ HookAPI::prepare(Slice const& txBlob) const
         json[jss::FirstLedgerSequence] = Json::Value(seq + 1);
 
     if (!json.isMember(jss::LastLedgerSequence))
-        json[jss::LastLedgerSequence] = Json::Value(seq + 5);
+        json[jss::LastLedgerSequence] =
+            Json::Value(seq + ExportLimits::maxRetryLedgers);
 
     uint8_t details[512];
     if (!json.isMember(jss::EmitDetails))
@@ -548,8 +549,8 @@ HookAPI::emit(Slice const& txBlob) const
      * 2. PubSigningKey: 000000000000000
      * 3. sfEmitDetails present and valid
      * 4. No sfTxnSignature
-     * 5. LastLedgerSeq > current ledger, > firstledgerseq & LastLedgerSeq < seq
-     * + 5
+     * 5. LastLedgerSeq > current ledger, > firstledgerseq & bounded by the
+     *    export retry window.
      * 6. FirstLedgerSeq > current ledger
      * 7. Fee must be correctly high
      * 8. The generation cannot be higher than 10
@@ -742,11 +743,12 @@ HookAPI::emit(Slice const& txBlob) const
         return Unexpected(EMISSION_FAILURE);
     }
 
-    if (tx_lls > ledgerSeq + 5)
+    if (tx_lls > ledgerSeq + ExportLimits::maxRetryLedgers)
     {
         JLOG(j.trace())
             << "HookEmit[" << HC_ACC()
-            << "]: sfLastLedgerSequence cannot be greater than current seq + 5";
+            << "]: sfLastLedgerSequence cannot be greater than current seq + "
+            << ExportLimits::maxRetryLedgers;
         return Unexpected(EMISSION_FAILURE);
     }
 
