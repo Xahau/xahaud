@@ -1067,14 +1067,19 @@ HookAPI::xport_cancel(uint32_t ticketSeq) const
 {
     auto& app = hookCtx.applyCtx.app;
     auto j = app.journal("View");
+    auto const& currentTx = hookCtx.applyCtx.tx;
+    auto const& account = hookCtx.result.account;
 
-    if (hookCtx.applyCtx.tx.getTxnType() == ttIMPORT)
+    auto matchesTicket = [&](STTx const& innerTx) {
+        return innerTx.isFieldPresent(sfTicketSequence) &&
+            innerTx.getAccountID(sfAccount) == account &&
+            innerTx.getFieldU32(sfTicketSequence) == ticketSeq;
+    };
+
+    if (currentTx.getTxnType() == ttIMPORT)
     {
-        auto const [innerTx, meta] =
-            Import::getInnerTxn(hookCtx.applyCtx.tx, j);
-        if (innerTx && innerTx->isFieldPresent(sfTicketSequence) &&
-            innerTx->getAccountID(sfAccount) == hookCtx.result.account &&
-            innerTx->getFieldU32(sfTicketSequence) == ticketSeq)
+        auto const [innerTx, meta] = Import::getInnerTxn(currentTx, j);
+        if (innerTx && matchesTicket(*innerTx))
         {
             // Import consumes this callback latch after strong hooks finish.
             // Letting the hook pre-cancel it would make the Import fail after
@@ -1082,9 +1087,19 @@ HookAPI::xport_cancel(uint32_t ticketSeq) const
             return Unexpected(PREREQUISITE_NOT_MET);
         }
     }
+    else if (currentTx.getTxnType() == ttEXPORT)
+    {
+        if (auto const innerTx = ExportLedgerOps::innerExportedTx(currentTx);
+            innerTx && matchesTicket(*innerTx))
+        {
+            // Export creates this callback latch before post-apply hooks run.
+            // Letting the callback cancel it would make the later Import fail.
+            return Unexpected(PREREQUISITE_NOT_MET);
+        }
+    }
 
     TER const ter = ExportLedgerOps::cancelShadowTicket(
-        hookCtx.applyCtx.view(), hookCtx.result.account, ticketSeq, j);
+        hookCtx.applyCtx.view(), account, ticketSeq, j);
 
     if (!isTesSuccess(ter))
         return Unexpected(DOESNT_EXIST);

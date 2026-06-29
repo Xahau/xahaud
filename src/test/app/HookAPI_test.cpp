@@ -77,6 +77,25 @@ private:
         return makeSTTx(obj);
     }
 
+    STTx
+    makeExportWrapper(AccountID const& account, STTx const& innerTx)
+    {
+        STObject obj(sfGeneric);
+        obj.setFieldU16(sfTransactionType, ttEXPORT);
+        obj.setAccountID(sfAccount, account);
+        obj.setFieldU32(sfSequence, 0);
+        obj.setFieldVL(sfSigningPubKey, Blob{});
+        obj.setFieldAmount(sfFee, XRPAmount{0});
+        obj.setFieldU32(sfFirstLedgerSequence, 2);
+        obj.setFieldU32(sfLastLedgerSequence, 6);
+
+        auto const innerBlob = serialize(innerTx);
+        SerialIter sit{makeSlice(innerBlob)};
+        obj.set(std::make_unique<STObject>(sit, sfExportedTxn));
+
+        return makeSTTx(obj);
+    }
+
     ApplyContext
     createApplyContext(jtx::Env& env, OpenView& ov, STTx const& tx)
     {
@@ -1219,6 +1238,42 @@ public:
         BEAST_EXPECT(cancelled.has_value());
         BEAST_EXPECT(!hookCtx.applyCtx.view().exists(
             keylet::shadowTicket(alice.id(), otherTicket)));
+
+        auto exportTx = makeExportWrapper(alice.id(), importingTx);
+        OpenView exportOv{*env.current()};
+        ApplyContext exportApplyCtx =
+            createApplyContext(env, exportOv, exportTx);
+        std::uint32_t const exportOtherTicket = 9;
+        auto exportOtherTx =
+            makeExportedPayment(alice.id(), bob.id(), exportOtherTicket);
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::createShadowTicket(
+            exportApplyCtx.view(),
+            alice.id(),
+            importingTx,
+            importingTx.getTransactionID(),
+            priorBalance,
+            env.journal)));
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::createShadowTicket(
+            exportApplyCtx.view(),
+            alice.id(),
+            exportOtherTx,
+            exportOtherTx.getTransactionID(),
+            priorBalance,
+            env.journal)));
+        auto exportHookCtx =
+            makeStubHookContext(exportApplyCtx, alice.id(), alice.id(), {});
+        auto& exportApi = exportHookCtx.api();
+
+        auto const exportBlocked = exportApi.xport_cancel(importingTicket);
+        BEAST_EXPECT(!exportBlocked.has_value());
+        BEAST_EXPECT(exportBlocked.error() == PREREQUISITE_NOT_MET);
+        BEAST_EXPECT(exportHookCtx.applyCtx.view().exists(
+            keylet::shadowTicket(alice.id(), importingTicket)));
+
+        auto const exportCancelled = exportApi.xport_cancel(exportOtherTicket);
+        BEAST_EXPECT(exportCancelled.has_value());
+        BEAST_EXPECT(!exportHookCtx.applyCtx.view().exists(
+            keylet::shadowTicket(alice.id(), exportOtherTicket)));
     }
 
     void
