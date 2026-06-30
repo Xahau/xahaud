@@ -1032,29 +1032,21 @@ RCLConsensus::phase() const
 bool
 RCLConsensus::isExtensionSet(uint256 const& hash) const
 {
-    if constexpr (!ConsensusExtensions::sidecarReconciliationEnabled())
-    {
-        (void)hash;
-        return false;
-    }
-
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
     std::lock_guard _{mutex_};
     if (consensus_->phase() == ConsensusPhase::accepted)
         return false;
     return adaptor_.ce().isSidecarSet(hash);
+#else
+    (void)hash;
+    return false;
+#endif
 }
 
 void
 RCLConsensus::gotExtensionSet(std::shared_ptr<SHAMap> const& map)
 {
-    if constexpr (!ConsensusExtensions::sidecarReconciliationEnabled())
-    {
-        JLOG(j_.debug()) << "Ignoring acquired sidecar set "
-                         << map->getHash().as_uint256()
-                         << " reason=reconciliation-disabled";
-        return;
-    }
-
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
     std::lock_guard _{mutex_};
     // Accept builds run without the consensus mutex and clear extension
     // working state. Late sidecar fetches belong to the previous establish
@@ -1066,6 +1058,11 @@ RCLConsensus::gotExtensionSet(std::shared_ptr<SHAMap> const& map)
         return;
     }
     adaptor_.ce().onAcquiredSidecarSet(map);
+#else
+    JLOG(j_.debug()) << "Ignoring acquired sidecar set "
+                     << map->getHash().as_uint256()
+                     << " reason=reconciliation-disabled";
+#endif
 }
 
 bool

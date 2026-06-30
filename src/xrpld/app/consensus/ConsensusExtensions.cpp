@@ -50,6 +50,7 @@
 #include <algorithm>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <random>
 
 namespace ripple {
@@ -181,6 +182,7 @@ makeSidecarItem(STObject const& sidecar)
     return make_shamapitem(itemKey, s.slice());
 }
 
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
 bool
 sidecarLeafCountWithin(SHAMap const& map, std::size_t maxLeaves)
 {
@@ -196,6 +198,7 @@ sidecarLeafCountWithin(SHAMap const& map, std::size_t maxLeaves)
     });
     return within;
 }
+#endif
 
 //@@start active-validator-view-build
 ActiveValidatorViewSource
@@ -404,6 +407,117 @@ ConsensusExtensions::entropyGateThreshold() const
     // to consensus_fallback.
     auto const view = activeValidatorView();
     return entropyGateThresholdForView(view->size(), view->originalViewSize);
+}
+
+void
+ConsensusExtensions::recordSidecarRootSupport(
+    NodeID const& nodeId,
+    ExtendedPosition const& position)
+{
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
+    if (!isUNLReportMember(nodeId))
+        return;
+
+    auto record = [&](auto& roots, std::optional<uint256> const& hash) {
+        for (auto it = roots.begin(); it != roots.end();)
+        {
+            auto current = it++;
+            current->second.erase(nodeId);
+            if (current->second.empty())
+                roots.erase(current);
+        }
+
+        if (hash && *hash != uint256{})
+            roots[*hash].insert(nodeId);
+    };
+
+    record(sidecarRootSupport_.commitSet, position.commitSetHash);
+    record(sidecarRootSupport_.entropySet, position.entropySetHash);
+    record(sidecarRootSupport_.exportSigSet, position.exportSigSetHash);
+#else
+    (void)nodeId;
+    (void)position;
+#endif
+}
+
+std::size_t
+ConsensusExtensions::sidecarRootSupport(SidecarKind kind, uint256 const& hash)
+    const
+{
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
+    auto observedSupport = [&](auto const& roots) -> std::size_t {
+        auto const it = roots.find(hash);
+        return it == roots.end() ? 0 : it->second.size();
+    };
+
+    std::size_t support = 0;
+    auto const localContribution =
+        localIsActiveValidator() ? std::size_t{1} : std::size_t{0};
+    switch (kind)
+    {
+        case SidecarKind::commitSet:
+            support = observedSupport(sidecarRootSupport_.commitSet);
+            if (commitSetMap_ && commitSetMap_->getHash().as_uint256() == hash)
+                support += localContribution;
+            break;
+        case SidecarKind::entropySet:
+            support = observedSupport(sidecarRootSupport_.entropySet);
+            if (entropySetMap_ &&
+                entropySetMap_->getHash().as_uint256() == hash)
+                support += localContribution;
+            break;
+        case SidecarKind::exportSigSet:
+            support = observedSupport(sidecarRootSupport_.exportSigSet);
+            if (exportSigSetMap_ &&
+                exportSigSetMap_->getHash().as_uint256() == hash)
+                support += localContribution;
+            break;
+    }
+    return support;
+#else
+    (void)kind;
+    (void)hash;
+    return 0;
+#endif
+}
+
+std::size_t
+ConsensusExtensions::sidecarFetchSupportThreshold(SidecarKind kind) const
+{
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
+    auto const threshold = kind == SidecarKind::exportSigSet
+        ? exportSigQuorumThreshold()
+        : entropyGateThreshold();
+    return threshold == 0 ? std::numeric_limits<std::size_t>::max() : threshold;
+#else
+    (void)kind;
+    return std::numeric_limits<std::size_t>::max();
+#endif
+}
+
+bool
+ConsensusExtensions::shouldEagerFetchSidecarSet(
+    SidecarKind kind,
+    uint256 const& hash) const
+{
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
+    auto const support = sidecarRootSupport(kind, hash);
+    auto const threshold = sidecarFetchSupportThreshold(kind);
+    if (support >= threshold)
+        return true;
+
+    JLOG(j_.trace()) << "SIDECARFETCH: skip"
+                     << " kind=" << sidecarKindName(kind)
+                     << " origin=eagerProposal"
+                     << " hash=" << hash
+                     << " reason=root-support-below-threshold"
+                     << " support=" << support << " threshold=" << threshold;
+    return false;
+#else
+    (void)kind;
+    (void)hash;
+    return false;
+#endif
 }
 
 std::size_t
@@ -1425,6 +1539,7 @@ ConsensusExtensions::clearRngStatePreservingExport()
     consensusExportTxns_.clear();
     consensusTxSetHash_.reset();
     pendingSidecarFetches_.clear();
+    sidecarRootSupport_ = {};
     observedParticipantsHash_.reset();
     observedParticipantsCount_ = 0;
     observedParticipantsBitmapBin_.clear();
@@ -1555,9 +1670,7 @@ ConsensusExtensions::isActiveValidator(
 bool
 ConsensusExtensions::isSidecarSet(uint256 const& hash) const
 {
-    if constexpr (!sidecarReconciliationEnabled())
-        return false;
-
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
     if (commitSetMap_ && commitSetMap_->getHash().as_uint256() == hash)
         return true;
     if (entropySetMap_ && entropySetMap_->getHash().as_uint256() == hash)
@@ -1565,6 +1678,10 @@ ConsensusExtensions::isSidecarSet(uint256 const& hash) const
     if (exportSigSetMap_ && exportSigSetMap_->getHash().as_uint256() == hash)
         return true;
     return pendingSidecarFetches_.find(hash) != pendingSidecarFetches_.end();
+#else
+    (void)hash;
+    return false;
+#endif
 }
 //@@end is-sidecar-set
 
@@ -1573,14 +1690,7 @@ ConsensusExtensions::isSidecarSet(uint256 const& hash) const
 void
 ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 {
-    if constexpr (!sidecarReconciliationEnabled())
-    {
-        JLOG(j_.debug()) << "SIDECARFETCH: acquired set ignored"
-                         << " reason=reconciliation-disabled"
-                         << " hash=" << map->getHash().as_uint256();
-        return;
-    }
-
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
     auto const hash = map->getHash().as_uint256();
 
     // Look up the expected kind before erasing.
@@ -1974,6 +2084,11 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                     << " pendingBefore=" << pendingBefore
                     << " pendingAfter=" << pendingAfter
                     << " pendingDelta=" << pendingDelta;
+#else
+    JLOG(j_.debug()) << "SIDECARFETCH: acquired set ignored"
+                     << " reason=reconciliation-disabled"
+                     << " hash=" << map->getHash().as_uint256();
+#endif
 }
 //@@end handle-acquired-sidecar
 
@@ -1983,18 +2098,7 @@ ConsensusExtensions::fetchSidecarSetIfNeeded(
     SidecarKind kind,
     char const* origin)
 {
-    if constexpr (!sidecarReconciliationEnabled())
-    {
-        if (hash && *hash != uint256{})
-        {
-            JLOG(j_.trace())
-                << "SIDECARFETCH: skip"
-                << " kind=" << sidecarKindName(kind) << " origin=" << origin
-                << " hash=" << *hash << " reason=reconciliation-disabled";
-        }
-        return;
-    }
-
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
     if (!hash)
     {
         JLOG(j_.trace()) << "SIDECARFETCH: skip"
@@ -2090,6 +2194,15 @@ ConsensusExtensions::fetchSidecarSetIfNeeded(
                          << " origin=" << origin << " hash=" << *hash;
         onAcquiredSidecarSet(immediate);
     }
+#else
+    if (hash && *hash != uint256{})
+    {
+        JLOG(j_.trace()) << "SIDECARFETCH: skip"
+                         << " kind=" << sidecarKindName(kind)
+                         << " origin=" << origin << " hash=" << *hash
+                         << " reason=reconciliation-disabled";
+    }
+#endif
 }
 
 void
@@ -2097,19 +2210,22 @@ ConsensusExtensions::fetchSidecarsIfNeeded(
     ExtendedPosition const& peerPos,
     char const* origin)
 {
-    if constexpr (!sidecarReconciliationEnabled())
-    {
-        (void)peerPos;
-        (void)origin;
-        return;
-    }
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
+    auto const isEager = std::strcmp(origin, "eagerProposal") == 0;
+    auto fetch = [&](std::optional<uint256> const& hash, SidecarKind kind) {
+        if (isEager && hash && *hash != uint256{} &&
+            !shouldEagerFetchSidecarSet(kind, *hash))
+            return;
+        fetchSidecarSetIfNeeded(hash, kind, origin);
+    };
 
-    fetchSidecarSetIfNeeded(
-        peerPos.commitSetHash, SidecarKind::commitSet, origin);
-    fetchSidecarSetIfNeeded(
-        peerPos.entropySetHash, SidecarKind::entropySet, origin);
-    fetchSidecarSetIfNeeded(
-        peerPos.exportSigSetHash, SidecarKind::exportSigSet, origin);
+    fetch(peerPos.commitSetHash, SidecarKind::commitSet);
+    fetch(peerPos.entropySetHash, SidecarKind::entropySet);
+    fetch(peerPos.exportSigSetHash, SidecarKind::exportSigSet);
+#else
+    (void)peerPos;
+    (void)origin;
+#endif
 }
 
 void
@@ -2849,6 +2965,8 @@ ConsensusExtensions::onTrustedPeerProposal(
                          << " node=" << nodeId << " proposeSeq=" << proposeSeq;
         return;
     }
+
+    recordSidecarRootSupport(nodeId, position);
 
     harvestRngData(
         nodeId,

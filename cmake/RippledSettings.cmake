@@ -21,7 +21,7 @@ option(xahaud_runtime_test_config
 
 option(xahaud_sidecar_reconciliation
   "Enable consensus-extension sidecar SHAMap fetch/acquire/reconcile path"
-  ON)
+  OFF)
 
 option(unity "Creates a build using UNITY support in cmake. This is the default" ON)
 if(unity)

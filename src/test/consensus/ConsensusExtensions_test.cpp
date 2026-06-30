@@ -1471,7 +1471,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         auto const entropySetHash = ce.buildEntropySet(seq);
         ce.acceptEntropySet(entropySetHash);
-        BEAST_EXPECT(ce.isSidecarSet(entropySetHash));
+        BEAST_EXPECT(
+            ce.isSidecarSet(entropySetHash) ==
+            ConsensusExtensions::sidecarReconciliationEnabled());
         // Once the sidecar gate has accepted a hash, injection is derived from
         // that sidecar snapshot. A local failure flag is diagnostic state, not
         // an additional selector input.
@@ -2362,7 +2364,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ce.exportSigCollector().addVerifiedSignature(
             txHash, valPK, originalSig, seq);
         auto const exportSigSetHash = ce.buildExportSigSet(seq);
-        BEAST_EXPECT(ce.isSidecarSet(exportSigSetHash));
+        BEAST_EXPECT(
+            ce.isSidecarSet(exportSigSetHash) ==
+            ConsensusExtensions::sidecarReconciliationEnabled());
         auto const view = ce.activeValidatorView();
 
         // A locally-built export signature map is not closed-ledger material
@@ -4154,7 +4158,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         auto const seq = ledger->info().seq + 1;
         auto const commitHash = ce.buildCommitSet(seq);
-        BEAST_EXPECT(ce.isSidecarSet(commitHash));
+        BEAST_EXPECT(
+            ce.isSidecarSet(commitHash) ==
+            ConsensusExtensions::sidecarReconciliationEnabled());
 
         ExtendedPosition revealPos{commitPos.txSetHash};
         revealPos.myReveal = ce.getEntropySecret();
@@ -4178,7 +4184,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(ce.pendingRevealCount() == 1);
         BEAST_EXPECT(ce.hasMinimumReveals());
         auto const entropyHash = ce.buildEntropySet(seq);
-        BEAST_EXPECT(ce.isSidecarSet(entropyHash));
+        BEAST_EXPECT(
+            ce.isSidecarSet(entropyHash) ==
+            ConsensusExtensions::sidecarReconciliationEnabled());
     }
 
 public:
@@ -4203,16 +4211,22 @@ public:
         testOnPreBuildTier2WithNegativeUNL();
         testProposalProofRoundTrip();
         testHarvestRngDataReplacementAndRejection();
-        testExportSidecarBuildFetchAndMerge();
-        testExportSidecarIgnoresCancelOnlyExports();
-        testExportSidecarBuildCapsConsensusCandidates();
-        testExportSidecarRejectsInvalidFetchedEntries();
-        testExportSidecarRejectsOversizedFetchedSet();
+        if constexpr (ConsensusExtensions::sidecarReconciliationEnabled())
+        {
+            testExportSidecarBuildFetchAndMerge();
+            testExportSidecarIgnoresCancelOnlyExports();
+            testExportSidecarBuildCapsConsensusCandidates();
+            testExportSidecarRejectsInvalidFetchedEntries();
+            testExportSidecarRejectsOversizedFetchedSet();
+        }
         testExportAgreedSignaturesIgnoreLiveCollectorMutation();
         testOnPreBuildPreservesExportDecision();
-        testRngSidecarBuildFetchAndMerge();
-        testRngSidecarRejectsOversizedFetchedSet();
-        testRngSidecarRejectsInvalidFetchedEntries();
+        if constexpr (ConsensusExtensions::sidecarReconciliationEnabled())
+        {
+            testRngSidecarBuildFetchAndMerge();
+            testRngSidecarRejectsOversizedFetchedSet();
+            testRngSidecarRejectsInvalidFetchedEntries();
+        }
         testOnPreBuildInjectsStandaloneEntropy();
         testOnPreBuildEntropyMismatchKeepsAgreed();
         testDiagnosticsJsonAndPositionLogging();

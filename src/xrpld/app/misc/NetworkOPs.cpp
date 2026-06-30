@@ -1990,6 +1990,7 @@ NetworkOPsImp::mapComplete(std::shared_ptr<SHAMap> const& map, bool fromAcquire)
         auto const hash = map->getHash().as_uint256();
         if (map->mapType() == SHAMapType::SIDECAR)
         {
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
             if (mConsensus.isExtensionSet(hash))
             {
                 // Extension sidecar set (commitSet, entropySet, or
@@ -2005,6 +2006,10 @@ NetworkOPsImp::mapComplete(std::shared_ptr<SHAMap> const& map, bool fromAcquire)
                 JLOG(m_journal.debug())
                     << "Ignoring stale acquired sidecar set " << hash;
             }
+#else
+            JLOG(m_journal.debug()) << "Ignoring acquired sidecar set " << hash
+                                    << " reason=reconciliation-disabled";
+#endif
             return;
         }
         mConsensus.gotTxSet(app_.timeKeeper().closeTime(), RCLTxSet{map});

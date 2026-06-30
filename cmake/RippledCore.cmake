@@ -181,6 +181,9 @@ if(xrpld)
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/xrpld/*.cpp"
   )
+  if(NOT xahaud_sidecar_reconciliation)
+    list(FILTER sources EXCLUDE REGEX "/src/xrpld/app/ledger/SidecarSetSF\\.cpp$")
+  endif()
   target_sources(rippled PRIVATE ${sources})
 
   if(tests)

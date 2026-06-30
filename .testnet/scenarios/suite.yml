@@ -25,13 +25,6 @@ tests:
   - name: steady_state_entropy
     script: .testnet/scenarios/entropy/steady_state_entropy.py
 
-  - name: entropy_fetch_recovers_dropped_claims
-    script: .testnet/scenarios/entropy/fetch_recovers_dropped_claims.py
-    network:
-      rc:
-        - rng_poll_ms=333
-        - n0:rngrevealdrop=100
-
   - name: fallback_without_unl_report
     script: .testnet/scenarios/entropy/fallback_without_unl_report.py
     network:

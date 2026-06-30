@@ -28,7 +28,7 @@
 namespace ripple {
 
 #ifndef XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-#define XAHAUD_ENABLE_SIDECAR_RECONCILIATION 1
+#define XAHAUD_ENABLE_SIDECAR_RECONCILIATION 0
 #endif
 
 class Application;
@@ -127,6 +127,17 @@ private:
     // content-sniffing and logs can attribute eager vs gate-triggered fetches.
     hash_map<uint256, PendingSidecarFetch> pendingSidecarFetches_;
 
+    struct SidecarRootSupport
+    {
+        hash_map<uint256, hash_set<NodeID>> commitSet;
+        hash_map<uint256, hash_set<NodeID>> entropySet;
+        hash_map<uint256, hash_set<NodeID>> exportSigSet;
+    };
+
+    // Per-round support for sidecar roots observed in trusted proposals. Eager
+    // acquisition uses this to avoid fetching first-seen transient roots.
+    SidecarRootSupport sidecarRootSupport_;
+
     // Parent-ledger validator view used by RNG and Export quorum logic.
     ActiveValidatorViewPtr activeValidatorView_ =
         std::make_shared<ActiveValidatorView const>();
@@ -174,6 +185,20 @@ private:
         std::optional<ProposalProof> const& proof,
         char const* sourceTag,
         RngProofCachePolicy proofCachePolicy);
+
+    void
+    recordSidecarRootSupport(
+        NodeID const& nodeId,
+        ExtendedPosition const& position);
+
+    std::size_t
+    sidecarRootSupport(SidecarKind kind, uint256 const& hash) const;
+
+    std::size_t
+    sidecarFetchSupportThreshold(SidecarKind kind) const;
+
+    bool
+    shouldEagerFetchSidecarSet(SidecarKind kind, uint256 const& hash) const;
 
     // Commit proofs keyed by NodeID. Only seq=0 proofs are cached because the
     // commit sidecar hash must be deterministic across all nodes.

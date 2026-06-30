@@ -1,0 +1,48 @@
+# Opt-in suite for the sidecar SHAMap reconciliation path.
+#
+# These scenarios assert fetch/acquire/merge behavior and require a binary built
+# with:
+#
+#   -Dxahaud_sidecar_reconciliation=ON
+#
+# The normal feature suites default to proposal-carried CE/export material and
+# do not run these tests while reconciliation is disabled by default.
+
+defaults:
+  network:
+    node_count: 5
+    launcher: tmux
+    find_ports: true
+    slave_delay: 0.2
+    features:
+      - ConsensusEntropy
+      - Export
+    track_features:
+      - ConsensusEntropy
+      - Export
+    unl_report: true
+    log_levels:
+      TxQ: info
+      Protocol: debug
+      Peer: debug
+      LedgerConsensus: debug
+      ConsensusExtensions: debug
+      NetworkOPs: info
+    env:
+      XAHAU_RESOURCE_PER_PORT: "1"
+    rc:
+      - rng_poll_ms=333
+
+tests:
+  - name: entropy_fetch_recovers_dropped_claims
+    script: .testnet/scenarios/entropy/fetch_recovers_dropped_claims.py
+    network:
+      rc:
+        - rng_poll_ms=333
+        - n0:rngrevealdrop=100
+
+  - name: export_sidecar_fetch_under_proposal_drop_ce
+    script: .testnet/scenarios/export/export_fetch_under_proposal_drop.py
+    network:
+      rc:
+        - rng_poll_ms=333

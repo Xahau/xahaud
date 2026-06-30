@@ -1143,7 +1143,9 @@ struct Export_test : public beast::unit_test::suite
         ce.exportSigCollector().addVerifiedSignature(
             txHash, valPK, originalSig, applySeq);
         auto const agreedHash = ce.buildExportSigSet(applySeq);
-        BEAST_EXPECT(ce.isSidecarSet(agreedHash));
+        BEAST_EXPECT(
+            ce.isSidecarSet(agreedHash) ==
+            ConsensusExtensions::sidecarReconciliationEnabled());
         ce.acceptExportSigSet(agreedHash);
         ce.setExportSigConvergenceFailed();
 
@@ -1541,7 +1543,9 @@ struct Export_test : public beast::unit_test::suite
         ce.exportSigCollector().addVerifiedSignature(
             txHash, valPK, sig, applySeq);
         auto const agreedHash = ce.buildExportSigSet(applySeq);
-        BEAST_EXPECT(ce.isSidecarSet(agreedHash));
+        BEAST_EXPECT(
+            ce.isSidecarSet(agreedHash) ==
+            ConsensusExtensions::sidecarReconciliationEnabled());
         ce.acceptExportSigSet(agreedHash);
 
         auto const parent = env.app().getLedgerMaster().getClosedLedger();
@@ -1613,7 +1617,9 @@ struct Export_test : public beast::unit_test::suite
                 ce.exportSigCollector().addVerifiedSignature(
                     txHash, valPK, sig, applySeq);
                 auto const agreedHash = ce.buildExportSigSet(applySeq);
-                BEAST_EXPECT(ce.isSidecarSet(agreedHash));
+                BEAST_EXPECT(
+                    ce.isSidecarSet(agreedHash) ==
+                    ConsensusExtensions::sidecarReconciliationEnabled());
                 ce.acceptExportSigSet(agreedHash);
 
                 ExportResultBuilder::SignatureSnapshot signatures;

@@ -20,15 +20,23 @@
 #include <xrpld/app/ledger/ConsensusTransSetSF.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
-#include <xrpld/app/ledger/SidecarSetSF.h>
 #include <xrpld/app/ledger/detail/TransactionAcquire.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/overlay/detail/ProtocolMessage.h>
 #include <xrpld/shamap/SHAMapSyncFilter.h>
+#include <xrpl/basics/contract.h>
 
 #include <memory>
+
+#ifndef XAHAUD_ENABLE_SIDECAR_RECONCILIATION
+#define XAHAUD_ENABLE_SIDECAR_RECONCILIATION 0
+#endif
+
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
+#include <xrpld/app/ledger/SidecarSetSF.h>
+#endif
 
 namespace ripple {
 
@@ -47,12 +55,45 @@ namespace {
 std::unique_ptr<SHAMapSyncFilter>
 makeSyncFilter(InboundSetKind kind, Application& app)
 {
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
     // Sidecars deliberately reuse candidate tx-set acquisition; the filter only
     // changes leaf handling so sidecar STObjects are cached, not submitted.
     if (kind == InboundSetKind::sidecar)
         return std::make_unique<SidecarSetSF>(app.getTempNodeCache());
+#else
+    if (kind == InboundSetKind::sidecar)
+        LogicError("Sidecar acquisition requested while disabled");
+#endif
 
     return std::make_unique<ConsensusTransSetSF>(app, app.getTempNodeCache());
+}
+
+SHAMapType
+acquireMapType(InboundSetKind kind)
+{
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
+    if (kind == InboundSetKind::sidecar)
+        return SHAMapType::SIDECAR;
+#else
+    if (kind == InboundSetKind::sidecar)
+        LogicError("Sidecar SHAMap acquisition requested while disabled");
+#endif
+
+    return SHAMapType::TRANSACTION;
+}
+
+char const*
+acquireSetKindName(InboundSetKind kind)
+{
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
+    if (kind == InboundSetKind::sidecar)
+        return "sidecar";
+#else
+    if (kind == InboundSetKind::sidecar)
+        return "sidecar-disabled";
+#endif
+
+    return "TX";
 }
 
 }  // namespace
@@ -72,13 +113,10 @@ TransactionAcquire::TransactionAcquire(
     , mPeerSet(std::move(peerSet))
     , mSetKind(kind)
 {
-    // Keep sidecar fetch on the same content-addressed SHAMap path as tx sets:
-    // normal reply limits, peer scoring, charging, and timeout behavior apply.
+    // Candidate set acquisition is content-addressed; normal reply limits, peer
+    // scoring, charging, and timeout behavior apply.
     mMap = std::make_shared<SHAMap>(
-        kind == InboundSetKind::sidecar ? SHAMapType::SIDECAR
-                                        : SHAMapType::TRANSACTION,
-        hash,
-        app_.getNodeFamily());
+        acquireMapType(kind), hash, app_.getNodeFamily());
     mMap->setUnbacked();
 }
 
@@ -94,9 +132,7 @@ TransactionAcquire::done()
     else
     {
         JLOG(journal_.debug())
-            << "Acquired "
-            << (mSetKind == InboundSetKind::sidecar ? "sidecar" : "TX")
-            << " set " << hash_;
+            << "Acquired " << acquireSetKindName(mSetKind) << " set " << hash_;
         mMap->setImmutable();
 
         uint256 const& hash(hash_);

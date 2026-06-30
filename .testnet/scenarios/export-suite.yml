@@ -39,16 +39,6 @@ tests:
         - n3:no_export_sig=true
         - n4:no_export_sig=true
 
-  # Resilience counterpart to export_degradation: all nodes DO sign, but the
-  # scenario drops one validator's proposals to n0 after setup. n0 remains above
-  # quorum from direct proposals, but must reconstruct the missing sidecar leaf
-  # through the fetch/acquisition path.
-  - name: export_sidecar_fetch_under_proposal_drop_ce
-    script: .testnet/scenarios/export/export_fetch_under_proposal_drop.py
-    network:
-      rc:
-        - rng_poll_ms=333
-
   - name: export_without_unl_report
     script: .testnet/scenarios/export/export_without_unl_report.py
     network:
