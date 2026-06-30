@@ -1,8 +1,11 @@
-""":descr: Drop n4->n0 proposals after setup so node 0 misses n4's inline
-sidecar leaves; node 0 must FETCH the agreed commit/reveal/export-signature
-sidecars (whose hash it learns from n1/n2/n3 proposals) via the acquisition path
-to reconstruct and validate the export. Asserts the sidecar FETCH path actually
-carries the load on n0 (SIDECARFETCH logs) and the export still converges.
+""":descr: Drop n4->n0 proposals after setup and assert n0 uses sidecar fetch.
+
+The x-testnet default topology is a full mesh, so a one-edge proposal drop does
+not prove n0 missed every copy of n4's proposal-carried material: n1/n2/n3 may
+relay around the cut. This scenario is therefore a fetch-path exercise and
+export-convergence test, not a strict proof that fetch recovered a contributor
+that proposal relay could not deliver. For positive CE recovery, see
+entropy_fetch_recovers_dropped_claims.
 
 This is the resilience counterpart to export_degradation:
   - export_degradation: n3/n4 do NOT sign (no_export_sig) -> only 3/5 sigs exist
@@ -12,15 +15,15 @@ This is the resilience counterpart to export_degradation:
     contribution through the sidecar fetch/acquisition path. With fetch working,
     n0 reconstructs the agreed set and the export SUCCEEDS.
 
-So this is the empirical proof that the sidecar fetch path buys real resilience:
-a node on lossy proposal links still reconstructs the agreed sidecars and stays
-in consensus, turning a would-be-missing-data round into a validated export.
+So this is a regression test for sidecar acquisition on lossy proposal links:
+the fetch path must run on n0, and export must still converge. It is deliberately
+weaker than a topology-isolated proof that n0 missed a specific contributor.
 
 Flow:
   1. Fund alice and bob
   2. Enable runtime_config drop for n4->n0 proposals
-  3. alice submits ttEXPORT (all 5 nodes sign; n0 misses n4 inline leaves)
-  4. n0 fetches the agreed sidecars (assert SIDECARFETCH triggered + merged on n0)
+  3. alice submits ttEXPORT (all 5 nodes sign; n0 loses direct n4 proposals)
+  4. n0 fetches agreed sidecars (assert SIDECARFETCH triggered + merged on n0)
   5. Export succeeds (tesSUCCESS) and a shadow ticket latch is created
 """
 
@@ -77,8 +80,9 @@ async def scenario(ctx, log):
     #@@start test-export-sidecar-fetch-under-proposal-drop
     _drop_proposals_from_n4_to_n0(ctx, log)
     log(
-        "n4->n0 proposals are now 100% dropped (msg=proposal): node 0 must "
-        "reconstruct n4 sidecar leaves via the fetch/acquisition path"
+        "n4->n0 proposals are now 100% dropped (msg=proposal): in the full "
+        "mesh this exercises sidecar acquisition without proving all relayed "
+        "copies of n4 material were suppressed"
     )
 
     # --- Submit ttEXPORT (all nodes sign; n0 only misses n4 inline) ---
@@ -86,7 +90,7 @@ async def scenario(ctx, log):
     result = await ctx.submit_and_wait(
         {
             "TransactionType": "Export",
-            "LastLedgerSequence": current_seq + 12,
+            "LastLedgerSequence": current_seq + 5,
             "Fee": "1000000",
             "ExportedTxn": {
                 "TransactionType": "Payment",
@@ -97,7 +101,7 @@ async def scenario(ctx, log):
                 "Sequence": 0,
                 "TicketSequence": 1,
                 "FirstLedgerSequence": current_seq + 1,
-                "LastLedgerSequence": current_seq + 10,
+                "LastLedgerSequence": current_seq + 5,
                 "Flags": 2147483648,
                 "SigningPubKey": "",
             },
@@ -111,20 +115,20 @@ async def scenario(ctx, log):
     final_seq = ctx.validated_ledger_index(0)
     log(f"Export completed at ledger {final_seq}, result: {engine_result}")
 
-    # The export signatures exist (all 5 nodes sign); n0 obtains n4's
-    # contributions ONLY via fetch. With the fetch path working, n0 reconstructs
-    # the agreed set, quorum is reached, and the export succeeds.
+    # The export signatures exist (all 5 nodes sign). With acquisition working,
+    # n0 can reconstruct the agreed set even while direct n4->n0 proposals are
+    # dropped.
     if engine_result != "tesSUCCESS":
         raise AssertionError(
             f"Expected tesSUCCESS via sidecar fetch, got {engine_result} -- the "
             "fetch path failed to deliver n4 sidecar contributions to n0 "
             "(or the proposal drop starved consensus on n0)"
         )
-    log("Export succeeded despite dropped n4 proposals -- fetch carried it")
+    log("Export succeeded despite dropped direct n4->n0 proposals")
 
-    # Prove the SIDECAR FETCH path actually ran on n0 (not that consensus merely
-    # converged some other way). assert_log raises if the pattern is absent on
-    # node 0, so these ARE the load-bearing assertions of this test.
+    # Prove the SIDECAR FETCH path actually ran on n0. In a full mesh,
+    # entriesMerged proves the acquired set was replayed through the merge path;
+    # it does not prove local state gained a previously unseen contributor.
     triggered = ctx.assert_log(
         r"SIDECARFETCH: triggering network fetch",
         since=fetch_start,
@@ -149,6 +153,6 @@ async def scenario(ctx, log):
     #@@end test-export-sidecar-fetch-under-proposal-drop
 
     log(
-        "PASS -- proposal drop forced node 0 onto the sidecar fetch path and "
-        "the export still converged (fetch resilience demonstrated)"
+        "PASS -- proposal drop exercised node 0 sidecar acquisition and the "
+        "export still converged"
     )

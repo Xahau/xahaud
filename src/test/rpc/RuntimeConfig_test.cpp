@@ -160,6 +160,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
         EnvVarGuard runtimeJson{
             "XAHAUD_RUNTIME_TEST_CONFIG",
             R"({"set":{"global":{"rng_claim_drop_pct":3.5,)"
+            R"("rng_reveal_drop_pct":4.5,)"
             R"("bootstrap_fast_start":false,"rng_poll_ms":5,)"
             R"("no_export_sig":true,"no_export_sig_hash":true},)"
             R"("peer_defaults":{"send_delay_ms":100,)"
@@ -173,6 +174,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(global.has_value()))
             return;
         BEAST_EXPECT(global->rngClaimDropPctX100 == 350);
+        BEAST_EXPECT(global->rngRevealDropPctX100 == 450);
         BEAST_EXPECT(global->bootstrapFastStart.has_value());
         BEAST_EXPECT(*global->bootstrapFastStart == false);
         BEAST_EXPECT(global->rngPollMs == 50);

@@ -244,8 +244,8 @@ bool
 isGlobalField(std::string const& name)
 {
     return name == "rng_claim_drop_pct" || name == "bootstrap_fast_start" ||
-        name == "rng_poll_ms" || name == "no_export_sig" ||
-        name == "no_export_sig_hash";
+        name == "rng_reveal_drop_pct" || name == "rng_poll_ms" ||
+        name == "no_export_sig" || name == "no_export_sig_hash";
 }
 
 bool
@@ -417,6 +417,13 @@ parseConsensusTestConfig(Json::Value const& v, std::string& error)
                 return std::nullopt;
             cfg.rngClaimDropPctX100 = parsed;
         }
+        else if (name == "rng_reveal_drop_pct")
+        {
+            int parsed = 0;
+            if (!parsePctX100(v[name], name, parsed, error))
+                return std::nullopt;
+            cfg.rngRevealDropPctX100 = parsed;
+        }
         else if (name == "bootstrap_fast_start")
         {
             bool parsed = false;
@@ -509,6 +516,8 @@ consensusTestConfigJson(ConsensusTestConfig const& cfg)
     Json::Value entry{Json::objectValue};
     if (cfg.rngClaimDropPctX100)
         entry["rng_claim_drop_pct"] = *cfg.rngClaimDropPctX100 / 100.0;
+    if (cfg.rngRevealDropPctX100)
+        entry["rng_reveal_drop_pct"] = *cfg.rngRevealDropPctX100 / 100.0;
     if (cfg.bootstrapFastStart.has_value())
         entry["bootstrap_fast_start"] = *cfg.bootstrapFastStart;
     if (cfg.rngPollMs)

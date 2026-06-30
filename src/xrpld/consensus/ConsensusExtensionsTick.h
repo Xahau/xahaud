@@ -70,6 +70,24 @@ sidecarConvergenceTimeout(Parms const& parms)
     return parms.rngREVEAL_TIMEOUT * 2;
 }
 
+template <class Ext, class Hash>
+void
+fetchSidecarSetIfNeeded(
+    Ext& ext,
+    Hash const& hash,
+    typename Ext::SidecarKind kind,
+    char const* origin)
+{
+    if constexpr (requires { ext.fetchSidecarSetIfNeeded(hash, kind, origin); })
+    {
+        ext.fetchSidecarSetIfNeeded(hash, kind, origin);
+    }
+    else
+    {
+        ext.fetchSidecarSetIfNeeded(hash, kind);
+    }
+}
+
 struct SidecarPeerAlignment
 {
     bool localCounts = false;
@@ -465,9 +483,11 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     auto const& peerPosition = peerPos.proposal().position();
                     if (peerPosition.txSetHash != ourPos.txSetHash)
                         continue;
-                    ext.fetchSidecarSetIfNeeded(
+                    detail::fetchSidecarSetIfNeeded(
+                        ext,
                         peerPosition.commitSetHash,
-                        Ext::SidecarKind::commitSet);
+                        Ext::SidecarKind::commitSet,
+                        "commitGateSweep");
                 }
             }
 
@@ -753,8 +773,11 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             },
                             [&](auto const& hash) {
                                 if (fetchMismatches)
-                                    ext.fetchSidecarSetIfNeeded(
-                                        hash, Ext::SidecarKind::entropySet);
+                                    detail::fetchSidecarSetIfNeeded(
+                                        ext,
+                                        hash,
+                                        Ext::SidecarKind::entropySet,
+                                        "entropyGateScan");
                             });
                     };
 
@@ -987,8 +1010,11 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     continue;
 
                 ++peerSets;
-                ext.fetchSidecarSetIfNeeded(
-                    pp.exportSigSetHash, Ext::SidecarKind::exportSigSet);
+                detail::fetchSidecarSetIfNeeded(
+                    ext,
+                    pp.exportSigSetHash,
+                    Ext::SidecarKind::exportSigSet,
+                    "exportPeerSweep");
             }
             return peerSets;
         };
@@ -1135,8 +1161,11 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         },
                         [&](auto const& hash) {
                             if (fetchMismatches)
-                                ext.fetchSidecarSetIfNeeded(
-                                    hash, Ext::SidecarKind::exportSigSet);
+                                detail::fetchSidecarSetIfNeeded(
+                                    ext,
+                                    hash,
+                                    Ext::SidecarKind::exportSigSet,
+                                    "exportGateScan");
                         });
                 };
 

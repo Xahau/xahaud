@@ -1574,16 +1574,20 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 
     // Look up the expected kind before erasing.
     auto const kindIt = pendingSidecarFetches_.find(hash);
-    auto const kind = (kindIt != pendingSidecarFetches_.end())
+    auto const pending = (kindIt != pendingSidecarFetches_.end())
         ? kindIt->second
-        : SidecarKind::commitSet;  // fallback for non-fetch paths
+        : PendingSidecarFetch{
+              SidecarKind::commitSet,
+              "unknown"};  // fallback for non-fetch paths
+    auto const kind = pending.kind;
+    auto const origin = pending.origin;
     if (kindIt != pendingSidecarFetches_.end())
         pendingSidecarFetches_.erase(kindIt);
     //@@end handle-acquired-sidecar-entry
 
     JLOG(j_.debug()) << "SIDECARFETCH: handle acquired"
                      << " hash=" << hash << " kind=" << sidecarKindName(kind)
-                     << " pending-after-erase="
+                     << " origin=" << origin << " pending-after-erase="
                      << pendingSidecarFetches_.size();
 
     // Dispatch by kind — no content-sniffing needed.
@@ -1708,10 +1712,11 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
                             << " hash=" << hash << " error=" << e.what();
                     }
                 });
-            JLOG(j_.info()) << "Export: merged peer exportSigSet"
-                            << " hash=" << hash << " entriesMerged=" << merged
-                            << " txSource=" << txSource
-                            << " currentClosedSeq=" << currentSeq;
+            JLOG(j_.info())
+                << "Export: merged peer exportSigSet"
+                << " hash=" << hash << " origin=" << origin
+                << " entriesMerged=" << merged << " txSource=" << txSource
+                << " currentClosedSeq=" << currentSeq;
             return;
         }
     }
@@ -1743,6 +1748,11 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
     // belongs in the set. Differences arise only from propagation timing,
     // not from conflicting opinions about inclusion.
     auto& localMap = isCommitSet ? commitSetMap_ : entropySetMap_;
+    auto const hadLocalSet = static_cast<bool>(localMap);
+    auto const proofedBefore =
+        isCommitSet ? proofedCommitCount() : proofedRevealCount();
+    auto const pendingBefore =
+        isCommitSet ? pendingCommitCount() : pendingRevealCount();
 
     std::size_t merged = 0;
     auto const validatorView = activeValidatorView();
@@ -1931,31 +1941,50 @@ ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
             });
     }
 
+    auto const proofedAfter =
+        isCommitSet ? proofedCommitCount() : proofedRevealCount();
+    auto const pendingAfter =
+        isCommitSet ? pendingCommitCount() : pendingRevealCount();
+    auto const proofedDelta = static_cast<std::ptrdiff_t>(proofedAfter) -
+        static_cast<std::ptrdiff_t>(proofedBefore);
+    auto const pendingDelta = static_cast<std::ptrdiff_t>(pendingAfter) -
+        static_cast<std::ptrdiff_t>(pendingBefore);
+
     JLOG(j_.info()) << "SIDECARFETCH: merged acquired set"
                     << " hash=" << hash
                     << " kind=" << (isCommitSet ? "commit" : "reveal")
                     << " setKind=" << (isCommitSet ? "commitSet" : "entropySet")
-                    << " entriesMerged=" << merged;
+                    << " origin=" << origin
+                    << " hadLocalSet=" << (hadLocalSet ? "yes" : "no")
+                    << " entriesMerged=" << merged
+                    << " proofedBefore=" << proofedBefore
+                    << " proofedAfter=" << proofedAfter
+                    << " proofedDelta=" << proofedDelta
+                    << " pendingBefore=" << pendingBefore
+                    << " pendingAfter=" << pendingAfter
+                    << " pendingDelta=" << pendingDelta;
 }
 //@@end handle-acquired-sidecar
 
 void
 ConsensusExtensions::fetchSidecarSetIfNeeded(
     std::optional<uint256> const& hash,
-    SidecarKind kind)
+    SidecarKind kind,
+    char const* origin)
 {
     if (!hash)
     {
         JLOG(j_.trace()) << "SIDECARFETCH: skip"
                          << " kind=" << sidecarKindName(kind)
-                         << " reason=no-hash";
+                         << " origin=" << origin << " reason=no-hash";
         return;
     }
     if (*hash == uint256{})
     {
         JLOG(j_.trace()) << "SIDECARFETCH: skip"
                          << " kind=" << sidecarKindName(kind)
-                         << " hash=" << *hash << " reason=zero-hash";
+                         << " origin=" << origin << " hash=" << *hash
+                         << " reason=zero-hash";
         return;
     }
 
@@ -1964,14 +1993,15 @@ ConsensusExtensions::fetchSidecarSetIfNeeded(
     {
         JLOG(j_.trace()) << "SIDECARFETCH: skip"
                          << " kind=" << sidecarKindName(kind)
-                         << " hash=" << *hash << " reason=already-local-commit";
+                         << " origin=" << origin << " hash=" << *hash
+                         << " reason=already-local-commit";
         return;
     }
     if (entropySetMap_ && entropySetMap_->getHash().as_uint256() == *hash)
     {
         JLOG(j_.trace()) << "SIDECARFETCH: skip"
                          << " kind=" << sidecarKindName(kind)
-                         << " hash=" << *hash
+                         << " origin=" << origin << " hash=" << *hash
                          << " reason=already-local-entropy";
         return;
     }
@@ -1979,28 +2009,32 @@ ConsensusExtensions::fetchSidecarSetIfNeeded(
     {
         JLOG(j_.trace()) << "SIDECARFETCH: skip"
                          << " kind=" << sidecarKindName(kind)
-                         << " hash=" << *hash
+                         << " origin=" << origin << " hash=" << *hash
                          << " reason=already-local-exportSig";
         return;
     }
 
     // Check if already fetching
-    if (pendingSidecarFetches_.count(*hash))
+    if (auto pendingIt = pendingSidecarFetches_.find(*hash);
+        pendingIt != pendingSidecarFetches_.end())
     {
+        auto const pendingOrigin = pendingIt->second.origin;
         // Keep polling InboundTransactions while pending, so we can merge as
         // soon as the asynchronous fetch completes.
         if (auto existing = app_.getInboundTransactions().getSet(*hash, false))
         {
             JLOG(j_.debug())
                 << "SIDECARFETCH: pending fetch completed"
-                << " kind=" << sidecarKindName(kind) << " hash=" << *hash;
+                << " kind=" << sidecarKindName(kind) << " origin=" << origin
+                << " pendingOrigin=" << pendingOrigin << " hash=" << *hash;
             onAcquiredSidecarSet(existing);
         }
         else
         {
             JLOG(j_.debug())
                 << "SIDECARFETCH: still pending"
-                << " kind=" << sidecarKindName(kind) << " hash=" << *hash;
+                << " kind=" << sidecarKindName(kind) << " origin=" << origin
+                << " pendingOrigin=" << pendingOrigin << " hash=" << *hash;
         }
         return;
     }
@@ -2010,9 +2044,10 @@ ConsensusExtensions::fetchSidecarSetIfNeeded(
     {
         JLOG(j_.debug()) << "SIDECARFETCH: local cache hit"
                          << " kind=" << sidecarKindName(kind)
-                         << " hash=" << *hash;
+                         << " origin=" << origin << " hash=" << *hash;
         // Record the kind so onAcquiredSidecarSet can look it up.
-        pendingSidecarFetches_.emplace(*hash, kind);
+        pendingSidecarFetches_.emplace(
+            *hash, PendingSidecarFetch{kind, origin});
         onAcquiredSidecarSet(existing);
         return;
     }
@@ -2021,25 +2056,30 @@ ConsensusExtensions::fetchSidecarSetIfNeeded(
     // content-addressed, so peers can only supply nodes matching that root.
     // Per-leaf trust/schema checks happen when the completed map is merged.
     JLOG(j_.debug()) << "SIDECARFETCH: triggering network fetch"
-                     << " kind=" << sidecarKindName(kind) << " hash=" << *hash;
-    pendingSidecarFetches_.emplace(*hash, kind);
+                     << " kind=" << sidecarKindName(kind)
+                     << " origin=" << origin << " hash=" << *hash;
+    pendingSidecarFetches_.emplace(*hash, PendingSidecarFetch{kind, origin});
     if (auto immediate = app_.getInboundTransactions().getSet(
             *hash, true, InboundSetKind::sidecar))
     {
         JLOG(j_.debug()) << "SIDECARFETCH: immediate fetch hit"
                          << " kind=" << sidecarKindName(kind)
-                         << " hash=" << *hash;
+                         << " origin=" << origin << " hash=" << *hash;
         onAcquiredSidecarSet(immediate);
     }
 }
 
 void
-ConsensusExtensions::fetchSidecarsIfNeeded(ExtendedPosition const& peerPos)
+ConsensusExtensions::fetchSidecarsIfNeeded(
+    ExtendedPosition const& peerPos,
+    char const* origin)
 {
-    fetchSidecarSetIfNeeded(peerPos.commitSetHash, SidecarKind::commitSet);
-    fetchSidecarSetIfNeeded(peerPos.entropySetHash, SidecarKind::entropySet);
     fetchSidecarSetIfNeeded(
-        peerPos.exportSigSetHash, SidecarKind::exportSigSet);
+        peerPos.commitSetHash, SidecarKind::commitSet, origin);
+    fetchSidecarSetIfNeeded(
+        peerPos.entropySetHash, SidecarKind::entropySet, origin);
+    fetchSidecarSetIfNeeded(
+        peerPos.exportSigSetHash, SidecarKind::exportSigSet, origin);
 }
 
 void
@@ -2577,6 +2617,28 @@ ConsensusExtensions::harvestRngData(
     // Harvest reveal if present — verify it matches the stored commitment
     if (position.myReveal)
     {
+        if (rc.active())
+        {
+            if (auto cfg = rc.getConsensusTestConfig())
+            {
+                if (cfg->rngRevealDropPctX100 && *cfg->rngRevealDropPctX100 > 0)
+                {
+                    static thread_local std::mt19937 rng{
+                        std::random_device{}()};
+                    if (std::uniform_int_distribution<int>{0, 9999}(rng) <
+                        *cfg->rngRevealDropPctX100)
+                    {
+                        JLOG(j_.warn())
+                            << "RNG: TESTING dropping reveal claim"
+                            << " node=" << nodeId
+                            << " dropPctX100=" << *cfg->rngRevealDropPctX100
+                            << " proposeSeq=" << proposeSeq;
+                        return;
+                    }
+                }
+            }
+        }
+
         // Verify Hash(reveal | pubKey | seq) == commitment
         auto const prevLgr = app_.getLedgerMaster().getLedgerByHash(prevLedger);
         if (!prevLgr)

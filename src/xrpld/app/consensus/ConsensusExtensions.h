@@ -106,10 +106,16 @@ private:
     hash_map<uint256, std::shared_ptr<STTx const>> consensusExportTxns_;
     std::optional<uint256> consensusTxSetHash_;
 
-    // Track pending sidecar set fetches by hash → kind.
-    // Kind is known at fetch time (call site context), so
-    // onAcquiredSidecarSet can dispatch without content-sniffing.
-    hash_map<uint256, SidecarKind> pendingSidecarFetches_;
+    struct PendingSidecarFetch
+    {
+        SidecarKind kind;
+        char const* origin = "unknown";
+    };
+
+    // Track pending sidecar set fetches by hash. Kind/origin are known at fetch
+    // time from call-site context, so onAcquiredSidecarSet can dispatch without
+    // content-sniffing and logs can attribute eager vs gate-triggered fetches.
+    hash_map<uint256, PendingSidecarFetch> pendingSidecarFetches_;
 
     // Parent-ledger validator view used by RNG and Export quorum logic.
     ActiveValidatorViewPtr activeValidatorView_ =
@@ -363,11 +369,14 @@ public:
     void
     fetchSidecarSetIfNeeded(
         std::optional<uint256> const& hash,
-        SidecarKind kind = SidecarKind::commitSet);
+        SidecarKind kind = SidecarKind::commitSet,
+        char const* origin = "unknown");
 
     /// Fetch any sidecar sets from a peer's position if needed.
     void
-    fetchSidecarsIfNeeded(ExtendedPosition const& peerPos);
+    fetchSidecarsIfNeeded(
+        ExtendedPosition const& peerPos,
+        char const* origin = "eagerProposal");
 
     template <class PeerPositions>
     void

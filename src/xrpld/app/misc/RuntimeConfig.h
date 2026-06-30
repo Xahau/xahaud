@@ -86,7 +86,8 @@ struct PeerFaultConfig
 */
 struct ConsensusTestConfig
 {
-    std::optional<int> rngClaimDropPctX100;  // 0-10000 (pct * 100)
+    std::optional<int> rngClaimDropPctX100;   // 0-10000 (pct * 100)
+    std::optional<int> rngRevealDropPctX100;  // 0-10000 (pct * 100)
     // Bootstrap fast start: seed prevRoundTime_ to 3s instead of 15s on first
     // round, auto-disables after stable quorum is observed.
     std::optional<bool> bootstrapFastStart;
@@ -103,6 +104,7 @@ struct ConsensusTestConfig
     active() const
     {
         return (rngClaimDropPctX100 && *rngClaimDropPctX100 > 0) ||
+            (rngRevealDropPctX100 && *rngRevealDropPctX100 > 0) ||
             (bootstrapFastStart && *bootstrapFastStart) || rngPollMs ||
             (noExportSig && *noExportSig) ||
             (noExportSigHash && *noExportSigHash);
