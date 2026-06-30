@@ -1555,6 +1555,9 @@ ConsensusExtensions::isActiveValidator(
 bool
 ConsensusExtensions::isSidecarSet(uint256 const& hash) const
 {
+    if constexpr (!sidecarReconciliationEnabled())
+        return false;
+
     if (commitSetMap_ && commitSetMap_->getHash().as_uint256() == hash)
         return true;
     if (entropySetMap_ && entropySetMap_->getHash().as_uint256() == hash)
@@ -1570,6 +1573,14 @@ ConsensusExtensions::isSidecarSet(uint256 const& hash) const
 void
 ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
 {
+    if constexpr (!sidecarReconciliationEnabled())
+    {
+        JLOG(j_.debug()) << "SIDECARFETCH: acquired set ignored"
+                         << " reason=reconciliation-disabled"
+                         << " hash=" << map->getHash().as_uint256();
+        return;
+    }
+
     auto const hash = map->getHash().as_uint256();
 
     // Look up the expected kind before erasing.
@@ -1972,6 +1983,18 @@ ConsensusExtensions::fetchSidecarSetIfNeeded(
     SidecarKind kind,
     char const* origin)
 {
+    if constexpr (!sidecarReconciliationEnabled())
+    {
+        if (hash && *hash != uint256{})
+        {
+            JLOG(j_.trace())
+                << "SIDECARFETCH: skip"
+                << " kind=" << sidecarKindName(kind) << " origin=" << origin
+                << " hash=" << *hash << " reason=reconciliation-disabled";
+        }
+        return;
+    }
+
     if (!hash)
     {
         JLOG(j_.trace()) << "SIDECARFETCH: skip"
@@ -2074,6 +2097,13 @@ ConsensusExtensions::fetchSidecarsIfNeeded(
     ExtendedPosition const& peerPos,
     char const* origin)
 {
+    if constexpr (!sidecarReconciliationEnabled())
+    {
+        (void)peerPos;
+        (void)origin;
+        return;
+    }
+
     fetchSidecarSetIfNeeded(
         peerPos.commitSetHash, SidecarKind::commitSet, origin);
     fetchSidecarSetIfNeeded(

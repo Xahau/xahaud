@@ -37,6 +37,7 @@
 #include <deque>
 #include <optional>
 #include <sstream>
+#include <type_traits>
 
 namespace ripple {
 
@@ -915,8 +916,22 @@ Consensus<Adaptor>::peerProposalInternal(
                 newPeerPos.signature());
         }
 
-        if (ce.extensionsBusy())
-            ce.fetchSidecarsIfNeeded(newPeerProp.position());
+        using ConsensusExtensionsT = std::remove_reference_t<decltype(ce)>;
+        if constexpr (requires {
+                          ConsensusExtensionsT::sidecarReconciliationEnabled();
+                      })
+        {
+            if constexpr (ConsensusExtensionsT::sidecarReconciliationEnabled())
+            {
+                if (ce.extensionsBusy())
+                    ce.fetchSidecarsIfNeeded(newPeerProp.position());
+            }
+        }
+        else
+        {
+            if (ce.extensionsBusy())
+                ce.fetchSidecarsIfNeeded(newPeerProp.position());
+        }
     }
 
     if (newPeerProp.isInitial())

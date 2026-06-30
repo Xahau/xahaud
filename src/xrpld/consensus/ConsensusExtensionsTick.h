@@ -70,6 +70,16 @@ sidecarConvergenceTimeout(Parms const& parms)
     return parms.rngREVEAL_TIMEOUT * 2;
 }
 
+template <class Ext>
+constexpr bool
+sidecarReconciliationEnabled()
+{
+    if constexpr (requires { Ext::sidecarReconciliationEnabled(); })
+        return Ext::sidecarReconciliationEnabled();
+    else
+        return true;
+}
+
 template <class Ext, class Hash>
 void
 fetchSidecarSetIfNeeded(
@@ -78,7 +88,16 @@ fetchSidecarSetIfNeeded(
     typename Ext::SidecarKind kind,
     char const* origin)
 {
-    if constexpr (requires { ext.fetchSidecarSetIfNeeded(hash, kind, origin); })
+    if constexpr (!sidecarReconciliationEnabled<Ext>())
+    {
+        (void)ext;
+        (void)hash;
+        (void)kind;
+        (void)origin;
+    }
+    else if constexpr (requires {
+                           ext.fetchSidecarSetIfNeeded(hash, kind, origin);
+                       })
     {
         ext.fetchSidecarSetIfNeeded(hash, kind, origin);
     }

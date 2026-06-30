@@ -27,6 +27,10 @@
 
 namespace ripple {
 
+#ifndef XAHAUD_ENABLE_SIDECAR_RECONCILIATION
+#define XAHAUD_ENABLE_SIDECAR_RECONCILIATION 1
+#endif
+
 class Application;
 class CanonicalTXSet;
 class Ledger;
@@ -50,6 +54,12 @@ public:
 
     // Type of sidecar set, known at fetch time from proposal context.
     enum class SidecarKind : uint8_t { commitSet, entropySet, exportSigSet };
+
+    static constexpr bool
+    sidecarReconciliationEnabled()
+    {
+        return XAHAUD_ENABLE_SIDECAR_RECONCILIATION != 0;
+    }
 
     /** Proof data from a proposal signature, for embedding in SHAMap
         entries. Contains everything needed to independently verify
