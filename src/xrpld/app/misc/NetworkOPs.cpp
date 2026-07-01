@@ -1977,12 +1977,22 @@ NetworkOPsImp::mapComplete(std::shared_ptr<SHAMap> const& map, bool fromAcquire)
     // either created locally during the consensus process
     // or acquired from a peer
 
-    // Inform peers we have this set
-    protocol::TMHaveTransactionSet msg;
-    msg.set_hash(map->getHash().as_uint256().begin(), 256 / 8);
-    msg.set_status(protocol::tsHAVE);
-    app_.overlay().foreach(
-        send_always(std::make_shared<Message>(msg, protocol::mtHAVE_SET)));
+    // Inform peers we have this set.  When sidecar reconciliation is compiled
+    // out, sidecar SHAMaps remain local consensus inputs; do not expose them
+    // through the generic candidate-set availability path.
+#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
+    bool const advertiseSet = true;
+#else
+    bool const advertiseSet = map->mapType() != SHAMapType::SIDECAR;
+#endif
+    if (advertiseSet)
+    {
+        protocol::TMHaveTransactionSet msg;
+        msg.set_hash(map->getHash().as_uint256().begin(), 256 / 8);
+        msg.set_status(protocol::tsHAVE);
+        app_.overlay().foreach(
+            send_always(std::make_shared<Message>(msg, protocol::mtHAVE_SET)));
+    }
 
     // We acquired it because consensus asked us to
     if (fromAcquire)
