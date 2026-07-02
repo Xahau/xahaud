@@ -53,6 +53,12 @@ determinism defect: an accepted root must win, and absence of an accepted root
 falls back. This residual can occur even when the node otherwise agreed on the
 pre-injection transaction set: CE is appended after base transaction-set
 consensus, so missing CE proposal material is its own close-time boundary.
+This is a theoretical/reproduced-in-lab boundary, not a behavior observed on
+healthy testnets. CE reveal material rides the same proposal messages as the
+base transaction-set positions, so a node healthy enough to align on the tx set
+is expected to receive the CE material within the bounded CE window. Reaching
+this state requires a persistent, specific CE-material miss, or a stall at the
+CE sub-state boundary, after base tx-set agreement.
 *Enforced:* the same accepted-hash boundary as INV-1, plus tests that compare
 nodes with asymmetric local observation. *Anti-pattern:* a bootstrap or
 "impossible quorum" shortcut that falls through to close with fallback from
