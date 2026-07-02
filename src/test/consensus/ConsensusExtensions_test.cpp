@@ -1356,9 +1356,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testOnPreBuildEntropyFailureOverridesAcceptedSet()
+    testOnPreBuildAcceptedEntropySetOverridesLocalFailureFlag()
     {
-        testcase("onPreBuild entropy failure overrides accepted set");
+        testcase(
+            "onPreBuild accepted entropy set overrides local failure flag");
 
         using namespace jtx;
         Env env{
@@ -1415,15 +1416,12 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         if (!tx)
             return;
 
-        auto const fallbackDigest = sha512Half(
-            HashPrefix::entropyFallback, ledger->info().hash, txSetHash, seq);
         BEAST_EXPECT(tx->getTxnType() == ttCONSENSUS_ENTROPY);
-        BEAST_EXPECT(tx->getFieldH256(sfDigest) == fallbackDigest);
         BEAST_EXPECT(
-            tx->getFieldH256(sfDigest) != expectedEntropy(publicKey, reveal));
-        BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 0);
+            tx->getFieldH256(sfDigest) == expectedEntropy(publicKey, reveal));
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 1);
         BEAST_EXPECT(
-            tx->getFieldU8(sfEntropyTier) == entropyTierConsensusFallback);
+            tx->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
     }
 
     void
@@ -3452,7 +3450,7 @@ public:
         testOnPreBuildInjectsZeroEntropyFallback();
         testTxnOrderingSaltExtendsLegacySalt();
         testOnPreBuildInjectsEntropySetEntropy();
-        testOnPreBuildEntropyFailureOverridesAcceptedSet();
+        testOnPreBuildAcceptedEntropySetOverridesLocalFailureFlag();
         testOnPreBuildTier2ParticipantAligned();
         testTier2ThresholdAnchorsToOriginalView();
         testOnPreBuildTier2WithNegativeUNL();

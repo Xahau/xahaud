@@ -29,14 +29,14 @@ node injects the byte-identical `ttCONSENSUS_ENTROPY` (digest, tier, count). Tha
 object is ledger state. Therefore **non-fallback entropy must not read mutable
 local collector state or timing-derived state.** The selector derives non-fallback
 `(digest, tier, count)` only from the accepted `entropySetMap_` (matched to the
-hash the gate accepted) plus the parent-ledger active view. If the round has made
-a terminal failure decision (`entropyFailed_`), the same selector emits the
-canonical consensus_fallback digest and must not resurrect an accepted local
-snapshot from an already-failed commit phase.
+hash the gate accepted) plus the parent-ledger active view. Local timeout or
+diagnostic state such as `entropyFailed_` must not override an accepted root at
+injection time; a node that never accepts a root falls back through the normal
+missing-accepted-root path.
 *Enforced:* `selectEntropy`, the `acceptedEntropySetHash_` gate, and the
-`entropyFailed_` dominance check. *Anti-pattern:* reading live
-`pendingReveals_`/collector state at injection time, or letting an accepted local
-snapshot override a terminal failure decision.
+accepted-root authority test. *Anti-pattern:* reading live
+`pendingReveals_`/collector state at injection time, or letting local timeout
+flags override an accepted root.
 
 **INV-1A — Accept-vs-fallback is also ledger-defining.**
 The choice between a non-fallback sidecar and `consensus_fallback` is part of the

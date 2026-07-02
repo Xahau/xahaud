@@ -550,8 +550,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         return {};
                     }
 
-                    // If conflict persists past a bounded wait, force
-                    // deterministic fallback for this round.
+                    // If conflict persists past a bounded wait, stop waiting
+                    // in the commit sub-state. The reveal gate still decides
+                    // the accepted root; selection falls back only if no
+                    // accepted root materializes.
                     ext.setEntropyFailed();
                     ext.freezeRngCommitSet();
                     ext.estState_ = EstablishState::ConvergingReveal;
@@ -566,8 +568,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " buildSeq=" << buildSeq
                         << " elapsedMs=" << toMs(conflictElapsed)
                         << " deadlineMs=" << toMs(ctx.parms.rngREVEAL_TIMEOUT)
-                        << " action=consensus-fallback";
-                    logRngDiag("rng-commit-conflict-timeout-fallback");
+                        << " action=advance-to-reveal-gate";
+                    logRngDiag("rng-commit-conflict-timeout-advance");
                     return {};
                 }
             }

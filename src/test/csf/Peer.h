@@ -833,15 +833,6 @@ struct Peer
                 lastEntropyTier_ = entropyTierConsensusFallback;
             };
 
-            // Mirror production selectEntropy(): once the round has made a
-            // terminal failure decision, fallback dominates any previously
-            // accepted local entropy snapshot.
-            if (entropyFailed_)
-            {
-                fallback();
-                return;
-            }
-
             // Finalize from the snapshot of the entropy set this peer last
             // advertised (the sidecar-store entry for lastEntropySetHash_) —
             // the analog of production injecting from the frozen

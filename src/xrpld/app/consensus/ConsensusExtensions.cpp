@@ -795,18 +795,6 @@ ConsensusExtensions::selectEntropy(
             20};
     //@@end entropy-selector-standalone
 
-    // A forced RNG failure is a final round decision. Do not resurrect a
-    // candidate entropy snapshot later in the build path after the tick gate
-    // has chosen deterministic fallback for this ledger.
-    if (entropyFailed_)
-    {
-        JLOG(j_.warn()) << "RNG: using consensus fallback entropy"
-                        << " reason=entropy-failed"
-                        << " seq=" << seq
-                        << " agreedTxSetHash=" << agreedTxSetHash;
-        return fallback();
-    }
-
     // Non-fallback entropy labels depend on validator-view thresholds. Without
     // an on-ledger UNLReport, that view is derived from local trusted config,
     // so two nodes can agree on the same entropy set but label it with
@@ -839,8 +827,7 @@ ConsensusExtensions::selectEntropy(
 
     // A cached entropySetMap_ is only candidate material. The tick gate marks
     // the sidecar hash accepted after peer-observation/alignment checks have
-    // completed; the forced-failure check above is the only timeout state that
-    // can still override it at injection time.
+    // completed; injection never consults local timeout state directly.
     if (!acceptedEntropySetHash_ || !entropySetMap_ ||
         entropySetMap_->getHash().as_uint256() != *acceptedEntropySetHash_)
         return fallback();
