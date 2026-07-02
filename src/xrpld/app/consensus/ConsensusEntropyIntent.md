@@ -50,7 +50,9 @@ A node that cannot accept the entropy root by the bounded deadline may inject
 `consensus_fallback` while the aligned quorum injects validator entropy. This is
 an accepted, validation-resolved lagging-node close result, not a selector
 determinism defect: an accepted root must win, and absence of an accepted root
-falls back.
+falls back. This residual can occur even when the node otherwise agreed on the
+pre-injection transaction set: CE is appended after base transaction-set
+consensus, so missing CE proposal material is its own close-time boundary.
 *Enforced:* the same accepted-hash boundary as INV-1, plus tests that compare
 nodes with asymmetric local observation. *Anti-pattern:* a bootstrap or
 "impossible quorum" shortcut that falls through to close with fallback from
