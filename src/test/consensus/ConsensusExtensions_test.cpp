@@ -1180,6 +1180,43 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testOnRoundStartRefreshesFeatureLatches()
+    {
+        testcase("onRoundStart refreshes extension feature latches");
+
+        using namespace jtx;
+        Env enabledEnv{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy | featureExport,
+            nullptr};
+        Env disabledEnv{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() - featureConsensusEntropy - featureExport,
+            nullptr};
+
+        auto const enabledLedger =
+            enabledEnv.app().getLedgerMaster().getClosedLedger();
+        auto const disabledLedger =
+            disabledEnv.app().getLedgerMaster().getClosedLedger();
+
+        ConsensusExtensions ce{enabledEnv.app(), activeNoopJournal()};
+
+        ce.setRngEnabledThisRound(false);
+        ce.setExportEnabledThisRound(false);
+        ce.onRoundStart(RCLCxLedger{enabledLedger}, {});
+        BEAST_EXPECT(ce.rngEnabled());
+        BEAST_EXPECT(ce.exportEnabled());
+
+        ce.setRngEnabledThisRound(true);
+        ce.setExportEnabledThisRound(true);
+        ce.onRoundStart(RCLCxLedger{disabledLedger}, {});
+        BEAST_EXPECT(!ce.rngEnabled());
+        BEAST_EXPECT(!ce.exportEnabled());
+    }
+
+    void
     testDecoratePositionGeneratesCommitment()
     {
         testcase("decoratePosition generates commitment");
@@ -3523,6 +3560,7 @@ public:
         testParticipantThreshold();
         testThresholdPolicyHelpers();
         testRuntimeConfigPolicyAccessors();
+        testOnRoundStartRefreshesFeatureLatches();
         testDecoratePositionGeneratesCommitment();
         testOnPreBuildInjectsZeroEntropyFallback();
         testTxnOrderingSaltExtendsLegacySalt();

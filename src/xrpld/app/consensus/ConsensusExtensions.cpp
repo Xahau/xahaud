@@ -1414,11 +1414,9 @@ ConsensusExtensions::clearRngStatePreservingExport()
     likelyParticipants_.clear();
     commitProofs_.clear();
     //@@end round-stop-rng-reset
-    // Keep the round-level enable latches intact here. Consensus::startRound()
-    // calls preStartRound() first to snapshot which extensions are enabled for
-    // the upcoming round, then immediately clears per-round working state.
-    // Resetting these latches here would wipe that snapshot before
-    // phaseEstablish() can consult it.
+    // Keep the round-level enable latches intact here. Callers either already
+    // hold a valid snapshot, or onRoundStart() refreshes it from the consensus
+    // parent ledger after clearing per-round working state.
 }
 
 void
@@ -2237,6 +2235,10 @@ ConsensusExtensions::onRoundStart(
     hash_set<NodeID> lastProposers)
 {
     clearRngState();
+    auto const& rules = prevLedger.ledger_->rules();
+    setRngEnabledThisRound(rules.enabled(featureConsensusEntropy));
+    setExportEnabledThisRound(rules.enabled(featureExport));
+
     roundPrevLedgerHash_ = prevLedger.ledger_->info().hash;
     rngRoundSeq_ = prevLedger.ledger_->info().seq + 1;
     cacheUNLReport(prevLedger.ledger_);
