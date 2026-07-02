@@ -1312,7 +1312,9 @@ public:
         // CSF's Ledger ID is still the base tx-set only. In production the
         // quorum peers' ttEXPORT_SIGNATURES witness would make their synthetic
         // ledger differ from peer 0's retry ledger until validations pull the
-        // missing-material peer onto the quorum ledger.
+        // missing-material peer onto the quorum ledger. Assert the quorum
+        // cohort's decision rather than full-network synchronization at a
+        // fixed simulator tick.
         peers[0]->ce().suppressOwnExportSig_ = true;
         for (std::size_t i = 1; i < peers.size(); ++i)
             peers[0]->ce().dropExportSigFrom_.insert(peers[i]->id);
@@ -1322,8 +1324,10 @@ public:
 
         sim.run(3);
 
-        BEAST_EXPECT(sim.branches(peers) == 1);
-        BEAST_EXPECT(sim.synchronized(peers));
+        PeerGroup honest{
+            std::vector<Peer*>{peers[1], peers[2], peers[3], peers[4]}};
+        BEAST_EXPECT(sim.branches(honest) == 1);
+        BEAST_EXPECT(sim.synchronized(honest));
         BEAST_EXPECT(!peers[0]->ce().lastExportSucceeded_);
         BEAST_EXPECT(peers[0]->ce().lastExportRetried_);
 
