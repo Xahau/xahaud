@@ -891,10 +891,13 @@ struct Peer
             }
 
             // Tier ladder over the aligned reveal count (mirrors production
-            // selectEntropy): >= quorum -> validator_quorum, >= tier2 ->
-            // participant_aligned, else too few aligned to trust -> fall back.
+            // selectEntropy): full active view -> validator_full, >= quorum ->
+            // validator_quorum, >= tier2 -> participant_aligned, else too few
+            // aligned to trust -> fall back.
             auto const count = ordered.size();
-            if (count >= quorumThreshold())
+            if (count == unlNodes_.size())
+                lastEntropyTier_ = entropyTierValidatorFull;
+            else if (count >= quorumThreshold())
                 lastEntropyTier_ = entropyTierValidatorQuorum;
             else if (count >= tier2Threshold())
                 lastEntropyTier_ = entropyTierParticipantAligned;

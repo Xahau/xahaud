@@ -1133,11 +1133,14 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             ConsensusExtensions::entropyGateThresholdForView(6, 10) == 5);
 
         // Tier labels require a ledger-anchored UNLReport view. With one, the
-        // ladder is validator_quorum first, then participant_aligned, then
-        // fallback.
+        // ladder is validator_full first, then validator_quorum, then
+        // participant_aligned, then fallback.
         BEAST_EXPECT(
             ConsensusExtensions::selectEntropyTierForView(false, 99, 8, 10) ==
             entropyTierConsensusFallback);
+        BEAST_EXPECT(
+            ConsensusExtensions::selectEntropyTierForView(true, 8, 8, 10) ==
+            entropyTierValidatorFull);
         BEAST_EXPECT(
             ConsensusExtensions::selectEntropyTierForView(true, 7, 8, 10) ==
             entropyTierValidatorQuorum);
@@ -1149,6 +1152,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             entropyTierParticipantAligned);
         BEAST_EXPECT(
             ConsensusExtensions::selectEntropyTierForView(true, 4, 8, 8) ==
+            entropyTierConsensusFallback);
+        BEAST_EXPECT(
+            ConsensusExtensions::selectEntropyTierForView(true, 0, 0, 0) ==
             entropyTierConsensusFallback);
     }
 
@@ -1402,8 +1408,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             tx->getFieldH256(sfDigest) == expectedEntropy(publicKey, reveal));
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 1);
         BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 1);
-        BEAST_EXPECT(
-            tx->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
+        BEAST_EXPECT(tx->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
     }
 
     void
@@ -1472,8 +1477,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             tx->getFieldH256(sfDigest) == expectedEntropy(publicKey, reveal));
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 1);
         BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 1);
-        BEAST_EXPECT(
-            tx->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
+        BEAST_EXPECT(tx->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
     }
 
     void
@@ -2383,8 +2387,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             sha512Half(std::string("standalone-entropy"), seq));
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 20);
         BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 20);
-        BEAST_EXPECT(
-            tx->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
+        BEAST_EXPECT(tx->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
 
         // Value-based dedup: re-injecting with identical inputs yields the
         // identical pseudo-tx (same txID) -> verified skip, still one entry.

@@ -22,6 +22,7 @@
 #include <test/jtx/hook.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/hook/Enum.h>
+#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/SField.h>
@@ -84,7 +85,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
 
         auto const count = sle->getFieldU16(sfEntropyCount);
         BEAST_EXPECT(count >= 5);
-        BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) >= count);
+        BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) == count);
+        BEAST_EXPECT(
+            sle->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
 
         auto const sleSeq = sle->getFieldU32(sfLedgerSequence);
         BEAST_EXPECT(sleSeq == env.closed()->seq());
@@ -447,7 +450,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
 
         // Standalone entropy carries EntropyCount=20,
-        // EntropyDenominator=20, and tier validator_quorum.
+        // EntropyDenominator=20, and tier validator_full.
         // A hook demanding min_count=21 states a requirement this ledger
         // cannot meet, so dice must fail closed with TOO_LITTLE_ENTROPY (-48)
         // rather than silently serving weaker entropy.
@@ -528,7 +531,11 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 if (bad_min_tier != INVALID_ARGUMENT)
                     return accept(0, 0, bad_min_tier);
 
-                int64_t bad_high_tier = dice(6, 4, 0);
+                int64_t ok_full_tier = dice(6, 4, 0);
+                if (ok_full_tier < 0 || ok_full_tier > 5)
+                    return accept(0, 0, ok_full_tier);
+
+                int64_t bad_high_tier = dice(6, 5, 0);
                 if (bad_high_tier != INVALID_ARGUMENT)
                     return accept(0, 0, bad_high_tier);
 
@@ -536,7 +543,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 if (bad_min_count != INVALID_ARGUMENT)
                     return accept(0, 0, bad_min_count);
 
-                int64_t bad_random_tier = random((uint32_t)buf, 32, 4, 0);
+                int64_t bad_random_tier = random((uint32_t)buf, 32, 5, 0);
                 if (bad_random_tier != INVALID_ARGUMENT)
                     return accept(0, 0, bad_random_tier);
 

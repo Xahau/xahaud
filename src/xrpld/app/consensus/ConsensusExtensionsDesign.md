@@ -298,11 +298,13 @@ only until the bounded deadline, then fall back.
 
 The **tier label** is then derived from the agreed entropy set itself — the
 number of validator reveals (leaves) in the agreed `entropySetMap_`, not the
-peer-alignment count above. If that leaf count reaches `quorumThreshold()`, the
-set is labeled `validator_quorum`; if it is below `quorumThreshold()` but reaches
-`tier2Threshold()`, it is labeled `participant_aligned`; otherwise the round falls
-back. `quorumThreshold()` is 80% of the effective active view; `tier2Threshold()`
-is the intersection-safe floor over the original pre-nUNL view.
+peer-alignment count above. If that leaf count equals the effective active view
+size, the set is labeled `validator_full`; if it is below full participation but
+reaches `quorumThreshold()`, it is labeled `validator_quorum`; if it is below
+`quorumThreshold()` but reaches `tier2Threshold()`, it is labeled
+`participant_aligned`; otherwise the round falls back. `quorumThreshold()` is 80%
+of the effective active view; `tier2Threshold()` is the intersection-safe floor
+over the original pre-nUNL view.
 
 Under nUNL, exact integer thresholds can cross either way. For example, a
 20-validator original view with five disabled validators has effective quorum
@@ -334,6 +336,9 @@ quorum and participant_aligned coincide at four, leaving no band). On a
 non-UNLReport (config-fallback) view, every case below instead mints
 `consensus_fallback`:
 
+- Six honest validators align on one entropy hash: proceed with validator_full
+  entropy (`EntropyCount == EntropyDenominator`) so hooks that demand full
+  active-validator participation can fail closed on any withholding.
 - Five honest validators align on one entropy hash and one validator advertises
   a bogus hash: proceed with validator_quorum entropy for the honest quorum.
 - Four validators align on the honest hash and two advertise different bogus
@@ -356,7 +361,7 @@ original pre-NegativeUNL view internally. Hooks state their own requirements via
 validator-tier entropy fails closed with `TOO_LITTLE_ENTROPY` on fallback
 ledgers, while a hook that opts into fallback-grade randomness must do so
 explicitly at the call site. Valid `min_tier` values are the stored entropy
-tiers 1..3; `min_count` must fit the on-ledger `EntropyCount` UINT16 field.
+tiers 1..4; `min_count` must fit the on-ledger `EntropyCount` UINT16 field.
 Invalid requirements return `INVALID_ARGUMENT`, while valid-but-unmet
 requirements return `TOO_LITTLE_ENTROPY`.
 

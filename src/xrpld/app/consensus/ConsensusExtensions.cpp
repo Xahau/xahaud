@@ -396,6 +396,9 @@ ConsensusExtensions::selectEntropyTierForView(
     if (!fromUNLReport)
         return entropyTierConsensusFallback;
 
+    if (effectiveViewSize > 0 && participantCount == effectiveViewSize)
+        return entropyTierValidatorFull;
+
     auto const quorum = safeQuorumThreshold(effectiveViewSize);
     if (participantCount >= quorum)
         return entropyTierValidatorQuorum;
@@ -792,7 +795,7 @@ ConsensusExtensions::selectEntropy(
     if (app_.config().standalone())
         return {
             sha512Half(std::string("standalone-entropy"), seq),
-            entropyTierValidatorQuorum,
+            entropyTierValidatorFull,
             20,
             20};
     //@@end entropy-selector-standalone

@@ -4043,7 +4043,7 @@ inline bool
 invalidEntropyRequirement(uint32_t minTier, uint32_t minCount)
 {
     return minTier < entropyTierConsensusFallback ||
-        minTier > entropyTierValidatorQuorum ||
+        minTier > entropyTierValidatorFull ||
         minCount > std::numeric_limits<std::uint16_t>::max();
 }
 
