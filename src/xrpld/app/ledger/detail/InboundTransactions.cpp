@@ -93,10 +93,7 @@ public:
     }
 
     std::shared_ptr<SHAMap>
-    getSet(
-        uint256 const& hash,
-        bool acquire,
-        InboundSetKind kind = InboundSetKind::transaction) override
+    getSet(uint256 const& hash, bool acquire) override
     {
         TransactionAcquire::pointer ta;
 
@@ -105,6 +102,14 @@ public:
 
             if (auto it = m_map.find(hash); it != m_map.end())
             {
+                if (acquire && it->second.mSet &&
+                    it->second.mSet->mapType() != SHAMapType::TRANSACTION)
+                {
+                    // Consensus extensions may cache local sidecar snapshots
+                    // here for same-process materialization, but transaction
+                    // set acquisition must never wrap one as an RCLTxSet.
+                    return {};
+                }
                 if (acquire)
                 {
                     it->second.mSeq = m_seq;
@@ -120,7 +125,7 @@ public:
                 return std::shared_ptr<SHAMap>();
 
             ta = std::make_shared<TransactionAcquire>(
-                app_, hash, m_peerSetBuilder->build(), kind);
+                app_, hash, m_peerSetBuilder->build());
 
             auto& obj = m_map[hash];
             obj.mAcquire = ta;

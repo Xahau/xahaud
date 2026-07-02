@@ -70,43 +70,6 @@ sidecarConvergenceTimeout(Parms const& parms)
     return parms.rngREVEAL_TIMEOUT * 2;
 }
 
-template <class Ext>
-constexpr bool
-sidecarReconciliationEnabled()
-{
-    if constexpr (requires { Ext::sidecarReconciliationEnabled(); })
-        return Ext::sidecarReconciliationEnabled();
-    else
-        return true;
-}
-
-template <class Ext, class Hash>
-void
-fetchSidecarSetIfNeeded(
-    Ext& ext,
-    Hash const& hash,
-    typename Ext::SidecarKind kind,
-    char const* origin)
-{
-    if constexpr (!sidecarReconciliationEnabled<Ext>())
-    {
-        (void)ext;
-        (void)hash;
-        (void)kind;
-        (void)origin;
-    }
-    else if constexpr (requires {
-                           ext.fetchSidecarSetIfNeeded(hash, kind, origin);
-                       })
-    {
-        ext.fetchSidecarSetIfNeeded(hash, kind, origin);
-    }
-    else
-    {
-        ext.fetchSidecarSetIfNeeded(hash, kind);
-    }
-}
-
 struct SidecarPeerAlignment
 {
     bool localCounts = false;
@@ -209,9 +172,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
     // --- RNG Sub-state Checkpoints ---
     // These sub-states use union convergence (not avalanche).
     // Commits and reveals arrive piggybacked on proposals, so by the time
-    // we reach these checkpoints most data is already collected. The
-    // SHAMap fetch/diff/merge in onAcquiredSidecarSet is a safety net
-    // for stragglers, not a voting mechanism.
+    // we reach these checkpoints most data is already collected. Local
+    // SHAMap snapshots materialize accepted roots, but peers do not fetch,
+    // serve, or merge sidecar roots during the round.
     //
     // Why an 80% fast path for commits but 100% for reveals?
     //
@@ -375,15 +338,14 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
             ctx.updatePosition(newPos);
 
-            // Publish entropySetHash before accepting so lagging peers
-            // can fetch/merge reveal sets in ConvergingReveal.
+            // Publish entropySetHash before accepting so tx-converged peers can
+            // observe the proposed local snapshot root before the gate decides.
             //
             // This can look redundant in healthy rounds because txSetHash
             // may be unchanged versus the prior proposal (for example,
             // seq=2 and seq=3 showing the same tx summary in monitors). We
             // still publish to create an additional delivery window for
-            // entropySetHash and to trigger fetch/merge on peers that
-            // missed earlier packets.
+            // entropySetHash observation.
             if (ctx.mode == ConsensusMode::proposing)
                 ctx.propose();
 
@@ -486,30 +448,6 @@ extensionsTick(Ext& ext, Ctx const& ctx)
         }
         else if (ext.estState_ == EstablishState::ConvergingCommit)
         {
-            // If commit hashes diverge, we may not receive any additional
-            // tx-converged proposals in this state (peers can move to the
-            // next ledger quickly, causing prevLedger rejects). In that
-            // case, hashes observed during ConvergingTx would never be
-            // fetched because fetch is intentionally deferred there.
-            //
-            // Sweep currently tx-converged peer positions each tick so
-            // deferred commitSet hashes still get fetched/merged even
-            // without new accepted proposals in ConvergingCommit.
-            {
-                auto const ourPos = ctx.getPosition();
-                for (auto const& [nodeId, peerPos] : ctx.peerPositions)
-                {
-                    auto const& peerPosition = peerPos.proposal().position();
-                    if (peerPosition.txSetHash != ourPos.txSetHash)
-                        continue;
-                    detail::fetchSidecarSetIfNeeded(
-                        ext,
-                        peerPosition.commitSetHash,
-                        Ext::SidecarKind::commitSet,
-                        "commitGateSweep");
-                }
-            }
-
             // Fast path: if no commit-set conflicts are observed, do
             // exactly what we did before (immediate reveal transition).
             //
@@ -551,7 +489,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
             if (hasConflictingCommitSetHashes())
             {
-                // Fetch/merge may have added missing commits since we last
+                // Proposal harvest may have added commits since we last
                 // published our commitSetHash. Rebuild and re-publish so
                 // peers can converge on one deterministic hash instead of
                 // timing out.
@@ -568,7 +506,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
                     JLOG(ext.j_.debug())
                         << "RNG: refreshed commitSetHash"
-                        << " reason=merge"
+                        << " reason=proposal-harvest"
                         << " buildSeq=" << buildSeq << " oldHash="
                         << (previousHash ? to_string(*previousHash)
                                          : std::string{"none"})
@@ -583,13 +521,13 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         std::chrono::steady_clock::time_point{})
                     {
                         // First observed conflict: start a bounded grace
-                        // window so benign ordering/fetch races can settle.
+                        // window so benign proposal ordering can settle.
                         ext.commitHashConflictStart_ = nowSteady;
                         JLOG(ext.j_.warn())
                             << "RNG: conflicting commitSetHash detected"
                             << " buildSeq=" << buildSeq << " deadlineMs="
                             << toMs(ctx.parms.rngREVEAL_TIMEOUT)
-                            << " action=wait-for-fetch";
+                            << " action=wait-for-proposal-alignment";
                         logRngDiag("rng-commit-conflict-start");
                         return {};
                     }
@@ -748,8 +686,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             // The gate works in two phases:
             //   1. First tick after publishing: always wait (return {})
             //      to give proposals time to propagate.
-            //   2. Subsequent ticks: check for conflict, fetch/merge/
-            //      rebuild if needed, bounded by deadline.
+            //   2. Subsequent ticks: check for conflict and rebuild if needed,
+            //      bounded by deadline.
             //
             // Same pattern as commitSetHash conflict handling (line ~308)
             // and exportSigSetHash convergence gate (line ~674).
@@ -778,8 +716,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     // zero out, not something that should block ordinary
                     // tx-set consensus indefinitely.
                     //@@start rng-entropy-observation-state
-                    auto inspectEntropyPeers = [&](auto const& pos,
-                                                   bool fetchMismatches) {
+                    auto inspectEntropyPeers = [&](auto const& pos) {
                         return detail::inspectTxConvergedSidecarPeers(
                             ctx.peerPositions,
                             pos,
@@ -790,17 +727,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             [&ext](auto const& nodeId) {
                                 return ext.isUNLReportMember(nodeId);
                             },
-                            [&](auto const& hash) {
-                                if (fetchMismatches)
-                                    detail::fetchSidecarSetIfNeeded(
-                                        ext,
-                                        hash,
-                                        Ext::SidecarKind::entropySet,
-                                        "entropyGateScan");
-                            });
+                            [](auto const&) {});
                     };
 
-                    auto entropyState = inspectEntropyPeers(ourPos, true);
+                    auto entropyState = inspectEntropyPeers(ourPos);
                     auto const entropyQuorum = ext.entropyGateThreshold();
                     auto quorumAligned = [&] {
                         return entropyState.quorumAligned(entropyQuorum);
@@ -822,7 +752,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
                     if (entropyState.conflict && !quorumAligned())
                     {
-                        // Rebuild our entropy set after any merges.
+                        // Rebuild our entropy set after proposal harvest
+                        // updates.
                         auto const refreshedHash =
                             ext.buildEntropySet(buildSeq);
                         if (refreshedHash != *ourPos.entropySetHash)
@@ -834,7 +765,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                                 ctx.propose();
                             JLOG(ext.j_.debug())
                                 << "RNG: refreshed entropySetHash"
-                                << " reason=merge"
+                                << " reason=local-refresh"
                                 << " buildSeq=" << buildSeq
                                 << " oldHash=" << *ourPos.entropySetHash
                                 << " newHash=" << refreshedHash;
@@ -844,8 +775,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         // that still advertises a different entropySetHash is
                         // unresolved until it converges or the bounded RNG
                         // window expires and forces consensus_fallback.
-                        entropyState =
-                            inspectEntropyPeers(ctx.getPosition(), true);
+                        entropyState = inspectEntropyPeers(ctx.getPosition());
                     }
 
                     //@@start rng-entropy-conflict-gate
@@ -1002,9 +932,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
     }
 
     // Export sig convergence gate: runs after RNG sub-states when Export has
-    // verified signatures to converge, or when a tx-converged peer advertises
-    // an exportSigSetHash we may need to fetch. This is a bounded safety
-    // coordination window, not a wait-for-Export-success mechanism.
+    // verified signatures to publish or when tx-converged peers advertise
+    // exportSigSetHash roots we can locally materialize. This is a bounded
+    // safety coordination window, not a wait-for-Export-success mechanism.
     if constexpr (requires { ctx.getPosition().exportSigSetHash; })
     {
         if (!ext.exportEnabled())
@@ -1018,7 +948,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             return true;
         };
 
-        auto fetchPeerExportSigSets = [&](auto const& pos) {
+        auto observedPeerExportSigSets = [&](auto const& pos) {
             std::size_t peerSets = 0;
             for (auto const& [_, peerPos] : ctx.peerPositions)
             {
@@ -1029,11 +959,6 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     continue;
 
                 ++peerSets;
-                detail::fetchSidecarSetIfNeeded(
-                    ext,
-                    pp.exportSigSetHash,
-                    Ext::SidecarKind::exportSigSet,
-                    "exportPeerSweep");
             }
             return peerSets;
         };
@@ -1041,7 +966,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
         bool hasLocalExportSigs = ext.hasPendingExportSigs();
         if (!hasLocalExportSigs && ext.hasConsensusExportTxns())
         {
-            auto const peerSets = fetchPeerExportSigSets(ctx.getPosition());
+            auto const peerSets = observedPeerExportSigSets(ctx.getPosition());
             if (peerSets > 0)
             {
                 startExportSigGate();
@@ -1056,7 +981,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     {
                         JLOG(ext.j_.debug())
                             << "Export: bounded wait for advertised "
-                               "exportSigSet fetch/merge"
+                               "exportSigSet local material"
                             << " buildSeq=" << ctx.buildSeq
                             << " peerSets=" << peerSets
                             << " elapsedMs=" << toMs(elapsed)
@@ -1067,7 +992,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     ext.setExportSigConvergenceFailed();
                     ext.clearAcceptedExportSigSet();
                     JLOG(ext.j_.warn())
-                        << "Export: advertised exportSigSet fetch timeout"
+                        << "Export: advertised exportSigSet material timeout"
                         << " buildSeq=" << ctx.buildSeq
                         << " peerSets=" << peerSets
                         << " elapsedMs=" << toMs(elapsed)
@@ -1078,9 +1003,9 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             else
             {
                 // A candidate ttEXPORT with no local sig material gets one
-                // short observation window so an already-reachable peer
-                // exportSigSetHash can be fetched before apply. If nothing
-                // appears in time, apply takes the retry/expire path.
+                // short observation window so proposal-carried signatures can
+                // arrive before apply. If nothing appears in time, apply takes
+                // the retry/expire path.
                 startExportSigGate();
                 auto const elapsed = ctx.nowSteady - ext.exportSigGateStart_;
                 auto const deadline =
@@ -1166,8 +1091,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     return {};
                 }
 
-                auto inspectExportPeers = [&](auto const& pos,
-                                              bool fetchMismatches) {
+                auto inspectExportPeers = [&](auto const& pos) {
                     return detail::inspectTxConvergedSidecarPeers(
                         ctx.peerPositions,
                         pos,
@@ -1178,17 +1102,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         [&ext](auto const& nodeId) {
                             return ext.isUNLReportMember(nodeId);
                         },
-                        [&](auto const& hash) {
-                            if (fetchMismatches)
-                                detail::fetchSidecarSetIfNeeded(
-                                    ext,
-                                    hash,
-                                    Ext::SidecarKind::exportSigSet,
-                                    "exportGateScan");
-                        });
+                        [](auto const&) {});
                 };
 
-                auto exportState = inspectExportPeers(ctx.getPosition(), true);
+                auto exportState = inspectExportPeers(ctx.getPosition());
                 auto const exportQuorum = ext.exportSigQuorumThreshold();
                 auto quorumAligned = [&] {
                     return exportState.quorumAligned(exportQuorum);
@@ -1210,14 +1127,14 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             ctx.propose();
                         JLOG(ext.j_.debug())
                             << "Export: refreshed exportSigSetHash"
-                            << " reason=merge"
+                            << " reason=local-refresh"
                             << " buildSeq=" << buildSeqExport << " oldHash="
                             << (oldHash ? to_string(*oldHash)
                                         : std::string{"none"})
                             << " newHash=" << refreshedHash;
                     }
 
-                    exportState = inspectExportPeers(ctx.getPosition(), true);
+                    exportState = inspectExportPeers(ctx.getPosition());
                 }
                 //@@end export-sigset-alignment-check
 

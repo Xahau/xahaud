@@ -10,6 +10,7 @@ hash, so the round must not retry/expire just because fullObservation is false.
 from __future__ import annotations
 
 from export_helpers import (
+    EXPORT_RETRY_LEDGER_WINDOW,
     require_export,
     assert_export_result,
     assert_shadow_ticket,
@@ -33,7 +34,7 @@ async def scenario(ctx, log):
     result = await ctx.submit_and_wait(
         {
             "TransactionType": "Export",
-            "LastLedgerSequence": current_seq + 10,
+            "LastLedgerSequence": current_seq + EXPORT_RETRY_LEDGER_WINDOW,
             "Fee": "1000000",
             "ExportedTxn": {
                 "TransactionType": "Payment",
@@ -44,7 +45,7 @@ async def scenario(ctx, log):
                 "Sequence": 0,
                 "TicketSequence": 1,
                 "FirstLedgerSequence": current_seq + 1,
-                "LastLedgerSequence": current_seq + 8,
+                "LastLedgerSequence": current_seq + EXPORT_RETRY_LEDGER_WINDOW,
                 "Flags": 2147483648,
                 "SigningPubKey": "",
             },

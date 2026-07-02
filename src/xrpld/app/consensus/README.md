@@ -16,4 +16,4 @@ convergence follow the invariants in
 [`ConsensusExtensionsDesign.md`](ConsensusExtensionsDesign.md),
 [`ConsensusEntropyIntent.md`](ConsensusEntropyIntent.md), and
 [`ExportIntent.md`](ExportIntent.md). Read those notes before changing extension
-quorum, sidecar sync, fallback behavior, or replay witnesses.
+quorum, local sidecar snapshots, fallback behavior, or replay witnesses.

@@ -36,8 +36,8 @@ signatures, or the subset that happened to advertise sidecar hashes.
 **INV-3 — Accepted sidecar root, not live collector.**
 Any successful Export apply path must use the signature set rooted at the
 `exportSigSetHash` accepted by the tick gate. Late local collector arrivals,
-timeout flags, fetch completions, or unverified proposal-carried signatures must
-not change the signer set selected for the ledger.
+timeout flags, or unverified proposal-carried signatures must not change the
+signer set selected for the ledger.
 *Anti-pattern:* assembling from `ExportSigCollector` at apply time.
 
 **INV-4 — Replay witness in the transaction stream.**
@@ -85,8 +85,8 @@ The success-vs-retry decision remains a bounded timing edge, like ordinary
 consensus convergence: one node may observe the quorum-aligned witness before
 its deadline while another retries. Validation resolves that ledger disagreement.
 What must never happen is a "successful" export whose signature bytes come from
-live collector state, late fetches, or a node-local sub-quorum set instead of the
-accepted witness in the transaction stream.
+live collector state, late proposal arrivals, or a node-local sub-quorum set
+instead of the accepted witness in the transaction stream.
 
 **INV-7 — Shadow tickets are latches, not global tombstones.**
 The current shadow-ticket object prevents a different XPOP from consuming the
@@ -96,10 +96,11 @@ protocol decision, not an implicit property of shadow tickets.
 
 ## Replay Witness Shape
 
-The accepted export sidecar set is not consumed directly by `Export::doApply`.
+The accepted local export sidecar snapshot is not consumed directly by
+`Export::doApply`.
 Before ledger build, a producer injects one `ttEXPORT_SIGNATURES` pseudo for
 each export that has usable signatures. In network mode that producer is the
-consensus sidecar gate; in standalone/dev mode it can be a local helper. The
+consensus extension accept path; in standalone/dev mode it can be a local helper. The
 pseudo has no ledger-state effect by itself; it is the ledger's replay witness
 for the validator signatures.
 

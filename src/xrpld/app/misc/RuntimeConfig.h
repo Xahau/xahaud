@@ -224,7 +224,7 @@ private:
     Names are intentionally string-based so test tools can target overlay
     traffic without depending on enum values.  Aliases may expand to several
     categories, for example candidate-set fetch covers the TMGetLedger request
-    and TMLedgerData reply categories used by tx-set and sidecar acquisition.
+    and TMLedgerData reply categories used by tx-set acquisition.
 */
 std::optional<std::set<std::size_t>>
 runtimeConfigMessageCategoriesFromNames(

@@ -86,19 +86,22 @@ sidecar gate has had its bounded chance to use proofed/quorum material.
    derive the entropy transaction from agreed sidecar inputs. Any local fault
    still has to survive normal validation/LCL agreement.
 
-4. Converge signed inputs, not just derived outputs.
+4. Align signed inputs, not just derived outputs.
 
    RNG commits, RNG reveals, and export signatures are the verifiable inputs.
-   The design converges on those input sets using sidecar SHAMaps. The final
-   entropy digest and export quorum result are derived from the converged
-   inputs.
+   The design aligns on signed roots over those input sets using local sidecar
+   SHAMap snapshots. The final entropy digest and export quorum result are
+   derived from the accepted local snapshot, not from live collector state.
 
 5. Sidecars are not transactions.
 
    Commit, reveal, and export signature entries are `STObject(sfGeneric)`
    leaves in ephemeral `SHAMapType::SIDECAR` maps. They use `sfSidecarType`
-   to distinguish payloads and `HashPrefix::sidecar` for item hashes. They
-   are fetched through sidecar sync, not parsed or submitted as transactions.
+   to distinguish payloads and `HashPrefix::sidecar` for item hashes. Current
+   same-round consensus does not advertise, fetch, serve, or merge these maps
+   from peers. The maps are local immutable snapshots used to materialize the
+   root a node signed into its proposal and, if accepted, to build the
+   ledger-visible pseudo/witness.
 
 6. Proposal-visible or validation-visible extension data must be signed.
 
@@ -115,20 +118,16 @@ sidecar gate has had its bounded chance to use proofed/quorum material.
    validating key and ledger. A protobuf field outside the signed validation is
    only transport metadata; it must not affect consensus-extension behavior.
 
-7. Fetched sidecar bytes are untrusted until semantic validation passes.
+7. Proposal-carried material is untrusted until semantic validation passes.
 
-   Content-addressed sidecar SHAMaps prove only byte identity under the advertised
-   root. They do not prove that a leaf is well-formed, authorized, or safe to
-   parse with unchecked protocol constructors. Every fetched leaf must first pass
-   cheap structural checks, safe key-type checks, active-view membership, and the
-   relevant cryptographic proof before it can enter pending RNG/export state.
-
-   This includes stored/cluster-relayed proposals: cluster trust may affect relay
-   and resource policy, but extension sidecars become ledger inputs and must be
-   harvested only after the proposal proof verifies against the claimed validator
-   key. *Anti-pattern:* constructing `PublicKey` from fetched `sfSigningPubKey`
-   bytes before `publicKeyType()`, or harvesting RNG/export sidecars from a
-   proposal whose signature failed validation.
+   A sidecar root proves only byte identity for the local snapshot that produced
+   it. It does not prove that a contribution is well-formed, authorized, or
+   round-correct. Proposal-carried commits, reveals, and export signatures must
+   pass cheap structural checks, safe key-type checks, active-view membership,
+   and the relevant cryptographic proof before entering pending RNG/export
+   state. Cluster trust may affect relay and resource policy, but extension
+   sidecars become ledger inputs and must be harvested only after the signed
+   proposal verifies against the claimed validator key.
 
 8. Ledger-defining sidecar material crosses apply as transaction-stream input.
 
@@ -182,7 +181,7 @@ This field is diagnostic only:
 - It is intended to explain timing/degraded-network cases where commits,
   reveals, or sidecar hashes arrive late or asymmetrically.
 
-## Proposal Relay And Sidecar Reconciliation
+## Proposal Relay And Local Sidecar Snapshots
 
 In the common case, extension material arrives the same way proposals do:
 through relay and observation over time. There is no "fetch missing proposal X"
@@ -200,24 +199,31 @@ same active-view assumptions. The cost is that missed proposal-borne material
 does not shrink the target the way observed-proposer percentages do; it leaves
 the node short of the fixed quorum.
 
-Sidecar reconciliation is the recovery path for that gap. A sidecar SHAMap is a
-secondary distribution path for the proposal material that matters to the fixed
-quorum, not a second authority. Fetched leaves are admitted only after semantic
-validation. For RNG commits, that means the sidecar leaf carries a
-`ProposalProof`: the signed proposal fields (sequence, close time, previous
-ledger, position) plus the signature, so a node that missed the original
-proposal relay can verify that the validator really advertised the commitment.
-RNG reveals are leaner: they verify against the already-proven commitment. Export
-signature leaves similarly carry the signed export material and are re-verified
-before they can become quorum material.
+This branch deliberately does not add same-round sidecar reconciliation for that
+gap. Sidecar roots are still signed into proposals, but the backing
+`SHAMapType::SIDECAR` maps are local snapshots only. They are not advertised,
+served, fetched, or merged from peers, and generic transaction-set acquisition
+must reject them. A node that missed proposal-carried material may therefore be
+unable to materialize the quorum root this round. For RNG it falls back to the
+explicit Tier 1 consensus digest or accepts a lower locally materialized tier; for
+Export the transaction retries or expires. If a quorum of validators did
+materialize and validate a richer synthetic ledger, a missing-material validator
+follows that ledger through the normal validation/LCL path after the round, just
+as it would after failing to build any other majority ledger.
 
-Without reconciliation, the design would still be safe: the node would count
-only material it observed through the primary proposal relay and would degrade
-or retry when that observed intersection missed the fixed quorum. Reconciliation
-is what lets a healthy network recover missing leaves and keep higher RNG tiers
-or same-ledger Export success more often. It is therefore liveness/quality
-machinery with a real semantic admission boundary, not part of base transaction
-set agreement.
+That is the tradeoff being ratified here. Reconciliation was useful only in a
+narrow topology: a validator was up and proposed, its proposal-carried material
+failed to push-relay to some cohort before the deadline, another reachable peer
+advertised a root covering it, and a content-addressed pull completed quickly
+enough to cross a tier/signature boundary. In the realistic cases examined, that
+is an edge of an already unhealthy overlay; if the cut is severe enough to matter
+for sidecar fetch, validations and ordinary proposal relay are also under stress.
+Keeping the fetch path required aggressive same-round acquisition to help in
+time, which made the protocol chatty and added a second semantic ingress path
+for the same validator material. The review history showed that dual-ingress
+surface repeatedly produced drift bugs. The current design therefore counts what
+the proposal round actually delivered and makes degradation explicit instead of
+keeping an availability mechanism whose value has not justified its surface.
 
 ## RNG Commit/Reveal Principles
 
@@ -305,9 +311,9 @@ the proceed gate; the final tier label is still derived from the agreed entropy
 set count by the ladder above.
 
 In both label cases, a silent or below-threshold minority cannot veto the
-aligned cohort. A below-threshold conflicting or unacquirable entropy hash is
-handled by the conflict path and falls back if the bounded window does not
-produce a quorum-aligned hash.
+aligned cohort. A below-threshold conflicting or locally unmaterializable
+entropy hash is handled by the conflict path and falls back if the bounded
+window does not produce a quorum-aligned hash.
 
 If no entropy hash reaches the entropy gate threshold before the bounded
 deadline, the round must fall back to the Tier 1 consensus-bound digest. This
@@ -363,29 +369,27 @@ set already contains the exact pseudo-tx, injection skips it; a
 present-but-different pseudo-tx is logged as a determinism violation and left in
 the agreed set.
 
-## Sidecar Convergence Rules
+## Local Snapshot Alignment Rules
 
-Sidecar SHAMaps use union convergence:
+Sidecar SHAMaps are local immutable snapshots:
 
-- Every valid active-validator contribution belongs in the set.
-- Sets only grow during fetch/merge.
-- Fetch/merge is a safety net for missed proposals, not the normal transport.
-- Rebuild and republish the sidecar hash after merging missing leaves.
+- Every entry must have been harvested from a trusted signed proposal path.
+- Snapshot roots may be signed into `ExtendedPosition` for peer observation.
+- Peer-advertised roots are alignment evidence, not payload availability.
+- Nodes never fetch, advertise, serve, or merge sidecar maps from peers.
+- If a quorum root cannot be materialized locally before the bounded deadline,
+  RNG degrades/falls back and Export retries/expires.
 
 Do not use avalanche-style transaction inclusion logic for sidecar inputs.
 For RNG and export sidecars, the disagreement to resolve is usually timing or
 delivery, not whether a valid contribution should be included.
 
-Fetched RNG proofs must be bound to the consensus parent ledger for the round
-being merged. A proof that verifies a proposal signature for some older parent
-is not valid sidecar evidence for the current round, even if the sidecar leaf
-claims the current sequence. The parent-ledger binding is what prevents a stale
-commit proof from being relabeled into a new round and displacing the in-round
-commit/reveal pair.
-
 The entropy sidecar gate always gives peers at least one observation tick after
 publishing `entropySetHash`. Publishing and accepting in the same tick can hide
-conflicts and produce asymmetric zero/non-zero outcomes.
+conflicts and produce asymmetric synthetic outcomes. A quorum-aligned root can
+proceed without full observation, because one silent active validator must not
+get a free RNG off-switch; however, a validator that cannot locally materialize
+that quorum root will not build the richer synthetic ledger in that round.
 
 ## Export Principles
 
@@ -428,10 +432,12 @@ in that candidate set may become quorum material or enter `exportSigSetHash`.
 
 Export sidecar publication is local-material only. A node may publish only the
 verified export signatures it actually has locally, and only for `ttEXPORT`
-transactions in the consensus candidate set. A fetched export sidecar may be
-merged into `ExportSigCollector` only after active-view and signature checks,
-but the collector is still only a cache. The accepted sidecar root, once
-quorum-aligned, is the source for the ledger witness.
+transactions in the consensus candidate set. Peer-advertised export roots are
+used for quorum alignment; they do not reconstruct missing signature material.
+The accepted local snapshot root, once quorum-aligned, is the source for the
+ledger witness. A node that cannot materialize the accepted quorum witness
+locally retries or expires the export and follows the quorum ledger later through
+normal validation if other validators built the witness.
 `ttEXPORT_SIGNATURES` is the export signature witness interface. Network mode
 derives it from the accepted `exportSigSetHash` sidecar snapshot; standalone/dev
 helpers may synthesize the same witness from the local validator key. The pseudo

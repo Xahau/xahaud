@@ -1977,14 +1977,10 @@ NetworkOPsImp::mapComplete(std::shared_ptr<SHAMap> const& map, bool fromAcquire)
     // either created locally during the consensus process
     // or acquired from a peer
 
-    // Inform peers we have this set.  When sidecar reconciliation is compiled
-    // out, sidecar SHAMaps remain local consensus inputs; do not expose them
-    // through the generic candidate-set availability path.
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-    bool const advertiseSet = true;
-#else
+    // Inform peers we have this set. Consensus-extension sidecar SHAMaps are
+    // local materialization snapshots only; do not expose them through generic
+    // candidate-set availability.
     bool const advertiseSet = map->mapType() != SHAMapType::SIDECAR;
-#endif
     if (advertiseSet)
     {
         protocol::TMHaveTransactionSet msg;
@@ -2000,26 +1996,9 @@ NetworkOPsImp::mapComplete(std::shared_ptr<SHAMap> const& map, bool fromAcquire)
         auto const hash = map->getHash().as_uint256();
         if (map->mapType() == SHAMapType::SIDECAR)
         {
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-            if (mConsensus.isExtensionSet(hash))
-            {
-                // Extension sidecar set (commitSet, entropySet, or
-                // exportSigSet) — route through RCLConsensus to acquire
-                // consensus mutex before merging into extension state.
-                mConsensus.gotExtensionSet(map);
-            }
-            else
-            {
-                // Sidecar acquisition can finish after the round that requested
-                // it. The map type is authoritative: a stale sidecar must not
-                // be reinterpreted as a candidate transaction set.
-                JLOG(m_journal.debug())
-                    << "Ignoring stale acquired sidecar set " << hash;
-            }
-#else
-            JLOG(m_journal.debug()) << "Ignoring acquired sidecar set " << hash
-                                    << " reason=reconciliation-disabled";
-#endif
+            JLOG(m_journal.debug()) << "Ignoring sidecar map in acquired-set "
+                                       "callback "
+                                    << hash << " reason=sidecar-local-only";
             return;
         }
         mConsensus.gotTxSet(app_.timeKeeper().closeTime(), RCLTxSet{map});

@@ -26,17 +26,9 @@
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/overlay/detail/ProtocolMessage.h>
 #include <xrpld/shamap/SHAMapSyncFilter.h>
-#include <xrpl/basics/contract.h>
+#include <xrpld/shamap/SHAMapTreeNode.h>
 
 #include <memory>
-
-#ifndef XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-#define XAHAUD_ENABLE_SIDECAR_RECONCILIATION 0
-#endif
-
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-#include <xrpld/app/ledger/SidecarSetSF.h>
-#endif
 
 namespace ripple {
 
@@ -53,47 +45,20 @@ enum {
 namespace {
 
 std::unique_ptr<SHAMapSyncFilter>
-makeSyncFilter(InboundSetKind kind, Application& app)
+makeSyncFilter(Application& app)
 {
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-    // Sidecars deliberately reuse candidate tx-set acquisition; the filter only
-    // changes leaf handling so sidecar STObjects are cached, not submitted.
-    if (kind == InboundSetKind::sidecar)
-        return std::make_unique<SidecarSetSF>(app.getTempNodeCache());
-#else
-    if (kind == InboundSetKind::sidecar)
-        LogicError("Sidecar acquisition requested while disabled");
-#endif
-
     return std::make_unique<ConsensusTransSetSF>(app, app.getTempNodeCache());
 }
 
-SHAMapType
-acquireMapType(InboundSetKind kind)
+bool
+isCandidateTransactionSetWireNode(Slice rawNode)
 {
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-    if (kind == InboundSetKind::sidecar)
-        return SHAMapType::SIDECAR;
-#else
-    if (kind == InboundSetKind::sidecar)
-        LogicError("Sidecar SHAMap acquisition requested while disabled");
-#endif
+    if (rawNode.empty())
+        return false;
 
-    return SHAMapType::TRANSACTION;
-}
-
-char const*
-acquireSetKindName(InboundSetKind kind)
-{
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-    if (kind == InboundSetKind::sidecar)
-        return "sidecar";
-#else
-    if (kind == InboundSetKind::sidecar)
-        return "sidecar-disabled";
-#endif
-
-    return "TX";
+    auto const wireType = rawNode[rawNode.size() - 1];
+    return wireType == wireTypeInner || wireType == wireTypeCompressedInner ||
+        wireType == wireTypeTransaction;
 }
 
 }  // namespace
@@ -101,8 +66,7 @@ acquireSetKindName(InboundSetKind kind)
 TransactionAcquire::TransactionAcquire(
     Application& app,
     uint256 const& hash,
-    std::unique_ptr<PeerSet> peerSet,
-    InboundSetKind kind)
+    std::unique_ptr<PeerSet> peerSet)
     : TimeoutCounter(
           app,
           hash,
@@ -111,12 +75,11 @@ TransactionAcquire::TransactionAcquire(
           app.journal("TransactionAcquire"))
     , mHaveRoot(false)
     , mPeerSet(std::move(peerSet))
-    , mSetKind(kind)
 {
     // Candidate set acquisition is content-addressed; normal reply limits, peer
     // scoring, charging, and timeout behavior apply.
     mMap = std::make_shared<SHAMap>(
-        acquireMapType(kind), hash, app_.getNodeFamily());
+        SHAMapType::TRANSACTION, hash, app_.getNodeFamily());
     mMap->setUnbacked();
 }
 
@@ -131,8 +94,7 @@ TransactionAcquire::done()
     }
     else
     {
-        JLOG(journal_.debug())
-            << "Acquired " << acquireSetKindName(mSetKind) << " set " << hash_;
+        JLOG(journal_.debug()) << "Acquired TX set " << hash_;
         mMap->setImmutable();
 
         uint256 const& hash(hash_);
@@ -208,7 +170,7 @@ TransactionAcquire::trigger(std::shared_ptr<Peer> const& peer)
     }
     else
     {
-        auto sf = makeSyncFilter(mSetKind, app_);
+        auto sf = makeSyncFilter(app_);
         auto nodes = mMap->getMissingNodes(256, sf.get());
 
         if (nodes.empty())
@@ -261,10 +223,17 @@ TransactionAcquire::takeNodes(
         if (data.empty())
             return SHAMapAddNode::invalid();
 
-        auto sf = makeSyncFilter(mSetKind, app_);
+        auto sf = makeSyncFilter(app_);
 
         for (auto const& d : data)
         {
+            if (!isCandidateTransactionSetWireNode(d.second))
+            {
+                JLOG(journal_.warn())
+                    << "TX acquire got non-transaction-set wire node";
+                return SHAMapAddNode::invalid();
+            }
+
             if (d.first.isRoot())
             {
                 if (mHaveRoot)

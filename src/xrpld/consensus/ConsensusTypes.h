@@ -42,18 +42,22 @@ namespace ripple {
     @note Data collection (commits, reveals) happens continuously via proposal
           leaves. Sub-states are checkpoints, not serial waits.
 
-    @note Convergence model: commitSet and entropySet use UNION convergence,
-          not avalanche voting. For honest validators this is sufficient
-          because each validator contributes at most one deterministic entry and
-          every valid entry belongs in the eventual set. Byzantine equivocation,
-          missing sidecar roots, and stale material are handled by the sidecar
-          gates/fallback paths rather than by per-leaf avalanche voting.
-          - Entries are piggybacked on proposals (already reliably propagated)
-          - Union is monotonic (sets only grow) and bounded (one per UNL member)
-          - SHAMap fetch/diff/merge handles late arrivals as a safety net
+    @note Convergence model: commitSet and entropySet use monotonic local
+          accumulation, not avalanche voting. For honest validators this is
+          sufficient because each validator contributes at most one
+          deterministic entry. Byzantine equivocation, missing sidecar roots,
+          and stale material are handled by the sidecar gates/fallback paths
+          rather than by per-leaf avalanche voting.
+          - Entries are piggybacked on signed proposals
+          - Local accumulation is monotonic and bounded (one per UNL member)
+          - Bounded gates either accept an objectively qualified local snapshot
+            root or degrade/fallback; sidecar roots are not fetched from peers
           Avalanche is needed when nodes disagree about what to include/exclude
-          (e.g. disputed user transactions). For RNG sets, all honest nodes
-          want the same thing — include everything — so union suffices.
+          (e.g. disputed user transactions). For RNG sets, honest nodes want
+          the same thing within the proposal material they observed: include
+          every valid active-validator contribution, then let the
+          fixed-threshold gate decide whether that local snapshot is good
+          enough.
 */
 enum class EstablishState {
     ConvergingTx,      ///< Normal txset convergence + harvesting commits

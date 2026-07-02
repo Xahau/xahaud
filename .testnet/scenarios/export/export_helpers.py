@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from xahaud_scripts.testnet.config import _unl_report_index, feature_name_to_hash
 
+EXPORT_RETRY_LEDGER_WINDOW = 5
+
 
 async def require_export(
     ctx, log, *, require_unl_report=True, require_runtime_config=True

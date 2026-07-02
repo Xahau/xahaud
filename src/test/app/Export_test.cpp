@@ -25,6 +25,7 @@
 #include <test/jtx/xpop.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/ledger/BuildLedger.h>
+#include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/LedgerReplay.h>
 #include <xrpld/app/ledger/OpenLedger.h>
@@ -1144,8 +1145,7 @@ struct Export_test : public beast::unit_test::suite
             txHash, valPK, originalSig, applySeq);
         auto const agreedHash = ce.buildExportSigSet(applySeq);
         BEAST_EXPECT(
-            ce.isSidecarSet(agreedHash) ==
-            ConsensusExtensions::sidecarReconciliationEnabled());
+            env.app().getInboundTransactions().getSet(agreedHash, false));
         ce.acceptExportSigSet(agreedHash);
         ce.setExportSigConvergenceFailed();
 
@@ -1544,8 +1544,7 @@ struct Export_test : public beast::unit_test::suite
             txHash, valPK, sig, applySeq);
         auto const agreedHash = ce.buildExportSigSet(applySeq);
         BEAST_EXPECT(
-            ce.isSidecarSet(agreedHash) ==
-            ConsensusExtensions::sidecarReconciliationEnabled());
+            env.app().getInboundTransactions().getSet(agreedHash, false));
         ce.acceptExportSigSet(agreedHash);
 
         auto const parent = env.app().getLedgerMaster().getClosedLedger();
@@ -1617,9 +1616,8 @@ struct Export_test : public beast::unit_test::suite
                 ce.exportSigCollector().addVerifiedSignature(
                     txHash, valPK, sig, applySeq);
                 auto const agreedHash = ce.buildExportSigSet(applySeq);
-                BEAST_EXPECT(
-                    ce.isSidecarSet(agreedHash) ==
-                    ConsensusExtensions::sidecarReconciliationEnabled());
+                BEAST_EXPECT(env.app().getInboundTransactions().getSet(
+                    agreedHash, false));
                 ce.acceptExportSigSet(agreedHash);
 
                 ExportResultBuilder::SignatureSnapshot signatures;

@@ -26,13 +26,17 @@ determinism or liveness.**
 **INV-1 — Determinism of the injected object.**
 Given the same parent ledger and the same *agreed* entropy sidecar, every honest
 node injects the byte-identical `ttCONSENSUS_ENTROPY` (digest, tier, count). That
-object is ledger state. Therefore **no injection input may be node-local mutable
-or timing-derived state.** The selector derives `(digest, tier, count)` only from
-the agreed `entropySetMap_` (matched to the hash the gate accepted) plus the
-parent-ledger active view.
-*Enforced:* `selectEntropy` + the `acceptedEntropySetHash_` gate. *Anti-pattern:*
-reading a local `entropyFailed_`/timeout flag at injection time (this was the H2
-bug).
+object is ledger state. Therefore **non-fallback entropy must not read mutable
+local collector state or timing-derived state.** The selector derives non-fallback
+`(digest, tier, count)` only from the accepted `entropySetMap_` (matched to the
+hash the gate accepted) plus the parent-ledger active view. If the round has made
+a terminal failure decision (`entropyFailed_`), the same selector emits the
+canonical consensus_fallback digest and must not resurrect an accepted local
+snapshot from an already-failed commit phase.
+*Enforced:* `selectEntropy`, the `acceptedEntropySetHash_` gate, and the
+`entropyFailed_` dominance check. *Anti-pattern:* reading live
+`pendingReveals_`/collector state at injection time, or letting an accepted local
+snapshot override a terminal failure decision.
 
 **INV-1A — Accept-vs-fallback is also ledger-defining.**
 The choice between a non-fallback sidecar and `consensus_fallback` is part of the

@@ -109,8 +109,8 @@ verifyProposalDigest(
     Slice const& signature)
 {
     // Proposal/validation signatures are secp256k1 digest signatures today.
-    // Fetched sidecars can still name a valid ed25519 manifest/master key, so
-    // reject non-secp keys before verifyDigest, which aborts on them.
+    // Proposal-carried sidecars can still name a valid ed25519 manifest/master
+    // key, so reject non-secp keys before verifyDigest, which aborts on them.
     auto const type = publicKeyType(publicKey);
     return type && *type == KeyType::secp256k1 &&
         verifyDigest(publicKey, signingHash, signature);
@@ -138,7 +138,7 @@ admitSidecarLeaf(
     {
         if (malformed)
             *malformed = true;
-        JLOG(j.warn()) << owner << ": rejecting acquired entry"
+        JLOG(j.warn()) << owner << ": rejecting sidecar entry"
                        << " reason=entry-too-large"
                        << " kind=" << kind << " source=" << source
                        << " setHash=" << setHash << " itemKey=" << itemKey
@@ -158,7 +158,7 @@ admitSidecarLeaf(
     {
         if (malformed)
             *malformed = true;
-        JLOG(j.warn()) << owner << ": rejecting acquired entry"
+        JLOG(j.warn()) << owner << ": rejecting sidecar entry"
                        << " reason=item-key-mismatch"
                        << " kind=" << kind << " source=" << source
                        << " setHash=" << setHash << " itemKey=" << itemKey
@@ -181,24 +181,6 @@ makeSidecarItem(STObject const& sidecar)
         "ripple::makeSidecarItem : sidecar hash matches serialized bytes");
     return make_shamapitem(itemKey, s.slice());
 }
-
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-bool
-sidecarLeafCountWithin(SHAMap const& map, std::size_t maxLeaves)
-{
-    std::size_t leaves = 0;
-    bool within = true;
-    map.visitNodes([&](SHAMapTreeNode& node) {
-        if (!node.isInner() && ++leaves > maxLeaves)
-        {
-            within = false;
-            return false;
-        }
-        return true;
-    });
-    return within;
-}
-#endif
 
 //@@start active-validator-view-build
 ActiveValidatorViewSource
@@ -325,21 +307,6 @@ currentClosedLedgerSeq(Application& app)
     return 0;
 }
 
-char const*
-sidecarKindName(ConsensusExtensions::SidecarKind kind)
-{
-    switch (kind)
-    {
-        case ConsensusExtensions::SidecarKind::commitSet:
-            return "commitSet";
-        case ConsensusExtensions::SidecarKind::entropySet:
-            return "entropySet";
-        case ConsensusExtensions::SidecarKind::exportSigSet:
-            return "exportSigSet";
-    }
-    return "unknown";
-}
-
 }  // namespace
 
 std::size_t
@@ -407,117 +374,6 @@ ConsensusExtensions::entropyGateThreshold() const
     // to consensus_fallback.
     auto const view = activeValidatorView();
     return entropyGateThresholdForView(view->size(), view->originalViewSize);
-}
-
-void
-ConsensusExtensions::recordSidecarRootSupport(
-    NodeID const& nodeId,
-    ExtendedPosition const& position)
-{
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-    if (!isUNLReportMember(nodeId))
-        return;
-
-    auto record = [&](auto& roots, std::optional<uint256> const& hash) {
-        for (auto it = roots.begin(); it != roots.end();)
-        {
-            auto current = it++;
-            current->second.erase(nodeId);
-            if (current->second.empty())
-                roots.erase(current);
-        }
-
-        if (hash && *hash != uint256{})
-            roots[*hash].insert(nodeId);
-    };
-
-    record(sidecarRootSupport_.commitSet, position.commitSetHash);
-    record(sidecarRootSupport_.entropySet, position.entropySetHash);
-    record(sidecarRootSupport_.exportSigSet, position.exportSigSetHash);
-#else
-    (void)nodeId;
-    (void)position;
-#endif
-}
-
-std::size_t
-ConsensusExtensions::sidecarRootSupport(SidecarKind kind, uint256 const& hash)
-    const
-{
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-    auto observedSupport = [&](auto const& roots) -> std::size_t {
-        auto const it = roots.find(hash);
-        return it == roots.end() ? 0 : it->second.size();
-    };
-
-    std::size_t support = 0;
-    auto const localContribution =
-        localIsActiveValidator() ? std::size_t{1} : std::size_t{0};
-    switch (kind)
-    {
-        case SidecarKind::commitSet:
-            support = observedSupport(sidecarRootSupport_.commitSet);
-            if (commitSetMap_ && commitSetMap_->getHash().as_uint256() == hash)
-                support += localContribution;
-            break;
-        case SidecarKind::entropySet:
-            support = observedSupport(sidecarRootSupport_.entropySet);
-            if (entropySetMap_ &&
-                entropySetMap_->getHash().as_uint256() == hash)
-                support += localContribution;
-            break;
-        case SidecarKind::exportSigSet:
-            support = observedSupport(sidecarRootSupport_.exportSigSet);
-            if (exportSigSetMap_ &&
-                exportSigSetMap_->getHash().as_uint256() == hash)
-                support += localContribution;
-            break;
-    }
-    return support;
-#else
-    (void)kind;
-    (void)hash;
-    return 0;
-#endif
-}
-
-std::size_t
-ConsensusExtensions::sidecarFetchSupportThreshold(SidecarKind kind) const
-{
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-    auto const threshold = kind == SidecarKind::exportSigSet
-        ? exportSigQuorumThreshold()
-        : entropyGateThreshold();
-    return threshold == 0 ? std::numeric_limits<std::size_t>::max() : threshold;
-#else
-    (void)kind;
-    return std::numeric_limits<std::size_t>::max();
-#endif
-}
-
-bool
-ConsensusExtensions::shouldEagerFetchSidecarSet(
-    SidecarKind kind,
-    uint256 const& hash) const
-{
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-    auto const support = sidecarRootSupport(kind, hash);
-    auto const threshold = sidecarFetchSupportThreshold(kind);
-    if (support >= threshold)
-        return true;
-
-    JLOG(j_.trace()) << "SIDECARFETCH: skip"
-                     << " kind=" << sidecarKindName(kind)
-                     << " origin=eagerProposal"
-                     << " hash=" << hash
-                     << " reason=root-support-below-threshold"
-                     << " support=" << support << " threshold=" << threshold;
-    return false;
-#else
-    (void)kind;
-    (void)hash;
-    return false;
-#endif
 }
 
 std::size_t
@@ -939,6 +795,18 @@ ConsensusExtensions::selectEntropy(
             20};
     //@@end entropy-selector-standalone
 
+    // A forced RNG failure is a final round decision. Do not resurrect a
+    // candidate entropy snapshot later in the build path after the tick gate
+    // has chosen deterministic fallback for this ledger.
+    if (entropyFailed_)
+    {
+        JLOG(j_.warn()) << "RNG: using consensus fallback entropy"
+                        << " reason=entropy-failed"
+                        << " seq=" << seq
+                        << " agreedTxSetHash=" << agreedTxSetHash;
+        return fallback();
+    }
+
     // Non-fallback entropy labels depend on validator-view thresholds. Without
     // an on-ledger UNLReport, that view is derived from local trusted config,
     // so two nodes can agree on the same entropy set but label it with
@@ -971,18 +839,19 @@ ConsensusExtensions::selectEntropy(
 
     // A cached entropySetMap_ is only candidate material. The tick gate marks
     // the sidecar hash accepted after peer-observation/alignment checks have
-    // completed; injection never consults timeout state directly.
+    // completed; the forced-failure check above is the only timeout state that
+    // can still override it at injection time.
     if (!acceptedEntropySetHash_ || !entropySetMap_ ||
         entropySetMap_->getHash().as_uint256() != *acceptedEntropySetHash_)
         return fallback();
     auto const agreedHash = *acceptedEntropySetHash_;
 
     // Derive from the AGREED entropySetMap_ — NOT local pendingReveals_. The
-    // map's hash was published in proposals and converged via fetch/merge, so
-    // every node holding the same entropySetHash produces byte-identical
-    // entropy and the same tier/count. Read leaves through the shared sidecar
-    // admission gate so accepted-map consumption enforces the same content
-    // address/type contract as fetched-map merge.
+    // map's hash was published in proposals and accepted by the gate, so every
+    // node holding the same entropySetHash produces byte-identical entropy and
+    // the same tier/count. Read leaves through the shared sidecar admission
+    // helper so accepted-map consumption enforces the same content-address/type
+    // contract as snapshot construction.
     std::vector<std::pair<PublicKey, uint256>> sorted;
     entropySetMap_->visitLeaves(
         [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
@@ -1100,7 +969,7 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
 {
     // Track the active RNG round explicitly. Nodes in observing/switching
     // mode can have a closed ledger index behind the consensus round while
-    // still needing to fetch/merge that round's RNG sets.
+    // still building that round's local RNG snapshots.
     rngRoundSeq_ = seq;
 
     auto map =
@@ -1128,8 +997,8 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
         if (proofIt == commitProofs_.end())
             continue;
 
-        // Encode the NodeID into sfAccount so onAcquiredSidecarSet can
-        // recover it without recomputing (master vs signing key issue).
+        // Encode the NodeID into sfAccount so the local snapshot can be
+        // replayed without recomputing master-vs-signing key identity.
         AccountID acctId;
         std::memcpy(acctId.data(), nid.data(), acctId.size());
 
@@ -1149,6 +1018,9 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
     commitSetMap_ = map;
 
     auto const hash = map->getHash().as_uint256();
+    // TODO: move consensus-extension snapshots out of InboundTransactions.
+    // They are same-process materialization caches only; sidecar roots are no
+    // longer advertised, fetched, served, or merged from peers.
     app_.getInboundTransactions().giveSet(hash, map, false);
 
     JLOG(j_.debug()) << "RNG: built commitSet SHAMap"
@@ -1200,8 +1072,8 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
         // Reveal proofs are timing-dependent (seq/closeTime/signature can
         // differ while the reveal digest is identical), which makes the
         // entropy-set hash non-deterministic across nodes under packet
-        // loss/reordering.  We only need deterministic reveal material
-        // (validator identity + digest) for fetch/merge and entropy
+        // loss/reordering. We only need deterministic reveal material
+        // (validator identity + digest) for accepted-root replay and entropy
         // calculation.
 
         map->addItem(SHAMapNodeType::tnSIDECAR, makeSidecarItem(sidecar));
@@ -1212,6 +1084,9 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
     entropySetMap_ = map;
 
     auto const hash = map->getHash().as_uint256();
+    // TODO: move consensus-extension snapshots out of InboundTransactions.
+    // They are same-process materialization caches only; sidecar roots are no
+    // longer advertised, fetched, served, or merged from peers.
     app_.getInboundTransactions().giveSet(hash, map, false);
 
     JLOG(j_.debug()) << "RNG: built entropySet SHAMap"
@@ -1267,12 +1142,15 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
     XRPL_ASSERT(
         entryCount <= maxExportSidecarLeaves,
         "ripple::ConsensusExtensions::buildExportSigSet : "
-        "export sidecar leaf count must match fetch cap");
+        "export sidecar leaf count must stay within bounded local cap");
 
     map = map->snapShot(false);
     exportSigSetMap_ = map;
 
     auto const hash = map->getHash().as_uint256();
+    // TODO: move consensus-extension snapshots out of InboundTransactions.
+    // They are same-process materialization caches only; sidecar roots are no
+    // longer advertised, fetched, served, or merged from peers.
     app_.getInboundTransactions().giveSet(hash, map, false);
 
     JLOG(j_.debug()) << "Export: built exportSigSet SHAMap"
@@ -1538,8 +1416,6 @@ ConsensusExtensions::clearRngStatePreservingExport()
     consensusTxSetMap_.reset();
     consensusExportTxns_.clear();
     consensusTxSetHash_.reset();
-    pendingSidecarFetches_.clear();
-    sidecarRootSupport_ = {};
     observedParticipantsHash_.reset();
     observedParticipantsCount_ = 0;
     observedParticipantsBitmapBin_.clear();
@@ -1664,568 +1540,6 @@ ConsensusExtensions::isActiveValidator(
         return false;
 
     return view.containsMaster(*trustedMaster);
-}
-
-//@@start is-sidecar-set
-bool
-ConsensusExtensions::isSidecarSet(uint256 const& hash) const
-{
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-    if (commitSetMap_ && commitSetMap_->getHash().as_uint256() == hash)
-        return true;
-    if (entropySetMap_ && entropySetMap_->getHash().as_uint256() == hash)
-        return true;
-    if (exportSigSetMap_ && exportSigSetMap_->getHash().as_uint256() == hash)
-        return true;
-    return pendingSidecarFetches_.find(hash) != pendingSidecarFetches_.end();
-#else
-    (void)hash;
-    return false;
-#endif
-}
-//@@end is-sidecar-set
-
-//@@start handle-acquired-sidecar
-//@@start handle-acquired-sidecar-entry
-void
-ConsensusExtensions::onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map)
-{
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-    auto const hash = map->getHash().as_uint256();
-
-    // Look up the expected kind before erasing.
-    auto const kindIt = pendingSidecarFetches_.find(hash);
-    auto const pending = (kindIt != pendingSidecarFetches_.end())
-        ? kindIt->second
-        : PendingSidecarFetch{
-              SidecarKind::commitSet,
-              "unknown"};  // fallback for non-fetch paths
-    auto const kind = pending.kind;
-    auto const origin = pending.origin;
-    if (kindIt != pendingSidecarFetches_.end())
-        pendingSidecarFetches_.erase(kindIt);
-    //@@end handle-acquired-sidecar-entry
-
-    JLOG(j_.debug()) << "SIDECARFETCH: handle acquired"
-                     << " hash=" << hash << " kind=" << sidecarKindName(kind)
-                     << " origin=" << origin << " pending-after-erase="
-                     << pendingSidecarFetches_.size();
-
-    // Dispatch by kind — no content-sniffing needed.
-    // The kind was recorded at fetch time from the typed call site
-    // (commitSetHash / entropySetHash / exportSigSetHash).
-    if (kind == SidecarKind::exportSigSet)
-    {
-        // If we already have this exact export sig set, skip.
-        if (exportSigSetMap_ &&
-            exportSigSetMap_->getHash().as_uint256() == hash)
-            return;
-
-        {
-            auto const useConsensusTxSet =
-                static_cast<bool>(consensusTxSetMap_);
-            auto const txSource =
-                useConsensusTxSet ? "consensus tx set" : "open ledger";
-            auto const openLedgerExportTxns = useConsensusTxSet
-                ? ExportTxnLookup{}
-                : buildOpenLedgerExportTxnLookup(app_);
-            auto const& exportTxns =
-                useConsensusTxSet ? consensusExportTxns_ : openLedgerExportTxns;
-            auto const currentSeq = currentClosedLedgerSeq(app_);
-
-            auto const validatorView = activeValidatorView();
-            auto const maxExportSidecarLeaves =
-                validatorView->size() *
-                std::min(
-                    exportTxns.size(),
-                    static_cast<std::size_t>(ExportLimits::maxPendingExports));
-            if (!sidecarLeafCountWithin(*map, maxExportSidecarLeaves))
-            {
-                JLOG(j_.warn())
-                    << "Export: acquired exportSigSet rejected"
-                    << " reason=too-many-leaves"
-                    << " kind=" << sidecarKindName(kind) << " hash=" << hash
-                    << " maxLeaves=" << maxExportSidecarLeaves;
-                return;
-            }
-
-            auto const isActiveSigner =
-                activeSignerFilter(*this, validatorView);
-            std::size_t merged = 0;
-            map->visitLeaves(
-                [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                    try
-                    {
-                        auto admitted = admitSidecarLeaf(
-                            item->key(),
-                            item->slice(),
-                            hash,
-                            j_,
-                            "Export",
-                            sidecarKindName(kind),
-                            "visit",
-                            ExportLimits::maxExportSignatureSidecarBytes);
-                        if (!admitted || admitted->type != sidecarExportSig)
-                            return;
-                        auto const& sidecar = admitted->sidecar;
-
-                        if (!sidecar.isFieldPresent(sfTransactionHash) ||
-                            !sidecar.isFieldPresent(sfSigningPubKey))
-                            return;
-
-                        auto const txHash =
-                            sidecar.getFieldH256(sfTransactionHash);
-                        auto const pk = sidecar.getFieldVL(sfSigningPubKey);
-                        if (!publicKeyType(makeSlice(pk)))
-                            return;
-
-                        PublicKey const valPK{makeSlice(pk)};
-                        // Fetched export sidecars are only useful if the signer
-                        // is active in the same view that final quorum will
-                        // use.
-                        if (!isActiveSigner(valPK))
-                            return;
-
-                        // Require a real signature (not pubkey-only).
-                        if (!sidecar.isFieldPresent(sfTxnSignature))
-                            return;
-
-                        // Skip if we already have a verified sig for this
-                        // validator (e.g. from the proposal ingestion path).
-                        if (exportSigCollector_.hasVerifiedSignature(
-                                txHash, valPK))
-                            return;
-
-                        auto const sigVL = sidecar.getFieldVL(sfTxnSignature);
-                        auto const sigSlice = makeSlice(sigVL);
-
-                        auto const txIt = exportTxns.find(txHash);
-                        if (txIt == exportTxns.end())
-                        {
-                            JLOG(j_.debug())
-                                << "Export: SHAMap merge skipped"
-                                << " reason=tx-not-found"
-                                << " kind=" << sidecarKindName(kind)
-                                << " hash=" << hash << " txHash=" << txHash
-                                << " txSource=" << txSource;
-                            return;
-                        }
-
-                        if (!verifyExportSignatureAgainstTx(
-                                *txIt->second,
-                                valPK,
-                                sigSlice,
-                                txHash,
-                                j_,
-                                txSource))
-                            return;
-
-                        Buffer sigBuf(sigSlice.data(), sigSlice.size());
-                        exportSigCollector_.addVerifiedSignature(
-                            txHash, valPK, sigBuf, currentSeq);
-                        ++merged;
-                    }
-                    catch (std::exception const& e)
-                    {
-                        JLOG(j_.warn())
-                            << "Export: SHAMap merge parse failed"
-                            << " kind=" << sidecarKindName(kind)
-                            << " hash=" << hash << " error=" << e.what();
-                    }
-                });
-            JLOG(j_.info())
-                << "Export: merged peer exportSigSet"
-                << " hash=" << hash << " origin=" << origin
-                << " entriesMerged=" << merged << " txSource=" << txSource
-                << " currentClosedSeq=" << currentSeq;
-            return;
-        }
-    }
-
-    enum class RngSetKind { commit, reveal };
-    std::optional<RngSetKind> setKind;
-    if (kind == SidecarKind::commitSet)
-        setKind = RngSetKind::commit;
-    else if (kind == SidecarKind::entropySet)
-        setKind = RngSetKind::reveal;
-
-    if (!setKind)
-    {
-        JLOG(j_.warn()) << "SIDECARFETCH: acquired set rejected"
-                        << " hash=" << hash << " kind=" << sidecarKindName(kind)
-                        << " reason=unrecognized-rng-kind";
-        return;
-    }
-
-    bool const isCommitSet = *setKind == RngSetKind::commit;
-    JLOG(j_.debug()) << "SIDECARFETCH: classified"
-                     << " hash=" << hash << " setKind="
-                     << (isCommitSet ? "commitSet" : "entropySet")
-                     << " fetchKind=" << sidecarKindName(kind);
-
-    // Union-merge: diff against our local set and add any entries we're
-    // missing. Unlike normal txSets which use avalanche voting to resolve
-    // disagreements, RNG sets use pure union — every valid UNL entry
-    // belongs in the set. Differences arise only from propagation timing,
-    // not from conflicting opinions about inclusion.
-    auto& localMap = isCommitSet ? commitSetMap_ : entropySetMap_;
-    auto const hadLocalSet = static_cast<bool>(localMap);
-    auto const proofedBefore =
-        isCommitSet ? proofedCommitCount() : proofedRevealCount();
-    auto const pendingBefore =
-        isCommitSet ? pendingCommitCount() : pendingRevealCount();
-
-    std::size_t merged = 0;
-    auto const validatorView = activeValidatorView();
-    if (!sidecarLeafCountWithin(*map, validatorView->size()))
-    {
-        JLOG(j_.warn()) << "RNG: acquired set rejected"
-                        << " reason=too-many-leaves"
-                        << " kind=" << (isCommitSet ? "commit" : "reveal")
-                        << " hash=" << hash
-                        << " maxLeaves=" << validatorView->size();
-        return;
-    }
-
-    auto mergeEntry = [&](uint256 const& itemKey,
-                          Slice const& entry,
-                          char const* sourceTag) {
-        try
-        {
-            auto admitted = admitSidecarLeaf(
-                itemKey,
-                entry,
-                hash,
-                j_,
-                "RNG",
-                (isCommitSet ? "commit" : "reveal"),
-                sourceTag);
-            if (!admitted)
-                return;
-            auto const& sidecar = admitted->sidecar;
-            auto const entryType = admitted->type;
-            if ((isCommitSet && entryType != sidecarRngCommit) ||
-                (!isCommitSet && entryType != sidecarRngReveal))
-                return;
-
-            auto const pk = sidecar.getFieldVL(sfSigningPubKey);
-            // Fetched sidecar leaves are untrusted until semantic checks pass.
-            // PublicKey(Slice) aborts on malformed bytes, so validate first.
-            if (!publicKeyType(makeSlice(pk)))
-                return;
-            PublicKey pubKey(makeSlice(pk));
-            auto const digest = sidecar.getFieldH256(sfDigest);
-
-            // Recover NodeID from sfAccount (encoded by
-            // buildCommitSet/buildEntropySet) so we can compare against trusted
-            // validator identity.
-            auto const acctId = sidecar.getAccountID(sfAccount);
-            NodeID nodeId;
-            std::memcpy(nodeId.data(), acctId.data(), nodeId.size());
-
-            std::optional<ProposalProof> parsedProof;
-            if (sidecar.isFieldPresent(sfBlob))
-            {
-                auto const proofBlob = sidecar.getFieldVL(sfBlob);
-                if (!verifyProof(proofBlob, pubKey, digest, isCommitSet))
-                {
-                    JLOG(j_.warn())
-                        << "RNG: rejecting acquired entry"
-                        << " reason=invalid-proof"
-                        << " kind=" << (isCommitSet ? "commit" : "reveal")
-                        << " source=" << sourceTag << " node=" << nodeId
-                        << " hash=" << hash;
-                    return;
-                }
-                parsedProof = deserializeProof(proofBlob);
-                if (!parsedProof)
-                {
-                    JLOG(j_.warn())
-                        << "RNG: rejecting acquired entry"
-                        << " reason=malformed-proof"
-                        << " kind=" << (isCommitSet ? "commit" : "reveal")
-                        << " source=" << sourceTag << " node=" << nodeId
-                        << " hash=" << hash;
-                    return;
-                }
-                // The proposal proof authenticates a digest for one parent
-                // ledger. A fetched sidecar leaf must be bound to this round's
-                // parent too; otherwise an old commit proof can be relabeled
-                // with the current sequence and suppress the in-round reveal.
-                auto const expectedProofPrevLedger =
-                    [&]() -> std::optional<uint256> {
-                    if (!roundPrevLedgerHash_.isZero())
-                        return roundPrevLedgerHash_;
-                    if (validatorView->sourceLedgerHash)
-                        return *validatorView->sourceLedgerHash;
-                    return std::nullopt;
-                }();
-                if (!expectedProofPrevLedger ||
-                    parsedProof->prevLedger != *expectedProofPrevLedger)
-                {
-                    JLOG(j_.warn())
-                        << "RNG: rejecting acquired entry"
-                        << " reason=wrong-proof-parent"
-                        << " kind=" << (isCommitSet ? "commit" : "reveal")
-                        << " source=" << sourceTag << " node=" << nodeId
-                        << " hash=" << hash
-                        << " proofPrev=" << parsedProof->prevLedger
-                        << " expected="
-                        << (expectedProofPrevLedger
-                                ? to_string(*expectedProofPrevLedger)
-                                : std::string{"unknown"});
-                    return;
-                }
-            }
-            else if (isCommitSet)
-            {
-                // Commit entries must carry a verifiable proposal proof.
-                // Without this, an attacker could inject arbitrary digests
-                // for trusted node IDs via fetched sets.
-                JLOG(j_.warn()) << "RNG: rejecting acquired entry"
-                                << " reason=missing-commit-proof"
-                                << " kind=commit"
-                                << " source=" << sourceTag << " node=" << nodeId
-                                << " hash=" << hash;
-                return;
-            }
-
-            auto const seq = sidecar.getFieldU32(sfLedgerSequence);
-            auto const expectedSeq = [&]() -> std::optional<LedgerIndex> {
-                if (rngRoundSeq_)
-                    return rngRoundSeq_;
-                if (auto const closed =
-                        app_.getLedgerMaster().getClosedLedger())
-                    return closed->info().seq + 1;
-                return std::nullopt;
-            }();
-            if (expectedSeq && seq != *expectedSeq)
-            {
-                JLOG(j_.debug())
-                    << "RNG: rejecting acquired entry"
-                    << " reason=out-of-round"
-                    << " kind=" << (isCommitSet ? "commit" : "reveal")
-                    << " source=" << sourceTag << " node=" << nodeId
-                    << " hash=" << hash << " seq=" << seq
-                    << " expected=" << *expectedSeq
-                    << (rngRoundSeq_ ? " (active-round)" : " (closed+1)");
-                return;
-            }
-
-            if (!ingestRngContribution(
-                    nodeId,
-                    pubKey,
-                    isCommitSet ? RngContributionKind::commit
-                                : RngContributionKind::reveal,
-                    digest,
-                    seq,
-                    parsedProof,
-                    sourceTag,
-                    RngProofCachePolicy::replaceExisting))
-                return;
-
-            ++merged;
-
-            JLOG(j_.trace()) << "RNG: merged acquired entry"
-                             << " kind=" << (isCommitSet ? "commit" : "reveal")
-                             << " source=" << sourceTag << " node=" << nodeId
-                             << " hash=" << hash << " seq=" << seq;
-        }
-        catch (std::exception const& ex)
-        {
-            JLOG(j_.warn()) << "RNG: acquired entry parse failed"
-                            << " kind=" << (isCommitSet ? "commit" : "reveal")
-                            << " source=" << sourceTag << " hash=" << hash
-                            << " error=" << ex.what();
-        }
-    };
-
-    if (localMap)
-    {
-        SHAMap::Delta delta;
-        localMap->compare(*map, delta, 65536);
-
-        for (auto const& [key, pair] : delta)
-        {
-            // pair.first = our entry, pair.second = their entry.
-            // If we don't have it (pair.first is null), merge it.
-            if (!pair.first && pair.second)
-                mergeEntry(key, pair.second->slice(), "diff");
-        }
-    }
-    else
-    {
-        // We don't have a local set yet — extract all entries.
-        map->visitLeaves(
-            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                mergeEntry(item->key(), item->slice(), "visit");
-            });
-    }
-
-    auto const proofedAfter =
-        isCommitSet ? proofedCommitCount() : proofedRevealCount();
-    auto const pendingAfter =
-        isCommitSet ? pendingCommitCount() : pendingRevealCount();
-    auto const proofedDelta = static_cast<std::ptrdiff_t>(proofedAfter) -
-        static_cast<std::ptrdiff_t>(proofedBefore);
-    auto const pendingDelta = static_cast<std::ptrdiff_t>(pendingAfter) -
-        static_cast<std::ptrdiff_t>(pendingBefore);
-
-    JLOG(j_.info()) << "SIDECARFETCH: merged acquired set"
-                    << " hash=" << hash
-                    << " kind=" << (isCommitSet ? "commit" : "reveal")
-                    << " setKind=" << (isCommitSet ? "commitSet" : "entropySet")
-                    << " origin=" << origin
-                    << " hadLocalSet=" << (hadLocalSet ? "yes" : "no")
-                    << " entriesMerged=" << merged
-                    << " proofedBefore=" << proofedBefore
-                    << " proofedAfter=" << proofedAfter
-                    << " proofedDelta=" << proofedDelta
-                    << " pendingBefore=" << pendingBefore
-                    << " pendingAfter=" << pendingAfter
-                    << " pendingDelta=" << pendingDelta;
-#else
-    JLOG(j_.debug()) << "SIDECARFETCH: acquired set ignored"
-                     << " reason=reconciliation-disabled"
-                     << " hash=" << map->getHash().as_uint256();
-#endif
-}
-//@@end handle-acquired-sidecar
-
-void
-ConsensusExtensions::fetchSidecarSetIfNeeded(
-    std::optional<uint256> const& hash,
-    SidecarKind kind,
-    char const* origin)
-{
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-    if (!hash)
-    {
-        JLOG(j_.trace()) << "SIDECARFETCH: skip"
-                         << " kind=" << sidecarKindName(kind)
-                         << " origin=" << origin << " reason=no-hash";
-        return;
-    }
-    if (*hash == uint256{})
-    {
-        JLOG(j_.trace()) << "SIDECARFETCH: skip"
-                         << " kind=" << sidecarKindName(kind)
-                         << " origin=" << origin << " hash=" << *hash
-                         << " reason=zero-hash";
-        return;
-    }
-
-    // Check if we already have this set
-    if (commitSetMap_ && commitSetMap_->getHash().as_uint256() == *hash)
-    {
-        JLOG(j_.trace()) << "SIDECARFETCH: skip"
-                         << " kind=" << sidecarKindName(kind)
-                         << " origin=" << origin << " hash=" << *hash
-                         << " reason=already-local-commit";
-        return;
-    }
-    if (entropySetMap_ && entropySetMap_->getHash().as_uint256() == *hash)
-    {
-        JLOG(j_.trace()) << "SIDECARFETCH: skip"
-                         << " kind=" << sidecarKindName(kind)
-                         << " origin=" << origin << " hash=" << *hash
-                         << " reason=already-local-entropy";
-        return;
-    }
-    if (exportSigSetMap_ && exportSigSetMap_->getHash().as_uint256() == *hash)
-    {
-        JLOG(j_.trace()) << "SIDECARFETCH: skip"
-                         << " kind=" << sidecarKindName(kind)
-                         << " origin=" << origin << " hash=" << *hash
-                         << " reason=already-local-exportSig";
-        return;
-    }
-
-    // Check if already fetching
-    if (auto pendingIt = pendingSidecarFetches_.find(*hash);
-        pendingIt != pendingSidecarFetches_.end())
-    {
-        auto const pendingOrigin = pendingIt->second.origin;
-        // Keep polling InboundTransactions while pending, so we can merge as
-        // soon as the asynchronous fetch completes.
-        if (auto existing = app_.getInboundTransactions().getSet(*hash, false))
-        {
-            JLOG(j_.debug())
-                << "SIDECARFETCH: pending fetch completed"
-                << " kind=" << sidecarKindName(kind) << " origin=" << origin
-                << " pendingOrigin=" << pendingOrigin << " hash=" << *hash;
-            onAcquiredSidecarSet(existing);
-        }
-        else
-        {
-            JLOG(j_.debug())
-                << "SIDECARFETCH: still pending"
-                << " kind=" << sidecarKindName(kind) << " origin=" << origin
-                << " pendingOrigin=" << pendingOrigin << " hash=" << *hash;
-        }
-        return;
-    }
-
-    // Check if InboundTransactions already has it
-    if (auto existing = app_.getInboundTransactions().getSet(*hash, false))
-    {
-        JLOG(j_.debug()) << "SIDECARFETCH: local cache hit"
-                         << " kind=" << sidecarKindName(kind)
-                         << " origin=" << origin << " hash=" << *hash;
-        // Record the kind so onAcquiredSidecarSet can look it up.
-        pendingSidecarFetches_.emplace(
-            *hash, PendingSidecarFetch{kind, origin});
-        onAcquiredSidecarSet(existing);
-        return;
-    }
-
-    // Trusted proposals advertise the sidecar root; acquisition is
-    // content-addressed, so peers can only supply nodes matching that root.
-    // Per-leaf trust/schema checks happen when the completed map is merged.
-    JLOG(j_.debug()) << "SIDECARFETCH: triggering network fetch"
-                     << " kind=" << sidecarKindName(kind)
-                     << " origin=" << origin << " hash=" << *hash;
-    pendingSidecarFetches_.emplace(*hash, PendingSidecarFetch{kind, origin});
-    if (auto immediate = app_.getInboundTransactions().getSet(
-            *hash, true, InboundSetKind::sidecar))
-    {
-        JLOG(j_.debug()) << "SIDECARFETCH: immediate fetch hit"
-                         << " kind=" << sidecarKindName(kind)
-                         << " origin=" << origin << " hash=" << *hash;
-        onAcquiredSidecarSet(immediate);
-    }
-#else
-    if (hash && *hash != uint256{})
-    {
-        JLOG(j_.trace()) << "SIDECARFETCH: skip"
-                         << " kind=" << sidecarKindName(kind)
-                         << " origin=" << origin << " hash=" << *hash
-                         << " reason=reconciliation-disabled";
-    }
-#endif
-}
-
-void
-ConsensusExtensions::fetchSidecarsIfNeeded(
-    ExtendedPosition const& peerPos,
-    char const* origin)
-{
-#if XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-    auto const isEager = std::strcmp(origin, "eagerProposal") == 0;
-    auto fetch = [&](std::optional<uint256> const& hash, SidecarKind kind) {
-        if (isEager && hash && *hash != uint256{} &&
-            !shouldEagerFetchSidecarSet(kind, *hash))
-            return;
-        fetchSidecarSetIfNeeded(hash, kind, origin);
-    };
-
-    fetch(peerPos.commitSetHash, SidecarKind::commitSet);
-    fetch(peerPos.entropySetHash, SidecarKind::entropySet);
-    fetch(peerPos.exportSigSetHash, SidecarKind::exportSigSet);
-#else
-    (void)peerPos;
-    (void)origin;
-#endif
 }
 
 void
@@ -2905,7 +2219,7 @@ ConsensusExtensions::verifyProof(
             position);
 
         // Use the proposal verifier rather than calling verifyDigest directly:
-        // fetched proof bytes are untrusted.
+        // proposal-proof bytes are part of the authenticated snapshot.
         return verifyProposalDigest(
             publicKey,
             signingHash,
@@ -2965,8 +2279,6 @@ ConsensusExtensions::onTrustedPeerProposal(
                          << " node=" << nodeId << " proposeSeq=" << proposeSeq;
         return;
     }
-
-    recordSidecarRootSupport(nodeId, position);
 
     harvestRngData(
         nodeId,

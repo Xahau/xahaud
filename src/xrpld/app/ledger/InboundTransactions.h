@@ -23,14 +23,11 @@
 #include <xrpld/overlay/Peer.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/beast/clock/abstract_clock.h>
-#include <cstdint>
 #include <memory>
 
 namespace ripple {
 
 class Application;
-
-enum class InboundSetKind : std::uint8_t { transaction, sidecar };
 
 /** Manages the acquisition and lifetime of transaction sets.
  */
@@ -52,15 +49,11 @@ public:
      * @param setHash The transaction set ID (digest of the SHAMap root node).
      * @param acquire Whether to fetch the transaction set from the network if
      * it is missing.
-     * @param kind The kind of SHAMap payload to acquire if the set is missing.
      * @return The transaction set with ID setHash, or nullptr if it is
      * missing.
      */
     virtual std::shared_ptr<SHAMap>
-    getSet(
-        uint256 const& setHash,
-        bool acquire,
-        InboundSetKind kind = InboundSetKind::transaction) = 0;
+    getSet(uint256 const& setHash, bool acquire) = 0;
 
     /** Add a transaction set from a LedgerData message.
      *
@@ -80,6 +73,11 @@ public:
      * @param set The transaction set.
      * @param acquired Whether this transaction set was acquired from a peer,
      * or constructed by ourself during consensus.
+     *
+     * Consensus extensions may still store local SHAMapType::SIDECAR snapshots
+     * here for same-process lookup. Network acquisition is transaction-set
+     * only: sidecar roots are not advertised, served, fetched, or merged from
+     * peers. TODO: move these local snapshots out of InboundTransactions.
      */
     virtual void
     giveSet(

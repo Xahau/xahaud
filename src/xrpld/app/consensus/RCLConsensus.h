@@ -501,14 +501,6 @@ public:
     bool
     extensionsBusy() const;
 
-    //! Check if hash is a known extension sidecar set (under mutex)
-    bool
-    isExtensionSet(uint256 const& hash) const;
-
-    //! Route acquired extension sidecar set (under mutex)
-    void
-    gotExtensionSet(std::shared_ptr<SHAMap> const& map);
-
     //! @see Consensus::getJson
     Json::Value
     getJson(bool full) const;

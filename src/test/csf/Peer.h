@@ -55,12 +55,10 @@ namespace bc = boost::container;
        by Collectors
      - Exposes most internal state for forcibly simulating arbitrary scenarios
 */
-/// Content-addressed sidecar set store, simulating InboundTransactions.
-/// Shared across all peers in a simulation — peers publish sets by hash
-/// and fetch them by hash, just like the real SHAMap fetch pipeline.
-///
-/// Each entry is tagged with its type so fetchSidecarSetIfNeeded can merge
-/// into the correct local set without content-sniffing heuristics.
+/// Content-addressed local sidecar snapshot store, simulating the
+/// same-process materialization cache used by consensus extensions.
+/// Shared across all peers in a simulation so an accepted root can be replayed
+/// deterministically, but peers do not merge sidecar roots from each other.
 struct SidecarStore
 {
     enum class Type { commit, reveal, exportSig };
@@ -358,7 +356,6 @@ struct Peer
         EntropyTier lastEntropyTier_ = entropyTierNone;
         bool lastExportSucceeded_ = false;
         bool lastExportRetried_ = false;
-        std::size_t exportSigFetchMerges_ = 0;
 
         // Optional test hook: force a specific commit-set hash
         std::optional<uint256> forcedCommitSetHash_;
@@ -390,7 +387,7 @@ struct Peer
         // Optional test hook: drop proposal-carried export signatures.
         hash_set<PeerID> dropExportSigFrom_;
         // Optional test hook: stay an active proposer but do not originate an
-        // export signature, so tests can force sidecar-fetch-only convergence.
+        // export signature, so tests can force missing local export material.
         bool suppressOwnExportSig_ = false;
         // Optional test hook: exercise generic Consensus bootstrap timing
         // without making the CSF runtime-config aware.
@@ -625,55 +622,6 @@ struct Peer
             acceptedExportSigSetHash_.reset();
         }
 
-        enum class SidecarKind : uint8_t {
-            commitSet,
-            entropySet,
-            exportSigSet
-        };
-
-        void
-        fetchSidecarSetIfNeeded(
-            std::optional<uint256> const& hash,
-            SidecarKind kind = SidecarKind::commitSet)
-        {
-            if (!hash)
-                return;
-            auto const* fetched = peer.sidecarStore.fetch(*hash);
-            if (!fetched)
-                return;
-            if (fetched->type == SidecarStore::Type::commit && commitSetFrozen_)
-                return;
-            // Union merge into the correct local set based on type.
-            auto& target = [&]() -> hash_map<PeerID, uint256>& {
-                switch (fetched->type)
-                {
-                    case SidecarStore::Type::commit:
-                        return pendingCommits_;
-                    case SidecarStore::Type::reveal:
-                        return pendingReveals_;
-                    case SidecarStore::Type::exportSig:
-                        return pendingExportSigs_;
-                }
-                return pendingCommits_;
-            }();
-            for (auto const& [nodeId, digest] : fetched->entries)
-            {
-                auto const [_, inserted] = target.emplace(nodeId, digest);
-                if (fetched->type == SidecarStore::Type::exportSig && inserted)
-                    ++exportSigFetchMerges_;
-            }
-        }
-
-        void
-        fetchSidecarsIfNeeded(ProposalPosition const& pos)
-        {
-            fetchSidecarSetIfNeeded(pos.commitSetHash, SidecarKind::commitSet);
-            fetchSidecarSetIfNeeded(
-                pos.entropySetHash, SidecarKind::entropySet);
-            fetchSidecarSetIfNeeded(
-                pos.exportSigSetHash, SidecarKind::exportSigSet);
-        }
-
         Proposal
         proposalWithRecipientSidecarHashes(
             Proposal const& proposal,
@@ -885,12 +833,21 @@ struct Peer
                 lastEntropyTier_ = entropyTierConsensusFallback;
             };
 
+            // Mirror production selectEntropy(): once the round has made a
+            // terminal failure decision, fallback dominates any previously
+            // accepted local entropy snapshot.
+            if (entropyFailed_)
+            {
+                fallback();
+                return;
+            }
+
             // Finalize from the snapshot of the entropy set this peer last
             // advertised (the sidecar-store entry for lastEntropySetHash_) —
             // the analog of production injecting from the frozen
-            // entropySetMap_, NOT live pendingReveals_. Late-fetched or
-            // conflicting reveals that never entered the advertised/aligned set
-            // are not counted, matching ConsensusExtensions::selectEntropy.
+            // entropySetMap_, NOT live pendingReveals_. Proposal-carried
+            // reveals that never entered the advertised/aligned set are not
+            // counted, matching ConsensusExtensions::selectEntropy.
             auto const* acceptedSet = acceptedEntropySetHash_
                 ? peer.sidecarStore.fetch(*acceptedEntropySetHash_)
                 : nullptr;

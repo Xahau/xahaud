@@ -16,19 +16,17 @@ namespace ripple {
 /// Export signature collector for the retriable export approach.
 ///
 /// Stores multisign signatures from validators for pending ttEXPORT
-/// transactions.  Signatures arrive via two paths:
-///
-///   1. Proposal ingestion (onTrustedPeerMessage) — post-checkSign,
-///      sender-bound, and (when possible) multisign-verified.
-///   2. SHAMap merge (onAcquiredSidecarSet) — trusted + verified.
+/// transactions. Signatures arrive via proposal ingestion
+/// (onTrustedPeerMessage) after proposal signature verification; they are
+/// sender-bound and, when possible, multisign-verified.
 ///
 /// Signatures are either **verified** (cryptographically checked against
 /// buildMultiSigningData) or **unverified** (stored on proposal-level
 /// trust alone, e.g. when the ttEXPORT tx isn't in the open ledger yet
 /// due to relay ordering).
 ///
-/// Only verified signatures count toward quorum, appear in SHAMap
-/// convergence, and are assembled into the final export blob.
+/// Only verified signatures count toward quorum, appear in the local export
+/// signature snapshot, and are assembled into the final export blob.
 /// Unverified sigs are a local cache that can be upgraded to verified
 /// via `upgradeSignature()` when the tx becomes available (e.g. in
 /// Export::doApply which always has the tx).
@@ -203,7 +201,7 @@ public:
 
     /// Check if a cryptographically verified signature exists.
     /// Used to skip redundant verify() calls when the same sig
-    /// arrives via multiple paths (proposal + SHAMap merge).
+    /// arrives more than once through proposal relay.
     bool
     hasVerifiedSignature(uint256 const& txnHash, PublicKey const& validator)
         const

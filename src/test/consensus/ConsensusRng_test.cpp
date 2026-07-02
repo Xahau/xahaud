@@ -48,8 +48,8 @@ public:
         peers.trustAndConnect(
             peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
 
-        // Runtime opt-in keeps CSF on a single Peer type, which minimizes
-        // maintenance and upstream sync churn in Sim/PeerGroup infrastructure.
+        // Per-peer CE enablement keeps CSF on a single Peer type, which
+        // minimizes maintenance and upstream sync churn in Sim/PeerGroup.
         for (Peer* peer : peers)
             peer->ce().enableRngConsensus_ = true;
 
@@ -632,9 +632,9 @@ public:
         // Without the entropySetHash convergence gate, these groups
         // compute different entropy -> different pseudo-tx -> fork.
         //
-        // With the gate, they must either converge on the same reveal
-        // set (via SHAMap fetch/merge) or both fall back to zero
-        // entropy.  Either way: no fork.
+        // With the gate, they must either accept the same observed reveal set
+        // root or both use the labeled consensus_fallback digest. Either way:
+        // no two validator-entropy roots are accepted.
 
         ConsensusParms const parms{};
         Sim sim;
@@ -887,7 +887,8 @@ public:
         sim.run(1);
         BEAST_EXPECT(sim.synchronized(peers));
 
-        // Two peers advertise entropy-set hashes that nobody can acquire.
+        // Two peers advertise entropy-set hashes that nobody can materialize
+        // from local proposal-carried material.
         // The remaining 3/5 do not form an entropy quorum, so the safe
         // outcome is consensus_fallback instead of mixed validator/fallback
         // results.
@@ -991,18 +992,22 @@ public:
     }
 
     void
-    testRngFastPathDoesNotOutrunPeerObservation()
+    testRngMissingProposalMaterialDoesNotBlockQuorumCohort()
     {
         using namespace csf;
         using namespace std::chrono;
 
-        testcase("RNG fast path does not outrun peer observation");
+        testcase("RNG missing proposal material does not block quorum cohort");
 
-        // Peer 0 can build the full reveal set immediately. The other peers
-        // miss peer 0's proposal-carried reveal, so peer 0 is the one most
-        // likely to hit the reveal fast path early. It must still publish and
-        // wait for sidecar observation instead of closing a non-zero ledger
-        // before the rest of the round can merge or safely zero.
+        // Same-round sidecar reconciliation is intentionally gone. If peer 0's
+        // proposal-carried reveal is missed by the rest of the active view, the
+        // quorum cohort should still be able to build the 4/5 entropy set while
+        // peer 0 cannot materialize that accepted root locally and falls back.
+        //
+        // CSF ledgers model the base tx-set only; production CE pseudo bytes
+        // would make peer 0's synthetic ledger differ until validations pull it
+        // back to the quorum-built ledger. Keep the CE side-band assertions
+        // explicit so this test is not mistaken for a pseudo-ledger hash proof.
 
         ConsensusParms const parms{};
         Sim sim;
@@ -1024,21 +1029,22 @@ public:
 
         BEAST_EXPECT(sim.branches(peers) == 1);
 
-        for (Peer const* lhs : peers)
+        auto const& cohortDigest = peers[1]->ce().lastEntropyDigest_;
+        BEAST_EXPECT(cohortDigest != uint256{});
+        for (std::size_t i = 1; i < peers.size(); ++i)
         {
-            for (Peer const* rhs : peers)
-            {
-                if (lhs->lastClosedLedger.id() != rhs->lastClosedLedger.id())
-                    continue;
-
-                BEAST_EXPECT(
-                    lhs->ce().lastEntropyDigest_ ==
-                    rhs->ce().lastEntropyDigest_);
-                BEAST_EXPECT(
-                    lhs->ce().lastEntropyWasFallback_ ==
-                    rhs->ce().lastEntropyWasFallback_);
-            }
+            BEAST_EXPECT(peers[i]->ce().lastEntropyDigest_ == cohortDigest);
+            BEAST_EXPECT(!peers[i]->ce().lastEntropyWasFallback_);
+            BEAST_EXPECT(
+                peers[i]->ce().lastEntropyTier_ == entropyTierValidatorQuorum);
+            BEAST_EXPECT(peers[i]->ce().lastEntropyCount_ == 4);
         }
+
+        BEAST_EXPECT(peers[0]->ce().lastEntropyWasFallback_);
+        BEAST_EXPECT(
+            peers[0]->ce().lastEntropyTier_ == entropyTierConsensusFallback);
+        BEAST_EXPECT(peers[0]->ce().lastEntropyCount_ == 0);
+        BEAST_EXPECT(peers[0]->ce().lastEntropyDigest_ != cohortDigest);
     }
 
     void
@@ -1140,7 +1146,8 @@ public:
         // alignment gate.
         sim.run(1);
 
-        // The majority (peers 1-4) should agree on validator entropy
+        // The majority (peers 1-4) should agree on validator entropy from
+        // proposal-carried material they can locally materialize.
         std::vector<Peer const*> majority;
         for (std::size_t i = 1; i < peers.size(); ++i)
             majority.push_back(peers[i]);
@@ -1150,14 +1157,13 @@ public:
         for (Peer const* peer : majority)
             BEAST_EXPECT(peer->ce().lastEntropyDigest_ == majorityDigest);
 
-        // Peer 0 must NOT have validator entropy that differs from the
-        // majority.  It should either:
-        // a) have converged to the majority via fetch/merge, or
-        // b) have taken the explicitly labeled Tier 1 consensus_fallback
+        // Peer 0 cannot reconstruct the majority root without the missing
+        // proposal-carried reveals. With same-round reconciliation removed, it
+        // must fall back locally rather than treating the peer-advertised root
+        // as materialized.
         auto const& p0Digest = peers[0]->ce().lastEntropyDigest_;
-        BEAST_EXPECT(
-            p0Digest == majorityDigest ||
-            peers[0]->ce().lastEntropyWasFallback_);
+        BEAST_EXPECT(p0Digest != majorityDigest);
+        BEAST_EXPECT(peers[0]->ce().lastEntropyWasFallback_);
     }
 
     void
@@ -1194,7 +1200,7 @@ public:
         RUN(testRngSingleSilentValidatorCannotDenyEntropy);
         RUN(testRngEntropyHashConflictWithoutQuorumFallsBackToZero);
         RUN(testRngEntropyRejectsEquivocatedSplitMajorities);
-        RUN(testRngFastPathDoesNotOutrunPeerObservation);
+        RUN(testRngMissingProposalMaterialDoesNotBlockQuorumCohort);
         RUN(testRngNoEntropyWithoutPeerAlignment);
         RUN(testRngAlignmentRequiredForNonZeroEntropy);
 
@@ -1278,12 +1284,12 @@ public:
     }
 
     void
-    testExportOnlyFetchesPeerAdvertisedSigSet()
+    testExportOnlyMissingProposalSignaturesRetries()
     {
         using namespace csf;
         using namespace std::chrono;
 
-        testcase("Export-only fetches peer-advertised sig set");
+        testcase("Export-only missing proposal signatures retries");
 
         ConsensusParms const parms{};
         Sim sim;
@@ -1292,10 +1298,15 @@ public:
         for (Peer* peer : peers)
             peer->ce().enableExportConsensus_ = true;
 
-        // Peer 0 remains an active validator/proposer, but starts with no
-        // local export signature material. It drops proposal-carried export
-        // signatures from peers, so only sidecar fetch/merge can populate its
-        // local export set.
+        // Peer 0 remains an active validator/proposer, but drops
+        // proposal-carried export signatures from peers. Advertised sidecar
+        // roots do not reconstruct missing signature material; the export must
+        // retry locally while peers that received quorum signatures can apply.
+        //
+        // CSF's Ledger ID is still the base tx-set only. In production the
+        // quorum peers' ttEXPORT_SIGNATURES witness would make their synthetic
+        // ledger differ from peer 0's retry ledger until validations pull the
+        // missing-material peer onto the quorum ledger.
         peers[0]->ce().suppressOwnExportSig_ = true;
         for (std::size_t i = 1; i < peers.size(); ++i)
             peers[0]->ce().dropExportSigFrom_.insert(peers[i]->id);
@@ -1307,9 +1318,8 @@ public:
 
         BEAST_EXPECT(sim.branches(peers) == 1);
         BEAST_EXPECT(sim.synchronized(peers));
-        BEAST_EXPECT(peers[0]->ce().exportSigFetchMerges_ >= 4);
-        BEAST_EXPECT(peers[0]->ce().lastExportSucceeded_);
-        BEAST_EXPECT(!peers[0]->ce().lastExportRetried_);
+        BEAST_EXPECT(!peers[0]->ce().lastExportSucceeded_);
+        BEAST_EXPECT(peers[0]->ce().lastExportRetried_);
 
         for (std::size_t i = 1; i < peers.size(); ++i)
         {
@@ -1479,7 +1489,7 @@ public:
 
         RUN(testExportOnlySteadyStateSucceeds);
         RUN(testExportOnlyQuorumIgnoresMinorityConflict);
-        RUN(testExportOnlyFetchesPeerAdvertisedSigSet);
+        RUN(testExportOnlyMissingProposalSignaturesRetries);
         RUN(testExportSigSetQuorumAlignmentIgnoresMinorityConflict);
         RUN(testExportSigSetConflictWithoutQuorumRetries);
         RUN(testExportSigSetRejectsEquivocatedSplitMajorities);

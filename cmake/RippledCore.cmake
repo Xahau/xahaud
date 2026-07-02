@@ -168,11 +168,6 @@ if(xrpld)
   if(xahaud_runtime_test_config)
     target_compile_definitions(rippled PUBLIC XAHAUD_ENABLE_RUNTIME_TEST_CONFIG=1)
   endif()
-  if(xahaud_sidecar_reconciliation)
-    target_compile_definitions(rippled PUBLIC XAHAUD_ENABLE_SIDECAR_RECONCILIATION=1)
-  else()
-    target_compile_definitions(rippled PUBLIC XAHAUD_ENABLE_SIDECAR_RECONCILIATION=0)
-  endif()
   target_include_directories(rippled
     PRIVATE
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -181,9 +176,6 @@ if(xrpld)
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/xrpld/*.cpp"
   )
-  if(NOT xahaud_sidecar_reconciliation)
-    list(FILTER sources EXCLUDE REGEX "/src/xrpld/app/ledger/SidecarSetSF\\.cpp$")
-  endif()
   target_sources(rippled PRIVATE ${sources})
 
   if(tests)

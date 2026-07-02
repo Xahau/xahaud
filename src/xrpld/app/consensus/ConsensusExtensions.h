@@ -27,10 +27,6 @@
 
 namespace ripple {
 
-#ifndef XAHAUD_ENABLE_SIDECAR_RECONCILIATION
-#define XAHAUD_ENABLE_SIDECAR_RECONCILIATION 0
-#endif
-
 class Application;
 class CanonicalTXSet;
 class Ledger;
@@ -51,15 +47,6 @@ class ConsensusExtensions
 
 public:
     beast::Journal j_;  // public: accessed by extensionsTick template
-
-    // Type of sidecar set, known at fetch time from proposal context.
-    enum class SidecarKind : uint8_t { commitSet, entropySet, exportSigSet };
-
-    static constexpr bool
-    sidecarReconciliationEnabled()
-    {
-        return XAHAUD_ENABLE_SIDECAR_RECONCILIATION != 0;
-    }
 
     /** Proof data from a proposal signature, for embedding in SHAMap
         entries. Contains everything needed to independently verify
@@ -100,9 +87,9 @@ private:
     std::shared_ptr<SHAMap> commitSetMap_;
     std::shared_ptr<SHAMap> entropySetMap_;
     std::shared_ptr<SHAMap> exportSigSetMap_;
-    // Candidate entropy maps can be fetched/merged before they are safe to
-    // inject. This hash is set only by the entropy sidecar gate after the
-    // alignment/observation checks pass.
+    // Candidate entropy maps are local snapshots until the gate accepts the
+    // exact root. This hash is set only after the alignment/observation checks
+    // pass.
     std::optional<uint256> acceptedEntropySetHash_;
     // Export signature maps are also built from local collector state before
     // accept. Closed-ledger export apply may only consume the map root the
@@ -115,28 +102,6 @@ private:
     std::shared_ptr<SHAMap const> consensusTxSetMap_;
     hash_map<uint256, std::shared_ptr<STTx const>> consensusExportTxns_;
     std::optional<uint256> consensusTxSetHash_;
-
-    struct PendingSidecarFetch
-    {
-        SidecarKind kind;
-        char const* origin = "unknown";
-    };
-
-    // Track pending sidecar set fetches by hash. Kind/origin are known at fetch
-    // time from call-site context, so onAcquiredSidecarSet can dispatch without
-    // content-sniffing and logs can attribute eager vs gate-triggered fetches.
-    hash_map<uint256, PendingSidecarFetch> pendingSidecarFetches_;
-
-    struct SidecarRootSupport
-    {
-        hash_map<uint256, hash_set<NodeID>> commitSet;
-        hash_map<uint256, hash_set<NodeID>> entropySet;
-        hash_map<uint256, hash_set<NodeID>> exportSigSet;
-    };
-
-    // Per-round support for sidecar roots observed in trusted proposals. Eager
-    // acquisition uses this to avoid fetching first-seen transient roots.
-    SidecarRootSupport sidecarRootSupport_;
 
     // Parent-ledger validator view used by RNG and Export quorum logic.
     ActiveValidatorViewPtr activeValidatorView_ =
@@ -185,20 +150,6 @@ private:
         std::optional<ProposalProof> const& proof,
         char const* sourceTag,
         RngProofCachePolicy proofCachePolicy);
-
-    void
-    recordSidecarRootSupport(
-        NodeID const& nodeId,
-        ExtendedPosition const& position);
-
-    std::size_t
-    sidecarRootSupport(SidecarKind kind, uint256 const& hash) const;
-
-    std::size_t
-    sidecarFetchSupportThreshold(SidecarKind kind) const;
-
-    bool
-    shouldEagerFetchSidecarSet(SidecarKind kind, uint256 const& hash) const;
 
     // Commit proofs keyed by NodeID. Only seq=0 proofs are cached because the
     // commit sidecar hash must be deterministic across all nodes.
@@ -376,9 +327,6 @@ public:
         uint256 const& txHash,
         std::size_t threshold) const;
 
-    bool
-    isSidecarSet(uint256 const& hash) const;
-
     ActiveValidatorViewPtr
     activeValidatorView() const;
 
@@ -397,21 +345,6 @@ public:
     isActiveValidator(
         PublicKey const& validationKey,
         ActiveValidatorView const& view) const;
-
-    void
-    onAcquiredSidecarSet(std::shared_ptr<SHAMap> const& map);
-
-    void
-    fetchSidecarSetIfNeeded(
-        std::optional<uint256> const& hash,
-        SidecarKind kind = SidecarKind::commitSet,
-        char const* origin = "unknown");
-
-    /// Fetch any sidecar sets from a peer's position if needed.
-    void
-    fetchSidecarsIfNeeded(
-        ExtendedPosition const& peerPos,
-        char const* origin = "eagerProposal");
 
     template <class PeerPositions>
     void

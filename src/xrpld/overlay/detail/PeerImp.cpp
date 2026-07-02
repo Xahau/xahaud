@@ -3318,13 +3318,11 @@ PeerImp::getTxSet(std::shared_ptr<protocol::TMGetLedger> const& m) const
     uint256 const txSetHash{m->ledgerhash()};
     std::shared_ptr<SHAMap> shaMap{
         app_.getInboundTransactions().getSet(txSetHash, false)};
-#if !XAHAUD_ENABLE_SIDECAR_RECONCILIATION
     if (shaMap && shaMap->mapType() == SHAMapType::SIDECAR)
     {
-        JLOG(p_journal_.debug()) << "getTxSet: Sidecar set serving disabled";
+        JLOG(p_journal_.debug()) << "getTxSet: Refusing local sidecar snapshot";
         return {};
     }
-#endif
     if (!shaMap)
     {
         if (m->has_querytype() && !m->has_requestcookie())
