@@ -1202,6 +1202,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             disabledEnv.app().getLedgerMaster().getClosedLedger();
 
         ConsensusExtensions ce{enabledEnv.app(), activeNoopJournal()};
+        auto const tx = makeHash("on-round-start-export-latch");
+        auto const pk = makeValidatorKeys().front();
+        std::uint8_t const sigBytes[] = {1, 2, 3};
+        Buffer const sig{sigBytes, sizeof(sigBytes)};
 
         ce.setRngEnabledThisRound(false);
         ce.setExportEnabledThisRound(false);
@@ -1209,11 +1213,17 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(ce.rngEnabled());
         BEAST_EXPECT(ce.exportEnabled());
 
+        ce.exportSigCollector().addVerifiedSignature(tx, pk, sig, 10);
+        BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 1);
+        ce.onRoundStart(RCLCxLedger{enabledLedger}, {});
+        BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 1);
+
         ce.setRngEnabledThisRound(true);
         ce.setExportEnabledThisRound(true);
         ce.onRoundStart(RCLCxLedger{disabledLedger}, {});
         BEAST_EXPECT(!ce.rngEnabled());
         BEAST_EXPECT(!ce.exportEnabled());
+        BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 0);
     }
 
     void

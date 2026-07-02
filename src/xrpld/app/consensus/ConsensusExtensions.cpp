@@ -1414,9 +1414,9 @@ ConsensusExtensions::clearRngStatePreservingExport()
     likelyParticipants_.clear();
     commitProofs_.clear();
     //@@end round-stop-rng-reset
-    // Keep the round-level enable latches intact here. Callers either already
-    // hold a valid snapshot, or onRoundStart() refreshes it from the consensus
-    // parent ledger after clearing per-round working state.
+    // Keep the round-level enable latches intact here. onRoundStart() refreshes
+    // them from the consensus parent before clearing so boundary cleanup, such
+    // as the export-disabled signature wipe, observes the new round's rules.
 }
 
 void
@@ -2234,10 +2234,10 @@ ConsensusExtensions::onRoundStart(
     RCLCxLedger const& prevLedger,
     hash_set<NodeID> lastProposers)
 {
-    clearRngState();
     auto const& rules = prevLedger.ledger_->rules();
     setRngEnabledThisRound(rules.enabled(featureConsensusEntropy));
     setExportEnabledThisRound(rules.enabled(featureExport));
+    clearRngState();
 
     roundPrevLedgerHash_ = prevLedger.ledger_->info().hash;
     rngRoundSeq_ = prevLedger.ledger_->info().seq + 1;
