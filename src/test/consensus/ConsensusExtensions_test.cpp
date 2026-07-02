@@ -2131,6 +2131,67 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExportAgreedSignaturesTrustAcceptedRootMembership()
+    {
+        testcase("Export agreed signatures trust accepted root membership");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.setExportEnabledThisRound(true);
+        ce.cacheUNLReport(ledger);
+        auto const view = ce.activeValidatorView();
+
+        auto const inactive = randomKeyPair(KeyType::secp256k1);
+        auto const& valPK = inactive.first;
+        auto const& valSK = inactive.second;
+        BEAST_EXPECT(!ce.isActiveValidator(valPK, *view));
+
+        auto const signerAccount = calcAccountID(valPK);
+        auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
+        auto const innerObj = makeExportedPayment(signerAccount, dst);
+        auto const innerTx = makeSTTx(innerObj);
+        auto const exportTx = makeExportTx(innerObj, signerAccount);
+        auto const txHash = exportTx->getTransactionID();
+
+        auto const sigData = buildMultiSigningData(innerTx, signerAccount);
+        auto const sig = sign(valPK, valSK, sigData.slice());
+        Buffer const sigBuf(sig.data(), sig.size());
+
+        STObject sidecar(sfGeneric);
+        sidecar.setFieldU8(sfSidecarType, sidecarExportSig);
+        sidecar.setFieldH256(sfTransactionHash, txHash);
+        sidecar.setFieldVL(sfSigningPubKey, valPK.slice());
+        sidecar.setFieldVL(sfTxnSignature, Slice(sigBuf.data(), sigBuf.size()));
+
+        Serializer itemSer;
+        sidecar.add(itemSer);
+        auto map = std::make_shared<SHAMap>(
+            SHAMapType::SIDECAR, env.app().getNodeFamily());
+        map->setUnbacked();
+        map->addItem(
+            SHAMapNodeType::tnSIDECAR,
+            make_shamapitem(
+                sidecar.getHash(HashPrefix::sidecar), itemSer.slice()));
+        map = map->snapShot(false);
+
+        auto const acceptedHash = map->getHash().as_uint256();
+        env.app().getInboundTransactions().giveSet(acceptedHash, map, false);
+        ce.acceptExportSigSet(acceptedHash);
+
+        auto const agreed = ce.agreedExportSignatures(*exportTx, txHash, 1);
+        BEAST_EXPECT(agreed);
+        if (agreed)
+        {
+            BEAST_EXPECT(agreed->size() == 1);
+            BEAST_EXPECT(agreed->at(valPK) == sigBuf);
+        }
+    }
+
+    void
     testOnPreBuildPreservesExportDecision()
     {
         testcase("onPreBuild preserves export state through buildLCL");
@@ -3461,6 +3522,7 @@ public:
         testExportSidecarIgnoresCancelOnlyExports();
         testExportSidecarBuildCapsConsensusCandidates();
         testExportAgreedSignaturesIgnoreLiveCollectorMutation();
+        testExportAgreedSignaturesTrustAcceptedRootMembership();
         testOnPreBuildPreservesExportDecision();
         testRngSidecarBuildsLocalSnapshots();
         testOnPreBuildInjectsStandaloneEntropy();
