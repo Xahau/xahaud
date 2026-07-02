@@ -46,6 +46,11 @@ Local signals such as previous proposers, currently visible peer positions, or
 "quorum seems impossible from here" may influence logging, diagnostics, and
 bounded waits, but they must not short-circuit the gate while enough proofed
 sidecar material exists to continue toward non-fallback entropy.
+A node that cannot accept the entropy root by the bounded deadline may inject
+`consensus_fallback` while the aligned quorum injects validator entropy. This is
+an accepted, validation-resolved lagging-node close result, not a selector
+determinism defect: an accepted root must win, and absence of an accepted root
+falls back.
 *Enforced:* the same accepted-hash boundary as INV-1, plus tests that compare
 nodes with asymmetric local observation. *Anti-pattern:* a bootstrap or
 "impossible quorum" shortcut that falls through to close with fallback from
