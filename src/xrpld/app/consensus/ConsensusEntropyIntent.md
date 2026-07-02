@@ -25,11 +25,12 @@ determinism or liveness.**
 
 **INV-1 — Determinism of the injected object.**
 Given the same parent ledger and the same *agreed* entropy sidecar, every honest
-node injects the byte-identical `ttCONSENSUS_ENTROPY` (digest, tier, count). That
+node injects the byte-identical `ttCONSENSUS_ENTROPY` (digest, tier, count,
+denominator). That
 object is ledger state. Therefore **non-fallback entropy must not read mutable
 local collector state or timing-derived state.** The selector derives non-fallback
-`(digest, tier, count)` only from the accepted `entropySetMap_` (matched to the
-hash the gate accepted) plus the parent-ledger active view. Local timeout or
+`(digest, tier, count, denominator)` only from the accepted `entropySetMap_`
+(matched to the hash the gate accepted) plus the parent-ledger active view. Local timeout or
 diagnostic state such as `entropyFailed_` must not override an accepted root at
 injection time; a node that never accepts a root falls back through the normal
 missing-accepted-root path.

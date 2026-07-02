@@ -352,6 +352,7 @@ struct Peer
         // Last round summary (for test assertions)
         uint256 lastEntropyDigest_;
         std::uint16_t lastEntropyCount_ = 0;
+        std::uint16_t lastEntropyDenominator_ = 0;
         bool lastEntropyWasFallback_ = true;
         EntropyTier lastEntropyTier_ = entropyTierNone;
         bool lastExportSucceeded_ = false;
@@ -819,6 +820,7 @@ struct Peer
                 // zero digest as the "none" marker.
                 lastEntropyDigest_.zero();
                 lastEntropyCount_ = 0;
+                lastEntropyDenominator_ = 0;
                 lastEntropyWasFallback_ = true;
                 lastEntropyTier_ = entropyTierNone;
                 return;
@@ -829,6 +831,7 @@ struct Peer
             auto const fallback = [&] {
                 lastEntropyDigest_ = fallbackEntropy();
                 lastEntropyCount_ = 0;
+                lastEntropyDenominator_ = 0;
                 lastEntropyWasFallback_ = true;
                 lastEntropyTier_ = entropyTierConsensusFallback;
             };
@@ -902,6 +905,8 @@ struct Peer
             }
             lastEntropyDigest_ = digest;
             lastEntropyCount_ = static_cast<std::uint16_t>(count);
+            lastEntropyDenominator_ =
+                static_cast<std::uint16_t>(unlNodes_.size());
             lastEntropyWasFallback_ = false;
         }
 

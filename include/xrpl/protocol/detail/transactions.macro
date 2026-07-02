@@ -622,6 +622,7 @@ TRANSACTION(ttCONSENSUS_ENTROPY, 105, ConsensusEntropy, ({
     {sfLedgerSequence, soeREQUIRED},
     {sfDigest, soeREQUIRED},
     {sfEntropyCount, soeREQUIRED},
+    {sfEntropyDenominator, soeREQUIRED},
     {sfEntropyTier, soeREQUIRED},
 }))
 

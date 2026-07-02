@@ -9,9 +9,12 @@ namespace ripple {
 /// on the ttCONSENSUS_ENTROPY pseudo-transaction and the ConsensusEntropy
 /// ledger entry.
 ///
-/// EntropyCount says how many validators contributed; EntropyTier says which
-/// gate the result passed. Values are strength-ordered so consumers can gate
-/// with a numeric comparison (tier >= required).
+/// EntropyCount says how many validators contributed; EntropyDenominator says
+/// how many active validators were in the ledger-anchored view for that
+/// non-fallback result; EntropyTier says which gate the result passed. Fallback
+/// entropy carries count=0/denominator=0 because no validator-derived
+/// denominator was accepted. Tier values are strength-ordered so consumers can
+/// gate with a numeric comparison (tier >= required).
 ///
 /// RESIDUAL BIAS — applies to EVERY tier, including participant_aligned and
 /// validator_quorum, not just the fallback. This is a commit/reveal scheme: a

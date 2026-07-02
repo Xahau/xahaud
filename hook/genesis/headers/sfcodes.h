@@ -26,6 +26,7 @@
 #define sfLedgerFixType ((1U << 16U) + 22U)
 #define sfHookExportCount ((1U << 16U) + 98U)
 #define sfEntropyCount ((1U << 16U) + 99U)
+#define sfEntropyDenominator ((1U << 16U) + 100U)
 #define sfNetworkID ((2U << 16U) + 1U)
 #define sfFlags ((2U << 16U) + 2U)
 #define sfSourceTag ((2U << 16U) + 3U)

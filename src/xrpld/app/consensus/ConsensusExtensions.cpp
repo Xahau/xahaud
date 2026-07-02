@@ -782,6 +782,7 @@ ConsensusExtensions::selectEntropy(
                 agreedTxSetHash,
                 seq),
             entropyTierConsensusFallback,
+            0,
             0};
     };
     //@@end entropy-selector-fallback
@@ -792,6 +793,7 @@ ConsensusExtensions::selectEntropy(
         return {
             sha512Half(std::string("standalone-entropy"), seq),
             entropyTierValidatorQuorum,
+            20,
             20};
     //@@end entropy-selector-standalone
 
@@ -836,9 +838,9 @@ ConsensusExtensions::selectEntropy(
     // Derive from the AGREED entropySetMap_ — NOT local pendingReveals_. The
     // map's hash was published in proposals and accepted by the gate, so every
     // node holding the same entropySetHash produces byte-identical entropy and
-    // the same tier/count. Read leaves through the shared sidecar admission
-    // helper so accepted-map consumption enforces the same content-address/type
-    // contract as snapshot construction.
+    // the same tier/count/denominator labels. Read leaves through the shared
+    // sidecar admission helper so accepted-map consumption enforces the same
+    // content-address/type contract as snapshot construction.
     std::vector<std::pair<PublicKey, uint256>> sorted;
     entropySetMap_->visitLeaves(
         [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
@@ -887,6 +889,7 @@ ConsensusExtensions::selectEntropy(
     }
     auto const digest = sha512Half(s.slice());
     auto const count = static_cast<std::uint16_t>(sorted.size());
+    auto const denominator = static_cast<std::uint16_t>(validatorView->size());
 
     //@@start entropy-selector-tier-ladder
     // Tier ladder over the AGREED participant count — deterministic on every
@@ -901,7 +904,7 @@ ConsensusExtensions::selectEntropy(
         validatorView->size(),
         validatorView->originalViewSize);
     if (tier != entropyTierConsensusFallback)
-        return {digest, static_cast<std::uint8_t>(tier), count};
+        return {digest, static_cast<std::uint8_t>(tier), count, denominator};
     return fallback();
     //@@end entropy-selector-tier-ladder
 }
@@ -926,7 +929,8 @@ ConsensusExtensions::txnOrderingSalt(
         agreedTxSetHash,
         selection.digest,
         selection.tier,
-        selection.count);
+        selection.count,
+        selection.denominator);
 }
 
 bool
@@ -1711,19 +1715,21 @@ ConsensusExtensions::onPreBuild(
 
         //@@start rng-inject-entropy-selection
         // One deterministic selector over the AGREED entropySetMap_ chooses the
-        // digest and its tier/count. Every node derives the same entropy for
-        // the same agreed round inputs. txSetHash is the agreed pre-injection
-        // consensus tx set hash.
+        // digest and its tier/count/denominator labels. Every node derives the
+        // same entropy for the same agreed round inputs. txSetHash is the
+        // agreed pre-injection consensus tx set hash.
         auto const selection = selectEntropy(txSetHash, seq);
         uint256 const finalEntropy = selection.digest;
         std::uint8_t const entropyTier = selection.tier;
         std::uint16_t const entropyCount = selection.count;
+        std::uint16_t const entropyDenominator = selection.denominator;
         //@@end rng-inject-entropy-selection
 
         JLOG(j_.info()) << "RNG: entropy selected"
                         << " seq=" << seq
                         << " tier=" << static_cast<int>(entropyTier)
                         << " count=" << entropyCount
+                        << " denominator=" << entropyDenominator
                         << " digest=" << finalEntropy;
 
         //@@start rng-inject-pseudotx
@@ -1755,6 +1761,7 @@ ConsensusExtensions::onPreBuild(
                 obj.setFieldAmount(sfFee, STAmount{});
                 obj.setFieldH256(sfDigest, finalEntropy);
                 obj.setFieldU16(sfEntropyCount, entropyCount);
+                obj.setFieldU16(sfEntropyDenominator, entropyDenominator);
                 obj.setFieldU8(sfEntropyTier, entropyTier);
             });
 
@@ -1820,6 +1827,11 @@ ConsensusExtensions::onPreBuild(
                         << (pres.isFieldPresent(sfEntropyCount)
                                 ? std::to_string(
                                       pres.getFieldU16(sfEntropyCount))
+                                : std::string{"<missing>"})
+                        << " presentDenominator="
+                        << (pres.isFieldPresent(sfEntropyDenominator)
+                                ? std::to_string(
+                                      pres.getFieldU16(sfEntropyDenominator))
                                 : std::string{"<missing>"});
                 }
             }

@@ -66,6 +66,8 @@ public:
             {
                 BEAST_EXPECT(!peer->ce().lastEntropyWasFallback_);
                 BEAST_EXPECT(peer->ce().lastEntropyCount_ > 0);
+                BEAST_EXPECT(
+                    peer->ce().lastEntropyDenominator_ == peers.size());
                 BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
             }
         }
@@ -908,6 +910,7 @@ public:
                 peer->ce().lastEntropyDigest_ ==
                 peers[0]->ce().lastEntropyDigest_);
             BEAST_EXPECT(peer->ce().lastEntropyCount_ == 0);
+            BEAST_EXPECT(peer->ce().lastEntropyDenominator_ == 0);
         }
     }
 
@@ -981,6 +984,7 @@ public:
             BEAST_EXPECT(
                 peer->ce().lastEntropyTier_ == entropyTierConsensusFallback);
             BEAST_EXPECT(peer->ce().lastEntropyCount_ == 0);
+            BEAST_EXPECT(peer->ce().lastEntropyDenominator_ == 0);
             BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
         }
         BEAST_EXPECT(
@@ -1038,12 +1042,14 @@ public:
             BEAST_EXPECT(
                 peers[i]->ce().lastEntropyTier_ == entropyTierValidatorQuorum);
             BEAST_EXPECT(peers[i]->ce().lastEntropyCount_ == 4);
+            BEAST_EXPECT(peers[i]->ce().lastEntropyDenominator_ == 5);
         }
 
         BEAST_EXPECT(peers[0]->ce().lastEntropyWasFallback_);
         BEAST_EXPECT(
             peers[0]->ce().lastEntropyTier_ == entropyTierConsensusFallback);
         BEAST_EXPECT(peers[0]->ce().lastEntropyCount_ == 0);
+        BEAST_EXPECT(peers[0]->ce().lastEntropyDenominator_ == 0);
         BEAST_EXPECT(peers[0]->ce().lastEntropyDigest_ != cohortDigest);
     }
 

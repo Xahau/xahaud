@@ -63,6 +63,7 @@ TYPED_SFIELD(sfHookStateScale,           UINT16,    21)
 TYPED_SFIELD(sfLedgerFixType,            UINT16,    22)
 TYPED_SFIELD(sfHookExportCount,          UINT16,    98)
 TYPED_SFIELD(sfEntropyCount,             UINT16,    99)
+TYPED_SFIELD(sfEntropyDenominator,       UINT16,   100)
 
 // 32-bit integers (common)
 TYPED_SFIELD(sfNetworkID,                UINT32,     1)

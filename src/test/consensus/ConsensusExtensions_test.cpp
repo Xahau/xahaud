@@ -48,6 +48,7 @@
 #include <deque>
 #include <limits>
 #include <string>
+#include <tuple>
 
 namespace ripple {
 namespace test {
@@ -1238,6 +1239,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(tx->getFieldH256(sfDigest) == expected);
         BEAST_EXPECT(tx->getFieldH256(sfDigest) != uint256{});
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 0);
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 0);
         BEAST_EXPECT(
             tx->getFieldU8(sfEntropyTier) == entropyTierConsensusFallback);
 
@@ -1283,6 +1285,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             txSetHash,
             fallbackDigest,
             static_cast<std::uint8_t>(entropyTierConsensusFallback),
+            static_cast<std::uint16_t>(0),
             static_cast<std::uint16_t>(0));
 
         auto const salt = ce.txnOrderingSalt(txSetHash, seq);
@@ -1351,6 +1354,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(
             tx->getFieldH256(sfDigest) == expectedEntropy(publicKey, reveal));
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 1);
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 1);
         BEAST_EXPECT(
             tx->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
     }
@@ -1420,6 +1424,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(
             tx->getFieldH256(sfDigest) == expectedEntropy(publicKey, reveal));
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 1);
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 1);
         BEAST_EXPECT(
             tx->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
     }
@@ -1476,7 +1481,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const txSetHash = makeHash("tier2-txset");
 
         // Harvest commit+reveal from `revealers` of the 6 validators, build the
-        // agreed entropy set, inject, and return the labelled (tier, count).
+        // agreed entropy set, inject, and return the labelled
+        // (tier, count, denominator).
         auto runWith = [&](std::size_t revealers) {
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.cacheUNLReport(viewLedger);
@@ -1501,28 +1507,32 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             CanonicalTXSet txs{makeHash("tier2-salt")};
             ce.onPreBuild(txs, seq, txSetHash);
             auto const tx = singleCanonicalTx(txs);
-            std::pair<int, std::uint16_t> out{-1, 0};
+            std::tuple<int, std::uint16_t, std::uint16_t> out{-1, 0, 0};
             if (tx)
                 out = {
                     tx->getFieldU8(sfEntropyTier),
-                    tx->getFieldU16(sfEntropyCount)};
+                    tx->getFieldU16(sfEntropyCount),
+                    tx->getFieldU16(sfEntropyDenominator)};
             return out;
         };
 
         // 5 of 6 aligned -> validator_quorum (count >= quorum 5).
         auto const q = runWith(5);
-        BEAST_EXPECT(q.first == entropyTierValidatorQuorum);
-        BEAST_EXPECT(q.second == 5);
+        BEAST_EXPECT(std::get<0>(q) == entropyTierValidatorQuorum);
+        BEAST_EXPECT(std::get<1>(q) == 5);
+        BEAST_EXPECT(std::get<2>(q) == kValidators);
 
         // 4 of 6 aligned -> participant_aligned (count >= tier2 4, < quorum 5).
         auto const p = runWith(4);
-        BEAST_EXPECT(p.first == entropyTierParticipantAligned);
-        BEAST_EXPECT(p.second == 4);
+        BEAST_EXPECT(std::get<0>(p) == entropyTierParticipantAligned);
+        BEAST_EXPECT(std::get<1>(p) == 4);
+        BEAST_EXPECT(std::get<2>(p) == kValidators);
 
         // 3 of 6 aligned -> below the tier-2 floor -> consensus_fallback.
         auto const f = runWith(3);
-        BEAST_EXPECT(f.first == entropyTierConsensusFallback);
-        BEAST_EXPECT(f.second == 0);
+        BEAST_EXPECT(std::get<0>(f) == entropyTierConsensusFallback);
+        BEAST_EXPECT(std::get<1>(f) == 0);
+        BEAST_EXPECT(std::get<2>(f) == 0);
     }
 
     void
@@ -1669,25 +1679,29 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             CanonicalTXSet txs{makeHash("tier2-nunl-salt")};
             ce.onPreBuild(txs, seq, txSetHash);
             auto const tx = singleCanonicalTx(txs);
-            std::pair<int, std::uint16_t> out{-1, 0};
+            std::tuple<int, std::uint16_t, std::uint16_t> out{-1, 0, 0};
             if (tx)
                 out = {
                     tx->getFieldU8(sfEntropyTier),
-                    tx->getFieldU16(sfEntropyCount)};
+                    tx->getFieldU16(sfEntropyCount),
+                    tx->getFieldU16(sfEntropyDenominator)};
             return out;
         };
 
         auto const q = runWith(16);
-        BEAST_EXPECT(q.first == entropyTierValidatorQuorum);
-        BEAST_EXPECT(q.second == 16);
+        BEAST_EXPECT(std::get<0>(q) == entropyTierValidatorQuorum);
+        BEAST_EXPECT(std::get<1>(q) == 16);
+        BEAST_EXPECT(std::get<2>(q) == kOriginal - kDisabled);
 
         auto const p = runWith(15);
-        BEAST_EXPECT(p.first == entropyTierParticipantAligned);
-        BEAST_EXPECT(p.second == 15);
+        BEAST_EXPECT(std::get<0>(p) == entropyTierParticipantAligned);
+        BEAST_EXPECT(std::get<1>(p) == 15);
+        BEAST_EXPECT(std::get<2>(p) == kOriginal - kDisabled);
 
         auto const f = runWith(12);
-        BEAST_EXPECT(f.first == entropyTierConsensusFallback);
-        BEAST_EXPECT(f.second == 0);
+        BEAST_EXPECT(std::get<0>(f) == entropyTierConsensusFallback);
+        BEAST_EXPECT(std::get<1>(f) == 0);
+        BEAST_EXPECT(std::get<2>(f) == 0);
     }
 
     void
@@ -2321,6 +2335,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             tx->getFieldH256(sfDigest) ==
             sha512Half(std::string("standalone-entropy"), seq));
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 20);
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 20);
         BEAST_EXPECT(
             tx->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
 
@@ -2353,6 +2368,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             obj.setFieldVL(sfSigningPubKey, Slice{});  // pseudo-tx convention
             obj.setFieldH256(sfDigest, digest);
             obj.setFieldU16(sfEntropyCount, count);
+            obj.setFieldU16(sfEntropyDenominator, count);
             obj.setFieldU8(sfEntropyTier, entropyTierConsensusFallback);
             return std::make_shared<STTx const>(makeSTTx(obj));
         };

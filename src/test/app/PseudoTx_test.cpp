@@ -65,6 +65,7 @@ struct PseudoTx_test : public beast::unit_test::suite
             obj.setFieldAmount(sfFee, STAmount{});
             obj.setFieldH256(sfDigest, uint256(3));
             obj.setFieldU16(sfEntropyCount, 1);
+            obj.setFieldU16(sfEntropyDenominator, 1);
             obj.setFieldU8(sfEntropyTier, entropyTierValidatorQuorum);
         }));
 

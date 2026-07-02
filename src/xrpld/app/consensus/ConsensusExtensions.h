@@ -257,13 +257,15 @@ public:
     clearAcceptedEntropySet();
 
     /// Result of the shared deterministic entropy selector: the digest to
-    /// inject plus its tier/count labels. Both injection paths derive these
-    /// identically from the AGREED entropySetMap_ so they cannot drift.
+    /// inject plus its tier/count/denominator labels. Both injection paths
+    /// derive these identically from the AGREED entropySetMap_ so they cannot
+    /// drift.
     struct EntropySelection
     {
         uint256 digest;
         std::uint8_t tier = 0;  // EntropyTier; the selector always sets this
         std::uint16_t count = 0;
+        std::uint16_t denominator = 0;
     };
 
     /// Deterministically choose the entropy to inject for this round from the

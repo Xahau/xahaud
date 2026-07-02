@@ -347,8 +347,11 @@ non-UNLReport (config-fallback) view, every case below instead mints
 
 The fallback pseudo-transaction is deterministic — every node derives the same
 digest from `(HashPrefix::entropyFallback, parentLedgerHash, agreedTxSetHash,
-seq)` — and labeled with `EntropyTier = consensus_fallback` and
-`EntropyCount = 0`. Hooks state their own requirements via the required
+seq)` — and labeled with `EntropyTier = consensus_fallback`,
+`EntropyCount = 0`, and `EntropyDenominator = 0`. Non-fallback entropy records
+both the contributor count and the active-validator denominator used for the
+validator-quorum threshold; the participant-aligned floor still uses the
+original pre-NegativeUNL view internally. Hooks state their own requirements via the required
 `min_tier`/`min_count` arguments to `dice()`/`random()`: a hook that demands
 validator-tier entropy fails closed with `TOO_LITTLE_ENTROPY` on fallback
 ledgers, while a hook that opts into fallback-grade randomness must do so

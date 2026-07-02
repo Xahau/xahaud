@@ -84,6 +84,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
 
         auto const count = sle->getFieldU16(sfEntropyCount);
         BEAST_EXPECT(count >= 5);
+        BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) >= count);
 
         auto const sleSeq = sle->getFieldU32(sfLedgerSequence);
         BEAST_EXPECT(sleSeq == env.closed()->seq());
@@ -445,7 +446,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
 
         BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
 
-        // Standalone entropy carries EntropyCount=20 / tier validator_quorum.
+        // Standalone entropy carries EntropyCount=20,
+        // EntropyDenominator=20, and tier validator_quorum.
         // A hook demanding min_count=21 states a requirement this ledger
         // cannot meet, so dice must fail closed with TOO_LITTLE_ENTROPY (-48)
         // rather than silently serving weaker entropy.
