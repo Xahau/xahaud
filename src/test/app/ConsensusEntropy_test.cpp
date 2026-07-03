@@ -20,6 +20,7 @@
 #include <test/app/ConsensusEntropy_test_hooks.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
+#include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/EntropyTier.h>
@@ -130,176 +131,12 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         testcase("No SLE without amendment");
         using namespace jtx;
 
-        Env env{*this};
+        Env env{*this, supported_amendments()};
 
         env.close();
         env.close();
 
         BEAST_EXPECT(!env.le(keylet::consensusEntropy()));
-    }
-
-    void
-    testConsensusEntropyKeylet()
-    {
-        testcase("Hook can read ConsensusEntropy via util_keylet");
-        using namespace jtx;
-
-        Env env{
-            *this,
-            envconfig(),
-            supported_amendments() | featureConsensusEntropy,
-            nullptr};
-
-        auto const alice = Account{"alice"};
-        env.fund(XRP(10000), alice);
-        env.close();
-
-        auto const sle = env.le(keylet::consensusEntropy());
-        BEAST_REQUIRE(sle);
-        BEAST_EXPECT(sle->getFieldU16(sfEntropyCount) == 20);
-        BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) == 20);
-        BEAST_EXPECT(
-            sle->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
-
-        TestHook hook = consensusentropy_test_wasm[R"[test.hook](
-            #include <stdint.h>
-            extern int32_t _g(uint32_t, uint32_t);
-            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t util_keylet(uint32_t write_ptr, uint32_t write_len, uint32_t keylet_type, uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f);
-            extern int64_t slot_set(uint32_t read_ptr, uint32_t read_len, uint32_t slot);
-            extern int64_t slot_subfield(uint32_t parent_slot, uint32_t field_id, uint32_t new_slot);
-            extern int64_t slot(uint32_t write_ptr, uint32_t write_len, uint32_t slot_no);
-            #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
-            #define KEYLET_CONSENSUS_ENTROPY 37
-            #define sfEntropyTier ((16U << 16U) + 21U)
-            #define sfEntropyCount ((1U << 16U) + 99U)
-            #define sfEntropyDenominator ((1U << 16U) + 100U)
-            #define sfDigest ((5U << 16U) + 21U)
-
-            int64_t hook(uint32_t r)
-            {
-                _g(1,1);
-
-                uint8_t keylet[34];
-                int64_t result = util_keylet((uint32_t)keylet, 34, KEYLET_CONSENSUS_ENTROPY, 0, 0, 0, 0, 0, 0);
-                if (result != 34)
-                    rollback(0, 0, result);
-
-                result = slot_set((uint32_t)keylet, 34, 1);
-                if (result != 1)
-                    rollback(0, 0, result);
-
-                result = slot_subfield(1, sfEntropyCount, 2);
-                if (result != 2)
-                    rollback(0, 0, result);
-                if (slot(0, 0, 2) != 20)
-                    rollback(0, 0, -20);
-
-                result = slot_subfield(1, sfEntropyDenominator, 3);
-                if (result != 3)
-                    rollback(0, 0, result);
-                if (slot(0, 0, 3) != 20)
-                    rollback(0, 0, -21);
-
-                result = slot_subfield(1, sfEntropyTier, 4);
-                if (result != 4)
-                    rollback(0, 0, result);
-                if (slot(0, 0, 4) != 4)
-                    rollback(0, 0, -22);
-
-                result = slot_subfield(1, sfDigest, 5);
-                if (result != 5)
-                    rollback(0, 0, result);
-
-                uint8_t digest[32];
-                result = slot((uint32_t)digest, 32, 5);
-                if (result != 32)
-                    rollback(0, 0, result);
-
-                int nonzero = 0;
-                for (int i = 0; GUARD(32), i < 32; ++i)
-                    if (digest[i] != 0) nonzero = 1;
-                if (!nonzero)
-                    rollback(0, 0, -23);
-
-                return accept((uint32_t)digest, 32, 42);
-            }
-        )[test.hook]"];
-
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
-            M("set consensus entropy keylet hook"),
-            HSFEE);
-        env.close();
-
-        Json::Value invoke;
-        invoke[jss::TransactionType] = "Invoke";
-        invoke[jss::Account] = alice.human();
-        env(invoke, M("test consensus entropy keylet"), fee(XRP(1)));
-
-        auto meta = env.meta();
-        BEAST_REQUIRE(meta);
-        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
-
-        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
-        BEAST_REQUIRE(hookExecutions.size() == 1);
-
-        BEAST_EXPECT(hookReturnCode(hookExecutions[0]) == 42);
-        BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
-
-        auto const retStr = hookExecutions[0].getFieldVL(sfHookReturnString);
-        BEAST_REQUIRE(retStr.size() == 32);
-    }
-
-    void
-    testConsensusEntropyKeyletRequiresAmendment()
-    {
-        testcase("ConsensusEntropy keylet is amendment gated");
-        using namespace jtx;
-
-        Env env{*this};
-
-        auto const alice = Account{"alice"};
-        env.fund(XRP(10000), alice);
-        env.close();
-
-        BEAST_EXPECT(!env.le(keylet::consensusEntropy()));
-
-        TestHook hook = consensusentropy_test_wasm[R"[test.hook](
-            #include <stdint.h>
-            extern int32_t _g(uint32_t, uint32_t);
-            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t util_keylet(uint32_t write_ptr, uint32_t write_len, uint32_t keylet_type, uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f);
-            #define KEYLET_CONSENSUS_ENTROPY 37
-
-            int64_t hook(uint32_t r)
-            {
-                _g(1,1);
-                uint8_t keylet[34];
-                int64_t result = util_keylet((uint32_t)keylet, 34, KEYLET_CONSENSUS_ENTROPY, 0, 0, 0, 0, 0, 0);
-                return accept(0, 0, result);
-            }
-        )[test.hook]"];
-
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
-            M("set consensus entropy keylet gated hook"),
-            HSFEE);
-        env.close();
-
-        Json::Value invoke;
-        invoke[jss::TransactionType] = "Invoke";
-        invoke[jss::Account] = alice.human();
-        env(invoke, M("test consensus entropy keylet gated"), fee(XRP(1)));
-
-        auto meta = env.meta();
-        BEAST_REQUIRE(meta);
-        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
-
-        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
-        BEAST_REQUIRE(hookExecutions.size() == 1);
-
-        BEAST_EXPECT(hookReturnCode(hookExecutions[0]) == -7);
-        BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
     }
 
     void
@@ -661,6 +498,107 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
+    testDiceTierRequirementNotMet()
+    {
+        testcase("Hook dice() fails closed below min_tier");
+        using namespace jtx;
+
+        Env env{
+            *this,
+            envconfig(),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+
+        ConsensusTestConfig cfg;
+        cfg.standaloneEntropyTier = entropyTierValidatorQuorum;
+        cfg.standaloneEntropyCount = 19;
+        cfg.standaloneEntropyDenominator = 20;
+        env.app().getRuntimeConfig().setGlobalConfig(cfg);
+
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        auto const sle = env.le(keylet::consensusEntropy());
+        BEAST_REQUIRE(sle);
+        BEAST_EXPECT(
+            sle->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
+        BEAST_EXPECT(sle->getFieldU16(sfEntropyCount) == 19);
+        BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) == 20);
+
+        TestHook hook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t dice(uint32_t sides, uint32_t min_tier, uint32_t min_count);
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                int64_t result = dice(6, 4, 0);
+                return accept(0, 0, result);
+            }
+        )[test.hook]"];
+
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set dice-tier-requirement hook"),
+            HSFEE);
+        env.close();
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = alice.human();
+        env(invoke, M("test dice min_tier unmet"), fee(XRP(1)));
+
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);
+
+        BEAST_EXPECT(hookReturnCode(hookExecutions[0]) == -48);
+        BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
+    }
+
+    void
+    testDiceWithoutAmendment()
+    {
+        testcase("Hook dice() import fails without ConsensusEntropy amendment");
+        using namespace jtx;
+
+        Env env{*this, supported_amendments()};
+
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        BEAST_EXPECT(!env.le(keylet::consensusEntropy()));
+
+        // The CE hook APIs are amendment-scoped at install time. Without
+        // featureConsensusEntropy, a hook importing dice() is not installable,
+        // so the runtime path cannot be reached with the API disabled.
+        TestHook hook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t dice(uint32_t sides, uint32_t min_tier, uint32_t min_count);
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                int64_t result = dice(6, 3, 0);
+                return accept(0, 0, result);
+            }
+        )[test.hook]"];
+
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set dice-no-amendment hook"),
+            HSFEE,
+            ter(temMALFORMED));
+    }
+
+    void
     testInvalidEntropyRequirements()
     {
         testcase("Hook dice/random reject invalid entropy requirements");
@@ -747,11 +685,11 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         testSLECreated();
         testSLEUpdatedOnSubsequentClose();
         testNoSLEWithoutAmendment();
-        testConsensusEntropyKeylet();
-        testConsensusEntropyKeyletRequiresAmendment();
         testDice();
         testDiceZeroSides();
         testDiceRequirementNotMet();
+        testDiceTierRequirementNotMet();
+        testDiceWithoutAmendment();
         testInvalidEntropyRequirements();
         testRandom();
         testDiceConsecutiveCallsDiffer();

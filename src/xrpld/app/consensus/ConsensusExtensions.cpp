@@ -793,11 +793,32 @@ ConsensusExtensions::selectEntropy(
     // Standalone/dev: synthetic deterministic entropy so hook dice/random work.
     //@@start entropy-selector-standalone
     if (app_.config().standalone())
+    {
+        auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();
+        auto const tier = static_cast<std::uint8_t>(std::clamp(
+            cfg && cfg->standaloneEntropyTier ? *cfg->standaloneEntropyTier
+                                              : entropyTierValidatorFull,
+            0,
+            static_cast<int>(entropyTierValidatorFull)));
+        auto const toU16 = [](int value) {
+            return static_cast<std::uint16_t>(std::clamp(
+                value,
+                0,
+                static_cast<int>(std::numeric_limits<std::uint16_t>::max())));
+        };
+        auto const count = toU16(
+            cfg && cfg->standaloneEntropyCount ? *cfg->standaloneEntropyCount
+                                               : 20);
+        auto const denominator = toU16(
+            cfg && cfg->standaloneEntropyDenominator
+                ? *cfg->standaloneEntropyDenominator
+                : 20);
         return {
             sha512Half(std::string("standalone-entropy"), seq),
-            entropyTierValidatorFull,
-            20,
-            20};
+            tier,
+            count,
+            denominator};
+    }
     //@@end entropy-selector-standalone
 
     // Non-fallback entropy labels depend on validator-view thresholds. Without
