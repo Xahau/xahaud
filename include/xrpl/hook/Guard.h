@@ -893,6 +893,7 @@ validateGuards(
     int last_import_number = -1;
     int import_count = 0;
     int last_section_type = 0;
+    bool has_memory_section = false;
     for (int i = 8, j = 0; i < wasm.size();)
     {
         if (j == i)
@@ -1181,9 +1182,22 @@ validateGuards(
                 func_type_map[j] = type_idx;
             }
         }
+        else if (section_type == 5)  // memory section
+        {
+            has_memory_section = true;
+        }
 
         i = next_section;
         continue;
+    }
+
+    if ((rulesVersion & hook_api::GuardRuleMemoryMissing) &&
+        !has_memory_section)
+    {
+        GUARDLOG(hook::log::MEMORY_MISSING)
+            << "Malformed transaction. Hook did not contain a memory section."
+            << "\n";
+        return {};
     }
 
     // we must subtract import_count from the hook and cbak function in order to

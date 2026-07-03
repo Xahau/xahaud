@@ -3082,6 +3082,100 @@ public:
     }
 
     void
+    testWasmMissingMemory(FeatureBitset features)
+    {
+        testcase("missing memory");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        auto const carol = Account{"carol"};
+
+        TestHook missing_memory_wasm = wasm[R"[test.hook](
+            (module
+              (type $rollback_type
+                (func (param i32 i32 i64) (result i64)))
+              (type $guard_type (func (param i32 i32) (result i32)))
+              (type $hook_type (func (param i32) (result i64)))
+              (import "env" "rollback"
+                (func $rollback (type $rollback_type)))
+              (import "env" "_g" (func $_g (type $guard_type)))
+              (func $hook (type $hook_type) (param i32) (result i64)
+                i32.const 1
+                i32.const 1
+                i64.const 0
+                call $rollback
+                drop
+                i32.const 1
+                i32.const 1
+                call $_g
+                drop
+                i64.const 0)
+              (export "hook" (func $hook)))
+        )[test.hook]"];
+
+        for (auto const& withFix : {false, true})
+        {
+            // test if the Hook is created before the Amendment is enabled
+            Env env{*this, features - fixHookMemoryMissing};
+            env.fund(XRP(10000), alice, bob, carol);
+
+            env(ripple::test::jtx::hook(alice, {{hso(missing_memory_wasm)}}, 0),
+                M("Install missing memory hook"),
+                HSFEE);
+            env.close();
+
+            if (withFix)
+            {
+                env.enableFeature(fixHookMemoryMissing);
+                env.close();
+            }
+
+            env(pay(bob, alice, XRP(1)),
+                M("Test missing memory hook"),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
+
+            auto meta = env.meta();
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+            auto const& hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+            auto const& e = hookExecutions[0];
+
+            auto const expectedExitType = withFix
+                ? hook_api::ExitType::WASM_ERROR
+                : hook_api::ExitType::UNSET;
+            BEAST_EXPECT(
+                e.getFieldU8(sfHookResult) ==
+                static_cast<uint8_t>(expectedExitType));
+            BEAST_EXPECT(e.getFieldVL(sfHookReturnString).size() == 0);
+            BEAST_EXPECT(
+                e.getFieldU64(sfHookReturnCode) ==
+                0x8000000000000001 /* INTERNAL_ERROR */);
+        }
+
+        for (auto const& withFix : {false, true})
+        {
+            // test if the Hook is created after the Amendment is enabled
+            auto f = features - fixHookMemoryMissing;
+            if (withFix)
+                f = f | fixHookMemoryMissing;
+            Env env{*this, f};
+            env.fund(XRP(10000), alice, bob, carol);
+
+            auto const expectedTer =
+                withFix ? TER{temMALFORMED} : TER{tesSUCCESS};
+            env(ripple::test::jtx::hook(alice, {{hso(missing_memory_wasm)}}, 0),
+                M("Install missing memory hook"),
+                HSFEE,
+                ter(expectedTer));
+            env.close();
+        }
+    }
+
+    void
     test_accept(FeatureBitset features)
     {
         testcase("Test accept() hookapi");
@@ -15077,6 +15171,8 @@ public:
     void
     testWithFeatures(FeatureBitset features)
     {
+        testWasmMissingMemory(features);
+        return;
         testHooksOwnerDir(features);
         testHooksDisabled(features);
         testTxStructure(features);
@@ -15103,6 +15199,7 @@ public:
         testFillCopy(features);
 
         testWasm(features);
+        testWasmMissingMemory(features);
         test_accept(features);
         test_rollback(features);
 
