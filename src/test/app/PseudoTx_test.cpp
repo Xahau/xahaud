@@ -30,6 +30,27 @@ namespace test {
 
 struct PseudoTx_test : public beast::unit_test::suite
 {
+    STTx
+    consensusEntropyTx(
+        std::uint32_t seq,
+        std::uint8_t tier,
+        std::uint16_t count,
+        std::uint16_t denominator,
+        Blob contributors)
+    {
+        return STTx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
+            obj.setAccountID(sfAccount, AccountID());
+            obj.setFieldU32(sfSequence, 0);
+            obj.setFieldAmount(sfFee, STAmount{});
+            obj.setFieldU32(sfLedgerSequence, seq);
+            obj.setFieldH256(sfDigest, uint256(3));
+            obj.setFieldU16(sfEntropyCount, count);
+            obj.setFieldU16(sfEntropyDenominator, denominator);
+            obj.setFieldVL(sfEntropyContributors, contributors);
+            obj.setFieldU8(sfEntropyTier, tier);
+        });
+    }
+
     std::vector<STTx>
     getPseudoTxs(Rules const& rules, std::uint32_t seq)
     {
@@ -59,15 +80,8 @@ struct PseudoTx_test : public beast::unit_test::suite
             obj.setFieldU32(sfLedgerSequence, seq);
         }));
 
-        res.emplace_back(STTx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
-            obj.setAccountID(sfAccount, AccountID());
-            obj.setFieldU32(sfSequence, 0);
-            obj.setFieldAmount(sfFee, STAmount{});
-            obj.setFieldH256(sfDigest, uint256(3));
-            obj.setFieldU16(sfEntropyCount, 1);
-            obj.setFieldU16(sfEntropyDenominator, 1);
-            obj.setFieldU8(sfEntropyTier, entropyTierValidatorQuorum);
-        }));
+        res.emplace_back(consensusEntropyTx(
+            seq, entropyTierValidatorQuorum, 1, 1, Blob{0x01}));
 
         auto const secret = generateSecretKey(KeyType::secp256k1, randomSeed());
         auto const publicKey = derivePublicKey(KeyType::secp256k1, secret);
@@ -132,6 +146,58 @@ struct PseudoTx_test : public beast::unit_test::suite
     }
 
     void
+    expectOpenLedgerResult(jtx::Env& env, STTx const& tx, TER expected)
+    {
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal j) {
+            auto const result = ripple::apply(env.app(), view, tx, tapNONE, j);
+            BEAST_EXPECT(result.ter == expected);
+            BEAST_EXPECT(!result.applied);
+            return result.applied;
+        });
+    }
+
+    void
+    testConsensusEntropyContributorMaskPreflight()
+    {
+        testcase("ConsensusEntropy contributor mask preflight");
+
+        using namespace jtx;
+        Env env(*this, supported_amendments() | featureConsensusEntropy);
+        auto const seq = env.closed()->seq() + 1;
+
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(seq, entropyTierConsensusFallback, 0, 0, Blob{}),
+            temINVALID);
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(
+                seq, entropyTierValidatorQuorum, 2, 3, Blob{0x03}),
+            temINVALID);
+
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(
+                seq, entropyTierConsensusFallback, 1, 1, Blob{0x01}),
+            temMALFORMED);
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(
+                seq, entropyTierValidatorQuorum, 1, 9, Blob{0x01}),
+            temMALFORMED);
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(
+                seq, entropyTierValidatorQuorum, 1, 9, Blob{0x01, 0x02}),
+            temMALFORMED);
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(
+                seq, entropyTierValidatorQuorum, 2, 3, Blob{0x01}),
+            temMALFORMED);
+    }
+
+    void
     run() override
     {
         using namespace test::jtx;
@@ -141,6 +207,7 @@ struct PseudoTx_test : public beast::unit_test::suite
         testPrevented(all - featureXRPFees);
         testPrevented(all);
         testAllowed();
+        testConsensusEntropyContributorMaskPreflight();
     }
 };
 

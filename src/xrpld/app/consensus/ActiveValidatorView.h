@@ -25,7 +25,9 @@
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/UintTypes.h>
 
+#include <algorithm>
 #include <optional>
+#include <vector>
 
 namespace ripple {
 
@@ -33,6 +35,7 @@ struct ActiveValidatorView
 {
     hash_set<PublicKey> masterKeys;
     hash_set<NodeID> nodeIds;
+    std::vector<PublicKey> orderedMasterKeys;
     std::optional<uint256> sourceLedgerHash;
     bool fromUNLReport = false;
 
@@ -49,15 +52,25 @@ struct ActiveValidatorView
     void
     insertMaster(PublicKey const& masterKey)
     {
-        masterKeys.insert(masterKey);
+        auto const [_, inserted] = masterKeys.insert(masterKey);
+        if (!inserted)
+            return;
+
         nodeIds.insert(calcNodeID(masterKey));
+        orderedMasterKeys.push_back(masterKey);
     }
 
     void
     eraseMaster(PublicKey const& masterKey)
     {
-        masterKeys.erase(masterKey);
+        if (masterKeys.erase(masterKey) == 0)
+            return;
+
         nodeIds.erase(calcNodeID(masterKey));
+        orderedMasterKeys.erase(
+            std::remove(
+                orderedMasterKeys.begin(), orderedMasterKeys.end(), masterKey),
+            orderedMasterKeys.end());
     }
 
     std::size_t
@@ -76,6 +89,12 @@ struct ActiveValidatorView
     containsNode(NodeID const& nodeId) const
     {
         return nodeIds.count(nodeId) > 0;
+    }
+
+    void
+    canonicalizeOrder()
+    {
+        std::sort(orderedMasterKeys.begin(), orderedMasterKeys.end());
     }
 };
 

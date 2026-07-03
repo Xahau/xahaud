@@ -353,10 +353,19 @@ non-UNLReport (config-fallback) view, every case below instead mints
 The fallback pseudo-transaction is deterministic — every node derives the same
 digest from `(HashPrefix::entropyFallback, parentLedgerHash, agreedTxSetHash,
 seq)` — and labeled with `EntropyTier = consensus_fallback`,
-`EntropyCount = 0`, and `EntropyDenominator = 0`. Non-fallback entropy records
-both the contributor count and the active-validator denominator used for the
-validator-quorum threshold; the participant-aligned floor still uses the
-original pre-NegativeUNL view internally. Hooks state their own requirements via the required
+`EntropyCount = 0`, `EntropyDenominator = 0`, and an empty
+`EntropyContributors` bitmap. Non-fallback entropy records both the contributor
+count and the active-validator denominator used for the validator-quorum
+threshold, plus a canonical `EntropyContributors` bitmap ordered by the
+parent-ledger active-validator view. The participant-aligned floor still uses
+the original pre-NegativeUNL view internally. The contributor bitmap is written
+to the pseudo-transaction and SLE for observability, but is not part of the
+transaction-ordering salt; the salt already binds the selected
+digest/tier/count/denominator tuple. This does not make the bitmap
+non-critical: any disagreement in a ledger-written field is a ledger
+disagreement. It only keeps transaction ordering semantically tied to the
+entropy value and quality labels rather than to the accountability label. Hooks
+state their own requirements via the required
 `min_tier`/`min_count` arguments to `dice()`/`random()`: a hook that demands
 validator-tier entropy fails closed with `TOO_LITTLE_ENTROPY` on fallback
 ledgers, while a hook that opts into fallback-grade randomness must do so

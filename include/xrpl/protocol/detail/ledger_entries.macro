@@ -233,6 +233,7 @@ LEDGER_ENTRY_DUPLICATE(ltCONSENSUS_ENTROPY, 0x0058, ConsensusEntropy, consensus_
     {sfDigest,               soeREQUIRED},
     {sfEntropyCount,         soeREQUIRED},
     {sfEntropyDenominator,   soeREQUIRED},
+    {sfEntropyContributors,  soeREQUIRED},
     {sfEntropyTier,          soeREQUIRED},
     {sfLedgerSequence,       soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},

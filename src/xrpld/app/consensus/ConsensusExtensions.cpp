@@ -37,6 +37,7 @@
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/basics/random.h>
+#include <xrpl/basics/strHex.h>
 #include <xrpl/crypto/csprng.h>
 #include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/ExportLimits.h>
@@ -91,6 +92,24 @@ buildObservedParticipantBitmap(
     }
 
     return bitmapBin;
+}
+
+Blob
+buildEntropyContributorMask(
+    std::vector<PublicKey> const& orderedMasterKeys,
+    hash_set<NodeID> const& contributors)
+{
+    Blob mask((orderedMasterKeys.size() + 7) / 8, 0);
+
+    for (std::size_t i = 0; i < orderedMasterKeys.size(); ++i)
+    {
+        if (contributors.count(calcNodeID(orderedMasterKeys[i])) == 0)
+            continue;
+
+        mask[i / 8] |= static_cast<std::uint8_t>(1u << (i % 8));
+    }
+
+    return mask;
 }
 
 uint256
@@ -786,7 +805,8 @@ ConsensusExtensions::selectEntropy(
                 seq),
             entropyTierConsensusFallback,
             0,
-            0};
+            0,
+            {}};
     };
     //@@end entropy-selector-fallback
 
@@ -813,11 +833,16 @@ ConsensusExtensions::selectEntropy(
             cfg && cfg->standaloneEntropyDenominator
                 ? *cfg->standaloneEntropyDenominator
                 : 20);
+        Blob contributors((denominator + 7) / 8, 0);
+        auto const contributorCount = std::min(count, denominator);
+        for (std::uint16_t i = 0; i < contributorCount; ++i)
+            contributors[i / 8] |= static_cast<std::uint8_t>(1u << (i % 8));
         return {
             sha512Half(std::string("standalone-entropy"), seq),
             tier,
             count,
-            denominator};
+            denominator,
+            contributors};
     }
     //@@end entropy-selector-standalone
 
@@ -864,8 +889,15 @@ ConsensusExtensions::selectEntropy(
     // node holding the same entropySetHash produces byte-identical entropy and
     // the same tier/count/denominator labels. Read leaves through the shared
     // sidecar admission helper so accepted-map consumption enforces the same
-    // content-address/type contract as snapshot construction.
+    // content-address/type contract as snapshot construction. Do not resolve
+    // sfSigningPubKey through live manifests here: ingress already
+    // authenticated the signing-key -> master-NodeID binding before the local
+    // snapshot was built, and re-reading mutable manifests at materialization
+    // would reintroduce a local-state fork surface.
     std::vector<std::pair<PublicKey, uint256>> sorted;
+    hash_set<NodeID> contributors;
+    hash_set<PublicKey> signingKeys;
+    bool malformedContributorSet = false;
     entropySetMap_->visitLeaves(
         [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
             try
@@ -878,23 +910,60 @@ ConsensusExtensions::selectEntropy(
                     "RNG",
                     "entropySet",
                     "select");
-                if (!admitted || admitted->type != sidecarRngReveal)
+                if (!admitted)
+                {
+                    malformedContributorSet = true;
                     return;
+                }
+                if (admitted->type != sidecarRngReveal)
+                {
+                    malformedContributorSet = true;
+                    return;
+                }
                 auto const& sidecar = admitted->sidecar;
+                if (!sidecar.isFieldPresent(sfAccount))
+                {
+                    malformedContributorSet = true;
+                    return;
+                }
+                auto const account = sidecar.getAccountID(sfAccount);
+                auto const nodeId = NodeID::fromVoid(account.data());
+                if (!validatorView->containsNode(nodeId))
+                {
+                    malformedContributorSet = true;
+                    return;
+                }
+                if (!contributors.insert(nodeId).second)
+                {
+                    malformedContributorSet = true;
+                    return;
+                }
+
                 auto const pk = sidecar.getFieldVL(sfSigningPubKey);
                 if (!publicKeyType(makeSlice(pk)))
+                {
+                    malformedContributorSet = true;
                     return;
-                sorted.emplace_back(
-                    PublicKey(makeSlice(pk)), sidecar.getFieldH256(sfDigest));
+                }
+                PublicKey const signingKey{makeSlice(pk)};
+                if (!signingKeys.insert(signingKey).second)
+                {
+                    malformedContributorSet = true;
+                    return;
+                }
+                sorted.emplace_back(signingKey, sidecar.getFieldH256(sfDigest));
             }
             catch (...)
             {
+                malformedContributorSet = true;
             }
         });
 
     // Residual: the gate passed but no leaf parsed — fall back rather than
     // skip, so a fresh ConsensusEntropy entry always exists.
     if (sorted.empty())
+        return fallback();
+    if (malformedContributorSet || contributors.size() != sorted.size())
         return fallback();
 
     std::sort(sorted.begin(), sorted.end(), [](auto const& a, auto const& b) {
@@ -914,6 +983,8 @@ ConsensusExtensions::selectEntropy(
     auto const digest = sha512Half(s.slice());
     auto const count = static_cast<std::uint16_t>(sorted.size());
     auto const denominator = static_cast<std::uint16_t>(validatorView->size());
+    auto const contributorMask = buildEntropyContributorMask(
+        validatorView->orderedMasterKeys, contributors);
 
     //@@start entropy-selector-tier-ladder
     // Tier ladder over the AGREED participant count — deterministic on every
@@ -928,7 +999,12 @@ ConsensusExtensions::selectEntropy(
         validatorView->size(),
         validatorView->originalViewSize);
     if (tier != entropyTierConsensusFallback)
-        return {digest, static_cast<std::uint8_t>(tier), count, denominator};
+        return {
+            digest,
+            static_cast<std::uint8_t>(tier),
+            count,
+            denominator,
+            contributorMask};
     return fallback();
     //@@end entropy-selector-tier-ladder
 }
@@ -1745,6 +1821,7 @@ ConsensusExtensions::onPreBuild(
         std::uint8_t const entropyTier = selection.tier;
         std::uint16_t const entropyCount = selection.count;
         std::uint16_t const entropyDenominator = selection.denominator;
+        Blob const& entropyContributors = selection.contributors;
         //@@end rng-inject-entropy-selection
 
         JLOG(j_.info()) << "RNG: entropy selected"
@@ -1784,6 +1861,7 @@ ConsensusExtensions::onPreBuild(
                 obj.setFieldH256(sfDigest, finalEntropy);
                 obj.setFieldU16(sfEntropyCount, entropyCount);
                 obj.setFieldU16(sfEntropyDenominator, entropyDenominator);
+                obj.setFieldVL(sfEntropyContributors, entropyContributors);
                 obj.setFieldU8(sfEntropyTier, entropyTier);
             });
 
@@ -1837,6 +1915,8 @@ ConsensusExtensions::onPreBuild(
                         << " ourDigest=" << finalEntropy
                         << " ourTier=" << static_cast<int>(entropyTier)
                         << " ourCount=" << entropyCount
+                        << " ourDenominator=" << entropyDenominator
+                        << " ourContributors=" << strHex(entropyContributors)
                         << " presentTxHash=" << existingID << " presentDigest="
                         << (pres.isFieldPresent(sfDigest)
                                 ? to_string(pres.getFieldH256(sfDigest))
@@ -1854,6 +1934,10 @@ ConsensusExtensions::onPreBuild(
                         << (pres.isFieldPresent(sfEntropyDenominator)
                                 ? std::to_string(
                                       pres.getFieldU16(sfEntropyDenominator))
+                                : std::string{"<missing>"})
+                        << " presentContributors="
+                        << (pres.isFieldPresent(sfEntropyContributors)
+                                ? strHex(pres.getFieldVL(sfEntropyContributors))
                                 : std::string{"<missing>"});
                 }
             }

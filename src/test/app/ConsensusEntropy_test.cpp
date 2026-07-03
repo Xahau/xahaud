@@ -29,6 +29,7 @@
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
+#include <algorithm>
 
 namespace ripple {
 namespace test {
@@ -44,6 +45,19 @@ using TestHook = std::vector<uint8_t> const&;
 
 #define HSFEE fee(100'000'000)
 #define M(m) memo(m, "", "")
+
+namespace {
+
+Blob
+standaloneContributorMask(std::uint16_t denominator, std::uint16_t count)
+{
+    Blob mask((denominator + 7) / 8, 0);
+    for (std::uint16_t i = 0; i < std::min(denominator, count); ++i)
+        mask[i / 8] |= static_cast<std::uint8_t>(1u << (i % 8));
+    return mask;
+}
+
+}  // namespace
 
 class ConsensusEntropy_test : public beast::unit_test::suite
 {
@@ -87,6 +101,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         auto const count = sle->getFieldU16(sfEntropyCount);
         BEAST_EXPECT(count >= 5);
         BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) == count);
+        BEAST_EXPECT(
+            sle->getFieldVL(sfEntropyContributors) ==
+            standaloneContributorMask(count, count));
         BEAST_EXPECT(
             sle->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
 
@@ -525,6 +542,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             sle->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
         BEAST_EXPECT(sle->getFieldU16(sfEntropyCount) == 19);
         BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) == 20);
+        BEAST_EXPECT(
+            sle->getFieldVL(sfEntropyContributors) ==
+            standaloneContributorMask(20, 19));
 
         TestHook hook = consensusentropy_test_wasm[R"[test.hook](
             #include <stdint.h>

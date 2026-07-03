@@ -32,6 +32,10 @@ class CanonicalTXSet;
 class Ledger;
 class STTx;
 
+namespace test {
+class ConsensusExtensions_test;
+}  // namespace test
+
 /// Concrete alias for the consensus tick context.
 using TickContext = ConsensusTick<ExtendedPosition, RCLCxPeerPos, RCLTxSet>;
 
@@ -42,6 +46,8 @@ using TickContext = ConsensusTick<ExtendedPosition, RCLCxPeerPos, RCLTxSet>;
 /// caller/threading context.
 class ConsensusExtensions
 {
+    friend class test::ConsensusExtensions_test;
+
     Application& app_;
     ExportSigCollector exportSigCollector_;
 
@@ -266,6 +272,7 @@ public:
         std::uint8_t tier = 0;  // EntropyTier; the selector always sets this
         std::uint16_t count = 0;
         std::uint16_t denominator = 0;
+        Blob contributors;
     };
 
     /// Deterministically choose the entropy to inject for this round from the

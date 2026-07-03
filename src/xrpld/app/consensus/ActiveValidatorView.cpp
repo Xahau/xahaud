@@ -56,6 +56,8 @@ buildActiveValidatorView(
             view.eraseMaster(masterKey);
     }
 
+    view.canonicalizeOrder();
+
     return view;
 }
 

@@ -34,6 +34,7 @@
 #include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Guard.h>
 #include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Sign.h>
@@ -42,6 +43,56 @@
 #include <string_view>
 
 namespace ripple {
+
+namespace {
+
+std::size_t
+countSetBits(Blob const& bytes)
+{
+    std::size_t count = 0;
+    for (auto byte : bytes)
+    {
+        while (byte != 0)
+        {
+            byte &= static_cast<std::uint8_t>(byte - 1);
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool
+validEntropyContributorMask(
+    std::uint8_t tier,
+    std::uint16_t count,
+    std::uint16_t denominator,
+    Blob const& contributors)
+{
+    if (count > denominator)
+        return false;
+
+    if (tier == entropyTierConsensusFallback)
+        return count == 0 && denominator == 0 && contributors.empty();
+
+    if (tier < entropyTierParticipantAligned || tier > entropyTierValidatorFull)
+        return false;
+
+    auto const expectedSize = (denominator + 7) / 8;
+    if (contributors.size() != expectedSize)
+        return false;
+
+    if (auto const usedBits = denominator % 8;
+        usedBits != 0 && !contributors.empty())
+    {
+        auto const validBits = static_cast<std::uint8_t>((1u << usedBits) - 1u);
+        if ((contributors.back() & ~validBits) != 0)
+            return false;
+    }
+
+    return countSetBits(contributors) == count;
+}
+
+}  // namespace
 
 NotTEC
 Change::preflight(PreflightContext const& ctx)
@@ -116,6 +167,27 @@ Change::preflight(PreflightContext const& ctx)
         if (!ctx.tx.isFieldPresent(sfDigest))
         {
             JLOG(ctx.j.warn()) << "Change: ConsensusEntropy must have sfDigest";
+            return temMALFORMED;
+        }
+
+        if (!ctx.tx.isFieldPresent(sfEntropyCount) ||
+            !ctx.tx.isFieldPresent(sfEntropyDenominator) ||
+            !ctx.tx.isFieldPresent(sfEntropyContributors) ||
+            !ctx.tx.isFieldPresent(sfEntropyTier))
+        {
+            JLOG(ctx.j.warn())
+                << "Change: ConsensusEntropy missing entropy metadata";
+            return temMALFORMED;
+        }
+
+        if (!validEntropyContributorMask(
+                ctx.tx.getFieldU8(sfEntropyTier),
+                ctx.tx.getFieldU16(sfEntropyCount),
+                ctx.tx.getFieldU16(sfEntropyDenominator),
+                ctx.tx.getFieldVL(sfEntropyContributors)))
+        {
+            JLOG(ctx.j.warn())
+                << "Change: ConsensusEntropy invalid contributor mask";
             return temMALFORMED;
         }
     }
@@ -311,6 +383,8 @@ Change::applyConsensusEntropy()
     sle->setFieldU16(sfEntropyCount, ctx_.tx.getFieldU16(sfEntropyCount));
     sle->setFieldU16(
         sfEntropyDenominator, ctx_.tx.getFieldU16(sfEntropyDenominator));
+    sle->setFieldVL(
+        sfEntropyContributors, ctx_.tx.getFieldVL(sfEntropyContributors));
     sle->setFieldU8(sfEntropyTier, ctx_.tx.getFieldU8(sfEntropyTier));
     sle->setFieldU32(sfLedgerSequence, view().info().seq);
     // Note: sfPreviousTxnID and sfPreviousTxnLgrSeq are set automatically

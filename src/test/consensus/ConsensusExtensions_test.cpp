@@ -44,6 +44,7 @@
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/digest.h>
+#include <algorithm>
 #include <cstring>
 #include <deque>
 #include <limits>
@@ -99,6 +100,42 @@ makeNode(std::uint8_t id)
     node.zero();
     node.data()[NodeID::size() - 1] = id;
     return node;
+}
+
+AccountID
+accountFromNode(NodeID const& nodeId)
+{
+    AccountID account;
+    std::memcpy(account.data(), nodeId.data(), account.size());
+    return account;
+}
+
+Blob
+expectedContributorMask(
+    std::vector<PublicKey> activeMasterKeys,
+    std::vector<NodeID> const& contributorNodes)
+{
+    std::sort(activeMasterKeys.begin(), activeMasterKeys.end());
+    Blob mask((activeMasterKeys.size() + 7) / 8, 0);
+    for (std::size_t i = 0; i < activeMasterKeys.size(); ++i)
+    {
+        auto const nodeId = calcNodeID(activeMasterKeys[i]);
+        if (std::find(
+                contributorNodes.begin(), contributorNodes.end(), nodeId) ==
+            contributorNodes.end())
+            continue;
+        mask[i / 8] |= static_cast<std::uint8_t>(1u << (i % 8));
+    }
+    return mask;
+}
+
+Blob
+standaloneContributorMask(std::uint16_t denominator, std::uint16_t count)
+{
+    Blob mask((denominator + 7) / 8, 0);
+    for (std::uint16_t i = 0; i < std::min(denominator, count); ++i)
+        mask[i / 8] |= static_cast<std::uint8_t>(1u << (i % 8));
+    return mask;
 }
 
 std::string
@@ -1293,6 +1330,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(tx->getFieldH256(sfDigest) != uint256{});
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 0);
         BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 0);
+        BEAST_EXPECT(tx->getFieldVL(sfEntropyContributors).empty());
         BEAST_EXPECT(
             tx->getFieldU8(sfEntropyTier) == entropyTierConsensusFallback);
 
@@ -1408,6 +1446,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             tx->getFieldH256(sfDigest) == expectedEntropy(publicKey, reveal));
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 1);
         BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 1);
+        BEAST_EXPECT(tx->getFieldVL(sfEntropyContributors) == Blob{0x01});
         BEAST_EXPECT(tx->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
     }
 
@@ -1477,7 +1516,81 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             tx->getFieldH256(sfDigest) == expectedEntropy(publicKey, reveal));
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 1);
         BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 1);
+        BEAST_EXPECT(tx->getFieldVL(sfEntropyContributors) == Blob{0x01});
         BEAST_EXPECT(tx->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
+    }
+
+    void
+    testOnPreBuildRejectsForgedEntropyContributorAttribution()
+    {
+        testcase("onPreBuild rejects forged entropy contributor attribution");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+        forceNonStandalone(env.app());
+
+        auto const first = randomKeyPair(KeyType::secp256k1);
+        auto const second = randomKeyPair(KeyType::secp256k1);
+        auto const viewLedger =
+            makeUNLReportLedger(env, {first.first, second.first});
+        auto const anchor = env.app().getLedgerMaster().getClosedLedger();
+        auto const seq = anchor->info().seq + 1;
+        auto const txSetHash = makeHash("forged-contributor-txset");
+        auto const reveal = makeHash("forged-contributor-reveal");
+
+        auto makeRevealSidecar = [&](NodeID const& claimedNode) {
+            STObject sidecar(sfGeneric);
+            sidecar.setFieldU8(sfSidecarType, sidecarRngReveal);
+            sidecar.setFieldU32(sfLedgerSequence, seq);
+            sidecar.setAccountID(sfAccount, accountFromNode(claimedNode));
+            sidecar.setFieldH256(sfDigest, reveal);
+            sidecar.setFieldVL(sfSigningPubKey, first.first.slice());
+
+            Serializer s;
+            sidecar.add(s);
+            return make_shamapitem(
+                sidecar.getHash(HashPrefix::sidecar), s.slice());
+        };
+
+        auto map = std::make_shared<SHAMap>(
+            SHAMapType::SIDECAR, env.app().getNodeFamily());
+        map->setUnbacked();
+        map->addItem(
+            SHAMapNodeType::tnSIDECAR,
+            makeRevealSidecar(calcNodeID(first.first)));
+        map->addItem(
+            SHAMapNodeType::tnSIDECAR,
+            makeRevealSidecar(calcNodeID(second.first)));
+        map = map->snapShot(false);
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.onRoundStart(RCLCxLedger{anchor}, {});
+        ce.cacheUNLReport(viewLedger);
+        ce.setRngEnabledThisRound(true);
+        ce.entropySetMap_ = map;
+        ce.acceptEntropySet(map->getHash().as_uint256());
+
+        CanonicalTXSet txs{makeHash("forged-contributor-salt")};
+        ce.onPreBuild(txs, seq, txSetHash);
+
+        auto const tx = singleCanonicalTx(txs);
+        BEAST_EXPECT(tx);
+        if (!tx)
+            return;
+
+        auto const expectedFallback = sha512Half(
+            HashPrefix::entropyFallback, anchor->info().hash, txSetHash, seq);
+        BEAST_EXPECT(tx->getTxnType() == ttCONSENSUS_ENTROPY);
+        BEAST_EXPECT(tx->getFieldH256(sfDigest) == expectedFallback);
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 0);
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 0);
+        BEAST_EXPECT(tx->getFieldVL(sfEntropyContributors).empty());
+        BEAST_EXPECT(
+            tx->getFieldU8(sfEntropyTier) == entropyTierConsensusFallback);
     }
 
     void
@@ -1531,20 +1644,26 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const closeTime = NetClock::time_point{NetClock::duration{777}};
         auto const txSetHash = makeHash("tier2-txset");
 
+        std::vector<PublicKey> activeMasterKeys;
+        activeMasterKeys.reserve(vals.size());
+        for (auto const& [pk, _] : vals)
+            activeMasterKeys.push_back(pk);
+
         // Harvest commit+reveal from `revealers` of the 6 validators, build the
         // agreed entropy set, inject, and return the labelled
-        // (tier, count, denominator).
+        // (tier, count, denominator, contributor mask).
         auto runWith = [&](std::size_t revealers) {
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.cacheUNLReport(viewLedger);
             ce.setRngEnabledThisRound(true);
             for (std::size_t i = 0; i < revealers; ++i)
             {
+                auto const nodeId = calcNodeID(vals[i].first);
                 auto const reveal =
                     sha512Half(vals[i].first, makeHash("tier2-reveal"));
                 harvestCommitReveal(
                     ce,
-                    calcNodeID(vals[i].first),
+                    nodeId,
                     vals[i].first,
                     vals[i].second,
                     txSetHash,
@@ -1558,12 +1677,14 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             CanonicalTXSet txs{makeHash("tier2-salt")};
             ce.onPreBuild(txs, seq, txSetHash);
             auto const tx = singleCanonicalTx(txs);
-            std::tuple<int, std::uint16_t, std::uint16_t> out{-1, 0, 0};
+            std::tuple<int, std::uint16_t, std::uint16_t, Blob> out{
+                -1, 0, 0, Blob{}};
             if (tx)
                 out = {
                     tx->getFieldU8(sfEntropyTier),
                     tx->getFieldU16(sfEntropyCount),
-                    tx->getFieldU16(sfEntropyDenominator)};
+                    tx->getFieldU16(sfEntropyDenominator),
+                    tx->getFieldVL(sfEntropyContributors)};
             return out;
         };
 
@@ -1572,18 +1693,36 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(std::get<0>(q) == entropyTierValidatorQuorum);
         BEAST_EXPECT(std::get<1>(q) == 5);
         BEAST_EXPECT(std::get<2>(q) == kValidators);
+        BEAST_EXPECT(
+            std::get<3>(q) ==
+            expectedContributorMask(
+                activeMasterKeys,
+                {calcNodeID(vals[0].first),
+                 calcNodeID(vals[1].first),
+                 calcNodeID(vals[2].first),
+                 calcNodeID(vals[3].first),
+                 calcNodeID(vals[4].first)}));
 
         // 4 of 6 aligned -> participant_aligned (count >= tier2 4, < quorum 5).
         auto const p = runWith(4);
         BEAST_EXPECT(std::get<0>(p) == entropyTierParticipantAligned);
         BEAST_EXPECT(std::get<1>(p) == 4);
         BEAST_EXPECT(std::get<2>(p) == kValidators);
+        BEAST_EXPECT(
+            std::get<3>(p) ==
+            expectedContributorMask(
+                activeMasterKeys,
+                {calcNodeID(vals[0].first),
+                 calcNodeID(vals[1].first),
+                 calcNodeID(vals[2].first),
+                 calcNodeID(vals[3].first)}));
 
         // 3 of 6 aligned -> below the tier-2 floor -> consensus_fallback.
         auto const f = runWith(3);
         BEAST_EXPECT(std::get<0>(f) == entropyTierConsensusFallback);
         BEAST_EXPECT(std::get<1>(f) == 0);
         BEAST_EXPECT(std::get<2>(f) == 0);
+        BEAST_EXPECT(std::get<3>(f).empty());
     }
 
     void
@@ -1704,6 +1843,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const seq = anchor->info().seq + 1;
         auto const closeTime = NetClock::time_point{NetClock::duration{778}};
         auto const txSetHash = makeHash("tier2-nunl-txset");
+        std::vector<PublicKey> effectiveMasterKeys(
+            activeKeys.begin() + kDisabled, activeKeys.end());
 
         auto runWith = [&](std::size_t revealers) {
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
@@ -1712,11 +1853,12 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             for (std::size_t i = 0; i < revealers; ++i)
             {
                 auto const idx = i + kDisabled;  // skip disabled validator
+                auto const nodeId = calcNodeID(vals[idx].first);
                 auto const reveal =
                     sha512Half(vals[idx].first, makeHash("tier2-nunl-reveal"));
                 harvestCommitReveal(
                     ce,
-                    calcNodeID(vals[idx].first),
+                    nodeId,
                     vals[idx].first,
                     vals[idx].second,
                     txSetHash,
@@ -1730,12 +1872,14 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             CanonicalTXSet txs{makeHash("tier2-nunl-salt")};
             ce.onPreBuild(txs, seq, txSetHash);
             auto const tx = singleCanonicalTx(txs);
-            std::tuple<int, std::uint16_t, std::uint16_t> out{-1, 0, 0};
+            std::tuple<int, std::uint16_t, std::uint16_t, Blob> out{
+                -1, 0, 0, Blob{}};
             if (tx)
                 out = {
                     tx->getFieldU8(sfEntropyTier),
                     tx->getFieldU16(sfEntropyCount),
-                    tx->getFieldU16(sfEntropyDenominator)};
+                    tx->getFieldU16(sfEntropyDenominator),
+                    tx->getFieldVL(sfEntropyContributors)};
             return out;
         };
 
@@ -1743,16 +1887,35 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(std::get<0>(q) == entropyTierValidatorQuorum);
         BEAST_EXPECT(std::get<1>(q) == 16);
         BEAST_EXPECT(std::get<2>(q) == kOriginal - kDisabled);
+        {
+            std::vector<NodeID> expectedNodes;
+            expectedNodes.reserve(16);
+            for (std::size_t i = 0; i < 16; ++i)
+                expectedNodes.push_back(calcNodeID(vals[i + kDisabled].first));
+            BEAST_EXPECT(
+                std::get<3>(q) ==
+                expectedContributorMask(effectiveMasterKeys, expectedNodes));
+        }
 
         auto const p = runWith(15);
         BEAST_EXPECT(std::get<0>(p) == entropyTierParticipantAligned);
         BEAST_EXPECT(std::get<1>(p) == 15);
         BEAST_EXPECT(std::get<2>(p) == kOriginal - kDisabled);
+        {
+            std::vector<NodeID> expectedNodes;
+            expectedNodes.reserve(15);
+            for (std::size_t i = 0; i < 15; ++i)
+                expectedNodes.push_back(calcNodeID(vals[i + kDisabled].first));
+            BEAST_EXPECT(
+                std::get<3>(p) ==
+                expectedContributorMask(effectiveMasterKeys, expectedNodes));
+        }
 
         auto const f = runWith(12);
         BEAST_EXPECT(std::get<0>(f) == entropyTierConsensusFallback);
         BEAST_EXPECT(std::get<1>(f) == 0);
         BEAST_EXPECT(std::get<2>(f) == 0);
+        BEAST_EXPECT(std::get<3>(f).empty());
     }
 
     void
@@ -2387,6 +2550,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             sha512Half(std::string("standalone-entropy"), seq));
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 20);
         BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 20);
+        BEAST_EXPECT(
+            tx->getFieldVL(sfEntropyContributors) ==
+            standaloneContributorMask(20, 20));
         BEAST_EXPECT(tx->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
 
         // Value-based dedup: re-injecting with identical inputs yields the
@@ -2419,7 +2585,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             obj.setFieldH256(sfDigest, digest);
             obj.setFieldU16(sfEntropyCount, count);
             obj.setFieldU16(sfEntropyDenominator, count);
-            obj.setFieldU8(sfEntropyTier, entropyTierConsensusFallback);
+            obj.setFieldVL(
+                sfEntropyContributors, standaloneContributorMask(count, count));
+            obj.setFieldU8(sfEntropyTier, entropyTierValidatorFull);
             return std::make_shared<STTx const>(makeSTTx(obj));
         };
 
@@ -3579,6 +3747,7 @@ public:
         testTxnOrderingSaltExtendsLegacySalt();
         testOnPreBuildInjectsEntropySetEntropy();
         testOnPreBuildAcceptedEntropySetOverridesLocalFailureFlag();
+        testOnPreBuildRejectsForgedEntropyContributorAttribution();
         testOnPreBuildTier2ParticipantAligned();
         testTier2ThresholdAnchorsToOriginalView();
         testOnPreBuildTier2WithNegativeUNL();

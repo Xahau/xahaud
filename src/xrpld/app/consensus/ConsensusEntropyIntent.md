@@ -26,18 +26,27 @@ determinism or liveness.**
 **INV-1 — Determinism of the injected object.**
 Given the same parent ledger and the same *agreed* entropy sidecar, every honest
 node injects the byte-identical `ttCONSENSUS_ENTROPY` (digest, tier, count,
-denominator). That
+denominator, contributors). That
 object is ledger state. Therefore **non-fallback entropy must not read mutable
 local collector state or timing-derived state.** The selector derives non-fallback
-`(digest, tier, count, denominator)` only from the accepted `entropySetMap_`
-(matched to the hash the gate accepted) plus the parent-ledger active view. Local timeout or
-diagnostic state such as `entropyFailed_` must not override an accepted root at
-injection time; a node that never accepts a root falls back through the normal
-missing-accepted-root path.
+`(digest, tier, count, denominator, contributors)` only from the accepted
+`entropySetMap_` (matched to the hash the gate accepted) plus the parent-ledger
+active view. The contributor bitmap is ordered by the canonical
+parent-ledger active-validator view; it must not resolve signing keys through
+live manifests or any mutable local cache at injection time. The transaction
+ordering salt intentionally uses the digest/tier/count/denominator tuple, not
+the contributor bitmap. This is semantic separation, not a downgrade in
+consensus risk: once the bitmap is written into the pseudo-transaction, any
+disagreement on it is already a ledger-byte disagreement. The salt uses the
+entropy value and quality labels; the bitmap remains the accountability label.
+Local timeout or diagnostic state such as `entropyFailed_` must not override an
+accepted root at injection time; a node that never accepts a root falls back
+through the normal missing-accepted-root path.
 *Enforced:* `selectEntropy`, the `acceptedEntropySetHash_` gate, and the
 accepted-root authority test. *Anti-pattern:* reading live
-`pendingReveals_`/collector state at injection time, or letting local timeout
-flags override an accepted root.
+`pendingReveals_`/collector state at injection time, re-evaluating contributor
+identity through live manifests, or letting local timeout flags override an
+accepted root.
 
 **INV-1A — Accept-vs-fallback is also ledger-defining.**
 The choice between a non-fallback sidecar and `consensus_fallback` is part of the
