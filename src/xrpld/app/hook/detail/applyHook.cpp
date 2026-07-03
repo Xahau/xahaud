@@ -2438,7 +2438,12 @@ DEFINE_HOOK_FUNCTION(
             case keylet_code::AMENDMENTS:
             case keylet_code::FEES:
             case keylet_code::NEGATIVE_UNL:
-            case keylet_code::EMITTED_DIR: {
+            case keylet_code::EMITTED_DIR:
+            case keylet_code::CONSENSUS_ENTROPY: {
+                if (keylet_type == keylet_code::CONSENSUS_ENTROPY &&
+                    !applyCtx.view().rules().enabled(featureConsensusEntropy))
+                    return INVALID_ARGUMENT;
+
                 if (a != 0 || b != 0 || c != 0 || d != 0 || e != 0 || f != 0)
                     return INVALID_ARGUMENT;
 
@@ -2462,6 +2467,8 @@ DEFINE_HOOK_FUNCTION(
                     makeKeyCache(ripple::keylet::negativeUNL());
                 static std::array<uint8_t, 34> cEmittedDir =
                     makeKeyCache(ripple::keylet::emittedDir());
+                static std::array<uint8_t, 34> cConsensusEntropy =
+                    makeKeyCache(ripple::keylet::consensusEntropy());
 
                 WRITE_WASM_MEMORY_AND_RETURN(
                     write_ptr,
@@ -2470,6 +2477,8 @@ DEFINE_HOOK_FUNCTION(
                         : keylet_type == keylet_code::FEES ? cFees.data()
                         : keylet_type == keylet_code::NEGATIVE_UNL
                         ? cNegativeUNL.data()
+                        : keylet_type == keylet_code::CONSENSUS_ENTROPY
+                        ? cConsensusEntropy.data()
                         : cEmittedDir.data(),
                     34,
                     memory,
