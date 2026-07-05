@@ -29,6 +29,9 @@ namespace NodeStore {
 
 class DatabaseRotatingImp : public DatabaseRotating
 {
+    friend class DatabasePinnedImp;  // Allow DatabasePinnedImp to access
+                                     // private members
+
 public:
     DatabaseRotatingImp() = delete;
     DatabaseRotatingImp(DatabaseRotatingImp const&) = delete;

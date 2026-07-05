@@ -34,8 +34,42 @@ enum NodeObjectType : std::uint32_t {
     hotLEDGER = 1,
     hotACCOUNT_NODE = 3,
     hotTRANSACTION_NODE = 4,
-    hotDUMMY = 512  // an invalid or missing object
+    hotDUMMY = 512,  // an invalid or missing object
+
+    // Uncached variants - these bypass the cache when stored.
+    // These are routing-only values that MUST be reduced to their hot
+    // equivalents before serialization (on-disk format is a single byte).
+    pinnedACCOUNT_NODE = 1003,
+    pinnedTRANSACTION_NODE = 1004,
+    pinnedLEDGER = 1005
 };
+
+/** Returns true if the type is a pinned (routing-only) variant. */
+inline bool
+isPinnedType(NodeObjectType type)
+{
+    return type == pinnedACCOUNT_NODE || type == pinnedTRANSACTION_NODE ||
+        type == pinnedLEDGER;
+}
+
+/** Map pinned types back to their serializable hot equivalents.
+    Returns the type unchanged if it is not a pinned variant.
+*/
+inline NodeObjectType
+toHotType(NodeObjectType type)
+{
+    switch (type)
+    {
+        case pinnedACCOUNT_NODE:
+            return hotACCOUNT_NODE;
+        case pinnedTRANSACTION_NODE:
+            return hotTRANSACTION_NODE;
+        case pinnedLEDGER:
+            return hotLEDGER;
+        default:
+            return type;
+    }
+}
 
 /** A simple object that the Ledger uses to store entries.
     NodeObjects are comprised of a type, a hash, and a blob.

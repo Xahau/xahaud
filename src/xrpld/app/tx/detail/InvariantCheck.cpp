@@ -402,7 +402,7 @@ NoZeroEscrow::finalize(
     if (bad_ && rv.rules().enabled(featurePaychanAndEscrowForTokens) &&
         txn.isFieldPresent(sfTransactionType))
     {
-        uint16_t const tt = txn.getFieldU16(sfTransactionType);
+        TxType const& tt = txn.getTxnType();
         if (tt == ttESCROW_CANCEL || tt == ttESCROW_FINISH)
             return true;
 
@@ -1982,4 +1982,44 @@ ValidAMM::finalize(
     return true;
 }
 
+void
+ValidLockedBalance::visitEntry(
+    bool,
+    std::shared_ptr<SLE const> const& before,
+    std::shared_ptr<SLE const> const& after)
+{
+    if (after && after->getType() == ltRIPPLE_STATE &&
+        after->isFieldPresent(sfLockedBalance))
+    {
+        iouIOULockedBalanceAfter_ = (*after)[sfLockedBalance];
+        iouIOUBalanceAfter_ = (*after)[sfBalance];
+    }
+}
+
+bool
+ValidLockedBalance::finalize(
+    STTx const& tx,
+    TER const result,
+    XRPAmount const,
+    ReadView const& view,
+    beast::Journal const& j)
+{
+    if (!view.rules().enabled(fixIOULockedBalanceInvariant))
+        return true;
+
+    if (iouIOULockedBalanceAfter_)
+    {
+        if ((!iouIOULockedBalanceAfter_->negative() &&
+             *iouIOULockedBalanceAfter_ > *iouIOUBalanceAfter_) ||
+            (iouIOULockedBalanceAfter_->negative() &&
+             *iouIOULockedBalanceAfter_ < *iouIOUBalanceAfter_))
+        {
+            JLOG(j.fatal()) << "Invariant failed: IOU locked balance is "
+                               "greater than balance";
+            return false;
+        }
+    }
+
+    return true;
+}
 }  // namespace ripple

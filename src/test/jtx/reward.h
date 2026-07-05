@@ -34,14 +34,36 @@ namespace reward {
 Json::Value
 claim(jtx::Account const& account);
 
+Json::Value
+claim(AccountID const& account);
+
 /** Sets the optional Issuer on a JTx. */
 class issuer
 {
 private:
-    jtx::Account issuer_;
+    AccountID issuer_;
 
 public:
     explicit issuer(jtx::Account const& issuer) : issuer_(issuer)
+    {
+    }
+
+    explicit issuer(AccountID const& issuer) : issuer_(issuer)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
+/** Sets the optional ClaimCurrency on a JTx. */
+class claimCurrency
+{
+private:
+    Issue claimCurrency_;
+
+public:
+    explicit claimCurrency(Issue const& issue) : claimCurrency_(issue)
     {
     }
 

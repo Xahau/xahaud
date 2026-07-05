@@ -75,6 +75,16 @@ using JSSMap =
     [[maybe_unused]] std::string const x##_hash_str = to_string(x##_hash);     \
     [[maybe_unused]] Keylet const x##_keylet = keylet::hookDefinition(x##_hash);
 
+#define EXPECT_HOOK_FEE(x, fee)                               \
+    do                                                        \
+    {                                                         \
+        auto const hookSLE = env.le(x##_keylet);              \
+        BEAST_EXPECTS(                                        \
+            hookSLE->getFieldAmount(sfFee) == XRPAmount{fee}, \
+            "Hook fee mismatch: expected " #fee " got " +     \
+                to_string(hookSLE->getFieldAmount(sfFee)));   \
+    } while (false)
+
 class SetHook0_test : public beast::unit_test::suite
 {
 private:
@@ -680,6 +690,8 @@ public:
 
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
+        bool const hasNamedHooks =
+            env.current()->rules().enabled(featureNamedHooks);
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -716,7 +728,8 @@ public:
         }
 
         // grants, parameters, hookon, hookonincoming, hookonoutgoing,
-        // hookcanemit, hookapiversion, hooknamespace keys must be absent
+        // hookcanemit, hookapiversion, hooknamespace, hookname keys must be
+        // absent
         for (auto const& [key, value] : JSSMap{
                  {jss::HookGrants, Json::arrayValue},
                  {jss::HookParameters, Json::arrayValue},
@@ -733,9 +746,14 @@ public:
                   "000000000000000000000000000000000000000000000000000000000000"
                   "0000"},
                  {jss::HookApiVersion, "0"},
-                 {jss::HookNamespace, to_string(uint256{beast::zero})}})
+                 {jss::HookNamespace, to_string(uint256{beast::zero})},
+                 {jss::HookName, strHex(std::string{"DEADBEEF"})},
+             })
         {
             if (!hasHookCanEmit && key == jss::HookCanEmit)
+                continue;
+
+            if (!hasNamedHooks && key == jss::HookName)
                 continue;
 
             Json::Value iv;
@@ -745,7 +763,7 @@ public:
             env(jv,
                 M("Hook DELETE operation cannot include: grants, params, "
                   "hookon, HookOnIncoming, HookOnOutgoing, hookcanemit, "
-                  "apiversion, namespace"),
+                  "apiversion, namespace, hookname"),
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
@@ -884,6 +902,8 @@ public:
         bool const fixNS = env.current()->rules().enabled(fixNSDelete);
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
+        bool const hasNamedHooks =
+            env.current()->rules().enabled(featureNamedHooks);
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -916,9 +936,13 @@ public:
                   "000000000000000000000000000000000000000000000000000000000000"
                   "0000"},
                  {jss::HookApiVersion, "0"},
+                 {jss::HookName, strHex(std::string{"DEADBEEF"})},
              })
         {
             if (!hasHookCanEmit && key == jss::HookCanEmit)
+                continue;
+
+            if (!hasNamedHooks && key == jss::HookName)
                 continue;
 
             Json::Value iv;
@@ -929,7 +953,7 @@ public:
             env(jv,
                 M("Hook NSDELETE operation cannot include: grants, params, "
                   "hookon, hookonincoming, hookonoutgoing, hookcanemit, "
-                  "apiversion"),
+                  "apiversion, hookname"),
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
@@ -1675,6 +1699,340 @@ public:
     }
 
     void
+    testHookName(FeatureBitset features)
+    {
+        testcase("Test hook name");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        auto const charlie = Account{"charlie"};
+        auto const USD = alice["USD"];
+
+        Env env{*this, features};
+
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        // Invalid hook name (length=3,17, not utf-8)
+        for (auto const name : {
+                 "414243",                              // ABC (length=3)
+                 "4142434445464748494A4B4C4D4E4F5051",  // ABCDEFGHIJKLMNOPQ
+                                                        // (length=17)
+                 "DEADBEEF",                            // not utf-8
+             })
+        {
+            auto jvh = hso(accept_wasm);
+            jvh[jss::HookName] = name;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("Hook name must be between 8 and 32 hex characters and be a "
+                  "valid UTF-8 string"),
+                HSFEE,
+                features[featureNamedHooks] ? ter(temMALFORMED)
+                                            : ter(temDISABLED));
+
+            auto jvi = invoke::invoke(alice);
+            jvi[jss::HookName] = name;
+            env(jvi,
+                M("Call named hook with the invalid hook name"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+
+        if (!features[featureNamedHooks])
+            return;
+
+        {
+            /// Create, Install, Update named Hook
+            Env env{*this, features};
+
+            env.fund(XRP(10000), alice, bob, charlie);
+            env.close();
+
+            // Create with hook name
+            auto jvh = hso(accept_wasm);
+            jvh[jss::HookName] = "41424344";
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("Create named hook"),
+                HSFEE);
+            env.close();
+
+            // Check hook definition
+            {
+                auto const hookDef =
+                    env.le(keylet::hookDefinition(accept_hash));
+                BEAST_EXPECT(hookDef);
+                BEAST_EXPECT(!hookDef->isFieldPresent(sfHookName));
+            }
+            // Check Hook
+            {
+                auto const hooks = env.le(keylet::hook(alice));
+                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
+                auto const& hooksArray = hooks->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1);
+                BEAST_EXPECT(hooksArray[0].isFieldPresent(sfHookName));
+                BEAST_EXPECT(
+                    strHex(hooksArray[0].getFieldVL(sfHookName)) == "41424344");
+            }
+
+            // install with hook name
+            jvh[jss::HookName] = "41424344";
+            env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
+                M("Install named hook"),
+                HSFEE);
+            env.close();
+            // Check Hook
+            {
+                auto const hooks = env.le(keylet::hook(bob));
+                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
+                auto const& hooksArray = hooks->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1);
+                BEAST_EXPECT(hooksArray[0].isFieldPresent(sfHookName));
+                BEAST_EXPECT(
+                    strHex(hooksArray[0].getFieldVL(sfHookName)) == "41424344");
+            }
+
+            // install without hook name
+            jvh.removeMember(jss::HookName);
+            env(ripple::test::jtx::hook(charlie, {{jvh}}, 0),
+                M("Install non-named hook"),
+                HSFEE);
+            env.close();
+            // Check Hook
+            {
+                auto const hooks = env.le(keylet::hook(charlie));
+                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
+                auto const& hooksArray = hooks->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1);
+                BEAST_EXPECT(!hooksArray[0].isFieldPresent(sfHookName));
+            }
+
+            // Update named hook to non-named hook
+            jvh[jss::HookName] = "";
+            jvh[jss::Flags] = hsfOVERRIDE;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("Update named hook to non-named hook"),
+                HSFEE);
+            env.close();
+            // Check Hook
+            {
+                auto const hooks = env.le(keylet::hook(alice));
+                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
+                auto const& hooksArray = hooks->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1);
+                BEAST_EXPECT(!hooksArray[0].isFieldPresent(sfHookName));
+            }
+
+            // Update named hook to named hook
+            jvh[jss::HookName] = "4142434445";
+            jvh[jss::Flags] = hsfOVERRIDE;
+            env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
+                M("Update non-named hook to named hook"),
+                HSFEE);
+            env.close();
+            // Check Hook
+            {
+                auto const hooks = env.le(keylet::hook(bob));
+                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
+                auto const& hooksArray = hooks->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1);
+                BEAST_EXPECT(hooksArray[0].isFieldPresent(sfHookName));
+                BEAST_EXPECT(
+                    strHex(hooksArray[0].getFieldVL(sfHookName)) ==
+                    "4142434445");
+            }
+
+            // Update non-named hook to named hook
+            jvh[jss::HookName] = "41424344";
+            jvh[jss::Flags] = hsfOVERRIDE;
+            env(ripple::test::jtx::hook(charlie, {{jvh}}, 0),
+                M("Update non-named hook to named hook"),
+                HSFEE);
+            env.close();
+            // Check Hook
+            {
+                auto const hooks = env.le(keylet::hook(charlie));
+                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
+                auto const& hooksArray = hooks->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1);
+                BEAST_EXPECT(hooksArray[0].isFieldPresent(sfHookName));
+                BEAST_EXPECT(
+                    strHex(hooksArray[0].getFieldVL(sfHookName)) == "41424344");
+            }
+        }
+
+        // Install named hook
+        auto jvh = hso(accept_wasm);
+        jvh[jss::HookName] = "41424344";
+        jvh[jss::Flags] = hsfCOLLECT;
+        auto jvh2 = hso(accept2_wasm);
+        jvh2[jss::Flags] = hsfCOLLECT;
+        env(ripple::test::jtx::hook(alice, {{jvh, jvh2}}, 0),
+            M("Install named hook"),
+            HSFEE);
+        env.close();
+
+        //
+        // Test Strong
+        //
+        // Call named hook without specifying the hook name
+        {
+            auto jv = invoke::invoke(alice);
+            auto expectedFee =
+                calculateBaseFee(*env.current(), *env.jt(jv).stx);
+            BEAST_EXPECT(expectedFee == drops(19));
+            env(jv,
+                M("Call named hook without specifying the hook name"),
+                HSFEE);
+            env.close();
+            // execute only non-named hook
+            auto const hookExecutions =
+                env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_EXPECT(hookExecutions.size() == 1);
+            BEAST_EXPECT(
+                hookExecutions[0].getFieldH256(sfHookHash) == accept2_hash);
+        }
+
+        // Call named hook with the wrong hook name
+        {
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "41424345";
+            auto expectedFee =
+                calculateBaseFee(*env.current(), *env.jt(jv).stx);
+            BEAST_EXPECT(expectedFee == drops(19));
+            env(jv, M("Call named hook with the wrong hook name"), HSFEE);
+            env.close();
+            // execute only non-named hook
+            auto const hookExecutions =
+                env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_EXPECT(hookExecutions.size() == 1);
+            BEAST_EXPECT(
+                hookExecutions[0].getFieldH256(sfHookHash) == accept2_hash);
+        }
+
+        // Call named hook with the correct hook name
+        {
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "41424344";
+            auto expectedFee =
+                calculateBaseFee(*env.current(), *env.jt(jv).stx);
+            BEAST_EXPECT(expectedFee == drops(28));
+            env(jv, M("Call named hook with the correct hook name"), HSFEE);
+            env.close();
+            // execute both named and non-named hooks
+            auto const hookExecutions =
+                env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_EXPECT(hookExecutions.size() == 2);
+            BEAST_EXPECT(
+                hookExecutions[0].getFieldH256(sfHookHash) == accept_hash);
+            BEAST_EXPECT(
+                hookExecutions[1].getFieldH256(sfHookHash) == accept2_hash);
+        }
+
+        //
+        // Test Weak
+        //
+        env(fset(alice, asfTshCollect), fee(XRP(1)));
+        env.close();
+        // Call named hook without specifying the hook name
+        {
+            auto jv = trust(bob, USD(1000));
+            env(jv,
+                M("Call named hook without specifying the hook name"),
+                HSFEE);
+            env.close();
+            // execute only non-named hook
+            auto const hookExecutions =
+                env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_EXPECT(hookExecutions.size() == 1);
+            BEAST_EXPECT(
+                hookExecutions[0].getFieldH256(sfHookHash) == accept2_hash);
+        }
+
+        // Call named hook with the wrong hook name
+        {
+            auto jv = trust(bob, USD(1000));
+            jv[jss::HookName] = "41424345";
+            env(jv, M("Call named hook with the wrong hook name"), HSFEE);
+            env.close();
+            // execute only non-named hook
+            auto const hookExecutions =
+                env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_EXPECT(hookExecutions.size() == 1);
+            BEAST_EXPECT(
+                hookExecutions[0].getFieldH256(sfHookHash) == accept2_hash);
+        }
+
+        // Call named hook with the correct hook name
+        {
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "41424344";
+            env(jv, M("Call named hook with the correct hook name"), HSFEE);
+            env.close();
+            // execute both named and non-named hooks
+            auto const hookExecutions =
+                env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_EXPECT(hookExecutions.size() == 2);
+            BEAST_EXPECT(
+                hookExecutions[0].getFieldH256(sfHookHash) == accept_hash);
+            BEAST_EXPECT(
+                hookExecutions[1].getFieldH256(sfHookHash) == accept2_hash);
+        }
+        env(fclear(alice, asfTshCollect), fee(XRP(1)));
+        env.close();
+
+        //
+        // Callback Execution
+        //
+        jvh = hso(emit_invoke_wasm);
+        jvh[jss::HookName] = "41424344";
+        jvh[jss::Flags] = hsfOVERRIDE;
+        env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+            M("Install named callback hook"),
+            HSFEE);
+        env.close();
+        // Call named hook without specifying the hook name
+        {
+            auto jv = invoke::invoke(alice);
+            env(jv,
+                M("Call named hook without specifying the hook name"),
+                HSFEE);
+            env.close();
+            // execute only non-named hook
+            BEAST_EXPECT(!env.meta()->isFieldPresent(sfHookEmissions));
+        }
+
+        // Call named hook with the wrong hook name
+        {
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "41424345";
+            env(jv, M("Call named hook with the wrong hook name"), HSFEE);
+            env.close();
+            // execute only non-named hook
+            BEAST_EXPECT(!env.meta()->isFieldPresent(sfHookEmissions));
+        }
+
+        // Call named hook with the correct hook name
+        {
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "41424344";
+            env(jv, M("Call named hook with the correct hook name"), HSFEE);
+            env.close();
+            // execute both named and non-named hooks
+            BEAST_EXPECT(env.meta()->isFieldPresent(sfHookEmissions));
+            auto const hookEmissions =
+                env.meta()->getFieldArray(sfHookEmissions)[0];
+            auto const etxn = hookEmissions.getFieldH256(sfEmittedTxnID);
+            env.close();
+            auto const tx = env.closed()->txRead(etxn);
+            BEAST_EXPECT(tx.first && tx.second);
+            BEAST_EXPECT(!tx.first->isFieldPresent(sfHookName));
+            // Callback transaction doesn't need to have hook name
+            BEAST_EXPECT(tx.second->isFieldPresent(sfHookExecutions));
+        }
+    }
+
+    void
     testFillCopy(FeatureBitset features)
     {
         testcase("Test fill/copy");
@@ -1731,6 +2089,8 @@ public:
 
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
+        bool const hasNamedHooks =
+            env.current()->rules().enabled(featureNamedHooks);
 
         auto const bob = Account{"bob"};
         env.fund(XRP(10000), bob);
@@ -1779,6 +2139,8 @@ public:
                 iv[jss::HookCanEmit] =
                     "0000000000000000000000000000000000000000000000000000000000"
                     "000000";
+            if (hasNamedHooks)
+                iv[jss::HookName] = strHex(std::string{"DEADBEEF"});
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -1801,6 +2163,8 @@ public:
                 iv[jss::HookCanEmit] =
                     "0000000000000000000000000000000000000000000000000000000000"
                     "000000";
+            if (hasNamedHooks)
+                iv[jss::HookName] = strHex(std::string{"DEADBEEF"});
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -1824,6 +2188,8 @@ public:
                 iv[jss::HookCanEmit] =
                     "0000000000000000000000000000000000000000000000000000000000"
                     "000000";
+            if (hasNamedHooks)
+                iv[jss::HookName] = strHex(std::string{"DEADBEEF"});
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -1844,6 +2210,8 @@ public:
                 iv[jss::HookCanEmit] =
                     "0000000000000000000000000000000000000000000000000000000000"
                     "000000";
+            if (hasNamedHooks)
+                iv[jss::HookName] = strHex(std::string{"DEADBEEF"});
             jv[jss::Hooks][0U] = Json::Value{};
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
@@ -1992,6 +2360,8 @@ public:
 
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
+        bool const hasNamedHooks =
+            env.current()->rules().enabled(featureNamedHooks);
 
         auto const alice = Account{"alice"};
         env.fund(XRP(10000), alice);
@@ -2018,6 +2388,8 @@ public:
                 iv[jss::HookCanEmit] =
                     "0000000000000000000000000000000000000000000000000000000000"
                     "000000";
+            if (hasNamedHooks)
+                iv[jss::HookName] = strHex(std::string{"DEADBEEF"});
             iv[jss::HookParameters] = Json::Value{Json::arrayValue};
             iv[jss::HookParameters][0U] = Json::Value{};
             iv[jss::HookParameters][0U][jss::HookParameter] = Json::Value{};
@@ -2106,9 +2478,14 @@ public:
                       "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFE"
                       "CAFECAFE"},
                      {jss::HookParameters, params},
-                     {jss::HookGrants, grants}})
+                     {jss::HookGrants, grants},
+                     {jss::HookName, strHex(std::string{"DEADBEEF"})},
+                 })
             {
                 if (!hasHookCanEmit && key == jss::HookCanEmit)
+                    continue;
+
+                if (!hasNamedHooks && key == jss::HookName)
                     continue;
 
                 Json::Value iv;
@@ -2182,9 +2559,14 @@ public:
                      {jss::HookCanEmit,
                       "00000000000000000000000000000000000000000000000000000000"
                       "00000000"},
-                     {jss::HookNamespace, to_string(uint256{beast::zero})}})
+                     {jss::HookNamespace, to_string(uint256{beast::zero})},
+                     {jss::HookName, strHex(std::string{"DEADBEEF"})},
+                 })
             {
                 if (key == jss::HookCanEmit && !hasHookCanEmit)
+                    continue;
+
+                if (!hasNamedHooks && key == jss::HookName)
                     continue;
 
                 Json::Value iv;
@@ -2435,9 +2817,14 @@ public:
                       "CAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFECAFE"
                       "CAFECAFE"},
                      {jss::HookParameters, params},
-                     {jss::HookGrants, grants}})
+                     {jss::HookGrants, grants},
+                     {jss::HookName, strHex(std::string{"DEADBEEF"})},
+                 })
             {
                 if (key == jss::HookCanEmit && !hasHookCanEmit)
+                    continue;
+
+                if (!hasNamedHooks && key == jss::HookName)
                     continue;
 
                 Json::Value iv;
@@ -2710,6 +3097,7 @@ public:
             M("Install Accept Hook"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(accept, 9);
 
         env(pay(bob, alice, XRP(1)), M("Test Accept Hook"), fee(XRP(1)));
         env.close();
@@ -2731,6 +3119,7 @@ public:
             M("Install Rollback Hook"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(rollback, 9);
 
         env(pay(bob, alice, XRP(1)),
             M("Test Rollback Hook"),
@@ -2793,7 +3182,7 @@ public:
 
         // same loop again but with a guard call
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 (module
                   (type (;0;) (func (param i32 i32) (result i64)))
                   (type (;1;) (func (param i32 i32) (result i32)))
@@ -2828,15 +3217,17 @@ public:
                   (export "hook" (func 2)))
             )[test.hook]"];
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook)}}, 0),
+            HASH_WASM(hook);
+            env(ripple::test::jtx::hook(alice, {{hso(hook_wasm)}}, 0),
                 M("Loop 1 with guards"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 14);
         }
 
         // simple looping, c
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -2852,11 +3243,14 @@ public:
                     return accept(0,0,2);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("Loop 2 in C"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 100);
 
             env(pay(bob, alice, XRP(1)), M("Test Loop 2"), fee(XRP(1)));
             env.close();
@@ -2864,7 +3258,7 @@ public:
 
         // complex looping, c
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -2896,11 +3290,14 @@ public:
                 return accept(0,0,2);
             }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("Loop 3 in C"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 1944);
 
             env(pay(bob, alice, XRP(1)), M("Test Loop 3"), fee(XRP(1)));
             env.close();
@@ -2908,7 +3305,7 @@ public:
 
         // complex looping missing a guard
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -2942,7 +3339,8 @@ public:
             }
             )[test.hook]"];
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("Loop 4 in C"),
                 HSFEE,
                 ter(temMALFORMED));
@@ -2963,7 +3361,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
         #include <stdint.h>
         extern int32_t _g(uint32_t, uint32_t);
         extern int64_t accept (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -3284,10 +3682,12 @@ public:
         }
         )[test.hook]"];
 
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        HASH_WASM(hook);
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set emit"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 342);
 
         Json::Value invoke;
         invoke[jss::TransactionType] = "Invoke";
@@ -3858,7 +4258,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -3931,12 +4331,14 @@ public:
                 return accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set etxn_details"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 2436);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_details"), fee(XRP(1)));
@@ -3952,7 +4354,7 @@ public:
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -4013,8 +4415,9 @@ public:
 
             env.fund(XRP(10000), alice);
             env.fund(XRP(10000), bob);
+            HASH_WASM(hook);
             // install the hook on alice
-            auto hsobj = hso(hook, overrideFlag);
+            auto hsobj = hso(hook_wasm, overrideFlag);
             hsobj[jss::HookOn] =
                 "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFF"
                 "FE";  // payment high
@@ -4022,6 +4425,7 @@ public:
                 M("set etxn_fee_base"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 77);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test etxn_fee_base"), fee(XRP(1)));
@@ -4057,7 +4461,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -4097,12 +4501,14 @@ public:
                 return accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set etxn_nonce"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 11657);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_nonce"), fee(XRP(1)));
@@ -4122,7 +4528,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -4147,12 +4553,14 @@ public:
                 return accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set etxn_reserve"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 69);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_reserve"), fee(XRP(1)));
@@ -4171,7 +4579,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -4188,12 +4596,14 @@ public:
                 return accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set fee_base"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 20);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test fee_base"), fee(XRP(1)));
@@ -4212,7 +4622,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -4321,11 +4731,14 @@ public:
                         accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_compare"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 583);
 
             env(pay(bob, alice, XRP(1)), M("test float_compare"), fee(XRP(1)));
             env.close();
@@ -4345,7 +4758,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -4520,11 +4933,14 @@ public:
                         accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_divide"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 1799);
 
             env(pay(bob, alice, XRP(1)), M("test float_divide"), fee(XRP(1)));
             env.close();
@@ -4544,7 +4960,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -4649,11 +5065,14 @@ public:
                         accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_int"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 1178);
 
             env(pay(bob, alice, XRP(1)), M("test float_int"), fee(XRP(1)));
             env.close();
@@ -4673,7 +5092,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -4737,11 +5156,14 @@ public:
                         accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_invert"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 329);
 
             env(pay(bob, alice, XRP(1)), M("test float_invert"), fee(XRP(1)));
             env.close();
@@ -4761,7 +5183,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -4820,11 +5242,14 @@ public:
                         accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_log"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 388);
 
             env(pay(bob, alice, XRP(1)), M("test float_log"), fee(XRP(1)));
             env.close();
@@ -4844,7 +5269,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -4949,11 +5374,14 @@ public:
                         accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_mantissa"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 309);
 
             env(pay(bob, alice, XRP(1)), M("test float_mantissa"), fee(XRP(1)));
             env.close();
@@ -4973,7 +5401,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -5104,11 +5532,14 @@ public:
                         accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_mulratio"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 1683);
 
             env(pay(bob, alice, XRP(1)), M("test float_mulratio"), fee(XRP(1)));
             env.close();
@@ -5128,7 +5559,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -5403,12 +5834,14 @@ public:
                         accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_multiply"),
                 HSFEE);
             env.close();
-
+            EXPECT_HOOK_FEE(hook, 3180);
             env(pay(bob, alice, XRP(1)), M("test float_multiply"), fee(XRP(1)));
             env.close();
         }
@@ -5427,7 +5860,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -5474,11 +5907,14 @@ public:
                         accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_negate"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 105);
 
             env(pay(bob, alice, XRP(1)), M("test float_negate"), fee(XRP(1)));
             env.close();
@@ -5498,7 +5934,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -5515,11 +5951,14 @@ public:
                         : rollback(0,0,1);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_one"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 20);
 
             env(pay(bob, alice, XRP(1)), M("test float_one"), fee(XRP(1)));
             env.close();
@@ -5539,7 +5978,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -5593,11 +6032,14 @@ public:
                         accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_root"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 257);
 
             env(pay(bob, alice, XRP(1)), M("test float_root"), fee(XRP(1)));
             env.close();
@@ -5617,7 +6059,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -5666,11 +6108,14 @@ public:
                     return accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_set"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 343);
 
             env(pay(bob, alice, XRP(1)), M("test float_set"), fee(XRP(1)));
             env.close();
@@ -5690,7 +6135,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -5779,11 +6224,14 @@ public:
                         accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_sign"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 296);
 
             env(pay(bob, alice, XRP(1)), M("test float_sign"), fee(XRP(1)));
             env.close();
@@ -5803,7 +6251,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -5984,11 +6432,14 @@ public:
 
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_sto"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 920);
 
             env(pay(bob, alice, XRP(1)), M("test float_sto"), fee(XRP(1)));
             env.close();
@@ -6008,7 +6459,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -6126,11 +6577,14 @@ public:
 
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_sto_set"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 187);
 
             env(pay(bob, alice, XRP(1)), M("test float_sto_set"), fee(XRP(1)));
             env.close();
@@ -6150,7 +6604,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -6306,11 +6760,14 @@ public:
                         accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set float_sum"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 1735);
 
             env(pay(bob, alice, XRP(1)), M("test float_sum"), fee(XRP(1)));
             env.close();
@@ -6330,7 +6787,7 @@ public:
             env.fund(XRP(10000), alice);
             env.fund(XRP(10000), bob);
 
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -6357,12 +6814,15 @@ public:
                     accept((uint32_t)acc, 20, 0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
             // install the hook on alice
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set hook_account"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 72);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test hook_account"), fee(XRP(1)));
@@ -6390,7 +6850,8 @@ public:
             }
 
             // install the same hook bob
-            env(ripple::test::jtx::hook(bob, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    bob, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set hook_account 2"),
                 HSFEE);
             env.close();
@@ -6452,7 +6913,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -6481,12 +6942,14 @@ public:
                 return accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set hook_again"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 54);
 
         env(pay(bob, alice, XRP(1)), M("test hook_again"), fee(XRP(1)));
         env.close();
@@ -6529,7 +6992,7 @@ public:
             env.fund(XRP(10000), alice);
             env.fund(XRP(10000), bob);
 
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -6555,12 +7018,15 @@ public:
                     accept((uint32_t)hash, 32, 0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
             // install the hook on alice
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set hook_hash"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 62);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test hook_hash"), fee(XRP(1)));
@@ -6588,7 +7054,7 @@ public:
                 BEAST_EXPECT(memcmp(hash.data(), retStr.data(), 32) == 0);
             }
 
-            TestHook hook2 = wasm[R"[test.hook](
+            TestHook hook2_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -6614,12 +7080,15 @@ public:
                     accept((uint32_t)hash, 32, 0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook2);
 
             // install a slightly different hook on bob
-            env(ripple::test::jtx::hook(bob, {{hso(hook2, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    bob, {{hso(hook2_wasm, overrideFlag)}}, 0),
                 M("set hook_hash 2"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook2, 62);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test hook_hash 2"), fee(XRP(1)));
@@ -6662,11 +7131,8 @@ public:
                 BEAST_EXPECT(memcmp(hash1.data(), hash2.data(), 32) != 0);
 
                 // compute the hashes
-                auto computedHash2 = ripple::sha512Half_s(
-                    ripple::Slice(hook.data(), hook.size()));
-
-                auto computedHash1 = ripple::sha512Half_s(
-                    ripple::Slice(hook2.data(), hook2.size()));
+                auto computedHash2 = hook_hash;
+                auto computedHash1 = hook2_hash;
 
                 // ensure the computed hashes match
                 BEAST_EXPECT(computedHash1 == hash1);
@@ -6689,7 +7155,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -6771,6 +7237,7 @@ public:
             }
             
         )[test.hook]"];
+        HASH_WASM(hook);
 
         Json::Value jv;
         jv[jss::Account] = alice.human();
@@ -6779,7 +7246,7 @@ public:
         jv[jss::Hooks] = Json::Value{Json::arrayValue};
 
         Json::Value iv;
-        iv[jss::CreateCode] = strHex(hook);
+        iv[jss::CreateCode] = strHex(hook_wasm);
         iv[jss::HookOn] =
             "0000000000000000000000000000000000000000000000000000000000000000";
         iv[jss::HookApiVersion] = 0U;
@@ -6798,6 +7265,7 @@ public:
         jv[jss::Hooks][0U][jss::Hook] = iv;
         env(jv, M("set hook_param"), HSFEE, ter(tesSUCCESS));
         env.close();
+        EXPECT_HOOK_FEE(hook, 2412);
 
         // invoke
         env(pay(bob, alice, XRP(1)), M("test hook_param"), fee(XRP(1)));
@@ -6958,6 +7426,7 @@ public:
         )[test.hook]"];
 
         HASH_WASM(checker);
+        HASH_WASM(setter);
 
         Json::Value jv;
         jv[jss::Account] = alice.human();
@@ -7007,6 +7476,8 @@ public:
 
         env(jv, M("set hook_param_set"), HSFEE, ter(tesSUCCESS));
         env.close();
+        EXPECT_HOOK_FEE(checker, 475);
+        EXPECT_HOOK_FEE(setter, 759);
 
         // invoke
         env(pay(bob, alice, XRP(1)), M("test hook_param_set"), fee(XRP(1)));
@@ -7025,7 +7496,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -7037,14 +7508,21 @@ public:
                 accept(0,0,hook_pos());
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice in all four spots
         env(ripple::test::jtx::hook(
-                alice, {{hso(hook), hso(hook), hso(hook), hso(hook)}}, 0),
+                alice,
+                {{hso(hook_wasm),
+                  hso(hook_wasm),
+                  hso(hook_wasm),
+                  hso(hook_wasm)}},
+                0),
             M("set hook_pos"),
             HSFEE,
             ter(tesSUCCESS));
         env.close();
+        EXPECT_HOOK_FEE(hook, 11);
 
         // invoke the hooks
         env(pay(bob, alice, XRP(1)), M("test hook_pos"), fee(XRP(1)));
@@ -7151,6 +7629,7 @@ public:
             }
         )[test.hook]"];
 
+        HASH_WASM(skip);
         HASH_WASM(pos);
 
         // install the hook on alice in one places
@@ -7165,6 +7644,8 @@ public:
             HSFEE,
             ter(tesSUCCESS));
         env.close();
+        EXPECT_HOOK_FEE(skip, 263);
+        EXPECT_HOOK_FEE(pos, 11);
 
         // invoke the hooks
         {
@@ -7201,7 +7682,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -7279,12 +7760,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set ledger_keylet"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 415);
 
         env(pay(bob, alice, XRP(1)), M("test ledger_keylet"), fee(XRP(1)));
         env.close();
@@ -7303,7 +7786,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -7328,12 +7811,14 @@ public:
                 accept((uint32_t)hash, 32, 0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set ledger_last_hash"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 59);
 
         for (uint32_t i = 0; i < 3; ++i)
         {
@@ -7377,7 +7862,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -7389,12 +7874,14 @@ public:
                 accept(0,0,ledger_last_time());
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set ledger_last_time"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 11);
 
         // invoke the hook a few times
         for (uint32_t i = 0; i < 3; ++i)
@@ -7445,7 +7932,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -7472,12 +7959,14 @@ public:
                 accept((uint32_t)nonce, 64, 0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set ledger_nonce"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 74);
 
         // invoke the hook
         auto const seq =
@@ -7543,7 +8032,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -7555,12 +8044,14 @@ public:
                 accept(0,0,ledger_seq());
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set ledger_seq"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 11);
 
         // invoke the hook a few times
         for (uint32_t i = 0; i < 3; ++i)
@@ -7602,7 +8093,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -7652,12 +8143,14 @@ public:
                 return accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set meta_slot"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 139);
 
         env(pay(bob, alice, XRP(1)), M("test meta_slot"), fee(XRP(1)));
         env.close();
@@ -7699,7 +8192,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -7765,9 +8258,10 @@ public:
                 return accept(0,0,2);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // before featureHooksUpdate1
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set xpop_slot (disabled)"),
             HSFEE,
             ter(temMALFORMED));
@@ -7777,10 +8271,11 @@ public:
         env.close();
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set xpop_slot"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 3245);
 
         auto checkResult =
             [this](auto const& meta, uint64_t expectedCode) -> void {
@@ -7820,7 +8315,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -7867,12 +8362,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set otxn_field"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 732);
 
         // invoke the hook
         env(pay(alice, bob, XRP(1)), M("test otxn_field"), fee(XRP(1)));
@@ -7890,7 +8387,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -7950,12 +8447,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set otxn_id"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 1077);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test otxn_id"), fee(XRP(1)));
@@ -7973,7 +8472,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -8032,12 +8531,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set otxn_slot"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 6442);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test otxn_slot"), fee(XRP(1)));
@@ -8055,7 +8556,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -8092,12 +8593,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set otxn_type"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 51);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test otxn_type"), fee(XRP(1)));
@@ -8126,7 +8629,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -8208,12 +8711,14 @@ public:
             }
             
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set otxn_param"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 2412);
 
         // invoke
         Json::Value invoke;
@@ -8249,7 +8754,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -8339,12 +8844,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set slot"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 232);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot"), fee(XRP(1)));
@@ -8362,7 +8869,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -8397,12 +8904,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set slot_clear"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 83);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_clear"), fee(XRP(1)));
@@ -8420,7 +8929,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -8462,12 +8971,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set slot_count"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 97);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_count"), fee(XRP(1)));
@@ -8485,7 +8996,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -8537,12 +9048,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set slot_float"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 112);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_float"), fee(XRP(1)));
@@ -8560,7 +9073,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -8647,12 +9160,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set slot_set"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 11653);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_set"), fee(XRP(1)));
@@ -8670,7 +9185,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -8726,12 +9241,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set slot_size"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 114);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_size"), fee(XRP(1)));
@@ -8750,7 +9267,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -8847,12 +9364,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set slot_subarray"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 6212);
 
         // generate an array of memos to attach
         Json::Value jv;
@@ -8890,7 +9409,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -8967,12 +9486,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set slot_subfield"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 6109);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_subfield"), fee(XRP(1)));
@@ -8993,7 +9514,7 @@ public:
 
         // set up a trustline which we can retrieve later
         env(trust(alice, bob["USD"](600)));
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -9106,12 +9627,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set slot_subfield"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 284);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_type"), fee(XRP(1)));
@@ -9131,7 +9654,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -9190,12 +9713,15 @@ public:
                     return accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
             // install the hook on alice
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set state"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 2254);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test state"), fee(XRP(1)));
@@ -9205,7 +9731,7 @@ public:
         // override hook with a second version that just reads those state
         // objects
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -9246,12 +9772,15 @@ public:
                     return accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
             // install the hook on alice
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set state 2"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 2134);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test state 2"), fee(XRP(1)));
@@ -9272,7 +9801,7 @@ public:
         env.fund(XRP(10000), bob);
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -9312,12 +9841,15 @@ public:
                     return accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
             // install the hook on alice
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set state_foreign"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 72);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test state_foreign"), fee(XRP(1)));
@@ -9325,7 +9857,7 @@ public:
 
         // set a second hook on bob that will read the state objects from alice
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -9402,12 +9934,15 @@ public:
                     return accept(0,0,0);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
             // install the hook on bob
-            env(ripple::test::jtx::hook(bob, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    bob, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set state_foreign 2"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 2408);
 
             // invoke the hook
 
@@ -9423,7 +9958,7 @@ public:
         testcase("Test state_foreign_set max");
         using namespace jtx;
 
-        static const std::vector<uint8_t> ns_maxHook = {
+        static const std::vector<uint8_t> ns_maxHook_wasm = {
             0x00U, 0x61U, 0x73U, 0x6dU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U,
             0x36U, 0x07U, 0x60U, 0x02U, 0x7fU, 0x7fU, 0x01U, 0x7fU, 0x60U,
             0x02U, 0x7fU, 0x7fU, 0x01U, 0x7eU, 0x60U, 0x03U, 0x7fU, 0x7fU,
@@ -9483,6 +10018,7 @@ public:
             0x52U, 0x65U, 0x61U, 0x63U, 0x68U, 0x65U, 0x64U, 0x00U, 0x6bU,
             0x65U, 0x79U, 0x32U, 0x00U, 0x63U, 0x6fU, 0x6eU, 0x74U, 0x65U,
             0x6eU, 0x74U, 0x32U};
+        HASH_WASM(ns_maxHook);
 
         Env env{*this, features};
 
@@ -9493,10 +10029,11 @@ public:
 
         // install the hook on alice
         env(ripple::test::jtx::hook(
-                alice, {{hso(ns_maxHook, overrideFlag)}}, 0),
+                alice, {{hso(ns_maxHook_wasm, overrideFlag)}}, 0),
             M("set state_foreign_set_max"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(ns_maxHook, 103);
 
         // invoke the hook
         for (uint32_t i = 0; i < 255; ++i)
@@ -9674,6 +10211,7 @@ public:
 
             env(json, M("set state_foreign_set"), HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(grantor, 103);
         }
 
         // install the grantee hook on bob
@@ -9683,6 +10221,7 @@ public:
                 bob, {{hso(grantee_wasm, overrideFlag)}}, 0);
             env(json, M("set state_foreign_set 2"), HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(grantee, 234);
         }
 
         auto const aliceid = Account("alice").id();
@@ -9944,6 +10483,7 @@ public:
                 bob, {{hso(exhaustion_wasm, overrideFlag)}}, 0);
             env(json, M("set state_foreign_set 12"), HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(exhaustion, 10582);
         }
 
         // now invoke repeatedly until exhaustion is reached
@@ -10044,7 +10584,7 @@ public:
 
         // bounds and buffer size checks
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -10087,12 +10627,15 @@ public:
                 accept(0,0,0);
             }
             )[test.hook]"];
+            HASH_WASM(hook);
 
             // install the hook on alice
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set state_set 1"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 143);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 1);
 
@@ -10140,7 +10683,7 @@ public:
         // first hook will set two state objects with different keys and data on
         // alice
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -10211,12 +10754,15 @@ public:
 
             }
             )[test.hook]"];
+            HASH_WASM(hook);
 
             // install the hook on alice
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set state_set 1"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 85);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 1);
 
@@ -10302,7 +10848,7 @@ public:
         // make amother hook to override an existing state and delete an
         // existing state
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -10357,8 +10903,9 @@ public:
 
             }
             )[test.hook]"];
+            HASH_WASM(hook);
 
-            TestHook hook2 = wasm[R"[test.hook](
+            TestHook hook2_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -10402,14 +10949,21 @@ public:
 
             }
             )[test.hook]"];
+            HASH_WASM(hook2);
+
             // install the hook on alice
             env(ripple::test::jtx::hook(
                     alice,
-                    {{{hso(hook, overrideFlag)}, {}, {}, {hso(hook2, 0)}}},
+                    {{{hso(hook_wasm, overrideFlag)},
+                      {},
+                      {},
+                      {hso(hook2_wasm, 0)}}},
                     0),
                 M("set state_set 2"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 82);
+            EXPECT_HOOK_FEE(hook2, 525);
 
             // two hooks + two state objects = 4
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 4);
@@ -10418,7 +10972,7 @@ public:
             // updated state is also available on his side. caution must be
             // taken because bob's hooks will execute first if bob's is the
             // otxn. therefore we will flip to a payment from alice to bob here
-            TestHook hook3 = wasm[R"[test.hook](
+            TestHook hook3_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -10478,12 +11032,15 @@ public:
 
             }
             )[test.hook]"];
+            HASH_WASM(hook3);
 
             // install the hook on bob
-            env(ripple::test::jtx::hook(bob, {{hso(hook3, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    bob, {{hso(hook3_wasm, overrideFlag)}}, 0),
                 M("set state_set 3"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook3, 560);
 
             // invoke the hook with cho (rollback after alice's hooks have
             // executed)
@@ -10536,7 +11093,7 @@ public:
         // create a hook state inside the weak side of an execution, while the
         // strong side is rolled back
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -10580,15 +11137,17 @@ public:
 
             }
             )[test.hook]"];
+            HASH_WASM(hook);
 
             // install the hook on alice, deleting the other hook
             env(ripple::test::jtx::hook(
                     alice,
-                    {{{hso(hook, overrideFlag)}, {}, {}, {hso_delete()}}},
+                    {{{hso(hook_wasm, overrideFlag)}, {}, {}, {hso_delete()}}},
                     0),
                 M("set state_set 4"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 52);
 
             // invoke from alice to cho, this will cause a rollback, however the
             // hook state should still be updated because the hook specified
@@ -10701,6 +11260,7 @@ public:
 
             env(json, M("set state_set 6"), HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(exhaustion, 54114);
         }
 
         // now invoke repeatedly until exhaustion is reached
@@ -10853,6 +11413,7 @@ public:
                 to_string(UINT256_BIT[ttACCOUNT_SET]);
             env(jv, M("Create scaled state hook"), HSFEE, ter(tesSUCCESS));
             env.close();
+            EXPECT_HOOK_FEE(scaled_state, 227);
 
             BEAST_EXPECT((*env.le(gary))[sfOwnerCount] == 1);
             BEAST_EXPECT(!env.le(gary)->isFieldPresent(sfHookStateCount));
@@ -10903,7 +11464,7 @@ public:
             // tests for set_state_cache
             if (extHookStateEnabled)
             {
-                TestHook extended_state_reserve_hook = wasm[R"[test.hook](
+                TestHook extended_state_reserve_hook_wasm = wasm[R"[test.hook](
                     #include <stdint.h>
                     extern int32_t _g       (uint32_t id, uint32_t maxiter);
                     extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -10948,14 +11509,17 @@ public:
                         accept(0,0,0);
                     }
                 )[test.hook]"];
+                HASH_WASM(extended_state_reserve_hook);
 
                 // install the hook on gary
-                Json::Value jv = hso(extended_state_reserve_hook, overrideFlag);
+                Json::Value jv =
+                    hso(extended_state_reserve_hook_wasm, overrideFlag);
                 jv[jss::HookOn] =
                     "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffff"
                     "bfffff";  // only invoke high
                 env(ripple::test::jtx::hook(hank, {{jv}}, 0), HSFEE);
                 env.close();
+                EXPECT_HOOK_FEE(extended_state_reserve_hook, 95);
 
                 Json::Value jv1 = noop(hank);
                 jv1[sfHookStateScale.fieldName] = 8;
@@ -10998,7 +11562,7 @@ public:
             env.fund(XRP(10000), alice);
             env.fund(XRP(10000), bob);
 
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -11168,19 +11732,22 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+            HASH_WASM(hook);
 
             // install the hook on alice
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set sto_emplace"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 15024);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test sto_emplace"), fee(XRP(1)));
         }
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -11217,6 +11784,7 @@ public:
                     accept(0,0,result);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
             for (auto f : {features, features - fixHookAPI20251128})
             {
@@ -11229,10 +11797,11 @@ public:
 
                 // install the hook on alice
                 env(ripple::test::jtx::hook(
-                        alice, {{hso(hook, overrideFlag)}}, 0),
+                        alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                     M("set sto_emplace"),
                     HSFEE);
                 env.close();
+                EXPECT_HOOK_FEE(hook, 36);
 
                 // invoke the hook
                 env(pay(bob, alice, XRP(1)),
@@ -11270,7 +11839,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -11383,12 +11952,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set sto_erase"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 10021);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test sto_erase"), fee(XRP(1)));
@@ -11408,7 +11979,7 @@ public:
             env.fund(XRP(10000), alice);
             env.fund(XRP(10000), bob);
 
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -11458,19 +12029,22 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+            HASH_WASM(hook);
 
             // install the hook on alice
-            env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                 M("set sto_subarray"),
                 HSFEE);
             env.close();
+            EXPECT_HOOK_FEE(hook, 95);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test sto_subarray"), fee(XRP(1)));
         }
 
         {
-            TestHook hook = wasm[R"[test.hook](
+            TestHook hook_wasm = wasm[R"[test.hook](
                 #include <stdint.h>
                 extern int32_t _g       (uint32_t id, uint32_t maxiter);
                 #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -11501,6 +12075,7 @@ public:
                     accept(0,0,result1+result2);
                 }
             )[test.hook]"];
+            HASH_WASM(hook);
 
             for (auto isfixHookAPI20251128 : {true, false})
             {
@@ -11513,10 +12088,11 @@ public:
 
                 // install the hook on alice
                 env(ripple::test::jtx::hook(
-                        alice, {{hso(hook, overrideFlag)}}, 0),
+                        alice, {{hso(hook_wasm, overrideFlag)}}, 0),
                     M("set sto_subarray"),
                     HSFEE);
                 env.close();
+                EXPECT_HOOK_FEE(hook, 19);
 
                 // invoke the hook
                 env(pay(bob, alice, XRP(1)),
@@ -11570,7 +12146,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -11630,12 +12206,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set sto_subfield"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 123);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test sto_subfield"), fee(XRP(1)));
@@ -11654,7 +12232,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -11713,12 +12291,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set sto_validate"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 130);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test sto_validate"), fee(XRP(1)));
@@ -11917,7 +12497,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -11943,12 +12523,14 @@ public:
                 return accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set trace"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 103);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test trace"), fee(XRP(1)));
@@ -11967,7 +12549,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -11987,12 +12569,14 @@ public:
                 return accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set trace_float"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 37);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test trace_float"), fee(XRP(1)));
@@ -12011,7 +12595,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -12031,12 +12615,14 @@ public:
                 return accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set trace_num"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 37);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test trace_num"), fee(XRP(1)));
@@ -12053,7 +12639,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -12299,12 +12885,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set util_accid"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 3101);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test util_accid"), fee(XRP(1)));
@@ -12323,7 +12911,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -12911,7 +13499,7 @@ public:
                     0,0
                 )));
                 
-                ASSERT(34 == (e=util_keylet(buf, 34, KEYLET_AMM,
+                ASSERT(INVALID_ARGUMENT == (e=util_keylet(buf, 34, KEYLET_AMM,
                     SBUF(asset1), SBUF(asset2),
                     0,0
                 )));
@@ -12980,12 +13568,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set util_keylet"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 1786);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test util_keylet"), fee(XRP(1)));
@@ -13003,7 +13593,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -13433,12 +14023,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set util_raddr"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 4279);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test util_raddr"), fee(XRP(1)));
@@ -13456,7 +14048,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -13806,12 +14398,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set util_sha512h"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 2875);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test util_sha512h"), fee(XRP(1)));
@@ -13829,7 +14423,7 @@ public:
         env.fund(XRP(10000), alice);
         env.fund(XRP(10000), bob);
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g       (uint32_t id, uint32_t maxiter);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
@@ -13920,12 +14514,14 @@ public:
                 accept(0,0,0);
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
             M("set util_verify"),
             HSFEE);
         env.close();
+        EXPECT_HOOK_FEE(hook, 230);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test util_verify"), fee(XRP(1)));
@@ -13950,7 +14546,7 @@ public:
         env.fund(XRP(10000), hookacc);
         env.close();
 
-        TestHook hook = wasm[R"[test.hook](
+        TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
@@ -14279,6 +14875,7 @@ public:
                 }
             }
         )[test.hook]"];
+        HASH_WASM(hook);
 
         bool const hasFeature =
             env.current()->rules().enabled(featureHookCanEmit);
@@ -14314,15 +14911,16 @@ public:
 
             if (i == 1)
             {
-                Json::Value h = hso(hook, overrideFlag);
+                Json::Value h = hso(hook_wasm, overrideFlag);
                 env(ripple::test::jtx::hook(hookacc, {{h}}, 0),
                     M("set hookcanemit"),
                     HSFEE);
                 env.close();
+                EXPECT_HOOK_FEE(hook, 755);
             }
             else if (i == 2)
             {
-                Json::Value h = hso(hook, overrideFlag);
+                Json::Value h = hso(hook_wasm, overrideFlag);
                 env(ripple::test::jtx::hook(acc, {{h}}, 0),
                     M("set hookcanemit"),
                     HSFEE);
@@ -14330,7 +14928,7 @@ public:
             }
 
             {
-                Json::Value h = hso(hook, overrideFlag);
+                Json::Value h = hso(hook_wasm, overrideFlag);
                 env(ripple::test::jtx::hook(acc, {{h}}, 0),
                     M("set hookcanemit"),
                     HSFEE);
@@ -14362,7 +14960,7 @@ public:
 
             {
                 // same result with no-HookCanEmit
-                Json::Value h = hso(hook, overrideFlag);
+                Json::Value h = hso(hook_wasm, overrideFlag);
                 h[jss::HookCanEmit] =
                     "0000000000000000000000000000000000000000000000000000000000"
                     "400000";
@@ -14401,7 +14999,7 @@ public:
 
             {
                 // install the hook on acc
-                Json::Value hookCanEmitHook = hso(hook, overrideFlag);
+                Json::Value hookCanEmitHook = hso(hook_wasm, overrideFlag);
                 hookCanEmitHook[jss::HookCanEmit] =
                     "00000000000000000000000000000000000000000000000000"
                     "00000000000000";
@@ -14440,7 +15038,7 @@ public:
 
             {
                 // install the hook on acc
-                Json::Value hookCanEmitHook = hso(hook, overrideFlag);
+                Json::Value hookCanEmitHook = hso(hook_wasm, overrideFlag);
                 hookCanEmitHook[jss::HookCanEmit] =
                     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
                     "FFFFFFFFFFFFFF";
@@ -14500,6 +15098,7 @@ public:
         testPageCap(features);
 
         testHookOnV2(features);
+        testHookName(features);
 
         testFillCopy(features);
 
@@ -14603,7 +15202,7 @@ public:
         using namespace test::jtx;
         static FeatureBitset const all{supported_amendments()};
 
-        static std::array<FeatureBitset, 7> const feats{
+        static std::array<FeatureBitset, 8> const feats{
             all,
             all - fixXahauV2,
             all - fixXahauV1 - fixXahauV2,
@@ -14613,6 +15212,7 @@ public:
                 featureHookCanEmit,
             all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap -
                 featureExtendedHookState,
+            all - featureNamedHooks,
         };
 
         if (BEAST_EXPECT(instance < feats.size()))
@@ -14764,6 +15364,98 @@ private:
         )[test.hook]"];
 
     HASH_WASM(accept2);
+
+    // This hook is used to test Callback
+    TestHook emit_invoke_wasm =  // WASM: 7
+        wasm[
+            R"[test.hook](
+                #include <stdint.h>
+                extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+                extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+                extern int64_t emit     (uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+                extern int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
+                extern int64_t etxn_reserve(uint32_t);
+                extern int64_t etxn_fee_base (uint32_t read_ptr, uint32_t read_len);
+                extern int64_t etxn_details (uint32_t write_ptr, uint32_t write_len);
+                extern int64_t ledger_seq (void);
+
+                #define SBUF(x) (uint32_t)x,sizeof(x)
+                // clang-format off
+                    uint8_t txn[229] =
+                    {
+                        /* size, upto, field name               */
+                        /*    3,    0, tt = Invoke              */   0x12U, 0x00U, 0x63U,
+                        /*    5,    3, flags                    */   0x22U, 0x00U, 0x00U, 0x00U, 0x00U,
+                        /*    5,    8, sequence                 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                        /*    6,   13, firstledgersequence      */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
+                        /*    6,   19, lastledgersequence       */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
+                        /*    9,   25, fee                      */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                        /*   35,   34, signingpubkey            */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                        /*   22,   69, account                  */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                        /*  116,   91, emit details             */ 
+                        /*    0,  229,                          */ 
+                    };
+                    // clang-format on
+
+                    // TX BUILDER
+                    #define FLAGS_OUT (txn + 4U)
+                    #define FLS_OUT (txn + 15U)
+                    #define LLS_OUT (txn + 21U)
+                    #define FEE_OUT (txn + 26U)
+                    #define ACCOUNT_OUT (txn + 71U)
+                    #define EMIT_OUT (txn + 91U)
+
+                    #define FLIP_ENDIAN_32(value)                                                  \
+                      (uint32_t)(((value & 0xFFU) << 24) | ((value & 0xFF00U) << 8) |              \
+                                  ((value & 0xFF0000U) >> 8) | ((value & 0xFF000000U) >> 24))
+
+                    #define SET_UINT32(ptr, value) *((uint32_t *)(ptr)) = FLIP_ENDIAN_32(value);
+
+                    #define SET_NATIVE_AMOUNT(ptr, amount)                                         \
+                      do {                                                                         \
+                        uint8_t *b = (ptr);                                                        \
+                        *b++ = 0b01000000 + ((amount >> 56) & 0b00111111);                         \
+                        *b++ = (amount >> 48) & 0xFFU;                                             \
+                        *b++ = (amount >> 40) & 0xFFU;                                             \
+                        *b++ = (amount >> 32) & 0xFFU;                                             \
+                        *b++ = (amount >> 24) & 0xFFU;                                             \
+                        *b++ = (amount >> 16) & 0xFFU;                                             \
+                        *b++ = (amount >> 8) & 0xFFU;                                              \
+                        *b++ = (amount >> 0) & 0xFFU;                                              \
+                      } while (0)
+
+                    #define PREPARE_TXN()                                                          \
+                      do {                                                                         \
+                        etxn_reserve(1);                                                           \
+                        uint32_t fls = (uint32_t)ledger_seq() + 1;                                 \
+                        SET_UINT32(FLS_OUT, fls);                                                  \
+                        SET_UINT32(LLS_OUT, fls + 4);                                              \
+                        hook_account(ACCOUNT_OUT, 20);                                             \
+                        etxn_details(EMIT_OUT, 138U);                                              \
+                        int64_t fee = etxn_fee_base(SBUF(txn));                                    \
+                        SET_NATIVE_AMOUNT(FEE_OUT, fee);                                           \
+                      } while (0)
+
+
+                    int64_t cbak(uint32_t r)
+                    {
+                        _g(1,1);
+                        return accept(0,0,0);
+                    }
+
+                    int64_t hook(uint32_t reserved)
+                    {
+                        _g(1,1);
+                        PREPARE_TXN(); 
+                        uint8_t emithash[32]; 
+                        int64_t emit_result = emit(SBUF(emithash), SBUF(txn)); 
+                        if (emit_result < 0)
+                            return rollback(SBUF("Emit failed."), __LINE__);
+                        return accept(SBUF("Emit succeeded."), __LINE__);
+                    }
+        )[test.hook]"];
+
+    HASH_WASM(emit_invoke);
 };
 
 #define SETHOOK_TEST(i, last)                      \
@@ -14781,7 +15473,8 @@ SETHOOK_TEST(2, false)
 SETHOOK_TEST(3, false)
 SETHOOK_TEST(4, false)
 SETHOOK_TEST(5, false)
-SETHOOK_TEST(6, true)
+SETHOOK_TEST(6, false)
+SETHOOK_TEST(7, true)
 
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook0, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook1, app, ripple, 2);
@@ -14790,6 +15483,7 @@ BEAST_DEFINE_TESTSUITE_PRIO(SetHook3, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook4, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook5, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook6, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHook7, app, ripple, 2);
 }  // namespace test
 }  // namespace ripple
 #undef M

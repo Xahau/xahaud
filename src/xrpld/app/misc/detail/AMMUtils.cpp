@@ -148,6 +148,31 @@ ammLPHolds(
             // Put balance in account terms.
             amount.negate();
         }
+
+        // If tokens can be escrowed then they can be locked in the trustline
+        // which means we must never spend them until the escrow is released.
+        if (view.rules().enabled(featurePaychanAndEscrowForTokens) &&
+            sle->isFieldPresent(sfLockedBalance))
+        {
+            STAmount const lockedBalance = sle->getFieldAmount(sfLockedBalance);
+            STAmount const spendableBalance = amount -
+                (lpAccount > ammAccount ? -lockedBalance : lockedBalance);
+
+            // RH NOTE: this is defensively programmed, it should never fire
+            // if something bad does happen the trustline acts as a frozen line.
+            if (spendableBalance < beast::zero || spendableBalance > amount)
+            {
+                // LCOV_EXCL_START
+                JLOG(j.error())
+                    << "SpendableBalance has illegal value in accountHolds "
+                    << spendableBalance;
+                amount.clear(Issue{currency, ammAccount});
+                // LCOV_EXCL_STOP
+            }
+            else
+                amount = spendableBalance;
+        }
+
         amount.setIssuer(ammAccount);
 
         JLOG(j.trace()) << "ammLPHolds:"

@@ -568,6 +568,46 @@ private:
             Oracle oracle(env, {.owner = owner});
             oracle.set(UpdateArg{.series = {{"XRP", "USD", 742, 2}}});
         }
+
+        // Should be same order as creation
+        Env env(*this);
+        auto const baseFee =
+            static_cast<int>(env.current()->fees().base.drops());
+
+        auto test = [&](Env& env, DataSeries const& series) {
+            env.fund(XRP(1'000), owner);
+            Oracle oracle(
+                env, {.owner = owner, .series = series, .fee = baseFee});
+            BEAST_EXPECT(oracle.exists());
+            auto sle = env.le(keylet::oracle(owner, oracle.documentID()));
+            BEAST_EXPECT(
+                sle->getFieldArray(sfPriceDataSeries).size() == series.size());
+
+            auto const beforeQuoteAssetName1 =
+                sle->getFieldArray(sfPriceDataSeries)[0]
+                    .getFieldCurrency(sfQuoteAsset)
+                    .getText();
+            auto const beforeQuoteAssetName2 =
+                sle->getFieldArray(sfPriceDataSeries)[1]
+                    .getFieldCurrency(sfQuoteAsset)
+                    .getText();
+
+            oracle.set(UpdateArg{.series = series, .fee = baseFee});
+            sle = env.le(keylet::oracle(owner, oracle.documentID()));
+
+            auto const afterQuoteAssetName1 =
+                sle->getFieldArray(sfPriceDataSeries)[0]
+                    .getFieldCurrency(sfQuoteAsset)
+                    .getText();
+            auto const afterQuoteAssetName2 =
+                sle->getFieldArray(sfPriceDataSeries)[1]
+                    .getFieldCurrency(sfQuoteAsset)
+                    .getText();
+
+            BEAST_EXPECT(afterQuoteAssetName1 == beforeQuoteAssetName1);
+            BEAST_EXPECT(afterQuoteAssetName2 == beforeQuoteAssetName2);
+        };
+        test(env, {{"XRP", "USD", 742, 2}, {"XRP", "EUR", 711, 2}});
     }
 
     void

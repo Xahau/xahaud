@@ -1514,6 +1514,133 @@ r.ripple.com:51235
     }
 
     void
+    testDatabasePinnedValidation()
+    {
+        testcase("DatabasePinned config validation");
+
+        // Test 1: pinned_type=rwdb in non-standalone mode (should throw)
+        {
+            Config c;
+            std::string toLoad =
+                "[node_db]\n"
+                "type=NuDB\n"
+                "path=main\n"
+                "online_delete=256\n"
+                "pinned_type=rwdb\n"
+                "pinned_path=pinned\n";
+            c.setupControl(true, true, false);  // standalone = false
+            try
+            {
+                c.loadFromString(toLoad);
+                fail("Expected exception for non-durable pinned_type");
+            }
+            catch (std::runtime_error const& e)
+            {
+                BEAST_EXPECT(
+                    std::string(e.what()).find("durable backend") !=
+                    std::string::npos);
+                pass();
+            }
+        }
+
+        // Test 2: pinned_type=none in non-standalone mode (should throw)
+        {
+            Config c;
+            std::string toLoad =
+                "[node_db]\n"
+                "type=NuDB\n"
+                "path=main\n"
+                "online_delete=256\n"
+                "pinned_type=none\n"
+                "pinned_path=pinned\n";
+            c.setupControl(true, true, false);  // standalone = false
+            try
+            {
+                c.loadFromString(toLoad);
+                fail("Expected exception for non-durable pinned_type");
+            }
+            catch (std::runtime_error const& e)
+            {
+                BEAST_EXPECT(
+                    std::string(e.what()).find("durable backend") !=
+                    std::string::npos);
+                pass();
+            }
+        }
+
+        // Test 3: pinned_type=rwdb in standalone mode (should succeed
+        // — standalone is unrestricted)
+        {
+            Config c;
+            std::string toLoad =
+                "[node_db]\n"
+                "type=NuDB\n"
+                "path=main\n"
+                "online_delete=256\n"
+                "pinned_type=rwdb\n"
+                "pinned_path=pinned\n";
+            c.setupControl(true, true, true);  // standalone = true
+            try
+            {
+                c.loadFromString(toLoad);
+                pass();
+            }
+            catch (std::runtime_error const& e)
+            {
+                fail("Should not throw in standalone mode");
+            }
+        }
+
+        // Test 4: pinned_type=NuDB in non-standalone mode (should succeed)
+        {
+            Config c;
+            std::string toLoad =
+                "[node_db]\n"
+                "type=NuDB\n"
+                "path=main\n"
+                "online_delete=256\n"
+                "pinned_type=NuDB\n"
+                "pinned_path=pinned\n";
+            c.setupControl(true, true, false);  // standalone = false
+            try
+            {
+                c.loadFromString(toLoad);
+                pass();
+            }
+            catch (std::runtime_error const& e)
+            {
+                fail("Should not throw for durable pinned_type");
+            }
+        }
+
+        // Test 5: pinned_type without online_delete (should throw)
+        {
+            Config c;
+            std::string toLoad =
+                "[node_db]\n"
+                "type=NuDB\n"
+                "path=main\n"
+                "pinned_type=NuDB\n"
+                "pinned_path=pinned\n";
+            c.setupControl(true, true, false);
+            try
+            {
+                c.loadFromString(toLoad);
+                fail(
+                    "Expected exception for pinned_type without "
+                    "online_delete");
+            }
+            catch (std::runtime_error const& e)
+            {
+                BEAST_EXPECT(
+                    std::string(e.what()).find("online_delete") !=
+                    std::string::npos);
+                pass();
+            }
+        }
+    }
+
+    void
     testOverlay()
     {
         testcase("overlay: unknown time");
@@ -1604,6 +1731,7 @@ r.ripple.com:51235
         testGetters();
         testAmendment();
         testRWDBOnlineDelete();
+        testDatabasePinnedValidation();
         testOverlay();
         testNetworkID();
     }

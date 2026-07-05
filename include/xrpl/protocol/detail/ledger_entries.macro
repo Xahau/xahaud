@@ -93,7 +93,7 @@ LEDGER_ENTRY(ltCHECK, 0x0043, Check, check, ({
 */
 LEDGER_ENTRY(ltHOOK_DEFINITION, 'D', HookDefinition, hook_definition, ({
     {sfHookHash,             soeREQUIRED},
-    {sfHookOn,               soeREQUIRED},
+    {sfHookOn,               soeOPTIONAL},
     {sfHookOnIncoming,       soeOPTIONAL},
     {sfHookOnOutgoing,       soeOPTIONAL},
     {sfHookCanEmit,          soeOPTIONAL},
@@ -396,6 +396,8 @@ LEDGER_ENTRY(ltRIPPLE_STATE, 0x0072, RippleState, state, ({
     {sfHighQualityOut,       soeOPTIONAL},
     {sfLockedBalance,        soeOPTIONAL},
     {sfLockCount,            soeOPTIONAL},
+    {sfHighReward,           soeOPTIONAL},
+    {sfLowReward,            soeOPTIONAL},
 }))
 
 /** The ledger object which lists the network's fee settings.

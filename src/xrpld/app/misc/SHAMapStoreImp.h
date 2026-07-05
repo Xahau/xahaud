@@ -24,8 +24,10 @@
 #include <xrpld/app/misc/SHAMapStore.h>
 #include <xrpld/app/rdb/RelationalDatabase.h>
 #include <xrpld/app/rdb/State.h>
+#include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/core/DatabaseCon.h>
 #include <xrpld/nodestore/DatabaseRotating.h>
+#include <xrpl/basics/RangeSet.h>
 
 #include <xrpld/nodestore/Scheduler.h>
 #include <atomic>
@@ -67,6 +69,10 @@ private:
         setState(SavedState const& state);
         void
         setLastRotated(LedgerIndex seq);
+        std::string
+        getPinnedRanges();
+        void
+        setPinnedRanges(std::string const& ranges);
     };
 
     Application& app_;
@@ -132,6 +138,12 @@ public:
                                : fetch_depth;
     }
 
+    bool
+    isOnlineDeleteEnabled() const
+    {
+        return deleteInterval_ > 0;
+    }
+
     std::unique_ptr<NodeStore::Database>
     makeNodeStore(int readThreads) override;
 
@@ -167,6 +179,14 @@ public:
 
     void
     onLedgerClosed(std::shared_ptr<Ledger const> const& ledger) override;
+
+    void
+    setPinnedRanges(RangeSet<std::uint32_t> const& ranges) override
+    {
+        // Save pinned ranges to database for persistence
+        std::string rangesStr = to_string(ranges);
+        state_db_.setPinnedRanges(rangesStr);
+    }
 
     void
     rendezvous() const override;
@@ -210,11 +230,14 @@ private:
      *  Call with mutex object unlocked.
      */
     void
-    clearSql(
+    clearSqlRanges(
         LedgerIndex lastRotated,
-        std::string const& TableName,
+        RangeSet<std::uint32_t> const& pinned,
+        std::string const& tableName,
         std::function<std::optional<LedgerIndex>()> const& getMinSeq,
-        std::function<void(LedgerIndex)> const& deleteBeforeSeq);
+        std::function<void(RangeSet<std::uint32_t> const&)> const&
+            deleteInRanges);
+
     void
     clearCaches(LedgerIndex validatedSeq);
     void
@@ -233,12 +256,24 @@ private:
     [[nodiscard]] HealthResult
     healthWait();
 
+    void
+    loadPinnedRanges();
+
 public:
     void
     start() override
     {
+        // Always load pinned ranges on startup
+        loadPinnedRanges();
+
+        // NOTE: Startup cleanup of unpinned ledgers was removed - it caused
+        // SQLite lock contention and confusing pauses. Database will shrink
+        // incrementally during rotation. Custom tools will provide pruning
+        // management for specialized needs.
         if (deleteInterval_)
+        {
             thread_ = std::thread(&SHAMapStoreImp::run, this);
+        }
     }
 
     void

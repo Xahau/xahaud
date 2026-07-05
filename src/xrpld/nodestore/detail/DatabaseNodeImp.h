@@ -26,7 +26,6 @@
 
 namespace ripple {
 namespace NodeStore {
-
 class DatabaseNodeImp : public Database
 {
 public:

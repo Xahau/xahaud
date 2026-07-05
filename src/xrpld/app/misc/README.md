@@ -152,4 +152,4 @@ deletion routine.
 * [fetch_depth] will be silently set to equal the online_delete setting if
 online_delete is greater than fetch_depth.
 * In the [node_db] section, there is a performance tuning option, delete_batch,
-which sets the maximum size in ledgers for each SQL DELETE query.
+which sets the maximum number of SQL rows deleted per batch.

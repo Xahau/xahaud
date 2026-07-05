@@ -2,6 +2,9 @@
 // Generated using generate_extern.sh
 #include <stdint.h>
 #ifndef HOOK_EXTERN
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 extern int32_t __attribute__((noduplicate))
 _g(uint32_t guard_id, uint32_t maxiter);
@@ -336,5 +339,8 @@ prepare(
     uint32_t read_ptr,
     uint32_t read_len);
 
+#ifdef __cplusplus
+}
+#endif
 #define HOOK_EXTERN
 #endif  // HOOK_EXTERN

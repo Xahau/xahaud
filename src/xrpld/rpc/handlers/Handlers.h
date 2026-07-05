@@ -129,6 +129,8 @@ doRipplePathFind(RPC::JsonContext&);
 Json::Value
 doServerDefinitions(RPC::JsonContext&);
 Json::Value
+getStaticServerDefinitions();
+Json::Value
 doServerInfo(RPC::JsonContext&);  // for humans
 Json::Value
 doServerState(RPC::JsonContext&);  // for machines
