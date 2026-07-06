@@ -3,10 +3,297 @@
 
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpl/hook/Enum.h>
+#include <cfenv>
 
 namespace hook {
-using namespace ripple;
+
 using HookReturnCode = hook_api::hook_return_code;
+
+namespace hook_float {
+using enum hook_api::hook_return_code;
+
+// power of 10 LUT for fast integer math
+static int64_t power_of_ten[19] = {
+    1LL,
+    10LL,
+    100LL,
+    1000LL,
+    10000LL,
+    100000LL,
+    1000000LL,
+    10000000LL,
+    100000000LL,
+    1000000000LL,
+    10000000000LL,
+    100000000000LL,
+    1000000000000LL,
+    10000000000000LL,
+    100000000000000LL,
+    1000000000000000LL,  // 15
+    10000000000000000LL,
+    100000000000000000LL,
+    1000000000000000000LL,
+};
+
+using namespace hook_api;
+static int64_t const minMantissa = 1000000000000000ull;
+static int64_t const maxMantissa = 9999999999999999ull;
+static int32_t const minExponent = -96;
+static int32_t const maxExponent = 80;
+
+inline Expected<int32_t, HookReturnCode>
+get_exponent(int64_t float1)
+{
+    using enum hook_api::hook_return_code;
+    if (float1 < 0)
+        return Unexpected(INVALID_FLOAT);
+    if (float1 == 0)
+        return 0u;
+    uint64_t float_in = (uint64_t)float1;
+    float_in >>= 54U;
+    float_in &= 0xFFU;
+    return static_cast<int32_t>(float_in) - 97;
+}
+
+inline Expected<uint64_t, HookReturnCode>
+get_mantissa(int64_t float1)
+{
+    using enum hook_api::hook_return_code;
+    if (float1 < 0)
+        return Unexpected(INVALID_FLOAT);
+    if (float1 == 0)
+        return 0ULL;
+    float1 -= ((((uint64_t)float1) >> 54U) << 54U);
+    return float1;
+}
+
+inline bool
+is_negative(int64_t float1)
+{
+    return ((float1 >> 62U) & 1ULL) == 0;
+}
+
+inline int64_t
+invert_sign(int64_t float1)
+{
+    int64_t r = (int64_t)(((uint64_t)float1) ^ (1ULL << 62U));
+    return r;
+}
+
+inline int64_t
+set_sign(int64_t float1, bool set_negative)
+{
+    bool neg = is_negative(float1);
+    if ((neg && set_negative) || (!neg && !set_negative))
+        return float1;
+
+    return invert_sign(float1);
+}
+
+inline Expected<uint64_t, HookReturnCode>
+set_mantissa(int64_t float1, uint64_t mantissa)
+{
+    using enum hook_api::hook_return_code;
+    if (mantissa > maxMantissa)
+        return Unexpected(MANTISSA_OVERSIZED);
+    if (mantissa < minMantissa)
+        return Unexpected(MANTISSA_UNDERSIZED);
+    return float1 - get_mantissa(float1).value() + mantissa;
+}
+
+inline Expected<uint64_t, HookReturnCode>
+set_exponent(int64_t float1, int32_t exponent)
+{
+    using enum hook_api::hook_return_code;
+    if (exponent > maxExponent)
+        return Unexpected(EXPONENT_OVERSIZED);
+    if (exponent < minExponent)
+        return Unexpected(EXPONENT_UNDERSIZED);
+
+    uint64_t exp = (exponent + 97);
+    exp <<= 54U;
+    float1 &= ~(0xFFLL << 54);
+    float1 += (int64_t)exp;
+    return float1;
+}
+
+inline Expected<uint64_t, HookReturnCode>
+make_float(ripple::IOUAmount& amt)
+{
+    using enum hook_api::hook_return_code;
+    int64_t man_out = amt.mantissa();
+    int64_t float_out = 0;
+    bool neg = man_out < 0;
+    if (neg)
+        man_out *= -1;
+
+    float_out = set_sign(float_out, neg);
+    auto const mantissa = set_mantissa(float_out, (uint64_t)man_out);
+    if (!mantissa)
+        // TODO: This change requires the amendment.
+        // return Unexpected(mantissa.error());
+        float_out = (int64_t)mantissa.error();
+    else
+        float_out = mantissa.value();
+    auto const exponent = set_exponent(float_out, amt.exponent());
+    if (!exponent)
+        return Unexpected(exponent.error());
+    float_out = exponent.value();
+    return float_out;
+}
+
+inline Expected<uint64_t, HookReturnCode>
+make_float(uint64_t mantissa, int32_t exponent, bool neg)
+{
+    using enum hook_api::hook_return_code;
+    if (mantissa == 0)
+        return 0ULL;
+    if (mantissa > maxMantissa)
+        return Unexpected(MANTISSA_OVERSIZED);
+    if (mantissa < minMantissa)
+        return Unexpected(MANTISSA_UNDERSIZED);
+    if (exponent > maxExponent)
+        return Unexpected(EXPONENT_OVERSIZED);
+    if (exponent < minExponent)
+        return Unexpected(EXPONENT_UNDERSIZED);
+    int64_t out = 0;
+
+    auto const m = set_mantissa(out, mantissa);
+    if (!m)
+        return Unexpected(m.error());  // LCOV_EXCL_LINE
+    out = m.value();
+
+    auto const e = set_exponent(out, exponent);
+    if (!e)
+        return Unexpected(e.error());  // LCOV_EXCL_LINE
+    out = e.value();
+
+    out = set_sign(out, neg);
+    return out;
+}
+
+/**
+ * This function normalizes the mantissa and exponent passed, if it can.
+ * It returns the XFL and mutates the supplied manitssa and exponent.
+ * If a negative mantissa is provided then the returned XFL has the negative
+ * flag set. If there is an overflow error return XFL_OVERFLOW. On underflow
+ * returns canonical 0
+ */
+template <typename T>
+inline Expected<uint64_t, HookReturnCode>
+normalize_xfl(T& man, int32_t& exp, bool neg = false)
+{
+    if (man == 0)
+        return 0ULL;
+
+    if (man == std::numeric_limits<int64_t>::min())
+        man++;
+
+    constexpr bool sman = std::is_same<T, int64_t>::value;
+    static_assert(sman || std::is_same<T, uint64_t>());
+
+    if constexpr (sman)
+    {
+        if (man < 0)
+        {
+            man *= -1LL;
+            neg = true;
+        }
+    }
+
+    // mantissa order
+    std::feclearexcept(FE_ALL_EXCEPT);
+    int32_t mo = log10(man);
+    // defensively ensure log10 produces a sane result; we'll borrow the
+    // overflow error code if it didn't
+    if (std::fetestexcept(FE_INVALID))
+        return Unexpected(XFL_OVERFLOW);  // LCOV_EXCL_LINE
+
+    int32_t adjust = 15 - mo;
+
+    if (adjust > 0)
+    {
+        // defensive check
+        if (adjust > 18)
+            return 0ULL;  // LCOV_EXCL_LINE
+        man *= power_of_ten[adjust];
+        exp -= adjust;
+    }
+    else if (adjust < 0)
+    {
+        // defensive check
+        if (-adjust > 18)
+            return Unexpected(XFL_OVERFLOW);  // LCOV_EXCL_LINE
+        man /= power_of_ten[-adjust];
+        exp -= adjust;
+    }
+
+    if (man == 0)
+    {
+        exp = 0;
+        return 0ULL;
+    }
+
+    // even after adjustment the mantissa can be outside the range by one place
+    // improving the math above would probably alleviate the need for these
+    // branches
+    if (man < minMantissa)
+    {
+        if (man == minMantissa - 1LL)
+            man += 1LL;
+        else
+        {
+            man *= 10LL;
+            exp--;
+        }
+    }
+
+    if (man > maxMantissa)
+    {
+        if (man == maxMantissa + 1LL)
+            man -= 1LL;
+        else
+        {
+            man /= 10LL;
+            exp++;
+        }
+    }
+
+    if (exp < minExponent)
+    {
+        man = 0;
+        exp = 0;
+        return 0ULL;
+    }
+
+    if (man == 0)
+    {
+        exp = 0;
+        return 0ULL;
+    }
+
+    if (exp > maxExponent)
+        return Unexpected(XFL_OVERFLOW);
+
+    auto const ret = make_float((uint64_t)man, exp, neg);
+    if constexpr (sman)
+    {
+        if (neg)
+            man *= -1LL;
+    }
+
+    if (!ret)
+        return Unexpected(ret.error());
+
+    return ret;
+}
+
+const int64_t float_one_internal =
+    make_float(1000000000000000ull, -15, false).value();
+
+}  // namespace hook_float
+
+using namespace ripple;
 
 using Bytes = std::vector<std::uint8_t>;
 
@@ -170,7 +457,7 @@ public:
     Expected<ripple::uint256, HookReturnCode>
     hook_hash(int32_t hook_no) const;
 
-    Expected<int64_t, HookReturnCode>
+    Expected<uint64_t, HookReturnCode>
     hook_again() const;
 
     Expected<Blob, HookReturnCode>
@@ -320,7 +607,7 @@ private:
         bool modified) const;
 
     // these are only used by get_stobject_length below
-    enum parse_error {
+    enum class STOParseErrorCode {
         pe_unexpected_end = -1,
         pe_unknown_type_early = -2,  // detected early
         pe_unknown_type_late = -3,   // end of function
@@ -329,8 +616,8 @@ private:
     };
 
     inline Expected<
-        int32_t,
-        parse_error>
+        uint32_t,
+        STOParseErrorCode>
     get_stobject_length(
         unsigned char* start,   // in - begin iterator
         unsigned char* maxptr,  // in - end iterator

@@ -23,7 +23,7 @@
 #define EMPTY()
 #define DEFER(id) id EMPTY()
 #define OBSTRUCT(...) __VA_ARGS__ DEFER(EMPTY)()
-#define VA_NARGS_IMPL(                                             \
+#define VA_NARGS_IMPL(                                         \
     _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, N, ...) \
     N
 #define VA_NARGS(__drop, ...) \
@@ -71,77 +71,89 @@
 #define SEP_int64_t LPAREN int64_t COMMA
 
 // VAL_* : extract typed value from WasmValue in[] array (engine-agnostic)
-#define VAL_uint32_t (uint32_t)in[_stack++].asI32()
-#define VAL_int32_t  (int32_t)in[_stack++].asI32()
-#define VAL_uint64_t (uint64_t)in[_stack++].asI64()
-#define VAL_int64_t  (int64_t)in[_stack++].asI64()
+#define VAL_uint32_t (uint32_t) in[_stack++].asI32()
+#define VAL_int32_t (int32_t) in[_stack++].asI32()
+#define VAL_uint64_t (uint64_t) in[_stack++].asI64()
+#define VAL_int64_t (int64_t) in[_stack++].asI64()
 
 #define VAR_ASSIGN(T, V) T V = CAT(VAL_##T)
 
 // RET_* : wrap a C return value into a WasmValue
 #define RET_uint32_t(return_code) hook::WasmValue::i32((uint32_t)(return_code))
-#define RET_int32_t(return_code)  hook::WasmValue::i32((uint32_t)(return_code))
+#define RET_int32_t(return_code) hook::WasmValue::i32((uint32_t)(return_code))
 #define RET_uint64_t(return_code) hook::WasmValue::i64((uint64_t)(return_code))
-#define RET_int64_t(return_code)  hook::WasmValue::i64((uint64_t)(return_code))
+#define RET_int64_t(return_code) hook::WasmValue::i64((uint64_t)(return_code))
 
 #define RET_ASSIGN(T, return_code) CAT2(RET_, T(return_code))
 
 // TYP_* : map C type to WasmValue::Kind (used by WasmEdgeEngine.cpp registry)
 #define TYP_uint32_t hook::WasmValue::Kind::I32
-#define TYP_int32_t  hook::WasmValue::Kind::I32
+#define TYP_int32_t hook::WasmValue::Kind::I32
 #define TYP_uint64_t hook::WasmValue::Kind::I64
-#define TYP_int64_t  hook::WasmValue::Kind::I64
+#define TYP_int64_t hook::WasmValue::Kind::I64
 
 #define WASM_VAL_TYPE(T, b) CAT2(TYP_, T)
 
-// DECLARE_HOOK_FUNCTION: forward-declares the impl function and the engine wrapper
-#define DECLARE_HOOK_FUNCTION(R, F, ...)                                \
-    R F(hook::HookContext& hookCtx,                                     \
-        hook::GuestMemory& mem __VA_OPT__(COMMA __VA_ARGS__));          \
-    extern hook::HostCallStatus WasmFunction##F(                        \
-        void* userData,                                                 \
-        hook::GuestMemory& mem,                                         \
-        hook::WasmValue const* in,                                      \
-        size_t inLen,                                                   \
-        hook::WasmValue* out,                                           \
+#define UNSIGNED_TYPE(T) std::make_unsigned_t<T>
+
+// DECLARE_HOOK_FUNCTION: forward-declares the impl function and the engine
+// wrapper
+#define DECLARE_HOOK_FUNCTION(R, F, ...)                          \
+    std::variant<UNSIGNED_TYPE(R), hook_api::hook_return_code> F( \
+        hook::HookContext& hookCtx,                               \
+        hook::GuestMemory& mem __VA_OPT__(COMMA __VA_ARGS__));    \
+    extern hook::HostCallStatus WasmFunction##F(                  \
+        void* userData,                                           \
+        hook::GuestMemory& mem,                                   \
+        hook::WasmValue const* in,                                \
+        size_t inLen,                                             \
+        hook::WasmValue* out,                                     \
         size_t outLen);
 
-// DEFINE_HOOK_FUNCTION: defines the engine-agnostic wrapper + the impl function body
-#define DEFINE_HOOK_FUNCTION(R, F, ...)                                  \
-    hook::HostCallStatus hook_api::WasmFunction##F(                      \
-        void* data_ptr,                                                  \
-        hook::GuestMemory& mem,                                          \
-        hook::WasmValue const* in,                                       \
-        size_t /*inLen*/,                                                \
-        hook::WasmValue* out,                                            \
-        size_t /*outLen*/)                                               \
-    {                                                                    \
-        __VA_OPT__(int _stack = 0;)                                      \
-        __VA_OPT__(FOR_VARS(VAR_ASSIGN, 2, __VA_ARGS__);)                \
-        hook::HookContext* hookCtx =                                     \
-            reinterpret_cast<hook::HookContext*>(data_ptr);              \
-        R return_code = hook_api::F(                                     \
-            *hookCtx,                                                    \
-            mem __VA_OPT__(COMMA STRIP_TYPES(__VA_ARGS__)));             \
-        if (return_code == RC_ROLLBACK || return_code == RC_ACCEPT)      \
-            return hook::HostCallStatus::Terminate;                      \
-        out[0] = RET_ASSIGN(R, return_code);                             \
-        return hook::HostCallStatus::Success;                            \
-    };                                                                   \
-    R hook_api::F(                                                       \
-        hook::HookContext& hookCtx,                                      \
+// DEFINE_HOOK_FUNCTION: defines the engine-agnostic wrapper + the impl function
+// body
+#define DEFINE_HOOK_FUNCTION(R, F, ...)                                        \
+    hook::HostCallStatus hook_api::WasmFunction##F(                            \
+        void* data_ptr,                                                        \
+        hook::GuestMemory& mem,                                                \
+        hook::WasmValue const* in,                                             \
+        size_t /*inLen*/,                                                      \
+        hook::WasmValue* out,                                                  \
+        size_t /*outLen*/)                                                     \
+    {                                                                          \
+        __VA_OPT__(int _stack = 0;)                                            \
+        __VA_OPT__(FOR_VARS(VAR_ASSIGN, 2, __VA_ARGS__);)                      \
+        hook::HookContext* hookCtx =                                           \
+            reinterpret_cast<hook::HookContext*>(data_ptr);                    \
+        auto const& return_code = hook_api::F(                                 \
+            *hookCtx, mem __VA_OPT__(COMMA STRIP_TYPES(__VA_ARGS__)));         \
+        if (std::holds_alternative<hook_api::hook_return_code>(return_code) && \
+            (std::get<hook_api::hook_return_code>(return_code) ==              \
+                 RC_ROLLBACK ||                                                \
+             std::get<hook_api::hook_return_code>(return_code) == RC_ACCEPT))  \
+            return hook::HostCallStatus::Terminate;                            \
+        out[0] = RET_ASSIGN(                                                   \
+            R,                                                                 \
+            std::holds_alternative<UNSIGNED_TYPE(R)>(return_code)              \
+                ? std::get<UNSIGNED_TYPE(R)>(return_code)                      \
+                : R(std::get<hook_api::hook_return_code>(return_code)));       \
+        return hook::HostCallStatus::Success;                                  \
+    };                                                                         \
+    std::variant<UNSIGNED_TYPE(R), hook_api::hook_return_code> hook_api::F(    \
+        hook::HookContext& hookCtx,                                            \
         hook::GuestMemory& mem __VA_OPT__(COMMA __VA_ARGS__))
 
-#define HOOK_SETUP()                                                 \
-    try                                                              \
-    {                                                                \
-        [[maybe_unused]] ApplyContext& applyCtx = hookCtx.applyCtx;  \
-        [[maybe_unused]] auto& view = applyCtx.view();               \
-        [[maybe_unused]] auto j = applyCtx.app.journal("View");      \
-        [[maybe_unused]] unsigned char* memory = mem.base;           \
-        [[maybe_unused]] const uint64_t memory_length = mem.size;    \
-        [[maybe_unused]] auto& api = hookCtx.api();                  \
-        if (!memory || !memory_length)                               \
+#define HOOK_SETUP()                                                \
+    using enum hook_api::hook_return_code;                          \
+    try                                                             \
+    {                                                               \
+        [[maybe_unused]] ApplyContext& applyCtx = hookCtx.applyCtx; \
+        [[maybe_unused]] auto& view = applyCtx.view();              \
+        [[maybe_unused]] auto j = applyCtx.app.journal("View");     \
+        [[maybe_unused]] unsigned char* memory = mem.base;          \
+        [[maybe_unused]] const uint64_t memory_length = mem.size;   \
+        [[maybe_unused]] auto& api = hookCtx.api();                 \
+        if (!memory || !memory_length)                              \
             return INTERNAL_ERROR;
 
 #define HOOK_TEARDOWN()                                        \
@@ -175,8 +187,8 @@
         }                                                                   \
         if (!mem.write(                                                     \
                 guest_dst_ptr,                                              \
-                reinterpret_cast<uint8_t const*>(host_src_ptr),            \
-                static_cast<uint64_t>(bytes_to_write)))                    \
+                reinterpret_cast<uint8_t const*>(host_src_ptr),             \
+                static_cast<uint64_t>(bytes_to_write)))                     \
             return INTERNAL_ERROR;                                          \
         bytes_written += bytes_to_write;                                    \
     }
@@ -189,7 +201,7 @@
     host_memory_ptr,                  \
     guest_memory_length)              \
     {                                 \
-        int64_t bytes_written = 0;    \
+        uint64_t bytes_written = 0;   \
         WRITE_WASM_MEMORY(            \
             bytes_written,            \
             guest_dst_ptr,            \
@@ -258,7 +270,7 @@
             data_ptr < (data_ptr_in))                                    \
             return INTERNAL_ERROR;                                       \
         if (data_len == 0)                                               \
-            return 0;                                                    \
+            return 0ULL;                                                 \
         if ((write_ptr_in) == 0)                                         \
             return data_as_int64(data_ptr, data_len);                    \
         if (data_len > (write_len_in))                                   \
