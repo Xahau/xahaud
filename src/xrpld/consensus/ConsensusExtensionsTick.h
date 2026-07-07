@@ -405,6 +405,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             // tell us whether to keep waiting, but they must not make this node
             // close with fallback while another node has quorum sidecar
             // material for the same parent/base transaction set.
+            //@@start rng-commit-timeout-degrade
             bool timeout = ctx.roundTime > ctx.parms.rngPIPELINE_TIMEOUT;
             if (!timeout)
             {
@@ -445,6 +446,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             logRngDiag("rng-commit-timeout-below-quorum");
             // Truly below the entropy gate: fall through to
             // consensus_fallback entropy.
+            //@@end rng-commit-timeout-degrade
         }
         else if (ext.estState_ == EstablishState::ConvergingCommit)
         {
@@ -966,6 +968,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
         };
 
         bool hasLocalExportSigs = ext.hasPendingExportSigs();
+        //@@start export-sigset-material-wait
         if (!hasLocalExportSigs && ext.hasConsensusExportTxns())
         {
             auto const peerSets = observedPeerExportSigSets(ctx.getPosition());
@@ -1034,6 +1037,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     << " action=retry-or-expire";
             }
         }
+        //@@end export-sigset-material-wait
 
         if (hasLocalExportSigs)
         {
