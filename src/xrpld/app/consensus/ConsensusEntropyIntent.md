@@ -91,8 +91,15 @@ All thresholds are computed over the **fixed parent-ledger UNLReport active-view
 size** (tier-2 over the *original* pre-NegativeUNL size). No node-local
 observation may grow or shrink that denominator `N`. This is load-bearing for
 tier-2 equivocation-uniqueness (`2t − N > f`).
+`featureNegativeUNLActiveViewCap` should be active before or with CE on networks
+that use NegativeUNL: it makes producer-side nUNL disable voting use the same
+parent-ledger UNLReport denominator that this invariant relies on. The
+consumer-side active-view builder still caps raw ledger NegativeUNL subtraction
+defensively against `originalViewSize`.
 *Enforced:* `quorumThreshold` / `tier2Threshold` over `activeValidatorView`; the
-alignment-counting universe is filtered to the active view. *Anti-pattern:*
+alignment-counting universe is filtered to the active view; amended
+`NegativeUNLVote` uses the same UNLReport active count for its disable cap when
+available. *Anti-pattern:*
 counting "valid/observed proposals" as the denominator — that lets a withholder
 shrink `N` and is also node-local (split).
 

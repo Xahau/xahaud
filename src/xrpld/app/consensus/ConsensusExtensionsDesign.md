@@ -152,6 +152,14 @@ The active validator view is the shared denominator for RNG and export:
   UNL from whichever source produced the view.
 - Use the same snapshot throughout the round.
 
+When `featureNegativeUNLActiveViewCap` is enabled, NegativeUNL vote production
+also uses the parent-ledger `UNLReport.sfActiveValidators` count as the
+25-percent disable-cap denominator. This aligns the producer-side nUNL vote
+policy with the active-view universe that RNG and Export proofs use. Without
+that amendment, legacy NegativeUNL voting can still cap against the locally
+configured trusted UNL size; the consumer-side active-view builder remains
+defensive and caps any raw ledger NegativeUNL overage against `originalViewSize`.
+
 `quorumThreshold()` is 80% of that active validator view. Recent proposers,
 expected proposers, and currently visible peer positions are liveness hints and
 diagnostic context only; they do not shrink the quorum denominator and do not
