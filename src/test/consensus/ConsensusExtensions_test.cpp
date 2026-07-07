@@ -27,6 +27,7 @@
 #include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/consensus/ConsensusExtensionsTick.h>
 #include <xrpld/consensus/ConsensusProposal.h>
 #include <xrpld/overlay/PeerSet.h>
@@ -239,6 +240,24 @@ makeConsensusEntropyTx(
         sfEntropyContributors, standaloneContributorMask(count, count));
     obj.setFieldU8(sfEntropyTier, entropyTierValidatorFull);
     return std::make_shared<STTx const>(makeSTTx(obj));
+}
+
+std::shared_ptr<STTx const>
+makeExportSignaturesTx(std::uint32_t ledgerSeq, uint256 const& exportTxHash)
+{
+    auto const signer = randomKeyPair(KeyType::secp256k1);
+    auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
+    auto const innerObj = makeExportedPayment(calcAccountID(signer.first), dst);
+    auto const innerTx = makeSTTx(innerObj);
+
+    ExportResultBuilder::SignatureSnapshot signatures;
+    auto sig = ExportResultBuilder::signExportedTxn(
+        innerTx, signer.first, signer.second);
+    signatures.emplace(signer.first, Buffer(sig.data(), sig.size()));
+
+    return std::make_shared<STTx const>(
+        ExportResultBuilder::buildSignatureWitness(
+            exportTxHash, signatures, ledgerSeq));
 }
 
 RCLTxSet
@@ -2280,9 +2299,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testAcquiredSetsRejectConsensusEntropyPseudo()
+    testAcquiredSetsRejectConsensusExtensionPseudos()
     {
-        testcase("Network-acquired sets cannot contain consensus entropy txs");
+        testcase("Network-acquired sets cannot contain CE pseudo txs");
 
         //@@start test-acquired-ce-pseudo-reject
         using namespace jtx;
@@ -2300,28 +2319,36 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             });
 
         auto const seq = env.closed()->seq() + 1;
-        auto const entropySet = makeRCLTxSet(
-            env.app(),
-            {makeConsensusEntropyTx(
-                seq, makeHash("hostile-peer-entropy"), 4)});
-        auto const entropyHash = entropySet.id();
+        auto const expectRejectedFromAcquire =
+            [&](std::shared_ptr<STTx const> const& pseudo) {
+                auto const set = makeRCLTxSet(env.app(), {pseudo});
+                auto const setHash = set.id();
+                auto const beforeCallbacks = callbacks;
 
-        // A proposal only commits to a candidate tx-set hash. Once the set is
-        // acquired, consensus entropy must still be unvotable network ingress
-        // material, not merely a DisputedTx that an honest minority votes out.
-        inbound->giveSet(entropyHash, entropySet.map_, true);
-        BEAST_EXPECT(callbacks == 0);
-        BEAST_EXPECT(!inbound->getSet(entropyHash, false));
+                // A proposal only commits to a candidate tx-set hash. Once
+                // the set is acquired, CE-local pseudos must still be
+                // unvotable network ingress material, not merely DisputedTxs
+                // that an honest minority votes out.
+                inbound->giveSet(setHash, set.map_, true);
+                BEAST_EXPECT(callbacks == beforeCallbacks);
+                BEAST_EXPECT(!inbound->getSet(setHash, false));
 
-        // Local post-agreement CE materialization still uses the same cache.
-        // The acquired-set rejection must not break that local-only path.
-        inbound->giveSet(entropyHash, entropySet.map_, false);
-        BEAST_EXPECT(callbacks == 1);
-        BEAST_EXPECT(!lastFromAcquire);
-        auto const localSet = inbound->getSet(entropyHash, false);
-        BEAST_EXPECT(localSet);
-        if (localSet)
-            BEAST_EXPECT(localSet->getHash().as_uint256() == entropyHash);
+                // Local post-agreement CE materialization still uses the same
+                // cache. The acquired-set rejection must not break that
+                // local-only path.
+                inbound->giveSet(setHash, set.map_, false);
+                BEAST_EXPECT(callbacks == beforeCallbacks + 1);
+                BEAST_EXPECT(!lastFromAcquire);
+                auto const localSet = inbound->getSet(setHash, false);
+                BEAST_EXPECT(localSet);
+                if (localSet)
+                    BEAST_EXPECT(localSet->getHash().as_uint256() == setHash);
+            };
+
+        expectRejectedFromAcquire(
+            makeConsensusEntropyTx(seq, makeHash("hostile-peer-entropy"), 4));
+        expectRejectedFromAcquire(makeExportSignaturesTx(
+            seq, makeHash("hostile-peer-export-signatures")));
         //@@end test-acquired-ce-pseudo-reject
     }
 
@@ -3905,7 +3932,7 @@ public:
         testHarvestRngDataReplacementAndRejection();
         testExportSidecarBuildsLocalSnapshot();
         testTransactionAcquireRejectsSidecarWireNodes();
-        testAcquiredSetsRejectConsensusEntropyPseudo();
+        testAcquiredSetsRejectConsensusExtensionPseudos();
         testExportSidecarIgnoresCancelOnlyExports();
         testExportSidecarBuildCapsConsensusCandidates();
         testExportAgreedSignaturesIgnoreLiveCollectorMutation();
