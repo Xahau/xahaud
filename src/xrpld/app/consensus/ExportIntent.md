@@ -33,9 +33,10 @@ denominator must never be derived from locally observed peers, locally available
 signatures, or the subset that happened to advertise sidecar hashes.
 On networks that use NegativeUNL, `featureNegativeUNLActiveViewCap` should be
 active before or with Export so producer-side nUNL voting caps against the same
-UNLReport active-view denominator that Export quorum proofs use. Direct Export
-apply still rebuilds and defensively caps the parent active view before checking
-the witness threshold.
+UNLReport active-source universe that bounds NegativeUNL shrink. Export quorum
+itself is computed over the effective post-NegativeUNL active view. Direct
+Export apply still rebuilds and defensively caps the parent active view before
+checking the witness threshold.
 *Anti-pattern:* letting silence shrink the quorum threshold.
 
 **INV-3 — Accepted sidecar root, not live collector.**
