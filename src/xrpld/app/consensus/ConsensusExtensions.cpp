@@ -672,6 +672,7 @@ ConsensusExtensions::ingestRngContribution(
         return false;
     }
 
+    //@@start rng-reveal-commitment-proof-gate
     auto const commitIt = pendingCommits_.find(nodeId);
     if (commitIt == pendingCommits_.end())
     {
@@ -703,6 +704,7 @@ ConsensusExtensions::ingestRngContribution(
                         << " calculated=" << expectedCommit;
         return false;
     }
+    //@@end rng-reveal-commitment-proof-gate
 
     auto [it, inserted] = pendingReveals_.emplace(nodeId, digest);
     if (!inserted && it->second != digest)
@@ -876,6 +878,7 @@ ConsensusExtensions::selectEntropy(
     }
     //@@end entropy-selector-unlreport-gate
 
+    //@@start entropy-selector-accepted-map-consumption
     // A cached entropySetMap_ is only candidate material. The tick gate marks
     // the sidecar hash accepted after peer-observation/alignment checks have
     // completed; injection never consults local timeout state directly.
@@ -965,7 +968,9 @@ ConsensusExtensions::selectEntropy(
         return fallback();
     if (malformedContributorSet || contributors.size() != sorted.size())
         return fallback();
+    //@@end entropy-selector-accepted-map-consumption
 
+    //@@start entropy-selector-normalize-digest-mask
     std::sort(sorted.begin(), sorted.end(), [](auto const& a, auto const& b) {
         if (a.first.slice() < b.first.slice())
             return true;
@@ -985,6 +990,7 @@ ConsensusExtensions::selectEntropy(
     auto const denominator = static_cast<std::uint16_t>(validatorView->size());
     auto const contributorMask = buildEntropyContributorMask(
         validatorView->orderedMasterKeys, contributors);
+    //@@end entropy-selector-normalize-digest-mask
 
     //@@start entropy-selector-tier-ladder
     // Tier ladder over the AGREED participant count — deterministic on every
@@ -1952,6 +1958,7 @@ ConsensusExtensions::onPreBuild(
 
     if (exportEnabled())
     {
+        //@@start export-witness-scrub-stale
         auto const validatorView = activeValidatorView();
         for (auto it = retriableTxs.begin(); it != retriableTxs.end();)
         {
@@ -1966,6 +1973,7 @@ ConsensusExtensions::onPreBuild(
             }
             ++it;
         }
+        //@@end export-witness-scrub-stale
 
         if (app_.config().standalone())
         {
@@ -2026,6 +2034,7 @@ ConsensusExtensions::onPreBuild(
                 }
             }
         }
+        //@@start export-witness-from-accepted-root
         else if (validatorView->fromUNLReport)
         {
             auto const threshold = exportSigQuorumThreshold(*validatorView);
@@ -2082,6 +2091,7 @@ ConsensusExtensions::onPreBuild(
                 retriableTxs.insert(std::make_shared<STTx>(std::move(witness)));
             }
         }
+        //@@end export-witness-from-accepted-root
         else if (!consensusExportTxns_.empty())
         {
             JLOG(j_.warn())

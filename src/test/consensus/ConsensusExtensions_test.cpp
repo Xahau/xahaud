@@ -23,6 +23,7 @@
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/detail/TransactionAcquire.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
+#include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/consensus/ConsensusExtensionsTick.h>
@@ -1078,7 +1079,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         testcase("Active validator view caps NegativeUNL against active set");
 
         constexpr std::size_t kOriginal = 10;
-        constexpr std::size_t kLegalDisable = 3;
+        constexpr auto kLegalDisable =
+            NegativeUNLVote::maxNegativeUNLListed(kOriginal);
         constexpr std::size_t kOverCapDisable = 8;
 
         std::vector<PublicKey> activeKeys;
@@ -1189,6 +1191,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             calculateParticipantThreshold(10) == 7);  // not 6 (n=10 forks)
         BEAST_EXPECT(calculateParticipantThreshold(15) == 10);
         BEAST_EXPECT(calculateParticipantThreshold(20) == 13);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(10) == 3);
 
         // The defining safety invariant, for EVERY view size: two aligned
         // cohorts always share an honest validator, i.e. their overlap (2t - n)
@@ -1200,6 +1203,25 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             auto const t = calculateParticipantThreshold(n);
             BEAST_EXPECT(2 * t > n + n / 5);  // overlap 2t-n > floor(n/5)
             BEAST_EXPECT(t <= calculateQuorumThreshold(n));
+        }
+
+        // The active-view nUNL cap must preserve the same honest-intersection
+        // invariant when the entropy gate takes the effective-view quorum
+        // branch. This pins the proof obligation from the walkthrough:
+        // for active-disabled d <= ceil(n/4), two gate-sized cohorts inside the
+        // effective view n-d still overlap by more than floor(n/5).
+        for (std::size_t n = 1; n <= 256; ++n)
+        {
+            auto const maxDisabled =
+                NegativeUNLVote::maxNegativeUNLListed(n);
+            for (std::size_t d = 0; d <= maxDisabled; ++d)
+            {
+                auto const effective = n - d;
+                auto const t =
+                    ConsensusExtensions::entropyGateThresholdForView(
+                        effective, n);
+                BEAST_EXPECT(2 * t > effective + n / 5);
+            }
         }
     }
 

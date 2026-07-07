@@ -435,11 +435,13 @@ RCLConsensus::Adaptor::onClose(
             // previous ledger was a voting ledger,
             // so the current consensus session is for a flag ledger,
             // add negative UNL pseudo-transactions
+            //@@start negative-unl-vote-trusted-denominator
             nUnlVote_.doVoting(
                 prevLedger,
                 app_.validators().getTrustedMasterKeys(),
                 app_.getValidations(),
                 initialSet);
+            //@@end negative-unl-vote-trusted-denominator
         }
     }
 
@@ -579,6 +581,7 @@ RCLConsensus::Adaptor::doAccept(
     // ledger entropy; when disabled this remains the legacy tx-set hash salt.
     //
     // FIXME: Use a std::vector and a custom sorter instead of CanonicalTXSet?
+    //@@start txn-ordering-salt-build-inputs
     auto const agreedTxSetHash = result.txns.map_->getHash().as_uint256();
     auto const buildSeq = prevLedger.seq() + 1;
     CanonicalTXSet retriableTxs{
@@ -601,6 +604,7 @@ RCLConsensus::Adaptor::doAccept(
                 << "    Tx: " << item.key() << " throws: " << ex.what();
         }
     }
+    //@@end txn-ordering-salt-build-inputs
 
     //@@start auxiliary-pre-build-injection
     // Inject extension pseudo-transactions (if amendments are enabled).

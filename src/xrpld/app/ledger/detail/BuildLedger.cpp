@@ -252,6 +252,7 @@ applyTransactions(
     }
     //@@end rng-entropy-first-application
 
+    //@@start rng-normal-tx-pass-after-entropy
     // Attempt to apply all of the retriable transactions
     for (int pass = 0; pass < LEDGER_TOTAL_PASSES; ++pass)
     {
@@ -319,6 +320,7 @@ applyTransactions(
         if (!changes || (pass >= LEDGER_RETRY_PASSES))
             certainRetry = false;
     }
+    //@@end rng-normal-tx-pass-after-entropy
 
     // If there are any transactions left, we must have
     // tried them in at least one final pass

@@ -18,23 +18,9 @@
 //==============================================================================
 
 #include <xrpld/app/consensus/ActiveValidatorView.h>
+#include <xrpld/app/misc/NegativeUNLVote.h>
 
 namespace ripple {
-
-namespace {
-
-//@@start active-validator-view-nunl-cap-formula
-std::size_t
-maxNegativeUNLRemovals(std::size_t originalViewSize)
-{
-    if (originalViewSize == 0)
-        return 0;
-
-    return (originalViewSize - 1) / 4 + 1;
-}
-//@@end active-validator-view-nunl-cap-formula
-
-}  // namespace
 
 ActiveValidatorView
 buildActiveValidatorView(
@@ -82,10 +68,13 @@ buildActiveValidatorView(
         std::sort(disabledActiveMasters.begin(), disabledActiveMasters.end());
         //@@end active-validator-view-nunl-candidates
 
+        //@@start active-validator-view-nunl-cap-formula
+        auto const maxRemovals =
+            NegativeUNLVote::maxNegativeUNLListed(view.originalViewSize);
+        //@@end active-validator-view-nunl-cap-formula
         //@@start active-validator-view-nunl-cap-apply
         auto const removals = std::min(
-            disabledActiveMasters.size(),
-            maxNegativeUNLRemovals(view.originalViewSize));
+            disabledActiveMasters.size(), maxRemovals);
         for (auto it = disabledActiveMasters.begin();
              it != disabledActiveMasters.begin() + removals;
              ++it)

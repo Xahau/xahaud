@@ -102,6 +102,7 @@ Change::preflight(PreflightContext const& ctx)
         return ret;
 
     auto account = ctx.tx.getAccountID(sfAccount);
+    //@@start rng-pseudo-common-preflight
     if (account != beast::zero)
     {
         JLOG(ctx.j.warn()) << "Change: Bad source id";
@@ -131,6 +132,7 @@ Change::preflight(PreflightContext const& ctx)
         JLOG(ctx.j.warn()) << "Change: Bad sequence";
         return temBAD_SEQUENCE;
     }
+    //@@end rng-pseudo-common-preflight
 
     if (ctx.tx.getTxnType() == ttUNL_MODIFY &&
         !ctx.rules.enabled(featureNegativeUNL))
@@ -156,6 +158,7 @@ Change::preflight(PreflightContext const& ctx)
         }
     }
 
+    //@@start rng-consensus-entropy-preflight
     if (ctx.tx.getTxnType() == ttCONSENSUS_ENTROPY)
     {
         if (!ctx.rules.enabled(featureConsensusEntropy))
@@ -191,6 +194,7 @@ Change::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
     }
+    //@@end rng-consensus-entropy-preflight
 
     if (ctx.tx.getTxnType() == ttEXPORT_SIGNATURES)
     {
@@ -241,11 +245,13 @@ Change::preclaim(PreclaimContext const& ctx)
 {
     // If tapOPEN_LEDGER is resurrected into ApplyFlags,
     // this block can be moved to preflight.
+    //@@start rng-pseudo-open-ledger-reject
     if (ctx.view.open())
     {
         JLOG(ctx.j.warn()) << "Change transaction against open ledger";
         return temINVALID;
     }
+    //@@end rng-pseudo-open-ledger-reject
 
     switch (ctx.tx.getTxnType())
     {
@@ -288,12 +294,14 @@ Change::preclaim(PreclaimContext const& ctx)
                     return temDISABLED;
             }
             return tesSUCCESS;
+        //@@start rng-pseudo-closed-ledger-allow
         case ttAMENDMENT:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
         case ttCONSENSUS_ENTROPY:
         case ttEXPORT_SIGNATURES:
             return tesSUCCESS;
+        //@@end rng-pseudo-closed-ledger-allow
         case ttUNL_REPORT: {
             if (!ctx.tx.isFieldPresent(sfImportVLKey) ||
                 ctx.app.config().IMPORT_VL_KEYS.empty())
