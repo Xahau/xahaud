@@ -73,8 +73,8 @@ buildActiveValidatorView(
             NegativeUNLVote::maxNegativeUNLListed(view.originalViewSize);
         //@@end active-validator-view-nunl-cap-formula
         //@@start active-validator-view-nunl-cap-apply
-        auto const removals = std::min(
-            disabledActiveMasters.size(), maxRemovals);
+        auto const removals =
+            std::min(disabledActiveMasters.size(), maxRemovals);
         for (auto it = disabledActiveMasters.begin();
              it != disabledActiveMasters.begin() + removals;
              ++it)

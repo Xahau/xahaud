@@ -1254,14 +1254,12 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         // effective view n-d still overlap by more than floor(n/5).
         for (std::size_t n = 1; n <= 256; ++n)
         {
-            auto const maxDisabled =
-                NegativeUNLVote::maxNegativeUNLListed(n);
+            auto const maxDisabled = NegativeUNLVote::maxNegativeUNLListed(n);
             for (std::size_t d = 0; d <= maxDisabled; ++d)
             {
                 auto const effective = n - d;
-                auto const t =
-                    ConsensusExtensions::entropyGateThresholdForView(
-                        effective, n);
+                auto const t = ConsensusExtensions::entropyGateThresholdForView(
+                    effective, n);
                 BEAST_EXPECT(2 * t > effective + n / 5);
             }
         }
@@ -2770,8 +2768,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.setRngEnabledThisRound(true);
             CanonicalTXSet txs{makeHash("mismatch-wellformed-salt")};
-            auto const present = makeConsensusEntropyTx(
-                seq, makeHash("a-different-digest"), 7);
+            auto const present =
+                makeConsensusEntropyTx(seq, makeHash("a-different-digest"), 7);
             auto const presentID = present->getTransactionID();
             txs.insert(present);
 

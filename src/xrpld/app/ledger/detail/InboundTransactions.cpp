@@ -251,8 +251,7 @@ public:
         // are local post-agreement material, not votable network-set members.
         // Legacy fee/amendment/nUNL pseudos remain allowed in base consensus.
         //@@start acquired-ce-pseudo-reject
-        if (fromAcquire &&
-            hasAcquiredConsensusExtensionPseudo(*set, hash, j_))
+        if (fromAcquire && hasAcquiredConsensusExtensionPseudo(*set, hash, j_))
         {
             std::lock_guard sl(mLock);
 
