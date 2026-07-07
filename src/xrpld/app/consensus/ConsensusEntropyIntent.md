@@ -136,6 +136,14 @@ proposal bytes remain byte-identical to base XRPL.
 `ExtendedPosition` serializes to exactly the legacy 32-byte tx-set hash when no
 sidecar fields are set.
 
+**Rollout note:** after `featureConsensusEntropy` is enabled, live proposals may
+carry a serialized `ExtendedPosition` in the legacy `currenttxhash` protobuf
+field. That is a proposal wire-format dependency, not a sidecar-fetch
+dependency. Older binaries that only accept a 32-byte `currenttxhash` are not
+compatible proposal participants after activation; operators must upgrade the
+proposal-processing network first, or add explicit version/capability
+negotiation before attempting a heterogeneous rollout.
+
 **INV-8 — No unbounded liveness dependency.**
 Every sub-state has a bounded timeout with a deterministic downgrade. CE must
 never be the reason a round stalls once base consensus is itself making progress.

@@ -434,6 +434,16 @@ The extended proposal machinery is enabled when either feature needs signed
 sidecar fields. Do not make Export depend on RNG availability just because RNG
 was the first consumer of `ExtendedPosition`.
 
+Rollout invariant: once a network enables `featureConsensusEntropy`, proposal
+messages may use the legacy `currenttxhash` protobuf field to carry a serialized
+`ExtendedPosition`, not just a raw 32-byte transaction-set hash. This is a
+proposal wire-format change, not a sidecar-reconciliation detail. Disabling
+sidecar fetch/reconciliation does not restore compatibility with older binaries
+that require `currenttxhash` to be exactly 32 bytes. A network that activates CE
+therefore needs every binary expected to process live proposals to understand
+the extended position format, or it needs explicit version/capability
+negotiation before activation.
+
 When `featureExport` is disabled, the export sidecar gate is disabled too. Stale
 collector entries must not keep a stopped amendment active.
 
