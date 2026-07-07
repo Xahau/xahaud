@@ -22,6 +22,7 @@
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/detail/TransactionAcquire.h>
+#include <xrpld/app/main/CollectorManager.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
 #include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
@@ -216,6 +217,28 @@ makeCancelExportTx(AccountID const& account, std::uint32_t sequence)
     exportObj.setFieldAmount(sfFee, XRPAmount{0});
 
     return std::make_shared<STTx const>(makeSTTx(exportObj));
+}
+
+std::shared_ptr<STTx const>
+makeConsensusEntropyTx(
+    std::uint32_t ledgerSeq,
+    uint256 const& digest,
+    std::uint16_t count)
+{
+    STObject obj(sfGeneric);
+    obj.setFieldU16(sfTransactionType, ttCONSENSUS_ENTROPY);
+    obj.setFieldU32(sfLedgerSequence, ledgerSeq);
+    obj.setAccountID(sfAccount, AccountID{});
+    obj.setFieldU32(sfSequence, 0);
+    obj.setFieldAmount(sfFee, STAmount{});
+    obj.setFieldVL(sfSigningPubKey, Slice{});
+    obj.setFieldH256(sfDigest, digest);
+    obj.setFieldU16(sfEntropyCount, count);
+    obj.setFieldU16(sfEntropyDenominator, count);
+    obj.setFieldVL(
+        sfEntropyContributors, standaloneContributorMask(count, count));
+    obj.setFieldU8(sfEntropyTier, entropyTierValidatorFull);
+    return std::make_shared<STTx const>(makeSTTx(obj));
 }
 
 RCLTxSet
@@ -2255,6 +2278,50 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testAcquiredSetsRejectConsensusEntropyPseudo()
+    {
+        testcase("Network-acquired sets cannot contain consensus entropy txs");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+
+        std::size_t callbacks = 0;
+        bool lastFromAcquire = false;
+        auto inbound = make_InboundTransactions(
+            env.app(),
+            env.app().getCollectorManager().collector(),
+            [&](std::shared_ptr<SHAMap> const&, bool fromAcquire) {
+                ++callbacks;
+                lastFromAcquire = fromAcquire;
+            });
+
+        auto const seq = env.closed()->seq() + 1;
+        auto const entropySet = makeRCLTxSet(
+            env.app(),
+            {makeConsensusEntropyTx(
+                seq, makeHash("hostile-peer-entropy"), 4)});
+        auto const entropyHash = entropySet.id();
+
+        // A proposal only commits to a candidate tx-set hash. Once the set is
+        // acquired, consensus entropy must still be unvotable network ingress
+        // material, not merely a DisputedTx that an honest minority votes out.
+        inbound->giveSet(entropyHash, entropySet.map_, true);
+        BEAST_EXPECT(callbacks == 0);
+        BEAST_EXPECT(!inbound->getSet(entropyHash, false));
+
+        // Local post-agreement CE materialization still uses the same cache.
+        // The acquired-set rejection must not break that local-only path.
+        inbound->giveSet(entropyHash, entropySet.map_, false);
+        BEAST_EXPECT(callbacks == 1);
+        BEAST_EXPECT(!lastFromAcquire);
+        auto const localSet = inbound->getSet(entropyHash, false);
+        BEAST_EXPECT(localSet);
+        if (localSet)
+            BEAST_EXPECT(localSet->getHash().as_uint256() == entropyHash);
+    }
+
+    void
     testExportSidecarIgnoresCancelOnlyExports()
     {
         testcase("Export sidecar ignores cancel-only exports");
@@ -2665,25 +2732,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             *this, envconfig(validator, ""), supported_amendments(), nullptr};
         auto const seq = env.closed()->seq() + 1;
 
-        // Build a ttCONSENSUS_ENTROPY, optionally without sfEntropyTier
-        // (mimics a pre-tier-3 / malformed entry).
-        auto makeEntropyTx = [&](uint256 const& digest, std::uint16_t count) {
-            STObject obj(sfGeneric);
-            obj.setFieldU16(sfTransactionType, ttCONSENSUS_ENTROPY);
-            obj.setFieldU32(sfLedgerSequence, seq);
-            obj.setAccountID(sfAccount, AccountID{});
-            obj.setFieldU32(sfSequence, 0);
-            obj.setFieldAmount(sfFee, STAmount{});
-            obj.setFieldVL(sfSigningPubKey, Slice{});  // pseudo-tx convention
-            obj.setFieldH256(sfDigest, digest);
-            obj.setFieldU16(sfEntropyCount, count);
-            obj.setFieldU16(sfEntropyDenominator, count);
-            obj.setFieldVL(
-                sfEntropyContributors, standaloneContributorMask(count, count));
-            obj.setFieldU8(sfEntropyTier, entropyTierValidatorFull);
-            return std::make_shared<STTx const>(makeSTTx(obj));
-        };
-
         // (1) Well-formed but DIFFERENT digest already present: standalone
         // injection would produce its own digest, so txIDs differ -> mismatch
         // branch keeps the agreed one, does not insert ours, stays at one.
@@ -2691,8 +2739,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.setRngEnabledThisRound(true);
             CanonicalTXSet txs{makeHash("mismatch-wellformed-salt")};
-            auto const present =
-                makeEntropyTx(makeHash("a-different-digest"), 7);
+            auto const present = makeConsensusEntropyTx(
+                seq, makeHash("a-different-digest"), 7);
             auto const presentID = present->getTransactionID();
             txs.insert(present);
 
@@ -3849,6 +3897,7 @@ public:
         testHarvestRngDataReplacementAndRejection();
         testExportSidecarBuildsLocalSnapshot();
         testTransactionAcquireRejectsSidecarWireNodes();
+        testAcquiredSetsRejectConsensusEntropyPseudo();
         testExportSidecarIgnoresCancelOnlyExports();
         testExportSidecarBuildCapsConsensusCandidates();
         testExportAgreedSignaturesIgnoreLiveCollectorMutation();

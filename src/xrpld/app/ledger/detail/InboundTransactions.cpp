@@ -25,7 +25,9 @@
 #include <xrpld/core/JobQueue.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/RippleLedgerHash.h>
+#include <xrpl/protocol/STTx.h>
 #include <xrpl/resource/Fees.h>
+#include <exception>
 #include <memory>
 #include <mutex>
 
@@ -38,6 +40,57 @@ enum {
     // How many rounds to keep a set
     setKeepRounds = 3,
 };
+
+namespace {
+
+bool
+isConsensusExtensionPseudo(TxType txType)
+{
+    return txType == ttCONSENSUS_ENTROPY || txType == ttEXPORT_SIGNATURES;
+}
+
+bool
+hasAcquiredConsensusExtensionPseudo(
+    SHAMap const& set,
+    uint256 const& setHash,
+    beast::Journal j)
+{
+    if (set.mapType() != SHAMapType::TRANSACTION)
+        return false;
+
+    bool reject = false;
+    set.visitLeaves([&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+        if (reject)
+            return;
+
+        try
+        {
+            SerialIter sit{item->slice()};
+            STTx tx{std::ref(sit)};
+            if (!isConsensusExtensionPseudo(tx.getTxnType()))
+                return;
+
+            reject = true;
+            JLOG(j.warn())
+                << "Rejecting acquired transaction set with consensus-extension"
+                   " pseudo"
+                << " set=" << setHash << " tx=" << item->key()
+                << " type=" << static_cast<std::uint16_t>(tx.getTxnType());
+        }
+        catch (std::exception const& ex)
+        {
+            reject = true;
+            JLOG(j.warn()) << "Rejecting acquired transaction set with "
+                              "malformed transaction"
+                           << " set=" << setHash << " tx=" << item->key()
+                           << " error=" << ex.what();
+        }
+    });
+
+    return reject;
+}
+
+}  // namespace
 
 class InboundTransactionSet
 {
@@ -190,6 +243,26 @@ public:
         std::shared_ptr<SHAMap> const& set,
         bool fromAcquire) override
     {
+        // Peer proposals carry only a candidate tx-set hash. This is the first
+        // point where acquired transaction bytes are known, so enforce the
+        // consensus-extension invariant here: entropy/export witness pseudos
+        // are local post-agreement material, not votable network-set members.
+        // Legacy fee/amendment/nUNL pseudos remain allowed in base consensus.
+        if (fromAcquire &&
+            hasAcquiredConsensusExtensionPseudo(*set, hash, j_))
+        {
+            std::lock_guard sl(mLock);
+
+            if (auto it = m_map.find(hash); it != m_map.end())
+            {
+                it->second.mAcquire.reset();
+                if (!it->second.mSet)
+                    m_map.erase(it);
+            }
+
+            return;
+        }
+
         bool isNew = true;
 
         {
