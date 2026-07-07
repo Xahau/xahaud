@@ -16,8 +16,6 @@ defaults:
       LedgerConsensus: debug
       ConsensusExtensions: debug
       NetworkOPs: info
-    env:
-      XAHAU_RESOURCE_PER_PORT: "1"
     rc:
       - rng_poll_ms=333
 
