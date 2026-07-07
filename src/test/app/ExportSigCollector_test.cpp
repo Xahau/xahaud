@@ -20,6 +20,7 @@
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/digest.h>
 #include <cstring>
 
@@ -32,6 +33,14 @@ uint256
 makeHash(char const* label)
 {
     return sha512Half(Slice(label, std::strlen(label)));
+}
+
+uint256
+makeHashFromSeed(std::uint32_t seed)
+{
+    Serializer s;
+    s.add32(seed);
+    return sha512Half(s.slice());
 }
 
 PublicKey
@@ -256,6 +265,45 @@ public:
     }
 
     void
+    testUnverifiedCacheCap()
+    {
+        testcase("unverified cache cap");
+
+        constexpr std::size_t maxTrackedTxns = 4096;
+        ExportSigCollector collector;
+        auto const sig = makeSignature(50);
+
+        for (std::uint32_t i = 0; i < maxTrackedTxns; ++i)
+            collector.addUnverifiedSignature(
+                makeHashFromSeed(i), validator_, sig, 10);
+
+        auto const firstTx = makeHashFromSeed(0);
+        auto const lastTrackedTx =
+            makeHashFromSeed(static_cast<std::uint32_t>(maxTrackedTxns - 1));
+        auto const rejectedTx =
+            makeHashFromSeed(static_cast<std::uint32_t>(maxTrackedTxns));
+        auto const verifiedTx =
+            makeHashFromSeed(static_cast<std::uint32_t>(maxTrackedTxns + 1));
+        auto const other = randomKeyPair(KeyType::secp256k1).first;
+
+        BEAST_EXPECT(collector.hasUnverifiedSignatures());
+        BEAST_EXPECT(collector.unverifiedSignatures(firstTx).size() == 1);
+        BEAST_EXPECT(collector.unverifiedSignatures(lastTrackedTx).size() == 1);
+
+        collector.addUnverifiedSignature(rejectedTx, validator_, sig, 10);
+        BEAST_EXPECT(collector.unverifiedSignatures(rejectedTx).empty());
+
+        // Existing entries remain updateable at the cap.
+        collector.addUnverifiedSignature(firstTx, other, sig, 10);
+        BEAST_EXPECT(collector.unverifiedSignatures(firstTx).size() == 2);
+
+        // Verified entries are real in-ledger exports and are not gated by the
+        // unverified relay-ordering cache cap.
+        collector.addVerifiedSignature(verifiedTx, validator_, sig, 10);
+        BEAST_EXPECT(collector.signatureCount(verifiedTx) == 1);
+    }
+
+    void
     testDefensiveNoOps()
     {
         testcase("defensive no-op paths");
@@ -297,6 +345,7 @@ public:
         testSnapshotsAndFilteredCounts();
         testStandaloneAndRoundState();
         testClearAll();
+        testUnverifiedCacheCap();
         testDefensiveNoOps();
     }
 };

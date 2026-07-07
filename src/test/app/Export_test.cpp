@@ -1189,6 +1189,83 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportNetworkApplyCapsTargetSigners(FeatureBitset features)
+    {
+        testcase("ttEXPORT network apply caps target signer list");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        std::vector<std::pair<PublicKey, SecretKey>> validators;
+        std::vector<PublicKey> activeKeys;
+        validators.reserve(STTx::maxMultiSigners() + 5);
+        activeKeys.reserve(STTx::maxMultiSigners() + 5);
+        while (validators.size() < STTx::maxMultiSigners() + 5)
+        {
+            auto keys = randomKeyPair(KeyType::secp256k1);
+            activeKeys.push_back(keys.first);
+            validators.push_back(std::move(keys));
+        }
+
+        seedUNLReportLedger(env, activeKeys);
+        forceNonStandalone(env.app());
+        BEAST_EXPECT(!env.app().config().standalone());
+
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        auto const applySeq = parent->seq() + 1;
+        auto const ticketSeq = std::uint32_t{1};
+        auto innerObj = buildExportedPayment(
+            alice.id(), carol.id(), applySeq, applySeq + 5, ticketSeq);
+        auto const innerTx = makeSTTx(innerObj);
+        auto jt = makeExportJTx(env, alice, innerObj, applySeq + 5);
+        auto const exportTx = jt.stx;
+        BEAST_EXPECT(exportTx);
+        if (!exportTx)
+            return;
+        auto const txHash = exportTx->getTransactionID();
+
+        ExportResultBuilder::SignatureSnapshot signatures;
+        for (auto const& [pk, sk] : validators)
+            signatures.emplace(
+                pk, ExportResultBuilder::signExportedTxn(innerTx, pk, sk));
+
+        BEAST_EXPECT(signatures.size() > STTx::maxMultiSigners());
+        auto const assembled = ExportResultBuilder::assembleDirect(
+            innerTx, signatures, applySeq, txHash);
+        BEAST_EXPECT(assembled.signerCount == STTx::maxMultiSigners());
+
+        auto const exportSignatureWitnesses =
+            makeExportSignatureWitnesses(txHash, signatures, applySeq);
+        ApplyOptions const applyOptions{
+            &exportSignatureWitnesses,
+            ApplyOptions::ExportWitnessMembership::TrustConsensusMaterialized,
+            false,
+            nullptr};
+
+        auto next = std::make_shared<Ledger>(
+            *parent, env.app().timeKeeper().closeTime());
+        OpenView accum(&*next);
+        auto const result = ripple::apply(
+            env.app(), accum, *exportTx, tapNONE, env.journal, applyOptions);
+        BEAST_EXPECT(result.ter == tesSUCCESS);
+        BEAST_EXPECT(result.applied);
+        accum.apply(*next);
+
+        auto const st = next->read(keylet::shadowTicket(alice.id(), ticketSeq));
+        BEAST_EXPECT(st);
+        if (st)
+            BEAST_EXPECT(
+                st->getFieldH256(sfTransactionHash) == assembled.signedTxHash);
+    }
+
+    void
     testExportShadowTicketInsufficientReserve(FeatureBitset features)
     {
         testcase("ttEXPORT shadow ticket requires owner reserve");
@@ -1780,12 +1857,13 @@ struct Export_test : public beast::unit_test::suite
 
         auto const seq = env.current()->seq();
 
+        std::uint32_t constexpr ticketSeq = 42;
         auto innerObj = buildExportedPayment(
             alice.id(),
             carol.id(),
             seq + 1,
             seq + ExportLimits::maxRetryLedgers,
-            42);
+            ticketSeq);
 
         Json::Value jv;
         jv[jss::TransactionType] = jss::Export;
@@ -1794,11 +1872,22 @@ struct Export_test : public beast::unit_test::suite
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
 
         env(jv, fee(XRP(1)), ter(tesSUCCESS));
-        env.close();
+        auto const meta = env.meta();
+        BEAST_EXPECT(meta);
+        BEAST_EXPECT(
+            (*meta)[sfTransactionResult] ==
+            static_cast<std::uint8_t>(TERtoInt(tesSUCCESS)));
 
-        // In single-node test env, no validator sigs → no quorum →
-        // shadow ticket not created (only created on quorum success).
-        // The export retries or expires without creating the ticket.
+        auto const shadow = env.le(keylet::shadowTicket(alice.id(), ticketSeq));
+        BEAST_EXPECT(shadow);
+        if (shadow)
+        {
+            BEAST_EXPECT(shadow->getAccountID(sfAccount) == alice.id());
+            BEAST_EXPECT(shadow->getFieldU32(sfTicketSequence) == ticketSeq);
+            BEAST_EXPECT(shadow->isFieldPresent(sfTransactionHash));
+        }
+
+        env.close();
     }
 
     void
@@ -1811,7 +1900,8 @@ struct Export_test : public beast::unit_test::suite
         Env env{*this, exportTestConfig(), features};
 
         Account const alice{"alice"};
-        env.fund(XRP(10000), alice);
+        Account const carol{"carol"};
+        env.fund(XRP(10000), alice, carol);
         env.close();
 
         // Cancel non-existent ticket → tecNO_ENTRY
@@ -1821,6 +1911,44 @@ struct Export_test : public beast::unit_test::suite
         jvCancel[sfCancelTicketSequence.jsonName] = 42;
 
         env(jvCancel, fee(XRP(1)), ter(tecNO_ENTRY));
+        env.close();
+
+        std::uint32_t constexpr ticketSeq = 42;
+        auto const seq = env.current()->seq();
+        auto innerObj = buildExportedPayment(
+            alice.id(),
+            carol.id(),
+            seq + 1,
+            seq + ExportLimits::maxRetryLedgers,
+            ticketSeq);
+
+        Json::Value jvExport;
+        jvExport[jss::TransactionType] = jss::Export;
+        jvExport[jss::Account] = alice.human();
+        jvExport[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+        jvExport[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+
+        env(jvExport, fee(XRP(1)), ter(tesSUCCESS));
+        auto const exportMeta = env.meta();
+        BEAST_EXPECT(exportMeta);
+        BEAST_EXPECT(
+            (*exportMeta)[sfTransactionResult] ==
+            static_cast<std::uint8_t>(TERtoInt(tesSUCCESS)));
+        BEAST_EXPECT(env.le(keylet::shadowTicket(alice.id(), ticketSeq)));
+
+        Json::Value jvCancelExisting;
+        jvCancelExisting[jss::TransactionType] = jss::Export;
+        jvCancelExisting[jss::Account] = alice.human();
+        jvCancelExisting[sfCancelTicketSequence.jsonName] = ticketSeq;
+
+        env(jvCancelExisting, fee(XRP(1)), ter(tesSUCCESS));
+        auto const cancelMeta = env.meta();
+        BEAST_EXPECT(cancelMeta);
+        BEAST_EXPECT(
+            (*cancelMeta)[sfTransactionResult] ==
+            static_cast<std::uint8_t>(TERtoInt(tesSUCCESS)));
+        BEAST_EXPECT(!env.le(keylet::shadowTicket(alice.id(), ticketSeq)));
+
         env.close();
     }
 
@@ -2088,6 +2216,7 @@ struct Export_test : public beast::unit_test::suite
         testExportTxnOpenLedger(allWithExport);
         testExportNetworkRetryWithoutQuorum(allWithExport);
         testExportNetworkApplyUsesAgreedSidecar(allWithExport);
+        testExportNetworkApplyCapsTargetSigners(allWithExport);
         testExportShadowTicketInsufficientReserve(allWithExport);
         testExportHistoricalReplayIgnoresCurrentManifestMap(allWithExport);
         testBuildLedgerReplayPrescansExportWitness(allWithExport);
