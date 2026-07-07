@@ -103,6 +103,7 @@ checkProposalExtensions(
     IsEntropyEnabled isEntropyEnabled,
     IsExportEnabled isExportEnabled)
 {
+    //@@start proposal-extension-precheck
     if (proposalHasMalformedHashes(set))
     {
         return {ProposalPrecheckResult::badHashes, std::nullopt};
@@ -168,6 +169,7 @@ checkProposalExtensions(
     }
 
     return {ProposalPrecheckResult::ok, parsedPosition};
+    //@@end proposal-extension-precheck
 }
 
 inline ProposalPrecheck

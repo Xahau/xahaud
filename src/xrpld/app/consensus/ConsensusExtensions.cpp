@@ -1711,11 +1711,13 @@ ConsensusExtensions::recordParticipantDiagnostics(
 void
 ConsensusExtensions::attachParticipantDiagnostics(ExtendedPosition& pos) const
 {
+    //@@start participant-diagnostics-feature-gate
     if (!rngEnabled() && !exportEnabled())
         return;
 
     if (observedParticipantsHash_)
         pos.observedParticipantsHash = observedParticipantsHash_;
+    //@@end participant-diagnostics-feature-gate
 }
 
 std::size_t
@@ -2353,8 +2355,10 @@ ConsensusExtensions::onRoundStart(
     hash_set<NodeID> lastProposers)
 {
     auto const& rules = prevLedger.ledger_->rules();
+    //@@start round-extension-feature-latches
     setRngEnabledThisRound(rules.enabled(featureConsensusEntropy));
     setExportEnabledThisRound(rules.enabled(featureExport));
+    //@@end round-extension-feature-latches
     clearRngState();
 
     roundPrevLedgerHash_ = prevLedger.ledger_->info().hash;
@@ -2583,6 +2587,7 @@ ConsensusExtensions::decoratePosition(
     std::shared_ptr<Ledger const> const& prevLedger,
     bool proposing)
 {
+    //@@start rng-decorate-position-feature-gate
     if (!proposing || !prevLedger->rules().enabled(featureConsensusEntropy))
     {
         JLOG(j_.debug())
@@ -2594,6 +2599,7 @@ ConsensusExtensions::decoratePosition(
             << " prevLedger=" << prevLedger->info().hash;
         return;
     }
+    //@@end rng-decorate-position-feature-gate
 
     auto const& valKeys = app_.getValidatorKeys();
     if (!valKeys.keys || valKeys.nodeID == beast::zero)
@@ -2637,6 +2643,7 @@ ConsensusExtensions::attachExportSignatures(
 {
     auto const& valKeys = app_.getValidatorKeys();
 
+    //@@start export-proposal-signature-feature-gate
     if (!exportEnabled())
         return;
 
@@ -2664,6 +2671,7 @@ ConsensusExtensions::attachExportSignatures(
     auto const openLedger = app_.openLedger().current();
     if (!openLedger || !openLedger->rules().enabled(featureExport))
         return;
+    //@@end export-proposal-signature-feature-gate
 
     if (!valKeys.keys || valKeys.nodeID == beast::zero)
     {

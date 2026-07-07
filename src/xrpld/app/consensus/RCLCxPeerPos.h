@@ -268,6 +268,7 @@ operator<<(std::ostream& os, ExtendedPosition const& pos)
     core tx-set identity, but stripping or mutating it invalidates the signed
     digest before duplicate suppression.
 */
+//@@start proposal-export-signatures-hash
 template <class ExportSignatures>
 uint256
 proposalExportSignaturesHash(ExportSignatures const& exportSignatures)
@@ -278,8 +279,10 @@ proposalExportSignaturesHash(ExportSignatures const& exportSignatures)
         s.addVL(Slice(blob.data(), blob.size()));
     return s.getSHA512Half();
 }
+//@@end proposal-export-signatures-hash
 
 // For hash_append (used in sha512Half and similar)
+//@@start extended-position-hash-append
 template <class Hasher>
 void
 hash_append(Hasher& h, ExtendedPosition const& pos)
@@ -290,6 +293,7 @@ hash_append(Hasher& h, ExtendedPosition const& pos)
     pos.add(s);
     hash_append(h, s.slice());
 }
+//@@end extended-position-hash-append
 
 /** A peer's signed, proposed position for use in RCLConsensus.
 

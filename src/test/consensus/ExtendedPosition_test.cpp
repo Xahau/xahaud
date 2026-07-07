@@ -43,6 +43,7 @@ class ExtendedPosition_test : public beast::unit_test::suite
     {
         testcase("Serialization round-trip");
 
+        //@@start test-extended-position-legacy-compat
         // Empty position (legacy compat)
         {
             auto const txSet = makeHash("txset-a");
@@ -70,6 +71,7 @@ class ExtendedPosition_test : public beast::unit_test::suite
             BEAST_EXPECT(!deserialized->exportSignaturesHash);
             BEAST_EXPECT(!deserialized->observedParticipantsHash);
         }
+        //@@end test-extended-position-legacy-compat
 
         // Position with commitment
         {
@@ -185,6 +187,7 @@ class ExtendedPosition_test : public beast::unit_test::suite
         auto const closeTime =
             NetClock::time_point{NetClock::duration{1234567}};
 
+        //@@start test-extended-position-signing-binds-fields
         // Test with commitment (the case that was failing)
         {
             auto const txSet = makeHash("txset-sign");
@@ -238,6 +241,7 @@ class ExtendedPosition_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 verifyDigest(pk, receivedProp.signingHash(), sig, false));
         }
+        //@@end test-extended-position-signing-binds-fields
 
         // Test without commitment (legacy case)
         {
@@ -462,6 +466,7 @@ class ExtendedPosition_test : public beast::unit_test::suite
     {
         testcase("Malformed payload rejected");
 
+        //@@start test-extended-position-malformed-canonicality
         // Too short (< 32 bytes)
         {
             Serializer s;
@@ -578,6 +583,7 @@ class ExtendedPosition_test : public beast::unit_test::suite
                 BEAST_EXPECT(!result->entropySetHash);
             }
         }
+        //@@end test-extended-position-malformed-canonicality
     }
 
     void
@@ -631,6 +637,7 @@ class ExtendedPosition_test : public beast::unit_test::suite
     {
         testcase("Export signature digest");
 
+        //@@start test-extended-position-export-signature-digest
         std::vector<std::string> blobs;
         blobs.emplace_back("txhash-pubkey-sig-a");
         blobs.emplace_back("txhash-pubkey-sig-b");
@@ -645,6 +652,7 @@ class ExtendedPosition_test : public beast::unit_test::suite
         auto mutated = blobs;
         mutated[1].push_back('x');
         BEAST_EXPECT(digest != proposalExportSignaturesHash(mutated));
+        //@@end test-extended-position-export-signature-digest
     }
 
     void

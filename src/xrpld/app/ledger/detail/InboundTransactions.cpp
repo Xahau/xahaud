@@ -49,6 +49,7 @@ isConsensusExtensionPseudo(TxType txType)
     return txType == ttCONSENSUS_ENTROPY || txType == ttEXPORT_SIGNATURES;
 }
 
+//@@start acquired-ce-pseudo-scan
 bool
 hasAcquiredConsensusExtensionPseudo(
     SHAMap const& set,
@@ -89,6 +90,7 @@ hasAcquiredConsensusExtensionPseudo(
 
     return reject;
 }
+//@@end acquired-ce-pseudo-scan
 
 }  // namespace
 
@@ -248,6 +250,7 @@ public:
         // consensus-extension invariant here: entropy/export witness pseudos
         // are local post-agreement material, not votable network-set members.
         // Legacy fee/amendment/nUNL pseudos remain allowed in base consensus.
+        //@@start acquired-ce-pseudo-reject
         if (fromAcquire &&
             hasAcquiredConsensusExtensionPseudo(*set, hash, j_))
         {
@@ -262,6 +265,7 @@ public:
 
             return;
         }
+        //@@end acquired-ce-pseudo-reject
 
         bool isNew = true;
 

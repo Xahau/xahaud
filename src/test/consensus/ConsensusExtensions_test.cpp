@@ -1343,6 +1343,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     {
         testcase("onRoundStart refreshes extension feature latches");
 
+        //@@start test-round-extension-feature-latches
         using namespace jtx;
         Env enabledEnv{
             *this,
@@ -1383,6 +1384,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!ce.rngEnabled());
         BEAST_EXPECT(!ce.exportEnabled());
         BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 0);
+        //@@end test-round-extension-feature-latches
     }
 
     void
@@ -2282,6 +2284,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     {
         testcase("Network-acquired sets cannot contain consensus entropy txs");
 
+        //@@start test-acquired-ce-pseudo-reject
         using namespace jtx;
         Env env{
             *this, envconfig(validator, ""), supported_amendments(), nullptr};
@@ -2319,6 +2322,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(localSet);
         if (localSet)
             BEAST_EXPECT(localSet->getHash().as_uint256() == entropyHash);
+        //@@end test-acquired-ce-pseudo-reject
     }
 
     void
@@ -2809,6 +2813,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     {
         testcase("decoratePosition skips without amendment");
 
+        //@@start test-decorate-position-disabled-legacy
         using namespace jtx;
         Env env{
             *this, envconfig(validator, ""), supported_amendments(), nullptr};
@@ -2824,6 +2829,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ExtendedPosition skipped{makeHash("decorate-position-skipped")};
         ce.decoratePosition(skipped, ledger, false);
         BEAST_EXPECT(!skipped.myCommitment);
+        //@@end test-decorate-position-disabled-legacy
     }
 
     void
@@ -3785,6 +3791,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             NetClock::time_point{},
             env.app().getValidatorKeys().nodeID};
         ConsensusExtensions disabled{env.app(), activeNoopJournal()};
+        //@@start test-export-attachment-disabled
         disabled.attachExportSignatures(prop, proposal);
         BEAST_EXPECT(prop.exportsignatures_size() == 0);
 
@@ -3793,6 +3800,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         env.app().getRuntimeConfig().setGlobalConfig(cfg);
         ce.attachExportSignatures(prop, proposal);
         BEAST_EXPECT(prop.exportsignatures_size() == 0);
+        //@@end test-export-attachment-disabled
     }
 
     void

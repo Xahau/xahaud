@@ -205,11 +205,13 @@ RCLConsensus::Adaptor::share(RCLCxPeerPos const& peerPos)
     prop.set_proposeseq(proposal.proposeSeq());
     prop.set_closetime(proposal.closeTime().time_since_epoch().count());
 
+    //@@start relay-proposal-position-payload
     // Serialize full ExtendedPosition
     Serializer positionData;
     proposal.position().add(positionData);
     auto const posSlice = positionData.slice();
     prop.set_currenttxhash(posSlice.data(), posSlice.size());
+    //@@end relay-proposal-position-payload
 
     prop.set_previousledger(
         proposal.prevLedger().begin(), proposal.prevLedger().size());
@@ -274,12 +276,14 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
 
     ce().attachParticipantDiagnostics(wirePosition);
 
+    //@@start local-proposal-position-payload
     // Serialize full ExtendedPosition (includes RNG leaves, export signature
     // digest, and signed diagnostics)
     Serializer positionData;
     wirePosition.add(positionData);
     auto const posSlice = positionData.slice();
     prop.set_currenttxhash(posSlice.data(), posSlice.size());
+    //@@end local-proposal-position-payload
 
     prop.set_previousledger(
         proposal.prevLedger().begin(), proposal.prevLedger().size());
@@ -1125,10 +1129,12 @@ RCLConsensus::Adaptor::preStartRound(
     RCLCxLedger const& prevLgr,
     hash_set<NodeID> const& nowTrusted)
 {
+    //@@start pre-start-round-extension-latches
     ce().setRngEnabledThisRound(
         prevLgr.ledger_->rules().enabled(featureConsensusEntropy));
     ce().setExportEnabledThisRound(
         prevLgr.ledger_->rules().enabled(featureExport));
+    //@@end pre-start-round-extension-latches
 
     JLOG(j_.trace()) << "RNGGATE: preStartRound"
                      << " prevSeq=" << prevLgr.seq()

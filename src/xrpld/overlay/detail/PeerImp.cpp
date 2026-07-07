@@ -1743,6 +1743,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
 
     uint256 const prevLedger{set.previousledger()};
 
+    //@@start peer-proposal-extension-precheck
     bool prevLedgerLoaded = false;
     std::shared_ptr<Ledger const> proposalParent;
     auto const featureEnabled = [&](uint256 const& feature) {
@@ -1770,6 +1771,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         return;
     }
     auto const& parsedPosition = *precheck.position;
+    //@@end peer-proposal-extension-precheck
 
     NetClock::time_point const closeTime{NetClock::duration{set.closetime()}};
 

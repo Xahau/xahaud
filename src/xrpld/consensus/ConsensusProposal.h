@@ -239,6 +239,7 @@ public:
     }
 
     //! The digest for this proposal, used for signing purposes.
+    //@@start consensus-proposal-signing-hash
     uint256 const&
     signingHash() const
     {
@@ -254,6 +255,7 @@ public:
 
         return signingHash_.value();
     }
+    //@@end consensus-proposal-signing-hash
 
 private:
     //! Unique identifier of prior ledger this proposal is based on

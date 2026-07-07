@@ -60,6 +60,7 @@ public:
     {
         using enum detail::ProposalPrecheckResult;
 
+        //@@start test-proposal-precheck-legacy-ok
         testcase("legacy and extended ok");
         {
             protocol::TMProposeSet set;
@@ -75,6 +76,7 @@ public:
                 BEAST_EXPECT(
                     precheck.position->txSetHash == position.txSetHash);
         }
+        //@@end test-proposal-precheck-legacy-ok
 
         testcase("feature predicates are lazy");
         {
@@ -151,6 +153,7 @@ public:
                 badHashes);
         }
 
+        //@@start test-proposal-extension-feature-gating
         testcase("feature gating");
         {
             protocol::TMProposeSet entropySet;
@@ -187,7 +190,9 @@ public:
                 detail::checkProposalExtensions(exportSet, true, false)
                     .result == exportDisabled);
         }
+        //@@end test-proposal-extension-feature-gating
 
+        //@@start test-proposal-export-signature-binding
         testcase("export signature binding");
         {
             protocol::TMProposeSet tooMany;
@@ -269,6 +274,7 @@ public:
                 detail::checkProposalExtensions(maxSized, true, true).result ==
                 ok);
         }
+        //@@end test-proposal-export-signature-binding
 
         testcase("rejection diagnostics");
         {
