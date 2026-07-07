@@ -1073,6 +1073,77 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testActiveValidatorViewCapsNegativeUNL()
+    {
+        testcase("Active validator view caps NegativeUNL against active set");
+
+        constexpr std::size_t kOriginal = 10;
+        constexpr std::size_t kLegalDisable = 3;
+        constexpr std::size_t kOverCapDisable = 8;
+
+        std::vector<PublicKey> activeKeys;
+        activeKeys.reserve(kOriginal);
+        for (std::size_t i = 0; i < kOriginal; ++i)
+            activeKeys.push_back(randomKeyPair(KeyType::secp256k1).first);
+
+        auto makeSource = [&](std::size_t disabledCount) {
+            ActiveValidatorViewSource source;
+            source.sourceLedgerHash = makeHash("active-validator-view-cap");
+            source.unlReportMasterKeys.emplace();
+            for (auto const& masterKey : activeKeys)
+                source.unlReportMasterKeys->insert(masterKey);
+            source.negativeUNLEnabled = true;
+            for (std::size_t i = 0; i < disabledCount; ++i)
+                source.negativeUNL.insert(activeKeys[i]);
+            return source;
+        };
+
+        ActiveValidatorViewFallback fallback;
+
+        auto const legalView =
+            buildActiveValidatorView(makeSource(kLegalDisable), fallback);
+        BEAST_EXPECT(legalView.fromUNLReport);
+        BEAST_EXPECT(legalView.originalViewSize == kOriginal);
+        BEAST_EXPECT(legalView.size() == kOriginal - kLegalDisable);
+        for (std::size_t i = 0; i < kLegalDisable; ++i)
+            BEAST_EXPECT(!legalView.containsMaster(activeKeys[i]));
+
+        auto const source = makeSource(kOverCapDisable);
+        auto const cappedView = buildActiveValidatorView(source, fallback);
+
+        BEAST_EXPECT(cappedView.fromUNLReport);
+        BEAST_EXPECT(cappedView.sourceLedgerHash == source.sourceLedgerHash);
+        BEAST_EXPECT(cappedView.originalViewSize == kOriginal);
+        BEAST_EXPECT(cappedView.size() == kOriginal - kLegalDisable);
+
+        std::vector<PublicKey> cappedDisabled(
+            activeKeys.begin(), activeKeys.begin() + kOverCapDisable);
+        std::sort(cappedDisabled.begin(), cappedDisabled.end());
+
+        for (std::size_t i = 0; i < cappedDisabled.size(); ++i)
+        {
+            auto const wasCanonicallyRemoved = i < kLegalDisable;
+            if (wasCanonicallyRemoved)
+                BEAST_EXPECT(!cappedView.containsMaster(cappedDisabled[i]));
+            else
+                BEAST_EXPECT(cappedView.containsMaster(cappedDisabled[i]));
+        }
+
+        BEAST_EXPECT(
+            ConsensusExtensions::entropyGateThresholdForView(2, kOriginal) ==
+            2);
+        BEAST_EXPECT(
+            ConsensusExtensions::entropyGateThresholdForView(
+                cappedView.size(), cappedView.originalViewSize) == 6);
+        BEAST_EXPECT(
+            ConsensusExtensions::selectEntropyTierForView(
+                true, 2, cappedView.size(), cappedView.originalViewSize) ==
+            entropyTierConsensusFallback);
+        BEAST_EXPECT(
+            ConsensusExtensions::exportSigQuorumThreshold(cappedView) == 6);
+    }
+
+    void
     testActiveValidatorViewNullSourceAndExpectedProposers()
     {
         testcase("Active validator view null source and expected proposers");
@@ -3737,6 +3808,7 @@ public:
         testActiveValidatorViewBuilderPrefersUNLReport();
         testActiveValidatorViewBuilderFallback();
         testActiveValidatorViewAppliesNegativeUNL();
+        testActiveValidatorViewCapsNegativeUNL();
         testActiveValidatorViewNullSourceAndExpectedProposers();
         testParticipantThreshold();
         testThresholdPolicyHelpers();

@@ -40,11 +40,12 @@ struct ActiveValidatorView
     bool fromUNLReport = false;
 
     // Master-key count BEFORE the negativeUNL subtraction (see
-    // buildActiveValidatorView). size() is the effective (post-nUNL) view;
-    // originalViewSize is the original-UNL denominator that tier thresholds
-    // anchored to the original view (the participant_aligned intersection
-    // floor) must use, because nUNL can shrink the effective view while leaving
-    // faulty nodes in it.
+    // buildActiveValidatorView). size() is the effective (post-nUNL) view,
+    // capped so NegativeUNL cannot remove more than ceil(originalViewSize / 4)
+    // UNLReport-active validators; originalViewSize is the original-UNL
+    // denominator that tier thresholds anchored to the original view (the
+    // participant_aligned intersection floor) must use, because nUNL can shrink
+    // the effective view while leaving faulty nodes in it.
     std::size_t originalViewSize = 0;
 
     // Export paths receive validator keys; RNG sidecars identify validators by
