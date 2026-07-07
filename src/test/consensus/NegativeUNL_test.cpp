@@ -548,8 +548,12 @@ struct NetworkHistory
         std::optional<int> numLedgers;
     };
 
-    NetworkHistory(beast::unit_test::suite& suite, Parameter const& p)
-        : env(suite, jtx::supported_amendments() | featureNegativeUNL)
+    NetworkHistory(
+        beast::unit_test::suite& suite,
+        Parameter const& p,
+        FeatureBitset features = jtx::supported_amendments() |
+            featureNegativeUNL)
+        : env(suite, features | featureNegativeUNL)
         , param(p)
         , validations(env.app().getValidations())
     {
@@ -1123,6 +1127,41 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
     }
 
     void
+    testFindAllCandidatesWithActiveViewCap()
+    {
+        testcase("Find All Candidates with active-view cap denominator");
+
+        jtx::Env env(*this);
+        NegativeUNLVote vote(NodeID(0xA0), env.journal, env.app());
+
+        std::vector<NodeID> nodeIds;
+        hash_set<NodeID> unl;
+        hash_set<NodeID> negUnl;
+        hash_map<NodeID, std::uint32_t> scoreTable;
+
+        for (std::size_t i = 0; i < 20; ++i)
+        {
+            nodeIds.emplace_back(i + 1);
+            unl.insert(nodeIds.back());
+            scoreTable[nodeIds.back()] =
+                NegativeUNLVote::negativeUNLLowWaterMark - 1;
+        }
+
+        for (std::size_t i = 0; i < 3; ++i)
+            negUnl.insert(nodeIds[i]);
+
+        auto const legacyCandidates =
+            vote.findAllCandidates(unl, negUnl, scoreTable);
+        BEAST_EXPECT(legacyCandidates.toDisableCandidates.size() == 17);
+        BEAST_EXPECT(legacyCandidates.toReEnableCandidates.empty());
+
+        auto const activeViewCandidates =
+            vote.findAllCandidates(unl, negUnl, scoreTable, 10);
+        BEAST_EXPECT(activeViewCandidates.toDisableCandidates.empty());
+        BEAST_EXPECT(activeViewCandidates.toReEnableCandidates.empty());
+    }
+
+    void
     testFindAllCandidatesCombination()
     {
         testcase("Find All Candidates Combination");
@@ -1377,6 +1416,7 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
         testPickOneCandidate();
         testBuildScoreTableSpecialCases();
         testFindAllCandidates();
+        testFindAllCandidatesWithActiveViewCap();
         testFindAllCandidatesCombination();
         testNewValidators();
     }
@@ -1616,6 +1656,62 @@ class NegativeUNLVoteOffline_test : public beast::unit_test::suite
 class NegativeUNLVoteMaxListed_test : public beast::unit_test::suite
 {
     void
+    seedUNLReport(NetworkHistory& history, std::size_t activeCount)
+    {
+        BEAST_EXPECT(activeCount <= history.UNLKeys.size());
+        auto& ledger = history.history.back();
+        OpenView accum(&*ledger);
+        PublicKey const importKey = history.UNLKeys.back();
+
+        for (std::size_t i = 0; i < activeCount; ++i)
+        {
+            auto tx = unl::createUNLReportTx(
+                ledger->seq(), importKey, history.UNLKeys[i]);
+            BEAST_EXPECT(unl::applyAndTestResult(history.env, accum, tx, true));
+        }
+
+        accum.apply(*ledger);
+
+        auto const sle = ledger->read(keylet::UNLReport());
+        BEAST_EXPECT(sle);
+        if (sle)
+        {
+            BEAST_EXPECT(sle->isFieldPresent(sfActiveValidators));
+            if (sle->isFieldPresent(sfActiveValidators))
+                BEAST_EXPECT(
+                    sle->getFieldArray(sfActiveValidators).size() ==
+                    activeCount);
+        }
+    }
+
+    std::size_t
+    voteCountWithUNLReport(FeatureBitset features)
+    {
+        NetworkHistory history = {*this, {20, 3, false, false, {}}, features};
+        BEAST_EXPECT(history.goodHistory);
+        if (!history.goodHistory)
+            return 0;
+
+        seedUNLReport(history, 10);
+        history.walkHistoryAndAddValidations(
+            [&](std::shared_ptr<Ledger const> const&, std::size_t idx) -> bool {
+                return idx == history.UNLNodeIDs.size() - 1;
+            });
+
+        NegativeUNLVote vote(
+            history.UNLNodeIDs.back(), history.env.journal, history.env.app());
+        auto txSet = std::make_shared<SHAMap>(
+            SHAMapType::TRANSACTION, history.env.app().getNodeFamily());
+        vote.doVoting(
+            history.lastLedger(),
+            history.UNLKeySet,
+            history.validations,
+            txSet);
+
+        return unl::countTx(txSet);
+    }
+
+    void
     testMaxListedPolicy()
     {
         testcase("Max listed policy");
@@ -1655,6 +1751,20 @@ class NegativeUNLVoteMaxListed_test : public beast::unit_test::suite
                 BEAST_EXPECT(
                     voteAndCheck(history, history.UNLNodeIDs.back(), 0));
             }
+        }
+
+        {
+            // The same reliability state produces a fourth disable vote under
+            // the legacy trusted-UNL denominator, but not when the amended cap
+            // uses the parent-ledger UNLReport active denominator.
+            auto const legacyFeatures = (jtx::supported_amendments() -
+                                         featureNegativeUNLActiveViewCap) |
+                featureNegativeUNL;
+            BEAST_EXPECT(voteCountWithUNLReport(legacyFeatures) == 1);
+
+            auto const activeViewCapFeatures = jtx::supported_amendments() |
+                featureNegativeUNLActiveViewCap | featureNegativeUNL;
+            BEAST_EXPECT(voteCountWithUNLReport(activeViewCapFeatures) == 0);
         }
     }
 

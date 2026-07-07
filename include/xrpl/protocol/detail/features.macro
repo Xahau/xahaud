@@ -65,6 +65,7 @@ XRPL_FEATURE(AMM,                        Supported::no,  VoteBehavior::DefaultNo
 XRPL_FIX    (ReducedOffersV1,            Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(HooksUpdate2,               Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(HookOnV2,                   Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FEATURE(NegativeUNLActiveViewCap,   Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(Export,                     Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(ConsensusEntropy,           Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (HookAPI20251128,            Supported::yes, VoteBehavior::DefaultYes)

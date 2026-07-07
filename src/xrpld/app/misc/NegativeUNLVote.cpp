@@ -26,6 +26,42 @@
 
 namespace ripple {
 
+namespace {
+
+//@@start negative-unl-active-view-cap-denominator
+std::optional<std::size_t>
+negativeUNLActiveViewCapDenominator(
+    std::shared_ptr<Ledger const> const& prevLedger)
+{
+    if (!prevLedger ||
+        !prevLedger->rules().enabled(featureNegativeUNLActiveViewCap))
+    {
+        return std::nullopt;
+    }
+
+    auto const sle = prevLedger->read(keylet::UNLReport());
+    if (!sle || !sle->isFieldPresent(sfActiveValidators))
+        return std::nullopt;
+
+    hash_set<PublicKey> activeKeys;
+    for (auto const& obj : sle->getFieldArray(sfActiveValidators))
+    {
+        auto const pk = obj.getFieldVL(sfPublicKey);
+        if (!publicKeyType(makeSlice(pk)))
+            continue;
+
+        activeKeys.insert(PublicKey{makeSlice(pk)});
+    }
+
+    if (activeKeys.empty())
+        return std::nullopt;
+
+    return activeKeys.size();
+}
+//@@end negative-unl-active-view-cap-denominator
+
+}  // namespace
+
 NegativeUNLVote::NegativeUNLVote(
     NodeID const& myId,
     beast::Journal j,
@@ -86,8 +122,13 @@ NegativeUNLVote::doVoting(
         purgeNewValidators(seq);
 
         // Process the table and find all candidates to disable or to re-enable
-        auto const candidates =
-            findAllCandidates(unlNodeIDs, negUnlNodeIDs, *scoreTable);
+        //@@start negative-unl-vote-active-view-cap-use
+        auto const candidates = findAllCandidates(
+            unlNodeIDs,
+            negUnlNodeIDs,
+            *scoreTable,
+            negativeUNLActiveViewCapDenominator(prevLedger));
+        //@@end negative-unl-vote-active-view-cap-use
 
         // Pick one to disable and one to re-enable if any, add ttUNL_MODIFY Tx
         if (!candidates.toDisableCandidates.empty())
@@ -364,11 +405,13 @@ NegativeUNLVote::Candidates const
 NegativeUNLVote::findAllCandidates(
     hash_set<NodeID> const& unl,
     hash_set<NodeID> const& negUnl,
-    hash_map<NodeID, std::uint32_t> const& scoreTable)
+    hash_map<NodeID, std::uint32_t> const& scoreTable,
+    std::optional<std::size_t> capDenominator)
 {
     // Compute if need to find more validators to disable
     auto const canAdd = [&]() -> bool {
-        auto const maxNegativeListed = maxNegativeUNLListed(unl.size());
+        auto const maxNegativeListed =
+            maxNegativeUNLListed(capDenominator.value_or(unl.size()));
         std::size_t negativeListed = 0;
         for (auto const& n : unl)
         {

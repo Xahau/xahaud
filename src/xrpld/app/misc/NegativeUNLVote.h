@@ -231,13 +231,16 @@ private:
      * @param unl the trusted master keys
      * @param negUnl the NegativeUNL
      * @param scoreTable the score table
+     * @param capDenominator the denominator to use for the 25% disable cap,
+     *        or empty to use the trusted UNL size
      * @return the candidates to disable and the candidates to re-enable
      */
     Candidates const
     findAllCandidates(
         hash_set<NodeID> const& unl,
         hash_set<NodeID> const& negUnl,
-        hash_map<NodeID, std::uint32_t> const& scoreTable);
+        hash_map<NodeID, std::uint32_t> const& scoreTable,
+        std::optional<std::size_t> capDenominator = std::nullopt);
 
     /**
      * Purge validators that are not new anymore.
