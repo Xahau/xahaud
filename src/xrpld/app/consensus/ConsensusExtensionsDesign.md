@@ -455,6 +455,17 @@ static destination SignerList should remain anchored to the original source
 universe during NegativeUNL periods, trading Export liveness for unchanged
 destination authority.
 
+A hardened deployment may add a separate mandatory executor signer to the
+destination SignerList. Choose weights so destination quorum requires both the
+source-validator threshold and the executor; for validator weight total `V` and
+required validator weight `q`, executor weight `V` with target quorum `V + q`
+is the simple construction. Proposal-carried validator shares then remain inert
+until the executor observes a validated source latch and signs. The executor
+cannot authorize alone but becomes a liveness and censorship dependency. It
+consumes one destination SignerList entry, so this profile supports at most 31
+source validator identities under a 32-entry limit, and it does not solve XPOP
+replay after target execution.
+
 The extended proposal machinery is enabled when either feature needs signed
 sidecar fields. Do not make Export depend on RNG availability just because RNG
 was the first consumer of `ExtendedPosition`.

@@ -145,6 +145,16 @@ SignerList is static, configure it against the original pre-NegativeUNL source
 universe and accept reduced Export liveness during NegativeUNL periods rather
 than lowering destination authority.
 
+An optional stronger deployment profile adds a separate mandatory executor
+signer. If validator weights total `V`, validator threshold is `q`, executor
+weight is `C`, and target quorum is `C + q > V`, validator shares alone cannot
+execute and the executor still needs validator weight `q`. The executor signs
+only after observing the validated source latch. This converts the executor into
+a liveness/censorship dependency, not a sole safety authority, and does not
+replace callback replay protection after target execution. A separate executor
+also consumes one target SignerList entry, leaving at most 31 source validator
+identities under a 32-entry destination limit.
+
 ## Replay Witness Shape
 
 The accepted local export sidecar snapshot is not consumed directly by
