@@ -50,9 +50,10 @@ signer set selected for the ledger.
 If export sidecar material changes closed-ledger output, that material must be
 represented by canonical ledger input before apply. The closed ledger must be
 replayable from `(parent ledger, ordered closed transaction set)` without live
-consensus sidecar memory. Export signatures are such a witness: if they determine
-the shadow-ticket hash or exported result, they must be carried by a replayable
-companion pseudo transaction or equivalent transaction-stream artifact.
+consensus sidecar memory. Export signatures are such a witness: they determine
+source quorum success and exported-result metadata, so they must be carried by
+a replayable companion pseudo transaction or equivalent transaction-stream
+artifact. The shadow-ticket intent hash is signature-independent.
 *Anti-pattern:* using ephemeral accepted sidecar state to create a shadow ticket
 or result that cannot be reconstructed by ledger delta replay.
 
@@ -95,10 +96,29 @@ live collector state, late proposal arrivals, or a node-local sub-quorum set
 instead of the accepted witness in the transaction stream.
 
 **INV-7 — Shadow tickets are latches, not global tombstones.**
-The current shadow-ticket object prevents a different XPOP from consuming the
-same live latch, but deletion permits a later re-mint of the same
-`(account, ticketSequence)` latch. Replay protection beyond that is a separate
-protocol decision, not an implicit property of shadow tickets.
+The shadow-ticket object binds the canonical target signing intent,
+not one authorization-envelope-dependent target transaction ID. Any
+destination-valid execution of that exact intent may complete the callback.
+Deletion permits a later re-mint of the same `(account, ticketSequence)` latch,
+so replay protection beyond the live latch is a separate protocol decision, not
+an implicit property of shadow tickets.
+
+**INV-8 — Export signatures are public capabilities.**
+Proposal-carried signature shares may be observed, assembled, and submitted as
+soon as destination quorum exists. Source-side witness agreement governs what
+Xahau records; it is not a confidentiality or destination-execution gate.
+Import therefore waits outside consensus when its shadow ticket does not yet
+exist and matches a later XPOP against the signature-independent intent.
+*Anti-pattern:* relying on proposal timing or canonical signer selection to
+hide or delay an otherwise valid destination transaction.
+
+**INV-9 — The active source authority must fit the destination protocol.**
+Export does not publish shares without a ledger-anchored `UNLReport`, and does
+not publish shares or materialize a result when the source validator population
+before NegativeUNL filtering exceeds `STTx::maxMultiSigners()`. Silently
+selecting a capped subset would replace source-view authority with an implicit
+bridge committee. Any future bounded committee must be an explicit, separately
+reviewed policy.
 
 ## Replay Witness Shape
 

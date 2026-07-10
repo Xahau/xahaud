@@ -1220,14 +1220,12 @@ public:
             applyCtx.view(),
             alice.id(),
             importingTx,
-            importingTx.getTransactionID(),
             priorBalance,
             env.journal)));
         BEAST_EXPECT(isTesSuccess(ExportLedgerOps::createShadowTicket(
             applyCtx.view(),
             alice.id(),
             otherTx,
-            otherTx.getTransactionID(),
             priorBalance,
             env.journal)));
 
@@ -1257,14 +1255,12 @@ public:
             exportApplyCtx.view(),
             alice.id(),
             importingTx,
-            importingTx.getTransactionID(),
             priorBalance,
             env.journal)));
         BEAST_EXPECT(isTesSuccess(ExportLedgerOps::createShadowTicket(
             exportApplyCtx.view(),
             alice.id(),
             exportOtherTx,
-            exportOtherTx.getTransactionID(),
             priorBalance,
             env.journal)));
         auto exportHookCtx =

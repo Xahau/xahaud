@@ -56,6 +56,11 @@ Export::preclaim(PreclaimContext const& ctx)
     if (!innerTx)
         return temMALFORMED;
 
+    if (auto ter =
+            ExportLedgerOps::validateExportSigningFields(*innerTx, ctx.j);
+        !isTesSuccess(ter))
+        return ter;
+
     if (auto ter = ExportLedgerOps::validateExportAccount(
             *innerTx, ctx.tx.getAccountID(sfAccount), ctx.j);
         !isTesSuccess(ter))
@@ -170,6 +175,7 @@ Export::doApply()
     // mutable apply view or cached RNG state, so apply order cannot move
     // quorum.
     auto const unlSize = validatorView->size();
+    auto const originalUNLSize = validatorView->originalViewSize;
 
     // Network mode: active-view 80% quorum. Standalone mode uses a local
     // one-signer witness synthesized in onPreBuild. Both paths consume the same
@@ -210,7 +216,20 @@ Export::doApply()
         ? 1
         : ConsensusExtensions::exportSigQuorumThreshold(*validatorView);
 
-    if (!standalone && !validatorView->fromUNLReport)
+    bool const activeViewFitsTarget =
+        standalone ||
+        ConsensusExtensions::exportAuthorityFitsTargetSignerCap(
+            *validatorView, STTx::maxMultiSigners());
+    if (!activeViewFitsTarget)
+    {
+        JLOG(j_.warn())
+            << "Export: retrying because source authority exceeds target "
+               "signer cap"
+            << " txHash=" << txId << " ledgerSeq=" << currentSeq
+            << " unlSize=" << unlSize << " originalUNLSize=" << originalUNLSize
+            << " targetSignerCap=" << STTx::maxMultiSigners();
+    }
+    else if (!standalone && !validatorView->fromUNLReport)
     {
         JLOG(j_.warn())
             << "Export: retrying without ledger-anchored validator view"
@@ -321,13 +340,13 @@ Export::doApply()
     auto assembled = ExportResultBuilder::assembleClosedLedger(
         *innerTx, signatures, currentSeq, txId, *exportSignatureHash);
 
-    // Create the shadow ticket with the signed tx hash.
+    // Bind the callback latch to the unsigned target intent. Different valid
+    // signer subsets produce different transaction IDs on the target chain.
     {
         TER ter = ExportLedgerOps::createShadowTicket(
             view(),
             account,
             *innerTx,
-            assembled.signedTxHash,
             mPriorBalance,
             j_);
         if (!isTesSuccess(ter))

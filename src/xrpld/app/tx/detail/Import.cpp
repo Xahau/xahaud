@@ -20,6 +20,7 @@
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/consensus/ConsensusParms.h>
@@ -325,7 +326,7 @@ Import::preflight(PreflightContext const& ctx)
 
     // B2M imports use OperationLimit to target this network and therefore
     // reject inner NetworkID. Export callbacks may carry a target NetworkID;
-    // the shadow ticket binds the exact signed target transaction hash.
+    // the shadow ticket binds the canonical target signing intent.
     if (!hasTicket && stpTrans->isFieldPresent(sfNetworkID))
     {
         JLOG(ctx.j.warn()) << "Import: attempted to import xpop containing a "
@@ -1033,26 +1034,28 @@ Import::preclaim(PreclaimContext const& ctx)
             return telSHADOW_TICKET_REQUIRED;
         }
 
-        // Verify the imported XPOP matches the export that created
-        // this shadow ticket (prevents using a different XPOP with
-        // the same TicketSequence).
+        // Verify the imported XPOP matches the export that created this shadow
+        // ticket. The identity excludes signer-dependent fields so any target-
+        // valid signer subset for the exact intent can complete the callback.
         //
-        // This guards only a *different* XPOP against a *live* latch. It does
-        // NOT prevent re-importing the SAME XPOP after the latch is consumed
-        // and recreated (see ExportLedgerOps::createShadowTicket): the ticket
-        // path deliberately skips the monotonic sfImportSequence guard used by
-        // the Burn-to-Mint path, so a value-bearing callback hook must itself
-        // dedup on the XPOP/signed target transaction hash or a hook-defined
-        // business key to be replay-safe.
-        auto const expectedHash = stSle->getFieldH256(sfTransactionHash);
+        // This guards only a different intent against a live latch. It does NOT
+        // prevent re-importing the SAME XPOP after the latch is consumed and
+        // recreated (see ExportLedgerOps::createShadowTicket): the ticket path
+        // deliberately skips the monotonic sfImportSequence guard used by the
+        // Burn-to-Mint path, so a value-bearing callback hook must itself dedup
+        // on the XPOP target transaction hash or a hook-defined business key.
+        auto const expectedHash = stSle->getFieldH256(sfDigest);
+        auto const actualHash =
+            ExportResultBuilder::exportIntentHash(*stpTrans);
         JLOG(ctx.j.trace())
-            << "Import preclaim: shadowTicket hash=" << expectedHash
+            << "Import preclaim: shadowTicket intent=" << expectedHash
+            << " xpopIntent=" << actualHash
             << " xpopTxHash=" << stpTrans->getTransactionID()
-            << " match=" << (expectedHash == stpTrans->getTransactionID());
-        if (expectedHash != stpTrans->getTransactionID())
+            << " match=" << (expectedHash == actualHash);
+        if (expectedHash != actualHash)
         {
             JLOG(ctx.j.warn())
-                << "Import: XPOP tx hash does not match shadow ticket.";
+                << "Import: XPOP intent does not match shadow ticket.";
             return temMALFORMED;
         }
     }

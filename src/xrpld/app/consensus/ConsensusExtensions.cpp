@@ -360,6 +360,16 @@ ConsensusExtensions::exportSigQuorumThreshold(
     return safeQuorumThreshold(base);
 }
 
+bool
+ConsensusExtensions::exportAuthorityFitsTargetSignerCap(
+    ActiveValidatorView const& validatorView,
+    std::size_t targetSignerCap)
+{
+    // NegativeUNL is temporary. The destination signer policy must be able to
+    // represent every validator that can return to the effective source view.
+    return validatorView.originalViewSize <= targetSignerCap;
+}
+
 std::size_t
 ConsensusExtensions::tier2Threshold() const
 {
@@ -2086,10 +2096,11 @@ ConsensusExtensions::onPreBuild(
                     retriableTxs.erase(existing);
                 }
 
-                // Export signatures change the shadow-ticket hash, so they
-                // must be tx-stream input, not only accepted sidecar memory.
-                // The matching ttEXPORT consumes this pseudo through the
-                // BuildLedger pre-scan; the pseudo itself has no ledger effect.
+                // Export signatures determine source quorum success and the
+                // exported-result witness reference, so they must be tx-stream
+                // input, not only accepted sidecar memory. The matching
+                // ttEXPORT consumes this pseudo through the BuildLedger
+                // pre-scan; the pseudo itself has no ledger effect.
                 retriableTxs.insert(std::make_shared<STTx>(std::move(witness)));
             }
         }
@@ -2684,6 +2695,29 @@ ConsensusExtensions::attachExportSignatures(
 
     auto const& valPK = valKeys.keys->publicKey;
     auto const& valSK = valKeys.keys->secretKey;
+    auto const validatorView = activeValidatorView();
+    if (!validatorView->fromUNLReport)
+    {
+        // Proposal signatures are immediately usable target-chain
+        // capabilities. Do not publish them from a local fallback authority
+        // when closed-ledger apply cannot create the matching source latch.
+        JLOG(j_.debug()) << "Export: skipping proposal signatures"
+                         << " reason=no-ledger-anchored-validator-view";
+        return;
+    }
+
+    if (!exportAuthorityFitsTargetSignerCap(
+            *validatorView, STTx::maxMultiSigners()))
+    {
+        JLOG(j_.warn()) << "Export: skipping proposal signatures"
+                        << " reason=source-authority-exceeds-target-signer-cap"
+                        << " activeValidators=" << validatorView->size()
+                        << " originalValidators="
+                        << validatorView->originalViewSize
+                        << " targetSignerCap=" << STTx::maxMultiSigners();
+        return;
+    }
+
     // A locally configured validator may be trusted but not active for this
     // round; only active validators should advertise export signatures.
     if (!isActiveValidator(valPK))

@@ -134,6 +134,7 @@ struct Export_test : public beast::unit_test::suite
     struct CallbackXPOP
     {
         Json::Value xpopJson;
+        Json::Value exportedTxnJson;
         std::uint32_t ticketSeq;
         std::optional<std::pair<std::uint32_t, PublicKey>> vlInfo;
     };
@@ -322,7 +323,8 @@ struct Export_test : public beast::unit_test::suite
         auto const vlInfo = getVLInfo(xpopJson, nullJournal);
         BEAST_EXPECT(vlInfo);
 
-        return CallbackXPOP{xpopJson, ticketSeq, vlInfo};
+        return CallbackXPOP{
+            xpopJson, innerObj.getJson(JsonOptions::none), ticketSeq, vlInfo};
     }
 
     void
@@ -1093,6 +1095,84 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportProposalSigningRequiresBoundedUNLReport(FeatureBitset features)
+    {
+        testcase("Export proposal signing requires bounded UNLReport");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto submitOpenExport = [&](std::uint32_t ticketSeq) {
+            auto const seq = env.current()->seq();
+            auto innerObj = buildExportedPayment(
+                alice.id(),
+                carol.id(),
+                seq + 1,
+                seq + ExportLimits::maxRetryLedgers,
+                ticketSeq);
+            Json::Value jv;
+            jv[jss::TransactionType] = jss::Export;
+            jv[jss::Account] = alice.human();
+            jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+            jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+            env(jv, fee(XRP(1)), ter(tesSUCCESS));
+        };
+
+        auto attach = [&](ConsensusExtensions& ce) {
+            protocol::TMProposeSet prop;
+            auto const closed = env.app().getLedgerMaster().getClosedLedger();
+            RCLCxPeerPos::Proposal proposal{
+                closed->info().hash,
+                0,
+                ExtendedPosition{closed->info().txHash},
+                NetClock::time_point{},
+                NetClock::time_point{},
+                env.app().getValidatorKeys().nodeID};
+            ce.attachExportSignatures(prop, proposal);
+            return prop.exportsignatures_size();
+        };
+
+        auto& ce = env.app().getConsensusExtensions();
+        ce.setExportEnabledThisRound(true);
+        ce.cacheUNLReport(env.app().getLedgerMaster().getClosedLedger());
+        BEAST_EXPECT(!ce.activeValidatorView()->fromUNLReport);
+
+        submitOpenExport(1);
+        BEAST_EXPECT(attach(ce) == 0);
+
+        auto const localPK = env.app().getValidationPublicKey();
+        BEAST_EXPECT(localPK);
+        if (!localPK)
+            return;
+
+        seedUNLReportLedger(env, {*localPK});
+        ce.cacheUNLReport(env.app().getLedgerMaster().getClosedLedger());
+        BEAST_EXPECT(ce.activeValidatorView()->fromUNLReport);
+        BEAST_EXPECT(ce.activeValidatorView()->size() == 1);
+
+        submitOpenExport(2);
+        BEAST_EXPECT(attach(ce) == 1);
+
+        std::vector<PublicKey> activeKeys{*localPK};
+        while (activeKeys.size() <= STTx::maxMultiSigners())
+            activeKeys.push_back(randomKeyPair(KeyType::secp256k1).first);
+
+        seedUNLReportLedger(env, activeKeys);
+        ce.cacheUNLReport(env.app().getLedgerMaster().getClosedLedger());
+        BEAST_EXPECT(ce.activeValidatorView()->fromUNLReport);
+        BEAST_EXPECT(
+            ce.activeValidatorView()->size() > STTx::maxMultiSigners());
+
+        submitOpenExport(3);
+        BEAST_EXPECT(attach(ce) == 0);
+    }
+
+    void
     testExportNetworkApplyUsesAgreedSidecar(FeatureBitset features)
     {
         testcase("ttEXPORT network apply uses agreed export sidecar");
@@ -1166,10 +1246,8 @@ struct Export_test : public beast::unit_test::suite
             ApplyOptions::ExportWitnessMembership::TrustConsensusMaterialized,
             false,
             nullptr};
-        auto const expectedSignedTxHash =
-            ExportResultBuilder::assembleDirect(
-                innerTx, expectedSigs, applySeq, txHash)
-                .signedTxHash;
+        auto const expectedIntentHash =
+            ExportResultBuilder::exportIntentHash(innerTx);
 
         auto const parent = env.app().getLedgerMaster().getClosedLedger();
         auto next = std::make_shared<Ledger>(
@@ -1184,14 +1262,13 @@ struct Export_test : public beast::unit_test::suite
         auto const st = next->read(keylet::shadowTicket(alice.id(), ticketSeq));
         BEAST_EXPECT(st);
         if (st)
-            BEAST_EXPECT(
-                st->getFieldH256(sfTransactionHash) == expectedSignedTxHash);
+            BEAST_EXPECT(st->getFieldH256(sfDigest) == expectedIntentHash);
     }
 
     void
-    testExportNetworkApplyCapsTargetSigners(FeatureBitset features)
+    testExportNetworkRetriesOversizedActiveView(FeatureBitset features)
     {
-        testcase("ttEXPORT network apply caps target signer list");
+        testcase("ttEXPORT retries above target signer cap");
 
         using namespace jtx;
 
@@ -1237,10 +1314,6 @@ struct Export_test : public beast::unit_test::suite
                 pk, ExportResultBuilder::signExportedTxn(innerTx, pk, sk));
 
         BEAST_EXPECT(signatures.size() > STTx::maxMultiSigners());
-        auto const assembled = ExportResultBuilder::assembleDirect(
-            innerTx, signatures, applySeq, txHash);
-        BEAST_EXPECT(assembled.signerCount == STTx::maxMultiSigners());
-
         auto const exportSignatureWitnesses =
             makeExportSignatureWitnesses(txHash, signatures, applySeq);
         ApplyOptions const applyOptions{
@@ -1254,15 +1327,11 @@ struct Export_test : public beast::unit_test::suite
         OpenView accum(&*next);
         auto const result = ripple::apply(
             env.app(), accum, *exportTx, tapNONE, env.journal, applyOptions);
-        BEAST_EXPECT(result.ter == tesSUCCESS);
-        BEAST_EXPECT(result.applied);
-        accum.apply(*next);
+        BEAST_EXPECT(result.ter == terRETRY_EXPORT);
+        BEAST_EXPECT(!result.applied);
 
         auto const st = next->read(keylet::shadowTicket(alice.id(), ticketSeq));
-        BEAST_EXPECT(st);
-        if (st)
-            BEAST_EXPECT(
-                st->getFieldH256(sfTransactionHash) == assembled.signedTxHash);
+        BEAST_EXPECT(!st);
     }
 
     void
@@ -1404,10 +1473,8 @@ struct Export_test : public beast::unit_test::suite
             BEAST_EXPECT(!result.applied);
         }
 
-        auto const expectedSignedTxHash =
-            ExportResultBuilder::assembleDirect(
-                innerTx, signatures, applySeq, txHash)
-                .signedTxHash;
+        auto const expectedIntentHash =
+            ExportResultBuilder::exportIntentHash(innerTx);
 
         // A live consensus build only reaches Export::doApply after onPreBuild
         // has replaced witnesses with material from the accepted sidecar root.
@@ -1437,9 +1504,7 @@ struct Export_test : public beast::unit_test::suite
                 next->read(keylet::shadowTicket(alice.id(), ticketSeq));
             BEAST_EXPECT(st);
             if (st)
-                BEAST_EXPECT(
-                    st->getFieldH256(sfTransactionHash) ==
-                    expectedSignedTxHash);
+                BEAST_EXPECT(st->getFieldH256(sfDigest) == expectedIntentHash);
         }
 
         ApplyOptions const missingParentReplayOptions{
@@ -1486,8 +1551,7 @@ struct Export_test : public beast::unit_test::suite
             replayed->read(keylet::shadowTicket(alice.id(), ticketSeq));
         BEAST_EXPECT(st);
         if (st)
-            BEAST_EXPECT(
-                st->getFieldH256(sfTransactionHash) == expectedSignedTxHash);
+            BEAST_EXPECT(st->getFieldH256(sfDigest) == expectedIntentHash);
     }
 
     void
@@ -1553,17 +1617,14 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(txns.empty());
         BEAST_EXPECT(failed.empty());
 
-        auto const expectedSignedTxHash =
-            ExportResultBuilder::assembleDirect(
-                innerTx, signatures, applySeq, txHash)
-                .signedTxHash;
+        auto const expectedIntentHash =
+            ExportResultBuilder::exportIntentHash(innerTx);
         auto const builtTicket =
             built->read(keylet::shadowTicket(alice.id(), ticketSeq));
         BEAST_EXPECT(builtTicket);
         if (builtTicket)
             BEAST_EXPECT(
-                builtTicket->getFieldH256(sfTransactionHash) ==
-                expectedSignedTxHash);
+                builtTicket->getFieldH256(sfDigest) == expectedIntentHash);
 
         auto const replayed = buildLedger(
             LedgerReplay(parent, built), tapNONE, env.app(), env.journal);
@@ -1884,7 +1945,10 @@ struct Export_test : public beast::unit_test::suite
         {
             BEAST_EXPECT(shadow->getAccountID(sfAccount) == alice.id());
             BEAST_EXPECT(shadow->getFieldU32(sfTicketSequence) == ticketSeq);
-            BEAST_EXPECT(shadow->isFieldPresent(sfTransactionHash));
+            BEAST_EXPECT(shadow->isFieldPresent(sfDigest));
+            BEAST_EXPECT(
+                shadow->getFieldH256(sfDigest) ==
+                ExportResultBuilder::exportIntentHash(makeSTTx(innerObj)));
         }
 
         env.close();
@@ -2017,6 +2081,36 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportRejectsSignedInnerTransaction(FeatureBitset features)
+    {
+        testcase("ttEXPORT rejects signed inner transaction");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto const seq = env.current()->seq();
+        auto innerObj = buildExportedPayment(
+            alice.id(),
+            carol.id(),
+            seq + 1,
+            seq + ExportLimits::maxRetryLedgers);
+        innerObj.setFieldVL(sfSigningPubKey, alice.pk().slice());
+
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::Export;
+        jv[jss::Account] = alice.human();
+        jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+        jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+
+        env(jv, fee(XRP(1)), ter(temMALFORMED));
+    }
+
+    void
     testExportRejectsLongRetryWindow(FeatureBitset features)
     {
         testcase("ttEXPORT rejects LastLedgerSequence beyond retry cap");
@@ -2134,6 +2228,61 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportImportWaitsForShadowTicket(FeatureBitset features)
+    {
+        testcase("Export callback waits for shadow ticket");
+
+        using namespace jtx;
+
+        auto const xpopCtx = xpop::TestXPOPContext::create(3);
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+        std::uint32_t const xahauNetworkID = 21337;
+        std::uint32_t const targetNetworkID = 31337;
+
+        Env xahau{*this, xpopCtx.makeEnvConfig(xahauNetworkID), features};
+        xahau.fund(XRP(10000), alice, carol);
+        xahau.close();
+
+        auto const callback = buildExportCallbackXPOP(
+            xahau, xpopCtx, alice, carol, targetNetworkID, 2);
+
+        Json::Value cancel;
+        cancel[jss::TransactionType] = jss::Export;
+        cancel[jss::Account] = alice.human();
+        cancel[sfCancelTicketSequence.jsonName] = callback.ticketSeq;
+        xahau(cancel, fee(XRP(1)), ter(tesSUCCESS));
+        xahau.close();
+        BEAST_EXPECT(!xahau.current()->exists(
+            keylet::shadowTicket(alice.id(), callback.ticketSeq)));
+
+        auto const importFee = xahau.current()->fees().base * 10;
+        xahau(
+            import::import(alice, callback.xpopJson),
+            fee(importFee),
+            ter(telSHADOW_TICKET_REQUIRED));
+
+        Json::Value rearm;
+        rearm[jss::TransactionType] = jss::Export;
+        rearm[jss::Account] = alice.human();
+        rearm[jss::LastLedgerSequence] =
+            xahau.current()->seq() + ExportLimits::maxRetryLedgers;
+        rearm[sfExportedTxn.jsonName] = callback.exportedTxnJson;
+        xahau(rearm, fee(XRP(1)), ter(tesSUCCESS));
+        xahau.close();
+        BEAST_EXPECT(xahau.current()->exists(
+            keylet::shadowTicket(alice.id(), callback.ticketSeq)));
+
+        xahau(
+            import::import(alice, callback.xpopJson),
+            fee(importFee),
+            ter(tesSUCCESS));
+        xahau.close();
+        BEAST_EXPECT(!xahau.current()->exists(
+            keylet::shadowTicket(alice.id(), callback.ticketSeq)));
+    }
+
+    void
     testExportImportRejectsStaleImportVL(FeatureBitset features)
     {
         testcase("Export callback rejects stale ImportVL");
@@ -2215,8 +2364,9 @@ struct Export_test : public beast::unit_test::suite
         // ttEXPORT transactor tests
         testExportTxnOpenLedger(allWithExport);
         testExportNetworkRetryWithoutQuorum(allWithExport);
+        testExportProposalSigningRequiresBoundedUNLReport(allWithExport);
         testExportNetworkApplyUsesAgreedSidecar(allWithExport);
-        testExportNetworkApplyCapsTargetSigners(allWithExport);
+        testExportNetworkRetriesOversizedActiveView(allWithExport);
         testExportShadowTicketInsufficientReserve(allWithExport);
         testExportHistoricalReplayIgnoresCurrentManifestMap(allWithExport);
         testBuildLedgerReplayPrescansExportWitness(allWithExport);
@@ -2228,11 +2378,13 @@ struct Export_test : public beast::unit_test::suite
         testCancelShadowTicketViaTxn(allWithExport);
         testExportRejectsNoTicketSequence(allWithExport);
         testExportRejectsMissingLastLedgerSequence(allWithExport);
+        testExportRejectsSignedInnerTransaction(allWithExport);
         testExportRejectsLongRetryWindow(allWithExport);
         testExportRejectsMalformed(allWithExport);
 
         // Round-trip test
         testExportImportRoundTrip(allWithExport);
+        testExportImportWaitsForShadowTicket(allWithExport);
         testExportImportRejectsStaleImportVL(allWithExport);
     }
 };

@@ -243,4 +243,14 @@ def assert_shadow_ticket(ctx, account_address, log, *, expect_exists=True):
             f"Expected no shadow tickets but found {len(shadow_tickets)}"
         )
 
+    for ticket in shadow_tickets:
+        if "Digest" not in ticket:
+            raise AssertionError(
+                "ShadowTicket missing signature-independent intent Digest"
+            )
+        if "TransactionHash" in ticket:
+            raise AssertionError(
+                "ShadowTicket still binds signer-dependent TransactionHash"
+            )
+
     return shadow_tickets

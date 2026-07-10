@@ -52,6 +52,22 @@ buildSigners(SignatureSnapshot const& signatures, bool capForTargetChain)
     return signers;
 }
 
+STObject
+normalizeAuthorizationEnvelope(STTx const& innerTx)
+{
+    STObject normalized(sfExportedTxn);
+    {
+        Serializer inner;
+        innerTx.add(inner);
+        SerialIter sit(inner.slice());
+        normalized.set(sit);
+    }
+    normalized.delField(sfTxnSignature);
+    normalized.delField(sfSigners);
+    normalized.setFieldVL(sfSigningPubKey, Slice{});
+    return normalized;
+}
+
 }  // namespace
 
 Buffer
@@ -65,22 +81,21 @@ signExportedTxn(
     return ripple::sign(publicKey, secretKey, sigData.slice());
 }
 
+uint256
+exportIntentHash(STTx const& innerTx)
+{
+    // Normalize every authorization envelope, then use the protocol's existing
+    // signing hash. The identity is stable across valid signer subsets.
+    return STTx{normalizeAuthorizationEnvelope(innerTx)}.getSigningHash();
+}
+
 STObject
 buildMultiSignedExportedTxn(
     STTx const& innerTx,
     SignatureSnapshot const& signatures)
 {
     auto signers = buildSigners(signatures, true);
-
-    STObject multiSigned(sfExportedTxn);
-    {
-        Serializer s;
-        innerTx.addWithoutSigningFields(s);
-        SerialIter sit(s.slice());
-        multiSigned.set(sit);
-    }
-
-    multiSigned.setFieldVL(sfSigningPubKey, Slice{});
+    auto multiSigned = normalizeAuthorizationEnvelope(innerTx);
 
     if (!signers.empty())
         multiSigned.setFieldArray(sfSigners, signers);

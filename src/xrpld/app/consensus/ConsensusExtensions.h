@@ -194,6 +194,11 @@ public:
     static std::size_t
     exportSigQuorumThreshold(ActiveValidatorView const& validatorView);
 
+    static bool
+    exportAuthorityFitsTargetSignerCap(
+        ActiveValidatorView const& validatorView,
+        std::size_t targetSignerCap);
+
     /// Tier 2 (participant_aligned) alignment floor: the smallest cohort whose
     /// pairwise intersection exceeds the tolerated Byzantine count (~0.6 of the
     /// ORIGINAL pre-nUNL view; exact value from calculateParticipantThreshold).

@@ -435,7 +435,8 @@ veto an otherwise quorum-aligned export round.
 
 Non-standalone Export completion requires a UNLReport-backed active validator
 view. If the parent ledger has no `UNLReport`, Export has no safe deterministic
-fallback result, so it retries or expires rather than finalizing against local
+fallback result, so validators do not publish target-chain signature shares and
+the export retries or expires rather than finalizing against local
 trusted-configuration thresholds.
 
 The extended proposal machinery is enabled when either feature needs signed
@@ -524,6 +525,10 @@ read-time assembly. That expansion must match `ExportResultBuilder`: canonical
 AccountID signer ordering, empty `SigningPubKey`, and the target-chain signer
 cap (`STTx::maxMultiSigners()`) before hashing or submitting. The witness can
 carry more source-side signatures than the destination transaction may include.
+Export currently refuses to sign or materialize when the original UNLReport
+validator population exceeds that cap, even if NegativeUNL temporarily shrinks
+the effective view below it. The assembly cap remains a defensive serialization
+bound, not an implicit committee-selection policy.
 
 This is intentionally leaner than XPOP. XPOP carries its own UNL and manifest
 bundle so it can be independently verified as an external proof. Export witnesses

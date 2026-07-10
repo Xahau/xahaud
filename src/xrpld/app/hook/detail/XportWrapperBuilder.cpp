@@ -30,6 +30,11 @@ build(Input const& input)
         return Unexpected(::hook_api::hook_return_code::EXPORT_FAILURE);
     }
 
+    if (auto ter =
+            ExportLedgerOps::validateExportSigningFields(*innerTx, input.j);
+        !isTesSuccess(ter))
+        return Unexpected(::hook_api::hook_return_code::EXPORT_FAILURE);
+
     if (auto ter = ExportLedgerOps::validateExportAccount(
             *innerTx, input.exporter, input.j);
         !isTesSuccess(ter))

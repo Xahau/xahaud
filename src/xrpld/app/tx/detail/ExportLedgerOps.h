@@ -1,6 +1,7 @@
 #ifndef RIPPLE_TX_EXPORTLEDGEROPS_H_INCLUDED
 #define RIPPLE_TX_EXPORTLEDGEROPS_H_INCLUDED
 
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/ledger/ApplyView.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
@@ -201,6 +202,24 @@ validateExportAccount(
     return tesSUCCESS;
 }
 
+/// Validate that the target transaction is the unsigned multisign payload that
+/// validators will attest and ExportResultBuilder will later materialize.
+inline TER
+validateExportSigningFields(STTx const& stx, beast::Journal j)
+{
+    if (!stx.isFieldPresent(sfSigningPubKey) ||
+        !stx.getFieldVL(sfSigningPubKey).empty() ||
+        stx.isFieldPresent(sfTxnSignature) || stx.isFieldPresent(sfSigners))
+    {
+        JLOG(j.warn())
+            << "ExportLedgerOps: exported tx must use an empty SigningPubKey "
+               "without TxnSignature or Signers";
+        return temMALFORMED;
+    }
+
+    return tesSUCCESS;
+}
+
 /// Validate that the exported transaction uses TicketSequence
 /// (Sequence must be 0). Exports must use tickets because a bounced
 /// tx on the destination chain would jam sequential sequence numbers.
@@ -230,7 +249,6 @@ validateTicketSequence(STTx const& stx, beast::Journal j)
 /// @param view       The apply view to modify
 /// @param account    The exporting account (pays reserve)
 /// @param stx        The exported transaction (checked for sfTicketSequence)
-/// @param txnId      Hash of the exported transaction
 /// @param priorBalance Exporting account balance before this transaction fee
 /// @param j          Journal for logging
 /// @return tesSUCCESS, tecDUPLICATE, tecDIR_FULL, tecINSUFFICIENT_RESERVE,
@@ -240,7 +258,6 @@ createShadowTicket(
     ApplyView& view,
     AccountID const& account,
     STTx const& stx,
-    uint256 const& txnId,
     XRPAmount const& priorBalance,
     beast::Journal j)
 {
@@ -249,18 +266,18 @@ createShadowTicket(
 
     auto const ticketSeq = stx.getFieldU32(sfTicketSequence);
     auto const key = keylet::shadowTicket(account, ticketSeq);
+    auto const intentHash = ExportResultBuilder::exportIntentHash(stx);
 
     // A shadow ticket is a pending-callback LATCH, not a permanent replay
     // tombstone. This check only rejects a currently-LIVE latch: after an
     // import consumes (erases) it, the same account can re-export the identical
-    // inner tx and recreate the same (account, ticketSeq) latch. Validator
-    // multisigning is deterministic, so the recreated latch stores the same
-    // signed-tx hash and the ORIGINAL XPOP passes the Import hash check again,
-    // firing the callback once more. Unlike Burn-to-Mint (guarded globally by
-    // the monotonic sfImportSequence), the ticket path has no protocol-level
-    // replay guard — value-bearing import-callback hooks must dedup on the
-    // XPOP/signed target transaction hash or a hook-defined business key in
-    // Hook State. A protocol-level exactly-once tombstone (consume-in-place,
+    // inner tx and recreate the same (account, ticketSeq) latch. The recreated
+    // latch stores the same intent hash, so the ORIGINAL XPOP passes the Import
+    // identity check again, firing the callback once more. Unlike Burn-to-Mint
+    // (guarded globally by the monotonic sfImportSequence), the ticket path has
+    // no protocol-level replay guard — value-bearing import-callback hooks must
+    // dedup on the XPOP target transaction hash or a hook-defined business key
+    // in Hook State. A protocol-level exactly-once tombstone (consume-in-place,
     // expiring with the XPOP validity window) is possible future work.
     if (view.exists(key))
     {
@@ -300,7 +317,7 @@ createShadowTicket(
     auto sle = std::make_shared<SLE>(key);
     sle->setAccountID(sfAccount, account);
     sle->setFieldU32(sfTicketSequence, ticketSeq);
-    sle->setFieldH256(sfTransactionHash, txnId);
+    sle->setFieldH256(sfDigest, intentHash);
     sle->setFieldU32(sfLedgerSequence, view.info().seq);
 
     auto page = view.dirInsert(
@@ -321,7 +338,7 @@ createShadowTicket(
     adjustOwnerCount(view, sleAccount, 1, j);
 
     JLOG(j.debug()) << "ExportLedgerOps: created shadow ticket for " << account
-                    << " seq=" << ticketSeq << " tx=" << txnId;
+                    << " seq=" << ticketSeq << " intent=" << intentHash;
 
     return tesSUCCESS;
 }

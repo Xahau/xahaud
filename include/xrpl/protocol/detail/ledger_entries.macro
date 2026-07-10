@@ -614,6 +614,7 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
 
     Created when a transaction is exported. Consumed when
     proof-of-execution is imported back. Account-owned (pays reserve).
+    sfDigest stores the canonical target signing-intent hash.
     This is not a permanent replay tombstone; hook callbacks that move
     value must still deduplicate their business action.
 
@@ -622,7 +623,7 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
 LEDGER_ENTRY(ltSHADOW_TICKET, 0x5374, ShadowTicket, shadow_ticket, ({
     {sfAccount,              soeREQUIRED},
     {sfTicketSequence,       soeREQUIRED},
-    {sfTransactionHash,      soeREQUIRED},
+    {sfDigest,               soeREQUIRED},
     {sfLedgerSequence,       soeREQUIRED},
     {sfOwnerNode,            soeREQUIRED},
 }))

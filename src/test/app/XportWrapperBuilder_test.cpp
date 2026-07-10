@@ -21,6 +21,7 @@
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/STAmount.h>
+#include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/Serializer.h>
@@ -235,6 +236,48 @@ public:
             BEAST_EXPECT(
                 result.error() == ::hook_api::hook_return_code::EXPORT_FAILURE);
             BEAST_EXPECT(!nonceCalled);
+        }
+
+        auto expectSigningEnvelopeRejected = [&](STTx tx) {
+            auto const blob = serialize(tx);
+            bool nonceCalled = false;
+            auto const result = hook::XportWrapperBuilder::build(makeInput(
+                Slice(blob.data(), blob.size()),
+                calcAccountID(exporter.first),
+                21337,
+                [&nonceCalled] {
+                    nonceCalled = true;
+                    return Expected<uint256, ::hook_api::hook_return_code>{
+                        makeHash("nonce")};
+                }));
+            BEAST_EXPECT(!result);
+            BEAST_EXPECT(
+                result.error() == ::hook_api::hook_return_code::EXPORT_FAILURE);
+            BEAST_EXPECT(!nonceCalled);
+        };
+
+        {
+            auto signedInner = innerTx;
+            signedInner.setFieldVL(sfSigningPubKey, exporter.first.slice());
+            expectSigningEnvelopeRejected(std::move(signedInner));
+        }
+
+        {
+            auto signedInner = innerTx;
+            signedInner.setFieldVL(sfTxnSignature, Blob{1, 2, 3});
+            expectSigningEnvelopeRejected(std::move(signedInner));
+        }
+
+        {
+            auto signedInner = innerTx;
+            STArray signers(sfSigners);
+            STObject signer(sfSigner);
+            signer.setAccountID(sfAccount, calcAccountID(exporter.first));
+            signer.setFieldVL(sfSigningPubKey, exporter.first.slice());
+            signer.setFieldVL(sfTxnSignature, Blob{1, 2, 3});
+            signers.push_back(std::move(signer));
+            signedInner.setFieldArray(sfSigners, signers);
+            expectSigningEnvelopeRejected(std::move(signedInner));
         }
 
         {

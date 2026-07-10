@@ -40,6 +40,9 @@ signExportedTxn(
     PublicKey const& publicKey,
     SecretKey const& secretKey);
 
+uint256
+exportIntentHash(STTx const& innerTx);
+
 STObject
 buildMultiSignedExportedTxn(
     STTx const& innerTx,

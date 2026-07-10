@@ -67,6 +67,26 @@ makeExportedPayment(AccountID const& src, AccountID const& dst)
     return makeSTTx(obj);
 }
 
+STTx
+makeExportedPaymentChannelClaim(
+    AccountID const& src,
+    Blob const& channelSignature)
+{
+    STObject obj(sfExportedTxn);
+    obj.setFieldU16(sfTransactionType, ttPAYCHAN_CLAIM);
+    obj.setFieldU32(sfFlags, tfFullyCanonicalSig);
+    obj.setFieldU32(sfSequence, 0);
+    obj.setFieldU32(sfTicketSequence, 1);
+    obj.setFieldU32(sfFirstLedgerSequence, 2);
+    obj.setFieldU32(sfLastLedgerSequence, 6);
+    obj.setFieldAmount(sfFee, XRPAmount{10});
+    obj.setFieldVL(sfSigningPubKey, Blob{});
+    obj.setAccountID(sfAccount, src);
+    obj.setFieldH256(sfChannel, makeHash("payment-channel"));
+    obj.setFieldVL(sfSignature, channelSignature);
+    return makeSTTx(obj);
+}
+
 }  // namespace
 
 class ExportResultBuilder_test : public beast::unit_test::suite
@@ -203,6 +223,82 @@ public:
             ExportResultBuilder::buildMultiSignedExportedTxn(innerTx, none);
         BEAST_EXPECT(unsignedMulti.getFieldVL(sfSigningPubKey).empty());
         BEAST_EXPECT(!unsignedMulti.isFieldPresent(sfSigners));
+    }
+
+    void
+    testExportIntentHashIgnoresSignerSubset()
+    {
+        testcase("export intent hash ignores signer subset");
+
+        auto const src = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const otherDst = randomKeyPair(KeyType::secp256k1);
+        auto const signerA = randomKeyPair(KeyType::secp256k1);
+        auto const signerB = randomKeyPair(KeyType::secp256k1);
+        auto const signerC = randomKeyPair(KeyType::secp256k1);
+        auto const innerTx = makeExportedPayment(
+            calcAccountID(src.first), calcAccountID(dst.first));
+
+        ExportResultBuilder::SignatureSnapshot subsetAB;
+        subsetAB.emplace(
+            signerA.first,
+            ExportResultBuilder::signExportedTxn(
+                innerTx, signerA.first, signerA.second));
+        subsetAB.emplace(
+            signerB.first,
+            ExportResultBuilder::signExportedTxn(
+                innerTx, signerB.first, signerB.second));
+
+        ExportResultBuilder::SignatureSnapshot subsetBC;
+        subsetBC.emplace(
+            signerB.first,
+            ExportResultBuilder::signExportedTxn(
+                innerTx, signerB.first, signerB.second));
+        subsetBC.emplace(
+            signerC.first,
+            ExportResultBuilder::signExportedTxn(
+                innerTx, signerC.first, signerC.second));
+
+        auto const signedAB =
+            makeSTTx(ExportResultBuilder::buildMultiSignedExportedTxn(
+                innerTx, subsetAB));
+        auto const signedBC =
+            makeSTTx(ExportResultBuilder::buildMultiSignedExportedTxn(
+                innerTx, subsetBC));
+
+        BEAST_EXPECT(
+            signedAB.getTransactionID() != signedBC.getTransactionID());
+        auto const intentHash = ExportResultBuilder::exportIntentHash(innerTx);
+        BEAST_EXPECT(
+            ExportResultBuilder::exportIntentHash(signedAB) == intentHash);
+        BEAST_EXPECT(
+            ExportResultBuilder::exportIntentHash(signedBC) == intentHash);
+
+        auto singleAuthorized = innerTx;
+        singleAuthorized.setFieldVL(sfSigningPubKey, signerA.first.slice());
+        singleAuthorized.setFieldVL(sfTxnSignature, Blob{1, 2, 3});
+        BEAST_EXPECT(
+            ExportResultBuilder::exportIntentHash(singleAuthorized) ==
+            intentHash);
+
+        auto const otherIntent = makeExportedPayment(
+            calcAccountID(src.first), calcAccountID(otherDst.first));
+        BEAST_EXPECT(
+            ExportResultBuilder::exportIntentHash(otherIntent) != intentHash);
+
+        Blob const claimSignatureA{1, 2, 3};
+        auto const claimA = makeExportedPaymentChannelClaim(
+            calcAccountID(src.first), claimSignatureA);
+        auto const claimB = makeExportedPaymentChannelClaim(
+            calcAccountID(src.first), Blob{4, 5, 6});
+        BEAST_EXPECT(
+            ExportResultBuilder::exportIntentHash(claimA) ==
+            ExportResultBuilder::exportIntentHash(claimB));
+
+        auto const normalizedClaim =
+            ExportResultBuilder::buildMultiSignedExportedTxn(claimA, {});
+        BEAST_EXPECT(
+            normalizedClaim.getFieldVL(sfSignature) == claimSignatureA);
     }
 
     void
@@ -360,6 +456,7 @@ public:
         testAssemblesSignedMetadata();
         testSkipsEmptySignatures();
         testBuildMultiSignedExportedTxnDirect();
+        testExportIntentHashIgnoresSignerSubset();
         testCapsSignerArray();
         testAssemblesWitnessReferenceMetadata();
         testSignatureWitnessRoundTrip();
