@@ -439,6 +439,22 @@ fallback result, so validators do not publish target-chain signature shares and
 the export retries or expires rather than finalizing against local
 trusted-configuration thresholds.
 
+Export's original pre-NegativeUNL validator population must also fit the
+32-member target serialization bound. Validators publish no target-chain shares
+and Export cannot materialize while it exceeds that bound; temporary NegativeUNL
+filtering must not select an implicit bridge committee.
+
+The bounded deployment contract then mirrors the source validator-derived key
+universe, weights, and Export/validation threshold in the destination account's
+SignerList. A lower destination threshold permits target execution before the
+authority needed for source materialization exists. A higher threshold preserves
+that safety direction but can strand a successful source latch. The destination
+network's ledger-validation quorum is separate: it validates the authorized
+transaction's containing ledger, and XPOP proves that finality on return. A
+static destination SignerList should remain anchored to the original source
+universe during NegativeUNL periods, trading Export liveness for unchanged
+destination authority.
+
 The extended proposal machinery is enabled when either feature needs signed
 sidecar fields. Do not make Export depend on RNG availability just because RNG
 was the first consumer of `ExtendedPosition`.
@@ -529,6 +545,20 @@ Export currently refuses to sign or materialize when the original UNLReport
 validator population exceeds that cap, even if NegativeUNL temporarily shrinks
 the effective view below it. The assembly cap remains a defensive serialization
 bound, not an implicit committee-selection policy.
+
+The resulting shadow ticket stores the normalized target transaction's canonical
+signing hash in `sfDigest`, not one assembled multisigned transaction ID. Import
+therefore accepts any destination-valid signer subset for that exact signing
+intent. A missing latch returns `telSHADOW_TICKET_REQUIRED` before consensus or
+Hook execution, so an XPOP that races source materialization can be relayed
+later.
+
+Shadow-ticket cancellation is source resource reclamation. It releases account
+reserve and an outstanding-ticket slot when a round trip is abandoned, but it
+cannot revoke shares already published to peers. Operators should delete a latch
+only with external evidence such as target expiry, destination Ticket
+consumption, or SignerList invalidation, or with an explicit policy that accepts
+later target execution without callback readiness.
 
 This is intentionally leaner than XPOP. XPOP carries its own UNL and manifest
 bundle so it can be independently verified as an external proof. Export witnesses

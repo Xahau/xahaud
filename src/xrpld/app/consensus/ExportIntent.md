@@ -103,12 +103,23 @@ Deletion permits a later re-mint of the same `(account, ticketSequence)` latch,
 so replay protection beyond the live latch is a separate protocol decision, not
 an implicit property of shadow tickets.
 
+Cancellation exists to reclaim the account reserve and bounded outstanding-
+ticket slot when a round trip will not complete. It deletes callback readiness;
+it does not revoke target-chain signatures already published in proposals. Safe
+cleanup therefore depends on external evidence that the capability is no longer
+executable or the callback is intentionally abandoned, such as target
+`LastLedgerSequence` expiry, destination Ticket consumption, or SignerList
+invalidation.
+
 **INV-8 — Export signatures are public capabilities.**
 Proposal-carried signature shares may be observed, assembled, and submitted as
 soon as destination quorum exists. Source-side witness agreement governs what
 Xahau records; it is not a confidentiality or destination-execution gate.
 Import therefore waits outside consensus when its shadow ticket does not yet
 exist and matches a later XPOP against the signature-independent intent.
+The main defense for exposing shares before source finality is authority
+equivalence: destination execution must require the same validator-derived
+authority that Xahau requires to validate and materialize the Export.
 *Anti-pattern:* relying on proposal timing or canonical signer selection to
 hide or delay an otherwise valid destination transaction.
 
@@ -119,6 +130,20 @@ before NegativeUNL filtering exceeds `STTx::maxMultiSigners()`. Silently
 selecting a capped subset would replace source-view authority with an implicit
 bridge committee. Any future bounded committee must be an explicit, separately
 reviewed policy.
+
+**INV-10 — Source and destination authorization must be equivalent.**
+The bounded deployment contract uses the same validator-derived key universe
+and equivalent weighted threshold for Xahau Export/validation and the target
+account's SignerList. A lower destination threshold defeats the pre-finality
+share-exposure defense. A higher threshold is safety-conservative but can leave
+a successful source latch without enough witness authority to execute.
+
+The target network's ledger-validation quorum is independent: the SignerList
+authorizes the account transaction, target consensus validates the containing
+ledger, and XPOP later proves that finality. Because an ordinary target
+SignerList is static, configure it against the original pre-NegativeUNL source
+universe and accept reduced Export liveness during NegativeUNL periods rather
+than lowering destination authority.
 
 ## Replay Witness Shape
 
