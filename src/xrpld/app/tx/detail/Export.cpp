@@ -344,11 +344,7 @@ Export::doApply()
     // signer subsets produce different transaction IDs on the target chain.
     {
         TER ter = ExportLedgerOps::createShadowTicket(
-            view(),
-            account,
-            *innerTx,
-            mPriorBalance,
-            j_);
+            view(), account, *innerTx, mPriorBalance, j_);
         if (!isTesSuccess(ter))
             return ter;
     }

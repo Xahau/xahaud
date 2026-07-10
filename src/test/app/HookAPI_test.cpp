@@ -1223,11 +1223,7 @@ public:
             priorBalance,
             env.journal)));
         BEAST_EXPECT(isTesSuccess(ExportLedgerOps::createShadowTicket(
-            applyCtx.view(),
-            alice.id(),
-            otherTx,
-            priorBalance,
-            env.journal)));
+            applyCtx.view(), alice.id(), otherTx, priorBalance, env.journal)));
 
         auto hookCtx =
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
