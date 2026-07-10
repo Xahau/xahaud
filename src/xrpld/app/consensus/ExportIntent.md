@@ -131,6 +131,11 @@ selecting a capped subset would replace source-view authority with an implicit
 bridge committee. Any future bounded committee must be an explicit, separately
 reviewed policy.
 
+The current source implementation enforces the 32-signer bound. The bounded MVP
+deployment additionally requires one destination submitter co-signer, so its
+practical full-view limit is 31 source validator identities. Source code cannot
+inspect that remote configuration; activation tooling and monitoring must.
+
 **INV-10 — Source and destination authorization must be equivalent.**
 The bounded deployment contract uses the same validator-derived key universe
 and equivalent weighted threshold for Xahau Export/validation and the target
@@ -145,14 +150,18 @@ SignerList is static, configure it against the original pre-NegativeUNL source
 universe and accept reduced Export liveness during NegativeUNL periods rather
 than lowering destination authority.
 
-An optional stronger deployment profile adds a required submitter co-signer held
-by the target-submission process. If validator weights total `V`, validator
-threshold is `q`, submitter weight is `C`, and target quorum is `C + q > V`,
-validator shares alone cannot execute and the submitter still needs validator
-weight `q`. It signs only after observing the validated source latch, turning
-the submitter into a liveness/censorship dependency rather than a sole safety
-authority. The separate key consumes one target SignerList entry, leaving at
-most 31 source validator identities under a 32-entry destination limit.
+The bounded MVP requires a submitter co-signer held by the target-submission
+process. If validator weights total `V`, validator threshold is `q`, submitter
+weight is `C`, and target quorum is `C + q > V`, validator shares alone cannot
+execute and the submitter still needs validator weight `q`. It signs only after
+observing the validated source latch, turning the submitter into a
+liveness/censorship dependency rather than a sole safety authority.
+
+A future committee may decouple total UNL size from the destination cap, but it
+must be explicit ledger-anchored source state with versioned membership and
+rotation. Full source consensus validates the intent; at most 31 committee keys
+supply shares; the submitter releases after validation. The target trust claim
+then becomes committee quorum plus submitter, not full-UNL destination authority.
 
 ## Replay Witness Shape
 

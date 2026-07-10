@@ -455,15 +455,21 @@ static destination SignerList should remain anchored to the original source
 universe during NegativeUNL periods, trading Export liveness for unchanged
 destination authority.
 
-A hardened deployment may add a required submitter co-signer to the destination
+The bounded MVP deployment requires a submitter co-signer in the destination
 SignerList, held by the target-submission process. Choose weights so destination
 quorum requires both the source-validator threshold and that key; for validator
 weight total `V` and required validator weight `q`, submitter weight `V` with
 target quorum `V + q` is the simple construction. Proposal-carried validator
 shares then remain inert until the submitter observes a validated source latch
 and signs. The key cannot authorize alone but becomes a liveness and censorship
-dependency. It consumes one destination SignerList entry, so this profile
+dependency. It consumes one destination SignerList entry, so this deployment
 supports at most 31 source validator identities under a 32-entry limit.
+
+The current code has no committee selector. A future committee must be explicit,
+ledger-anchored, and versioned; a locally configured or sorted UNL subset would
+reintroduce nondeterministic or unnamed authority. Full source consensus would
+still validate the Export, while committee quorum plus the submitter would be
+the honestly stated destination authority.
 
 The extended proposal machinery is enabled when either feature needs signed
 sidecar fields. Do not make Export depend on RNG availability just because RNG
