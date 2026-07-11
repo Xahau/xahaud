@@ -6227,6 +6227,15 @@ private:
     }
 
     void
+    testUNLReportMemberTSH(FeatureBitset features)
+    {
+        testcase("unl report member tsh");
+
+        // pseudo transaction
+        pass();
+    }
+
+    void
     testConsensusEntropyTSH(FeatureBitset features)
     {
         testcase("consensus entropy tsh");

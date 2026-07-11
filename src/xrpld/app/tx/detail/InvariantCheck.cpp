@@ -602,6 +602,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltIMPORT_VLSEQ:
             case ltUNL_REPORT:
             case ltCONSENSUS_ENTROPY:
+            case ltUNL_REPORT_MEMBER:
             case ltSHADOW_TICKET:
             case ltAMM:
             case ltBRIDGE:

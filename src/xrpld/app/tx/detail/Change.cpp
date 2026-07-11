@@ -21,6 +21,7 @@
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/detail/Change.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
@@ -45,6 +46,64 @@
 namespace ripple {
 
 namespace {
+
+constexpr std::size_t maxUNLReportMemberManifestSize = 2048;
+
+std::optional<Manifest>
+parseUNLReportMemberManifest(STTx const& tx, beast::Journal j)
+{
+    auto const& blob = tx.getFieldVL(sfBlob);
+    if (blob.empty() || blob.size() > maxUNLReportMemberManifestSize)
+        return std::nullopt;
+
+    auto manifest = deserializeManifest(blob, j);
+    if (!manifest || !manifest->verify())
+        return std::nullopt;
+
+    return manifest;
+}
+
+std::vector<PublicKey>
+parentUNLReportMembers(ReadView const& parent)
+{
+    std::vector<PublicKey> result;
+    auto const report = parent.read(keylet::UNLReport());
+    if (!report || !report->isFieldPresent(sfActiveValidators))
+        return result;
+
+    for (auto const& entry : report->getFieldArray(sfActiveValidators))
+    {
+        auto const key = entry.getFieldVL(sfPublicKey);
+        if (publicKeyType(makeSlice(key)))
+            result.emplace_back(makeSlice(key));
+    }
+    return result;
+}
+
+bool
+containsMaster(
+    std::vector<PublicKey> const& members,
+    PublicKey const& masterKey)
+{
+    return std::find(members.begin(), members.end(), masterKey) !=
+        members.end();
+}
+
+void
+writeUNLReportMember(SLE& sle, Manifest const& manifest, std::uint32_t flags)
+{
+    sle.setFieldVL(sfPublicKey, manifest.masterKey);
+    sle.setFieldU32(sfSequence, manifest.sequence);
+    sle.setFieldVL(sfBlob, makeSlice(manifest.serialized));
+    sle.setFieldH256(sfDigest, manifest.bindingID());
+
+    if (manifest.signingKey)
+        sle.setFieldVL(sfSigningPubKey, *manifest.signingKey);
+    else
+        sle.makeFieldAbsent(sfSigningPubKey);
+
+    sle.setFieldU32(sfFlags, flags);
+}
 
 std::size_t
 countSetBits(Blob const& bytes)
@@ -155,6 +214,34 @@ Change::preflight(PreflightContext const& ctx)
             JLOG(ctx.j.warn()) << "Change: UNLReport must specify at least one "
                                   "of sfImportVLKey, sfActiveValidator";
             return temMALFORMED;
+        }
+    }
+
+    if (ctx.tx.getTxnType() == ttUNL_REPORT_MEMBER)
+    {
+        if (!ctx.rules.enabled(featureUNLReportV2))
+        {
+            JLOG(ctx.j.warn()) << "Change: UNLReportV2 is not enabled.";
+            return temDISABLED;
+        }
+
+        auto const& blob = ctx.tx.getFieldVL(sfBlob);
+        if (blob.empty() || blob.size() > maxUNLReportMemberManifestSize)
+        {
+            JLOG(ctx.j.warn()) << "Change: invalid UNLReport member blob size";
+            return temMALFORMED;
+        }
+
+        auto manifest = deserializeManifest(blob, ctx.j);
+        if (!manifest)
+        {
+            JLOG(ctx.j.warn()) << "Change: malformed UNLReport member manifest";
+            return temMALFORMED;
+        }
+        if (!manifest->verify())
+        {
+            JLOG(ctx.j.warn()) << "Change: invalid UNLReport member signature";
+            return temBAD_SIGNATURE;
         }
     }
 
@@ -298,6 +385,7 @@ Change::preclaim(PreclaimContext const& ctx)
         case ttAMENDMENT:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
+        case ttUNL_REPORT_MEMBER:
         case ttCONSENSUS_ENTROPY:
         case ttEXPORT_SIGNATURES:
             return tesSUCCESS;
@@ -356,6 +444,8 @@ Change::doApply()
             return applyEmitFailure();
         case ttUNL_REPORT:
             return applyUNLReport();
+        case ttUNL_REPORT_MEMBER:
+            return applyUNLReportMember();
         case ttCONSENSUS_ENTROPY:
             return applyConsensusEntropy();
         case ttEXPORT_SIGNATURES:
@@ -364,6 +454,102 @@ Change::doApply()
             UNREACHABLE("ripple::Change::doApply : invalid transaction type");
             return tefFAILURE;
     }
+}
+
+TER
+Change::applyUNLReportMember()
+{
+    auto manifest = parseUNLReportMemberManifest(ctx_.tx, j_);
+    if (!manifest)
+        return tefBAD_SIGNATURE;
+
+    auto const members = parentUNLReportMembers(ctx_.parentView());
+    auto const memberKey = keylet::UNLReportMember(manifest->masterKey);
+    auto sle = view().peek(memberKey);
+    bool const parentActive = containsMaster(members, manifest->masterKey);
+
+    // Ordinary rotations require parent-ledger membership. Historical members
+    // remain only so a later terminal revocation can close their key history.
+    if (!parentActive && (!manifest->revoked() || !sle))
+        return tefBAD_AUTH;
+
+    bool signingKeyCollision = false;
+    if (manifest->signingKey)
+    {
+        for (auto const& otherMaster : members)
+        {
+            if (otherMaster == manifest->masterKey)
+                continue;
+
+            auto other = view().peek(keylet::UNLReportMember(otherMaster));
+            if (!other || !other->isFieldPresent(sfSigningPubKey))
+                continue;
+
+            auto const otherSigning = other->getFieldVL(sfSigningPubKey);
+            if (PublicKey{makeSlice(otherSigning)} != *manifest->signingKey)
+                continue;
+
+            auto const flags =
+                other->getFlags() | lsfUNLReportMemberSigningKeyCollisionFreeze;
+            other->setFieldU32(sfFlags, flags);
+            view().update(other);
+            signingKeyCollision = true;
+        }
+    }
+
+    auto const collisionFlag =
+        signingKeyCollision ? lsfUNLReportMemberSigningKeyCollisionFreeze : 0u;
+
+    if (!sle)
+    {
+        sle = std::make_shared<SLE>(memberKey);
+        writeUNLReportMember(*sle, *manifest, collisionFlag);
+        view().insert(sle);
+        return tesSUCCESS;
+    }
+
+    auto const storedSequence = sle->getFieldU32(sfSequence);
+    auto const storedBinding = sle->getFieldH256(sfDigest);
+    auto const incomingBinding = manifest->bindingID();
+
+    if (Manifest::revoked(storedSequence) ||
+        manifest->sequence < storedSequence)
+        return tefPAST_SEQ;
+
+    if (manifest->sequence == storedSequence)
+    {
+        if (incomingBinding == storedBinding)
+        {
+            if (signingKeyCollision &&
+                !(sle->getFlags() &
+                  lsfUNLReportMemberSigningKeyCollisionFreeze))
+            {
+                sle->setFieldU32(
+                    sfFlags,
+                    sle->getFlags() |
+                        lsfUNLReportMemberSigningKeyCollisionFreeze);
+                view().update(sle);
+                return tesSUCCESS;
+            }
+            return tefALREADY;
+        }
+
+        auto const flags = sle->getFlags() |
+            lsfUNLReportMemberEquivocationFreeze | collisionFlag;
+        // The record remains frozen regardless of which evidence is retained.
+        // Keeping the smaller binding makes the final SLE application-order
+        // independent without treating either binding as valid authority.
+        if (incomingBinding < storedBinding)
+            writeUNLReportMember(*sle, *manifest, flags);
+        else
+            sle->setFieldU32(sfFlags, flags);
+        view().update(sle);
+        return tesSUCCESS;
+    }
+
+    writeUNLReportMember(*sle, *manifest, collisionFlag);
+    view().update(sle);
+    return tesSUCCESS;
 }
 
 TER

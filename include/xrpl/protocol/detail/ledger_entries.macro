@@ -240,6 +240,20 @@ LEDGER_ENTRY_DUPLICATE(ltCONSENSUS_ENTROPY, 0x0058, ConsensusEntropy, consensus_
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
+/** A ledger object which records a UNL report member.
+
+    \sa keylet::UNLReportMember
+ */
+LEDGER_ENTRY_DUPLICATE(ltUNL_REPORT_MEMBER, 0x0059, UNLReportMember, unl_report_member, ({
+    {sfPublicKey,            soeREQUIRED},
+    {sfSequence,             soeREQUIRED},
+    {sfBlob,                 soeREQUIRED},
+    {sfDigest,               soeREQUIRED},
+    {sfSigningPubKey,        soeOPTIONAL},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
 /** A ledger object which describes an account.
 
     \sa keylet::account

@@ -121,6 +121,9 @@ negativeUNL() noexcept;
 Keylet const&
 UNLReport() noexcept;
 
+Keylet
+UNLReportMember(PublicKey const& key) noexcept;
+
 /** The (fixed) index of the object containing consensus-derived entropy. */
 Keylet const&
 consensusEntropy() noexcept;

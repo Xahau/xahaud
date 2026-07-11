@@ -81,6 +81,7 @@ enum class LedgerNameSpace : std::uint16_t {
     URI_TOKEN = 'U',
     IMPORT_VLSEQ = 'I',
     UNL_REPORT = 'R',
+    UNL_REPORT_MEMBER = LEDGER_NAMESPACE2(0x01, 'M'),
     CRON = 'L',
     CONSENSUS_ENTROPY = 'X',
     AMM = 'A',
@@ -284,6 +285,14 @@ UNLReport() noexcept
     static Keylet const ret{
         ltUNL_REPORT, indexHash(LedgerNameSpace::UNL_REPORT)};
     return ret;
+}
+
+Keylet
+UNLReportMember(PublicKey const& key) noexcept
+{
+    return {
+        ltUNL_REPORT_MEMBER,
+        indexHash(LedgerNameSpace::UNL_REPORT_MEMBER, key)};
 }
 
 Keylet

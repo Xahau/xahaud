@@ -78,6 +78,9 @@ private:
     applyUNLReport();
 
     TER
+    applyUNLReportMember();
+
+    TER
     applyConsensusEntropy();
 
     TER
@@ -89,6 +92,7 @@ using SetFee = Change;
 using UNLModify = Change;
 using EmitFailure = Change;
 using UNLReport = Change;
+using UNLReportMember = Change;
 using ConsensusEntropy = Change;
 using ExportSignatures = Change;
 

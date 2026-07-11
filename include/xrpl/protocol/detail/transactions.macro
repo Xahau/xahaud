@@ -631,3 +631,7 @@ TRANSACTION(ttEXPORT_SIGNATURES, 106, ExportSignatures, ({
     {sfLedgerSequence, soeREQUIRED},
     {sfTransactionHash, soeREQUIRED},
 }))
+
+TRANSACTION(ttUNL_REPORT_MEMBER, 107, UNLReportMember, ({
+    {sfBlob, soeREQUIRED},
+}))
