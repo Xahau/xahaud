@@ -1127,9 +1127,9 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
     }
 
     void
-    testFindAllCandidatesWithActiveViewCap()
+    testFindAllCandidatesWithUNLReportV2()
     {
-        testcase("Find All Candidates with active-view cap denominator");
+        testcase("Find All Candidates with UNLReportV2 denominator");
 
         jtx::Env env(*this);
         NegativeUNLVote vote(NodeID(0xA0), env.journal, env.app());
@@ -1155,10 +1155,10 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
         BEAST_EXPECT(legacyCandidates.toDisableCandidates.size() == 17);
         BEAST_EXPECT(legacyCandidates.toReEnableCandidates.empty());
 
-        auto const activeViewCandidates =
+        auto const unlReportV2Candidates =
             vote.findAllCandidates(unl, negUnl, scoreTable, 10);
-        BEAST_EXPECT(activeViewCandidates.toDisableCandidates.empty());
-        BEAST_EXPECT(activeViewCandidates.toReEnableCandidates.empty());
+        BEAST_EXPECT(unlReportV2Candidates.toDisableCandidates.empty());
+        BEAST_EXPECT(unlReportV2Candidates.toReEnableCandidates.empty());
     }
 
     void
@@ -1416,7 +1416,7 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
         testPickOneCandidate();
         testBuildScoreTableSpecialCases();
         testFindAllCandidates();
-        testFindAllCandidatesWithActiveViewCap();
+        testFindAllCandidatesWithUNLReportV2();
         testFindAllCandidatesCombination();
         testNewValidators();
     }
@@ -1755,16 +1755,16 @@ class NegativeUNLVoteMaxListed_test : public beast::unit_test::suite
 
         {
             // The same reliability state produces a fourth disable vote under
-            // the legacy trusted-UNL denominator, but not when the amended cap
+            // the legacy trusted-UNL denominator, but not when UNLReportV2
             // uses the parent-ledger UNLReport active denominator.
-            auto const legacyFeatures = (jtx::supported_amendments() -
-                                         featureNegativeUNLActiveViewCap) |
+            auto const legacyFeatures =
+                (jtx::supported_amendments() - featureUNLReportV2) |
                 featureNegativeUNL;
             BEAST_EXPECT(voteCountWithUNLReport(legacyFeatures) == 1);
 
-            auto const activeViewCapFeatures = jtx::supported_amendments() |
-                featureNegativeUNLActiveViewCap | featureNegativeUNL;
-            BEAST_EXPECT(voteCountWithUNLReport(activeViewCapFeatures) == 0);
+            auto const unlReportV2Features = jtx::supported_amendments() |
+                featureUNLReportV2 | featureNegativeUNL;
+            BEAST_EXPECT(voteCountWithUNLReport(unlReportV2Features) == 0);
         }
     }
 

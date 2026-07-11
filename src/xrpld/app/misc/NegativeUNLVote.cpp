@@ -28,13 +28,11 @@ namespace ripple {
 
 namespace {
 
-//@@start negative-unl-active-view-cap-denominator
+//@@start negative-unl-report-v2-denominator
 std::optional<std::size_t>
-negativeUNLActiveViewCapDenominator(
-    std::shared_ptr<Ledger const> const& prevLedger)
+negativeUNLReportV2Denominator(std::shared_ptr<Ledger const> const& prevLedger)
 {
-    if (!prevLedger ||
-        !prevLedger->rules().enabled(featureNegativeUNLActiveViewCap))
+    if (!prevLedger || !prevLedger->rules().enabled(featureUNLReportV2))
     {
         return std::nullopt;
     }
@@ -58,7 +56,7 @@ negativeUNLActiveViewCapDenominator(
 
     return activeKeys.size();
 }
-//@@end negative-unl-active-view-cap-denominator
+//@@end negative-unl-report-v2-denominator
 
 }  // namespace
 
@@ -122,13 +120,13 @@ NegativeUNLVote::doVoting(
         purgeNewValidators(seq);
 
         // Process the table and find all candidates to disable or to re-enable
-        //@@start negative-unl-vote-active-view-cap-use
+        //@@start negative-unl-vote-unl-report-v2-use
         auto const candidates = findAllCandidates(
             unlNodeIDs,
             negUnlNodeIDs,
             *scoreTable,
-            negativeUNLActiveViewCapDenominator(prevLedger));
-        //@@end negative-unl-vote-active-view-cap-use
+            negativeUNLReportV2Denominator(prevLedger));
+        //@@end negative-unl-vote-unl-report-v2-use
 
         // Pick one to disable and one to re-enable if any, add ttUNL_MODIFY Tx
         if (!candidates.toDisableCandidates.empty())
