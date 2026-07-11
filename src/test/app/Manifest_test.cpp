@@ -422,6 +422,51 @@ public:
     }
 
     void
+    testBindingID()
+    {
+        testcase("bindingID");
+
+        auto const sk = randomSecretKey();
+        auto const kp = randomKeyPair(KeyType::secp256k1);
+        auto const manifest = makeManifest(
+            sk, KeyType::ed25519, kp.second, KeyType::secp256k1, 1);
+
+        auto const reparsed = deserializeManifest(manifest.serialized);
+        BEAST_EXPECT(reparsed);
+        if (reparsed)
+            BEAST_EXPECT(manifest.bindingID() == reparsed->bindingID());
+
+        auto const changedSequence = makeManifest(
+            sk, KeyType::ed25519, kp.second, KeyType::secp256k1, 2);
+        BEAST_EXPECT(manifest.bindingID() != changedSequence.bindingID());
+
+        STObject st(sfGeneric);
+        SerialIter sit(manifest.serialized.data(), manifest.serialized.size());
+        st.set(sit);
+
+        auto sig = st.getFieldVL(sfSignature);
+        auto masterSig = st.getFieldVL(sfMasterSignature);
+        BEAST_EXPECT(!sig.empty());
+        BEAST_EXPECT(!masterSig.empty());
+        sig.front() ^= 0x01;
+        masterSig.front() ^= 0x01;
+        st.setFieldVL(sfSignature, sig);
+        st.setFieldVL(sfMasterSignature, masterSig);
+
+        Serializer s;
+        st.add(s);
+        auto const alteredSignatures = deserializeManifest(
+            std::string(static_cast<char const*>(s.data()), s.size()));
+        BEAST_EXPECT(alteredSignatures);
+        if (alteredSignatures)
+        {
+            BEAST_EXPECT(
+                manifest.bindingID() == alteredSignatures->bindingID());
+            BEAST_EXPECT(manifest.hash() != alteredSignatures->hash());
+        }
+    }
+
+    void
     testGetSignature()
     {
         testcase("getSignature");
@@ -1074,6 +1119,7 @@ public:
         }
 
         testLoadStore(cache);
+        testBindingID();
         testGetSignature();
         testGetKeys();
         testValidatorToken();

@@ -128,6 +128,10 @@ struct Manifest
     uint256
     hash() const;
 
+    /// Returns hash of manifest data authenticated by signatures
+    uint256
+    bindingID() const;
+
     /// Returns `true` if manifest revokes master key
     // The maximum possible sequence number means that the master key has
     // been revoked
