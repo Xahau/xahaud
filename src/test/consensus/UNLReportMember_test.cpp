@@ -11,6 +11,7 @@
 
 #include <test/jtx.h>
 #include <test/jtx/xpop.h>
+#include <xrpld/app/misc/UNLReportMember.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/ledger/OpenView.h>
 #include <xrpl/protocol/Feature.h>
@@ -18,6 +19,7 @@
 #include <xrpl/protocol/LedgerFormats.h>
 #include <xrpl/protocol/Sign.h>
 
+#include <array>
 #include <limits>
 
 namespace ripple {
@@ -85,6 +87,15 @@ class UNLReportMember_test : public beast::unit_test::suite
         Serializer s;
         st.add(s);
         return std::string(static_cast<char const*>(s.data()), s.size());
+    }
+
+    static Manifest
+    parsed(std::string const& raw)
+    {
+        auto manifest = deserializeManifest(raw);
+        if (!manifest)
+            Throw<std::logic_error>("test manifest must deserialize");
+        return std::move(*manifest);
     }
 
     static STTx
@@ -274,8 +285,11 @@ class UNLReportMember_test : public beast::unit_test::suite
         auto const v = validator();
         auto const [otherPublic, otherSecret] =
             randomKeyPair(KeyType::secp256k1);
+        auto const [thirdPublic, thirdSecret] =
+            randomKeyPair(KeyType::secp256k1);
         auto const a = memberTx(manifest(v, 1));
         auto const b = memberTx(manifest(v, otherPublic, otherSecret, 1));
+        auto const c = memberTx(manifest(v, thirdPublic, thirdSecret, 1));
 
         auto applyPair = [&](STTx const& first, STTx const& second) {
             auto parent = parentLedger(env, {v.masterPublic});
@@ -286,11 +300,38 @@ class UNLReportMember_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 sle &&
                 (sle->getFlags() & lsfUNLReportMemberEquivocationFreeze));
+            BEAST_EXPECT(apply(env, view, second) == tefALREADY);
             return std::make_pair(
                 sle->getFieldH256(sfDigest), sle->getFieldVL(sfBlob));
         };
 
         BEAST_EXPECT(applyPair(a, b) == applyPair(b, a));
+
+        std::array<STTx const*, 3> statements{&a, &b, &c};
+        std::array<std::size_t, 3> order{0, 1, 2};
+        std::optional<std::pair<uint256, Blob>> expected;
+        do
+        {
+            auto permutationParent = parentLedger(env, {v.masterPublic});
+            OpenView permutationView(&*permutationParent);
+            for (auto const index : order)
+            {
+                auto const ter =
+                    apply(env, permutationView, *statements[index]);
+                BEAST_EXPECT(ter == tesSUCCESS || ter == tefALREADY);
+            }
+            auto const record =
+                permutationView.read(keylet::UNLReportMember(v.masterPublic));
+            BEAST_EXPECT(
+                record &&
+                (record->getFlags() & lsfUNLReportMemberEquivocationFreeze));
+            auto const result = std::make_pair(
+                record->getFieldH256(sfDigest), record->getFieldVL(sfBlob));
+            if (!expected)
+                expected = result;
+            else
+                BEAST_EXPECT(result == *expected);
+        } while (std::next_permutation(order.begin(), order.end()));
 
         auto parent = parentLedger(env, {v.masterPublic});
         OpenView view(&*parent);
@@ -343,6 +384,71 @@ class UNLReportMember_test : public beast::unit_test::suite
             0);
     }
 
+    void
+    testDeltaSelection()
+    {
+        testcase("bounded deterministic delta selection");
+        jtx::Env env(*this, jtx::supported_amendments() | featureUNLReportV2);
+        auto const a = validator();
+        auto const b = validator();
+
+        {
+            auto coalescedLedger = parentLedger(env, {a.masterPublic});
+            std::vector<Manifest> rotations;
+            rotations.emplace_back(parsed(manifest(a, 1)));
+            rotations.emplace_back(parsed(manifest(a, 2)));
+            auto updates = buildUNLReportMemberUpdates(
+                *coalescedLedger, std::move(rotations), 1);
+            BEAST_EXPECT(updates.size() == 1);
+            auto selected =
+                deserializeManifest(updates.front().getFieldVL(sfBlob));
+            BEAST_EXPECT(selected && selected->sequence == 2);
+        }
+
+        auto ledger = parentLedger(env, {a.masterPublic, b.masterPublic});
+        auto evidence = [&] {
+            std::vector<Manifest> result;
+            result.emplace_back(parsed(manifest(b, 1)));
+            result.emplace_back(parsed(manifest(a, 1)));
+            return result;
+        };
+
+        auto selected = buildUNLReportMemberUpdates(*ledger, evidence(), 1);
+        BEAST_EXPECT(selected.size() == 1);
+        auto first = deserializeManifest(selected.front().getFieldVL(sfBlob));
+        BEAST_EXPECT(first);
+        BEAST_EXPECT(
+            first &&
+            first->masterKey == std::min(a.masterPublic, b.masterPublic));
+
+        {
+            OpenView view(&*ledger);
+            BEAST_EXPECT(apply(env, view, selected.front()) == tesSUCCESS);
+            view.apply(*ledger);
+        }
+
+        selected = buildUNLReportMemberUpdates(*ledger, evidence());
+        BEAST_EXPECT(selected.size() == 1);
+
+        auto const& admitted = first->masterKey == a.masterPublic ? a : b;
+        auto const [otherPublic, otherSecret] =
+            randomKeyPair(KeyType::secp256k1);
+        auto conflict = [&] {
+            std::vector<Manifest> result;
+            result.emplace_back(
+                parsed(manifest(admitted, otherPublic, otherSecret, 1)));
+            return result;
+        };
+        selected = buildUNLReportMemberUpdates(*ledger, conflict());
+        BEAST_EXPECT(selected.size() == 1);
+        {
+            OpenView view(&*ledger);
+            BEAST_EXPECT(apply(env, view, selected.front()) == tesSUCCESS);
+            view.apply(*ledger);
+        }
+        BEAST_EXPECT(buildUNLReportMemberUpdates(*ledger, conflict()).empty());
+    }
+
 public:
     void
     run() override
@@ -353,6 +459,7 @@ public:
         testInactiveMemberCanRevoke();
         testEquivocationIsOrderIndependent();
         testSigningKeyCollision();
+        testDeltaSelection();
     }
 };
 

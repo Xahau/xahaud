@@ -25,11 +25,15 @@
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SecretKey.h>
 
+#include <cstddef>
 #include <optional>
 #include <shared_mutex>
 #include <string>
+#include <vector>
 
 namespace ripple {
+
+inline constexpr std::size_t maxUNLReportMemberManifestSize = 2048;
 
 /*
     Validator key manifests
@@ -262,11 +266,30 @@ private:
     beast::Journal j_;
     std::shared_mutex mutable mutex_;
 
+    static constexpr std::size_t maxUNLReportMemberEvidenceMasters_ = 256;
+    static constexpr std::size_t maxUNLReportMemberEvidencePerMaster_ = 2;
+
     /** Active manifests stored by master public key. */
     hash_map<PublicKey, Manifest> map_;
 
     /** Master public keys stored by current ephemeral public key. */
     hash_map<PublicKey, PublicKey> signingToMasterKeys_;
+
+    /** Fully verified proposal-input evidence for UNLReport member updates.
+
+        Overlay admission is the first spam boundary. This local availability
+        cache is still bounded: 256 masters covers validator sets on the order
+        of tens, and each master keeps only the two highest-sequence distinct
+        statements needed to propose equivocation evidence.
+    */
+    struct UNLReportMemberManifestEvidence
+    {
+        std::uint32_t sequence = 0;
+        std::vector<Manifest> manifests;
+    };
+
+    hash_map<PublicKey, UNLReportMemberManifestEvidence>
+        unlReportMemberManifestEvidence_;
 
     std::atomic<std::uint32_t> seq_{0};
 
@@ -358,6 +381,34 @@ public:
     */
     ManifestDisposition
     applyManifest(Manifest m);
+
+    /** Observe serialized manifest evidence for UNLReport member proposals.
+
+        The evidence is deserialized and signature-verified before any cache
+        mutation. This path intentionally does not change applyManifest()
+        disposition semantics and does not update the active manifest map.
+
+        @return `true` if a new evidence statement was retained.
+
+        @par Thread Safety
+
+        May be called concurrently
+    */
+    bool
+    observeUNLReportMemberManifestEvidence(Slice serialized);
+
+    /** Returns active manifests plus retained UNLReport member evidence.
+
+        Results are deduplicated by (master, sequence, bindingID) and sorted by
+        master, sequence, then bindingID so callers can propose
+       deterministically.
+
+        @par Thread Safety
+
+        May be called concurrently
+    */
+    std::vector<Manifest>
+    getUNLReportMemberManifestEvidenceSnapshot() const;
 
     /** Populate manifest cache with manifests in database and config.
 

@@ -20,6 +20,7 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/UNLReportMember.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/misc/ValidatorSite.h>
 #include <xrpld/app/rdb/RelationalDatabase.h>
@@ -40,6 +41,7 @@
 
 #include <xrpld/core/ConfigSections.h>
 #include <boost/algorithm/string/predicate.hpp>
+#include <algorithm>
 
 namespace ripple {
 
@@ -636,6 +638,13 @@ OverlayImpl::onManifests(
     auto const n = m->list_size();
     auto const& journal = from->pjournal();
 
+    auto const validated = app_.getLedgerMaster().getValidatedLedger();
+    bool const observeMemberEvidence =
+        validated && validated->rules().enabled(featureUNLReportV2);
+    auto const activeMasters = observeMemberEvidence
+        ? unlReportActiveMasters(*validated)
+        : std::vector<PublicKey>{};
+
     protocol::TMManifests relay;
 
     for (std::size_t i = 0; i < n; ++i)
@@ -645,6 +654,17 @@ OverlayImpl::onManifests(
         if (auto mo = deserializeManifest(s))
         {
             auto const serialized = mo->serialized;
+
+            bool const active =
+                observeMemberEvidence &&
+                std::binary_search(
+                    activeMasters.begin(), activeMasters.end(), mo->masterKey);
+            bool const historicalRevocation = observeMemberEvidence &&
+                mo->revoked() &&
+                validated->exists(keylet::UNLReportMember(mo->masterKey));
+            if (active || historicalRevocation)
+                app_.validatorManifests()
+                    .observeUNLReportMemberManifestEvidence(makeSlice(s));
 
             auto const result =
                 app_.validatorManifests().applyManifest(std::move(*mo));
