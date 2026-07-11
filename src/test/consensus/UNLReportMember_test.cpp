@@ -405,6 +405,22 @@ class UNLReportMember_test : public beast::unit_test::suite
             BEAST_EXPECT(selected && selected->sequence == 2);
         }
 
+        {
+            auto revocationLedger = parentLedger(env, {a.masterPublic});
+            std::vector<Manifest> revocations;
+            revocations.emplace_back(parsed(revocation(a)));
+            auto updates = buildUNLReportMemberUpdates(
+                *revocationLedger, std::move(revocations));
+            BEAST_EXPECT(updates.size() == 1);
+
+            OpenView view(&*revocationLedger);
+            BEAST_EXPECT(apply(env, view, updates.front()) == tesSUCCESS);
+            auto const sle = view.read(keylet::UNLReportMember(a.masterPublic));
+            BEAST_EXPECT(sle && !sle->isFieldPresent(sfSigningPubKey));
+            BEAST_EXPECT(
+                sle && Manifest::revoked(sle->getFieldU32(sfSequence)));
+        }
+
         auto ledger = parentLedger(env, {a.masterPublic, b.masterPublic});
         auto evidence = [&] {
             std::vector<Manifest> result;
