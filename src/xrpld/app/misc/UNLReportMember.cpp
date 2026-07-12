@@ -108,7 +108,7 @@ buildUNLReportMemberUpdates(
         bool eligible = false;
         if (!sle)
         {
-            eligible = active;
+            eligible = active && !manifest.revoked();
         }
         else
         {
