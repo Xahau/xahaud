@@ -279,7 +279,9 @@ private:
         Overlay admission is the first spam boundary. This local availability
         cache is still bounded: 256 masters covers validator sets on the order
         of tens, and each master keeps only the two highest-sequence distinct
-        statements needed to propose equivocation evidence.
+        statements needed to propose equivocation evidence. Overflow recycles
+        the least-recently-retained master; rejected duplicate and stale
+        observations do not refresh retention order.
     */
     struct UNLReportMemberManifestEvidence
     {
