@@ -19,6 +19,42 @@
 
 namespace ripple {
 
+bool
+UNLReportMemberBinding::revoked() const
+{
+    return resolution == UNLReportMemberBindingResolution::resolved &&
+        Manifest::revoked(manifestSequence);
+}
+
+bool
+UNLReportMemberBinding::frozen() const
+{
+    return resolution == UNLReportMemberBindingResolution::resolved &&
+        ledgerFlags != 0;
+}
+
+bool
+UNLReportMemberBinding::usableSigningBinding() const
+{
+    return resolution == UNLReportMemberBindingResolution::resolved &&
+        signingKey && !revoked() && !frozen() && !duplicateSigningKey;
+}
+
+UNLReportMemberBinding const*
+UNLReportMemberBindingView::findMaster(PublicKey const& masterKey) const
+{
+    auto const iter = std::lower_bound(
+        members.begin(),
+        members.end(),
+        masterKey,
+        [](UNLReportMemberBinding const& member, PublicKey const& key) {
+            return member.masterKey < key;
+        });
+    if (iter == members.end() || iter->masterKey != masterKey)
+        return nullptr;
+    return &*iter;
+}
+
 std::vector<PublicKey>
 unlReportActiveMasters(ReadView const& parent)
 {
@@ -37,6 +73,129 @@ unlReportActiveMasters(ReadView const& parent)
     std::sort(result.begin(), result.end());
     result.erase(std::unique(result.begin(), result.end()), result.end());
     return result;
+}
+
+std::optional<UNLReportMemberBindingView>
+buildUNLReportMemberBindingView(ReadView const& parent)
+{
+    if (!parent.rules().enabled(featureUNLReportV2))
+        return std::nullopt;
+
+    auto const report = parent.read(keylet::UNLReport());
+    if (!report || !report->isFieldPresent(sfActiveValidators))
+        return std::nullopt;
+
+    std::vector<PublicKey> activeMasters;
+    for (auto const& entry : report->getFieldArray(sfActiveValidators))
+    {
+        if (!entry.isFieldPresent(sfPublicKey))
+            return std::nullopt;
+        auto const& bytes = entry.getFieldVL(sfPublicKey);
+        if (!publicKeyType(makeSlice(bytes)))
+            return std::nullopt;
+        activeMasters.emplace_back(makeSlice(bytes));
+    }
+    if (activeMasters.empty())
+        return std::nullopt;
+
+    std::sort(activeMasters.begin(), activeMasters.end());
+    activeMasters.erase(
+        std::unique(activeMasters.begin(), activeMasters.end()),
+        activeMasters.end());
+
+    UNLReportMemberBindingView view{parent.info().hash, parent.seq(), {}};
+    view.members.reserve(activeMasters.size());
+
+    for (auto const& masterKey : activeMasters)
+    {
+        UNLReportMemberBinding binding{masterKey};
+        auto const sle = parent.read(keylet::UNLReportMember(masterKey));
+        if (!sle)
+        {
+            view.members.emplace_back(std::move(binding));
+            continue;
+        }
+
+        binding.resolution = UNLReportMemberBindingResolution::malformed;
+        binding.ledgerFlags = sle->getFlags();
+        if (!sle->isFieldPresent(sfPublicKey) ||
+            !sle->isFieldPresent(sfSequence) || !sle->isFieldPresent(sfBlob) ||
+            !sle->isFieldPresent(sfDigest))
+        {
+            view.members.emplace_back(std::move(binding));
+            continue;
+        }
+
+        auto const& storedMaster = sle->getFieldVL(sfPublicKey);
+        auto const& storedBlob = sle->getFieldVL(sfBlob);
+        if (!publicKeyType(makeSlice(storedMaster)) ||
+            PublicKey{makeSlice(storedMaster)} != masterKey ||
+            storedBlob.empty() ||
+            storedBlob.size() > maxUNLReportMemberManifestSize)
+        {
+            view.members.emplace_back(std::move(binding));
+            continue;
+        }
+
+        binding.manifestSequence = sle->getFieldU32(sfSequence);
+        binding.bindingID = sle->getFieldH256(sfDigest);
+        binding.manifestBlob = storedBlob;
+
+        if (sle->isFieldPresent(sfSigningPubKey))
+        {
+            auto const& storedSigning = sle->getFieldVL(sfSigningPubKey);
+            if (!publicKeyType(makeSlice(storedSigning)))
+            {
+                view.members.emplace_back(std::move(binding));
+                continue;
+            }
+            binding.signingKey.emplace(makeSlice(storedSigning));
+        }
+
+        auto manifest = deserializeManifest(binding.manifestBlob);
+        if (!manifest || !manifest->verify() ||
+            manifest->masterKey != masterKey ||
+            manifest->sequence != binding.manifestSequence ||
+            manifest->bindingID() != binding.bindingID ||
+            manifest->signingKey != binding.signingKey)
+        {
+            view.members.emplace_back(std::move(binding));
+            continue;
+        }
+
+        bool const storedBytesMatch =
+            makeSlice(manifest->serialized) == makeSlice(binding.manifestBlob);
+        if (!storedBytesMatch || (manifest->revoked() && binding.signingKey) ||
+            (!manifest->revoked() && !binding.signingKey))
+        {
+            view.members.emplace_back(std::move(binding));
+            continue;
+        }
+
+        binding.resolution = UNLReportMemberBindingResolution::resolved;
+        view.members.emplace_back(std::move(binding));
+    }
+
+    for (std::size_t i = 0; i < view.members.size(); ++i)
+    {
+        auto& lhs = view.members[i];
+        if (lhs.resolution != UNLReportMemberBindingResolution::resolved ||
+            !lhs.signingKey)
+            continue;
+
+        for (std::size_t j = i + 1; j < view.members.size(); ++j)
+        {
+            auto& rhs = view.members[j];
+            if (rhs.resolution != UNLReportMemberBindingResolution::resolved ||
+                !rhs.signingKey || *lhs.signingKey != *rhs.signingKey)
+                continue;
+
+            lhs.duplicateSigningKey = true;
+            rhs.duplicateSigningKey = true;
+        }
+    }
+
+    return view;
 }
 
 std::vector<STTx>
