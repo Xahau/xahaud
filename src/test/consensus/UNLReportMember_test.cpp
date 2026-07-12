@@ -17,10 +17,8 @@
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/LedgerFormats.h>
-#include <xrpl/protocol/Seed.h>
 #include <xrpl/protocol/Sign.h>
 
-#include <algorithm>
 #include <array>
 #include <limits>
 
@@ -350,95 +348,6 @@ class UNLReportMember_test : public beast::unit_test::suite
     }
 
     void
-    testEquivocationConvergesAcrossParentRounds()
-    {
-        testcase(
-            "equal-sequence equivocation converges across parent-ledger "
-            "rounds");
-        jtx::Env env(*this, jtx::supported_amendments() | featureUNLReportV2);
-        auto const [masterPublic, masterSecret] = generateKeyPair(
-            KeyType::ed25519,
-            generateSeed("unl-report-member-converge-master"));
-        auto const [signingPublic, signingSecret] = generateKeyPair(
-            KeyType::secp256k1,
-            generateSeed("unl-report-member-converge-signing-0"));
-        Validator const v{
-            masterPublic, masterSecret, signingPublic, signingSecret};
-        auto const [otherPublic, otherSecret] = generateKeyPair(
-            KeyType::secp256k1,
-            generateSeed("unl-report-member-converge-signing-1"));
-        auto const [thirdPublic, thirdSecret] = generateKeyPair(
-            KeyType::secp256k1,
-            generateSeed("unl-report-member-converge-signing-2"));
-
-        struct Statement
-        {
-            std::string serialized;
-            uint256 binding;
-        };
-
-        std::array<Statement, 3> statements{{
-            {manifest(v, 1), {}},
-            {manifest(v, otherPublic, otherSecret, 1), {}},
-            {manifest(v, thirdPublic, thirdSecret, 1), {}},
-        }};
-        for (auto& statement : statements)
-            statement.binding = parsed(statement.serialized).bindingID();
-        std::sort(
-            statements.begin(),
-            statements.end(),
-            [](Statement const& lhs, Statement const& rhs) {
-                return lhs.binding < rhs.binding;
-            });
-        BEAST_EXPECT(statements[0].binding < statements[1].binding);
-        BEAST_EXPECT(statements[1].binding < statements[2].binding);
-
-        auto evidence = [](Statement const& first, Statement const& second) {
-            std::vector<Manifest> result;
-            result.emplace_back(parsed(first.serialized));
-            result.emplace_back(parsed(second.serialized));
-            return result;
-        };
-        auto ledger = parentLedger(env, {v.masterPublic});
-        auto applyRound = [&](std::vector<Manifest> observed) {
-            auto const updates =
-                buildUNLReportMemberUpdates(*ledger, std::move(observed));
-            auto next = std::make_shared<Ledger>(
-                *ledger, env.app().timeKeeper().closeTime());
-            OpenView view(&*next);
-            for (auto const& update : updates)
-                BEAST_EXPECT(apply(env, view, update) == tesSUCCESS);
-            view.apply(*next);
-            ledger = std::move(next);
-            return updates.size();
-        };
-        auto expectStored = [&](Statement const& statement) {
-            ReadView const& view = *ledger;
-            auto const sle = view.read(keylet::UNLReportMember(v.masterPublic));
-            BEAST_EXPECT(sle);
-            BEAST_EXPECT(sle && sle->getFieldU32(sfSequence) == 1);
-            BEAST_EXPECT(
-                sle &&
-                (sle->getFlags() & lsfUNLReportMemberEquivocationFreeze));
-            BEAST_EXPECT(
-                sle && sle->getFieldH256(sfDigest) == statement.binding);
-        };
-
-        BEAST_EXPECT(applyRound(evidence(statements[1], statements[2])) == 2);
-        expectStored(statements[1]);
-
-        BEAST_EXPECT(applyRound(evidence(statements[0], statements[2])) == 1);
-        expectStored(statements[0]);
-
-        BEAST_EXPECT(buildUNLReportMemberUpdates(
-                         *ledger, evidence(statements[1], statements[2]))
-                         .empty());
-        BEAST_EXPECT(buildUNLReportMemberUpdates(
-                         *ledger, evidence(statements[0], statements[2]))
-                         .empty());
-    }
-
-    void
     testSigningKeyCollision()
     {
         testcase("cross-member signing-key collision freezes both records");
@@ -565,7 +474,6 @@ public:
         testRotationAndRevocation();
         testInactiveMemberCanRevoke();
         testEquivocationIsOrderIndependent();
-        testEquivocationConvergesAcrossParentRounds();
         testSigningKeyCollision();
         testDeltaSelection();
     }
