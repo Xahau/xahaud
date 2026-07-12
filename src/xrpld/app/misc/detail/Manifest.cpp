@@ -209,15 +209,6 @@ Manifest::hash() const
     return st.getHash(HashPrefix::manifest);
 }
 
-uint256
-Manifest::bindingID() const
-{
-    STObject st(sfGeneric);
-    SerialIter sit(serialized.data(), serialized.size());
-    st.set(sit);
-    return st.getSigningHash(HashPrefix::manifest);
-}
-
 bool
 Manifest::revoked() const
 {
