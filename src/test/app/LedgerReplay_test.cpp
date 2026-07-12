@@ -19,6 +19,8 @@
 
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
+#include <test/jtx/unl.h>
+#include <test/jtx/xpop.h>
 #include <xrpld/app/ledger/BuildLedger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/LedgerReplay.h>
@@ -27,11 +29,19 @@
 #include <xrpld/app/ledger/detail/LedgerDeltaAcquire.h>
 #include <xrpld/app/ledger/detail/LedgerReplayMsgHandler.h>
 #include <xrpld/app/ledger/detail/SkipListAcquire.h>
+#include <xrpld/app/misc/CanonicalTXSet.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/misc/UNLReportMember.h>
 #include <xrpld/overlay/PeerSet.h>
 #include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpl/basics/Slice.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
 
+#include <algorithm>
 #include <chrono>
+#include <set>
 #include <thread>
 
 namespace ripple {
@@ -39,8 +49,86 @@ namespace test {
 
 struct LedgerReplay_test : public beast::unit_test::suite
 {
+    static std::unique_ptr<Config>
+    replayConfig()
+    {
+        auto c = jtx::envconfig();
+        auto& sectionNode = c->section(ConfigSection::nodeDatabase());
+        sectionNode.set("type", "memory");
+        c->overwrite(SECTION_RELATIONAL_DB, "backend", "sqlite");
+        return c;
+    }
+
+    bool
+    expectUNLReportMemberSLE(
+        std::shared_ptr<Ledger const> const& ledger,
+        Manifest const& manifest)
+    {
+        auto const sle =
+            ledger->read(keylet::UNLReportMember(manifest.masterKey));
+        BEAST_EXPECT(sle);
+        if (!sle)
+            return false;
+
+        Blob const expectedBlob{
+            manifest.serialized.begin(), manifest.serialized.end()};
+
+        BEAST_EXPECT(
+            PublicKey{makeSlice(sle->getFieldVL(sfPublicKey))} ==
+            manifest.masterKey);
+        BEAST_EXPECT(sle->getFieldU32(sfSequence) == manifest.sequence);
+        BEAST_EXPECT(sle->getFieldVL(sfBlob) == expectedBlob);
+        BEAST_EXPECT(sle->getFieldH256(sfDigest) == manifest.bindingID());
+        BEAST_EXPECT(sle->getFlags() == 0);
+        BEAST_EXPECT(manifest.signingKey);
+        BEAST_EXPECT(sle->isFieldPresent(sfSigningPubKey));
+        if (manifest.signingKey && sle->isFieldPresent(sfSigningPubKey))
+        {
+            BEAST_EXPECT(
+                PublicKey{makeSlice(sle->getFieldVL(sfSigningPubKey))} ==
+                *manifest.signingKey);
+        }
+
+        return true;
+    }
+
+    bool
+    expectSameUNLReportMemberSLE(
+        std::shared_ptr<Ledger const> const& lhs,
+        std::shared_ptr<Ledger const> const& rhs,
+        PublicKey const& masterKey)
+    {
+        auto const left = lhs->read(keylet::UNLReportMember(masterKey));
+        auto const right = rhs->read(keylet::UNLReportMember(masterKey));
+        BEAST_EXPECT(left);
+        BEAST_EXPECT(right);
+        if (!left || !right)
+            return false;
+
+        BEAST_EXPECT(left->getFlags() == right->getFlags());
+        BEAST_EXPECT(
+            left->getFieldU32(sfSequence) == right->getFieldU32(sfSequence));
+        BEAST_EXPECT(
+            left->getFieldVL(sfPublicKey) == right->getFieldVL(sfPublicKey));
+        BEAST_EXPECT(left->getFieldVL(sfBlob) == right->getFieldVL(sfBlob));
+        BEAST_EXPECT(
+            left->getFieldH256(sfDigest) == right->getFieldH256(sfDigest));
+        BEAST_EXPECT(
+            left->isFieldPresent(sfSigningPubKey) ==
+            right->isFieldPresent(sfSigningPubKey));
+        if (left->isFieldPresent(sfSigningPubKey) &&
+            right->isFieldPresent(sfSigningPubKey))
+        {
+            BEAST_EXPECT(
+                left->getFieldVL(sfSigningPubKey) ==
+                right->getFieldVL(sfSigningPubKey));
+        }
+
+        return true;
+    }
+
     void
-    run() override
+    testReplayLedger()
     {
         testcase("Replay ledger");
 
@@ -50,13 +138,7 @@ struct LedgerReplay_test : public beast::unit_test::suite
         auto const alice = Account("alice");
         auto const bob = Account("bob");
 
-        Env env = [&] {
-            auto c = jtx::envconfig();
-            auto& sectionNode = c->section(ConfigSection::nodeDatabase());
-            sectionNode.set("type", "memory");
-            c->overwrite(SECTION_RELATIONAL_DB, "backend", "sqlite");
-            return jtx::Env(*this, std::move(c));
-        }();
+        Env env(*this, replayConfig());
         env.fund(XRP(100000), alice, bob);
         env.close();
 
@@ -72,6 +154,107 @@ struct LedgerReplay_test : public beast::unit_test::suite
             env.journal);
 
         BEAST_EXPECT(replayed->info().hash == lastClosed->info().hash);
+    }
+
+    void
+    testReplayUNLReportMemberBootstrap()
+    {
+        testcase("Replay UNLReport member bootstrap");
+
+        using namespace jtx;
+
+        Env env{
+            *this, replayConfig(), supported_amendments() | featureUNLReportV2};
+
+        auto const validator = xpop::TestValidator::create();
+        auto const manifest =
+            deserializeManifest(validator.manifestRaw, env.journal);
+        BEAST_EXPECT(manifest);
+        BEAST_EXPECT(manifest && manifest->verify());
+        if (!manifest || !manifest->verify())
+            return;
+
+        auto evidenceInAppCache = [&]() {
+            auto const snapshot =
+                env.app()
+                    .validatorManifests()
+                    .getUNLReportMemberManifestEvidenceSnapshot();
+            return std::any_of(
+                snapshot.begin(), snapshot.end(), [&](Manifest const& m) {
+                    return m.masterKey == validator.masterPublic;
+                });
+        };
+        BEAST_EXPECT(!evidenceInAppCache());
+
+        env.app().openLedger().modify(
+            [&](OpenView& view, beast::Journal) -> bool {
+                auto const tx = unl::createUNLReportTx(
+                    env.current()->seq(),
+                    validator.masterPublic,
+                    validator.masterPublic);
+                auto const txID = tx.getTransactionID();
+                auto s = std::make_shared<Serializer>();
+                tx.add(*s);
+                env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                view.rawTxInsert(txID, std::move(s), nullptr);
+                return true;
+            });
+
+        BEAST_EXPECT(env.close());
+
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        BEAST_EXPECT(parent);
+        if (!parent)
+            return;
+        BEAST_EXPECT(parent->read(keylet::UNLReport()));
+        BEAST_EXPECT(!evidenceInAppCache());
+
+        ManifestCache localManifests{env.journal};
+        BEAST_EXPECT(localManifests.observeUNLReportMemberManifestEvidence(
+            makeSlice(validator.manifestRaw)));
+
+        auto updates = buildUNLReportMemberUpdates(
+            *parent,
+            localManifests.getUNLReportMemberManifestEvidenceSnapshot());
+        BEAST_EXPECT(updates.size() == 1);
+        if (updates.size() != 1)
+            return;
+
+        auto const& memberTx = updates.front();
+        BEAST_EXPECT(memberTx.getTxnType() == ttUNL_REPORT_MEMBER);
+        BEAST_EXPECT(!evidenceInAppCache());
+
+        CanonicalTXSet txns{parent->info().hash};
+        txns.insert(std::make_shared<STTx const>(memberTx));
+        std::set<TxID> failed;
+
+        auto const closed = buildLedger(
+            parent,
+            env.app().timeKeeper().closeTime(),
+            true,
+            parent->info().closeTimeResolution,
+            env.app(),
+            txns,
+            failed,
+            env.journal);
+        BEAST_EXPECT(txns.empty());
+        BEAST_EXPECT(failed.empty());
+        expectUNLReportMemberSLE(closed, *manifest);
+        BEAST_EXPECT(!evidenceInAppCache());
+
+        auto const replayed = buildLedger(
+            LedgerReplay(parent, closed), tapNONE, env.app(), env.journal);
+        BEAST_EXPECT(replayed->info().hash == closed->info().hash);
+        expectUNLReportMemberSLE(replayed, *manifest);
+        expectSameUNLReportMemberSLE(closed, replayed, validator.masterPublic);
+        BEAST_EXPECT(!evidenceInAppCache());
+    }
+
+    void
+    run() override
+    {
+        testReplayLedger();
+        testReplayUNLReportMemberBootstrap();
     }
 };
 
