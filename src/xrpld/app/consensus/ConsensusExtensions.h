@@ -189,10 +189,16 @@ public:
     quorumThreshold() const;
 
     std::size_t
-    exportSigQuorumThreshold() const;
+    exportRootAlignmentThreshold() const;
 
     static std::size_t
-    exportSigQuorumThreshold(ActiveValidatorView const& validatorView);
+    exportRootAlignmentThreshold(ActiveValidatorView const& validatorView);
+
+    std::size_t
+    exportWitnessThreshold() const;
+
+    static std::size_t
+    exportWitnessThreshold(ActiveValidatorView const& validatorView);
 
     static bool
     exportAuthorityFitsTargetSignerCap(

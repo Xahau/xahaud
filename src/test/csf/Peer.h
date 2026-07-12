@@ -453,7 +453,17 @@ struct Peer
         }
 
         std::size_t
-        exportSigQuorumThreshold() const
+        exportRootAlignmentThreshold() const
+        {
+            if (!enableExportConsensus_)
+                return (std::numeric_limits<std::size_t>::max)() / 4;
+            auto const base =
+                unlNodes_.empty() ? std::size_t{1} : unlNodes_.size();
+            return calculateQuorumThreshold(base);
+        }
+
+        std::size_t
+        exportWitnessThreshold() const
         {
             if (!enableExportConsensus_)
                 return (std::numeric_limits<std::size_t>::max)() / 4;
@@ -938,7 +948,7 @@ struct Peer
                     });
             }
 
-            lastExportSucceeded_ = activeSigCount >= exportSigQuorumThreshold();
+            lastExportSucceeded_ = activeSigCount >= exportWitnessThreshold();
             lastExportRetried_ = !lastExportSucceeded_;
         }
 

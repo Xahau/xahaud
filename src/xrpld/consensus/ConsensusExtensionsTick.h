@@ -1112,7 +1112,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 };
 
                 auto exportState = inspectExportPeers(ctx.getPosition());
-                auto const exportQuorum = ext.exportSigQuorumThreshold();
+                auto const exportQuorum = ext.exportRootAlignmentThreshold();
                 auto quorumAligned = [&] {
                     return exportState.quorumAligned(exportQuorum);
                 };

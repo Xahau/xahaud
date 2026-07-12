@@ -342,13 +342,13 @@ ConsensusExtensions::quorumThreshold() const
 }
 
 std::size_t
-ConsensusExtensions::exportSigQuorumThreshold() const
+ConsensusExtensions::exportRootAlignmentThreshold() const
 {
-    return exportSigQuorumThreshold(*activeValidatorView());
+    return exportRootAlignmentThreshold(*activeValidatorView());
 }
 
 std::size_t
-ConsensusExtensions::exportSigQuorumThreshold(
+ConsensusExtensions::exportRootAlignmentThreshold(
     ActiveValidatorView const& validatorView)
 {
     auto const base = validatorView.size();
@@ -358,6 +358,22 @@ ConsensusExtensions::exportSigQuorumThreshold(
     // enough for Export-only mode. Unanimity would let one active validator
     // veto an otherwise converged export round.
     return safeQuorumThreshold(base);
+}
+
+std::size_t
+ConsensusExtensions::exportWitnessThreshold() const
+{
+    return exportWitnessThreshold(*activeValidatorView());
+}
+
+std::size_t
+ConsensusExtensions::exportWitnessThreshold(
+    ActiveValidatorView const& validatorView)
+{
+    // The full active view is also the witness authority today. Keep this
+    // authorization threshold separate from root alignment so a bounded
+    // committee can replace the witness authority without weakening qV.
+    return safeQuorumThreshold(validatorView.size());
 }
 
 bool
@@ -2049,7 +2065,7 @@ ConsensusExtensions::onPreBuild(
         //@@start export-witness-from-accepted-root
         else if (validatorView->fromUNLReport)
         {
-            auto const threshold = exportSigQuorumThreshold(*validatorView);
+            auto const threshold = exportWitnessThreshold(*validatorView);
             for (auto const& entry : retriableTxs)
             {
                 auto const& stx = entry.second;

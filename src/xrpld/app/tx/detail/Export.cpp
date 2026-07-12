@@ -214,7 +214,7 @@ Export::doApply()
     //@@start export-doapply-replay-witness-snapshot
     std::size_t const threshold = standalone
         ? 1
-        : ConsensusExtensions::exportSigQuorumThreshold(*validatorView);
+        : ConsensusExtensions::exportWitnessThreshold(*validatorView);
 
     bool const activeViewFitsTarget =
         standalone ||
