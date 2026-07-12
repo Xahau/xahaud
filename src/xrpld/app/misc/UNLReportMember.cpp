@@ -29,6 +29,7 @@ UNLReportMemberBinding::revoked() const
 bool
 UNLReportMemberBinding::frozen() const
 {
+    // Unknown future flags also make a binding ineligible until understood.
     return resolution == UNLReportMemberBindingResolution::resolved &&
         ledgerFlags != 0;
 }
@@ -58,6 +59,8 @@ UNLReportMemberBindingView::findMaster(PublicKey const& masterKey) const
 std::vector<PublicKey>
 unlReportActiveMasters(ReadView const& parent)
 {
+    // Publication tolerates malformed entries so valid evidence can continue
+    // converging. The policy-facing binding view below instead fails closed.
     std::vector<PublicKey> result;
     auto const report = parent.read(keylet::UNLReport());
     if (!report || !report->isFieldPresent(sfActiveValidators))
@@ -207,6 +210,30 @@ buildUNLReportMemberUpdates(
     if (!parent.rules().enabled(featureUNLReportV2) || limit == 0)
         return {};
 
+    auto const activeMasters = unlReportActiveMasters(parent);
+    evidence.erase(
+        std::remove_if(
+            evidence.begin(),
+            evidence.end(),
+            [&](Manifest const& manifest) {
+                bool const active = std::binary_search(
+                    activeMasters.begin(),
+                    activeMasters.end(),
+                    manifest.masterKey);
+                auto const sle =
+                    parent.read(keylet::UNLReportMember(manifest.masterKey));
+                if (!sle)
+                    return !active;
+
+                auto const storedSequence = sle->getFieldU32(sfSequence);
+                if (Manifest::revoked(storedSequence))
+                    return true;
+                if (manifest.sequence > storedSequence)
+                    return !active && !manifest.revoked();
+                return !active || manifest.sequence != storedSequence;
+            }),
+        evidence.end());
+
     evidence.erase(
         std::remove_if(
             evidence.begin(),
@@ -253,7 +280,6 @@ buildUNLReportMemberUpdates(
     }
     evidence = std::move(highestEvidence);
 
-    auto const activeMasters = unlReportActiveMasters(parent);
     std::vector<STTx> result;
     result.reserve(std::min(limit, evidence.size()));
 

@@ -928,6 +928,23 @@ class UNLReportMember_test : public beast::unit_test::suite
         }
 
         {
+            auto verifiedLedger = parentLedger(env, {a.masterPublic});
+            auto invalidHigher = parsed(manifest(a, 2));
+            invalidHigher.serialized.back() ^= 0x01;
+            BEAST_EXPECT(!invalidHigher.verify());
+
+            std::vector<Manifest> rotations;
+            rotations.emplace_back(std::move(invalidHigher));
+            rotations.emplace_back(parsed(manifest(a, 1)));
+            auto updates = buildUNLReportMemberUpdates(
+                *verifiedLedger, std::move(rotations), 1);
+            BEAST_EXPECT(updates.size() == 1);
+            auto selected =
+                deserializeManifest(updates.front().getFieldVL(sfBlob));
+            BEAST_EXPECT(selected && selected->sequence == 1);
+        }
+
+        {
             auto revocationLedger = parentLedger(env, {a.masterPublic});
             std::vector<Manifest> revocations;
             revocations.emplace_back(parsed(revocation(a)));
