@@ -76,7 +76,7 @@ writeUNLReportMember(SLE& sle, Manifest const& manifest, std::uint32_t flags)
 {
     sle.setFieldVL(sfPublicKey, manifest.masterKey);
     sle.setFieldU32(sfSequence, manifest.sequence);
-    sle.setFieldVL(sfBlob, makeSlice(manifest.serialized()));
+    sle.setFieldVL(sfBlob, makeSlice(manifest.serialized));
     sle.setFieldH256(sfDigest, manifest.bindingID());
 
     if (manifest.signingKey)

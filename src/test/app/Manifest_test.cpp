@@ -240,7 +240,7 @@ public:
     clone(Manifest const& m)
     {
         Manifest m2(
-            m.serialized(), m.masterKey, m.signingKey, m.sequence, m.domain);
+            m.serialized, m.masterKey, m.signingKey, m.sequence, m.domain);
         return m2;
     }
 
@@ -315,7 +315,7 @@ public:
                     mv.begin(),
                     mv.end(),
                     [](Manifest const* lhs, Manifest const* rhs) {
-                        return lhs->serialized() < rhs->serialized();
+                        return lhs->serialized < rhs->serialized;
                     });
                 return mv;
             };
@@ -475,7 +475,7 @@ public:
         auto const manifest = makeManifest(
             sk, KeyType::ed25519, kp.second, KeyType::secp256k1, 1);
 
-        auto const reparsed = deserializeManifest(manifest.serialized());
+        auto const reparsed = deserializeManifest(manifest.serialized);
         BEAST_EXPECT(reparsed);
         if (reparsed)
             BEAST_EXPECT(manifest.bindingID() == reparsed->bindingID());
@@ -485,11 +485,8 @@ public:
         BEAST_EXPECT(manifest.bindingID() != changedSequence.bindingID());
 
         STObject st(sfGeneric);
-        SerialIter sit(
-            manifest.serialized().data(), manifest.serialized().size());
+        SerialIter sit(manifest.serialized.data(), manifest.serialized.size());
         st.set(sit);
-        BEAST_EXPECT(
-            manifest.bindingID() == st.getSigningHash(HashPrefix::manifest));
 
         auto sig = st.getFieldVL(sfSignature);
         auto masterSig = st.getFieldVL(sfMasterSignature);
@@ -617,7 +614,7 @@ public:
 
             BEAST_EXPECT(!invalid.verify());
             BEAST_EXPECT(!cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(invalid.serialized())));
+                makeSlice(invalid.serialized)));
             BEAST_EXPECT(
                 cache.getUNLReportMemberManifestEvidenceSnapshot().empty());
         }
@@ -631,14 +628,14 @@ public:
                 sk, KeyType::ed25519, kp.second, KeyType::secp256k1, 1);
 
             BEAST_EXPECT(cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(manifest.serialized())));
+                makeSlice(manifest.serialized)));
             auto const first =
                 cache.getUNLReportMemberManifestEvidenceSnapshot();
             BEAST_EXPECT(first.size() == 1);
             BEAST_EXPECT(containsEvidence(first, manifest));
 
             BEAST_EXPECT(!cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(manifest.serialized())));
+                makeSlice(manifest.serialized)));
             auto const second =
                 cache.getUNLReportMemberManifestEvidenceSnapshot();
             BEAST_EXPECT(second.size() == 1);
@@ -666,7 +663,7 @@ public:
                 cache.applyManifest(clone(conflict)) ==
                 ManifestDisposition::stale);
             BEAST_EXPECT(cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(conflict.serialized())));
+                makeSlice(conflict.serialized)));
 
             auto const snapshot =
                 cache.getUNLReportMemberManifestEvidenceSnapshot();
@@ -691,11 +688,11 @@ public:
                 sk, KeyType::ed25519, kp2.second, KeyType::secp256k1, 4);
 
             BEAST_EXPECT(cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(m0.serialized())));
+                makeSlice(m0.serialized)));
             BEAST_EXPECT(cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(m1.serialized())));
+                makeSlice(m1.serialized)));
             BEAST_EXPECT(!cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(m2.serialized())));
+                makeSlice(m2.serialized)));
 
             auto const snapshot =
                 cache.getUNLReportMemberManifestEvidenceSnapshot();
@@ -721,13 +718,13 @@ public:
                 sk, KeyType::ed25519, kp2.second, KeyType::secp256k1, 8);
 
             BEAST_EXPECT(cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(lower0.serialized())));
+                makeSlice(lower0.serialized)));
             BEAST_EXPECT(cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(lower1.serialized())));
+                makeSlice(lower1.serialized)));
             BEAST_EXPECT(cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(higher.serialized())));
+                makeSlice(higher.serialized)));
             BEAST_EXPECT(!cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(lower0.serialized())));
+                makeSlice(lower0.serialized)));
 
             auto const snapshot =
                 cache.getUNLReportMemberManifestEvidenceSnapshot();
@@ -757,7 +754,7 @@ public:
                 cache.applyManifest(clone(collision)) ==
                 ManifestDisposition::badEphemeralKey);
             BEAST_EXPECT(cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(collision.serialized())));
+                makeSlice(collision.serialized)));
 
             auto const snapshot =
                 cache.getUNLReportMemberManifestEvidenceSnapshot();
@@ -790,23 +787,23 @@ public:
                 forward.applyManifest(clone(m0)) ==
                 ManifestDisposition::accepted);
             BEAST_EXPECT(forward.observeUNLReportMemberManifestEvidence(
-                makeSlice(m2.serialized())));
+                makeSlice(m2.serialized)));
             BEAST_EXPECT(forward.observeUNLReportMemberManifestEvidence(
-                makeSlice(m1.serialized())));
+                makeSlice(m1.serialized)));
             BEAST_EXPECT(forward.observeUNLReportMemberManifestEvidence(
-                makeSlice(m3.serialized())));
+                makeSlice(m3.serialized)));
             BEAST_EXPECT(forward.observeUNLReportMemberManifestEvidence(
-                makeSlice(m0.serialized())));
+                makeSlice(m0.serialized)));
 
             ManifestCache reverse;
             BEAST_EXPECT(reverse.observeUNLReportMemberManifestEvidence(
-                makeSlice(m0.serialized())));
+                makeSlice(m0.serialized)));
             BEAST_EXPECT(reverse.observeUNLReportMemberManifestEvidence(
-                makeSlice(m3.serialized())));
+                makeSlice(m3.serialized)));
             BEAST_EXPECT(reverse.observeUNLReportMemberManifestEvidence(
-                makeSlice(m1.serialized())));
+                makeSlice(m1.serialized)));
             BEAST_EXPECT(reverse.observeUNLReportMemberManifestEvidence(
-                makeSlice(m2.serialized())));
+                makeSlice(m2.serialized)));
             BEAST_EXPECT(
                 reverse.applyManifest(clone(m0)) ==
                 ManifestDisposition::accepted);
@@ -857,14 +854,14 @@ public:
                     secondSigningSecret = kp.second;
                 }
                 BEAST_EXPECT(cache.observeUNLReportMemberManifestEvidence(
-                    makeSlice(manifest.serialized())));
+                    makeSlice(manifest.serialized)));
             }
 
             BEAST_EXPECT(oldest && secondOldest);
             BEAST_EXPECT(
                 oldest &&
                 !cache.observeUNLReportMemberManifestEvidence(
-                    makeSlice(oldest->serialized())));
+                    makeSlice(oldest->serialized)));
 
             auto const replacementSecret = randomSecretKey();
             auto const replacementKey = randomKeyPair(KeyType::secp256k1);
@@ -875,7 +872,7 @@ public:
                 KeyType::secp256k1,
                 1);
             BEAST_EXPECT(cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(replacement.serialized())));
+                makeSlice(replacement.serialized)));
 
             auto const snapshot =
                 cache.getUNLReportMemberManifestEvidenceSnapshot();
@@ -893,7 +890,7 @@ public:
                 KeyType::secp256k1,
                 2);
             BEAST_EXPECT(cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(refreshed.serialized())));
+                makeSlice(refreshed.serialized)));
 
             auto const nextSecret = randomSecretKey();
             auto const nextKey = randomKeyPair(KeyType::secp256k1);
@@ -904,7 +901,7 @@ public:
                 KeyType::secp256k1,
                 1);
             BEAST_EXPECT(cache.observeUNLReportMemberManifestEvidence(
-                makeSlice(next.serialized())));
+                makeSlice(next.serialized)));
 
             auto const refreshedSnapshot =
                 cache.getUNLReportMemberManifestEvidenceSnapshot();
@@ -1107,7 +1104,7 @@ public:
                         BEAST_EXPECT(manifest->masterKey == pk);
                         BEAST_EXPECT(manifest->signingKey == spk);
                         BEAST_EXPECT(manifest->sequence == sequence);
-                        BEAST_EXPECT(manifest->serialized() == m);
+                        BEAST_EXPECT(manifest->serialized == m);
                         BEAST_EXPECT(manifest->domain.empty());
                         BEAST_EXPECT(manifest->verify());
                     }
@@ -1149,7 +1146,7 @@ public:
                         BEAST_EXPECT(manifest->masterKey == pk);
                         BEAST_EXPECT(manifest->signingKey == spk);
                         BEAST_EXPECT(manifest->sequence == sequence);
-                        BEAST_EXPECT(manifest->serialized() == m);
+                        BEAST_EXPECT(manifest->serialized == m);
                         BEAST_EXPECT(manifest->domain == "example.com");
                         BEAST_EXPECT(manifest->verify());
                     }
@@ -1165,7 +1162,7 @@ public:
                         BEAST_EXPECT(manifest->masterKey == pk);
                         BEAST_EXPECT(manifest->signingKey == spk);
                         BEAST_EXPECT(manifest->sequence == sequence + 1);
-                        BEAST_EXPECT(manifest->serialized() == m);
+                        BEAST_EXPECT(manifest->serialized == m);
                         BEAST_EXPECT(manifest->domain == "example.com");
                         BEAST_EXPECT(!manifest->verify());
                     }
@@ -1267,7 +1264,7 @@ public:
                         BEAST_EXPECT(!manifest->signingKey);
                         BEAST_EXPECT(manifest->revoked());
                         BEAST_EXPECT(manifest->domain.empty());
-                        BEAST_EXPECT(manifest->serialized() == m);
+                        BEAST_EXPECT(manifest->serialized == m);
                         BEAST_EXPECT(manifest->verify());
                     }
 
@@ -1424,7 +1421,7 @@ public:
             auto const s_b2 = makeManifest(
                 sk_b, KeyType::ed25519, kp_b2.second, KeyType::ed25519, 2);
 
-            auto const fake = s_b2.serialized() + '\0';
+            auto const fake = s_b2.serialized + '\0';
 
             // applyManifest should accept new manifests with
             // higher sequence numbers

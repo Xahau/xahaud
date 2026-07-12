@@ -653,7 +653,7 @@ OverlayImpl::onManifests(
 
         if (auto mo = deserializeManifest(s))
         {
-            auto const serialized = mo->serialized();
+            auto const serialized = mo->serialized;
 
             bool const active =
                 observeMemberEvidence &&
@@ -1214,7 +1214,7 @@ OverlayImpl::getManifestsMessage()
             [&tm](std::size_t s) { tm.mutable_list()->Reserve(s); },
             [&tm, &hr = app_.getHashRouter()](Manifest const& manifest) {
                 tm.add_list()->set_stobject(
-                    manifest.serialized().data(), manifest.serialized().size());
+                    manifest.serialized.data(), manifest.serialized.size());
                 hr.addSuppression(manifest.hash());
             });
 

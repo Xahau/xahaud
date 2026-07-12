@@ -929,9 +929,8 @@ class UNLReportMember_test : public beast::unit_test::suite
 
         {
             auto verifiedLedger = parentLedger(env, {a.masterPublic});
-            auto invalidRaw = manifest(a, 2);
-            invalidRaw.back() ^= 0x01;
-            auto invalidHigher = parsed(invalidRaw);
+            auto invalidHigher = parsed(manifest(a, 2));
+            invalidHigher.serialized.back() ^= 0x01;
             BEAST_EXPECT(!invalidHigher.verify());
 
             std::vector<Manifest> rotations;

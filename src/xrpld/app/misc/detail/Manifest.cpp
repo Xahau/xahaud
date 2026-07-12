@@ -40,7 +40,13 @@ namespace {
 Manifest
 cloneManifest(Manifest const& m)
 {
-    return m.clone();
+    return Manifest(
+        m.serialized,
+        m.masterKey,
+        m.signingKey,
+        m.sequence,
+        m.domain,
+        m.bindingID());
 }
 
 bool
@@ -63,7 +69,7 @@ evidenceStatementLess(Manifest const& lhs, Manifest const& rhs)
     auto const rhsBinding = rhs.bindingID();
     if (lhsBinding != rhsBinding)
         return lhsBinding < rhsBinding;
-    return lhs.serialized() < rhs.serialized();
+    return lhs.serialized < rhs.serialized;
 }
 
 }  // namespace
@@ -118,6 +124,7 @@ deserializeManifest(Slice s, beast::Journal journal)
     {
         SerialIter sit{s};
         STObject st{sit, sfGeneric};
+
         st.applyTemplate(manifestFormat);
 
         // We only understand "version 0" manifests at this time:
@@ -185,7 +192,13 @@ deserializeManifest(Slice s, beast::Journal journal)
             reinterpret_cast<char const*>(s.data()), s.size());
 
         // If the manifest is revoked, then the signingKey will be unseated
-        return Manifest(serialized, masterKey, signingKey, seq, domain);
+        return Manifest(
+            serialized,
+            masterKey,
+            signingKey,
+            seq,
+            domain,
+            st.getSigningHash(HashPrefix::manifest));
     }
     catch (std::exception const& ex)
     {
@@ -216,7 +229,7 @@ bool
 Manifest::verify() const
 {
     STObject st(sfGeneric);
-    SerialIter sit(serialized_.data(), serialized_.size());
+    SerialIter sit(serialized.data(), serialized.size());
     st.set(sit);
 
     // The manifest must either have a signing key or be revoked.  This check
@@ -237,7 +250,7 @@ uint256
 Manifest::hash() const
 {
     STObject st(sfGeneric);
-    SerialIter sit(serialized_.data(), serialized_.size());
+    SerialIter sit(serialized.data(), serialized.size());
     st.set(sit);
     return st.getHash(HashPrefix::manifest);
 }
@@ -246,15 +259,6 @@ uint256
 Manifest::bindingID() const
 {
     return bindingID_;
-}
-
-uint256
-Manifest::computeBindingID(std::string const& serialized)
-{
-    STObject st(sfGeneric);
-    SerialIter sit(serialized.data(), serialized.size());
-    st.set(sit);
-    return st.getSigningHash(HashPrefix::manifest);
 }
 
 bool
@@ -279,7 +283,7 @@ std::optional<Blob>
 Manifest::getSignature() const
 {
     STObject st(sfGeneric);
-    SerialIter sit(serialized_.data(), serialized_.size());
+    SerialIter sit(serialized.data(), serialized.size());
     st.set(sit);
     if (!get(st, sfSignature))
         return std::nullopt;
@@ -290,7 +294,7 @@ Blob
 Manifest::getMasterSignature() const
 {
     STObject st(sfGeneric);
-    SerialIter sit(serialized_.data(), serialized_.size());
+    SerialIter sit(serialized.data(), serialized.size());
     st.set(sit);
     return st.getFieldVL(sfMasterSignature);
 }
@@ -397,7 +401,7 @@ ManifestCache::getManifest(PublicKey const& pk) const
     auto const iter = map_.find(pk);
 
     if (iter != map_.end() && !iter->second.revoked())
-        return iter->second.serialized();
+        return iter->second.serialized;
 
     return std::nullopt;
 }

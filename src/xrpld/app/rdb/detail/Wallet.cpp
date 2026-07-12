@@ -109,7 +109,7 @@ saveManifests(
             continue;
         }
 
-        saveManifest(session, dbTable, v.second.serialized());
+        saveManifest(session, dbTable, v.second.serialized);
     }
     tr.commit();
 }

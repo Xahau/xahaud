@@ -71,7 +71,7 @@ struct LedgerReplay_test : public beast::unit_test::suite
             return false;
 
         Blob const expectedBlob{
-            manifest.serialized().begin(), manifest.serialized().end()};
+            manifest.serialized.begin(), manifest.serialized.end()};
 
         BEAST_EXPECT(
             PublicKey{makeSlice(sle->getFieldVL(sfPublicKey))} ==
