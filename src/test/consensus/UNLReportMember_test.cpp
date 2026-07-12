@@ -987,12 +987,11 @@ class UNLReportMember_test : public beast::unit_test::suite
         BEAST_EXPECT(selected.size() == 1);
 
         auto const& admitted = first->masterKey == a.masterPublic ? a : b;
-        auto const [otherPublic, otherSecret] =
-            randomKeyPair(KeyType::secp256k1);
+        auto const other = randomKeyPair(KeyType::secp256k1);
         auto conflict = [&] {
             std::vector<Manifest> result;
             result.emplace_back(
-                parsed(manifest(admitted, otherPublic, otherSecret, 1)));
+                parsed(manifest(admitted, other.first, other.second, 1)));
             return result;
         };
         selected = buildUNLReportMemberUpdates(*ledger, conflict());
