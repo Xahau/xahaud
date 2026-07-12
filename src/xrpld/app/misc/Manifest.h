@@ -34,6 +34,8 @@
 namespace ripple {
 
 inline constexpr std::size_t maxUNLReportMemberManifestSize = 2048;
+inline constexpr std::size_t maxUNLReportMemberEvidenceMasters = 256;
+inline constexpr std::size_t maxUNLReportMemberEvidencePerMaster = 2;
 
 /*
     Validator key manifests
@@ -266,9 +268,6 @@ private:
     beast::Journal j_;
     std::shared_mutex mutable mutex_;
 
-    static constexpr std::size_t maxUNLReportMemberEvidenceMasters_ = 256;
-    static constexpr std::size_t maxUNLReportMemberEvidencePerMaster_ = 2;
-
     /** Active manifests stored by master public key. */
     hash_map<PublicKey, Manifest> map_;
 
@@ -285,11 +284,13 @@ private:
     struct UNLReportMemberManifestEvidence
     {
         std::uint32_t sequence = 0;
+        std::uint64_t retentionOrder = 0;
         std::vector<Manifest> manifests;
     };
 
     hash_map<PublicKey, UNLReportMemberManifestEvidence>
         unlReportMemberManifestEvidence_;
+    std::uint64_t unlReportMemberEvidenceRetentionOrder_ = 0;
 
     std::atomic<std::uint32_t> seq_{0};
 

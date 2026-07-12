@@ -597,8 +597,17 @@ ManifestCache::observeUNLReportMemberManifestEvidence(Slice serialized)
     if (iter == unlReportMemberManifestEvidence_.end())
     {
         if (unlReportMemberManifestEvidence_.size() >=
-            maxUNLReportMemberEvidenceMasters_)
-            return false;
+            maxUNLReportMemberEvidenceMasters)
+        {
+            auto const oldest = std::min_element(
+                unlReportMemberManifestEvidence_.begin(),
+                unlReportMemberManifestEvidence_.end(),
+                [](auto const& lhs, auto const& rhs) {
+                    return lhs.second.retentionOrder <
+                        rhs.second.retentionOrder;
+                });
+            unlReportMemberManifestEvidence_.erase(oldest);
+        }
 
         iter = unlReportMemberManifestEvidence_
                    .emplace(masterKey, UNLReportMemberManifestEvidence{})
@@ -622,10 +631,11 @@ ManifestCache::observeUNLReportMemberManifestEvidence(Slice serialized)
             return false;
     }
 
-    if (evidence.manifests.size() >= maxUNLReportMemberEvidencePerMaster_)
+    if (evidence.manifests.size() >= maxUNLReportMemberEvidencePerMaster)
         return false;
 
     evidence.manifests.emplace_back(std::move(m));
+    evidence.retentionOrder = ++unlReportMemberEvidenceRetentionOrder_;
     return true;
 }
 
@@ -638,7 +648,7 @@ ManifestCache::getUNLReportMemberManifestEvidenceSnapshot() const
     snapshot.reserve(
         map_.size() +
         unlReportMemberManifestEvidence_.size() *
-            maxUNLReportMemberEvidencePerMaster_);
+            maxUNLReportMemberEvidencePerMaster);
 
     for (auto const& [_, manifest] : map_)
     {
