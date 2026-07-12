@@ -1223,6 +1223,7 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
 uint256
 ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
 {
+    //@@start current-export-global-sigset-build
     auto map =
         std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
     map->setUnbacked();
@@ -1281,6 +1282,7 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
                      << " entries=" << entryCount
                      << " candidateExportTxns=" << consensusExportTxns_.size()
                      << " activeValidators=" << validatorView->size();
+    //@@end current-export-global-sigset-build
     return hash;
 }
 

@@ -261,6 +261,7 @@ createShadowTicket(
     XRPAmount const& priorBalance,
     beast::Journal j)
 {
+    //@@start current-shadow-ticket-create
     if (!stx.isFieldPresent(sfTicketSequence))
         return tesSUCCESS;  // No ticket sequence → no shadow ticket needed.
 
@@ -340,6 +341,7 @@ createShadowTicket(
     JLOG(j.debug()) << "ExportLedgerOps: created shadow ticket for " << account
                     << " seq=" << ticketSeq << " intent=" << intentHash;
 
+    //@@end current-shadow-ticket-create
     return tesSUCCESS;
 }
 
@@ -358,6 +360,7 @@ cancelShadowTicket(
     std::uint32_t ticketSeq,
     beast::Journal j)
 {
+    //@@start current-shadow-ticket-cancel
     auto const key = keylet::shadowTicket(account, ticketSeq);
     auto sle = view.peek(key);
 
@@ -397,6 +400,7 @@ cancelShadowTicket(
     JLOG(j.debug()) << "ExportLedgerOps: cancelled shadow ticket for "
                     << account << " seq=" << ticketSeq;
 
+    //@@end current-shadow-ticket-cancel
     return tesSUCCESS;
 }
 

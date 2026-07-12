@@ -115,6 +115,7 @@ doSubscribe(RPC::JsonContext& context)
 
     if (context.params.isMember(jss::streams))
     {
+        //@@start subscription-stream-dispatch-precedent
         if (!context.params[jss::streams].isArray())
         {
             JLOG(context.j.info()) << "doSubscribe: streams requires an array.";
@@ -173,6 +174,7 @@ doSubscribe(RPC::JsonContext& context)
                 return rpcError(rpcSTREAM_MALFORMED);
             }
         }
+        //@@end subscription-stream-dispatch-precedent
     }
 
     auto accountsProposed = context.params.isMember(jss::accounts_proposed)

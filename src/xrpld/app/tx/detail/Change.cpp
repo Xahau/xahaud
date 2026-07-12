@@ -369,9 +369,11 @@ Change::doApply()
 TER
 Change::applyExportSignatures()
 {
+    //@@start current-export-witness-no-state-effect
     // The signature witness is transaction-stream input for ttEXPORT replay.
     // It intentionally has no ledger-state effect; Export::doApply consumes the
     // pre-scanned witness snapshot when the matching ttEXPORT applies.
+    //@@end current-export-witness-no-state-effect
     return tesSUCCESS;
 }
 

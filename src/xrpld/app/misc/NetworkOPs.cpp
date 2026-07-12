@@ -690,6 +690,7 @@ private:
 
     SubAccountHistoryMapType mSubAccountHistory;
 
+    //@@start subscription-stream-map-precedent
     enum SubTypes {
         sLedger,          // Accepted ledgers.
         sManifests,       // Received validator manifests.
@@ -704,6 +705,7 @@ private:
     };
 
     std::array<SubMapType, SubTypes::sLastEntry> mStreamMaps;
+    //@@end subscription-stream-map-precedent
 
     ServerFeeSummary mLastFeeSummary;
 
@@ -2962,6 +2964,7 @@ NetworkOPsImp::pubProposedTransaction(
 void
 NetworkOPsImp::pubLedger(std::shared_ptr<ReadView const> const& lpAccepted)
 {
+    //@@start validated-ledger-publication-boundary
     // Ledgers are published only when they acquire sufficient validations
     // Holes are filled across connection loss or other catastrophe
 
@@ -3072,6 +3075,7 @@ NetworkOPsImp::pubLedger(std::shared_ptr<ReadView const> const& lpAccepted)
         pubValidatedTransaction(
             lpAccepted, *accTx, accTx == *(--alpAccepted->end()));
     }
+    //@@end validated-ledger-publication-boundary
 }
 
 void

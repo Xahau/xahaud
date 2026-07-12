@@ -1017,6 +1017,7 @@ Import::preclaim(PreclaimContext const& ctx)
 
     if (hasTicket)
     {
+        //@@start current-import-shadow-ticket-preclaim
         if (!ctx.view.rules().enabled(featureExport))
             return tefINTERNAL;
 
@@ -1058,6 +1059,7 @@ Import::preclaim(PreclaimContext const& ctx)
                 << "Import: XPOP intent does not match shadow ticket.";
             return temMALFORMED;
         }
+        //@@end current-import-shadow-ticket-preclaim
     }
 
     auto const& sle = ctx.view.read(keylet::account(ctx.tx[sfAccount]));
@@ -1408,6 +1410,7 @@ Import::doApply()
     // ---------------------------------------------------------------
     if (path == ImportPath::exportCallback)
     {
+        //@@start current-import-shadow-ticket-consume
         if (!sle)
         {
             JLOG(ctx_.journal.warn())
@@ -1421,6 +1424,7 @@ Import::doApply()
         if (!isTesSuccess(ter))
             return ter;
 
+        //@@end current-import-shadow-ticket-consume
         return tesSUCCESS;
     }
 
