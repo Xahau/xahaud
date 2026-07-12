@@ -85,11 +85,6 @@ inline constexpr std::size_t maxUNLReportMemberEvidencePerMaster = 2;
 
 struct Manifest
 {
-private:
-    /// Hash of the manifest fields authenticated by its signatures.
-    uint256 bindingID_;
-
-public:
     /// The manifest in serialized form.
     std::string serialized;
 
@@ -115,10 +110,8 @@ public:
         PublicKey const& masterKey_,
         std::optional<PublicKey> const& signingKey_,
         std::uint32_t seq,
-        std::string const& domain_,
-        uint256 const& bindingID)
-        : bindingID_(bindingID)
-        , serialized(serialized_)
+        std::string const& domain_)
+        : serialized(serialized_)
         , masterKey(masterKey_)
         , signingKey(signingKey_)
         , sequence(seq)
@@ -141,7 +134,7 @@ public:
     uint256
     hash() const;
 
-    /// Returns the cached hash of manifest data authenticated by signatures
+    /// Returns hash of manifest data authenticated by signatures
     uint256
     bindingID() const;
 

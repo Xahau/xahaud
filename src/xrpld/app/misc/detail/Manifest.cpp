@@ -41,12 +41,7 @@ Manifest
 cloneManifest(Manifest const& m)
 {
     return Manifest(
-        m.serialized,
-        m.masterKey,
-        m.signingKey,
-        m.sequence,
-        m.domain,
-        m.bindingID());
+        m.serialized, m.masterKey, m.signingKey, m.sequence, m.domain);
 }
 
 bool
@@ -192,13 +187,7 @@ deserializeManifest(Slice s, beast::Journal journal)
             reinterpret_cast<char const*>(s.data()), s.size());
 
         // If the manifest is revoked, then the signingKey will be unseated
-        return Manifest(
-            serialized,
-            masterKey,
-            signingKey,
-            seq,
-            domain,
-            st.getSigningHash(HashPrefix::manifest));
+        return Manifest(serialized, masterKey, signingKey, seq, domain);
     }
     catch (std::exception const& ex)
     {
@@ -258,7 +247,10 @@ Manifest::hash() const
 uint256
 Manifest::bindingID() const
 {
-    return bindingID_;
+    STObject st(sfGeneric);
+    SerialIter sit(serialized.data(), serialized.size());
+    st.set(sit);
+    return st.getSigningHash(HashPrefix::manifest);
 }
 
 bool
