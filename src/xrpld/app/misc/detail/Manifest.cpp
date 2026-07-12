@@ -29,45 +29,10 @@
 
 #include <boost/algorithm/string/trim.hpp>
 
-#include <algorithm>
 #include <numeric>
 #include <stdexcept>
 
 namespace ripple {
-
-namespace {
-
-Manifest
-cloneManifest(Manifest const& m)
-{
-    return Manifest(
-        m.serialized, m.masterKey, m.signingKey, m.sequence, m.domain);
-}
-
-bool
-sameEvidenceStatement(Manifest const& lhs, Manifest const& rhs)
-{
-    return lhs.masterKey == rhs.masterKey && lhs.sequence == rhs.sequence &&
-        lhs.bindingID() == rhs.bindingID();
-}
-
-bool
-evidenceStatementLess(Manifest const& lhs, Manifest const& rhs)
-{
-    if (!(lhs.masterKey == rhs.masterKey))
-        return lhs.masterKey < rhs.masterKey;
-
-    if (lhs.sequence != rhs.sequence)
-        return lhs.sequence < rhs.sequence;
-
-    auto const lhsBinding = lhs.bindingID();
-    auto const rhsBinding = rhs.bindingID();
-    if (lhsBinding != rhsBinding)
-        return lhsBinding < rhsBinding;
-    return lhs.serialized < rhs.serialized;
-}
-
-}  // namespace
 
 std::string
 to_string(Manifest const& m)
@@ -573,91 +538,6 @@ ManifestCache::applyManifest(Manifest m)
     seq_++;
 
     return ManifestDisposition::accepted;
-}
-
-bool
-ManifestCache::observeUNLReportMemberManifestEvidence(Slice serialized)
-{
-    if (serialized.empty() ||
-        serialized.size() > maxUNLReportMemberManifestSize)
-        return false;
-
-    auto mo = deserializeManifest(serialized, j_);
-    if (!mo || !mo->verify())
-        return false;
-
-    auto m = std::move(*mo);
-    auto const masterKey = m.masterKey;
-    auto const sequence = m.sequence;
-    auto const bindingID = m.bindingID();
-
-    std::unique_lock lock{mutex_};
-
-    auto iter = unlReportMemberManifestEvidence_.find(masterKey);
-    if (iter == unlReportMemberManifestEvidence_.end())
-    {
-        if (unlReportMemberManifestEvidence_.size() >=
-            maxUNLReportMemberEvidenceMasters_)
-            return false;
-
-        iter = unlReportMemberManifestEvidence_
-                   .emplace(masterKey, UNLReportMemberManifestEvidence{})
-                   .first;
-    }
-
-    auto& evidence = iter->second;
-    if (evidence.manifests.empty() || sequence > evidence.sequence)
-    {
-        evidence.sequence = sequence;
-        evidence.manifests.clear();
-    }
-    else if (sequence < evidence.sequence)
-    {
-        return false;
-    }
-
-    for (auto const& existing : evidence.manifests)
-    {
-        if (existing.bindingID() == bindingID)
-            return false;
-    }
-
-    if (evidence.manifests.size() >= maxUNLReportMemberEvidencePerMaster_)
-        return false;
-
-    evidence.manifests.emplace_back(std::move(m));
-    return true;
-}
-
-std::vector<Manifest>
-ManifestCache::getUNLReportMemberManifestEvidenceSnapshot() const
-{
-    std::shared_lock lock{mutex_};
-
-    std::vector<Manifest> snapshot;
-    snapshot.reserve(
-        map_.size() +
-        unlReportMemberManifestEvidence_.size() *
-            maxUNLReportMemberEvidencePerMaster_);
-
-    for (auto const& [_, manifest] : map_)
-    {
-        (void)_;
-        snapshot.emplace_back(cloneManifest(manifest));
-    }
-
-    for (auto const& [_, evidence] : unlReportMemberManifestEvidence_)
-    {
-        (void)_;
-        for (auto const& manifest : evidence.manifests)
-            snapshot.emplace_back(cloneManifest(manifest));
-    }
-
-    std::sort(snapshot.begin(), snapshot.end(), evidenceStatementLess);
-    snapshot.erase(
-        std::unique(snapshot.begin(), snapshot.end(), sameEvidenceStatement),
-        snapshot.end());
-    return snapshot;
 }
 
 void

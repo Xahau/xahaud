@@ -36,7 +36,6 @@
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
-#include <xrpld/app/misc/UNLReportMember.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/apply.h>
@@ -447,22 +446,6 @@ RCLConsensus::Adaptor::onClose(
                 app_.getValidations(),
                 initialSet);
             //@@end negative-unl-vote-trusted-denominator
-        }
-
-        if (prevLedger->rules().enabled(featureUNLReportV2))
-        {
-            auto updates = buildUNLReportMemberUpdates(
-                *prevLedger,
-                app_.validatorManifests()
-                    .getUNLReportMemberManifestEvidenceSnapshot());
-            for (auto const& tx : updates)
-            {
-                Serializer s;
-                tx.add(s);
-                initialSet->addGiveItem(
-                    SHAMapNodeType::tnTRANSACTION_NM,
-                    make_shamapitem(tx.getTransactionID(), s.slice()));
-            }
         }
     }
 

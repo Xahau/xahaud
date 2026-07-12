@@ -23,7 +23,6 @@
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
-#include <xrpld/app/misc/UNLReportMember.h>
 #include <xrpld/app/tx/detail/Change.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/app/tx/detail/SetHook.h>
@@ -48,6 +47,8 @@ namespace ripple {
 
 namespace {
 
+constexpr std::size_t maxUNLReportMemberManifestSize = 2048;
+
 std::optional<Manifest>
 parseUNLReportMemberManifest(STTx const& tx, beast::Journal j)
 {
@@ -60,6 +61,23 @@ parseUNLReportMemberManifest(STTx const& tx, beast::Journal j)
         return std::nullopt;
 
     return manifest;
+}
+
+std::vector<PublicKey>
+parentUNLReportMembers(ReadView const& parent)
+{
+    std::vector<PublicKey> result;
+    auto const report = parent.read(keylet::UNLReport());
+    if (!report || !report->isFieldPresent(sfActiveValidators))
+        return result;
+
+    for (auto const& entry : report->getFieldArray(sfActiveValidators))
+    {
+        auto const key = entry.getFieldVL(sfPublicKey);
+        if (publicKeyType(makeSlice(key)))
+            result.emplace_back(makeSlice(key));
+    }
+    return result;
 }
 
 bool
@@ -445,7 +463,7 @@ Change::applyUNLReportMember()
     if (!manifest)
         return tefBAD_SIGNATURE;
 
-    auto const members = unlReportActiveMasters(ctx_.parentView());
+    auto const members = parentUNLReportMembers(ctx_.parentView());
     auto const memberKey = keylet::UNLReportMember(manifest->masterKey);
     auto sle = view().peek(memberKey);
     bool const parentActive = containsMaster(members, manifest->masterKey);
@@ -518,10 +536,6 @@ Change::applyUNLReportMember()
 
         auto const flags = sle->getFlags() |
             lsfUNLReportMemberEquivocationFreeze | collisionFlag;
-        if ((sle->getFlags() & lsfUNLReportMemberEquivocationFreeze) &&
-            incomingBinding >= storedBinding)
-            return tefALREADY;
-
         // The record remains frozen regardless of which evidence is retained.
         // Keeping the smaller binding makes the final SLE application-order
         // independent without treating either binding as valid authority.
