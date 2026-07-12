@@ -166,8 +166,8 @@ buildUNLReportMemberBindingView(ReadView const& parent)
             continue;
         }
 
-        bool const storedBytesMatch =
-            makeSlice(manifest->serialized) == makeSlice(binding.manifestBlob);
+        bool const storedBytesMatch = makeSlice(manifest->serialized()) ==
+            makeSlice(binding.manifestBlob);
         if (!storedBytesMatch || (manifest->revoked() && binding.signingKey) ||
             (!manifest->revoked() && !binding.signingKey))
         {
@@ -250,7 +250,7 @@ buildUNLReportMemberUpdates(
         auto const rhsBinding = rhs.bindingID();
         if (lhsBinding != rhsBinding)
             return lhsBinding < rhsBinding;
-        return lhs.serialized < rhs.serialized;
+        return lhs.serialized() < rhs.serialized();
     };
     std::sort(evidence.begin(), evidence.end(), less);
     evidence.erase(
@@ -321,7 +321,7 @@ buildUNLReportMemberUpdates(
             obj.setAccountID(sfAccount, AccountID{});
             obj.setFieldU32(sfSequence, 0);
             obj.setFieldAmount(sfFee, STAmount{});
-            obj.setFieldVL(sfBlob, makeSlice(manifest.serialized));
+            obj.setFieldVL(sfBlob, makeSlice(manifest.serialized()));
         });
 
         if (result.size() == limit)

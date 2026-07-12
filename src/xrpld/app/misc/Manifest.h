@@ -86,13 +86,36 @@ inline constexpr std::size_t maxUNLReportMemberEvidencePerMaster = 2;
 struct Manifest
 {
 private:
+    struct CachedBindingTag
+    {
+    };
+
+    std::string serialized_;
+
     /// Hash of the manifest fields authenticated by its signatures.
     uint256 bindingID_;
 
-public:
-    /// The manifest in serialized form.
-    std::string serialized;
+    static uint256
+    computeBindingID(std::string const& serialized);
 
+    Manifest(
+        std::string const& serialized,
+        PublicKey const& masterKey,
+        std::optional<PublicKey> const& signingKey,
+        std::uint32_t sequence,
+        std::string const& domain,
+        uint256 const& bindingID,
+        CachedBindingTag)
+        : serialized_(serialized)
+        , bindingID_(bindingID)
+        , masterKey(masterKey)
+        , signingKey(signingKey)
+        , sequence(sequence)
+        , domain(domain)
+    {
+    }
+
+public:
     /// The master key associated with this manifest.
     PublicKey masterKey;
 
@@ -115,10 +138,9 @@ public:
         PublicKey const& masterKey_,
         std::optional<PublicKey> const& signingKey_,
         std::uint32_t seq,
-        std::string const& domain_,
-        uint256 const& bindingID)
-        : bindingID_(bindingID)
-        , serialized(serialized_)
+        std::string const& domain_)
+        : serialized_(serialized_)
+        , bindingID_(computeBindingID(serialized_))
         , masterKey(masterKey_)
         , signingKey(signingKey_)
         , sequence(seq)
@@ -132,6 +154,27 @@ public:
     Manifest(Manifest&& other) = default;
     Manifest&
     operator=(Manifest&& other) = default;
+
+    /// Returns the manifest in serialized form.
+    std::string const&
+    serialized() const
+    {
+        return serialized_;
+    }
+
+    /// Returns an independent manifest with the same cached binding identity.
+    Manifest
+    clone() const
+    {
+        return Manifest(
+            serialized_,
+            masterKey,
+            signingKey,
+            sequence,
+            domain,
+            bindingID_,
+            CachedBindingTag{});
+    }
 
     /// Returns `true` if manifest signature is valid
     bool
@@ -209,7 +252,7 @@ operator==(Manifest const& lhs, Manifest const& rhs)
     // sufficient.
     return lhs.sequence == rhs.sequence && lhs.masterKey == rhs.masterKey &&
         lhs.signingKey == rhs.signingKey && lhs.domain == rhs.domain &&
-        lhs.serialized == rhs.serialized;
+        lhs.serialized() == rhs.serialized();
 }
 
 inline bool
