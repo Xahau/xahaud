@@ -53,10 +53,6 @@ enum ltNFTOKEN_OFFER {
 enum ltURI_TOKEN {
     lsfBurnable = 0x00000001,
 };
-enum ltUNL_REPORT_MEMBER {
-    lsfUNLReportMemberEquivocationFreeze = 0x00000001,
-    lsfUNLReportMemberSigningKeyCollisionFreeze = 0x00000002,
-};
 enum remarks {
     lsfImmutable = 1,
 };
