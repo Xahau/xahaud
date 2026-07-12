@@ -172,12 +172,6 @@ public:
         return replayParentLedger_;
     }
 
-    ReadView const&
-    parentView() const noexcept
-    {
-        return base_.parent();
-    }
-
     ApplyFlags const&
     flags()
     {

@@ -16,7 +16,6 @@
 //==============================================================================
 
 #include <test/jtx.h>
-#include <test/jtx/xpop.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpl/protocol/EntropyTier.h>
@@ -92,20 +91,6 @@ struct PseudoTx_test : public beast::unit_test::suite
             publicKey, Buffer{signatureBytes, sizeof(signatureBytes)});
         res.emplace_back(ExportResultBuilder::buildSignatureWitness(
             uint256(4), signatures, seq));
-
-        auto const masterSecret = randomSecretKey();
-        auto const masterPublic =
-            derivePublicKey(KeyType::ed25519, masterSecret);
-        auto const [signingPublic, signingSecret] =
-            randomKeyPair(KeyType::secp256k1);
-        auto const manifest = jtx::xpop::makeManifestRaw(
-            masterPublic, masterSecret, signingPublic, signingSecret, 1);
-        res.emplace_back(STTx(ttUNL_REPORT_MEMBER, [&](auto& obj) {
-            obj.setAccountID(sfAccount, AccountID());
-            obj.setFieldU32(sfSequence, 0);
-            obj.setFieldAmount(sfFee, STAmount{});
-            obj.setFieldVL(sfBlob, makeSlice(manifest));
-        }));
 
         return res;
     }

@@ -107,13 +107,6 @@ public:
 
     OpenView(OpenView&&) = default;
 
-    /** The immutable ledger this view was opened on. */
-    ReadView const&
-    parent() const noexcept
-    {
-        return *base_;
-    }
-
     /** Construct a shallow copy.
 
         Effects:
