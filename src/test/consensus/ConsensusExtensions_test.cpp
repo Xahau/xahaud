@@ -1047,7 +1047,11 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(view.size() == 1);
         BEAST_EXPECT(view.originalViewSize == 1);
         BEAST_EXPECT(view.containsMaster(keys[0]));
+        BEAST_EXPECT(view.containsOriginalMaster(keys[0]));
         BEAST_EXPECT(!view.containsMaster(keys[1]));
+        BEAST_EXPECT(!view.containsOriginalMaster(keys[1]));
+        BEAST_EXPECT(
+            view.orderedOriginalMasterKeys == std::vector<PublicKey>{keys[0]});
         BEAST_EXPECT(view.containsNode(calcNodeID(keys[0])));
     }
 
@@ -1072,6 +1076,11 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(view.originalViewSize == 2);
         BEAST_EXPECT(view.containsMaster(keys[0]));
         BEAST_EXPECT(view.containsMaster(keys[1]));
+        BEAST_EXPECT(view.containsOriginalMaster(keys[0]));
+        BEAST_EXPECT(view.containsOriginalMaster(keys[1]));
+        BEAST_EXPECT(std::is_sorted(
+            view.orderedOriginalMasterKeys.begin(),
+            view.orderedOriginalMasterKeys.end()));
 
         source.negativeUNLEnabled = true;
         source.negativeUNL.insert(keys[0]);
@@ -1083,6 +1092,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(negativeView.originalViewSize == 2);
         BEAST_EXPECT(!negativeView.containsMaster(keys[0]));
         BEAST_EXPECT(negativeView.containsMaster(keys[1]));
+        BEAST_EXPECT(negativeView.containsOriginalMaster(keys[0]));
+        BEAST_EXPECT(negativeView.containsOriginalMaster(keys[1]));
+        BEAST_EXPECT(negativeView.orderedOriginalMasterKeys.size() == 2);
     }
 
     void

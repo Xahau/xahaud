@@ -36,6 +36,8 @@ struct ActiveValidatorView
     hash_set<PublicKey> masterKeys;
     hash_set<NodeID> nodeIds;
     std::vector<PublicKey> orderedMasterKeys;
+    hash_set<PublicKey> originalMasterKeys;
+    std::vector<PublicKey> orderedOriginalMasterKeys;
     std::optional<uint256> sourceLedgerHash;
     bool fromUNLReport = false;
 
@@ -84,6 +86,12 @@ struct ActiveValidatorView
     containsMaster(PublicKey const& masterKey) const
     {
         return masterKeys.count(masterKey) > 0;
+    }
+
+    bool
+    containsOriginalMaster(PublicKey const& masterKey) const
+    {
+        return originalMasterKeys.count(masterKey) > 0;
     }
 
     bool

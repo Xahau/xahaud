@@ -50,7 +50,12 @@ buildActiveValidatorView(
     // (participant_aligned) intersection floor anchors to, since nUNL can
     // shrink the effective view while leaving faulty nodes in it.
     //@@start active-validator-view-original-size
-    view.originalViewSize = view.masterKeys.size();
+    view.originalMasterKeys = view.masterKeys;
+    view.orderedOriginalMasterKeys = view.orderedMasterKeys;
+    std::sort(
+        view.orderedOriginalMasterKeys.begin(),
+        view.orderedOriginalMasterKeys.end());
+    view.originalViewSize = view.originalMasterKeys.size();
     //@@end active-validator-view-original-size
 
     if (source.negativeUNLEnabled)
