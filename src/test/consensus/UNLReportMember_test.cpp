@@ -255,6 +255,23 @@ class UNLReportMember_test : public beast::unit_test::suite
             auto parent = parentLedger(env, {});
             BEAST_EXPECT(!buildUNLReportMemberBindingView(*parent));
         }
+
+        {
+            jtx::Env env(
+                *this, jtx::supported_amendments() | featureUNLReportV2);
+            auto parent = parentLedger(env, {v.masterPublic});
+            OpenView view(&*parent);
+            auto report =
+                std::make_shared<SLE>(*view.read(keylet::UNLReport()));
+            std::vector<STObject> active{
+                STObject::makeInnerObject(sfActiveValidator)};
+            std::string const invalidKey(1, '\0');
+            active.front().setFieldVL(sfPublicKey, makeSlice(invalidKey));
+            report->setFieldArray(
+                sfActiveValidators, STArray(active, sfActiveValidators));
+            view.rawReplace(report);
+            BEAST_EXPECT(!buildUNLReportMemberBindingView(view));
+        }
     }
 
     void
@@ -465,6 +482,33 @@ class UNLReportMember_test : public beast::unit_test::suite
                 }
             }
         }
+
+        {
+            auto const v = validator();
+            auto parent = parentLedger(env, {v.masterPublic});
+            OpenView view(&*parent);
+            BEAST_EXPECT(
+                apply(env, view, memberTx(manifest(v, 1))) == tesSUCCESS);
+            mutateMember(view, v.masterPublic, [](SLE& sle) {
+                sle.setFieldU32(sfFlags, 0x80000000u);
+            });
+
+            auto bindings = buildUNLReportMemberBindingView(view);
+            if (BEAST_EXPECT(bindings.has_value()))
+            {
+                auto const* frozen = bindings->findMaster(v.masterPublic);
+                BEAST_EXPECT(frozen != nullptr);
+                if (frozen)
+                {
+                    BEAST_EXPECT(
+                        frozen->resolution ==
+                        UNLReportMemberBindingResolution::resolved);
+                    BEAST_EXPECT(frozen->frozen());
+                    BEAST_EXPECT(!frozen->usableSigningBinding());
+                    BEAST_EXPECT(frozen->ledgerFlags == 0x80000000u);
+                }
+            }
+        }
     }
 
     void
@@ -473,8 +517,8 @@ class UNLReportMember_test : public beast::unit_test::suite
         testcase("binding view keeps malformed records visible unusable");
         jtx::Env env(*this, jtx::supported_amendments() | featureUNLReportV2);
         std::vector<Validator> validators;
-        validators.reserve(5);
-        for (std::size_t i = 0; i < 5; ++i)
+        validators.reserve(6);
+        for (std::size_t i = 0; i < 6; ++i)
             validators.emplace_back(validator());
 
         std::vector<PublicKey> masters;
@@ -503,6 +547,10 @@ class UNLReportMember_test : public beast::unit_test::suite
         mutateMember(view, validators[4].masterPublic, [](SLE& sle) {
             std::string const invalidBlob(1, '\0');
             sle.setFieldVL(sfBlob, makeSlice(invalidBlob));
+        });
+        mutateMember(view, validators[5].masterPublic, [](SLE& sle) {
+            std::string const invalidSigningKey(1, '\0');
+            sle.setFieldVL(sfSigningPubKey, makeSlice(invalidSigningKey));
         });
 
         auto bindings = buildUNLReportMemberBindingView(view);
