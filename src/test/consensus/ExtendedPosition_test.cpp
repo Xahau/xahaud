@@ -73,6 +73,34 @@ class ExtendedPosition_test : public beast::unit_test::suite
         }
         //@@end test-extended-position-legacy-compat
 
+        //@@start test-extended-position-export-root-wire-bit
+        // Pin the existing Export root allocation independently of the
+        // all-fields fixture: byte 32 is flags, and bit 0x10 carries exactly
+        // one following uint256 exportSigSetHash.
+        {
+            auto const txSet = makeHash("txset-export-root-wire");
+            auto const exportRoot = makeHash("export-root-wire");
+
+            Serializer s;
+            s.addBitString(txSet);
+            s.add8(0x10);
+            s.addBitString(exportRoot);
+            BEAST_EXPECT(s.getDataLength() == 65);
+            BEAST_EXPECT(s.peekData()[32] == 0x10);
+
+            SerialIter sit(s.slice());
+            auto const deserialized =
+                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
+            BEAST_EXPECT(deserialized);
+            if (deserialized)
+            {
+                BEAST_EXPECT(deserialized->txSetHash == txSet);
+                BEAST_EXPECT(deserialized->exportSigSetHash == exportRoot);
+                BEAST_EXPECT(!deserialized->exportSignaturesHash);
+            }
+        }
+        //@@end test-extended-position-export-root-wire-bit
+
         // Position with commitment
         {
             auto const txSet = makeHash("txset-b");
@@ -424,6 +452,25 @@ class ExtendedPosition_test : public beast::unit_test::suite
             proposalUniqueId(
                 mutated, prevLedger, prop.proposeSeq(), closeTime, pk, sig) !=
             suppression);
+
+        mutated = pos;
+        //@@start test-extended-position-export-root-binds-proposal
+        mutated.exportSigSetHash = makeHash("exportsigset-peer-mutated");
+        BEAST_EXPECT(
+            proposalUniqueId(
+                mutated, prevLedger, prop.proposeSeq(), closeTime, pk, sig) !=
+            suppression);
+        Proposal mutatedRootProposal{
+            prevLedger,
+            Proposal::seqJoin,
+            mutated,
+            closeTime,
+            NetClock::time_point{},
+            nodeId};
+        BEAST_EXPECT(mutatedRootProposal.signingHash() != prop.signingHash());
+        BEAST_EXPECT(
+            !verifyDigest(pk, mutatedRootProposal.signingHash(), sig, false));
+        //@@end test-extended-position-export-root-binds-proposal
 
         mutated = pos;
         mutated.exportSignaturesHash = makeHash("exportsigs-peer-mutated");
