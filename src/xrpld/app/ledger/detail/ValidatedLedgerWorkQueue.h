@@ -75,7 +75,11 @@ public:
 
         if ((active_ && *active_ == work) ||
             std::find(queue_.begin(), queue_.end(), work) != queue_.end())
-            return {false, false, std::nullopt};
+        {
+            bool const needsDrain = !drainScheduled_;
+            drainScheduled_ = true;
+            return {false, needsDrain, std::nullopt};
+        }
 
         std::optional<ValidatedLedgerWork> evicted;
         if (queue_.size() == capacity_)

@@ -116,7 +116,7 @@ LedgerMaster::LedgerMaster(
     , m_journal(journal)
     , mLedgerHistory(collector, app)
     , mValidatedLedgerWorkQueue(
-          std::make_unique<detail::ValidatedLedgerWorkQueue>(
+          std::make_shared<detail::ValidatedLedgerWorkQueue>(
               VALIDATED_LEDGER_WORK_QUEUE_CAPACITY))
     , standalone_(app_.config().standalone())
     , fetch_depth_(
@@ -351,19 +351,15 @@ LedgerMaster::enqueueValidatedLedgerWork(detail::ValidatedLedgerWork work)
     if (!result.needsDrain)
         return;
 
-    if (!app_.getJobQueue().addJob(jtADVANCE, "validatedLedgerWork", [this]() {
-            drainValidatedLedgerWork();
+    auto const queue = mValidatedLedgerWorkQueue;
+    if (!app_.getJobQueue().addJob(jtADVANCE, "validatedLedgerWork", [queue]() {
+            // Plateau A only schedules exact validation identities. The
+            // Export consumer attaches at the semantic flip. Capture the
+            // independently owned queue, never LedgerMaster: setup may
+            // fail before the normal JobQueue shutdown path runs.
+            queue->drain([](detail::ValidatedLedgerWork const&) noexcept {});
         }))
         mValidatedLedgerWorkQueue->cancelDrain();
-}
-
-void
-LedgerMaster::drainValidatedLedgerWork()
-{
-    // Plateau A only schedules exact validation identities. The Export
-    // consumer attaches at the semantic flip.
-    mValidatedLedgerWorkQueue->drain(
-        [](detail::ValidatedLedgerWork const&) noexcept {});
 }
 
 void

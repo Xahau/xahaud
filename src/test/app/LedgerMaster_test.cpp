@@ -305,14 +305,17 @@ class LedgerMaster_test : public beast::unit_test::suite
         BEAST_EXPECT(queue.size() == 0);
         BEAST_EXPECT(!queue.drainScheduled());
 
-        // A completed or failed-to-post drain can be scheduled again.
+        // A completed or failed-to-post drain can be scheduled again. A
+        // failed post preserves the queued item, so the exact same identity
+        // must be able to re-arm scheduling without inserting a duplicate.
         result = queue.enqueue(a);
         BEAST_EXPECT(result.needsDrain);
         queue.cancelDrain();
         BEAST_EXPECT(!queue.drainScheduled());
-        result = queue.enqueue(b);
-        BEAST_EXPECT(result.inserted);
+        result = queue.enqueue(a);
+        BEAST_EXPECT(!result.inserted);
         BEAST_EXPECT(result.needsDrain);
+        BEAST_EXPECT(queue.size() == 1);
     }
 
     void

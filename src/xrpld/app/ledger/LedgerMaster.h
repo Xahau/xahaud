@@ -336,9 +336,6 @@ private:
     void
     enqueueValidatedLedgerWork(detail::ValidatedLedgerWork work);
 
-    void
-    drainValidatedLedgerWork();
-
     // Returns true if work started.  Always called with m_mutex locked.
     // The passed lock is a reminder to callers.
     bool
@@ -370,7 +367,7 @@ private:
     LedgerHistory mLedgerHistory;
 
     // Local scheduling backpressure, not a protocol or Export capacity.
-    std::unique_ptr<detail::ValidatedLedgerWorkQueue> mValidatedLedgerWorkQueue;
+    std::shared_ptr<detail::ValidatedLedgerWorkQueue> mValidatedLedgerWorkQueue;
 
     CanonicalTXSet mHeldTransactions{uint256()};
 
