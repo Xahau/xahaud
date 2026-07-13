@@ -30,9 +30,44 @@
 
 namespace ripple {
 
-struct ValidatorBitsetInfo
+class ValidatedValidatorBitset
 {
-    std::size_t selected = 0;
+    Slice bitset_;
+    std::size_t memberCount_ = 0;
+    std::size_t selected_ = 0;
+
+    ValidatedValidatorBitset(
+        Slice bitset,
+        std::size_t memberCount,
+        std::size_t selected)
+        : bitset_(bitset), memberCount_(memberCount), selected_(selected)
+    {
+    }
+
+public:
+    /** Construct a validated, non-owning view over a validator bitset.
+
+        The caller must keep the bitset storage alive while using the view.
+    */
+    static std::optional<ValidatedValidatorBitset>
+    make(Slice bitset, std::size_t memberCount);
+
+    std::size_t
+    selected() const
+    {
+        return selected_;
+    }
+
+    bool
+    contains(std::size_t position) const
+    {
+        if (position >= memberCount_)
+            return false;
+
+        auto const byte = position / 8;
+        return (bitset_[byte] &
+                static_cast<std::uint8_t>(1u << (position % 8))) != 0;
+    }
 };
 
 constexpr std::size_t
@@ -47,8 +82,14 @@ validatorBitsetBytes(std::size_t memberCount)
     unused high bit in the final byte clear. The returned population can be
     used by a caller's profile-specific admission and quorum rules.
 */
-inline std::optional<ValidatorBitsetInfo>
+inline std::optional<ValidatedValidatorBitset>
 validateValidatorBitset(Slice bitset, std::size_t memberCount)
+{
+    return ValidatedValidatorBitset::make(bitset, memberCount);
+}
+
+inline std::optional<ValidatedValidatorBitset>
+ValidatedValidatorBitset::make(Slice bitset, std::size_t memberCount)
 {
     if (bitset.size() != validatorBitsetBytes(memberCount))
         return std::nullopt;
@@ -66,22 +107,7 @@ validateValidatorBitset(Slice bitset, std::size_t memberCount)
     for (auto const byte : bitset)
         selected += std::popcount(byte);
 
-    return ValidatorBitsetInfo{selected};
-}
-
-inline bool
-validatorBitsetContains(
-    Slice bitset,
-    std::size_t memberCount,
-    std::size_t position)
-{
-    if (position >= memberCount ||
-        bitset.size() != validatorBitsetBytes(memberCount))
-        return false;
-
-    auto const byte = position / 8;
-    return (bitset[byte] & static_cast<std::uint8_t>(1u << (position % 8))) !=
-        0;
+    return ValidatedValidatorBitset{bitset, memberCount, selected};
 }
 
 template <class Predicate>

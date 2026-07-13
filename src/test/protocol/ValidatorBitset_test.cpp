@@ -49,17 +49,15 @@ public:
         auto const info = validateValidatorBitset(makeSlice(bitset), 10);
         BEAST_EXPECT(info);
         if (info)
-            BEAST_EXPECT(info->selected == 3);
-
-        BEAST_EXPECT(validatorBitsetContains(makeSlice(bitset), 10, 0));
-        BEAST_EXPECT(validatorBitsetContains(makeSlice(bitset), 10, 7));
-        BEAST_EXPECT(!validatorBitsetContains(makeSlice(bitset), 10, 8));
-        BEAST_EXPECT(validatorBitsetContains(makeSlice(bitset), 10, 9));
-        BEAST_EXPECT(!validatorBitsetContains(makeSlice(bitset), 10, 10));
-        BEAST_EXPECT(!validatorBitsetContains(makeSlice(bitset), 10, 80));
-
-        Blob const wrongSize{0x81};
-        BEAST_EXPECT(!validatorBitsetContains(makeSlice(wrongSize), 10, 0));
+        {
+            BEAST_EXPECT(info->selected() == 3);
+            BEAST_EXPECT(info->contains(0));
+            BEAST_EXPECT(info->contains(7));
+            BEAST_EXPECT(!info->contains(8));
+            BEAST_EXPECT(info->contains(9));
+            BEAST_EXPECT(!info->contains(10));
+            BEAST_EXPECT(!info->contains(80));
+        }
     }
 
     void
@@ -78,7 +76,7 @@ public:
         auto const info = validateValidatorBitset(makeSlice(exact), 10);
         BEAST_EXPECT(info);
         if (info)
-            BEAST_EXPECT(info->selected == 10);
+            BEAST_EXPECT(info->selected() == 10);
         BEAST_EXPECT(!validateValidatorBitset(makeSlice(highBitSet), 10));
         BEAST_EXPECT(!validateValidatorBitset(makeSlice(tooLong), 10));
 
@@ -86,7 +84,7 @@ public:
         auto const full = validateValidatorBitset(makeSlice(fullByte), 8);
         BEAST_EXPECT(full);
         if (full)
-            BEAST_EXPECT(full->selected == 8);
+            BEAST_EXPECT(full->selected() == 8);
     }
 
     void

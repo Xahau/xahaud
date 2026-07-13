@@ -39,27 +39,13 @@
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/ValidatorBitset.h>
 #include <set>
 #include <string_view>
 
 namespace ripple {
 
 namespace {
-
-std::size_t
-countSetBits(Blob const& bytes)
-{
-    std::size_t count = 0;
-    for (auto byte : bytes)
-    {
-        while (byte != 0)
-        {
-            byte &= static_cast<std::uint8_t>(byte - 1);
-            ++count;
-        }
-    }
-    return count;
-}
 
 bool
 validEntropyContributorMask(
@@ -77,19 +63,9 @@ validEntropyContributorMask(
     if (tier < entropyTierParticipantAligned || tier > entropyTierValidatorFull)
         return false;
 
-    auto const expectedSize = (denominator + 7) / 8;
-    if (contributors.size() != expectedSize)
-        return false;
-
-    if (auto const usedBits = denominator % 8;
-        usedBits != 0 && !contributors.empty())
-    {
-        auto const validBits = static_cast<std::uint8_t>((1u << usedBits) - 1u);
-        if ((contributors.back() & ~validBits) != 0)
-            return false;
-    }
-
-    return countSetBits(contributors) == count;
+    auto const bitset =
+        validateValidatorBitset(makeSlice(contributors), denominator);
+    return bitset && bitset->selected() == count;
 }
 
 }  // namespace
