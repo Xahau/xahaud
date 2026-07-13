@@ -25,6 +25,7 @@
 #include <xrpld/app/ledger/OrderBookDB.h>
 #include <xrpld/app/ledger/PendingSaves.h>
 #include <xrpld/app/ledger/detail/PublishGap.h>
+#include <xrpld/app/ledger/detail/ValidatedLedgerWorkQueue.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/HashRouter.h>
@@ -72,6 +73,11 @@ static constexpr std::chrono::minutes MAX_LEDGER_AGE_ACQUIRE{1};
 // Don't acquire history if write load is too high
 static constexpr int MAX_WRITE_LOAD_ACQUIRE{8192};
 
+// The newest validation event is retained when this local scheduling queue is
+// saturated. A future consumer can rescan the durable pending index from that
+// point, so this is not a protocol limit.
+static constexpr std::size_t VALIDATED_LEDGER_WORK_QUEUE_CAPACITY{256};
+
 // Helper function for LedgerMaster::doAdvance()
 // Return true if candidateLedger should be fetched from the network.
 static bool
@@ -109,6 +115,9 @@ LedgerMaster::LedgerMaster(
     : app_(app)
     , m_journal(journal)
     , mLedgerHistory(collector, app)
+    , mValidatedLedgerWorkQueue(
+          std::make_unique<detail::ValidatedLedgerWorkQueue>(
+              VALIDATED_LEDGER_WORK_QUEUE_CAPACITY))
     , standalone_(app_.config().standalone())
     , fetch_depth_(
           app_.getSHAMapStore().clampFetchDepth(app_.config().FETCH_DEPTH))
@@ -123,6 +132,8 @@ LedgerMaster::LedgerMaster(
     , m_stats(std::bind(&LedgerMaster::collect_metrics, this), collector)
 {
 }
+
+LedgerMaster::~LedgerMaster() = default;
 
 LedgerIndex
 LedgerMaster::getCurrentLedgerIndex()
@@ -322,6 +333,37 @@ LedgerMaster::setValidLedger(std::shared_ptr<Ledger const> const& l)
                 app_.getOPs().clearAmendmentWarned();
         }
     }
+
+    enqueueValidatedLedgerWork({l->info().seq, l->info().hash});
+}
+
+void
+LedgerMaster::enqueueValidatedLedgerWork(detail::ValidatedLedgerWork work)
+{
+    auto const result = mValidatedLedgerWorkQueue->enqueue(std::move(work));
+    if (result.evicted)
+    {
+        JLOG(m_journal.warn())
+            << "Validated-ledger work queue evicted seq=" << result.evicted->seq
+            << " hash=" << result.evicted->hash;
+    }
+
+    if (!result.needsDrain)
+        return;
+
+    if (!app_.getJobQueue().addJob(jtADVANCE, "validatedLedgerWork", [this]() {
+            drainValidatedLedgerWork();
+        }))
+        mValidatedLedgerWorkQueue->cancelDrain();
+}
+
+void
+LedgerMaster::drainValidatedLedgerWork()
+{
+    // Plateau A only schedules exact validation identities. The Export
+    // consumer attaches at the semantic flip.
+    mValidatedLedgerWorkQueue->drain(
+        [](detail::ValidatedLedgerWork const&) noexcept {});
 }
 
 void

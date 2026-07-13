@@ -21,6 +21,7 @@
 #include <test/jtx/Env.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/detail/PublishGap.h>
+#include <xrpld/app/ledger/detail/ValidatedLedgerWorkQueue.h>
 #include <xrpl/basics/RangeSet.h>
 #include <xrpl/protocol/jss.h>
 
@@ -254,6 +255,67 @@ class LedgerMaster_test : public beast::unit_test::suite
     }
 
     void
+    testValidatedLedgerWorkQueue()
+    {
+        testcase("validated ledger work queue");
+
+        using detail::ValidatedLedgerWork;
+        using detail::ValidatedLedgerWorkQueue;
+
+        ValidatedLedgerWorkQueue queue{2};
+        ValidatedLedgerWork const a{10, uint256{1}};
+        ValidatedLedgerWork const fork{10, uint256{2}};
+        ValidatedLedgerWork const b{11, uint256{3}};
+
+        auto result = queue.enqueue(a);
+        BEAST_EXPECT(result.inserted);
+        BEAST_EXPECT(result.needsDrain);
+        BEAST_EXPECT(!result.evicted);
+
+        result = queue.enqueue(a);
+        BEAST_EXPECT(!result.inserted);
+        BEAST_EXPECT(!result.needsDrain);
+        BEAST_EXPECT(queue.size() == 1);
+
+        // Sequence alone is not identity: a different hash remains distinct.
+        result = queue.enqueue(fork);
+        BEAST_EXPECT(result.inserted);
+        BEAST_EXPECT(!result.needsDrain);
+        BEAST_EXPECT(queue.size() == 2);
+
+        // Saturation drops the oldest pending event and retains newer work.
+        result = queue.enqueue(b);
+        BEAST_EXPECT(result.inserted);
+        BEAST_EXPECT(!result.needsDrain);
+        BEAST_EXPECT(result.evicted && *result.evicted == a);
+
+        std::vector<ValidatedLedgerWork> drained;
+        auto const count =
+            queue.drain([&](ValidatedLedgerWork const& work) noexcept {
+                // An exact duplicate cannot be queued while it is active.
+                auto const duplicate = queue.enqueue(work);
+                BEAST_EXPECT(!duplicate.inserted);
+                drained.push_back(work);
+            });
+
+        BEAST_EXPECT(count == 2);
+        BEAST_EXPECT(drained.size() == 2);
+        BEAST_EXPECT(drained[0] == fork);
+        BEAST_EXPECT(drained[1] == b);
+        BEAST_EXPECT(queue.size() == 0);
+        BEAST_EXPECT(!queue.drainScheduled());
+
+        // A completed or failed-to-post drain can be scheduled again.
+        result = queue.enqueue(a);
+        BEAST_EXPECT(result.needsDrain);
+        queue.cancelDrain();
+        BEAST_EXPECT(!queue.drainScheduled());
+        result = queue.enqueue(b);
+        BEAST_EXPECT(result.inserted);
+        BEAST_EXPECT(result.needsDrain);
+    }
+
+    void
     testSetPinnedRangesImmediateMerge()
     {
         // Regression test: when setPinnedLedgersRangeSet runs and
@@ -334,6 +396,7 @@ public:
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments() - featureXahauGenesis};
         testCanSkipPinnedGap();
+        testValidatedLedgerWorkQueue();
         testWithFeats(all);
         testPinUnpinSymmetry();
         testSetPinnedRangesImmediateMerge();
