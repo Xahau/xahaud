@@ -121,7 +121,7 @@ checkProposalExtensions(
         parsedPosition->myReveal;
     bool const hasExtensionDiagnostics =
         parsedPosition->observedParticipantsHash.has_value();
-    bool const hasExportMaterial =
+    bool const hasExportMaterial = parsedPosition->exportSigSetHash ||
         parsedPosition->exportSignaturesHash || set.exportsignatures_size() > 0;
     if (hasEntropyMaterial && !isEntropyEnabled())
         return {ProposalPrecheckResult::entropyDisabled, parsedPosition};

@@ -61,7 +61,7 @@ namespace bc = boost::container;
 /// deterministically, but peers do not merge sidecar roots from each other.
 struct SidecarStore
 {
-    enum class Type { commit, reveal };
+    enum class Type { commit, reveal, exportSig };
 
     using EntrySet = hash_map<PeerID, uint256>;
 
@@ -325,13 +325,18 @@ struct Peer
         std::chrono::steady_clock::time_point commitHashConflictStart_{};
         bool entropySetPublished_{false};
         std::chrono::steady_clock::time_point entropyPublishStart_{};
+        bool exportSigGateStarted_{false};
+        std::chrono::steady_clock::time_point exportSigGateStart_{};
+        bool exportSigConvergenceFailed_{false};
 
         // RNG state
         bool enableRngConsensus_ = false;
+        bool enableExportConsensus_ = false;
         hash_set<PeerID> unlNodes_;
         hash_set<PeerID> likelyParticipants_;
         hash_map<PeerID, uint256> pendingCommits_;
         hash_map<PeerID, uint256> pendingReveals_;
+        hash_map<PeerID, uint256> pendingExportSigs_;
         hash_map<PeerID, PeerKey> nodeKeys_;
         uint256 myEntropySecret_;
         bool commitSetFrozen_ = false;
@@ -341,6 +346,7 @@ struct Peer
         // that accepted snapshot may feed finalizeRoundEntropy.
         uint256 lastEntropySetHash_{};
         std::optional<uint256> acceptedEntropySetHash_;
+        std::optional<uint256> acceptedExportSigSetHash_;
         bool entropyFailed_ = false;
 
         // Last round summary (for test assertions)
@@ -349,11 +355,15 @@ struct Peer
         std::uint16_t lastEntropyDenominator_ = 0;
         bool lastEntropyWasFallback_ = true;
         EntropyTier lastEntropyTier_ = entropyTierNone;
+        bool lastExportSucceeded_ = false;
+        bool lastExportRetried_ = false;
 
         // Optional test hook: force a specific commit-set hash
         std::optional<uint256> forcedCommitSetHash_;
         // Optional test hook: force a specific entropy-set hash
         std::optional<uint256> forcedEntropySetHash_;
+        // Optional test hook: force a specific export sig-set hash
+        std::optional<uint256> forcedExportSigSetHash_;
         // Optional test hook: remain an active proposer but omit the
         // entropySetHash advertisement after building the sidecar. This models
         // a silent sidecar advertiser without shrinking the fixed UNL
@@ -364,6 +374,7 @@ struct Peer
         {
             std::optional<uint256> commitSetHash;
             std::optional<uint256> entropySetHash;
+            std::optional<uint256> exportSigSetHash;
         };
 
         // Optional test hooks: send recipient-specific sidecar hashes in
@@ -374,6 +385,11 @@ struct Peer
         // Optional test hook: drop reveals from specific peers
         // (simulates asymmetric reveal delivery / packet loss)
         hash_set<PeerID> dropRevealFrom_;
+        // Optional test hook: drop proposal-carried export signatures.
+        hash_set<PeerID> dropExportSigFrom_;
+        // Optional test hook: stay an active proposer but do not originate an
+        // export signature, so tests can force missing local export material.
+        bool suppressOwnExportSig_ = false;
         // Optional test hook: exercise generic Consensus bootstrap timing
         // without making the CSF runtime-config aware.
         bool testBootstrapFastStartEnabled_ = false;
@@ -392,6 +408,12 @@ struct Peer
 
         bool
         exportEnabled() const
+        {
+            return enableExportConsensus_;
+        }
+
+        bool
+        testSuppressExportSigSetHash() const
         {
             return false;
         }
@@ -428,6 +450,26 @@ struct Peer
             // labels by aligned count. In the tier-2 band tier2 < quorum; at
             // sizes where the band collapses (e.g. n=5) this is just quorum.
             return std::min(quorumThreshold(), tier2Threshold());
+        }
+
+        std::size_t
+        exportRootAlignmentThreshold() const
+        {
+            if (!enableExportConsensus_)
+                return (std::numeric_limits<std::size_t>::max)() / 4;
+            auto const base =
+                unlNodes_.empty() ? std::size_t{1} : unlNodes_.size();
+            return calculateQuorumThreshold(base);
+        }
+
+        std::size_t
+        exportWitnessThreshold() const
+        {
+            if (!enableExportConsensus_)
+                return (std::numeric_limits<std::size_t>::max)() / 4;
+            auto const base =
+                unlNodes_.empty() ? std::size_t{1} : unlNodes_.size();
+            return calculateQuorumThreshold(base);
         }
 
         std::size_t
@@ -506,6 +548,17 @@ struct Peer
             return hash;
         }
 
+        uint256
+        buildExportSigSet(Ledger::Seq seq)
+        {
+            if (forcedExportSigSetHash_)
+                return *forcedExportSigSetHash_;
+            auto const hash = hashRngSet(pendingExportSigs_, seq, "export-sig");
+            peer.sidecarStore.publish(
+                hash, SidecarStore::Type::exportSig, pendingExportSigs_);
+            return hash;
+        }
+
         void
         generateEntropySecret()
         {
@@ -568,6 +621,18 @@ struct Peer
             acceptedEntropySetHash_.reset();
         }
 
+        void
+        acceptExportSigSet(uint256 const& hash)
+        {
+            acceptedExportSigSetHash_ = hash;
+        }
+
+        void
+        clearAcceptedExportSigSet()
+        {
+            acceptedExportSigSetHash_.reset();
+        }
+
         Proposal
         proposalWithRecipientSidecarHashes(
             Proposal const& proposal,
@@ -582,6 +647,9 @@ struct Peer
                 position.commitSetHash = it->second.commitSetHash;
             if (it->second.entropySetHash)
                 position.entropySetHash = it->second.entropySetHash;
+            if (it->second.exportSigSetHash)
+                position.exportSigSetHash = it->second.exportSigSetHash;
+
             return Proposal{
                 proposal.prevLedger(),
                 proposal.proposeSeq(),
@@ -609,13 +677,18 @@ struct Peer
         {
             pendingCommits_.clear();
             pendingReveals_.clear();
+            pendingExportSigs_.clear();
             nodeKeys_.clear();
             likelyParticipants_.clear();
             myEntropySecret_.zero();
             lastEntropySetHash_.zero();
             acceptedEntropySetHash_.reset();
+            acceptedExportSigSetHash_.reset();
             entropyFailed_ = false;
             commitSetFrozen_ = false;
+            exportSigGateStarted_ = false;
+            exportSigGateStart_ = {};
+            exportSigConvergenceFailed_ = false;
         }
 
         void
@@ -666,7 +739,7 @@ struct Peer
             Ledger::ID const& prevLedger,
             std::uint64_t)
         {
-            if (!enableRngConsensus_)
+            if (!enableRngConsensus_ && !enableExportConsensus_)
                 return;
             if (!isUNLReportMember(nodeId))
                 return;
@@ -685,8 +758,13 @@ struct Peer
                 }
             }
 
-            if (!position.myReveal)
+            if (!enableRngConsensus_ || !position.myReveal)
+            {
+                if (enableExportConsensus_ && position.myExportSignature &&
+                    dropExportSigFrom_.count(nodeId) == 0)
+                    pendingExportSigs_[nodeId] = *position.myExportSignature;
                 return;
+            }
 
             // Test hook: drop reveals from specific peers
             if (dropRevealFrom_.count(nodeId) == 0)
@@ -710,6 +788,10 @@ struct Peer
                     }
                 }
             }
+
+            if (enableExportConsensus_ && position.myExportSignature &&
+                dropExportSigFrom_.count(nodeId) == 0)
+                pendingExportSigs_[nodeId] = *position.myExportSignature;
         }
 
         bool
@@ -841,6 +923,35 @@ struct Peer
             lastEntropyWasFallback_ = false;
         }
 
+        void
+        finalizeRoundExport()
+        {
+            if (!enableExportConsensus_)
+            {
+                lastExportSucceeded_ = false;
+                lastExportRetried_ = false;
+                return;
+            }
+
+            auto const* acceptedSet = acceptedExportSigSetHash_
+                ? peer.sidecarStore.fetch(*acceptedExportSigSetHash_)
+                : nullptr;
+            std::size_t activeSigCount = 0;
+            if (acceptedSet &&
+                acceptedSet->type == SidecarStore::Type::exportSig)
+            {
+                activeSigCount = std::count_if(
+                    acceptedSet->entries.begin(),
+                    acceptedSet->entries.end(),
+                    [&](auto const& entry) {
+                        return isUNLReportMember(entry.first);
+                    });
+            }
+
+            lastExportSucceeded_ = activeSigCount >= exportWitnessThreshold();
+            lastExportRetried_ = !lastExportSucceeded_;
+        }
+
         // --- Lifecycle hooks (matching design doc) ---
 
         template <class Ledger_t>
@@ -882,6 +993,8 @@ struct Peer
             Ledger_t const& prevLedger,
             bool proposing)
         {
+            decorateExportPosition(pos, prevLedger, proposing);
+
             if (!enableRngConsensus_ || !proposing || !peer.runAsValidator)
                 return;
             generateEntropySecret();
@@ -893,6 +1006,30 @@ struct Peer
                 seq);
             pos.myCommitment = commitment;
             pendingCommits_[peer.id] = commitment;
+            nodeKeys_.insert_or_assign(peer.id, peer.key);
+        }
+
+        template <class Ledger_t>
+        void
+        decorateExportPosition(
+            ProposalPosition& pos,
+            Ledger_t const& prevLedger,
+            bool proposing)
+        {
+            if (!enableExportConsensus_ || !proposing || !peer.runAsValidator)
+                return;
+
+            auto const seq = static_cast<std::uint32_t>(prevLedger.seq()) + 1;
+            auto const sig = sha512Half(
+                std::string("csf-export-sig"),
+                static_cast<std::uint32_t>(peer.id),
+                peer.key.second,
+                seq);
+            if (!suppressOwnExportSig_)
+            {
+                pos.myExportSignature = sig;
+                pendingExportSigs_[peer.id] = sig;
+            }
             nodeKeys_.insert_or_assign(peer.id, peer.key);
         }
 
@@ -916,11 +1053,30 @@ struct Peer
         {
             return testBootstrapFastStartEnabled_;
         }
+        bool
+        hasPendingExportSigs() const
+        {
+            return enableExportConsensus_ && !pendingExportSigs_.empty();
+        }
+        bool
+        hasConsensusExportTxns() const
+        {
+            return enableExportConsensus_;
+        }
+        void
+        setExportSigConvergenceFailed()
+        {
+            if (enableExportConsensus_)
+                exportSigConvergenceFailed_ = true;
+        }
+
         // --- Sub-state accessors ---
         bool
         extensionsBusy() const
         {
-            return estState_ != EstablishState::ConvergingTx;
+            return estState_ != EstablishState::ConvergingTx ||
+                (exportEnabled() &&
+                 (exportSigGateStarted_ || hasPendingExportSigs()));
         }
         EstablishState
         estState() const
@@ -936,6 +1092,9 @@ struct Peer
             entropySetPublished_ = false;
             entropyPublishStart_ = {};
             commitSetFrozen_ = false;
+            exportSigGateStarted_ = false;
+            exportSigGateStart_ = {};
+            exportSigConvergenceFailed_ = false;
         }
 
         /// Defined in test/csf/PeerTick.h (keeps xrpld/app dependency
@@ -1293,6 +1452,8 @@ struct Peer
                 seq,
                 static_cast<std::uint32_t>(prevLedger.id()),
                 result.txns.id());
+            ce().finalizeRoundExport();
+
             TxSet const acceptedTxs = injectTxs(prevLedger, result.txns);
             Ledger const newLedger = oracle.accept(
                 prevLedger,

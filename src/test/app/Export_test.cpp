@@ -808,26 +808,38 @@ struct Export_test : public beast::unit_test::suite
         // applies the emitted ttEXPORT through the transactor.
         env.close();
 
-        // The emitted ttEXPORT retries and is not included. The retired
-        // same-ledger sidecar path no longer synthesizes a signature witness.
+        // The emitted ttEXPORT and its per-export signature witness should now
+        // appear in the closed ledger. The witness is transaction-stream input,
+        // not metadata decoration, so replay has the same signatures apply saw.
         {
             auto const ledger = env.closed();
             int exportCount = 0;
             int witnessCount = 0;
+            std::optional<uint256> exportHash;
+            std::optional<uint256> witnessExportHash;
             for (auto const& [stx, meta] : ledger->txs)
             {
                 if (stx->getTxnType() == ttEXPORT)
                 {
                     BEAST_EXPECT(stx->isFieldPresent(sfEmitDetails));
+                    exportHash = stx->getTransactionID();
                     ++exportCount;
                     continue;
                 }
 
-                if (stx->getTxnType() == ttEXPORT_SIGNATURES)
-                    ++witnessCount;
+                BEAST_EXPECT(stx->getTxnType() == ttEXPORT_SIGNATURES);
+                BEAST_EXPECT(stx->isFieldPresent(sfTransactionHash));
+                witnessExportHash = stx->getFieldH256(sfTransactionHash);
+                auto signatures =
+                    ExportResultBuilder::signaturesFromWitness(*stx);
+                BEAST_EXPECT(signatures);
+                ++witnessCount;
             }
-            BEAST_EXPECT(exportCount == 0);
-            BEAST_EXPECT(witnessCount == 0);
+            BEAST_EXPECT(exportCount == 1);
+            BEAST_EXPECT(witnessCount == 1);
+            BEAST_EXPECT(exportHash && witnessExportHash);
+            if (exportHash && witnessExportHash)
+                BEAST_EXPECT(*witnessExportHash == *exportHash);
         }
     }
 
@@ -1161,9 +1173,9 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
-    testExportNetworkApplyUsesProvidedWitness(FeatureBitset features)
+    testExportNetworkApplyUsesAgreedSidecar(FeatureBitset features)
     {
-        testcase("ttEXPORT network apply uses provided witness");
+        testcase("ttEXPORT network apply uses agreed export sidecar");
 
         using namespace jtx;
 
@@ -1204,9 +1216,26 @@ struct Export_test : public beast::unit_test::suite
         ce.cacheUNLReport(env.app().getLedgerMaster().getClosedLedger());
         auto const view = ce.activeValidatorView();
         BEAST_EXPECT(view->fromUNLReport);
+        ce.cacheConsensusTxSet(makeRCLTxSet(env.app(), {exportTx}));
+
         auto const originalSig =
             ExportResultBuilder::signExportedTxn(innerTx, valPK, valSK);
         auto const applySeq = env.closed()->seq() + 1;
+        ce.exportSigCollector().addVerifiedSignature(
+            txHash, valPK, originalSig, applySeq);
+        auto const agreedHash = ce.buildExportSigSet(applySeq);
+        BEAST_EXPECT(
+            env.app().getInboundTransactions().getSet(agreedHash, false));
+        ce.acceptExportSigSet(agreedHash);
+        ce.setExportSigConvergenceFailed();
+
+        // Simulate an asynchronous collector mutation after sidecar agreement.
+        // Closed-ledger apply must derive the signature snapshot from the
+        // agreed sidecar, not from the live collector or a local timeout flag.
+        std::uint8_t const lateBytes[] = {9, 8, 7};
+        Buffer const lateSig{lateBytes, sizeof(lateBytes)};
+        ce.exportSigCollector().addVerifiedSignature(
+            txHash, valPK, lateSig, applySeq);
 
         ExportResultBuilder::SignatureSnapshot expectedSigs;
         expectedSigs.emplace(valPK, originalSig);
@@ -1619,21 +1648,43 @@ struct Export_test : public beast::unit_test::suite
         forceNonStandalone(env.app());
         BEAST_EXPECT(!env.app().config().standalone());
 
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const& valPK = valKeys.keys->publicKey;
+        auto const& valSK = valKeys.keys->secretKey;
         auto const seq = env.current()->seq();
         auto const ticketSeq = std::uint32_t{1};
         auto const lls = seq + ExportLimits::maxRetryLedgers;
         auto innerObj = buildExportedPayment(
             alice.id(), carol.id(), seq + 1, lls, ticketSeq);
+        auto const innerTx = makeSTTx(innerObj);
         auto jt = makeExportJTx(env, alice, innerObj, lls);
         auto const exportTx = jt.stx;
         BEAST_EXPECT(exportTx);
         if (!exportTx)
             return;
+        auto const txHash = exportTx->getTransactionID();
+
         auto& ce = env.app().getConsensusExtensions();
         ce.setExportEnabledThisRound(true);
         ce.cacheUNLReport(env.app().getLedgerMaster().getClosedLedger());
         auto const view = ce.activeValidatorView();
         BEAST_EXPECT(!view->fromUNLReport);
+        ce.cacheConsensusTxSet(makeRCLTxSet(env.app(), {exportTx}));
+
+        auto const sig =
+            ExportResultBuilder::signExportedTxn(innerTx, valPK, valSK);
+        auto const applySeq = env.closed()->seq() + 1;
+        ce.exportSigCollector().addVerifiedSignature(
+            txHash, valPK, sig, applySeq);
+        auto const agreedHash = ce.buildExportSigSet(applySeq);
+        BEAST_EXPECT(
+            env.app().getInboundTransactions().getSet(agreedHash, false));
+        ce.acceptExportSigSet(agreedHash);
+
         auto const parent = env.app().getLedgerMaster().getClosedLedger();
         auto next = std::make_shared<Ledger>(
             *parent, env.app().timeKeeper().closeTime());
@@ -1692,12 +1743,21 @@ struct Export_test : public beast::unit_test::suite
             ce.cacheUNLReport(parent);
             auto const view = ce.activeValidatorView();
             BEAST_EXPECT(view->fromUNLReport);
+            ce.cacheConsensusTxSet(makeRCLTxSet(env.app(), {exportTx}));
+
             ExportResultBuilder::SignatureWitnesses exportSignatureWitnesses;
 
             if (withQuorum)
             {
                 auto const sig =
                     ExportResultBuilder::signExportedTxn(innerTx, valPK, valSK);
+                ce.exportSigCollector().addVerifiedSignature(
+                    txHash, valPK, sig, applySeq);
+                auto const agreedHash = ce.buildExportSigSet(applySeq);
+                BEAST_EXPECT(env.app().getInboundTransactions().getSet(
+                    agreedHash, false));
+                ce.acceptExportSigSet(agreedHash);
+
                 ExportResultBuilder::SignatureSnapshot signatures;
                 signatures.emplace(valPK, sig);
                 exportSignatureWitnesses =
@@ -2304,7 +2364,8 @@ struct Export_test : public beast::unit_test::suite
         // ttEXPORT transactor tests
         testExportTxnOpenLedger(allWithExport);
         testExportNetworkRetryWithoutQuorum(allWithExport);
-        testExportNetworkApplyUsesProvidedWitness(allWithExport);
+        testExportProposalSigningRequiresBoundedUNLReport(allWithExport);
+        testExportNetworkApplyUsesAgreedSidecar(allWithExport);
         testExportNetworkRetriesOversizedActiveView(allWithExport);
         testExportShadowTicketInsufficientReserve(allWithExport);
         testExportHistoricalReplayIgnoresCurrentManifestMap(allWithExport);
@@ -2312,12 +2373,19 @@ struct Export_test : public beast::unit_test::suite
         testExportNetworkRetryWithoutUNLReport(allWithExport);
         testExportNetworkLastLedgerSequenceBoundary(allWithExport);
         testOpenLedgerExportLimit(allWithExport);
+        testShadowTicketLimit(allWithExport);
+        testShadowTicketLifecycle(allWithExport);
+        testCancelShadowTicketViaTxn(allWithExport);
         testExportRejectsNoTicketSequence(allWithExport);
         testExportRejectsMissingLastLedgerSequence(allWithExport);
         testExportRejectsSignedInnerTransaction(allWithExport);
         testExportRejectsLongRetryWindow(allWithExport);
         testExportRejectsMalformed(allWithExport);
 
+        // Round-trip test
+        testExportImportRoundTrip(allWithExport);
+        testExportImportWaitsForShadowTicket(allWithExport);
+        testExportImportRejectsStaleImportVL(allWithExport);
     }
 };
 

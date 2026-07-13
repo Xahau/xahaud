@@ -342,6 +342,25 @@ ConsensusExtensions::quorumThreshold() const
 }
 
 std::size_t
+ConsensusExtensions::exportRootAlignmentThreshold() const
+{
+    return exportRootAlignmentThreshold(*activeValidatorView());
+}
+
+std::size_t
+ConsensusExtensions::exportRootAlignmentThreshold(
+    ActiveValidatorView const& validatorView)
+{
+    auto const base = validatorView.size();
+
+    // Export sidecar hashes are signed through ExtendedPosition even when RNG
+    // is disabled, so a quorum-aligned exportSigSetHash is deterministic
+    // enough for Export-only mode. Unanimity would let one active validator
+    // veto an otherwise converged export round.
+    return safeQuorumThreshold(base);
+}
+
+std::size_t
 ConsensusExtensions::exportWitnessThreshold() const
 {
     return exportWitnessThreshold(*activeValidatorView());
@@ -1053,6 +1072,13 @@ ConsensusExtensions::exportEnabled() const
 }
 
 bool
+ConsensusExtensions::testSuppressExportSigSetHash() const
+{
+    auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();
+    return cfg && cfg->noExportSigHash.has_value() && *cfg->noExportSigHash;
+}
+
+bool
 ConsensusExtensions::testBootstrapFastStartEnabled() const
 {
     auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();
@@ -1194,6 +1220,269 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
     return hash;
 }
 
+uint256
+ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
+{
+    //@@start current-export-global-sigset-build
+    auto map =
+        std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
+    map->setUnbacked();
+
+    auto const validatorView = activeValidatorView();
+    // Export sidecar convergence should not advertise signatures from trusted
+    // but inactive validators; those signatures cannot count at apply time.
+    auto const allSigs = exportSigCollector_.snapshotWithSigs(
+        activeSignerFilter(*this, validatorView));
+    // Only signatures for export txns in the consensus candidate can affect
+    // this round's sidecar hash; open-ledger-only txns stay cached for later.
+    std::size_t entryCount = 0;
+
+    for (auto const& [txHash, valSigs] : allSigs)
+    {
+        // Candidate membership is the deterministic publication gate. A sig
+        // may have been verified earlier from the open ledger, but it only
+        // enters the sidecar hash if the same tx hash is in the converged set.
+        if (consensusExportTxns_.find(txHash) == consensusExportTxns_.end())
+            continue;
+
+        for (auto const& [valPK, sigBuf] : valSigs)
+        {
+            STObject sidecar(sfGeneric);
+            sidecar.setFieldU8(sfSidecarType, sidecarExportSig);
+            sidecar.setFieldH256(sfTransactionHash, txHash);
+            sidecar.setFieldVL(sfSigningPubKey, valPK.slice());
+            if (sigBuf.size() > 0)
+                sidecar.setFieldVL(
+                    sfTxnSignature, Slice(sigBuf.data(), sigBuf.size()));
+
+            map->addItem(SHAMapNodeType::tnSIDECAR, makeSidecarItem(sidecar));
+            ++entryCount;
+        }
+    }
+
+    auto const maxExportSidecarLeaves = validatorView->size() *
+        std::min(consensusExportTxns_.size(),
+                 static_cast<std::size_t>(ExportLimits::maxPendingExports));
+    XRPL_ASSERT(
+        entryCount <= maxExportSidecarLeaves,
+        "ripple::ConsensusExtensions::buildExportSigSet : "
+        "export sidecar leaf count must stay within bounded local cap");
+
+    map = map->snapShot(false);
+    exportSigSetMap_ = map;
+
+    auto const hash = map->getHash().as_uint256();
+    // TODO: move consensus-extension snapshots out of InboundTransactions.
+    // They are same-process materialization caches only; sidecar roots are no
+    // longer advertised, fetched, served, or merged from peers.
+    app_.getInboundTransactions().giveSet(hash, map, false);
+
+    JLOG(j_.debug()) << "Export: built exportSigSet SHAMap"
+                     << " hash=" << hash << " seq=" << seq
+                     << " entries=" << entryCount
+                     << " candidateExportTxns=" << consensusExportTxns_.size()
+                     << " activeValidators=" << validatorView->size();
+    //@@end current-export-global-sigset-build
+    return hash;
+}
+
+bool
+ConsensusExtensions::hasPendingExportSigs() const
+{
+    auto const validatorView = activeValidatorView();
+    // The export convergence gate only needs to run for signatures that are
+    // eligible under the active view used by final quorum evaluation.
+    auto const allSigs = exportSigCollector_.snapshotWithSigs(
+        activeSignerFilter(*this, validatorView));
+    if (allSigs.empty() || !consensusTxSetMap_)
+        return false;
+
+    for (auto const& entry : allSigs)
+    {
+        if (consensusExportTxns_.find(entry.first) !=
+            consensusExportTxns_.end())
+            return true;
+    }
+    return false;
+}
+
+bool
+ConsensusExtensions::hasConsensusExportTxns() const
+{
+    return !consensusExportTxns_.empty();
+}
+
+void
+ConsensusExtensions::setExportSigConvergenceFailed()
+{
+    exportSigConvergenceFailed_ = true;
+}
+
+bool
+ConsensusExtensions::exportSigConvergenceFailed() const
+{
+    return exportSigConvergenceFailed_;
+}
+
+void
+ConsensusExtensions::acceptExportSigSet(uint256 const& hash)
+{
+    acceptedExportSigSetHash_ = hash;
+}
+
+void
+ConsensusExtensions::clearAcceptedExportSigSet()
+{
+    acceptedExportSigSetHash_.reset();
+}
+
+std::optional<ConsensusExtensions::ExportSignatureSnapshot>
+ConsensusExtensions::agreedExportSignatures(
+    STTx const& exportTx,
+    uint256 const& txHash,
+    std::size_t threshold) const
+{
+    // A local exportSigSetMap_ is only candidate material until the sidecar
+    // gate accepts its root. Without this guard, a timed-out node with a local
+    // partial-but-quorum map could mint a different signed export blob from
+    // the quorum-aligned nodes.
+    if (!acceptedExportSigSetHash_)
+    {
+        JLOG(j_.warn()) << "Export: exportSigSet not accepted"
+                        << " txHash=" << txHash << " threshold=" << threshold;
+        return std::nullopt;
+    }
+
+    auto const acceptedHash = *acceptedExportSigSetHash_;
+    std::shared_ptr<SHAMap> agreedMap;
+    if (exportSigSetMap_ &&
+        exportSigSetMap_->getHash().as_uint256() == acceptedHash)
+    {
+        agreedMap = exportSigSetMap_;
+    }
+    else
+    {
+        agreedMap = app_.getInboundTransactions().getSet(acceptedHash, false);
+    }
+
+    if (!agreedMap)
+    {
+        JLOG(j_.warn()) << "Export: accepted exportSigSet missing"
+                        << " acceptedHash=" << acceptedHash
+                        << " txHash=" << txHash << " threshold=" << threshold;
+        return std::nullopt;
+    }
+    if (agreedMap->mapType() != SHAMapType::SIDECAR)
+    {
+        JLOG(j_.warn()) << "Export: accepted exportSigSet has wrong map type"
+                        << " acceptedHash=" << acceptedHash
+                        << " txHash=" << txHash;
+        return std::nullopt;
+    }
+
+    auto const agreedHash = agreedMap->getHash().as_uint256();
+    if (agreedHash != acceptedHash)
+    {
+        JLOG(j_.warn()) << "Export: accepted exportSigSet hash mismatch"
+                        << " setHash=" << agreedHash
+                        << " acceptedHash=" << acceptedHash
+                        << " txHash=" << txHash;
+        return std::nullopt;
+    }
+
+    // The accepted root is the membership decision. Candidate construction
+    // filters live active signers, but materialization must not re-resolve
+    // signer keys through mutable manifests or nodes can diverge after a
+    // rotation. Keep cryptographic verification below; drop only the live
+    // membership re-filter.
+    ExportSignatureSnapshot signatures;
+    bool invalid = false;
+    agreedMap->visitLeaves(
+        [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+            if (invalid)
+                return;
+
+            try
+            {
+                auto admitted = admitSidecarLeaf(
+                    item->key(),
+                    item->slice(),
+                    agreedHash,
+                    j_,
+                    "Export",
+                    "exportSigSet",
+                    "agreed",
+                    ExportLimits::maxExportSignatureSidecarBytes,
+                    &invalid);
+                if (!admitted || admitted->type != sidecarExportSig)
+                    return;
+                auto const& sidecar = admitted->sidecar;
+
+                if (!sidecar.isFieldPresent(sfTransactionHash) ||
+                    !sidecar.isFieldPresent(sfSigningPubKey) ||
+                    !sidecar.isFieldPresent(sfTxnSignature))
+                    return;
+
+                if (sidecar.getFieldH256(sfTransactionHash) != txHash)
+                    return;
+
+                auto const pk = sidecar.getFieldVL(sfSigningPubKey);
+                if (!publicKeyType(makeSlice(pk)))
+                    return;
+
+                PublicKey const valPK{makeSlice(pk)};
+
+                auto const sigVL = sidecar.getFieldVL(sfTxnSignature);
+                auto const sigSlice = makeSlice(sigVL);
+                if (!verifyExportSignatureAgainstTx(
+                        exportTx,
+                        valPK,
+                        sigSlice,
+                        txHash,
+                        j_,
+                        "agreed exportSigSet"))
+                {
+                    invalid = true;
+                    return;
+                }
+
+                Buffer sigBuf(sigSlice.data(), sigSlice.size());
+                if (auto const [_, inserted] =
+                        signatures.emplace(valPK, std::move(sigBuf));
+                    !inserted)
+                {
+                    JLOG(j_.warn())
+                        << "Export: accepted exportSigSet duplicate signer"
+                        << " setHash=" << agreedHash << " txHash=" << txHash
+                        << " signer=" << toBase58(TokenType::NodePublic, valPK);
+                    invalid = true;
+                }
+            }
+            catch (std::exception const& e)
+            {
+                JLOG(j_.warn())
+                    << "Export: agreed exportSigSet parse failed"
+                    << " setHash=" << agreedHash << " txHash=" << txHash
+                    << " error=" << e.what();
+                invalid = true;
+            }
+        });
+
+    if (invalid)
+        return std::nullopt;
+
+    if (signatures.size() < threshold)
+    {
+        JLOG(j_.info()) << "Export: accepted exportSigSet below quorum"
+                        << " setHash=" << agreedHash << " txHash=" << txHash
+                        << " signers=" << signatures.size()
+                        << " threshold=" << threshold;
+        return std::nullopt;
+    }
+
+    return signatures;
+}
+
 void
 ConsensusExtensions::generateEntropySecret()
 {
@@ -1250,6 +1539,7 @@ ConsensusExtensions::clearRngStatePreservingExport()
     acceptedEntropySetHash_.reset();
     rngRoundSeq_.reset();
     roundPrevLedgerHash_ = uint256{};
+    consensusTxSetMap_.reset();
     consensusExportTxns_.clear();
     consensusTxSetHash_.reset();
     observedParticipantsHash_.reset();
@@ -1277,7 +1567,12 @@ ConsensusExtensions::clearRngState()
         // material waiting for a later re-enable.
         exportSigCollector_.clearAll();
     }
+    exportSigSetMap_.reset();
+    acceptedExportSigSetHash_.reset();
     consensusExportTxns_.clear();
+    exportSigGateStarted_ = false;
+    exportSigGateStart_ = {};
+    exportSigConvergenceFailed_ = false;
     //@@end round-stop-export-reset
 
     clearRngStatePreservingExport();
@@ -1478,6 +1773,7 @@ ConsensusExtensions::cacheConsensusTxSet(RCLTxSet const& txns)
     if (consensusTxSetHash_ && *consensusTxSetHash_ == txSetHash)
         return;
 
+    consensusTxSetMap_ = txns.map_;
     consensusExportTxns_ = buildExportTxnLookup(*txns.map_, j_);
     consensusTxSetHash_ = txSetHash;
 }
@@ -1690,9 +1986,157 @@ ConsensusExtensions::onPreBuild(
         //@@end rng-inject-pseudotx
     }
 
+    if (exportEnabled())
+    {
+        //@@start export-witness-scrub-stale
+        auto const validatorView = activeValidatorView();
+        for (auto it = retriableTxs.begin(); it != retriableTxs.end();)
+        {
+            auto const& tx = it->second;
+            if (tx && tx->getTxnType() == ttEXPORT_SIGNATURES)
+            {
+                // Live witnesses are build-time materializations of the
+                // accepted sidecar root. Remove stale or externally supplied
+                // pseudos before reinserting the deterministic witness below.
+                it = retriableTxs.erase(it);
+                continue;
+            }
+            ++it;
+        }
+        //@@end export-witness-scrub-stale
+
+        if (app_.config().standalone())
+        {
+            auto const& valKeys = app_.getValidatorKeys();
+            if (valKeys.keys)
+            {
+                for (auto const& entry : retriableTxs)
+                {
+                    auto const& stx = entry.second;
+                    if (!stx || stx->getTxnType() != ttEXPORT ||
+                        !stx->isFieldPresent(sfExportedTxn))
+                    {
+                        continue;
+                    }
+
+                    auto const exportTxHash = stx->getTransactionID();
+                    auto const existing = std::find_if(
+                        retriableTxs.begin(),
+                        retriableTxs.end(),
+                        [&](auto const& candidate) {
+                            auto const& tx = candidate.second;
+                            return tx &&
+                                tx->getTxnType() == ttEXPORT_SIGNATURES &&
+                                tx->isFieldPresent(sfTransactionHash) &&
+                                tx->getFieldH256(sfTransactionHash) ==
+                                exportTxHash;
+                        });
+
+                    if (existing != retriableTxs.end())
+                        continue;
+
+                    auto innerTx = ExportLedgerOps::innerExportedTx(*stx);
+                    if (!innerTx)
+                    {
+                        JLOG(j_.warn()) << "Export: standalone witness skipped"
+                                        << " exportTxHash=" << exportTxHash
+                                        << " reason=inner-tx-parse-failed";
+                        continue;
+                    }
+
+                    ExportResultBuilder::SignatureSnapshot signatures;
+                    signatures.emplace(
+                        valKeys.keys->publicKey,
+                        ExportResultBuilder::signExportedTxn(
+                            *innerTx,
+                            valKeys.keys->publicKey,
+                            valKeys.keys->secretKey));
+
+                    auto witness = ExportResultBuilder::buildSignatureWitness(
+                        exportTxHash, signatures, seq);
+
+                    // Standalone uses the same replay witness shape as
+                    // network mode, but the witness is locally synthesized
+                    // from the node's validator key instead of quorum sidecar
+                    // convergence.
+                    retriableTxs.insert(
+                        std::make_shared<STTx>(std::move(witness)));
+                }
+            }
+        }
+        //@@start export-witness-from-accepted-root
+        else if (validatorView->fromUNLReport)
+        {
+            auto const threshold = exportWitnessThreshold(*validatorView);
+            for (auto const& entry : retriableTxs)
+            {
+                auto const& stx = entry.second;
+                if (!stx || stx->getTxnType() != ttEXPORT ||
+                    !stx->isFieldPresent(sfExportedTxn))
+                    continue;
+
+                auto const exportTxHash = stx->getTransactionID();
+                auto sigs =
+                    agreedExportSignatures(*stx, exportTxHash, threshold);
+                if (!sigs)
+                    continue;
+
+                auto witness = ExportResultBuilder::buildSignatureWitness(
+                    exportTxHash, *sigs, seq);
+                auto const witnessHash = witness.getTransactionID();
+                auto const existing = std::find_if(
+                    retriableTxs.begin(),
+                    retriableTxs.end(),
+                    [&](auto const& candidate) {
+                        auto const& tx = candidate.second;
+                        return tx && tx->getTxnType() == ttEXPORT_SIGNATURES &&
+                            tx->isFieldPresent(sfTransactionHash) &&
+                            tx->getFieldH256(sfTransactionHash) == exportTxHash;
+                    });
+
+                if (existing != retriableTxs.end())
+                {
+                    auto const existingHash =
+                        existing->second->getTransactionID();
+                    if (existingHash == witnessHash)
+                        continue;
+
+                    JLOG(j_.error())
+                        << "Export: signature witness pseudo-tx mismatch"
+                        << " exportTxHash=" << exportTxHash
+                        << " witnessHash=" << witnessHash
+                        << " existingHash=" << existingHash
+                        << " action=replace-with-agreed";
+                    // The witness is build-time materialization of the
+                    // accepted sidecar, not a base consensus-set transaction.
+                    // Replacing a mismatch keeps the tx stream tied to the
+                    // accepted root instead of preserving stale local input.
+                    retriableTxs.erase(existing);
+                }
+
+                // Export signatures determine source quorum success and the
+                // exported-result witness reference, so they must be tx-stream
+                // input, not only accepted sidecar memory. The matching
+                // ttEXPORT consumes this pseudo through the BuildLedger
+                // pre-scan; the pseudo itself has no ledger effect.
+                retriableTxs.insert(std::make_shared<STTx>(std::move(witness)));
+            }
+        }
+        //@@end export-witness-from-accepted-root
+        else if (!consensusExportTxns_.empty())
+        {
+            JLOG(j_.warn())
+                << "Export: not injecting signature witnesses"
+                << " reason=no-ledger-anchored-validator-view"
+                << " seq=" << seq
+                << " candidateExportTxns=" << consensusExportTxns_.size();
+        }
+    }
+
     //@@start accept-time-cleanup-success
-    // Clear round-local RNG state while preserving proposal-carried Export
-    // shares for the collector's round-boundary lifecycle.
+    // Export's ledger-defining signature witness is now in the tx stream.
+    // After this point build/replay must use the pre-scanned pseudo, not
+    // ephemeral sidecar state retained from consensus establish.
     clearRngStatePreservingExport();
     //@@end accept-time-cleanup-success
 }
@@ -2065,6 +2509,9 @@ ConsensusExtensions::logPosition(
                     << " entropySetHash="
                     << (pos.entropySetHash ? to_string(*pos.entropySetHash)
                                            : std::string{"none"})
+                    << " exportSigSetHash="
+                    << (pos.exportSigSetHash ? to_string(*pos.exportSigSetHash)
+                                             : std::string{"none"})
                     << " exportSignaturesHash="
                     << (pos.exportSignaturesHash
                             ? to_string(*pos.exportSignaturesHash)
@@ -2432,6 +2879,7 @@ ConsensusExtensions::onTick(TickContext const& ctx)
     }
     else
     {
+        consensusTxSetMap_.reset();
         consensusExportTxns_.clear();
         consensusTxSetHash_.reset();
     }

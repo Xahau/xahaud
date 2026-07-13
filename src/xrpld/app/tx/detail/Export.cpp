@@ -320,6 +320,10 @@ Export::doApply()
                         << " witnessSigs=" << signatures.size()
                         << " collectorSigs=" << sigCount
                         << " threshold=" << threshold << " unlSize=" << unlSize
+                        << " exportSigConvergenceFailed="
+                        << (consensusExtensions.exportSigConvergenceFailed()
+                                ? "yes"
+                                : "no")
                         << " result=terRETRY_EXPORT";
         return terRETRY_EXPORT;
     }
