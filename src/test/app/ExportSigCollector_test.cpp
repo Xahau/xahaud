@@ -205,6 +205,88 @@ public:
     }
 
     void
+    testLegacyReplacementSemantics()
+    {
+        testcase("legacy replacement semantics");
+
+        auto const sigA = makeSignature(60);
+        auto const sigB = makeSignature(70);
+
+        {
+            ExportSigCollector collector;
+            auto const tx = makeHash("unverified-replacement");
+            collector.addUnverifiedSignature(tx, validator_, sigA, 10);
+            collector.addUnverifiedSignature(tx, validator_, sigB, 20);
+            BEAST_EXPECT(
+                collector.unverifiedSignatures(tx).at(validator_) == sigB);
+
+            // Replacement does not refresh firstSeenSeq.
+            collector.cleanupStale(266);
+            BEAST_EXPECT(collector.hasUnverifiedSignatures());
+            collector.cleanupStale(267);
+            BEAST_EXPECT(!collector.hasUnverifiedSignatures());
+        }
+
+        {
+            ExportSigCollector collector;
+            auto const tx = makeHash("verified-replacement");
+            collector.addVerifiedSignature(tx, validator_, sigA, 10);
+            collector.addVerifiedSignature(tx, validator_, sigB, 20);
+            BEAST_EXPECT(
+                collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
+
+            // Unverified input never overwrites an already verified value.
+            collector.addUnverifiedSignature(tx, validator_, sigA, 30);
+            BEAST_EXPECT(!collector.hasUnverifiedSignatures());
+            BEAST_EXPECT(
+                collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
+
+            collector.cleanupStale(267);
+            BEAST_EXPECT(collector.signatureCount(tx) == 0);
+        }
+
+        {
+            ExportSigCollector collector;
+            auto const tx = makeHash("unverified-to-verified");
+            collector.addUnverifiedSignature(tx, validator_, sigA, 10);
+            collector.addVerifiedSignature(tx, validator_, sigB, 20);
+            BEAST_EXPECT(!collector.hasUnverifiedSignatures());
+            BEAST_EXPECT(
+                collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
+        }
+
+        {
+            ExportSigCollector collector;
+            auto const tx = makeHash("standalone-preserves-buffer");
+            collector.addUnverifiedSignature(tx, validator_, sigA, 10);
+            collector.addStandaloneSignature(tx, validator_, 20);
+            BEAST_EXPECT(!collector.hasUnverifiedSignatures());
+            BEAST_EXPECT(
+                collector.snapshotWithSigs().at(tx).at(validator_) == sigA);
+
+            collector.addVerifiedSignature(tx, validator_, sigB, 30);
+            BEAST_EXPECT(
+                collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
+            collector.addStandaloneSignature(tx, validator_, 40);
+            BEAST_EXPECT(
+                collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
+        }
+
+        {
+            ExportSigCollector collector;
+            auto const tx = makeHash("ignored-unverified-initializes-age");
+            collector.addVerifiedSignature(tx, validator_, sigA);
+            collector.addUnverifiedSignature(tx, validator_, sigB, 10);
+            BEAST_EXPECT(
+                collector.snapshotWithSigs().at(tx).at(validator_) == sigA);
+            collector.cleanupStale(266);
+            BEAST_EXPECT(collector.signatureCount(tx) == 1);
+            collector.cleanupStale(267);
+            BEAST_EXPECT(collector.signatureCount(tx) == 0);
+        }
+    }
+
+    void
     testStandaloneAndRoundState()
     {
         testcase("standalone signatures and round state");
@@ -343,6 +425,7 @@ public:
         testUpgradeSetsFirstSeenSeq();
         testRemoveInvalidUnverifiedSignature();
         testSnapshotsAndFilteredCounts();
+        testLegacyReplacementSemantics();
         testStandaloneAndRoundState();
         testClearAll();
         testUnverifiedCacheCap();
