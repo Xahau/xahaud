@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <utility>
 
 namespace ripple {
 
@@ -47,6 +48,36 @@ class ValidatedValidatorBitset
     }
 
 public:
+    ValidatedValidatorBitset(ValidatedValidatorBitset const&) = default;
+    ValidatedValidatorBitset&
+    operator=(ValidatedValidatorBitset const&) = default;
+
+    ValidatedValidatorBitset(ValidatedValidatorBitset&& other) noexcept
+        : bitset_(std::move(other.bitset_))
+        , memberCount_(other.memberCount_)
+        , selected_(other.selected_)
+    {
+        other.bitset_.clear();
+        other.memberCount_ = 0;
+        other.selected_ = 0;
+    }
+
+    ValidatedValidatorBitset&
+    operator=(ValidatedValidatorBitset&& other) noexcept
+    {
+        if (this != &other)
+        {
+            bitset_ = std::move(other.bitset_);
+            memberCount_ = other.memberCount_;
+            selected_ = other.selected_;
+
+            other.bitset_.clear();
+            other.memberCount_ = 0;
+            other.selected_ = 0;
+        }
+        return *this;
+    }
+
     /** Construct an owning, validated validator bitset. */
     static std::optional<ValidatedValidatorBitset>
     make(Slice bitset, std::size_t memberCount);

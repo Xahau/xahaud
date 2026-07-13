@@ -19,6 +19,8 @@
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/ValidatorBitset.h>
 
+#include <utility>
+
 namespace ripple {
 namespace test {
 
@@ -118,12 +120,45 @@ public:
     }
 
     void
+    testValueSemantics()
+    {
+        testcase("value semantics");
+
+        Blob const bits{0x01, 0x02};
+        auto source = validateValidatorBitset(makeSlice(bits), 10);
+        BEAST_EXPECT(source);
+        if (!source)
+            return;
+
+        auto copy = *source;
+        BEAST_EXPECT(copy.selected() == 2);
+        BEAST_EXPECT(copy.contains(0));
+        BEAST_EXPECT(copy.contains(9));
+
+        auto moved = std::move(*source);
+        BEAST_EXPECT(moved.selected() == 2);
+        BEAST_EXPECT(moved.contains(0));
+        BEAST_EXPECT(moved.contains(9));
+        BEAST_EXPECT(source->selected() == 0);
+        BEAST_EXPECT(!source->contains(0));
+
+        auto assigned = copy;
+        assigned = std::move(moved);
+        BEAST_EXPECT(assigned.selected() == 2);
+        BEAST_EXPECT(assigned.contains(0));
+        BEAST_EXPECT(assigned.contains(9));
+        BEAST_EXPECT(moved.selected() == 0);
+        BEAST_EXPECT(!moved.contains(0));
+    }
+
+    void
     run() override
     {
         testByteCount();
         testConstructionAndPopulation();
         testCanonicalShape();
         testValidatedOwnership();
+        testValueSemantics();
     }
 };
 
