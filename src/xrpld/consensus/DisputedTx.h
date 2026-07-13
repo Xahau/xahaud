@@ -289,6 +289,7 @@ DisputedTx<Tx_t, NodeID_t>::updateVote(
     bool proposing,
     ConsensusParms const& p)
 {
+    //@@start disputed-tx-avalanche-vote-update
     if (ourVote_ && (nays_ == 0))
         return false;
 
@@ -343,6 +344,7 @@ DisputedTx<Tx_t, NodeID_t>::updateVote(
                      << tx_.id();
     JLOG(j_.debug()) << Json::Compact{getJson()};
     return true;
+    //@@end disputed-tx-avalanche-vote-update
 }
 
 template <class Tx_t, class NodeID_t>

@@ -1292,6 +1292,7 @@ public:
     void
     testExportOnlyMissingProposalSignaturesRetries()
     {
+        //@@start export-missing-signatures-fallback-test
         using namespace csf;
         using namespace std::chrono;
 
@@ -1336,6 +1337,7 @@ public:
             BEAST_EXPECT(peers[i]->ce().lastExportSucceeded_);
             BEAST_EXPECT(!peers[i]->ce().lastExportRetried_);
         }
+        //@@end export-missing-signatures-fallback-test
     }
 
     void

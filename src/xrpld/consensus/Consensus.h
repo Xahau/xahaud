@@ -930,6 +930,7 @@ Consensus<Adaptor>::peerProposalInternal(
 
     {
         auto const txSetID = positionTxSetID(newPeerProp.position());
+        //@@start consensus-peer-position-txset-acquisition
         auto const ait = acquired_.find(txSetID);
         if (ait == acquired_.end())
         {
@@ -945,6 +946,7 @@ Consensus<Adaptor>::peerProposalInternal(
         {
             updateDisputes(newPeerProp.nodeID(), ait->second);
         }
+        //@@end consensus-peer-position-txset-acquisition
     }
 
     return true;
@@ -1169,6 +1171,7 @@ Consensus<Adaptor>::handleWrongLedger(
     typename Ledger_t::ID const& lgrId,
     std::unique_ptr<std::stringstream> const& clog)
 {
+    //@@start consensus-wrong-ledger-recovery
     CLOG(clog) << "handleWrongLedger. ";
     XRPL_ASSERT(
         lgrId != prevLedgerID_ || previousLedger_.id() != lgrId,
@@ -1217,6 +1220,7 @@ Consensus<Adaptor>::handleWrongLedger(
         CLOG(clog) << "Still on wrong ledger. ";
         mode_.set(ConsensusMode::wrongLedger, adaptor_);
     }
+    //@@end consensus-wrong-ledger-recovery
 }
 
 template <class Adaptor>
@@ -1536,6 +1540,7 @@ Consensus<Adaptor>::phaseEstablish(
         return;
     }
 
+    //@@start consensus-ordinary-check-before-extension
     updateOurPositions(clog);
 
     bool const paused = shouldPause(clog);
@@ -1566,9 +1571,14 @@ Consensus<Adaptor>::phaseEstablish(
         CLOG(clog) << "We have TX consensus but not CT consensus. ";
         return;
     }
+    //@@end consensus-ordinary-check-before-extension
 
+    //@@start consensus-extension-after-tx-consensus
     // --- Extension tick ---
     // Delegates to ConsensusExtensions::onTick() via the adaptor.
+    // This boundary is reached only after ordinary transaction-set and
+    // close-time consensus passed above.
+    //@@end consensus-extension-after-tx-consensus
     if constexpr (requires(Adaptor& a) { a.ce(); })
     {
         auto const buildSeq = previousLedger_.seq() + typename Ledger_t::Seq{1};
@@ -1799,6 +1809,7 @@ Consensus<Adaptor>::updateOurPositions(
     // This will stay unseated unless there are any changes
     std::optional<TxSet_t> ourNewSet;
 
+    //@@start consensus-dispute-vote-mutates-set
     // Update votes on disputed transactions
     {
         std::optional<typename TxSet_t::MutableTxSet> mutableSet;
@@ -1830,6 +1841,7 @@ Consensus<Adaptor>::updateOurPositions(
         if (mutableSet)
             ourNewSet.emplace(std::move(*mutableSet));
     }
+    //@@end consensus-dispute-vote-mutates-set
 
     NetClock::time_point consensusCloseTime = {};
     haveCloseTimeConsensus_ = false;
@@ -1909,6 +1921,7 @@ Consensus<Adaptor>::updateOurPositions(
         ourNewSet.emplace(result_->txns);
     }
 
+    //@@start consensus-reproposal-with-updated-txset
     if (ourNewSet)
     {
         auto newID = ourNewSet->id();
@@ -1957,6 +1970,7 @@ Consensus<Adaptor>::updateOurPositions(
             (mode_.get() == ConsensusMode::proposing))
             adaptor_.propose(result_->position);
     }
+    //@@end consensus-reproposal-with-updated-txset
 }
 
 template <class Adaptor>
@@ -2157,6 +2171,7 @@ Consensus<Adaptor>::createDisputes(
     TxSet_t const& o,
     std::unique_ptr<std::stringstream> const& clog)
 {
+    //@@start consensus-create-transaction-disputes
     // Cannot create disputes without our stance
     XRPL_ASSERT(result_, "ripple::Consensus::createDisputes : result is set");
 
@@ -2221,6 +2236,7 @@ Consensus<Adaptor>::createDisputes(
     }
     JLOG(j_.debug()) << dc << " differences found";
     CLOG(clog) << "disputes: " << dc << ". ";
+    //@@end consensus-create-transaction-disputes
 }
 
 template <class Adaptor>

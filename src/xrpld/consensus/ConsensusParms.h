@@ -171,6 +171,7 @@ struct ConsensusParms
     //! at that state, and the next state. "stuck" loops back on itself because
     //! once we're stuck, we're stuck.
     //! This structure allows for "looping" of states if needed.
+    //@@start consensus-avalanche-cutoffs
     std::map<AvalancheState, AvalancheCutoff> const avalancheCutoffs{
         // {state, {time, percent, nextState}},
         // Initial state: 50% of nodes must vote yes
@@ -183,6 +184,7 @@ struct ConsensusParms
         // we're stuck after 2x time, requires 95% yes votes
         {stuck, {200, 95, stuck}},
     };
+    //@@end consensus-avalanche-cutoffs
 
     //! Percentage of nodes required to reach agreement on ledger close time
     std::size_t const avCT_CONSENSUS_PCT = 75;
