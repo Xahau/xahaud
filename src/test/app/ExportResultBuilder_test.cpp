@@ -29,6 +29,7 @@
 #include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/digest.h>
 
+#include <array>
 #include <cstring>
 namespace ripple {
 namespace test {
@@ -451,6 +452,96 @@ public:
     }
 
     void
+    testSerializedSizeInventory()
+    {
+        //@@start export-serialized-size-inventory
+        testcase("serialized size inventory");
+
+        auto const src = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto innerTx = makeExportedPayment(
+            calcAccountID(src.first), calcAccountID(dst.first));
+
+        innerTx.setFieldArray(sfMemos, STArray(sfMemos, 1));
+        STObject memo{sfMemo};
+        memo.setFieldVL(
+            sfMemoType,
+            Blob{
+                'x',
+                'a',
+                'h',
+                'a',
+                'u',
+                '-',
+                'e',
+                'x',
+                'p',
+                'o',
+                'r',
+                't',
+                '-',
+                'v',
+                '1'});
+        memo.setFieldVL(sfMemoData, Blob(45, 0xA5));
+        innerTx.peekFieldArray(sfMemos).emplace_back(std::move(memo));
+
+        std::array<std::uint8_t, 72> signatureBytes;
+        signatureBytes.fill(0x5A);
+        ExportResultBuilder::SignatureSnapshot signatures;
+        while (signatures.size() < STTx::maxMultiSigners())
+        {
+            auto const signer = randomKeyPair(KeyType::secp256k1);
+            signatures.emplace(
+                signer.first,
+                Buffer{signatureBytes.data(), signatureBytes.size()});
+        }
+
+        auto const multiSigned =
+            ExportResultBuilder::buildMultiSignedExportedTxn(
+                innerTx, signatures);
+        auto const witness = ExportResultBuilder::buildSignatureWitness(
+            makeHash("size-inventory-export"), signatures, 654);
+
+        STObject selfContained{sfGeneric};
+        selfContained.setFieldU16(sfTransactionType, ttEXPORT_SIGNATURES);
+        selfContained.setFieldU32(sfLedgerSequence, 654);
+        selfContained.setFieldH256(
+            sfTransactionHash, makeHash("size-inventory-export"));
+        auto const innerSerializer = innerTx.getSerializer();
+        SerialIter innerIter{innerSerializer.slice()};
+        selfContained.set(std::make_unique<STObject>(innerIter, sfExportedTxn));
+        selfContained.setFieldArray(
+            sfSigners, witness.getFieldArray(sfSigners));
+
+        auto const innerBytes = innerTx.getSerializer().size();
+        auto const multiSignedBytes = multiSigned.getSerializer().size();
+        auto const currentWitnessBytes = witness.getSerializer().size();
+        auto const selfContainedWitnessBytes =
+            selfContained.getSerializer().size();
+        constexpr std::size_t legacyShareBytes = 32 + 33 + 72;
+
+        log << "Export serialized-size inventory:\n"
+            << "  unsigned target + issuance Memo: " << innerBytes << "\n"
+            << "  32-signer target: " << multiSignedBytes << "\n"
+            << "  current 32-signer witness: " << currentWitnessBytes << "\n"
+            << "  self-contained witness baseline: "
+            << selfContainedWitnessBytes << "\n"
+            << "  one legacy share blob: " << legacyShareBytes << "\n"
+            << "  32 legacy share blobs: "
+            << legacyShareBytes * STTx::maxMultiSigners() << std::endl;
+
+        BEAST_EXPECT(signatures.size() == STTx::maxMultiSigners());
+        BEAST_EXPECT(
+            witness.getFieldArray(sfSigners).size() == STTx::maxMultiSigners());
+        BEAST_EXPECT(innerBytes == 163);
+        BEAST_EXPECT(multiSignedBytes == 4453);
+        BEAST_EXPECT(currentWitnessBytes == 4369);
+        BEAST_EXPECT(selfContainedWitnessBytes == 4497);
+        BEAST_EXPECT(legacyShareBytes * STTx::maxMultiSigners() == 4384);
+        //@@end export-serialized-size-inventory
+    }
+
+    void
     run() override
     {
         testAssemblesSignedMetadata();
@@ -461,6 +552,7 @@ public:
         testAssemblesWitnessReferenceMetadata();
         testSignatureWitnessRoundTrip();
         testRejectsNonCanonicalWitnessSigner();
+        testSerializedSizeInventory();
     }
 };
 
