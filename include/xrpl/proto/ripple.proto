@@ -36,6 +36,7 @@ enum MessageType
 //------------------------------------------------------------------------------
 
 /* Provides the current ephemeral key for a validator. */
+//@@start opaque-self-verifying-overlay-artifact-precedent
 message TMManifest
 {
     // A Manifest object in the Ripple serialization format.
@@ -49,6 +50,7 @@ message TMManifests
     // The manifests sent when a peer first connects to another peer are `history`.
     optional bool history = 2 [deprecated=true];
 }
+//@@end opaque-self-verifying-overlay-artifact-precedent
 
 //------------------------------------------------------------------------------
 
@@ -171,6 +173,7 @@ message TMProposeSet
     // Number of hops traveled
     optional uint32 hops                = 12    [deprecated=true];
 
+    //@@start proposal-export-share-container-binding
     // Export signatures for pending exports seen in the proposal set. The
     // proposal's ExtendedPosition includes a digest of this repeated field, so
     // these side-channel blobs are covered by the proposal signature.
@@ -178,6 +181,7 @@ message TMProposeSet
     // + multisign signature (variable length). Validators attach these
     // so export quorum can be reached within the same consensus round.
     repeated bytes exportSignatures     = 13;
+    //@@end proposal-export-share-container-binding
 }
 
 enum TxSetStatus
