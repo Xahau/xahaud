@@ -177,9 +177,9 @@ Export::doApply()
     auto const unlSize = validatorView->size();
     auto const originalUNLSize = validatorView->originalViewSize;
 
-    // Network mode: active-view 80% quorum. Standalone mode uses a local
-    // one-signer witness synthesized in onPreBuild. Both paths consume the same
-    // ttEXPORT_SIGNATURES replay witness before creating ledger effects.
+    // Network mode uses the active-view threshold. Standalone tests may supply
+    // a one-signer witness. Both paths consume the same ttEXPORT_SIGNATURES
+    // transaction-stream witness before creating ledger effects.
     // Deserialize the inner tx early — needed both for the upgrade
     // pass (verify unverified sigs) and for blob assembly.
     auto innerTx = ExportLedgerOps::innerExportedTx(ctx_.tx);
@@ -195,8 +195,7 @@ Export::doApply()
             return;
 
         // Closed-ledger apply must not create new current-round quorum
-        // material. These upgrades are retained for a retrying export, where
-        // the sidecar alignment gate can publish and converge them first.
+        // material. Retain upgrades for a later witness candidate.
         // Upgrade only active-view signatures; inactive trusted signatures may
         // stay cached, but they must not become quorum material.
         ExportSignatureUpgrader::upgradeUnverifiedSignatures(
@@ -238,16 +237,10 @@ Export::doApply()
     }
     else
     {
-        // ttEXPORT_SIGNATURES is the export signature interface. Consensus
-        // sidecars, standalone helpers, or replay all hand signatures to Export
-        // through the same transaction-stream witness; apply re-checks the
-        // witness against this parent ledger before creating ledger effects.
-        //
-        // In live consensus builds, onPreBuild has scrubbed any pre-existing
-        // witness and re-materialized this one from the accepted sidecar root.
-        // Historical replay consumes the same persisted witness after manifests
-        // may have rotated. In both modes, membership comes from the validated
-        // tx stream; apply still verifies every signature and requires quorum.
+        // ttEXPORT_SIGNATURES is the export signature interface. Direct apply,
+        // future live candidates, and replay all provide signatures through the
+        // same transaction-stream witness. Apply verifies every signature and
+        // requires quorum before creating ledger effects.
         if (auto witness = ctx_.exportSignatureWitness(txId))
         {
             exportSignatureHash = witness->witnessHash;
