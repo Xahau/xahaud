@@ -96,9 +96,6 @@ struct ConsensusTestConfig
     std::optional<int> rngPollMs;
     // Disable export signature attachment (testing sub-quorum scenarios).
     std::optional<bool> noExportSig;
-    // Withhold exportSigSetHash publication while still attaching export
-    // signatures (testing no-veto missing-observation scenarios).
-    std::optional<bool> noExportSigHash;
     // Standalone-only entropy selection overrides for hook API tests.
     std::optional<int> standaloneEntropyTier;
     std::optional<int> standaloneEntropyCount;
@@ -110,8 +107,7 @@ struct ConsensusTestConfig
         return (rngClaimDropPctX100 && *rngClaimDropPctX100 > 0) ||
             (rngRevealDropPctX100 && *rngRevealDropPctX100 > 0) ||
             (bootstrapFastStart && *bootstrapFastStart) || rngPollMs ||
-            (noExportSig && *noExportSig) ||
-            (noExportSigHash && *noExportSigHash) || standaloneEntropyTier ||
+            (noExportSig && *noExportSig) || standaloneEntropyTier ||
             standaloneEntropyCount || standaloneEntropyDenominator;
     }
 };

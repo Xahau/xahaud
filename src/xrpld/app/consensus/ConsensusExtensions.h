@@ -68,7 +68,6 @@ public:
 
     using ActiveValidatorView = ripple::ActiveValidatorView;
     using ActiveValidatorViewPtr = std::shared_ptr<ActiveValidatorView const>;
-    using ExportSignatureSnapshot = std::map<PublicKey, Buffer>;
 
 private:
     enum class RngContributionKind : uint8_t { commit, reveal };
@@ -92,20 +91,14 @@ private:
     // Real SHAMaps for the current round (unbacked, ephemeral)
     std::shared_ptr<SHAMap> commitSetMap_;
     std::shared_ptr<SHAMap> entropySetMap_;
-    std::shared_ptr<SHAMap> exportSigSetMap_;
     // Candidate entropy maps are local snapshots until the gate accepts the
     // exact root. This hash is set only after the alignment/observation checks
     // pass.
     std::optional<uint256> acceptedEntropySetHash_;
-    // Export signature maps are also built from local collector state before
-    // accept. Closed-ledger export apply may only consume the map root the
-    // sidecar gate accepted for this round.
-    std::optional<uint256> acceptedExportSigSetHash_;
     std::optional<LedgerIndex> rngRoundSeq_;
     // Consensus parent ledger hash, pinned at round start. Input to the
     // Tier 1 consensus_fallback entropy digest.
     uint256 roundPrevLedgerHash_;
-    std::shared_ptr<SHAMap const> consensusTxSetMap_;
     hash_map<uint256, std::shared_ptr<STTx const>> consensusExportTxns_;
     std::optional<uint256> consensusTxSetHash_;
 
@@ -130,9 +123,6 @@ public:
     std::chrono::steady_clock::time_point commitHashConflictStart_{};
     bool entropySetPublished_{false};
     std::chrono::steady_clock::time_point entropyPublishStart_{};
-    bool exportSigGateStarted_{false};
-    std::chrono::steady_clock::time_point exportSigGateStart_{};
-    bool exportSigConvergenceFailed_{false};
 
 private:
     void
@@ -187,12 +177,6 @@ public:
 
     std::size_t
     quorumThreshold() const;
-
-    std::size_t
-    exportRootAlignmentThreshold() const;
-
-    static std::size_t
-    exportRootAlignmentThreshold(ActiveValidatorView const& validatorView);
 
     std::size_t
     exportWitnessThreshold() const;
@@ -309,9 +293,6 @@ public:
     exportEnabled() const;
 
     bool
-    testSuppressExportSigSetHash() const;
-
-    bool
     testBootstrapFastStartEnabled() const;
 
     uint256
@@ -319,33 +300,6 @@ public:
 
     uint256
     buildEntropySet(LedgerIndex seq);
-
-    uint256
-    buildExportSigSet(LedgerIndex seq);
-
-    bool
-    hasPendingExportSigs() const;
-
-    bool
-    hasConsensusExportTxns() const;
-
-    void
-    setExportSigConvergenceFailed();
-
-    bool
-    exportSigConvergenceFailed() const;
-
-    void
-    acceptExportSigSet(uint256 const& hash);
-
-    void
-    clearAcceptedExportSigSet();
-
-    std::optional<ExportSignatureSnapshot>
-    agreedExportSignatures(
-        STTx const& exportTx,
-        uint256 const& txHash,
-        std::size_t threshold) const;
 
     ActiveValidatorViewPtr
     activeValidatorView() const;
@@ -561,9 +515,7 @@ public:
     bool
     extensionsBusy() const
     {
-        return estState_ != EstablishState::ConvergingTx ||
-            (exportEnabled() &&
-             (exportSigGateStarted_ || hasPendingExportSigs()));
+        return estState_ != EstablishState::ConvergingTx;
     }
 
     EstablishState
@@ -580,9 +532,6 @@ public:
         commitHashConflictStart_ = {};
         entropySetPublished_ = false;
         entropyPublishStart_ = {};
-        exportSigGateStarted_ = false;
-        exportSigGateStart_ = {};
-        exportSigConvergenceFailed_ = false;
     }
 };
 

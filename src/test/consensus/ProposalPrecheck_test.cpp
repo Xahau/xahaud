@@ -117,7 +117,7 @@ public:
             protocol::TMProposeSet exportSet;
             setPreviousLedger(exportSet);
             ExtendedPosition exportPos{makeHash("export-lazy-position")};
-            exportPos.exportSigSetHash = makeHash("lazy-export-sidecar");
+            exportPos.exportSignaturesHash = makeHash("lazy-export-shares");
             setPosition(exportSet, exportPos);
             BEAST_EXPECT(
                 detail::checkProposalExtensions(
@@ -184,7 +184,7 @@ public:
             protocol::TMProposeSet exportSet;
             setPreviousLedger(exportSet);
             ExtendedPosition exportPos{makeHash("export-position")};
-            exportPos.exportSigSetHash = makeHash("export-sidecar");
+            exportPos.exportSignaturesHash = makeHash("export-shares");
             setPosition(exportSet, exportPos);
             BEAST_EXPECT(
                 detail::checkProposalExtensions(exportSet, true, false)

@@ -57,7 +57,6 @@ struct ExtendedPosition
     // === Set Hashes (sub-state quorum, not core tx-set identity) ===
     std::optional<uint256> commitSetHash;
     std::optional<uint256> entropySetHash;
-    std::optional<uint256> exportSigSetHash;
     std::optional<uint256> exportSignaturesHash;
     // Signed diagnostic only: not a quorum input and not part of tx-set
     // identity.
@@ -127,9 +126,8 @@ struct ExtendedPosition
 
         // Wire compatibility: if no extensions, emit exactly 32 bytes
         // so legacy nodes that expect a plain uint256 work unchanged.
-        if (!commitSetHash && !entropySetHash && !exportSigSetHash &&
-            !exportSignaturesHash && !observedParticipantsHash &&
-            !myCommitment && !myReveal)
+        if (!commitSetHash && !entropySetHash && !exportSignaturesHash &&
+            !observedParticipantsHash && !myCommitment && !myReveal)
             return;
 
         std::uint8_t flags = 0;
@@ -141,8 +139,6 @@ struct ExtendedPosition
             flags |= 0x04;
         if (myReveal)
             flags |= 0x08;
-        if (exportSigSetHash)
-            flags |= 0x10;
         if (exportSignaturesHash)
             flags |= 0x20;
         if (observedParticipantsHash)
@@ -157,8 +153,6 @@ struct ExtendedPosition
             s.addBitString(*myCommitment);
         if (myReveal)
             s.addBitString(*myReveal);
-        if (exportSigSetHash)
-            s.addBitString(*exportSigSetHash);
         if (exportSignaturesHash)
             s.addBitString(*exportSignaturesHash);
         if (observedParticipantsHash)
@@ -175,8 +169,6 @@ struct ExtendedPosition
             ret["commit_set"] = to_string(*commitSetHash);
         if (entropySetHash)
             ret["entropy_set"] = to_string(*entropySetHash);
-        if (exportSigSetHash)
-            ret["export_sig_set"] = to_string(*exportSigSetHash);
         if (exportSignaturesHash)
             ret["export_signatures"] = to_string(*exportSignaturesHash);
         if (observedParticipantsHash)
@@ -213,8 +205,9 @@ struct ExtendedPosition
         if (flags == 0)
             return std::nullopt;
 
-        // Reject unknown flag bits (reduces wire malleability)
-        if (flags & 0x80)
+        // Reject unknown or retired flag bits (reduces wire malleability).
+        // 0x10 was the removed Export sidecar-root advertisement.
+        if (flags & 0x90)
             return std::nullopt;
 
         // Validate exact byte count for the flagged fields.
@@ -235,8 +228,6 @@ struct ExtendedPosition
             pos.myCommitment = sit.get256();
         if (flags & 0x08)
             pos.myReveal = sit.get256();
-        if (flags & 0x10)
-            pos.exportSigSetHash = sit.get256();
         if (flags & 0x20)
             pos.exportSignaturesHash = sit.get256();
         if (flags & 0x40)

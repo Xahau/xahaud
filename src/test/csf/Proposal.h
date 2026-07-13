@@ -43,10 +43,8 @@ struct RngPosition
     TxSet::ID txSetHash{};
     std::optional<uint256> commitSetHash;
     std::optional<uint256> entropySetHash;
-    std::optional<uint256> exportSigSetHash;
     std::optional<uint256> myCommitment;
     std::optional<uint256> myReveal;
-    std::optional<uint256> myExportSignature;
 
     RngPosition() = default;
     explicit RngPosition(TxSet::ID txSet) : txSetHash(txSet)
@@ -86,10 +84,8 @@ hash_append(Hasher& h, RngPosition const& pos)
     hash_append(h, pos.txSetHash);
     appendOpt(pos.commitSetHash);
     appendOpt(pos.entropySetHash);
-    appendOpt(pos.exportSigSetHash);
     appendOpt(pos.myCommitment);
     appendOpt(pos.myReveal);
-    appendOpt(pos.myExportSignature);
 }
 
 /** Proposal is a position taken in the consensus process.
