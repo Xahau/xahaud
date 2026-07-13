@@ -47,6 +47,7 @@
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/TxFormats.h>
+#include <xrpl/protocol/ValidatorBitset.h>
 #include <xrpl/protocol/digest.h>
 #include <algorithm>
 #include <cstring>
@@ -99,17 +100,9 @@ buildEntropyContributorMask(
     std::vector<PublicKey> const& orderedMasterKeys,
     hash_set<NodeID> const& contributors)
 {
-    Blob mask((orderedMasterKeys.size() + 7) / 8, 0);
-
-    for (std::size_t i = 0; i < orderedMasterKeys.size(); ++i)
-    {
-        if (contributors.count(calcNodeID(orderedMasterKeys[i])) == 0)
-            continue;
-
-        mask[i / 8] |= static_cast<std::uint8_t>(1u << (i % 8));
-    }
-
-    return mask;
+    return makeValidatorBitset(orderedMasterKeys.size(), [&](std::size_t i) {
+        return contributors.count(calcNodeID(orderedMasterKeys[i])) != 0;
+    });
 }
 
 uint256
