@@ -241,6 +241,8 @@ public:
             BEAST_EXPECT(
                 collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
 
+            collector.cleanupStale(266);
+            BEAST_EXPECT(collector.signatureCount(tx) == 1);
             collector.cleanupStale(267);
             BEAST_EXPECT(collector.signatureCount(tx) == 0);
         }
@@ -253,23 +255,59 @@ public:
             BEAST_EXPECT(!collector.hasUnverifiedSignatures());
             BEAST_EXPECT(
                 collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
+            collector.cleanupStale(266);
+            BEAST_EXPECT(collector.signatureCount(tx) == 1);
+            collector.cleanupStale(267);
+            BEAST_EXPECT(collector.signatureCount(tx) == 0);
         }
 
         {
             ExportSigCollector collector;
-            auto const tx = makeHash("standalone-preserves-buffer");
+            auto const tx = makeHash("unverified-to-standalone");
             collector.addUnverifiedSignature(tx, validator_, sigA, 10);
             collector.addStandaloneSignature(tx, validator_, 20);
             BEAST_EXPECT(!collector.hasUnverifiedSignatures());
             BEAST_EXPECT(
                 collector.snapshotWithSigs().at(tx).at(validator_) == sigA);
+            collector.cleanupStale(266);
+            BEAST_EXPECT(collector.signatureCount(tx) == 1);
+            collector.cleanupStale(267);
+            BEAST_EXPECT(collector.signatureCount(tx) == 0);
+        }
+
+        {
+            ExportSigCollector collector;
+            auto const tx = makeHash("standalone-preserves-buffer");
+            collector.addVerifiedSignature(tx, validator_, sigB, 10);
+            collector.addStandaloneSignature(tx, validator_, 20);
+            BEAST_EXPECT(
+                collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
+        }
+
+        {
+            ExportSigCollector collector;
+            auto const tx = makeHash("standalone-empty-transitions");
+            collector.addStandaloneSignature(tx, validator_, 10);
+            collector.addUnverifiedSignature(tx, validator_, sigA, 20);
+            BEAST_EXPECT(!collector.hasUnverifiedSignatures());
+            BEAST_EXPECT(
+                collector.snapshotWithSigs().at(tx).at(validator_).empty());
 
             collector.addVerifiedSignature(tx, validator_, sigB, 30);
             BEAST_EXPECT(
                 collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
-            collector.addStandaloneSignature(tx, validator_, 40);
-            BEAST_EXPECT(
-                collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
+        }
+
+        {
+            ExportSigCollector collector;
+            auto const tx = makeHash("upgrade-preserves-age");
+            collector.addUnverifiedSignature(tx, validator_, sigA, 10);
+            collector.upgradeSignature(tx, validator_, sigA, 20);
+            BEAST_EXPECT(collector.signatureCount(tx) == 1);
+            collector.cleanupStale(266);
+            BEAST_EXPECT(collector.signatureCount(tx) == 1);
+            collector.cleanupStale(267);
+            BEAST_EXPECT(collector.signatureCount(tx) == 0);
         }
 
         {
