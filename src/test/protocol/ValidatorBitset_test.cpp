@@ -88,11 +88,42 @@ public:
     }
 
     void
+    testValidatedOwnership()
+    {
+        testcase("validated ownership");
+
+        auto const temporary = validateValidatorBitset(
+            makeSlice(makeValidatorBitset(
+                10, [](std::size_t i) { return i == 1 || i == 9; })),
+            10);
+        BEAST_EXPECT(temporary);
+        if (temporary)
+        {
+            BEAST_EXPECT(temporary->selected() == 2);
+            BEAST_EXPECT(temporary->contains(1));
+            BEAST_EXPECT(temporary->contains(9));
+        }
+
+        Blob mutableBacking{0x01, 0x00};
+        auto const copied =
+            validateValidatorBitset(makeSlice(mutableBacking), 10);
+        BEAST_EXPECT(copied);
+        mutableBacking = Blob{0x00, 0x02};
+        if (copied)
+        {
+            BEAST_EXPECT(copied->selected() == 1);
+            BEAST_EXPECT(copied->contains(0));
+            BEAST_EXPECT(!copied->contains(9));
+        }
+    }
+
+    void
     run() override
     {
         testByteCount();
         testConstructionAndPopulation();
         testCanonicalShape();
+        testValidatedOwnership();
     }
 };
 

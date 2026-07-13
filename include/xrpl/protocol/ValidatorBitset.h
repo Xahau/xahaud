@@ -32,7 +32,7 @@ namespace ripple {
 
 class ValidatedValidatorBitset
 {
-    Slice bitset_;
+    Blob bitset_;
     std::size_t memberCount_ = 0;
     std::size_t selected_ = 0;
 
@@ -40,15 +40,14 @@ class ValidatedValidatorBitset
         Slice bitset,
         std::size_t memberCount,
         std::size_t selected)
-        : bitset_(bitset), memberCount_(memberCount), selected_(selected)
+        : bitset_(bitset.begin(), bitset.end())
+        , memberCount_(memberCount)
+        , selected_(selected)
     {
     }
 
 public:
-    /** Construct a validated, non-owning view over a validator bitset.
-
-        The caller must keep the bitset storage alive while using the view.
-    */
+    /** Construct an owning, validated validator bitset. */
     static std::optional<ValidatedValidatorBitset>
     make(Slice bitset, std::size_t memberCount);
 
