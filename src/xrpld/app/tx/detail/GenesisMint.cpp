@@ -199,6 +199,7 @@ GenesisMint::doApply()
 
             bool const created = !sle;
 
+            //@@start genesis-mint-account-without-account-index
             if (created)
             {
                 // Create the account.
@@ -357,6 +358,7 @@ GenesisMint::doApply()
 
             sle->setFieldAmount(sfBalance, amt);
         }
+        //@@end genesis-mint-account-without-account-index
         else if (amt > beast::zero)
         {
             // Credit the account

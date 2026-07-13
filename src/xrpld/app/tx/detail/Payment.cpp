@@ -253,6 +253,7 @@ Payment::preclaim(PreclaimContext const& ctx)
     auto const k = keylet::account(dstAccountID);
     auto const sleDst = ctx.view.read(k);
 
+    //@@start payment-account-index-allocation
     if (!sleDst)
     {
         // Destination account does not exist.
@@ -379,6 +380,7 @@ Payment::doApply()
 
         view().insert(sleDst);
     }
+    //@@end payment-account-index-allocation
     else
     {
         // Tell the engine that we are intending to change the destination

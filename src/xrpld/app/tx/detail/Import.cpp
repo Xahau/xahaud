@@ -1513,6 +1513,7 @@ Import::doApply()
 
         sle->setFieldU32(sfSequence, seqno);
         sle->setFieldU32(sfOwnerCount, 0);
+        //@@start import-account-index-allocation
         if (sleFees && view().rules().enabled(featureXahauGenesis))
         {
             uint64_t accIdx = sleFees->isFieldPresent(sfAccountCount)
@@ -1521,6 +1522,7 @@ Import::doApply()
             sle->setFieldU64(sfAccountIndex, accIdx);
             sleFees->setFieldU64(sfAccountCount, accIdx + 1);
         }
+        //@@end import-account-index-allocation
 
         if (ctx_.tx.getSigningPubKey().empty() ||
             calcAccountID(PublicKey(makeSlice(ctx_.tx.getSigningPubKey()))) !=

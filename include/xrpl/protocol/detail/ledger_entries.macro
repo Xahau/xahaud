@@ -274,7 +274,9 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfImportSequence,       soeOPTIONAL},
     {sfGovernanceFlags,      soeOPTIONAL},
     {sfGovernanceMarks,      soeOPTIONAL},
+    //@@start account-index-optional-accountroot-field
     {sfAccountIndex,         soeOPTIONAL},
+    //@@end account-index-optional-accountroot-field
     {sfTouchCount,           soeOPTIONAL},
     {sfHookStateScale,       soeOPTIONAL},
     {sfCron,                 soeOPTIONAL},
@@ -434,7 +436,9 @@ LEDGER_ENTRY(ltFEE_SETTINGS, 0x0073, FeeSettings, fee, ({
     {sfReserveBaseDrops,       soeOPTIONAL},
     {sfReserveIncrementDrops,  soeOPTIONAL},
     {sfXahauActivationLgrSeq,  soeOPTIONAL},
+    //@@start account-count-optional-fees-field
     {sfAccountCount,           soeOPTIONAL},
+    //@@end account-count-optional-fees-field
     {sfNetworkID,              soeOPTIONAL},
     {sfPreviousTxnID,          soeOPTIONAL},
     {sfPreviousTxnLgrSeq,      soeOPTIONAL},

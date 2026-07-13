@@ -477,8 +477,10 @@ DeleteAccount::doApply()
     if (mSourceBalance > XRPAmount(0) && dst->isFlag(lsfPasswordSpent))
         dst->clearFlag(lsfPasswordSpent);
 
+    //@@start account-delete-erases-account-root
     view().update(dst);
     view().erase(src);
+    //@@end account-delete-erases-account-root
 
     return tesSUCCESS;
 }
