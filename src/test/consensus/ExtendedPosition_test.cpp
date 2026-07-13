@@ -80,11 +80,11 @@ class ExtendedPosition_test : public beast::unit_test::suite
         {
             auto const txSet = makeHash("txset-export-root-wire");
             auto const exportRoot = makeHash("export-root-wire");
+            ExtendedPosition pos{txSet};
+            pos.exportSigSetHash = exportRoot;
 
             Serializer s;
-            s.addBitString(txSet);
-            s.add8(0x10);
-            s.addBitString(exportRoot);
+            pos.add(s);
             BEAST_EXPECT(s.getDataLength() == 65);
             BEAST_EXPECT(s.peekData()[32] == 0x10);
 
