@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from export_helpers import (
     EXPORT_RETRY_LEDGER_WINDOW,
-    require_export,
-    assert_export_result,
     assert_shadow_ticket,
+    export_authority,
+    require_export,
+    wait_for_export_signature_witness,
 )
 
 
@@ -36,6 +37,7 @@ async def scenario(ctx, log):
             "TransactionType": "Export",
             "LastLedgerSequence": current_seq + EXPORT_RETRY_LEDGER_WINDOW,
             "Fee": "1000000",
+            **export_authority(ctx),
             "ExportedTxn": {
                 "TransactionType": "Payment",
                 "Account": alice.address,
@@ -53,18 +55,22 @@ async def scenario(ctx, log):
         alice.wallet,
         timeout=60,
     )
-    export_end = ctx.mark("export-no-veto-submit-end")
 
-    final_seq = ctx.validated_ledger_index(0)
+    final_seq = result.get("ledger_index", ctx.validated_ledger_index(0))
+    origin_hash = result.get("hash")
     engine_result = result.get("engine_result", "")
-    meta = result.get("meta", {})
 
     log(f"Export completed at ledger {final_seq}, result: {engine_result}")
     if engine_result != "tesSUCCESS":
         raise AssertionError(f"Expected tesSUCCESS, got {engine_result}")
+    if not origin_hash:
+        raise AssertionError(f"Validated Export missing hash: {result}")
 
-    export_result = assert_export_result(meta, log, ctx=ctx, require_signers=True)
-    signers = export_result.get("_WitnessSigners", [])
+    witness = await wait_for_export_signature_witness(
+        ctx, log, origin_hash, after_ledger=final_seq
+    )
+    export_end = ctx.mark("export-no-veto-submit-end")
+    signers = witness.get("_WitnessSigners", [])
     if len(signers) < 4:
         raise AssertionError(f"Expected at least 4 signers, got {len(signers)}")
     log(f"Export signer count: {len(signers)}")
@@ -83,6 +89,13 @@ async def scenario(ctx, log):
     )
     log(f"Export sidecar hash withholding logs: {withhold_logs.count}")
 
-    assert_shadow_ticket(ctx, alice.address, log, expect_exists=True)
+    assert_shadow_ticket(
+        ctx,
+        alice.address,
+        log,
+        expect_exists=True,
+        origin_hash=origin_hash,
+        expect_witness=True,
+    )
 
     log("PASS")

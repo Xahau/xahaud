@@ -22,7 +22,7 @@ defaults:
       - rng_poll_ms=333
 
 tests:
-  # --- CE + Export (80% quorum, SHAMap convergence) ---
+  # --- CE + Export (post-validation shares, sidecar root convergence) ---
   - name: steady_state_export_ce
     script: .testnet/scenarios/export/steady_state_export.py
 

@@ -1,15 +1,15 @@
-""":descr: Submit ttEXPORT with 2 nodes suppressing export sigs, verify it
-retries via terRETRY_EXPORT until LLS expiry (insufficient signatures).
+""":descr: Submit ttEXPORT with 2 nodes suppressing export signatures and
+verify the admitted intent remains unwitnessed through its publication window.
 
 Nodes 3 and 4 have runtime_config no_export_sig=true, so only 3/5 nodes
 provide export signatures. With 80% quorum = ceil(5*0.8) = 4 required,
-the export cannot reach quorum and should expire via tecEXPORT_EXPIRED.
+the export cannot reach quorum and no ExportSignatures witness may be recorded.
 
 Flow:
   1. Fund alice and bob
-  2. alice submits ttEXPORT with tight LLS
-  3. Export retries (only 3/5 sigs available, need 4)
-  4. Verify export expires with tecEXPORT_EXPIRED
+  2. alice submits ttEXPORT with an explicit authority declaration
+  3. Only 3/5 post-validation shares become available (need 4)
+  4. Verify the publication window closes without a witness
   5. Verify subsequent payment still works (sequence not permanently blocked)
 """
 
@@ -17,8 +17,10 @@ from __future__ import annotations
 
 from export_helpers import (
     EXPORT_RETRY_LEDGER_WINDOW,
-    require_export,
     assert_shadow_ticket,
+    export_authority,
+    require_export,
+    wait_for_export_signature_witness,
 )
 
 
@@ -37,13 +39,13 @@ async def scenario(ctx, log):
     log("Nodes 3,4 have runtime_config no_export_sig=true (3/5 sigs, need 4)")
 
     #@@start test-export-below-quorum-expiry
-    # --- Submit ttEXPORT (should retry then expire -- only 3/5 sigs) ---
-    export_start = ctx.mark("export-degradation-submit-start")
+    # --- Submit intent; only 3/5 validators release shares. ---
     result = await ctx.submit_and_wait(
         {
             "TransactionType": "Export",
             "LastLedgerSequence": current_seq + EXPORT_RETRY_LEDGER_WINDOW,
             "Fee": "1000000",
+            **export_authority(ctx),
             "ExportedTxn": {
                 "TransactionType": "Payment",
                 "Account": alice.address,
@@ -61,44 +63,32 @@ async def scenario(ctx, log):
         alice.wallet,
         timeout=60,
     )
-    export_end = ctx.mark("export-degradation-submit-end")
 
-    final_seq = ctx.validated_ledger_index(0)
+    final_seq = result.get("ledger_index", ctx.validated_ledger_index(0))
+    origin_hash = result.get("hash")
     engine_result = result.get("engine_result", "")
-    log(f"Export completed at ledger {final_seq}, result: {engine_result}")
+    log(f"Export intent admitted at ledger {final_seq}, result: {engine_result}")
 
-    # With only 3/5 sigs and 80% quorum (4 required), export MUST fail
-    if engine_result == "tesSUCCESS":
-        raise AssertionError(
-            "Export should NOT have succeeded with only 3/5 sigs "
-            "(need 4 for 80% quorum) -- check runtime_config no_export_sig"
-        )
+    if engine_result != "tesSUCCESS":
+        raise AssertionError(f"Expected admitted intent, got {engine_result}")
+    if not origin_hash:
+        raise AssertionError(f"Validated Export missing hash: {result}")
 
-    # Should be tecEXPORT_EXPIRED (LLS reached without quorum). Be exact here:
-    # any other non-success means the retry/expiry boundary regressed.
-    if engine_result != "tecEXPORT_EXPIRED":
-        raise AssertionError(
-            f"Expected tecEXPORT_EXPIRED below quorum, got {engine_result}"
-        )
-
-    log(f"Export failed as expected ({engine_result})")
-
-    retry_logs = ctx.assert_log(
-        r"Export: insufficient signatures .*result=terRETRY_EXPORT",
-        since=export_start,
-        until=export_end,
+    await wait_for_export_signature_witness(
+        ctx,
+        log,
+        origin_hash,
+        after_ledger=final_seq,
+        expect_witness=False,
     )
-    log(f"Export insufficient-signature retries: {retry_logs.count}")
-
-    expired_logs = ctx.assert_log(
-        r"Export: last ledger expired .*result=tecEXPORT_EXPIRED",
-        since=export_start,
-        until=export_end,
+    assert_shadow_ticket(
+        ctx,
+        alice.address,
+        log,
+        expect_exists=True,
+        origin_hash=origin_hash,
+        expect_witness=False,
     )
-    log(f"Export LLS expiry logs: {expired_logs.count}")
-
-    # No shadow ticket should exist (export never reached quorum)
-    assert_shadow_ticket(ctx, alice.address, log, expect_exists=False)
     #@@end test-export-below-quorum-expiry
 
     # --- Verify subsequent payment works regardless ---
@@ -119,7 +109,7 @@ async def scenario(ctx, log):
 
     if pay_engine != "tesSUCCESS":
         raise AssertionError(
-            f"Payment failed after expired export: {pay_engine} "
+            f"Payment failed after unwitnessed export: {pay_engine} "
             f"-- sequence may be blocked"
         )
 

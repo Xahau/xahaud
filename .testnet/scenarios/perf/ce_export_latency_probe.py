@@ -10,7 +10,11 @@ from __future__ import annotations
 from collections import Counter
 import json
 
-from export.export_helpers import assert_export_result, require_export
+from export.export_helpers import (
+    export_authority,
+    require_export,
+    wait_for_export_signature_witness,
+)
 from helpers import consensus_entropy_feature, get_entropy_tx
 
 
@@ -59,6 +63,7 @@ async def _submit_direct_export(ctx, log, *, timeout):
             "TransactionType": "Export",
             "LastLedgerSequence": current_seq + 12,
             "Fee": "1000000",
+            **export_authority(ctx),
             "ExportedTxn": {
                 "TransactionType": "Payment",
                 "Account": alice.address,
@@ -76,17 +81,22 @@ async def _submit_direct_export(ctx, log, *, timeout):
         alice.wallet,
         timeout=timeout,
     )
-    ended = ctx.mark("latency-export-submit-end")
-
-    elapsed = (ended.monotonic_ns - started.monotonic_ns) / 1_000_000_000
     engine_result = result.get("engine_result", "")
-    log(f"Export result={engine_result} elapsed={elapsed:.3f}s")
-
     if engine_result != "tesSUCCESS":
         raise AssertionError(f"Expected Export tesSUCCESS, got {engine_result}")
 
-    export_result = assert_export_result(result.get("meta", {}), log)
-    signers = export_result.get("ExportedTxn", {}).get("Signers", [])
+    origin_hash = result.get("hash")
+    origin_seq = result.get("ledger_index", ctx.validated_ledger_index(0))
+    if not origin_hash:
+        raise AssertionError(f"Validated Export missing hash: {result}")
+    witness = await wait_for_export_signature_witness(
+        ctx, log, origin_hash, after_ledger=origin_seq
+    )
+    ended = ctx.mark("latency-export-submit-end")
+    elapsed = (ended.monotonic_ns - started.monotonic_ns) / 1_000_000_000
+    log(f"Export intent+witness result={engine_result} elapsed={elapsed:.3f}s")
+
+    signers = witness.get("_WitnessSigners", [])
     log(f"Export signer count={len(signers)}")
     return started, ended
 
@@ -134,9 +144,7 @@ async def scenario(
 
     export_window = None
     if submit_export:
-        export_window = await _submit_direct_export(
-            ctx, log, timeout=export_timeout
-        )
+        export_window = await _submit_direct_export(ctx, log, timeout=export_timeout)
 
     started = ctx.mark("latency-probe-start")
     start_seq = ctx.validated_ledger_index(0)

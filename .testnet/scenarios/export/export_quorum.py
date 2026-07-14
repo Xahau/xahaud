@@ -1,14 +1,14 @@
-""":descr: Test Export quorum behavior. When enough active validators sign,
-the export should succeed whether or not CE is enabled. When fewer than the
-active-view quorum sign, the export should expire.
+""":descr: Test Export witness quorum behavior. Every valid intent is admitted;
+enough selected validators produce a later witness, while a below-quorum intent
+remains unwitnessed through its bounded publication window.
 
 Parameterized via `expect_success` kwarg from suite.yml.
 
 Flow:
   1. Fund alice and bob
   2. alice submits ttEXPORT
-  3. Verify result matches expectation (tesSUCCESS or tecEXPORT_EXPIRED)
-  4. Verify ExportResult + shadow ticket on success, absence on failure
+  3. Verify the intent validates with tesSUCCESS
+  4. Verify a later witness exists only when the committee reaches quorum
   5. Verify subsequent payment works regardless
 """
 
@@ -16,9 +16,10 @@ from __future__ import annotations
 
 from export_helpers import (
     EXPORT_RETRY_LEDGER_WINDOW,
-    require_export,
-    assert_export_result,
     assert_shadow_ticket,
+    export_authority,
+    require_export,
+    wait_for_export_signature_witness,
 )
 
 
@@ -43,6 +44,7 @@ async def scenario(ctx, log, expect_success=True):
             "TransactionType": "Export",
             "LastLedgerSequence": current_seq + EXPORT_RETRY_LEDGER_WINDOW,
             "Fee": "1000000",
+            **export_authority(ctx),
             "ExportedTxn": {
                 "TransactionType": "Payment",
                 "Account": alice.address,
@@ -61,39 +63,47 @@ async def scenario(ctx, log, expect_success=True):
         timeout=60,
     )
 
-    final_seq = ctx.validated_ledger_index(0)
+    final_seq = result.get("ledger_index", ctx.validated_ledger_index(0))
+    origin_hash = result.get("hash")
     engine_result = result.get("engine_result", "")
-    meta = result.get("meta", {})
 
     log(f"Export at ledger {final_seq}, result: {engine_result}")
+    if engine_result != "tesSUCCESS":
+        raise AssertionError(f"Expected intent tesSUCCESS, got {engine_result}")
+    if not origin_hash:
+        raise AssertionError(f"Validated Export missing hash: {result}")
 
     if expect_success:
-        if engine_result != "tesSUCCESS":
-            raise AssertionError(
-                f"Expected tesSUCCESS, got {engine_result}"
-            )
-
-        # Assert ExportResult is well-formed with signers
-        assert_export_result(meta, log, ctx=ctx, require_signers=True)
-
-        # Assert shadow ticket was created
-        assert_shadow_ticket(ctx, alice.address, log, expect_exists=True)
+        await wait_for_export_signature_witness(
+            ctx, log, origin_hash, after_ledger=final_seq
+        )
+        assert_shadow_ticket(
+            ctx,
+            alice.address,
+            log,
+            expect_exists=True,
+            origin_hash=origin_hash,
+            expect_witness=True,
+        )
 
         log("Export succeeded as expected (active-view quorum reached)")
     else:
-        if engine_result == "tesSUCCESS":
-            raise AssertionError(
-                "Export should NOT have succeeded below active-view quorum"
-            )
-        if engine_result != "tecEXPORT_EXPIRED":
-            raise AssertionError(
-                "Expected tecEXPORT_EXPIRED below active-view quorum, "
-                f"got {engine_result}"
-            )
-        log(f"Export failed as expected ({engine_result})")
-
-        # No shadow ticket should exist
-        assert_shadow_ticket(ctx, alice.address, log, expect_exists=False)
+        await wait_for_export_signature_witness(
+            ctx,
+            log,
+            origin_hash,
+            after_ledger=final_seq,
+            expect_witness=False,
+        )
+        assert_shadow_ticket(
+            ctx,
+            alice.address,
+            log,
+            expect_exists=True,
+            origin_hash=origin_hash,
+            expect_witness=False,
+        )
+        log("Intent remained unwitnessed as expected (below committee quorum)")
 
     # --- Verify subsequent payment works ---
     log("Submitting payment from alice to bob...")

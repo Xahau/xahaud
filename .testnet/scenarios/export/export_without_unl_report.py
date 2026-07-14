@@ -1,17 +1,17 @@
-""":descr: Export retries/expires without a ledger-anchored UNLReport view.
+""":descr: Export fails closed without a ledger-anchored UNLReport view.
 
-All validators may sign, but network-mode Export must not assemble quorum
-material from a node-local trusted-config view. Without UNLReport, the export
-should retry until LastLedgerSequence and expire without creating a shadow
-ticket.
+Network-mode Export must not derive authority from a node-local trusted-config
+view. An explicit parent binding still fails if that parent has no UNLReport,
+and no shadow ticket is created.
 """
 
 from __future__ import annotations
 
 from export_helpers import (
     EXPORT_RETRY_LEDGER_WINDOW,
-    require_export,
     assert_shadow_ticket,
+    export_authority,
+    require_export,
 )
 
 
@@ -28,12 +28,12 @@ async def scenario(ctx, log):
     log(f"Current ledger: {current_seq}")
     log("UNLReport intentionally absent; export must not use local config view")
 
-    export_start = ctx.mark("export-without-unlreport-submit-start")
     result = await ctx.submit_and_wait(
         {
             "TransactionType": "Export",
             "LastLedgerSequence": current_seq + EXPORT_RETRY_LEDGER_WINDOW,
             "Fee": "1000000",
+            **export_authority(ctx, require_unl_report=False),
             "ExportedTxn": {
                 "TransactionType": "Payment",
                 "Account": alice.address,
@@ -51,7 +51,6 @@ async def scenario(ctx, log):
         alice.wallet,
         timeout=60,
     )
-    export_end = ctx.mark("export-without-unlreport-submit-end")
 
     final_seq = ctx.validated_ledger_index(0)
     engine_result = result.get("engine_result", "")
@@ -62,34 +61,11 @@ async def scenario(ctx, log):
             "Export should not succeed without a ledger-anchored UNLReport view"
         )
 
-    # Be exact: without a UNLReport view the export should retry until LLS and
-    # expire, not fail by some unrelated terminal code.
-    if engine_result != "tecEXPORT_EXPIRED":
+    if engine_result != "tecEXPORT_UNIVERSE_MISMATCH":
         raise AssertionError(
-            "Expected tecEXPORT_EXPIRED without UNLReport view, "
+            "Expected tecEXPORT_UNIVERSE_MISMATCH without UNLReport view, "
             f"got {engine_result}"
         )
-
-    warning_logs = ctx.assert_log(
-        r"Export: retrying without ledger-anchored validator view",
-        since=export_start,
-        until=export_end,
-    )
-    log(f"Export no-UNLReport retry warnings: {warning_logs.count}")
-
-    retry_logs = ctx.assert_log(
-        r"Export: insufficient signatures .*result=terRETRY_EXPORT",
-        since=export_start,
-        until=export_end,
-    )
-    log(f"Export retry logs: {retry_logs.count}")
-
-    expired_logs = ctx.assert_log(
-        r"Export: last ledger expired .*result=tecEXPORT_EXPIRED",
-        since=export_start,
-        until=export_end,
-    )
-    log(f"Export expiry logs: {expired_logs.count}")
 
     assert_shadow_ticket(ctx, alice.address, log, expect_exists=False)
 

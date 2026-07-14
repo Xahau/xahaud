@@ -1,11 +1,11 @@
-""":descr: Submit ttEXPORT directly (no hook), verify it succeeds with
-ExportResult in metadata. Then submit a payment from the same account
-to verify sequence handling doesn't block subsequent transactions.
+""":descr: Submit ttEXPORT directly (no hook), verify the intent is admitted
+and a later validated ledger records its signature witness. Then submit a
+payment from the same account to verify sequence handling remains independent.
 
 Flow:
   1. Fund alice and bob
-  2. alice submits ttEXPORT with inner payment -> tesSUCCESS (provisional)
-  3. Validators attach sigs via proposals -> quorum -> ExportResult in metadata
+  2. alice submits ttEXPORT with an explicit parent-universe declaration
+  3. Validation releases shares; a later ledger records ExportSignatures
   4. alice submits a Payment to bob -> should succeed (sequence not blocked)
 """
 
@@ -13,9 +13,10 @@ from __future__ import annotations
 
 from export_helpers import (
     EXPORT_RETRY_LEDGER_WINDOW,
-    require_export,
-    assert_export_result,
     assert_shadow_ticket,
+    export_authority,
+    require_export,
+    wait_for_export_signature_witness,
 )
 
 
@@ -38,6 +39,7 @@ async def scenario(ctx, log):
             "TransactionType": "Export",
             "LastLedgerSequence": current_seq + EXPORT_RETRY_LEDGER_WINDOW,
             "Fee": "1000000",
+            **export_authority(ctx),
             "ExportedTxn": {
                 "TransactionType": "Payment",
                 "Account": alice.address,
@@ -56,21 +58,29 @@ async def scenario(ctx, log):
         timeout=60,
     )
 
-    export_seq = ctx.validated_ledger_index(0)
+    export_seq = result.get("ledger_index", ctx.validated_ledger_index(0))
+    origin_hash = result.get("hash")
     engine_result = result.get("engine_result", "")
     log(f"Export completed at ledger {export_seq}, result: {engine_result}")
 
     if engine_result != "tesSUCCESS":
-        raise AssertionError(
-            f"Expected tesSUCCESS for export, got {engine_result}"
-        )
+        raise AssertionError(f"Expected tesSUCCESS for export, got {engine_result}")
 
-    # Assert ExportResult is well-formed with signers
-    meta = result.get("meta", {})
-    assert_export_result(meta, log, ctx=ctx, require_signers=True)
+    if not origin_hash:
+        raise AssertionError(f"Validated Export missing hash: {result}")
 
-    # Assert shadow ticket was created
-    assert_shadow_ticket(ctx, alice.address, log, expect_exists=True)
+    await wait_for_export_signature_witness(
+        ctx, log, origin_hash, after_ledger=export_seq
+    )
+
+    assert_shadow_ticket(
+        ctx,
+        alice.address,
+        log,
+        expect_exists=True,
+        origin_hash=origin_hash,
+        expect_witness=True,
+    )
 
     # --- 2. Submit Payment from same account ---
     log("Submitting payment from alice to bob...")

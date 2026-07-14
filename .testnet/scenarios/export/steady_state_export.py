@@ -1,10 +1,10 @@
 """:descr: install xport hook, trigger export, verify emitted ttEXPORT lifecycle
 
-  1. Fund alice (hook holder), bob (trigger), carol (export destination)
-  2. Install xport hook on alice
-  3. bob pays alice with DST=carol → hook calls xport() → emits ttEXPORT
-  4. Emitted ttEXPORT enters open ledger, validators attach sigs via proposals
-  5. Verify Export transaction appears in a subsequent ledger
+1. Fund alice (hook holder), bob (trigger), carol (export destination)
+2. Install xport hook on alice
+3. bob pays alice with DST=carol → hook calls xport() → emits ttEXPORT
+4. Emitted ttEXPORT enters a validated ledger and releases signatures
+5. Verify a later ledger records its ExportSignatures witness
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ from export_helpers import (
     find_export_txns,
     dst_param,
     assert_hook_accepted,
-    assert_export_result,
     assert_shadow_ticket,
+    wait_for_export_signature_witness,
 )
 
 # C source for the xport hook — verbatim from src/test/app/Export_test_hooks.h
@@ -197,11 +197,21 @@ async def scenario(ctx, log):
             if result != "tesSUCCESS":
                 raise AssertionError(f"Export did not succeed: {result}")
 
-            # Assert ExportResult is well-formed with signers and inner tx
-            assert_export_result(meta, log, ctx=ctx, require_signers=True)
+            origin_hash = export_tx.get("hash")
+            if not origin_hash:
+                raise AssertionError(f"Export missing transaction hash: {export_tx}")
+            await wait_for_export_signature_witness(
+                ctx, log, origin_hash, after_ledger=seq
+            )
 
-            # Assert shadow ticket was created
-            assert_shadow_ticket(ctx, alice.address, log, expect_exists=True)
+            assert_shadow_ticket(
+                ctx,
+                alice.address,
+                log,
+                expect_exists=True,
+                origin_hash=origin_hash,
+                expect_witness=True,
+            )
 
             log("PASS")
             return
