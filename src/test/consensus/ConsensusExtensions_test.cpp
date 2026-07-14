@@ -3766,6 +3766,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             generateSecretKey(KeyType::secp256k1, randomSeed());
         auto const foreignSigningSecret =
             generateSecretKey(KeyType::secp256k1, randomSeed());
+        auto const foreignMasterKey =
+            derivePublicKey(KeyType::secp256k1, foreignMasterSecret);
         auto const foreignSigningKey =
             derivePublicKey(KeyType::secp256k1, foreignSigningSecret);
         BEAST_EXPECT(
@@ -3776,6 +3778,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         wrongSigner.signingKey = foreignSigningKey;
         wrongSigner.signature = ExportResultBuilder::signExportedTxn(
             release.value(), foreignSigningKey, foreignSigningSecret);
+        auto wrongMaster = share;
+        wrongMaster.signingKey = foreignMasterKey;
+        wrongMaster.signature = ExportResultBuilder::signExportedTxn(
+            release.value(), foreignMasterKey, foreignMasterSecret);
 
         auto wsc = makeWSClient(env.app().config());
         Json::Value stream;
@@ -3856,6 +3862,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(admission.disposition == ExportShareDisposition::deferred);
         BEAST_EXPECT(deferredCount() == 3);
 
+        admission = ce.onExportShare(wrongMaster, deferredCharge);
+        BEAST_EXPECT(admission.disposition == ExportShareDisposition::deferred);
+        BEAST_EXPECT(deferredCount() == 4);
+
         auto beyondHorizon = share;
         beyondHorizon.originLedgerSeq = universe->info().seq +
             ConsensusExtensions::maxDeferredExportShareFutureLedgers_ + 1;
@@ -3935,6 +3945,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(admission.disposition == ExportShareDisposition::invalid);
         BEAST_EXPECT(admission.charge == ExportShareCharge::invalidData);
 
+        admission = ce.onExportShare(wrongMaster, {});
+        BEAST_EXPECT(admission.disposition == ExportShareDisposition::invalid);
+        BEAST_EXPECT(admission.charge == ExportShareCharge::invalidData);
+
         auto invalidSignature = share;
         invalidSignature.signature = sign(
             valKeys.keys->publicKey,
@@ -3945,7 +3959,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(admission.charge == ExportShareCharge::invalidSignature);
 
         BEAST_EXPECT(deferredCount() == 0);
-        BEAST_EXPECT(deferredCharges.load(std::memory_order_relaxed) == 2);
+        BEAST_EXPECT(deferredCharges.load(std::memory_order_relaxed) == 3);
         BEAST_EXPECT(
             lastDeferredCharge.load(std::memory_order_relaxed) ==
             ExportShareCharge::invalidData);

@@ -306,6 +306,17 @@ public:
     PublicKey
     getMasterKey(PublicKey const& pk) const;
 
+    /** Returns whether a public key is a known manifest master key.
+
+        Revoked master keys remain known.
+
+        @par Thread Safety
+
+        May be called concurrently
+    */
+    bool
+    isKnownMasterKey(PublicKey const& pk) const;
+
     /** Returns master key's current manifest sequence.
 
         @return sequence corresponding to Master public key

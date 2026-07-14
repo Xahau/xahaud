@@ -216,9 +216,11 @@ resolveExportShare(
     if (resolvedMaster != expectedMaster)
     {
         // A known signing-to-master binding, or another universe master used
-        // at this position, is definitively invalid. An otherwise unknown key
-        // may become attributable after manifest propagation.
+        // at this position, or any other known manifest master is
+        // definitively invalid. An otherwise unknown key may become
+        // attributable after manifest propagation.
         if (resolvedMaster != share.signingKey ||
+            app.validatorManifests().isKnownMasterKey(share.signingKey) ||
             std::find(
                 validatorView->orderedOriginalMasterKeys.begin(),
                 validatorView->orderedOriginalMasterKeys.end(),

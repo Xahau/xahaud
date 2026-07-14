@@ -318,6 +318,13 @@ ManifestCache::getMasterKey(PublicKey const& pk) const
     return pk;
 }
 
+bool
+ManifestCache::isKnownMasterKey(PublicKey const& pk) const
+{
+    std::shared_lock lock{mutex_};
+    return map_.contains(pk);
+}
+
 std::optional<std::uint32_t>
 ManifestCache::getSequence(PublicKey const& pk) const
 {
