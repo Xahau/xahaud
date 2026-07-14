@@ -222,14 +222,17 @@ makeExportSignaturesTx(std::uint32_t ledgerSeq, uint256 const& exportTxHash)
     auto const innerObj = makeExportedPayment(calcAccountID(signer.first), dst);
     auto const innerTx = makeSTTx(innerObj);
 
-    ExportResultBuilder::SignatureSnapshot signatures;
+    ExportResultBuilder::PositionedSignatureSnapshot signatures;
     auto sig = ExportResultBuilder::signExportedTxn(
         innerTx, signer.first, signer.second);
-    signatures.emplace(signer.first, Buffer(sig.data(), sig.size()));
+    signatures.emplace(
+        0,
+        ExportResultBuilder::PositionedSignature{
+            signer.first, Buffer(sig.data(), sig.size())});
 
     return std::make_shared<STTx const>(
         ExportResultBuilder::buildSignatureWitness(
-            exportTxHash, innerTx, signatures, Blob{0x01}, ledgerSeq));
+            exportTxHash, innerTx, signatures, 1, ledgerSeq));
 }
 
 RCLTxSet
@@ -2598,20 +2601,15 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         if (!material)
             return;
         BEAST_EXPECT(material->signatures.size() == 2);
-        BEAST_EXPECT(material->contributors == Blob{0x05});
 
         auto const witness = ExportResultBuilder::buildSignatureWitness(
-            origin,
-            releaseTarget,
-            material->signatures,
-            material->contributors,
-            20);
+            origin, releaseTarget, material->signatures, 3, 20);
         BEAST_EXPECT(!witness.isFieldPresent(sfSigners));
         BEAST_EXPECT(witness.getFieldVL(sfEntropyContributors) == Blob{0x05});
         auto const& assembled =
             witness.peekAtField(sfExportedTxn).downcast<STObject>();
-        BEAST_EXPECT(assembled.isFieldPresent(sfSigners));
-        BEAST_EXPECT(assembled.getFieldArray(sfSigners).size() == 2);
+        BEAST_EXPECT(!assembled.isFieldPresent(sfSigners));
+        BEAST_EXPECT(witness.getFieldArray(sfExportSigners).size() == 2);
     }
 
     void

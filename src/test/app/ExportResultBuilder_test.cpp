@@ -18,6 +18,7 @@
 
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/STAmount.h>
 #include <xrpl/protocol/STArray.h>
@@ -86,6 +87,20 @@ makeExportedPaymentChannelClaim(
     obj.setFieldH256(sfChannel, makeHash("payment-channel"));
     obj.setFieldVL(sfSignature, channelSignature);
     return makeSTTx(obj);
+}
+
+ExportResultBuilder::PositionedSignatureSnapshot
+positionedSignatures(ExportResultBuilder::SignatureSnapshot const& signatures)
+{
+    ExportResultBuilder::PositionedSignatureSnapshot result;
+    std::uint16_t position = 0;
+    for (auto const& [key, signature] : signatures)
+    {
+        result.emplace(
+            position++,
+            ExportResultBuilder::PositionedSignature{key, signature});
+    }
+    return result;
 }
 
 }  // namespace
@@ -313,7 +328,7 @@ public:
             calcAccountID(src.first), calcAccountID(dst.first));
 
         ExportResultBuilder::SignatureSnapshot signatures;
-        while (signatures.size() < STTx::maxMultiSigners() + 5)
+        while (signatures.size() < STTx::maxMultiSigners())
         {
             auto const signer = randomKeyPair(KeyType::secp256k1);
             signatures.emplace(
@@ -391,7 +406,7 @@ public:
         auto const exportTxHash = makeHash("outer-export-witness");
 
         ExportResultBuilder::SignatureSnapshot signatures;
-        while (signatures.size() < STTx::maxMultiSigners() + 5)
+        while (signatures.size() < STTx::maxMultiSigners())
         {
             auto const signer = randomKeyPair(KeyType::secp256k1);
             signatures.emplace(
@@ -400,10 +415,11 @@ public:
                     innerTx, signer.first, signer.second));
         }
 
+        auto const positioned = positionedSignatures(signatures);
         Blob const contributors(
-            (STTx::maxMultiSigners() + 7) / 8, std::uint8_t{0xFF});
+            STTx::maxMultiSigners() / 8, std::uint8_t{0xFF});
         auto witness = ExportResultBuilder::buildSignatureWitness(
-            exportTxHash, innerTx, signatures, contributors, 654);
+            exportTxHash, innerTx, positioned, STTx::maxMultiSigners(), 654);
         BEAST_EXPECT(witness.getTxnType() == ttEXPORT_SIGNATURES);
         BEAST_EXPECT(witness.getFieldU32(sfLedgerSequence) == 654);
         BEAST_EXPECT(witness.getFieldH256(sfTransactionHash) == exportTxHash);
@@ -413,8 +429,9 @@ public:
         auto const& exported =
             witness.peekAtField(sfExportedTxn).downcast<STObject>();
         BEAST_EXPECT(exported.getFieldU16(sfTransactionType) == ttPAYMENT);
+        BEAST_EXPECT(!exported.isFieldPresent(sfSigners));
         BEAST_EXPECT(
-            exported.getFieldArray(sfSigners).size() ==
+            witness.getFieldArray(sfExportSigners).size() ==
             STTx::maxMultiSigners());
 
         auto decoded = ExportResultBuilder::signaturesFromWitness(witness);
@@ -422,12 +439,14 @@ public:
         if (decoded)
         {
             BEAST_EXPECT(decoded->size() == STTx::maxMultiSigners());
-            for (auto const& [pk, sig] : *decoded)
+            std::uint16_t expectedPosition = 0;
+            for (auto const& [position, signature] : *decoded)
             {
-                auto const it = signatures.find(pk);
+                BEAST_EXPECT(position == expectedPosition++);
+                auto const it = signatures.find(signature.signingKey);
                 BEAST_EXPECT(it != signatures.end());
                 if (it != signatures.end())
-                    BEAST_EXPECT(it->second == sig);
+                    BEAST_EXPECT(it->second == signature.signature);
             }
         }
     }
@@ -435,7 +454,7 @@ public:
     void
     testRejectsNonCanonicalWitnessSigner()
     {
-        testcase("signature witness validates signer account");
+        testcase("signature witness rejects non-canonical signer entry");
 
         auto const src = randomKeyPair(KeyType::secp256k1);
         auto const dst = randomKeyPair(KeyType::secp256k1);
@@ -445,20 +464,49 @@ public:
             calcAccountID(src.first), calcAccountID(dst.first));
         auto const exportTxHash = makeHash("bad-witness-signer");
 
-        ExportResultBuilder::SignatureSnapshot signatures;
+        ExportResultBuilder::PositionedSignatureSnapshot signatures;
         signatures.emplace(
-            signer.first,
-            ExportResultBuilder::signExportedTxn(
-                innerTx, signer.first, signer.second));
+            0,
+            ExportResultBuilder::PositionedSignature{
+                signer.first,
+                ExportResultBuilder::signExportedTxn(
+                    innerTx, signer.first, signer.second)});
 
         auto witness = ExportResultBuilder::buildSignatureWitness(
-            exportTxHash, innerTx, signatures, Blob{0x01}, 654);
-        auto& exported = witness.peekFieldObject(sfExportedTxn);
-        auto signers = exported.getFieldArray(sfSigners);
+            exportTxHash, innerTx, signatures, 1, 654);
+        auto signers = witness.getFieldArray(sfExportSigners);
         signers[0].setAccountID(sfAccount, calcAccountID(wrongAccount.first));
-        exported.setFieldArray(sfSigners, signers);
+        witness.setFieldArray(sfExportSigners, signers);
 
         BEAST_EXPECT(!ExportResultBuilder::signaturesFromWitness(witness));
+        except([&] {
+            Serializer serialized;
+            witness.add(serialized);
+            SerialIter iter{serialized.slice()};
+            STTx decoded{iter};
+            (void)decoded;
+        });
+
+        auto malformedBitmap = ExportResultBuilder::buildSignatureWitness(
+            exportTxHash, innerTx, signatures, 1, 654);
+        malformedBitmap.setFieldVL(sfEntropyContributors, Blob{0x00});
+        BEAST_EXPECT(
+            !ExportResultBuilder::signaturesFromWitness(malformedBitmap));
+
+        ExportResultBuilder::PositionedSignatureSnapshot oversized;
+        for (std::uint16_t position = 0;
+             position <= ExportLimits::maxCommitteeMembers;
+             ++position)
+        {
+            auto const key = randomKeyPair(KeyType::secp256k1).first;
+            oversized.emplace(
+                position,
+                ExportResultBuilder::PositionedSignature{key, Buffer{0x01}});
+        }
+        except([&] {
+            ExportResultBuilder::buildSignatureWitness(
+                exportTxHash, innerTx, oversized, oversized.size(), 654);
+        });
     }
 
     void
@@ -509,13 +557,12 @@ public:
         auto const multiSigned =
             ExportResultBuilder::buildMultiSignedExportedTxn(
                 innerTx, signatures);
-        Blob const contributors(
-            (STTx::maxMultiSigners() + 7) / 8, std::uint8_t{0xFF});
+        auto const positioned = positionedSignatures(signatures);
         auto const witness = ExportResultBuilder::buildSignatureWitness(
             makeHash("size-inventory-export"),
             innerTx,
-            signatures,
-            contributors,
+            positioned,
+            STTx::maxMultiSigners(),
             654);
 
         auto const innerBytes = innerTx.getSerializer().size();
@@ -536,13 +583,16 @@ public:
         BEAST_EXPECT(!witness.isFieldPresent(sfSigners));
         auto const& exported =
             witness.peekAtField(sfExportedTxn).downcast<STObject>();
+        BEAST_EXPECT(!exported.isFieldPresent(sfSigners));
         BEAST_EXPECT(
-            exported.getFieldArray(sfSigners).size() ==
+            witness.getFieldArray(sfExportSigners).size() ==
             STTx::maxMultiSigners());
+        Blob const contributors(
+            STTx::maxMultiSigners() / 8, std::uint8_t{0xFF});
         BEAST_EXPECT(witness.getFieldVL(sfEntropyContributors) == contributors);
         BEAST_EXPECT(innerBytes == 163);
         BEAST_EXPECT(multiSignedBytes == 4453);
-        BEAST_EXPECT(selfContainedWitnessBytes > multiSignedBytes);
+        BEAST_EXPECT(selfContainedWitnessBytes == 3839);
         BEAST_EXPECT(legacyShareBytes * STTx::maxMultiSigners() == 4384);
         //@@end export-serialized-size-inventory
     }

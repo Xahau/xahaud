@@ -1,12 +1,18 @@
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
+#include <xrpl/basics/contract.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/Sign.h>
+#include <xrpl/protocol/ValidatorBitset.h>
 
 #include <algorithm>
+#include <set>
+#include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace ripple {
 namespace ExportResultBuilder {
@@ -14,6 +20,50 @@ namespace {
 
 constexpr std::size_t maxTxnSignatureBytes =
     ExportLimits::maxExportSignatureBytes - 32 - 33;
+
+struct BuiltWitnessSignatures
+{
+    STArray entries;
+    Blob contributors;
+};
+
+BuiltWitnessSignatures
+buildWitnessSignatures(
+    PositionedSignatureSnapshot const& signatures,
+    std::size_t const universeSize)
+{
+    if (universeSize == 0 ||
+        universeSize > ExportLimits::maxValidatorUniverseMembers ||
+        signatures.empty() ||
+        signatures.size() > ExportLimits::maxCommitteeMembers)
+        Throw<std::invalid_argument>("invalid Export witness dimensions");
+
+    STArray entries(sfExportSigners);
+    Blob contributors(validatorBitsetBytes(universeSize), 0);
+    std::set<PublicKey> signingKeys;
+    hash_set<AccountID> signerAccounts;
+
+    for (auto const& [position, witness] : signatures)
+    {
+        if (position >= universeSize || witness.signature.empty() ||
+            witness.signature.size() > maxTxnSignatureBytes ||
+            !signingKeys.insert(witness.signingKey).second ||
+            !signerAccounts.insert(calcAccountID(witness.signingKey)).second)
+            Throw<std::invalid_argument>("invalid Export witness signer");
+
+        contributors[position / 8] |=
+            static_cast<std::uint8_t>(1u << (position % 8));
+
+        STObject entry(sfExportSigner);
+        entry.setFieldVL(sfSigningPubKey, witness.signingKey.slice());
+        entry.setFieldVL(
+            sfTxnSignature,
+            Slice{witness.signature.data(), witness.signature.size()});
+        entries.push_back(std::move(entry));
+    }
+
+    return {std::move(entries), std::move(contributors)};
+}
 
 STArray
 buildSigners(SignatureSnapshot const& signatures, bool capForTargetChain)
@@ -107,60 +157,91 @@ STTx
 buildSignatureWitness(
     uint256 const& exportTxHash,
     STTx const& releaseTarget,
-    SignatureSnapshot const& signatures,
-    Blob const& contributors,
+    PositionedSignatureSnapshot const& signatures,
+    std::size_t const universeSize,
     LedgerIndex currentSeq)
 {
-    auto const assembled =
-        buildMultiSignedExportedTxn(releaseTarget, signatures);
+    auto witnessSignatures = buildWitnessSignatures(signatures, universeSize);
+    auto const target = normalizeAuthorizationEnvelope(releaseTarget);
     return STTx(ttEXPORT_SIGNATURES, [&](auto& obj) {
         obj.setFieldU32(sfLedgerSequence, currentSeq);
         obj.setAccountID(sfAccount, AccountID{});
         obj.setFieldU32(sfSequence, 0);
         obj.setFieldAmount(sfFee, STAmount{});
         obj.setFieldH256(sfTransactionHash, exportTxHash);
-        obj.set(std::make_unique<STObject>(assembled));
-        obj.setFieldVL(sfEntropyContributors, contributors);
+        obj.set(std::make_unique<STObject>(target));
+        obj.setFieldVL(sfEntropyContributors, witnessSignatures.contributors);
+        obj.setFieldArray(
+            sfExportSigners, std::move(witnessSignatures.entries));
     });
 }
 
-std::optional<SignatureSnapshot>
+std::optional<PositionedSignatureSnapshot>
 signaturesFromWitness(STTx const& witness)
 {
     if (witness.getTxnType() != ttEXPORT_SIGNATURES ||
-        !witness.isFieldPresent(sfExportedTxn))
+        !witness.isFieldPresent(sfExportedTxn) ||
+        !witness.isFieldPresent(sfEntropyContributors) ||
+        !witness.isFieldPresent(sfExportSigners))
         return std::nullopt;
 
     auto const& exported = const_cast<STTx&>(witness)
                                .peekAtField(sfExportedTxn)
                                .downcast<STObject>();
-    if (!exported.isFieldPresent(sfSigners))
+    if (exported.isFieldPresent(sfTxnSignature) ||
+        exported.isFieldPresent(sfSigners) ||
+        !exported.isFieldPresent(sfSigningPubKey) ||
+        !exported.getFieldVL(sfSigningPubKey).empty())
         return std::nullopt;
 
-    SignatureSnapshot signatures;
-    for (auto const& signer : exported.getFieldArray(sfSigners))
+    auto const& contributors = witness.getFieldVL(sfEntropyContributors);
+    auto const& entries = witness.getFieldArray(sfExportSigners);
+    if (contributors.empty() ||
+        contributors.size() > ExportLimits::maxCommitteeMaskBytes ||
+        entries.empty() || entries.size() > ExportLimits::maxCommitteeMembers)
+        return std::nullopt;
+
+    std::vector<std::uint16_t> positions;
+    positions.reserve(entries.size());
+    for (std::size_t byte = 0; byte < contributors.size(); ++byte)
     {
-        if (signer.getFName() != sfSigner ||
-            !signer.isFieldPresent(sfAccount) ||
-            !signer.isFieldPresent(sfSigningPubKey) ||
-            !signer.isFieldPresent(sfTxnSignature))
+        for (std::size_t bit = 0; bit < 8; ++bit)
+        {
+            if ((contributors[byte] & static_cast<std::uint8_t>(1u << bit)) !=
+                0)
+                positions.push_back(static_cast<std::uint16_t>(byte * 8 + bit));
+        }
+    }
+    if (positions.size() != entries.size())
+        return std::nullopt;
+
+    PositionedSignatureSnapshot signatures;
+    std::set<PublicKey> signingKeys;
+    hash_set<AccountID> signerAccounts;
+    for (std::size_t i = 0; i < entries.size(); ++i)
+    {
+        auto const& entry = entries[i];
+        if (entry.getFName() != sfExportSigner || entry.getCount() != 2 ||
+            !entry.isFieldPresent(sfSigningPubKey) ||
+            !entry.isFieldPresent(sfTxnSignature))
             return std::nullopt;
 
-        auto const pkBlob = signer.getFieldVL(sfSigningPubKey);
+        auto const pkBlob = entry.getFieldVL(sfSigningPubKey);
         if (!publicKeyType(makeSlice(pkBlob)))
             return std::nullopt;
-
-        if (signer.getAccountID(sfAccount) !=
-            calcAccountID(PublicKey(makeSlice(pkBlob))))
+        PublicKey const signingKey{makeSlice(pkBlob)};
+        if (!signingKeys.insert(signingKey).second ||
+            !signerAccounts.insert(calcAccountID(signingKey)).second)
             return std::nullopt;
 
-        auto const sigBlob = signer.getFieldVL(sfTxnSignature);
+        auto const sigBlob = entry.getFieldVL(sfTxnSignature);
         if (sigBlob.empty() || sigBlob.size() > maxTxnSignatureBytes)
             return std::nullopt;
 
         auto const [_, inserted] = signatures.emplace(
-            PublicKey(makeSlice(pkBlob)),
-            Buffer(sigBlob.data(), sigBlob.size()));
+            positions[i],
+            PositionedSignature{
+                signingKey, Buffer(sigBlob.data(), sigBlob.size())});
         if (!inserted)
             return std::nullopt;
     }

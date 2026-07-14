@@ -6,6 +6,7 @@
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpld/app/consensus/RCLCxTx.h>
 #include <xrpld/app/misc/ExportSigCollectorV2.h>
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/consensus/ConsensusTypes.h>
 #include <xrpld/overlay/ExportShareAdmission.h>
@@ -126,8 +127,7 @@ public:
     using ExportSignatureSnapshot = std::map<PublicKey, Buffer>;
     struct ExportWitnessMaterial
     {
-        ExportSignatureSnapshot signatures;
-        Blob contributors;
+        ExportResultBuilder::PositionedSignatureSnapshot signatures;
     };
 
 private:

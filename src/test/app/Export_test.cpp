@@ -157,8 +157,19 @@ struct Export_test : public beast::unit_test::suite
             BEAST_EXPECT(!witnessTx->isFieldPresent(sfSigners));
             BEAST_EXPECT(
                 witnessTx->getFieldVL(sfEntropyContributors) == Blob{0x01});
-            auto const& assembled =
+            auto const& base =
                 witnessTx->peekAtField(sfExportedTxn).downcast<STObject>();
+            auto const positioned =
+                ExportResultBuilder::signaturesFromWitness(*witnessTx);
+            BEAST_EXPECT(positioned);
+            if (!positioned)
+                continue;
+            ExportResultBuilder::SignatureSnapshot signatures;
+            for (auto const& [_, signature] : *positioned)
+                signatures.emplace(signature.signingKey, signature.signature);
+            auto const assembled =
+                ExportResultBuilder::buildMultiSignedExportedTxn(
+                    makeSTTx(base), signatures);
             Serializer s;
             assembled.add(s);
             multisignedBlob = s.peekData();
@@ -837,8 +848,8 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(witness->getFieldVL(sfEntropyContributors) == Blob{0x01});
         auto const& assembled =
             witness->peekAtField(sfExportedTxn).downcast<STObject>();
-        BEAST_EXPECT(assembled.isFieldPresent(sfSigners));
-        BEAST_EXPECT(assembled.getFieldArray(sfSigners).size() == 1);
+        BEAST_EXPECT(!assembled.isFieldPresent(sfSigners));
+        BEAST_EXPECT(witness->getFieldArray(sfExportSigners).size() == 1);
 
         auto const releasedLatch = env.closed()->read(latchKey);
         BEAST_EXPECT(releasedLatch);
@@ -1322,25 +1333,27 @@ struct Export_test : public beast::unit_test::suite
         if (!release)
             return;
 
-        ExportResultBuilder::SignatureSnapshot signatures;
+        ExportResultBuilder::PositionedSignatureSnapshot signatures;
         signatures.emplace(
-            valKeys.keys->publicKey,
-            ExportResultBuilder::signExportedTxn(
-                release.value(),
+            0,
+            ExportResultBuilder::PositionedSignature{
                 valKeys.keys->publicKey,
-                valKeys.keys->secretKey));
+                ExportResultBuilder::signExportedTxn(
+                    release.value(),
+                    valKeys.keys->publicKey,
+                    valKeys.keys->secretKey)});
         auto const witnessSeq = originLedger->seq() + 1;
         auto const witnessTx = std::make_shared<STTx const>(
             ExportResultBuilder::buildSignatureWitness(
-                origin, release.value(), signatures, Blob{0x01}, witnessSeq));
+                origin, release.value(), signatures, 1, witnessSeq));
 
         BEAST_EXPECT(!witnessTx->isFieldPresent(sfSigners));
         BEAST_EXPECT(
             witnessTx->getFieldVL(sfEntropyContributors) == Blob{0x01});
         auto const& assembled =
             witnessTx->peekAtField(sfExportedTxn).downcast<STObject>();
-        BEAST_EXPECT(assembled.isFieldPresent(sfSigners));
-        BEAST_EXPECT(assembled.getFieldArray(sfSigners).size() == 1);
+        BEAST_EXPECT(!assembled.isFieldPresent(sfSigners));
+        BEAST_EXPECT(witnessTx->getFieldArray(sfExportSigners).size() == 1);
 
         CanonicalTXSet txns{originLedger->info().hash};
         txns.insert(witnessTx);

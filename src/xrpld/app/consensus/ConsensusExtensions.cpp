@@ -2148,7 +2148,6 @@ ConsensusExtensions::agreedExportWitness(
         return std::nullopt;
 
     ExportWitnessMaterial material;
-    material.contributors.resize(validatorBitsetBytes(universeSize), 0);
     std::set<std::uint32_t> positions;
     hash_set<AccountID> signerAccounts;
     bool invalid = false;
@@ -2221,14 +2220,14 @@ ConsensusExtensions::agreedExportWitness(
                 }
 
                 auto const [_, inserted] = material.signatures.emplace(
-                    key, Buffer{signature.data(), signature.size()});
+                    static_cast<std::uint16_t>(position),
+                    ExportResultBuilder::PositionedSignature{
+                        key, Buffer{signature.data(), signature.size()}});
                 if (!inserted)
                 {
                     invalid = true;
                     return;
                 }
-                material.contributors[position / 8] |=
-                    static_cast<std::uint8_t>(1u << (position % 8));
             }
             catch (std::exception const& e)
             {
@@ -2799,7 +2798,7 @@ ConsensusExtensions::onPreBuild(
                     origin,
                     release.value(),
                     material->signatures,
-                    material->contributors,
+                    validatorView->orderedOriginalMasterKeys.size(),
                     seq);
                 retriableTxs.insert(std::make_shared<STTx>(std::move(witness)));
             }

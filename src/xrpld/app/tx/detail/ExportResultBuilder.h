@@ -11,6 +11,7 @@
 #include <xrpl/protocol/UintTypes.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <optional>
 
@@ -18,6 +19,15 @@ namespace ripple {
 namespace ExportResultBuilder {
 
 using SignatureSnapshot = std::map<PublicKey, Buffer>;
+
+struct PositionedSignature
+{
+    PublicKey signingKey;
+    Buffer signature;
+};
+
+using PositionedSignatureSnapshot =
+    std::map<std::uint16_t, PositionedSignature>;
 
 struct SignatureWitness
 {
@@ -52,11 +62,11 @@ STTx
 buildSignatureWitness(
     uint256 const& exportTxHash,
     STTx const& releaseTarget,
-    SignatureSnapshot const& signatures,
-    Blob const& contributors,
+    PositionedSignatureSnapshot const& signatures,
+    std::size_t universeSize,
     LedgerIndex currentSeq);
 
-std::optional<SignatureSnapshot>
+std::optional<PositionedSignatureSnapshot>
 signaturesFromWitness(STTx const& witness);
 
 AssembledExportResult

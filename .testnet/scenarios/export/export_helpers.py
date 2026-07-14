@@ -265,21 +265,14 @@ def assert_hook_accepted(meta, log, *, expected_emits=1, expected_exports=None):
 
 def _signer_entries(witness):
     entries = []
-    exported = witness.get("ExportedTxn", {})
-    for entry in exported.get("Signers", []):
-        signer = entry.get("Signer", entry)
+    for entry in witness.get("ExportSigners", []):
+        signer = entry.get("ExportSigner", entry)
         entries.append(signer)
     return entries
 
 
-def _account_sort_key(address):
-    from xrpl.core.addresscodec import decode_classic_address
-
-    return decode_classic_address(address)
-
-
 def assert_export_witness(witness, origin_hash, ledger_seq, log):
-    """Assert a later-ledger witness contains one canonical target assembly."""
+    """Assert a later-ledger witness contains one ordered signature record."""
     if witness.get("TransactionType") != "ExportSignatures":
         raise AssertionError("Expected ExportSignatures witness")
     if witness.get("TransactionHash") != origin_hash:
@@ -287,16 +280,26 @@ def assert_export_witness(witness, origin_hash, ledger_seq, log):
     if witness.get("LedgerSequence") != ledger_seq:
         raise AssertionError("ExportSignatures ledger binding mismatch")
     if witness.get("Signers"):
-        raise AssertionError("Witness Signers must be nested under ExportedTxn")
-    if not witness.get("EntropyContributors"):
+        raise AssertionError("Witness must not contain ordinary Signers")
+    if witness.get("ExportedTxn", {}).get("Signers"):
+        raise AssertionError("Witness ExportedTxn must be unsigned")
+    contributors = witness.get("EntropyContributors")
+    if not contributors:
         raise AssertionError("ExportSignatures missing contributor bitmap")
 
     signers = _signer_entries(witness)
     if not signers:
-        raise AssertionError("ExportSignatures assembled transaction has no Signers")
-    accounts = [signer.get("Account") for signer in signers]
-    if accounts != sorted(accounts, key=_account_sort_key):
-        raise AssertionError("ExportSignatures Signers are not Account-sorted")
+        raise AssertionError("ExportSignatures has no ExportSigners")
+    if any(
+        not signer.get("SigningPubKey") or not signer.get("TxnSignature")
+        for signer in signers
+    ):
+        raise AssertionError("ExportSignatures has a malformed ExportSigner")
+    contributor_count = sum(byte.bit_count() for byte in bytes.fromhex(contributors))
+    if contributor_count != len(signers):
+        raise AssertionError(
+            "ExportSignatures contributor bitmap and ordered signer count differ"
+        )
     log(f"  Witness signers: {len(signers)} validator(s)")
     witness["_WitnessSigners"] = signers
     return witness

@@ -634,4 +634,5 @@ TRANSACTION(ttEXPORT_SIGNATURES, 106, ExportSignatures, ({
     {sfTransactionHash, soeREQUIRED},
     {sfExportedTxn, soeREQUIRED},
     {sfEntropyContributors, soeREQUIRED},
+    {sfExportSigners, soeREQUIRED},
 }))

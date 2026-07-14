@@ -85,10 +85,12 @@ struct PseudoTx_test : public beast::unit_test::suite
 
         auto const secret = generateSecretKey(KeyType::secp256k1, randomSeed());
         auto const publicKey = derivePublicKey(KeyType::secp256k1, secret);
-        ExportResultBuilder::SignatureSnapshot signatures;
+        ExportResultBuilder::PositionedSignatureSnapshot signatures;
         std::uint8_t const signatureBytes[] = {1, 2, 3};
         signatures.emplace(
-            publicKey, Buffer{signatureBytes, sizeof(signatureBytes)});
+            0,
+            ExportResultBuilder::PositionedSignature{
+                publicKey, Buffer{signatureBytes, sizeof(signatureBytes)}});
         auto const releaseTarget = STTx(ttPAYMENT, [&](auto& obj) {
             obj.setAccountID(sfAccount, AccountID(1));
             obj.setAccountID(sfDestination, AccountID(2));
@@ -97,7 +99,7 @@ struct PseudoTx_test : public beast::unit_test::suite
             obj.setFieldVL(sfSigningPubKey, Blob{});
         });
         res.emplace_back(ExportResultBuilder::buildSignatureWitness(
-            uint256(4), releaseTarget, signatures, Blob{0x01}, seq));
+            uint256(4), releaseTarget, signatures, 1, seq));
 
         return res;
     }

@@ -98,10 +98,8 @@ Change::preflight(PreflightContext const& ctx)
         return temBAD_FEE;
     }
 
-    bool const exportSignatureWitness =
-        ctx.tx.getTxnType() == ttEXPORT_SIGNATURES;
     if (!ctx.tx.getSigningPubKey().empty() || !ctx.tx.getSignature().empty() ||
-        (ctx.tx.isFieldPresent(sfSigners) && !exportSignatureWitness))
+        ctx.tx.isFieldPresent(sfSigners))
     {
         JLOG(ctx.j.warn()) << "Change: Bad signature";
         return temBAD_SIGNATURE;
@@ -427,14 +425,21 @@ Change::applyExportSignatures()
         return tefFAILURE;
 
     hash_set<AccountID> signerAccounts;
-    for (auto const& [key, signature] : *signatures)
+    for (auto const& [position, witness] : *signatures)
     {
-        auto const signer = calcAccountID(key);
+        if (position >= committee.size() * 8 ||
+            (contributors[position / 8] &
+             static_cast<std::uint8_t>(1u << (position % 8))) == 0)
+            return tefFAILURE;
+
+        auto const signer = calcAccountID(witness.signingKey);
         if (!signerAccounts.insert(signer).second)
             return tefFAILURE;
         auto const data = buildMultiSigningData(*target, signer);
         if (!verify(
-                key, data.slice(), Slice{signature.data(), signature.size()}))
+                witness.signingKey,
+                data.slice(),
+                Slice{witness.signature.data(), witness.signature.size()}))
             return tefFAILURE;
     }
 

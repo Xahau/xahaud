@@ -53,6 +53,13 @@ InnerObjectFormats::InnerObjectFormats()
             {sfTxnSignature, soeREQUIRED},
         });
 
+    add(sfExportSigner.jsonName,
+        sfExportSigner.getCode(),
+        {
+            {sfSigningPubKey, soeREQUIRED},
+            {sfTxnSignature, soeREQUIRED},
+        });
+
     add(sfMajority.jsonName,
         sfMajority.getCode(),
         {

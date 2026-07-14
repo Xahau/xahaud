@@ -377,7 +377,7 @@ UNTYPED_SFIELD(sfHook,                   OBJECT,    14)
 
 // inner object (uncommon)
 UNTYPED_SFIELD(sfSigner,                 OBJECT,    16)
-//                                                  17 unused
+UNTYPED_SFIELD(sfExportSigner,           OBJECT,    17)
 UNTYPED_SFIELD(sfMajority,               OBJECT,    18)
 UNTYPED_SFIELD(sfDisabledValidator,      OBJECT,    19)
 UNTYPED_SFIELD(sfEmittedTxn,             OBJECT,    20)
@@ -429,7 +429,7 @@ UNTYPED_SFIELD(sfHookParameters,         ARRAY,     19)
 UNTYPED_SFIELD(sfHookGrants,             ARRAY,     20)
 UNTYPED_SFIELD(sfXChainClaimAttestations, ARRAY,    21)
 UNTYPED_SFIELD(sfXChainCreateAccountAttestations, ARRAY, 22)
-//                                                  23 unused
+UNTYPED_SFIELD(sfExportSigners,          ARRAY,     23)
 UNTYPED_SFIELD(sfPriceDataSeries,        ARRAY,     24)
 UNTYPED_SFIELD(sfAuthAccounts,           ARRAY,     25)
 UNTYPED_SFIELD(sfAuthorizeCredentials,   ARRAY,     26)
