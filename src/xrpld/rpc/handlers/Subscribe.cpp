@@ -159,6 +159,10 @@ doSubscribe(RPC::JsonContext& context)
             {
                 context.netOps.subValidations(ispSub);
             }
+            else if (streamName == "export_signatures")
+            {
+                context.netOps.subExportSignatures(ispSub);
+            }
             else if (streamName == "peer_status")
             {
                 if (context.role != Role::ADMIN)

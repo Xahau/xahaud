@@ -26,6 +26,7 @@
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/net/InfoSub.h>
+#include <xrpl/protocol/ExportShare.h>
 #include <xrpl/protocol/STValidation.h>
 #include <xrpl/protocol/messages.h>
 #include <boost/asio.hpp>
@@ -245,6 +246,10 @@ public:
         TER result) = 0;
     virtual void
     pubValidation(std::shared_ptr<STValidation> const& val) = 0;
+
+    /** Publish a uniquely admitted post-validation Export share. */
+    virtual void
+    pubExportSignature(ExportShare const& share) = 0;
 
     virtual void
     stateAccounting(Json::Value& obj) = 0;

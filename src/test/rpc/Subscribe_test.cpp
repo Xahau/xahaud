@@ -24,7 +24,9 @@
 #include <xrpld/core/ConfigSections.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/json/json_value.h>
+#include <xrpl/protocol/ExportShare.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/jss.h>
 #include <tuple>
 
@@ -422,6 +424,58 @@ public:
                 jv.isMember(jss::ripplerpc) && jv[jss::ripplerpc] == "2.0");
             BEAST_EXPECT(jv.isMember(jss::id) && jv[jss::id] == 5);
         }
+        BEAST_EXPECT(jv[jss::status] == "success");
+    }
+
+    void
+    testExportSignatures()
+    {
+        using namespace std::chrono_literals;
+        using namespace jtx;
+
+        Env env(*this);
+        auto wsc = makeWSClient(env.app().config());
+        Json::Value stream;
+        stream[jss::streams] = Json::arrayValue;
+        stream[jss::streams].append("export_signatures");
+
+        auto jv = wsc->invoke("subscribe", stream);
+        BEAST_EXPECT(jv[jss::status] == "success");
+
+        auto const [key, secret] = randomKeyPair(KeyType::secp256k1);
+        auto const signature = sign(key, secret, Slice{"export-share", 12});
+        ExportShare const share{
+            ExportShare::currentVersion,
+            calcAccountID(key),
+            uint256{1},
+            4'200'000,
+            uint256{2},
+            uint256{3},
+            17,
+            key,
+            signature};
+
+        env.app().getOPs().pubExportSignature(share);
+        BEAST_EXPECT(wsc->findMsg(5s, [&](Json::Value const& event) {
+            return event[jss::stream] == "export_signatures" &&
+                event[jss::type] == "exportSignatureReceived" &&
+                event[jss::version].asUInt() == share.version &&
+                event[jss::owner] == toBase58(share.owner) &&
+                event[jss::origin_txid] == to_string(share.originTxn) &&
+                event[jss::origin_ledger_seq].asUInt() ==
+                share.originLedgerSeq &&
+                event[jss::origin_ledger_hash] ==
+                to_string(share.originLedgerHash) &&
+                event[jss::trigger_txid] == to_string(share.triggerTxn) &&
+                event[jss::universe_position].asUInt() ==
+                share.universePosition &&
+                event[jss::signing_key] ==
+                toBase58(TokenType::NodePublic, share.signingKey) &&
+                event[jss::signature] ==
+                strHex(Slice{share.signature.data(), share.signature.size()});
+        }));
+
+        jv = wsc->invoke("unsubscribe", stream);
         BEAST_EXPECT(jv[jss::status] == "success");
     }
 
@@ -1509,6 +1563,7 @@ public:
         testTransactions_APIv1();
         testTransactions_APIv2();
         testManifests();
+        testExportSignatures();
         testValidations(all - xrpFees);
         testValidations(all);
         testSubErrors(true);
