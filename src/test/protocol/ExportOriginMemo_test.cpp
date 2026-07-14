@@ -72,6 +72,45 @@ reservedData(STTx const& tx)
     return tx.getFieldArray(sfMemos).back().getFieldVL(sfMemoData);
 }
 
+STObject
+cloneObject(STTx const& tx)
+{
+    Serializer serializer;
+    tx.add(serializer);
+    SerialIter sit{serializer.slice()};
+    STObject object{sfGeneric};
+    object.set(sit);
+    return object;
+}
+
+STTx
+reparse(STTx const& tx)
+{
+    return STTx{cloneObject(tx)};
+}
+
+std::size_t
+memoBytes(STArray const& memos)
+{
+    Serializer serializer;
+    memos.add(serializer);
+    return serializer.getDataLength();
+}
+
+Blob
+serializeMemos(STArray const& memos)
+{
+    Serializer serializer;
+    memos.add(serializer);
+    return serializer.getData();
+}
+
+std::size_t
+memoBytes(STTx const& tx)
+{
+    return memoBytes(tx.getFieldArray(sfMemos));
+}
+
 }  // namespace
 
 class ExportOriginMemo_test : public beast::unit_test::suite
@@ -128,9 +167,22 @@ public:
             ExportOriginMemo::projectIdentity(release.value());
         BEAST_EXPECT(projected.has_value());
         if (projected)
+        {
             BEAST_EXPECT(
                 projected.value().getSerializer().peekData() ==
                 identity.value().getSerializer().peekData());
+            BEAST_EXPECT(
+                projected.value().getTransactionID() ==
+                reparse(projected.value()).getTransactionID());
+
+            auto const projectedAgain =
+                ExportOriginMemo::projectIdentity(projected.value());
+            BEAST_EXPECT(projectedAgain.has_value());
+            if (projectedAgain)
+                BEAST_EXPECT(
+                    projectedAgain.value().getSerializer().peekData() ==
+                    projected.value().getSerializer().peekData());
+        }
     }
 
     void
@@ -158,6 +210,31 @@ public:
             Blob(
                 ExportOriginMemo::memoType.begin(),
                 ExportOriginMemo::memoType.end()));
+
+        auto object = cloneObject(makePayment());
+        STArray heterogeneous{sfMemos};
+        STObject first{sfMemo};
+        first.setFieldVL(sfMemoType, Blob{'a'});
+        first.setFieldVL(sfMemoData, Blob{1});
+        first.setFieldVL(sfMemoFormat, Blob{'t', 'e', 'x', 't'});
+        heterogeneous.emplace_back(std::move(first));
+        STObject second{sfMemo};
+        second.setFieldVL(sfMemoData, Blob{2, 3});
+        heterogeneous.emplace_back(std::move(second));
+        object.setFieldArray(sfMemos, heterogeneous);
+        auto const heterogeneousBase = STTx{std::move(object)};
+        auto const heterogeneousBytes =
+            serializeMemos(heterogeneousBase.getFieldArray(sfMemos));
+        auto const heterogeneousRelease =
+            ExportOriginMemo::releaseForm(heterogeneousBase, origin_, anchor_);
+        BEAST_EXPECT(heterogeneousRelease.has_value());
+        if (heterogeneousRelease)
+        {
+            auto preserved =
+                heterogeneousRelease.value().getFieldArray(sfMemos);
+            preserved.erase(std::prev(preserved.end()));
+            BEAST_EXPECT(serializeMemos(preserved) == heterogeneousBytes);
+        }
     }
 
     void
@@ -178,6 +255,49 @@ public:
             BEAST_EXPECT(
                 duplicate.error() ==
                 ExportOriginMemo::Error::reservedMemoPresent);
+
+        {
+            auto object = cloneObject(identity.value());
+            auto memos = object.getFieldArray(sfMemos);
+            memos.emplace_back(memos.back());
+            object.setFieldArray(sfMemos, memos);
+            auto const parsedDuplicate =
+                ExportOriginMemo::parse(STTx{std::move(object)});
+            BEAST_EXPECT(
+                !parsedDuplicate &&
+                parsedDuplicate.error() ==
+                    ExportOriginMemo::Error::reservedMemoPosition);
+        }
+
+        {
+            auto const withUser =
+                ExportOriginMemo::identityForm(makePayment(Blob{1}), origin_);
+            BEAST_EXPECT(withUser.has_value());
+            if (withUser)
+            {
+                auto object = cloneObject(withUser.value());
+                auto memos = object.getFieldArray(sfMemos);
+                std::swap(memos[0], memos.back());
+                object.setFieldArray(sfMemos, memos);
+                auto const parsedMisplaced =
+                    ExportOriginMemo::parse(STTx{std::move(object)});
+                BEAST_EXPECT(
+                    !parsedMisplaced &&
+                    parsedMisplaced.error() ==
+                        ExportOriginMemo::Error::reservedMemoPosition);
+            }
+        }
+
+        {
+            auto object = cloneObject(identity.value());
+            object.peekFieldArray(sfMemos).back().setFieldVL(
+                sfMemoFormat, Blob{'b', 'i', 'n'});
+            auto const parsedFormat =
+                ExportOriginMemo::parse(STTx{std::move(object)});
+            BEAST_EXPECT(
+                !parsedFormat &&
+                parsedFormat.error() == ExportOriginMemo::Error::malformedMemo);
+        }
 
         auto malformed = reservedData(identity.value());
         malformed[0] = 2;
@@ -219,6 +339,36 @@ public:
         BEAST_EXPECT(
             !release &&
             release.error() == ExportOriginMemo::Error::localChecks);
+
+        auto testExactBoundary = [&](auto project) {
+            std::optional<std::size_t> lastAcceptedBytes;
+            std::size_t firstRejected = 0;
+            for (std::size_t size = 1; size <= 1024; ++size)
+            {
+                auto candidate = project(makePayment(Blob(size, 0xa5)));
+                if (candidate)
+                {
+                    lastAcceptedBytes = memoBytes(candidate.value());
+                    continue;
+                }
+                firstRejected = size;
+                BEAST_EXPECT(
+                    candidate.error() == ExportOriginMemo::Error::localChecks);
+                break;
+            }
+
+            BEAST_EXPECT(lastAcceptedBytes.has_value());
+            BEAST_EXPECT(firstRejected != 0);
+            if (lastAcceptedBytes)
+                BEAST_EXPECT(*lastAcceptedBytes == 1024);
+        };
+
+        testExactBoundary([&](STTx const& tx) {
+            return ExportOriginMemo::identityForm(tx, origin_);
+        });
+        testExactBoundary([&](STTx const& tx) {
+            return ExportOriginMemo::releaseForm(tx, origin_, anchor_);
+        });
     }
 
     void
