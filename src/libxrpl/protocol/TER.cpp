@@ -125,6 +125,7 @@ transResults()
         MAKE_ERROR(tecLOCKED,                        "Fund is locked."),
         MAKE_ERROR(tecBAD_CREDENTIALS,               "Bad credentials."),
         MAKE_ERROR(tecEXPORT_EXPIRED,                "Export expired without reaching signature quorum."),
+        MAKE_ERROR(tecEXPORT_UNIVERSE_MISMATCH,      "Export validator universe no longer matches its parent ledger."),
 
         MAKE_ERROR(tefALREADY,                     "The exact transaction was already in this ledger."),
         MAKE_ERROR(tefBAD_ADD_AUTH,                "Not authorized to add account."),

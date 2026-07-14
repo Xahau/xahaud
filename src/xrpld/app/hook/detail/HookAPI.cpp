@@ -1101,7 +1101,11 @@ HookAPI::xport_cancel(uint32_t ticketSeq) const
     }
 
     TER const ter = ExportLedgerOps::cancelShadowTicket(
-        hookCtx.applyCtx.view(), account, ticketSeq, j);
+        hookCtx.applyCtx.view(),
+        hookCtx.applyCtx.rawView(),
+        account,
+        ticketSeq,
+        j);
 
     if (!isTesSuccess(ter))
         return Unexpected(DOESNT_EXIST);

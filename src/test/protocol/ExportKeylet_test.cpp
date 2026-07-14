@@ -18,6 +18,7 @@
 
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STLedgerEntry.h>
@@ -129,6 +130,37 @@ public:
     }
 
     void
+    testCommitteeProfile()
+    {
+        testcase("Export committee profile");
+
+        Blob mask(validatorBitsetBytes(28), 0);
+        for (std::size_t i = 0; i < 28; ++i)
+            mask[i / 8] |= static_cast<std::uint8_t>(1u << (i % 8));
+
+        auto profile = resolveExportCommittee(makeSlice(mask), 28);
+        BEAST_EXPECT(profile.has_value());
+        if (profile)
+        {
+            BEAST_EXPECT(profile->members.selected() == 28);
+            BEAST_EXPECT(profile->quorum == 23);
+            BEAST_EXPECT(profile->members.contains(0));
+            BEAST_EXPECT(profile->members.contains(27));
+            BEAST_EXPECT(!profile->members.contains(28));
+        }
+
+        BEAST_EXPECT(!resolveExportCommittee(Slice{}, 0));
+        BEAST_EXPECT(!resolveExportCommittee(makeSlice(mask), 27));
+
+        Blob empty(validatorBitsetBytes(28), 0);
+        BEAST_EXPECT(!resolveExportCommittee(makeSlice(empty), 28));
+
+        Blob tooMany(validatorBitsetBytes(33), 0xFF);
+        tooMany.back() = 0x01;
+        BEAST_EXPECT(!resolveExportCommittee(makeSlice(tooMany), 33));
+    }
+
+    void
     testEnhancedLatchFormat()
     {
         testcase("enhanced Export latch format");
@@ -209,6 +241,7 @@ public:
         testLegacyKeySeparation();
         testPendingDirectory();
         testStructuralLimits();
+        testCommitteeProfile();
         testEnhancedLatchFormat();
     }
 };

@@ -6,6 +6,7 @@
 #include <xrpld/ledger/Sandbox.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/Indexes.h>
@@ -16,6 +17,8 @@
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/XRPAmount.h>
 
+#include <algorithm>
+#include <bit>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -25,6 +28,38 @@ namespace ripple {
 /// Shared ledger operations and validation for the export system.
 /// Used by both hook-emitted and user-submitted ttEXPORT paths.
 namespace ExportLedgerOps {
+
+inline NotTEC
+validateCommitteeShape(STTx const& stx, beast::Journal j)
+{
+    if (!stx.isFieldPresent(sfExportUniverseHash) ||
+        stx.getFieldH256(sfExportUniverseHash).isZero() ||
+        !stx.isFieldPresent(sfExportCommittee))
+    {
+        JLOG(j.warn()) << "ExportLedgerOps: missing Export committee binding";
+        return temMALFORMED;
+    }
+
+    auto const& committee = stx.getFieldVL(sfExportCommittee);
+    if (committee.empty() ||
+        committee.size() > ExportLimits::maxCommitteeMaskBytes)
+    {
+        JLOG(j.warn()) << "ExportLedgerOps: malformed committee bitmap bytes="
+                       << committee.size();
+        return temMALFORMED;
+    }
+
+    std::size_t selected = 0;
+    for (auto const byte : committee)
+        selected += std::popcount(byte);
+    if (selected == 0 || selected > ExportLimits::maxCommitteeMembers)
+    {
+        JLOG(j.warn()) << "ExportLedgerOps: invalid committee population="
+                       << selected;
+        return temMALFORMED;
+    }
+    return tesSUCCESS;
+}
 
 inline bool
 isExportTxn(STTx const& stx)
@@ -194,6 +229,74 @@ insertPendingExportLatch(
     return tesSUCCESS;
 }
 
+/** Create the enhanced origin-keyed Export latch at intent admission. */
+inline TER
+createPendingExportLatch(
+    ApplyView& view,
+    RawView& rawView,
+    AccountID const& account,
+    STTx const& exportTx,
+    STTx const& identityTarget,
+    XRPAmount const& priorBalance,
+    beast::Journal j)
+{
+    if (!identityTarget.isFieldPresent(sfTicketSequence) ||
+        !exportTx.isFieldPresent(sfExportUniverseHash) ||
+        !exportTx.isFieldPresent(sfExportCommittee))
+        return temMALFORMED;
+
+    auto const origin = exportTx.getTransactionID();
+    auto const key = keylet::shadowTicket(account, origin);
+    if (view.exists(key))
+        return tecDUPLICATE;
+
+    auto const accountRoot = view.read(keylet::account(account));
+    if (!accountRoot)
+        return tefINTERNAL;
+    auto const live = exportLatchCount(*accountRoot);
+    if (live >= ExportLimits::maxPendingExports)
+        return tecDIR_FULL;
+
+    // A destination Ticket is a one-shot authority. Keep at most one live
+    // enhanced latch for it even though origin txids are distinct.
+    auto const ticketSeq = identityTarget.getFieldU32(sfTicketSequence);
+    bool duplicateTicket = false;
+    forEachItem(view, account, [&](std::shared_ptr<SLE const> const& sle) {
+        if (sle && sle->getType() == ltSHADOW_TICKET &&
+            sle->isFieldPresent(sfTransactionHash) &&
+            sle->getFieldU32(sfTicketSequence) == ticketSeq)
+            duplicateTicket = true;
+    });
+    if (duplicateTicket)
+        return tecDUPLICATE;
+
+    auto const requiredReserve =
+        view.fees().accountReserve(accountRoot->getFieldU32(sfOwnerCount) + 1);
+    if (priorBalance < requiredReserve)
+        return tecINSUFFICIENT_RESERVE;
+
+    auto latch = std::make_shared<SLE>(key);
+    latch->setAccountID(sfAccount, account);
+    latch->setFieldU32(sfTicketSequence, ticketSeq);
+    latch->setFieldH256(sfTransactionHash, origin);
+    latch->setFieldH256(
+        sfDigest, ExportResultBuilder::exportIntentHash(identityTarget));
+    latch->setFieldU32(sfLedgerSequence, view.info().seq);
+    latch->setFieldH256(
+        sfExportUniverseHash,
+        exportTx.getFieldH256(sfExportUniverseHash));
+    latch->setFieldVL(
+        sfExportCommittee, exportTx.getFieldVL(sfExportCommittee));
+
+    auto const deadline = std::min<std::uint64_t>(
+        std::numeric_limits<std::uint32_t>::max(),
+        static_cast<std::uint64_t>(view.info().seq) +
+            ExportLimits::maxRetryLedgers);
+    latch->setFieldU32(sfLastLedgerSequence, deadline);
+
+    return insertPendingExportLatch(view, rawView, latch, j);
+}
+
 /// Remove only the pending-work link from an enhanced Export latch. Live
 /// counters and owner reserve remain held until terminal latch erasure.
 inline TER
@@ -280,6 +383,71 @@ eraseExportLatch(
 
     sb.apply(rawView);
 
+    return tesSUCCESS;
+}
+
+/** Record callback execution without making witness arrival order observable. */
+inline TER
+recordExportXpop(
+    ApplyView& view,
+    RawView& rawView,
+    Keylet const& latchKey,
+    beast::Journal j)
+{
+    auto latch = view.peek(latchKey);
+    if (!latch || latch->getType() != ltSHADOW_TICKET ||
+        !latch->isFieldPresent(sfTransactionHash))
+        return tecNO_ENTRY;
+
+    auto const flags = latch->isFieldPresent(sfFlags)
+        ? latch->getFieldU32(sfFlags)
+        : std::uint32_t{0};
+    if ((flags & lsfExportXpopSeen) != 0)
+        return tecDUPLICATE;
+
+    if (latch->isFieldPresent(sfExportSignatureHash))
+        return eraseExportLatch(view, rawView, latchKey, j);
+
+    latch->setFieldU32(sfFlags, flags | lsfExportXpopSeen);
+    view.update(latch);
+    return tesSUCCESS;
+}
+
+/** Record one canonical witness; erase only after XPOP has also arrived. */
+inline TER
+recordExportWitness(
+    ApplyView& view,
+    RawView& rawView,
+    Keylet const& latchKey,
+    uint256 const& witnessHash,
+    beast::Journal j)
+{
+    auto latch = view.peek(latchKey);
+    if (!latch || latch->getType() != ltSHADOW_TICKET ||
+        !latch->isFieldPresent(sfTransactionHash))
+        return tecNO_ENTRY;
+
+    if (latch->isFieldPresent(sfExportSignatureHash))
+    {
+        if (latch->getFieldH256(sfExportSignatureHash) == witnessHash)
+            return tesSUCCESS;
+        return tecDUPLICATE;
+    }
+
+    auto const flags = latch->isFieldPresent(sfFlags)
+        ? latch->getFieldU32(sfFlags)
+        : std::uint32_t{0};
+    if ((flags & lsfExportXpopSeen) != 0)
+        return eraseExportLatch(view, rawView, latchKey, j);
+
+    if (auto const ter = removePendingExportLink(view, latchKey, j);
+        !isTesSuccess(ter))
+        return ter;
+    latch = view.peek(latchKey);
+    if (!latch)
+        return tefBAD_LEDGER;
+    latch->setFieldH256(sfExportSignatureHash, witnessHash);
+    view.update(latch);
     return tesSUCCESS;
 }
 
@@ -553,13 +721,39 @@ createShadowTicket(
 inline TER
 cancelShadowTicket(
     ApplyView& view,
+    RawView& rawView,
     AccountID const& account,
     std::uint32_t ticketSeq,
     beast::Journal j)
 {
     //@@start current-shadow-ticket-cancel
-    auto const key = keylet::shadowTicket(account, ticketSeq);
+    auto key = keylet::shadowTicket(account, ticketSeq);
     auto sle = view.peek(key);
+
+    // Enhanced latches are keyed by origin txid. The explicit cancel API is
+    // ticket-based, so resolve its bounded owner-directory entry here.
+    if (!sle)
+    {
+        std::optional<Keylet> enhanced;
+        bool ambiguous = false;
+        forEachItem(view, account, [&](std::shared_ptr<SLE const> const& item) {
+            if (!item || item->getType() != ltSHADOW_TICKET ||
+                !item->isFieldPresent(sfTransactionHash) ||
+                item->getFieldU32(sfTicketSequence) != ticketSeq)
+                return;
+            if (enhanced)
+                ambiguous = true;
+            enhanced = keylet::shadowTicket(
+                account, item->getFieldH256(sfTransactionHash));
+        });
+        if (ambiguous)
+            return tefBAD_LEDGER;
+        if (enhanced)
+        {
+            key = *enhanced;
+            sle = view.peek(key);
+        }
+    }
 
     if (!sle)
     {
@@ -567,6 +761,9 @@ cancelShadowTicket(
                        << account << " seq=" << ticketSeq;
         return tecNO_ENTRY;
     }
+
+    if (sle->isFieldPresent(sfTransactionHash))
+        return eraseExportLatch(view, rawView, key, j);
 
     // Verify ownership.
     if (sle->getAccountID(sfAccount) != account)

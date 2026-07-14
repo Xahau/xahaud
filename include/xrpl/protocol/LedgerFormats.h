@@ -186,6 +186,9 @@ enum LedgerSpecificFlags {
     // remarks
     lsfImmutable = 1,
 
+    // ltSHADOW_TICKET
+    lsfExportXpopSeen = 0x00000001,
+
     // ltMPTOKEN_ISSUANCE
     lsfMPTLocked = 0x00000001, // Also used in ltMPTOKEN
     lsfMPTCanLock = 0x00000002,

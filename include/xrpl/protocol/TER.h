@@ -369,6 +369,7 @@ enum TECcodes : TERUnderlyingType {
     tecLOCKED = 198,
     tecBAD_CREDENTIALS = 199,
     tecEXPORT_EXPIRED = 200,
+    tecEXPORT_UNIVERSE_MISMATCH = 201,
     tecLAST_POSSIBLE_ENTRY = 255,
 };
 

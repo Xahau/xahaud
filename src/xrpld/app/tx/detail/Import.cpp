@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/hook/applyHook.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
@@ -1024,15 +1025,59 @@ Import::preclaim(PreclaimContext const& ctx)
         auto const acc = stpTrans->getAccountID(sfAccount);
         auto const ticketSeq = stpTrans->getFieldU32(sfTicketSequence);
 
+        std::optional<ExportOriginMemo::Stamp> exportStamp;
+        std::optional<STTx> identityProjection;
+        auto stKey = keylet::shadowTicket(acc, ticketSeq);
+        if (ExportOriginMemo::hasReservedMemo(*stpTrans))
+        {
+            auto parsed = ExportOriginMemo::parse(*stpTrans);
+            auto projected = ExportOriginMemo::projectIdentity(*stpTrans);
+            if (!parsed || !parsed.value().anchor || !projected)
+                return temMALFORMED;
+
+            auto const expectedTarget = stpTrans->isFieldPresent(sfNetworkID)
+                ? stpTrans->getFieldU32(sfNetworkID)
+                : std::uint32_t{0};
+            if (parsed.value().origin.sourceDomain !=
+                    ctx.app.config().NETWORK_ID ||
+                parsed.value().origin.targetDomain != expectedTarget)
+                return temMALFORMED;
+
+            auto const anchorLedger = ctx.app.getLedgerMaster().getLedgerBySeq(
+                parsed.value().anchor->ledgerSequence);
+            if (!anchorLedger ||
+                anchorLedger->info().hash != parsed.value().anchor->ledgerHash)
+                return telSHADOW_TICKET_REQUIRED;
+
+            stKey = keylet::shadowTicket(
+                acc, parsed.value().origin.transactionHash);
+            exportStamp = std::move(parsed.value());
+            identityProjection.emplace(std::move(projected.value()));
+        }
+
         // check if there is a shadow ticket, and if not we won't allow
         // the txn to pass into consensus
-        auto const stKey = keylet::shadowTicket(acc, ticketSeq);
         auto const stSle = ctx.view.read(stKey);
         if (!stSle)
         {
             JLOG(ctx.j.warn())
                 << "Import: attempted to import a txn without shadow ticket.";
             return telSHADOW_TICKET_REQUIRED;
+        }
+        if (stSle->isFieldPresent(sfTransactionHash))
+        {
+            if (!exportStamp ||
+                stSle->getFieldH256(sfTransactionHash) !=
+                    exportStamp->origin.transactionHash ||
+                stSle->getFieldU32(sfLedgerSequence) !=
+                    exportStamp->anchor->ledgerSequence)
+                return temMALFORMED;
+
+            auto const flags = stSle->isFieldPresent(sfFlags)
+                ? stSle->getFieldU32(sfFlags)
+                : std::uint32_t{0};
+            if ((flags & lsfExportXpopSeen) != 0)
+                return tecDUPLICATE;
         }
 
         // Verify the imported XPOP matches the export that created this shadow
@@ -1046,8 +1091,8 @@ Import::preclaim(PreclaimContext const& ctx)
         // Burn-to-Mint path, so a value-bearing callback hook must itself dedup
         // on the XPOP target transaction hash or a hook-defined business key.
         auto const expectedHash = stSle->getFieldH256(sfDigest);
-        auto const actualHash =
-            ExportResultBuilder::exportIntentHash(*stpTrans);
+        auto const actualHash = ExportResultBuilder::exportIntentHash(
+            identityProjection ? *identityProjection : *stpTrans);
         JLOG(ctx.j.trace())
             << "Import preclaim: shadowTicket intent=" << expectedHash
             << " xpopIntent=" << actualHash
@@ -1419,8 +1464,24 @@ Import::doApply()
         }
 
         auto const ticketSeq = stpTrans->getFieldU32(sfTicketSequence);
-        TER const ter = ExportLedgerOps::cancelShadowTicket(
-            view(), id, ticketSeq, ctx_.journal);
+        TER ter;
+        if (ExportOriginMemo::hasReservedMemo(*stpTrans))
+        {
+            auto const stamp = ExportOriginMemo::parse(*stpTrans);
+            if (!stamp || !stamp.value().anchor)
+                return tefINTERNAL;
+            ter = ExportLedgerOps::recordExportXpop(
+                view(),
+                ctx_.rawView(),
+                keylet::shadowTicket(
+                    id, stamp.value().origin.transactionHash),
+                ctx_.journal);
+        }
+        else
+        {
+            ter = ExportLedgerOps::cancelShadowTicket(
+                view(), ctx_.rawView(), id, ticketSeq, ctx_.journal);
+        }
         if (!isTesSuccess(ter))
             return ter;
 

@@ -508,6 +508,8 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
 TRANSACTION(ttEXPORT, 91, Export, ({
     {sfExportedTxn, soeOPTIONAL},
     {sfCancelTicketSequence, soeOPTIONAL},
+    {sfExportUniverseHash, soeOPTIONAL},
+    {sfExportCommittee, soeOPTIONAL},
 }))
 //@@end export-transaction-types
 

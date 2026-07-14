@@ -635,6 +635,8 @@ LEDGER_ENTRY(ltSHADOW_TICKET, 0x5374, ShadowTicket, shadow_ticket, ({
     {sfExportUniverseHash,   soeOPTIONAL},
     {sfExportCommittee,      soeOPTIONAL},
     {sfExportSignatureHash,  soeOPTIONAL},
+    {sfLastLedgerSequence,   soeOPTIONAL},
+    {sfFlags,                soeOPTIONAL},
     {sfOwnerNode,            soeREQUIRED},
     {sfExportNode,           soeOPTIONAL},
 }))
