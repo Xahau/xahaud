@@ -25,11 +25,13 @@
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/Seed.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/digest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 namespace ripple {
@@ -101,6 +103,12 @@ positionedSignatures(ExportResultBuilder::SignatureSnapshot const& signatures)
             ExportResultBuilder::PositionedSignature{key, signature});
     }
     return result;
+}
+
+std::pair<PublicKey, SecretKey>
+deterministicKeyPair(char const* label)
+{
+    return generateKeyPair(KeyType::secp256k1, generateSeed(label));
 }
 
 }  // namespace
@@ -452,14 +460,173 @@ public:
     }
 
     void
-    testRejectsNonCanonicalWitnessSigner()
+    testSparseSignatureWitnessRoundTrip()
     {
-        testcase("signature witness rejects non-canonical signer entry");
+        testcase("sparse cross-byte signature witness round trip");
+
+        auto const src = deterministicKeyPair("d-attrib-source");
+        auto const dst = deterministicKeyPair("d-attrib-destination");
+        auto const signer0 = deterministicKeyPair("d-attrib-signer-0");
+        auto const signer7 = deterministicKeyPair("d-attrib-signer-7");
+        auto const signer9 = deterministicKeyPair("d-attrib-signer-9");
+        auto const innerTx = makeExportedPayment(
+            calcAccountID(src.first), calcAccountID(dst.first));
+
+        ExportResultBuilder::PositionedSignatureSnapshot signatures;
+        for (auto const& [position, signer] : std::array{
+                 std::pair{std::uint16_t{0}, std::cref(signer0)},
+                 std::pair{std::uint16_t{7}, std::cref(signer7)},
+                 std::pair{std::uint16_t{9}, std::cref(signer9)}})
+        {
+            signatures.emplace(
+                position,
+                ExportResultBuilder::PositionedSignature{
+                    signer.get().first,
+                    ExportResultBuilder::signExportedTxn(
+                        innerTx, signer.get().first, signer.get().second)});
+        }
+
+        auto const witness = ExportResultBuilder::buildSignatureWitness(
+            makeHash("d-attrib-export"), innerTx, signatures, 10, 654);
+        Blob const expectedContributors{0x81, 0x02};
+        BEAST_EXPECT(
+            witness.getFieldVL(sfEntropyContributors) == expectedContributors);
+
+        auto const serialized = witness.getSerializer();
+        BEAST_EXPECT(
+            strHex(serialized.slice()) ==
+            "12006A2400000000260000028E5316E18499CA512AC0B68C103C249FF20029D4"
+            "6CEFCCD8E6882A481768546DCBF368400000000000000073007021028102811400"
+            "00000000000000000000000000000000000000E05A1200002280000000240000"
+            "0000201A00000002201B000000062029000000016140000000000F424068400000"
+            "000000000A7300811431C972A33313AC474C4996CF7463C8D5648AA1B283143A9"
+            "D59046AB0269024A1C12118FB57F514A891BEE1F017E011732102006E9F20ADB30"
+            "B695D059FEA08BF342FA6BD712433B769FD8D1A40098F4780F674463044022033"
+            "A39198530AD920FB0F21A041E4CFD2C9509C085B541BD1058F2B71F8D3F01A02"
+            "206B203D44035D8D653F5F146CF05EA769FB60ABC6246D3EC42CD5B14C541B583"
+            "3E1E0117321030D2368AFD1505BCFDCF91815E073871917B2E276CF1999E0B781"
+            "E9EC681B68D774473045022100824DDF6B8F117F53F11B35EFACC608676B3A0C2"
+            "19591A01E446BFAE747DAE6AC02205955CB02DAA217DE0E3617E0B75E66FE5D09"
+            "6326C4E754DDC46DFCEB992CC394E1E0117321028B8C98F69CFF73B9D66CC108"
+            "8161E10E9B31AE2C075BADC4656C27D10EDE23D774473045022100C4F6FC146A"
+            "2406E20E527572957265FB9EAA3C2F22D40D3B5924880D8E70797602202E54B5"
+            "C0FDDD58D45909F7B47FB5B90E9DE3DD57A1B167E4FDA10CF48E2BFD0FE1F1");
+        BEAST_EXPECT(
+            to_string(witness.getTransactionID()) ==
+            "6DBF6B6B0D5BB3168FF8AC80C33F5C6BBEB93F89D013220B44516BB59C32BBCE");
+        SerialIter iter{serialized.slice()};
+        STTx roundTripped{std::ref(iter)};
+        BEAST_EXPECT(
+            roundTripped.getFieldVL(sfEntropyContributors) ==
+            expectedContributors);
+        BEAST_EXPECT(
+            roundTripped.getTransactionID() == witness.getTransactionID());
+
+        auto const decoded =
+            ExportResultBuilder::signaturesFromWitness(roundTripped);
+        BEAST_EXPECT(decoded);
+        if (decoded)
+        {
+            BEAST_EXPECT(decoded->size() == signatures.size());
+            auto expected = signatures.begin();
+            for (auto const& [position, signature] : *decoded)
+            {
+                BEAST_EXPECT(expected != signatures.end());
+                if (expected == signatures.end())
+                    break;
+                BEAST_EXPECT(position == expected->first);
+                BEAST_EXPECT(
+                    signature.signingKey == expected->second.signingKey);
+                BEAST_EXPECT(signature.signature == expected->second.signature);
+                ++expected;
+            }
+            BEAST_EXPECT(expected == signatures.end());
+        }
+    }
+
+    void
+    testDestinationSignerOrderIsIndependent()
+    {
+        testcase("destination signer order is independent of witness order");
+
+        auto const src = deterministicKeyPair("d-attrib-order-source");
+        auto const dst = deterministicKeyPair("d-attrib-order-destination");
+        auto const innerTx = makeExportedPayment(
+            calcAccountID(src.first), calcAccountID(dst.first));
+        std::array signers{
+            deterministicKeyPair("d-attrib-order-signer-0"),
+            deterministicKeyPair("d-attrib-order-signer-1"),
+            deterministicKeyPair("d-attrib-order-signer-2")};
+        std::sort(
+            signers.begin(),
+            signers.end(),
+            [](auto const& lhs, auto const& rhs) {
+                return calcAccountID(lhs.first) < calcAccountID(rhs.first);
+            });
+
+        ExportResultBuilder::PositionedSignatureSnapshot positioned;
+        std::array<std::uint16_t, 3> const positions{0, 7, 9};
+        for (std::size_t i = 0; i < signers.size(); ++i)
+        {
+            auto const& signer = signers[signers.size() - i - 1];
+            positioned.emplace(
+                positions[i],
+                ExportResultBuilder::PositionedSignature{
+                    signer.first,
+                    ExportResultBuilder::signExportedTxn(
+                        innerTx, signer.first, signer.second)});
+        }
+
+        auto const witness = ExportResultBuilder::buildSignatureWitness(
+            makeHash("d-attrib-order-export"), innerTx, positioned, 10, 654);
+        auto const& witnessEntries = witness.getFieldArray(sfExportSigners);
+        BEAST_EXPECT(witnessEntries.size() == signers.size());
+        if (witnessEntries.size() == signers.size())
+        {
+            for (std::size_t i = 0; i < witnessEntries.size(); ++i)
+            {
+                auto const key = PublicKey{
+                    makeSlice(witnessEntries[i].getFieldVL(sfSigningPubKey))};
+                BEAST_EXPECT(
+                    calcAccountID(key) ==
+                    calcAccountID(signers[signers.size() - i - 1].first));
+            }
+        }
+
+        auto const decoded =
+            ExportResultBuilder::signaturesFromWitness(witness);
+        BEAST_EXPECT(decoded);
+        if (!decoded)
+            return;
+
+        ExportResultBuilder::SignatureSnapshot destinationSignatures;
+        for (auto const& [_, signature] : *decoded)
+            destinationSignatures.emplace(
+                signature.signingKey, signature.signature);
+        auto const assembled = ExportResultBuilder::buildMultiSignedExportedTxn(
+            innerTx, destinationSignatures);
+        auto const& destinationEntries = assembled.getFieldArray(sfSigners);
+        BEAST_EXPECT(destinationEntries.size() == signers.size());
+        if (destinationEntries.size() == signers.size())
+        {
+            for (std::size_t i = 0; i < destinationEntries.size(); ++i)
+            {
+                BEAST_EXPECT(
+                    destinationEntries[i].getAccountID(sfAccount) ==
+                    calcAccountID(signers[i].first));
+            }
+        }
+    }
+
+    void
+    testRejectsMalformedWitnessSigners()
+    {
+        testcase("signature witness rejects malformed signer entries");
 
         auto const src = randomKeyPair(KeyType::secp256k1);
         auto const dst = randomKeyPair(KeyType::secp256k1);
-        auto const signer = randomKeyPair(KeyType::secp256k1);
-        auto const wrongAccount = randomKeyPair(KeyType::secp256k1);
+        auto const signer0 = randomKeyPair(KeyType::secp256k1);
+        auto const signer1 = randomKeyPair(KeyType::secp256k1);
         auto const innerTx = makeExportedPayment(
             calcAccountID(src.first), calcAccountID(dst.first));
         auto const exportTxHash = makeHash("bad-witness-signer");
@@ -468,27 +635,72 @@ public:
         signatures.emplace(
             0,
             ExportResultBuilder::PositionedSignature{
-                signer.first,
+                signer0.first,
                 ExportResultBuilder::signExportedTxn(
-                    innerTx, signer.first, signer.second)});
+                    innerTx, signer0.first, signer0.second)});
+        signatures.emplace(
+            1,
+            ExportResultBuilder::PositionedSignature{
+                signer1.first,
+                ExportResultBuilder::signExportedTxn(
+                    innerTx, signer1.first, signer1.second)});
 
-        auto witness = ExportResultBuilder::buildSignatureWitness(
-            exportTxHash, innerTx, signatures, 1, 654);
-        auto signers = witness.getFieldArray(sfExportSigners);
-        signers[0].setAccountID(sfAccount, calcAccountID(wrongAccount.first));
-        witness.setFieldArray(sfExportSigners, signers);
+        auto const witness = ExportResultBuilder::buildSignatureWitness(
+            exportTxHash, innerTx, signatures, 2, 654);
+        BEAST_EXPECT(ExportResultBuilder::signaturesFromWitness(witness));
 
-        BEAST_EXPECT(!ExportResultBuilder::signaturesFromWitness(witness));
-        except([&] {
-            Serializer serialized;
-            witness.add(serialized);
-            SerialIter iter{serialized.slice()};
-            STTx decoded{iter};
-            (void)decoded;
-        });
+        using Mutator = void (*)(STArray&);
+        struct MalformedCase
+        {
+            char const* name;
+            Mutator mutate;
+        };
+        std::array<MalformedCase, 8> const malformedCases{{
+            {"missing public key",
+             [](STArray& entries) { entries[0].delField(sfSigningPubKey); }},
+            {"missing signature",
+             [](STArray& entries) { entries[0].delField(sfTxnSignature); }},
+            {"extra account",
+             [](STArray& entries) {
+                 entries[0].setAccountID(sfAccount, AccountID{});
+             }},
+            {"wrong entry type",
+             [](STArray& entries) { entries[0].setFName(sfSigner); }},
+            {"malformed public key",
+             [](STArray& entries) {
+                 entries[0].setFieldVL(sfSigningPubKey, Blob{0x02});
+             }},
+            {"empty signature",
+             [](STArray& entries) {
+                 entries[0].setFieldVL(sfTxnSignature, Blob{});
+             }},
+            {"oversized signature",
+             [](STArray& entries) {
+                 entries[0].setFieldVL(
+                     sfTxnSignature,
+                     Blob(
+                         ExportLimits::maxCanonicalExportSignatureBytes + 1,
+                         0x30));
+             }},
+            {"duplicate key",
+             [](STArray& entries) {
+                 entries[1].setFieldVL(
+                     sfSigningPubKey, entries[0].getFieldVL(sfSigningPubKey));
+             }},
+        }};
+
+        for (auto const& malformedCase : malformedCases)
+        {
+            auto malformed = witness;
+            auto& entries = malformed.peekFieldArray(sfExportSigners);
+            malformedCase.mutate(entries);
+            BEAST_EXPECTS(
+                !ExportResultBuilder::signaturesFromWitness(malformed),
+                malformedCase.name);
+        }
 
         auto malformedBitmap = ExportResultBuilder::buildSignatureWitness(
-            exportTxHash, innerTx, signatures, 1, 654);
+            exportTxHash, innerTx, signatures, 2, 654);
         malformedBitmap.setFieldVL(sfEntropyContributors, Blob{0x00});
         BEAST_EXPECT(
             !ExportResultBuilder::signaturesFromWitness(malformedBitmap));
@@ -607,7 +819,9 @@ public:
         testCapsSignerArray();
         testAssemblesWitnessReferenceMetadata();
         testSignatureWitnessRoundTrip();
-        testRejectsNonCanonicalWitnessSigner();
+        testSparseSignatureWitnessRoundTrip();
+        testDestinationSignerOrderIsIndependent();
+        testRejectsMalformedWitnessSigners();
         testSerializedSizeInventory();
     }
 };
