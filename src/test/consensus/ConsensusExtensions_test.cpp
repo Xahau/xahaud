@@ -3902,6 +3902,20 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             originLedger->info().seq);
         expectOneShareEvent(*originLedger);
 
+        // Model admission retaining the preceding validated cursor while the
+        // validated callback has already completed this origin's retry pass.
+        // The share must be admitted directly rather than queued behind that
+        // completed pass.
+        ce.postValidationExportSigCollector().clear(origin);
+        {
+            std::lock_guard lock(ce.deferredExportSharesMutex_);
+            ce.deferredExportShareRetrySeq_ = originLedger->info().seq;
+        }
+        admission = ce.deferExportShare(share, {}, universe->info().seq);
+        BEAST_EXPECT(admission.disposition == ExportShareDisposition::accepted);
+        BEAST_EXPECT(deferredCount() == 0);
+        BEAST_EXPECT(hasRetainedContribution());
+
         auto next = std::make_shared<Ledger>(
             *originLedger, env.app().timeKeeper().closeTime());
         next->updateSkipList();

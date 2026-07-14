@@ -38,6 +38,7 @@
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/basics/random.h>
+#include <xrpl/basics/scope.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/crypto/csprng.h>
 #include <xrpl/protocol/EntropyTier.h>
@@ -210,9 +211,22 @@ resolveExportShare(
 
     auto const& expectedMaster =
         validatorView->orderedOriginalMasterKeys[share.universePosition];
-    if (app.validatorManifests().getMasterKey(share.signingKey) !=
-        expectedMaster)
+    auto const resolvedMaster =
+        app.validatorManifests().getMasterKey(share.signingKey);
+    if (resolvedMaster != expectedMaster)
+    {
+        // A known signing-to-master binding, or another universe master used
+        // at this position, is definitively invalid. An otherwise unknown key
+        // may become attributable after manifest propagation.
+        if (resolvedMaster != share.signingKey ||
+            std::find(
+                validatorView->orderedOriginalMasterKeys.begin(),
+                validatorView->orderedOriginalMasterKeys.end(),
+                share.signingKey) !=
+                validatorView->orderedOriginalMasterKeys.end())
+            return {ExportShareResolutionStatus::invalid, std::nullopt};
         return {ExportShareResolutionStatus::duplicate, std::nullopt};
+    }
 
     auto const inner = ExportLedgerOps::innerExportedTx(*outer);
     if (!inner)
@@ -329,34 +343,52 @@ ConsensusExtensions::deferExportShare(
 
     std::size_t const serializedBytes = share.serialize().size();
     auto const wireHash = share.wireHash();
+    bool retryImmediately = false;
 
-    std::lock_guard lock(deferredExportSharesMutex_);
-    if (!exportShareServiceStarted_.load(std::memory_order_acquire))
-        return {ExportShareDisposition::duplicate, ExportShareCharge::none};
-
-    if (auto const it = deferredExportShares_.find(wireHash);
-        it != deferredExportShares_.end())
     {
-        if (!it->second.charge && deferredCharge)
-            it->second.charge = std::move(deferredCharge);
-        return {ExportShareDisposition::duplicate, ExportShareCharge::none};
+        std::lock_guard lock(deferredExportSharesMutex_);
+        if (!exportShareServiceStarted_.load(std::memory_order_acquire))
+            return {ExportShareDisposition::duplicate, ExportShareCharge::none};
+
+        // The validated callback may have passed this origin after admission
+        // took its initial cursor snapshot. Do not queue behind that completed
+        // retry pass.
+        if (share.originLedgerSeq <= deferredExportShareRetrySeq_)
+            retryImmediately = true;
+
+        if (!retryImmediately)
+        {
+            if (auto const it = deferredExportShares_.find(wireHash);
+                it != deferredExportShares_.end())
+            {
+                if (!it->second.charge && deferredCharge)
+                    it->second.charge = std::move(deferredCharge);
+                return {
+                    ExportShareDisposition::duplicate, ExportShareCharge::none};
+            }
+
+            bool const newOrigin =
+                !deferredExportShareOrigins_.contains(share.originTxn);
+            if (deferredExportShares_.size() >= maxDeferredExportShares_ ||
+                serializedBytes > maxDeferredExportShareBytes_ ||
+                deferredExportShareBytes_ >
+                    maxDeferredExportShareBytes_ - serializedBytes ||
+                (newOrigin &&
+                 deferredExportShareOrigins_.size() >=
+                     maxDeferredExportShareOrigins_))
+                return {
+                    ExportShareDisposition::deferred, ExportShareCharge::none};
+
+            deferredExportShareBytes_ += serializedBytes;
+            ++deferredExportShareOrigins_[share.originTxn];
+            deferredExportShares_.emplace(
+                wireHash,
+                DeferredExportShare{
+                    share, std::move(deferredCharge), serializedBytes});
+        }
     }
-
-    bool const newOrigin =
-        !deferredExportShareOrigins_.contains(share.originTxn);
-    if (deferredExportShares_.size() >= maxDeferredExportShares_ ||
-        serializedBytes > maxDeferredExportShareBytes_ ||
-        deferredExportShareBytes_ >
-            maxDeferredExportShareBytes_ - serializedBytes ||
-        (newOrigin &&
-         deferredExportShareOrigins_.size() >= maxDeferredExportShareOrigins_))
-        return {ExportShareDisposition::deferred, ExportShareCharge::none};
-
-    deferredExportShareBytes_ += serializedBytes;
-    ++deferredExportShareOrigins_[share.originTxn];
-    deferredExportShares_.emplace(
-        wireHash,
-        DeferredExportShare{share, std::move(deferredCharge), serializedBytes});
+    if (retryImmediately)
+        return admitExportShare(share, std::move(deferredCharge), false);
     return {ExportShareDisposition::deferred, ExportShareCharge::none};
 }
 
@@ -367,6 +399,11 @@ ConsensusExtensions::retryDeferredExportShares(
     std::vector<DeferredExportShare> retry;
     {
         std::lock_guard lock(deferredExportSharesMutex_);
+        if (!exportShareServiceStarted_.load(std::memory_order_acquire))
+            return;
+        deferredExportShareRetrySeq_ =
+            std::max(deferredExportShareRetrySeq_, validatedLedgerSeq);
+        ++deferredExportShareRetriesInFlight_;
         for (auto it = deferredExportShares_.begin();
              it != deferredExportShares_.end();)
         {
@@ -386,6 +423,12 @@ ConsensusExtensions::retryDeferredExportShares(
             it = deferredExportShares_.erase(it);
         }
     }
+
+    scope_exit retryDone([this] {
+        std::lock_guard lock(deferredExportSharesMutex_);
+        if (--deferredExportShareRetriesInFlight_ == 0)
+            deferredExportShareRetriesDone_.notify_all();
+    });
 
     for (auto& deferred : retry)
     {
@@ -753,6 +796,10 @@ void
 ConsensusExtensions::startExportShareService()
 {
     clearDeferredExportShares();
+    {
+        std::lock_guard lock(deferredExportSharesMutex_);
+        deferredExportShareRetrySeq_ = 0;
+    }
     std::lock_guard streamLock(exportStreamMutex_);
     exportStreamEmissionSeq_ = 0;
     exportStreamEmittedShares_.clear();
@@ -765,11 +812,19 @@ ConsensusExtensions::stopExportShareService() noexcept
 {
     exportShareServiceStarted_.store(false, std::memory_order_release);
     {
+        std::unique_lock lock(deferredExportSharesMutex_);
+        deferredExportShareRetriesDone_.wait(
+            lock, [this] { return deferredExportShareRetriesInFlight_ == 0; });
+        deferredExportShares_.clear();
+        deferredExportShareOrigins_.clear();
+        deferredExportShareBytes_ = 0;
+        deferredExportShareRetrySeq_ = 0;
+    }
+    {
         std::lock_guard streamLock(exportStreamMutex_);
         exportStreamEmissionSeq_ = 0;
         exportStreamEmittedShares_.clear();
     }
-    clearDeferredExportShares();
 }
 
 //------------------------------------------------------------------------------

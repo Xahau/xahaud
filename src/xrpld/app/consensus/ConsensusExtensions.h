@@ -20,6 +20,7 @@
 #include <xrpl/protocol/PublicKey.h>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -82,6 +83,9 @@ class ConsensusExtensions
     std::map<uint256, DeferredExportShare> deferredExportShares_;
     std::map<uint256, std::size_t> deferredExportShareOrigins_;
     std::size_t deferredExportShareBytes_{0};
+    LedgerIndex deferredExportShareRetrySeq_{0};
+    std::size_t deferredExportShareRetriesInFlight_{0};
+    std::condition_variable deferredExportShareRetriesDone_;
 
     bool
     publishExportShareLocked(
