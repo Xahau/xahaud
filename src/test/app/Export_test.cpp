@@ -31,6 +31,7 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
 #include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/tx/apply.h>
@@ -384,23 +385,27 @@ struct Export_test : public beast::unit_test::suite
         jtx::Env& env,
         jtx::Account const& account,
         STObject const& innerObj,
-        LedgerIndex lls)
+        LedgerIndex lls,
+        Blob const& committee = Blob{0x01})
     {
         Json::Value jv;
         jv[jss::TransactionType] = jss::Export;
         jv[jss::Account] = account.human();
         jv[jss::LastLedgerSequence] = lls;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
-        bindExportAuthority(env, jv);
+        bindExportAuthority(env, jv, committee);
         return env.jt(jv, jtx::fee(jtx::XRP(1)), jtx::ter(tesSUCCESS));
     }
 
     static void
-    bindExportAuthority(jtx::Env& env, Json::Value& jv)
+    bindExportAuthority(
+        jtx::Env& env,
+        Json::Value& jv,
+        Blob const& committee = Blob{0x01})
     {
         jv[sfExportUniverseHash.jsonName] =
             to_string(env.closed()->info().hash);
-        jv[sfExportCommittee.jsonName] = strHex(Blob{0x01});
+        jv[sfExportCommittee.jsonName] = strHex(committee);
     }
 
     // Build a minimal unsigned Payment STObject suitable for sfExportedTxn.
@@ -1234,7 +1239,7 @@ struct Export_test : public beast::unit_test::suite
     void
     testLaterLedgerWitnessTransitionAndReplay(FeatureBitset features)
     {
-        testcase("later ledger witness records assembled Export result");
+        testcase("D-ATTRIB witness apply and rotated-key replay");
 
         using namespace jtx;
 
@@ -1251,11 +1256,102 @@ struct Export_test : public beast::unit_test::suite
         if (!valKeys.keys)
             return;
 
-        seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
+        auto const oldSigningKey = randomKeyPair(KeyType::secp256k1);
+        auto const newSigningKey = randomKeyPair(KeyType::secp256k1);
+        auto installManifest = [&](auto const& signingKey,
+                                   std::uint32_t sequence) {
+            auto manifest = deserializeManifest(xpop::makeManifestRaw(
+                valKeys.keys->masterPublicKey,
+                valKeys.keys->secretKey,
+                signingKey.first,
+                signingKey.second,
+                sequence));
+            BEAST_EXPECT(manifest);
+            return manifest &&
+                env.app().validatorManifests().applyManifest(
+                    std::move(*manifest)) == ManifestDisposition::accepted;
+        };
+
+        auto const oldManifestInstalled = installManifest(oldSigningKey, 1);
+        BEAST_EXPECT(oldManifestInstalled);
+        if (!oldManifestInstalled)
+            return;
+        BEAST_EXPECT(
+            env.app().validatorManifests().getMasterKey(oldSigningKey.first) ==
+            valKeys.keys->masterPublicKey);
+
+        std::vector<std::pair<PublicKey, SecretKey>> validatorMasters;
+        validatorMasters.emplace_back(
+            valKeys.keys->masterPublicKey, valKeys.keys->secretKey);
+        for (std::size_t i = 1; i < 4; ++i)
+            validatorMasters.push_back(randomKeyPair(KeyType::secp256k1));
+
+        std::vector<PublicKey> activeMasterKeys;
+        for (auto const& [masterPublic, _] : validatorMasters)
+            activeMasterKeys.push_back(masterPublic);
+        seedUNLReportLedger(env, activeMasterKeys);
         forceNonStandalone(env.app());
         BEAST_EXPECT(!env.app().config().standalone());
 
         auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        auto const validatorView =
+            env.app().getConsensusExtensions().makeActiveValidatorView(parent);
+        BEAST_EXPECT(validatorView->fromUNLReport);
+        BEAST_EXPECT(
+            validatorView->orderedOriginalMasterKeys.size() ==
+            validatorMasters.size());
+        if (!validatorView->fromUNLReport ||
+            validatorView->orderedOriginalMasterKeys.size() !=
+                validatorMasters.size())
+            return;
+
+        std::optional<std::uint16_t> rotatedPosition;
+        for (std::size_t i = 0;
+             i < validatorView->orderedOriginalMasterKeys.size();
+             ++i)
+        {
+            if (validatorView->orderedOriginalMasterKeys[i] ==
+                valKeys.keys->masterPublicKey)
+                rotatedPosition = static_cast<std::uint16_t>(i);
+        }
+        BEAST_EXPECT(rotatedPosition);
+        if (!rotatedPosition)
+            return;
+
+        std::vector<std::uint16_t> committeePositions{*rotatedPosition};
+        for (std::uint16_t i = 0;
+             i < validatorView->orderedOriginalMasterKeys.size() &&
+             committeePositions.size() < 3;
+             ++i)
+        {
+            if (i != *rotatedPosition)
+                committeePositions.push_back(i);
+        }
+        auto const isCommitteePosition = [&](std::uint16_t position) {
+            for (auto const selected : committeePositions)
+                if (selected == position)
+                    return true;
+            return false;
+        };
+        std::optional<std::uint16_t> nonCommitteePosition;
+        for (std::uint16_t i = 0;
+             i < validatorView->orderedOriginalMasterKeys.size();
+             ++i)
+        {
+            if (!isCommitteePosition(i))
+                nonCommitteePosition = i;
+        }
+        BEAST_EXPECT(nonCommitteePosition);
+        if (!nonCommitteePosition)
+            return;
+
+        auto const committeeBitmap = makeValidatorBitset(
+            validatorView->orderedOriginalMasterKeys.size(),
+            isCommitteePosition);
+        BEAST_EXPECT(committeeBitmap.size() == 1);
+        BEAST_EXPECT((committeeBitmap[0] & 0xf0u) == 0);
+        BEAST_EXPECT(ExportLimits::committeeQuorumThreshold(3) == 3);
+
         auto const countExportWork = [](std::shared_ptr<SLE const> const& sle) {
             return sle && sle->isFieldPresent(sfExportCount)
                 ? sle->getFieldU16(sfExportCount)
@@ -1277,7 +1373,8 @@ struct Export_test : public beast::unit_test::suite
         // The outer LastLedgerSequence expires at admission. The durable
         // publication window starts from the ledger that actually admits the
         // intent and therefore extends independently beyond that outer bound.
-        auto jt = makeExportJTx(env, alice, innerObj, originSeq);
+        auto jt =
+            makeExportJTx(env, alice, innerObj, originSeq, committeeBitmap);
         auto const exportTx = jt.stx;
         BEAST_EXPECT(exportTx);
         if (!exportTx)
@@ -1307,6 +1404,8 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(!pendingLatch->isFieldPresent(sfExportSignatureHash));
         BEAST_EXPECT(pendingLatch->isFieldPresent(sfExportNode));
         BEAST_EXPECT(
+            pendingLatch->getFieldVL(sfExportCommittee) == committeeBitmap);
+        BEAST_EXPECT(
             pendingLatch->getFieldU32(sfLastLedgerSequence) ==
             originLedger->seq() + ExportLimits::maxPublicationLedgers);
         auto const originPendingRoot =
@@ -1333,27 +1432,160 @@ struct Export_test : public beast::unit_test::suite
         if (!release)
             return;
 
-        ExportResultBuilder::PositionedSignatureSnapshot signatures;
-        signatures.emplace(
-            0,
-            ExportResultBuilder::PositionedSignature{
-                valKeys.keys->publicKey,
-                ExportResultBuilder::signExportedTxn(
-                    release.value(),
-                    valKeys.keys->publicKey,
-                    valKeys.keys->secretKey)});
-        auto const witnessSeq = originLedger->seq() + 1;
-        auto const witnessTx = std::make_shared<STTx const>(
-            ExportResultBuilder::buildSignatureWitness(
-                origin, release.value(), signatures, 1, witnessSeq));
+        auto signerAt = [&](std::uint16_t position)
+            -> std::pair<PublicKey, SecretKey> const& {
+            if (position == *rotatedPosition)
+                return oldSigningKey;
+            auto const& master =
+                validatorView->orderedOriginalMasterKeys[position];
+            for (auto const& validator : validatorMasters)
+                if (validator.first == master)
+                    return validator;
+            Throw<std::logic_error>("missing Export test validator key");
+        };
+        auto makeSignatures = [&](std::vector<std::uint16_t> const& positions,
+                                  bool wrongMessage = false) {
+            ExportResultBuilder::PositionedSignatureSnapshot result;
+            for (auto const position : positions)
+            {
+                auto const& signer = signerAt(position);
+                auto const& target =
+                    wrongMessage && position == positions.front()
+                    ? innerTx
+                    : release.value();
+                result.emplace(
+                    position,
+                    ExportResultBuilder::PositionedSignature{
+                        signer.first,
+                        ExportResultBuilder::signExportedTxn(
+                            target, signer.first, signer.second)});
+            }
+            return result;
+        };
 
-        BEAST_EXPECT(!witnessTx->isFieldPresent(sfSigners));
+        auto const signatures = makeSignatures(committeePositions);
+        auto const witnessSeq = originLedger->seq() + 1;
+        auto const validWitness = ExportResultBuilder::buildSignatureWitness(
+            origin,
+            release.value(),
+            signatures,
+            validatorView->orderedOriginalMasterKeys.size(),
+            witnessSeq);
+
+        BEAST_EXPECT(!validWitness.isFieldPresent(sfSigners));
         BEAST_EXPECT(
-            witnessTx->getFieldVL(sfEntropyContributors) == Blob{0x01});
+            validWitness.getFieldVL(sfEntropyContributors) == committeeBitmap);
         auto const& assembled =
-            witnessTx->peekAtField(sfExportedTxn).downcast<STObject>();
+            validWitness.peekAtField(sfExportedTxn).downcast<STObject>();
         BEAST_EXPECT(!assembled.isFieldPresent(sfSigners));
-        BEAST_EXPECT(witnessTx->getFieldArray(sfExportSigners).size() == 1);
+        BEAST_EXPECT(
+            validWitness.getFieldArray(sfExportSigners).size() ==
+            committeePositions.size());
+
+        enum class WitnessFault {
+            width,
+            unusedBit,
+            committeeSubset,
+            popcount,
+            quorum,
+            wrongSignature
+        };
+        struct RejectedWitnessCase
+        {
+            char const* name;
+            WitnessFault fault;
+            TER expected;
+        };
+        RejectedWitnessCase const rejectedCases[]{
+            {"bitmap width", WitnessFault::width, tefFAILURE},
+            {"unused high bit", WitnessFault::unusedBit, tefFAILURE},
+            {"non-committee contributor",
+             WitnessFault::committeeSubset,
+             tefFAILURE},
+            {"bitmap/signer popcount", WitnessFault::popcount, temMALFORMED},
+            {"below qC", WitnessFault::quorum, tefFAILURE},
+            {"wrong cryptographic signature",
+             WitnessFault::wrongSignature,
+             tefFAILURE},
+        };
+        auto makeRejectedWitness = [&](WitnessFault fault) -> STTx {
+            if (fault == WitnessFault::quorum)
+            {
+                auto subQuorum = committeePositions;
+                subQuorum.pop_back();
+                return ExportResultBuilder::buildSignatureWitness(
+                    origin,
+                    release.value(),
+                    makeSignatures(subQuorum),
+                    validatorView->orderedOriginalMasterKeys.size(),
+                    witnessSeq);
+            }
+            if (fault == WitnessFault::wrongSignature)
+                return ExportResultBuilder::buildSignatureWitness(
+                    origin,
+                    release.value(),
+                    makeSignatures(committeePositions, true),
+                    validatorView->orderedOriginalMasterKeys.size(),
+                    witnessSeq);
+
+            auto witness = validWitness;
+            auto contributors = witness.getFieldVL(sfEntropyContributors);
+            auto const removed = committeePositions.back();
+            auto const removedBit =
+                static_cast<std::uint8_t>(1u << (removed % 8));
+            switch (fault)
+            {
+                case WitnessFault::width:
+                    contributors.push_back(0);
+                    break;
+                case WitnessFault::unusedBit:
+                    contributors[0] &= static_cast<std::uint8_t>(~removedBit);
+                    contributors[0] |= 0x80u;
+                    break;
+                case WitnessFault::committeeSubset:
+                    contributors[0] &= static_cast<std::uint8_t>(~removedBit);
+                    contributors[*nonCommitteePosition / 8] |=
+                        static_cast<std::uint8_t>(
+                            1u << (*nonCommitteePosition % 8));
+                    break;
+                case WitnessFault::popcount:
+                    contributors[0] &= static_cast<std::uint8_t>(~removedBit);
+                    break;
+                case WitnessFault::quorum:
+                case WitnessFault::wrongSignature:
+                    Throw<std::logic_error>("handled Export witness fault");
+            }
+            witness.setFieldVL(sfEntropyContributors, contributors);
+            return makeSTTx(witness);
+        };
+
+        auto const pendingLatchBytes = pendingLatch->getSerializer().peekData();
+        for (auto const& rejectedCase : rejectedCases)
+        {
+            log << "D-ATTRIB rejected witness: " << rejectedCase.name
+                << std::endl;
+            auto const rejected = makeRejectedWitness(rejectedCase.fault);
+            auto next = std::make_shared<Ledger>(
+                *originLedger, env.app().timeKeeper().closeTime());
+            BEAST_EXPECT(next->seq() == witnessSeq);
+            OpenView accum(&*next);
+            auto const result =
+                ripple::apply(env.app(), accum, rejected, tapNONE, env.journal);
+            BEAST_EXPECT(result.ter == rejectedCase.expected);
+            BEAST_EXPECT(!result.applied);
+
+            auto const after = accum.read(latchKey);
+            BEAST_EXPECT(after);
+            if (after)
+            {
+                BEAST_EXPECT(after->isFieldPresent(sfExportNode));
+                BEAST_EXPECT(!after->isFieldPresent(sfExportSignatureHash));
+                BEAST_EXPECT(
+                    after->getSerializer().peekData() == pendingLatchBytes);
+            }
+        }
+
+        auto const witnessTx = std::make_shared<STTx const>(validWitness);
 
         CanonicalTXSet txns{originLedger->info().hash};
         txns.insert(witnessTx);
@@ -1396,6 +1628,40 @@ struct Export_test : public beast::unit_test::suite
                 releasedAccount->getFieldU32(sfOwnerCount) ==
                 parentOwnerCount + 1);
         }
+
+        auto const persisted = built->txRead(witnessTx->getTransactionID());
+        BEAST_EXPECT(persisted.first);
+        auto const persistedSignatures = persisted.first
+            ? ExportResultBuilder::signaturesFromWitness(*persisted.first)
+            : std::nullopt;
+        BEAST_EXPECT(persistedSignatures);
+        bool persistedOldKey = false;
+        if (persistedSignatures)
+        {
+            for (auto const& [_, signature] : *persistedSignatures)
+                persistedOldKey |= signature.signingKey == oldSigningKey.first;
+        }
+        BEAST_EXPECT(persistedOldKey);
+
+        // Rotation removes the old ephemeral-to-master binding. Historical
+        // replay must therefore validate only the persisted witness and state.
+        auto const newManifestInstalled = installManifest(newSigningKey, 2);
+        BEAST_EXPECT(newManifestInstalled);
+        if (!newManifestInstalled)
+            return;
+        auto const currentSigning =
+            env.app().validatorManifests().getSigningKey(
+                valKeys.keys->masterPublicKey);
+        BEAST_EXPECT(currentSigning && *currentSigning == newSigningKey.first);
+        BEAST_EXPECT(
+            env.app().validatorManifests().getMasterKey(newSigningKey.first) ==
+            valKeys.keys->masterPublicKey);
+        BEAST_EXPECT(
+            env.app().validatorManifests().getMasterKey(oldSigningKey.first) ==
+            oldSigningKey.first);
+        BEAST_EXPECT(
+            env.app().validatorManifests().getMasterKey(oldSigningKey.first) !=
+            valKeys.keys->masterPublicKey);
 
         auto const replayed = buildLedger(
             LedgerReplay(originLedger, built), tapNONE, env.app(), env.journal);
