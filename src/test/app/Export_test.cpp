@@ -96,7 +96,6 @@ struct Export_test : public beast::unit_test::suite
     struct CallbackXPOP
     {
         Json::Value xpopJson;
-        Json::Value exportedTxnJson;
         std::uint32_t ticketSeq;
         uint256 originTxn;
         std::optional<std::pair<std::uint32_t, PublicKey>> vlInfo;
@@ -284,12 +283,7 @@ struct Export_test : public beast::unit_test::suite
         auto const vlInfo = getVLInfo(xpopJson, nullJournal);
         BEAST_EXPECT(vlInfo);
 
-        return CallbackXPOP{
-            xpopJson,
-            innerObj.getJson(JsonOptions::none),
-            ticketSeq,
-            origin,
-            vlInfo};
+        return CallbackXPOP{xpopJson, ticketSeq, origin, vlInfo};
     }
 
     void
@@ -1381,7 +1375,7 @@ struct Export_test : public beast::unit_test::suite
         if (releasedPendingRoot && releasedAccount)
         {
             BEAST_EXPECT(
-                countExportWork(releasedPendingRoot) == parentPendingCount + 1);
+                countExportWork(releasedPendingRoot) == parentPendingCount);
             BEAST_EXPECT(
                 countExportWork(releasedAccount) ==
                 parentAccountExportCount + 1);
@@ -1720,7 +1714,23 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(
             (*exportMeta)[sfTransactionResult] ==
             static_cast<std::uint8_t>(TERtoInt(tesSUCCESS)));
-        BEAST_EXPECT(env.le(keylet::shadowTicket(alice.id(), origin)));
+        auto const latchKey = keylet::shadowTicket(alice.id(), origin);
+        auto const latchBeforeCancel = env.le(latchKey);
+        auto const accountBeforeCancel = env.le(keylet::account(alice.id()));
+        auto const pendingBeforeCancel = env.le(keylet::pendingExports());
+        BEAST_EXPECT(latchBeforeCancel);
+        BEAST_EXPECT(accountBeforeCancel);
+        BEAST_EXPECT(pendingBeforeCancel);
+        if (!latchBeforeCancel || !accountBeforeCancel || !pendingBeforeCancel)
+            return;
+        auto const accountExportCount =
+            accountBeforeCancel->getFieldU16(sfExportCount);
+        auto const ownerCount = accountBeforeCancel->getFieldU32(sfOwnerCount);
+        auto const reserveBeforeCancel =
+            env.current()->fees().accountReserve(ownerCount);
+        auto const pendingExportCount =
+            pendingBeforeCancel->getFieldU16(sfExportCount);
+        BEAST_EXPECT(pendingExportCount > 0);
 
         Json::Value jvCancelExisting;
         jvCancelExisting[jss::TransactionType] = jss::Export;
@@ -1733,7 +1743,32 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(
             (*cancelMeta)[sfTransactionResult] ==
             static_cast<std::uint8_t>(TERtoInt(tesSUCCESS)));
-        BEAST_EXPECT(!env.le(keylet::shadowTicket(alice.id(), origin)));
+
+        auto const canceledLatch = env.le(latchKey);
+        auto const accountAfterCancel = env.le(keylet::account(alice.id()));
+        auto const pendingAfterCancel = env.le(keylet::pendingExports());
+        BEAST_EXPECT(canceledLatch);
+        BEAST_EXPECT(accountAfterCancel);
+        BEAST_EXPECT(pendingAfterCancel);
+        if (!canceledLatch || !accountAfterCancel || !pendingAfterCancel)
+            return;
+        auto const flags = canceledLatch->isFieldPresent(sfFlags)
+            ? canceledLatch->getFieldU32(sfFlags)
+            : std::uint32_t{0};
+        BEAST_EXPECT((flags & lsfExportCanceled) != 0);
+        BEAST_EXPECT(!canceledLatch->isFieldPresent(sfExportNode));
+        BEAST_EXPECT(canceledLatch->isFieldPresent(sfOwnerNode));
+        BEAST_EXPECT(
+            accountAfterCancel->getFieldU16(sfExportCount) ==
+            accountExportCount);
+        BEAST_EXPECT(
+            accountAfterCancel->getFieldU32(sfOwnerCount) == ownerCount);
+        BEAST_EXPECT(
+            env.current()->fees().accountReserve(ownerCount) ==
+            reserveBeforeCancel);
+        BEAST_EXPECT(
+            pendingAfterCancel->getFieldU16(sfExportCount) ==
+            pendingExportCount - 1);
 
         env.close();
     }
@@ -1954,9 +1989,9 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
-    testExportImportWaitsForShadowTicket(FeatureBitset features)
+    testCanceledExportAcceptsMatchingImport(FeatureBitset features)
     {
-        testcase("Export callback waits for shadow ticket");
+        testcase("canceled Export accepts matching callback");
 
         using namespace jtx;
 
@@ -1979,35 +2014,27 @@ struct Export_test : public beast::unit_test::suite
         cancel[sfCancelTicketSequence.jsonName] = callback.ticketSeq;
         xahau(cancel, fee(XRP(1)), ter(tesSUCCESS));
         xahau.close();
-        BEAST_EXPECT(!xahau.current()->exists(
-            keylet::shadowTicket(alice.id(), callback.originTxn)));
+
+        auto const latchKey =
+            keylet::shadowTicket(alice.id(), callback.originTxn);
+        auto const canceledLatch = xahau.current()->read(latchKey);
+        BEAST_EXPECT(canceledLatch);
+        if (!canceledLatch)
+            return;
+        auto const flags = canceledLatch->isFieldPresent(sfFlags)
+            ? canceledLatch->getFieldU32(sfFlags)
+            : std::uint32_t{0};
+        BEAST_EXPECT((flags & lsfExportCanceled) != 0);
+        BEAST_EXPECT(!canceledLatch->isFieldPresent(sfExportNode));
+        BEAST_EXPECT(canceledLatch->isFieldPresent(sfExportSignatureHash));
 
         auto const importFee = xahau.current()->fees().base * 10;
         xahau(
             import::import(alice, callback.xpopJson),
             fee(importFee),
-            ter(telSHADOW_TICKET_REQUIRED));
-
-        Json::Value rearm;
-        rearm[jss::TransactionType] = jss::Export;
-        rearm[jss::Account] = alice.human();
-        rearm[jss::LastLedgerSequence] =
-            xahau.current()->seq() + ExportLimits::maxRetryLedgers;
-        rearm[sfExportedTxn.jsonName] = callback.exportedTxnJson;
-        bindExportAuthority(xahau, rearm);
-        xahau(rearm, fee(XRP(1)), ter(tesSUCCESS));
-        auto const rearmedOrigin = xahau.tx()->getTransactionID();
+            ter(tesSUCCESS));
         xahau.close();
-        BEAST_EXPECT(xahau.current()->exists(
-            keylet::shadowTicket(alice.id(), rearmedOrigin)));
-
-        xahau(
-            import::import(alice, callback.xpopJson),
-            fee(importFee),
-            ter(telSHADOW_TICKET_REQUIRED));
-        xahau.close();
-        BEAST_EXPECT(xahau.current()->exists(
-            keylet::shadowTicket(alice.id(), rearmedOrigin)));
+        BEAST_EXPECT(!xahau.current()->exists(latchKey));
     }
 
     void
@@ -2109,7 +2136,7 @@ struct Export_test : public beast::unit_test::suite
 
         // Round-trip test
         testExportImportRoundTrip(allWithExport);
-        testExportImportWaitsForShadowTicket(allWithExport);
+        testCanceledExportAcceptsMatchingImport(allWithExport);
         testExportImportRejectsStaleImportVL(allWithExport);
     }
 };

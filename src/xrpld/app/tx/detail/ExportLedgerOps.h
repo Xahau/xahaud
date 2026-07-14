@@ -434,7 +434,8 @@ pruneExpiredExportLatches(
     return tesSUCCESS;
 }
 
-/** Record callback execution without making witness arrival order observable. */
+/** Record callback execution without making witness arrival order observable.
+ */
 inline TER
 recordExportXpop(
     ApplyView& view,
@@ -758,8 +759,9 @@ createShadowTicket(
     return tesSUCCESS;
 }
 
-/// Cancel (delete) an ltSHADOW_TICKET. Frees the owner reserve.
-/// The account must own the shadow ticket.
+/// Cancel an ltSHADOW_TICKET owned by the account.
+/// Enhanced latches retain their owner link and reserve while publication work
+/// is canceled. Legacy ticket-keyed latches retain their deleting behavior.
 ///
 /// @param view       The apply view to modify
 /// @param account    The owning account
@@ -811,7 +813,38 @@ cancelShadowTicket(
     }
 
     if (sle->isFieldPresent(sfTransactionHash))
-        return eraseExportLatch(view, rawView, key, j);
+    {
+        if (!sle->isFieldPresent(sfAccount) ||
+            sle->getAccountID(sfAccount) != account)
+        {
+            JLOG(j.warn())
+                << "ExportLedgerOps: enhanced latch ownership mismatch";
+            return tecNO_PERMISSION;
+        }
+        if (keylet::shadowTicket(account, sle->getFieldH256(sfTransactionHash))
+                .key != key.key)
+            return tefBAD_LEDGER;
+
+        Sandbox sb{&view};
+        if (auto const ter = removePendingExportLink(sb, key, j);
+            !isTesSuccess(ter))
+            return ter;
+
+        auto latch = sb.peek(key);
+        if (!latch)
+            return tefBAD_LEDGER;
+        auto const flags = latch->isFieldPresent(sfFlags)
+            ? latch->getFieldU32(sfFlags)
+            : std::uint32_t{0};
+        latch->setFieldU32(sfFlags, flags | lsfExportCanceled);
+        sb.update(latch);
+        sb.apply(rawView);
+
+        JLOG(j.debug())
+            << "ExportLedgerOps: canceled enhanced Export latch for " << account
+            << " seq=" << ticketSeq;
+        return tesSUCCESS;
+    }
 
     // Verify ownership.
     if (sle->getAccountID(sfAccount) != account)
