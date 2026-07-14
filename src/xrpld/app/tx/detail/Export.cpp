@@ -6,7 +6,6 @@
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
-#include <xrpld/app/tx/detail/ExportSignatureUpgrader.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/AccountID.h>
