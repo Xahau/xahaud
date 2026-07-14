@@ -17,8 +17,13 @@
 //==============================================================================
 
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/STLedgerEntry.h>
+#include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/Serializer.h>
+#include <xrpl/protocol/ValidatorBitset.h>
 #include <xrpl/protocol/digest.h>
 
 #include <cstring>
@@ -99,11 +104,87 @@ public:
     }
 
     void
+    testStructuralLimits()
+    {
+        testcase("structural Export limits");
+
+        BEAST_EXPECT(ExportLimits::maxValidatorUniverseMembers == 256);
+        BEAST_EXPECT(
+            ExportLimits::maxCommitteeMaskBytes ==
+            validatorBitsetBytes(ExportLimits::maxValidatorUniverseMembers));
+        BEAST_EXPECT(ExportLimits::maxCommitteeMaskBytes == 32);
+        BEAST_EXPECT(
+            ExportLimits::maxCommitteeMembers == STTx::maxMultiSigners());
+    }
+
+    void
+    testEnhancedLatchFormat()
+    {
+        testcase("enhanced Export latch format");
+
+        BEAST_EXPECT(sfExportCount.fieldCode == field_code(STI_UINT16, 101));
+        BEAST_EXPECT(sfExportNode.fieldCode == field_code(STI_UINT64, 29));
+        BEAST_EXPECT(
+            sfExportUniverseHash.fieldCode == field_code(STI_UINT256, 39));
+        BEAST_EXPECT(sfExportCommittee.fieldCode == field_code(STI_VL, 34));
+
+        AccountID const account{1};
+        uint256 const origin{2};
+        uint256 const intentDigest{3};
+        uint256 const universeDigest{4};
+        uint256 const witnessHash{5};
+        Blob committee(ExportLimits::maxCommitteeMaskBytes, 0);
+        committee.front() = 0x03;
+
+        SLE latch{keylet::shadowTicket(account, origin)};
+        latch.setAccountID(sfAccount, account);
+        latch.setFieldU32(sfTicketSequence, 55'001);
+        latch.setFieldH256(sfTransactionHash, origin);
+        latch.setFieldH256(sfDigest, intentDigest);
+        latch.setFieldU32(sfLedgerSequence, 4'123'200);
+        latch.setFieldH256(sfExportUniverseHash, universeDigest);
+        latch.setFieldVL(sfExportCommittee, committee);
+        latch.setFieldU32(sfFlags, 1);
+        latch.setFieldH256(sfExportSignatureHash, witnessHash);
+        latch.setFieldU64(sfOwnerNode, 7);
+        latch.setFieldU64(sfExportNode, 8);
+
+        auto const serialized = latch.getSerializer();
+        BEAST_EXPECT(serialized.size() == 230);
+
+        SerialIter sit{serialized.slice()};
+        SLE const parsed{sit, latch.key()};
+        BEAST_EXPECT(parsed.getType() == ltSHADOW_TICKET);
+        BEAST_EXPECT(parsed.getAccountID(sfAccount) == account);
+        BEAST_EXPECT(parsed.getFieldU32(sfTicketSequence) == 55'001);
+        BEAST_EXPECT(parsed.getFieldH256(sfTransactionHash) == origin);
+        BEAST_EXPECT(parsed.getFieldH256(sfDigest) == intentDigest);
+        BEAST_EXPECT(parsed.getFieldU32(sfLedgerSequence) == 4'123'200);
+        BEAST_EXPECT(
+            parsed.getFieldH256(sfExportUniverseHash) == universeDigest);
+        BEAST_EXPECT(parsed.getFieldVL(sfExportCommittee) == committee);
+        BEAST_EXPECT(parsed.getFieldU32(sfFlags) == 1);
+        BEAST_EXPECT(parsed.getFieldH256(sfExportSignatureHash) == witnessHash);
+        BEAST_EXPECT(parsed.getFieldU64(sfOwnerNode) == 7);
+        BEAST_EXPECT(parsed.getFieldU64(sfExportNode) == 8);
+
+        SLE accountRoot{keylet::account(account)};
+        accountRoot.setFieldU16(sfExportCount, 9);
+        BEAST_EXPECT(accountRoot.getFieldU16(sfExportCount) == 9);
+
+        SLE pendingRoot{keylet::pendingExports()};
+        pendingRoot.setFieldU16(sfExportCount, 10);
+        BEAST_EXPECT(pendingRoot.getFieldU16(sfExportCount) == 10);
+    }
+
+    void
     run() override
     {
         testOriginIdentity();
         testLegacyKeySeparation();
         testPendingDirectory();
+        testStructuralLimits();
+        testEnhancedLatchFormat();
     }
 };
 

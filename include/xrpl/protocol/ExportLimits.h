@@ -1,6 +1,8 @@
 #ifndef RIPPLE_PROTOCOL_EXPORT_LIMITS_H_INCLUDED
 #define RIPPLE_PROTOCOL_EXPORT_LIMITS_H_INCLUDED
 
+#include <xrpl/protocol/ValidatorBitset.h>
+
 #include <cstddef>
 #include <cstdint>
 
@@ -16,6 +18,17 @@ namespace ripple {
 //   signing throughput and inbound processing are transitively bounded by it
 struct ExportLimits
 {
+    // V1 bitmaps are defined over at most 256 canonical pre-NegativeUNL
+    // members. Raising this changes transaction/latch shape and requires a
+    // protocol upgrade, not a local configuration change.
+    static constexpr std::size_t maxValidatorUniverseMembers = 256;
+    static constexpr std::size_t maxCommitteeMaskBytes =
+        validatorBitsetBytes(maxValidatorUniverseMembers);
+
+    // Ordinary XRPL multisigning accepts at most 32 signers. An account that
+    // reserves a separate operator signer must select fewer validators.
+    static constexpr std::size_t maxCommitteeMembers = 32;
+
     // Maximum exports a single hook execution may produce. Hook API ABI
     // constant hook_api::max_export must stay equal.
     static constexpr std::uint8_t maxExportsPerHook = 2;

@@ -281,6 +281,7 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfHookStateScale,       soeOPTIONAL},
     {sfCron,                 soeOPTIONAL},
     {sfAMMID,                soeOPTIONAL},
+    {sfExportCount,          soeOPTIONAL},
 }))
 
 /** A ledger object which contains a list of object identifiers.
@@ -296,6 +297,7 @@ LEDGER_ENTRY(ltDIR_NODE, 0x0064, DirectoryNode, directory, ({
     {sfTakerGetsIssuer,      soeOPTIONAL},  // order book directories
     {sfExchangeRate,         soeOPTIONAL},  // order book directories
     {sfReferenceCount,       soeOPTIONAL},  // for hook state directories
+    {sfExportCount,          soeOPTIONAL},  // live latches on Export root
     {sfIndexes,              soeREQUIRED},
     {sfRootIndex,            soeREQUIRED},
     {sfIndexNext,            soeOPTIONAL},
@@ -627,9 +629,14 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
 LEDGER_ENTRY(ltSHADOW_TICKET, 0x5374, ShadowTicket, shadow_ticket, ({
     {sfAccount,              soeREQUIRED},
     {sfTicketSequence,       soeREQUIRED},
+    {sfTransactionHash,      soeOPTIONAL},
     {sfDigest,               soeREQUIRED},
     {sfLedgerSequence,       soeREQUIRED},
+    {sfExportUniverseHash,   soeOPTIONAL},
+    {sfExportCommittee,      soeOPTIONAL},
+    {sfExportSignatureHash,  soeOPTIONAL},
     {sfOwnerNode,            soeREQUIRED},
+    {sfExportNode,           soeOPTIONAL},
 }))
 //@@end shadow-ticket-ledger-entry
 
