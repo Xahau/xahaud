@@ -89,8 +89,15 @@ struct PseudoTx_test : public beast::unit_test::suite
         std::uint8_t const signatureBytes[] = {1, 2, 3};
         signatures.emplace(
             publicKey, Buffer{signatureBytes, sizeof(signatureBytes)});
+        auto const releaseTarget = STTx(ttPAYMENT, [&](auto& obj) {
+            obj.setAccountID(sfAccount, AccountID(1));
+            obj.setAccountID(sfDestination, AccountID(2));
+            obj.setFieldU32(sfSequence, 0);
+            obj.setFieldAmount(sfFee, STAmount{});
+            obj.setFieldVL(sfSigningPubKey, Blob{});
+        });
         res.emplace_back(ExportResultBuilder::buildSignatureWitness(
-            uint256(4), signatures, seq));
+            uint256(4), releaseTarget, signatures, Blob{0x01}, seq));
 
         return res;
     }

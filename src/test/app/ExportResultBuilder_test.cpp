@@ -400,24 +400,33 @@ public:
                     innerTx, signer.first, signer.second));
         }
 
+        Blob const contributors(
+            (STTx::maxMultiSigners() + 7) / 8, std::uint8_t{0xFF});
         auto witness = ExportResultBuilder::buildSignatureWitness(
-            exportTxHash, signatures, 654);
+            exportTxHash, innerTx, signatures, contributors, 654);
         BEAST_EXPECT(witness.getTxnType() == ttEXPORT_SIGNATURES);
         BEAST_EXPECT(witness.getFieldU32(sfLedgerSequence) == 654);
         BEAST_EXPECT(witness.getFieldH256(sfTransactionHash) == exportTxHash);
+        BEAST_EXPECT(witness.getFieldVL(sfEntropyContributors) == contributors);
+        BEAST_EXPECT(!witness.isFieldPresent(sfSigners));
+
+        auto const& exported =
+            witness.peekAtField(sfExportedTxn).downcast<STObject>();
+        BEAST_EXPECT(exported.getFieldU16(sfTransactionType) == ttPAYMENT);
         BEAST_EXPECT(
-            witness.getFieldArray(sfSigners).size() == signatures.size());
+            exported.getFieldArray(sfSigners).size() ==
+            STTx::maxMultiSigners());
 
         auto decoded = ExportResultBuilder::signaturesFromWitness(witness);
         BEAST_EXPECT(decoded);
         if (decoded)
         {
-            BEAST_EXPECT(decoded->size() == signatures.size());
-            for (auto const& [pk, sig] : signatures)
+            BEAST_EXPECT(decoded->size() == STTx::maxMultiSigners());
+            for (auto const& [pk, sig] : *decoded)
             {
-                auto const it = decoded->find(pk);
-                BEAST_EXPECT(it != decoded->end());
-                if (it != decoded->end())
+                auto const it = signatures.find(pk);
+                BEAST_EXPECT(it != signatures.end());
+                if (it != signatures.end())
                     BEAST_EXPECT(it->second == sig);
             }
         }
@@ -443,10 +452,11 @@ public:
                 innerTx, signer.first, signer.second));
 
         auto witness = ExportResultBuilder::buildSignatureWitness(
-            exportTxHash, signatures, 654);
-        auto signers = witness.getFieldArray(sfSigners);
+            exportTxHash, innerTx, signatures, Blob{0x01}, 654);
+        auto& exported = witness.peekFieldObject(sfExportedTxn);
+        auto signers = exported.getFieldArray(sfSigners);
         signers[0].setAccountID(sfAccount, calcAccountID(wrongAccount.first));
-        witness.setFieldArray(sfSigners, signers);
+        exported.setFieldArray(sfSigners, signers);
 
         BEAST_EXPECT(!ExportResultBuilder::signaturesFromWitness(witness));
     }
@@ -499,44 +509,40 @@ public:
         auto const multiSigned =
             ExportResultBuilder::buildMultiSignedExportedTxn(
                 innerTx, signatures);
+        Blob const contributors(
+            (STTx::maxMultiSigners() + 7) / 8, std::uint8_t{0xFF});
         auto const witness = ExportResultBuilder::buildSignatureWitness(
-            makeHash("size-inventory-export"), signatures, 654);
-
-        STObject selfContained{sfGeneric};
-        selfContained.setFieldU16(sfTransactionType, ttEXPORT_SIGNATURES);
-        selfContained.setFieldU32(sfLedgerSequence, 654);
-        selfContained.setFieldH256(
-            sfTransactionHash, makeHash("size-inventory-export"));
-        auto const innerSerializer = innerTx.getSerializer();
-        SerialIter innerIter{innerSerializer.slice()};
-        selfContained.set(std::make_unique<STObject>(innerIter, sfExportedTxn));
-        selfContained.setFieldArray(
-            sfSigners, witness.getFieldArray(sfSigners));
+            makeHash("size-inventory-export"),
+            innerTx,
+            signatures,
+            contributors,
+            654);
 
         auto const innerBytes = innerTx.getSerializer().size();
         auto const multiSignedBytes = multiSigned.getSerializer().size();
-        auto const currentWitnessBytes = witness.getSerializer().size();
-        auto const selfContainedWitnessBytes =
-            selfContained.getSerializer().size();
+        auto const selfContainedWitnessBytes = witness.getSerializer().size();
         constexpr std::size_t legacyShareBytes = 32 + 33 + 72;
 
         log << "Export serialized-size inventory:\n"
             << "  unsigned target + issuance Memo: " << innerBytes << "\n"
             << "  32-signer target: " << multiSignedBytes << "\n"
-            << "  current 32-signer witness: " << currentWitnessBytes << "\n"
-            << "  self-contained witness baseline: "
+            << "  self-contained 32-signer witness: "
             << selfContainedWitnessBytes << "\n"
             << "  one legacy share blob: " << legacyShareBytes << "\n"
             << "  32 legacy share blobs: "
             << legacyShareBytes * STTx::maxMultiSigners() << std::endl;
 
         BEAST_EXPECT(signatures.size() == STTx::maxMultiSigners());
+        BEAST_EXPECT(!witness.isFieldPresent(sfSigners));
+        auto const& exported =
+            witness.peekAtField(sfExportedTxn).downcast<STObject>();
         BEAST_EXPECT(
-            witness.getFieldArray(sfSigners).size() == STTx::maxMultiSigners());
+            exported.getFieldArray(sfSigners).size() ==
+            STTx::maxMultiSigners());
+        BEAST_EXPECT(witness.getFieldVL(sfEntropyContributors) == contributors);
         BEAST_EXPECT(innerBytes == 163);
         BEAST_EXPECT(multiSignedBytes == 4453);
-        BEAST_EXPECT(currentWitnessBytes == 4369);
-        BEAST_EXPECT(selfContainedWitnessBytes == 4497);
+        BEAST_EXPECT(selfContainedWitnessBytes > multiSignedBytes);
         BEAST_EXPECT(legacyShareBytes * STTx::maxMultiSigners() == 4384);
         //@@end export-serialized-size-inventory
     }

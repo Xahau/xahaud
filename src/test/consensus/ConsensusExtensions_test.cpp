@@ -19,6 +19,7 @@
 #include <test/jtx.h>
 #include <xrpld/app/consensus/ActiveValidatorView.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
+#include <xrpld/app/consensus/ProposalPrecheck.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/detail/TransactionAcquire.h>
@@ -36,6 +37,7 @@
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportShare.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Indexes.h>
@@ -152,14 +154,6 @@ makeExportSigBlob(uint256 const& txHash, PublicKey const& publicKey)
     return blob;
 }
 
-void
-setWirePosition(protocol::TMProposeSet& wire, ExtendedPosition const& position)
-{
-    Serializer s;
-    position.add(s);
-    wire.set_currenttxhash(s.data(), s.size());
-}
-
 STTx
 makeSTTx(STObject const& obj)
 {
@@ -188,36 +182,6 @@ makeExportedPayment(
     obj.setAccountID(sfAccount, src);
     obj.setAccountID(sfDestination, dst);
     return obj;
-}
-
-std::shared_ptr<STTx const>
-makeExportTx(STObject const& inner, AccountID const& account)
-{
-    STObject exportObj(sfGeneric);
-    exportObj.setFieldU16(sfTransactionType, ttEXPORT);
-    exportObj.setAccountID(sfAccount, account);
-    exportObj.setFieldU32(sfSequence, 0);
-    exportObj.setFieldVL(sfSigningPubKey, Blob{});
-    exportObj.setFieldU32(sfFirstLedgerSequence, 2);
-    exportObj.setFieldU32(sfLastLedgerSequence, 6);
-    exportObj.setFieldAmount(sfFee, XRPAmount{0});
-    exportObj.set(std::make_unique<STObject>(inner));
-
-    return std::make_shared<STTx const>(makeSTTx(exportObj));
-}
-
-std::shared_ptr<STTx const>
-makeCancelExportTx(AccountID const& account, std::uint32_t sequence)
-{
-    STObject exportObj(sfGeneric);
-    exportObj.setFieldU16(sfTransactionType, ttEXPORT);
-    exportObj.setAccountID(sfAccount, account);
-    exportObj.setFieldU32(sfSequence, sequence);
-    exportObj.setFieldU32(sfCancelTicketSequence, 1000 + sequence);
-    exportObj.setFieldVL(sfSigningPubKey, Blob{});
-    exportObj.setFieldAmount(sfFee, XRPAmount{0});
-
-    return std::make_shared<STTx const>(makeSTTx(exportObj));
 }
 
 std::shared_ptr<STTx const>
@@ -257,7 +221,7 @@ makeExportSignaturesTx(std::uint32_t ledgerSeq, uint256 const& exportTxHash)
 
     return std::make_shared<STTx const>(
         ExportResultBuilder::buildSignatureWitness(
-            exportTxHash, signatures, ledgerSeq));
+            exportTxHash, innerTx, signatures, Blob{0x01}, ledgerSeq));
 }
 
 RCLTxSet
@@ -277,15 +241,6 @@ makeRCLTxSet(Application& app, std::vector<std::shared_ptr<STTx const>> txns)
     }
 
     return RCLTxSet{map->snapShot(false)};
-}
-
-std::size_t
-sidecarLeafCount(SHAMap const& map)
-{
-    std::size_t count = 0;
-    map.visitLeaves(
-        [&](boost::intrusive_ptr<SHAMapItem const> const&) { ++count; });
-    return count;
 }
 
 void
@@ -385,7 +340,7 @@ struct FakeExtensions
     bool exportSigConvergenceFailed_{false};
     bool rngOn{false};
     bool localExportSigs{true};
-    bool consensusExportTxns{false};
+    bool livePendingExportLatches{false};
     bool exportOn{true};
     bool entropyFailed{false};
     bool commitFrozen{false};
@@ -573,7 +528,7 @@ struct FakeExtensions
     bool
     hasConsensusExportTxns() const
     {
-        return consensusExportTxns;
+        return livePendingExportLatches;
     }
 
     uint256
@@ -1419,7 +1374,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             disabledEnv.app().getLedgerMaster().getClosedLedger();
 
         ConsensusExtensions ce{enabledEnv.app(), activeNoopJournal()};
-        auto const tx = makeHash("on-round-start-export-latch");
+        auto const origin = makeHash("on-round-start-export-latch");
+        auto const trigger = makeHash("on-round-start-export-trigger");
         auto const pk = makeValidatorKeys().front();
         std::uint8_t const sigBytes[] = {1, 2, 3};
         Buffer const sig{sigBytes, sizeof(sigBytes)};
@@ -1430,17 +1386,34 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(ce.rngEnabled());
         BEAST_EXPECT(ce.exportEnabled());
 
-        ce.exportSigCollector().addVerifiedSignature(tx, pk, sig, 10);
-        BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 1);
+        BEAST_EXPECT(ce.postValidationExportSigCollector().reopenPublication(
+            origin, trigger, 10));
+        auto admission =
+            ce.postValidationExportSigCollector().beginAttributedAdmission(
+                origin, ExportSigCollectorV2::Contribution{0, pk, sig}, 10);
+        BEAST_EXPECT(
+            admission.result == ExportSigCollectorV2::BeginResult::verify);
+        BEAST_EXPECT(admission.ticket);
+        if (admission.ticket)
+            BEAST_EXPECT(
+                ce.postValidationExportSigCollector()
+                    .admitContribution(std::move(*admission.ticket), true, 10)
+                    .result == ExportSigCollectorV2::AdmitResult::accepted);
+        BEAST_EXPECT(
+            ce.postValidationExportSigCollector().fullUnionSnapshot().size() ==
+            1);
         ce.onRoundStart(RCLCxLedger{enabledLedger}, {});
-        BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 1);
+        BEAST_EXPECT(
+            ce.postValidationExportSigCollector().fullUnionSnapshot().size() ==
+            1);
 
         ce.setRngEnabledThisRound(true);
         ce.setExportEnabledThisRound(true);
         ce.onRoundStart(RCLCxLedger{disabledLedger}, {});
         BEAST_EXPECT(!ce.rngEnabled());
         BEAST_EXPECT(!ce.exportEnabled());
-        BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 0);
+        BEAST_EXPECT(
+            ce.postValidationExportSigCollector().fullUnionSnapshot().empty());
         //@@end test-round-extension-feature-latches
     }
 
@@ -2141,6 +2114,79 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testProposalPrecheckUsesExportShareRelayLimits()
+    {
+        testcase("proposal precheck uses serialized ExportShare limits");
+
+        using enum detail::ProposalPrecheckResult;
+
+        auto const signer = randomKeyPair(KeyType::secp256k1);
+        auto const owner = calcAccountID(signer.first);
+        auto const destination =
+            calcAccountID(randomKeyPair(KeyType::secp256k1).first);
+        auto const releaseTarget =
+            makeSTTx(makeExportedPayment(owner, destination));
+        auto signature = ExportResultBuilder::signExportedTxn(
+            releaseTarget, signer.first, signer.second);
+        ExportShare const share{
+            ExportShare::currentVersion,
+            owner,
+            makeHash("precheck-export-origin"),
+            10,
+            makeHash("precheck-export-origin-ledger"),
+            makeHash("precheck-export-trigger"),
+            3,
+            signer.first,
+            std::move(signature)};
+        auto const serialized = share.serialize();
+        std::string const frame{
+            reinterpret_cast<char const*>(serialized.data()),
+            serialized.size()};
+
+        BEAST_EXPECT(frame.size() > 137);
+        BEAST_EXPECT(
+            frame.size() <= ExportLimits::maxSerializedExportShareBytes);
+        BEAST_EXPECT(ExportShare::parse(makeSlice(frame)));
+
+        auto const makeProposal = [&](std::vector<std::string> const& frames) {
+            protocol::TMProposeSet set;
+            auto const previous = makeHash("precheck-previous-ledger");
+            set.set_previousledger(previous.data(), previous.size());
+            for (auto const& bytes : frames)
+                set.add_exportsignatures(bytes);
+
+            ExtendedPosition position{makeHash("precheck-position")};
+            position.exportSignaturesHash =
+                proposalExportSignaturesHash(frames);
+            Serializer positionData;
+            position.add(positionData);
+            set.set_currenttxhash(positionData.data(), positionData.size());
+            return set;
+        };
+
+        std::vector<std::string> atLimit(
+            ExportLimits::maxExportSharesPerRelay, frame);
+        auto const accepted = makeProposal(atLimit);
+        BEAST_EXPECT(
+            detail::checkProposalExtensions(accepted, true, true).result == ok);
+
+        auto overLimit = atLimit;
+        overLimit.push_back(frame);
+        auto const rejectedCount = makeProposal(overLimit);
+        BEAST_EXPECT(
+            detail::checkProposalExtensions(rejectedCount, true, true).result ==
+            tooManyExportSignatures);
+
+        std::string oversized = frame;
+        oversized.resize(ExportLimits::maxSerializedExportShareBytes + 1, '\0');
+        auto const rejectedSize =
+            makeProposal(std::vector<std::string>{std::move(oversized)});
+        BEAST_EXPECT(
+            detail::checkProposalExtensions(rejectedSize, true, true).result ==
+            oversizedExportSignature);
+    }
+
+    void
     testHarvestRngDataReplacementAndRejection()
     {
         testcase("harvestRngData replacement and rejection");
@@ -2253,54 +2299,58 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testExportSidecarBuildsLocalSnapshot()
+    testExportV2CollectorBuildsAttributedUnion()
     {
-        testcase("Export sidecar builds local snapshot");
+        testcase("Export V2 collector builds attributed union");
 
         using namespace jtx;
         Env env{
             *this, envconfig(validator, ""), supported_amendments(), nullptr};
-        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
-        auto const& valKeys = env.app().getValidatorKeys();
-        BEAST_EXPECT(valKeys.keys);
-        if (!valKeys.keys)
-            return;
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        auto& collector = ce.postValidationExportSigCollector();
+        auto const origin = makeHash("v2-attributed-origin");
+        auto const trigger = makeHash("v2-attributed-trigger");
+        auto const signerA = randomKeyPair(KeyType::secp256k1).first;
+        auto const signerB = randomKeyPair(KeyType::secp256k1).first;
+        std::uint8_t const signatureABytes[] = {1, 2};
+        std::uint8_t const signatureBBytes[] = {3, 4};
+        Buffer const signatureA{signatureABytes, sizeof(signatureABytes)};
+        Buffer const signatureB{signatureBBytes, sizeof(signatureBBytes)};
 
-        auto const& valPK = valKeys.keys->publicKey;
-        auto const& valSK = valKeys.keys->secretKey;
-        auto const signerAccount = calcAccountID(valPK);
-        auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
-        auto const innerObj = makeExportedPayment(signerAccount, dst);
-        auto const innerTx = makeSTTx(innerObj);
-        auto const exportTx = makeExportTx(innerObj, signerAccount);
-        auto const txHash = exportTx->getTransactionID();
-        auto const txSet = makeRCLTxSet(env.app(), {exportTx});
-        auto const seq = ledger->seq() + 1;
+        BEAST_EXPECT(collector.reopenPublication(origin, trigger, 10));
+        auto admit = [&](ExportSigCollectorV2::Position position,
+                         PublicKey const& key,
+                         Buffer const& signature) {
+            auto admission = collector.beginAttributedAdmission(
+                origin,
+                ExportSigCollectorV2::Contribution{position, key, signature},
+                10);
+            BEAST_EXPECT(
+                admission.result == ExportSigCollectorV2::BeginResult::verify);
+            BEAST_EXPECT(admission.ticket);
+            if (!admission.ticket)
+                return;
+            BEAST_EXPECT(
+                collector
+                    .admitContribution(std::move(*admission.ticket), true, 10)
+                    .result == ExportSigCollectorV2::AdmitResult::accepted);
+        };
+        admit(0, signerA, signatureA);
+        admit(2, signerB, signatureB);
 
-        ConsensusExtensions source{env.app(), activeNoopJournal()};
-        source.setExportEnabledThisRound(true);
-        source.cacheUNLReport(ledger);
-        source.cacheConsensusTxSet(txSet);
-        source.cacheConsensusTxSet(txSet);
-        BEAST_EXPECT(source.hasConsensusExportTxns());
-        BEAST_EXPECT(!source.hasPendingExportSigs());
-
-        auto const sigData = buildMultiSigningData(innerTx, signerAccount);
-        auto const sig = sign(valPK, valSK, sigData.slice());
-        Buffer sigBuf(sig.data(), sig.size());
-        source.exportSigCollector().addUnverifiedSignature(
-            txHash, valPK, sigBuf, seq);
-        BEAST_EXPECT(source.verifyPendingExportSigs(txSet, seq) == 1);
-        BEAST_EXPECT(
-            source.exportSigCollector().hasVerifiedSignature(txHash, valPK));
-        BEAST_EXPECT(source.hasPendingExportSigs());
-
-        auto const exportSigSetHash = source.buildExportSigSet(seq);
-        auto const exportedSet =
-            env.app().getInboundTransactions().getSet(exportSigSetHash, false);
-        BEAST_EXPECT(exportedSet);
-        if (exportedSet)
-            BEAST_EXPECT(sidecarLeafCount(*exportedSet) == 1);
+        auto const snapshot = collector.fullUnionSnapshot();
+        auto const found = snapshot.find(origin);
+        BEAST_EXPECT(found != snapshot.end());
+        if (found != snapshot.end())
+        {
+            BEAST_EXPECT(found->second.size() == 2);
+            BEAST_EXPECT(found->second[0].position == 0);
+            BEAST_EXPECT(found->second[0].signingKey == signerA);
+            BEAST_EXPECT(found->second[0].signature == signatureA);
+            BEAST_EXPECT(found->second[1].position == 2);
+            BEAST_EXPECT(found->second[1].signingKey == signerB);
+            BEAST_EXPECT(found->second[1].signature == signatureB);
+        }
     }
 
     void
@@ -2391,290 +2441,77 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testExportSidecarIgnoresCancelOnlyExports()
+    testAgreedExportWitnessBuildsContributorBitmap()
     {
-        testcase("Export sidecar ignores cancel-only exports");
+        testcase("agreed Export witness assembles target and contributors");
 
         using namespace jtx;
         Env env{
             *this, envconfig(validator, ""), supported_amendments(), nullptr};
-        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
-        auto const& valKeys = env.app().getValidatorKeys();
-        BEAST_EXPECT(valKeys.keys);
-        if (!valKeys.keys)
-            return;
-
-        auto const& valPK = valKeys.keys->publicKey;
-        auto const& valSK = valKeys.keys->secretKey;
-        auto const signerAccount = calcAccountID(valPK);
-        auto const seq = ledger->seq() + 1;
-
-        auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
-        auto const innerObj = makeExportedPayment(signerAccount, dst);
-        auto const innerTx = makeSTTx(innerObj);
-        auto const exportTx = makeExportTx(innerObj, signerAccount);
-        auto const txHash = exportTx->getTransactionID();
-
-        std::vector<std::shared_ptr<STTx const>> txs;
-        for (std::uint32_t sequence = 1;
-             txs.size() < ExportLimits::maxPendingExports && sequence < 1000;
-             ++sequence)
-        {
-            auto cancelTx = makeCancelExportTx(signerAccount, sequence);
-            if (cancelTx->getTransactionID() < txHash)
-                txs.push_back(std::move(cancelTx));
-        }
-        BEAST_EXPECT(txs.size() == ExportLimits::maxPendingExports);
-        if (txs.size() != ExportLimits::maxPendingExports)
-            return;
-        txs.push_back(exportTx);
-
-        auto const txSet = makeRCLTxSet(env.app(), txs);
-
-        ConsensusExtensions source{env.app(), activeNoopJournal()};
-        source.setExportEnabledThisRound(true);
-        source.cacheUNLReport(ledger);
-        source.cacheConsensusTxSet(txSet);
-
-        auto const sigData = buildMultiSigningData(innerTx, signerAccount);
-        auto const sig = sign(valPK, valSK, sigData.slice());
-        Buffer sigBuf(sig.data(), sig.size());
-        source.exportSigCollector().addVerifiedSignature(
-            txHash, valPK, sigBuf, seq);
-
-        auto const exportSigSetHash = source.buildExportSigSet(seq);
-        auto const exportedSet =
-            env.app().getInboundTransactions().getSet(exportSigSetHash, false);
-        BEAST_EXPECT(exportedSet);
-        if (exportedSet)
-            BEAST_EXPECT(sidecarLeafCount(*exportedSet) == 1);
-
-        source.acceptExportSigSet(exportSigSetHash);
-        BEAST_EXPECT(source.agreedExportSignatures(*exportTx, txHash, 1));
-    }
-
-    void
-    testExportSidecarBuildCapsConsensusCandidates()
-    {
-        testcase("Export sidecar build caps consensus candidates");
-
-        using namespace jtx;
-        Env env{
-            *this, envconfig(validator, ""), supported_amendments(), nullptr};
-        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
-        auto const& valKeys = env.app().getValidatorKeys();
-        BEAST_EXPECT(valKeys.keys);
-        if (!valKeys.keys)
-            return;
-
-        auto const& valPK = valKeys.keys->publicKey;
-        auto const& valSK = valKeys.keys->secretKey;
-        auto const signerAccount = calcAccountID(valPK);
-        auto const seq = ledger->seq() + 1;
-
-        std::vector<std::shared_ptr<STTx const>> exportTxs;
-        std::vector<std::pair<uint256, Buffer>> signatures;
-        for (std::size_t i = 0; i <= ExportLimits::maxPendingExports; ++i)
-        {
-            auto const dst =
-                calcAccountID(randomKeyPair(KeyType::secp256k1).first);
-            auto const innerObj = makeExportedPayment(signerAccount, dst);
-            auto const innerTx = makeSTTx(innerObj);
-            auto const exportTx = makeExportTx(innerObj, signerAccount);
-            auto const txHash = exportTx->getTransactionID();
-            auto const sigData = buildMultiSigningData(innerTx, signerAccount);
-            auto const sig = sign(valPK, valSK, sigData.slice());
-
-            exportTxs.push_back(exportTx);
-            signatures.emplace_back(txHash, Buffer(sig.data(), sig.size()));
-        }
-
-        auto const txSet = makeRCLTxSet(env.app(), exportTxs);
-
-        ConsensusExtensions source{env.app(), activeNoopJournal()};
-        source.setExportEnabledThisRound(true);
-        source.cacheUNLReport(ledger);
-        source.cacheConsensusTxSet(txSet);
-        for (auto const& [txHash, sig] : signatures)
-            source.exportSigCollector().addVerifiedSignature(
-                txHash, valPK, sig, seq);
-
-        auto const exportSigSetHash = source.buildExportSigSet(seq);
-        auto const exportedSet =
-            env.app().getInboundTransactions().getSet(exportSigSetHash, false);
-        BEAST_EXPECT(exportedSet);
-        if (exportedSet)
-            BEAST_EXPECT(
-                sidecarLeafCount(*exportedSet) ==
-                ExportLimits::maxPendingExports);
-
-        source.acceptExportSigSet(exportSigSetHash);
-        BEAST_EXPECT(!source.agreedExportSignatures(
-            *exportTxs.back(),
-            exportTxs.back()->getTransactionID(),
-            ExportLimits::maxPendingExports + 1));
-    }
-
-    void
-    testExportAgreedSignaturesIgnoreLiveCollectorMutation()
-    {
-        testcase("Export apply uses agreed sidecar signatures");
-
-        using namespace jtx;
-        Env env{
-            *this, envconfig(validator, ""), supported_amendments(), nullptr};
-        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
-        auto const& valKeys = env.app().getValidatorKeys();
-        BEAST_EXPECT(valKeys.keys);
-        if (!valKeys.keys)
-            return;
-
-        auto const& valPK = valKeys.keys->publicKey;
-        auto const& valSK = valKeys.keys->secretKey;
-        auto const signerAccount = calcAccountID(valPK);
-        auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
-        auto const innerObj = makeExportedPayment(signerAccount, dst);
-        auto const innerTx = makeSTTx(innerObj);
-        auto const exportTx = makeExportTx(innerObj, signerAccount);
-        auto const txHash = exportTx->getTransactionID();
-        auto const txSet = makeRCLTxSet(env.app(), {exportTx});
-        auto const seq = ledger->seq() + 1;
-
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
-        ce.setExportEnabledThisRound(true);
-        ce.cacheUNLReport(ledger);
-        ce.cacheConsensusTxSet(txSet);
 
-        auto const sigData = buildMultiSigningData(innerTx, signerAccount);
-        auto const sig = sign(valPK, valSK, sigData.slice());
-        Buffer const originalSig(sig.data(), sig.size());
-        ce.exportSigCollector().addVerifiedSignature(
-            txHash, valPK, originalSig, seq);
-        auto const exportSigSetHash = ce.buildExportSigSet(seq);
-        BEAST_EXPECT(
-            env.app().getInboundTransactions().getSet(exportSigSetHash, false));
-        auto const view = ce.activeValidatorView();
-
-        // A locally-built export signature map is not closed-ledger material
-        // until the export sidecar gate accepts that exact root.
-        BEAST_EXPECT(!ce.agreedExportSignatures(*exportTx, txHash, 1));
-        ce.acceptExportSigSet(makeHash("wrong-export-sigset-root"));
-        BEAST_EXPECT(!ce.agreedExportSignatures(*exportTx, txHash, 1));
-        ce.acceptExportSigSet(exportSigSetHash);
-
-        // Simulate a late local collector mutation after the sidecar hash has
-        // converged. The live collector now differs from the agreed sidecar
-        // map.
-        std::uint8_t const lateBytes[] = {9, 8, 7};
-        Buffer const lateSig{lateBytes, sizeof(lateBytes)};
-        ce.exportSigCollector().addVerifiedSignature(
-            txHash, valPK, lateSig, seq);
-
-        auto const live = ce.exportSigCollector().checkQuorumAndSnapshot(
-            txHash, 1, [&](PublicKey const& pk) {
-                return ce.isActiveValidator(pk, *view);
-            });
-        BEAST_EXPECT(live);
-        if (live)
-            BEAST_EXPECT(live->at(valPK) == lateSig);
-
-        auto const agreed = ce.agreedExportSignatures(*exportTx, txHash, 1);
-        BEAST_EXPECT(agreed);
-        if (agreed)
-        {
-            BEAST_EXPECT(agreed->size() == 1);
-            BEAST_EXPECT(agreed->at(valPK) == originalSig);
-        }
-    }
-
-    void
-    testExportAgreedSignaturesTrustAcceptedRootMembership()
-    {
-        testcase("Export agreed signatures trust accepted root membership");
-
-        using namespace jtx;
-        Env env{
-            *this, envconfig(validator, ""), supported_amendments(), nullptr};
-        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
-
-        ConsensusExtensions ce{env.app(), activeNoopJournal()};
-        ce.setExportEnabledThisRound(true);
-        ce.cacheUNLReport(ledger);
-        auto const view = ce.activeValidatorView();
-
-        auto const inactive = randomKeyPair(KeyType::secp256k1);
-        auto const& valPK = inactive.first;
-        auto const& valSK = inactive.second;
-        BEAST_EXPECT(!ce.isActiveValidator(valPK, *view));
-
-        auto const signerAccount = calcAccountID(valPK);
+        auto const signerA = randomKeyPair(KeyType::secp256k1);
+        auto const signerB = randomKeyPair(KeyType::secp256k1);
         auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
-        auto const innerObj = makeExportedPayment(signerAccount, dst);
-        auto const innerTx = makeSTTx(innerObj);
-        auto const exportTx = makeExportTx(innerObj, signerAccount);
-        auto const txHash = exportTx->getTransactionID();
+        auto const releaseTarget =
+            makeSTTx(makeExportedPayment(calcAccountID(signerA.first), dst));
+        auto const origin = makeHash("agreed-export-v2-origin");
+        Blob const committee{0x05};
 
-        auto const sigData = buildMultiSigningData(innerTx, signerAccount);
-        auto const sig = sign(valPK, valSK, sigData.slice());
-        Buffer const sigBuf(sig.data(), sig.size());
-
-        STObject sidecar(sfGeneric);
-        sidecar.setFieldU8(sfSidecarType, sidecarExportSig);
-        sidecar.setFieldH256(sfTransactionHash, txHash);
-        sidecar.setFieldVL(sfSigningPubKey, valPK.slice());
-        sidecar.setFieldVL(sfTxnSignature, Slice(sigBuf.data(), sigBuf.size()));
-
-        Serializer itemSer;
-        sidecar.add(itemSer);
         auto map = std::make_shared<SHAMap>(
             SHAMapType::SIDECAR, env.app().getNodeFamily());
         map->setUnbacked();
-        map->addItem(
-            SHAMapNodeType::tnSIDECAR,
-            make_shamapitem(
-                sidecar.getHash(HashPrefix::sidecar), itemSer.slice()));
+        auto addContribution = [&](std::uint32_t position,
+                                   PublicKey const& publicKey,
+                                   SecretKey const& secretKey) {
+            auto const signature = ExportResultBuilder::signExportedTxn(
+                releaseTarget, publicKey, secretKey);
+            STObject sidecar(sfGeneric);
+            sidecar.setFieldU8(sfSidecarType, sidecarExportSig);
+            sidecar.setFieldH256(sfTransactionHash, origin);
+            sidecar.setFieldU32(sfTransactionIndex, position);
+            sidecar.setFieldVL(sfSigningPubKey, publicKey.slice());
+            sidecar.setFieldVL(
+                sfTxnSignature, Slice{signature.data(), signature.size()});
+            Serializer serialized;
+            sidecar.add(serialized);
+            map->addItem(
+                SHAMapNodeType::tnSIDECAR,
+                make_shamapitem(
+                    sidecar.getHash(HashPrefix::sidecar), serialized.slice()));
+        };
+        addContribution(0, signerA.first, signerA.second);
+        addContribution(2, signerB.first, signerB.second);
         map = map->snapShot(false);
 
         auto const acceptedHash = map->getHash().as_uint256();
         env.app().getInboundTransactions().giveSet(acceptedHash, map, false);
+        auto const threshold = ExportLimits::committeeQuorumThreshold(2);
+        BEAST_EXPECT(threshold == 2);
+        BEAST_EXPECT(!ce.agreedExportWitness(
+            releaseTarget, origin, committee, 3, threshold));
         ce.acceptExportSigSet(acceptedHash);
 
-        auto const agreed = ce.agreedExportSignatures(*exportTx, txHash, 1);
-        BEAST_EXPECT(agreed);
-        if (agreed)
-        {
-            BEAST_EXPECT(agreed->size() == 1);
-            BEAST_EXPECT(agreed->at(valPK) == sigBuf);
-        }
-    }
+        auto const material = ce.agreedExportWitness(
+            releaseTarget, origin, committee, 3, threshold);
+        BEAST_EXPECT(material);
+        if (!material)
+            return;
+        BEAST_EXPECT(material->signatures.size() == 2);
+        BEAST_EXPECT(material->contributors == Blob{0x05});
 
-    void
-    testOnPreBuildPreservesExportDecision()
-    {
-        testcase("onPreBuild preserves export state through buildLCL");
-
-        using namespace jtx;
-        Env env{
-            *this,
-            envconfig(validator, ""),
-            supported_amendments() | featureConsensusEntropy | featureExport,
-            nullptr};
-
-        ConsensusExtensions ce{env.app(), activeNoopJournal()};
-        ce.setExportEnabledThisRound(true);
-        ce.setRngEnabledThisRound(true);
-        ce.setExportSigConvergenceFailed();
-        auto const tx = makeHash("export-prebuild-preserve");
-        auto const pk = makeValidatorKeys().front();
-        std::uint8_t const sigBytes[] = {1, 2, 3};
-        Buffer const sig{sigBytes, sizeof(sigBytes)};
-        ce.exportSigCollector().addVerifiedSignature(tx, pk, sig, 10);
-
-        CanonicalTXSet retriableTxs{makeHash("preserve-export-state")};
-        ce.onPreBuild(retriableTxs, env.closed()->seq() + 1, makeHash("txset"));
-
-        BEAST_EXPECT(ce.exportSigConvergenceFailed());
-        BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 1);
+        auto const witness = ExportResultBuilder::buildSignatureWitness(
+            origin,
+            releaseTarget,
+            material->signatures,
+            material->contributors,
+            20);
+        BEAST_EXPECT(!witness.isFieldPresent(sfSigners));
+        BEAST_EXPECT(witness.getFieldVL(sfEntropyContributors) == Blob{0x05});
+        auto const& assembled =
+            witness.peekAtField(sfExportedTxn).downcast<STObject>();
+        BEAST_EXPECT(assembled.isFieldPresent(sfSigners));
+        BEAST_EXPECT(assembled.getFieldArray(sfSigners).size() == 2);
     }
 
     void
@@ -3446,7 +3283,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         FakeExtensions ext;
         ext.localExportSigs = false;
-        ext.consensusExportTxns = true;
+        ext.livePendingExportLatches = true;
         ExtensionTickHarness harness;
         auto const peerHash = makeHash("peer-export-sig-set");
 
@@ -3471,7 +3308,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         FakeExtensions ext;
         ext.localExportSigs = false;
-        ext.consensusExportTxns = false;
+        ext.livePendingExportLatches = false;
         ExtensionTickHarness harness;
         auto const peerHash = makeHash("empty-round-export-sig-set");
 
@@ -3535,7 +3372,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         FakeExtensions ext;
         ext.localExportSigs = false;
-        ext.consensusExportTxns = true;
+        ext.livePendingExportLatches = true;
         ExtensionTickHarness harness;
 
         auto result = harness.tick(ext);
@@ -3602,19 +3439,31 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{*this, envconfig(), supported_amendments(), nullptr};
         ConsensusExtensions ce{env.app(), env.journal};
-        auto const tx = makeHash("export-disabled-clears-collector");
+        auto const origin = makeHash("export-disabled-clears-collector");
+        auto const trigger = makeHash("export-disabled-trigger");
         auto const pk = makeValidatorKeys().front();
         std::uint8_t const sigBytes[] = {1, 2, 3};
         Buffer const sig{sigBytes, sizeof(sigBytes)};
 
         ce.setExportEnabledThisRound(true);
-        ce.exportSigCollector().addVerifiedSignature(tx, pk, sig, 10);
+        BEAST_EXPECT(ce.postValidationExportSigCollector().reopenPublication(
+            origin, trigger, 10));
+        auto admission =
+            ce.postValidationExportSigCollector().beginAttributedAdmission(
+                origin, ExportSigCollectorV2::Contribution{0, pk, sig}, 10);
+        BEAST_EXPECT(admission.ticket);
+        if (admission.ticket)
+            ce.postValidationExportSigCollector().admitContribution(
+                std::move(*admission.ticket), true, 10);
         ce.clearRngState();
-        BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 1);
+        BEAST_EXPECT(
+            ce.postValidationExportSigCollector().fullUnionSnapshot().size() ==
+            1);
 
         ce.setExportEnabledThisRound(false);
         ce.clearRngState();
-        BEAST_EXPECT(ce.exportSigCollector().signatureCount(tx) == 0);
+        BEAST_EXPECT(
+            ce.postValidationExportSigCollector().fullUnionSnapshot().empty());
     }
 
     void
@@ -3660,134 +3509,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ce.decorateMessage(prop, proposal, position, Buffer{});
         BEAST_EXPECT(ce.pendingRevealCount() == 0);
         BEAST_EXPECT(ce.pendingCommitCount() == 0);
-    }
-
-    void
-    testReplayedProposalHarvestsExportSigs()
-    {
-        testcase("Replayed proposal harvests export signatures");
-
-        using namespace jtx;
-        Env env{
-            *this, envconfig(validator, ""), supported_amendments(), nullptr};
-        auto const& valKeys = env.app().getValidatorKeys();
-        BEAST_EXPECT(valKeys.keys);
-        if (!valKeys.keys)
-            return;
-
-        ConsensusExtensions ce{env.app(), env.journal};
-        ce.setExportEnabledThisRound(true);
-        ce.cacheUNLReport();
-
-        auto const activeView = ce.activeValidatorView();
-        BEAST_EXPECT(activeView->sourceLedgerHash);
-        if (!activeView->sourceLedgerHash)
-            return;
-
-        auto const senderPK = valKeys.keys->publicKey;
-        auto const senderSK = valKeys.keys->secretKey;
-        BEAST_EXPECT(ce.isActiveValidator(senderPK, *activeView));
-        if (!ce.isActiveValidator(senderPK, *activeView))
-            return;
-
-        auto const tx = makeHash("replayed-export-sig-tx");
-        auto const blob = makeExportSigBlob(tx, senderPK);
-        ExtendedPosition position{makeHash("replayed-position")};
-        position.myCommitment = makeHash("replayed-position-commitment");
-        position.exportSignaturesHash =
-            proposalExportSignaturesHash(std::vector<std::string>{blob});
-        auto const prevLedger = *activeView->sourceLedgerHash;
-        auto const closeTime = NetClock::time_point{NetClock::duration{77}};
-
-        // Stored proposals can arrive from cluster relay paths. Extension
-        // sidecars are ledger inputs, so an invalid proposal signature must
-        // harvest neither RNG claims nor export signature blobs.
-        ce.onTrustedPeerProposal(
-            calcNodeID(senderPK),
-            senderPK,
-            position,
-            0,
-            closeTime,
-            prevLedger,
-            Slice{},
-            std::vector<std::string>{blob});
-        BEAST_EXPECT(!ce.exportSigCollector().hasUnverifiedSignatures());
-        BEAST_EXPECT(ce.pendingCommitCount() == 0);
-
-        auto const sig = signPosition(
-            senderPK, senderSK, position, 0, closeTime, prevLedger);
-
-        ce.onTrustedPeerProposal(
-            calcNodeID(senderPK),
-            senderPK,
-            position,
-            0,
-            closeTime,
-            prevLedger,
-            Slice(sig.data(), sig.size()),
-            std::vector<std::string>{blob});
-
-        BEAST_EXPECT(ce.exportSigCollector().hasUnverifiedSignatures());
-        BEAST_EXPECT(ce.pendingCommitCount() == 1);
-    }
-
-    void
-    testWireProposalHarvestsExportSigs()
-    {
-        testcase("wire proposal harvests export signatures");
-
-        using namespace jtx;
-        Env env{
-            *this, envconfig(validator, ""), supported_amendments(), nullptr};
-        auto const& valKeys = env.app().getValidatorKeys();
-        BEAST_EXPECT(valKeys.keys);
-        if (!valKeys.keys)
-            return;
-
-        ConsensusExtensions ce{env.app(), activeNoopJournal()};
-        ce.setExportEnabledThisRound(true);
-        ce.cacheUNLReport();
-
-        protocol::TMProposeSet wire;
-        auto const& senderPK = valKeys.keys->publicKey;
-        wire.set_nodepubkey(senderPK.data(), senderPK.size());
-        auto const prevLedger = *ce.activeValidatorView()->sourceLedgerHash;
-        wire.set_previousledger(prevLedger.data(), prevLedger.size());
-        auto const tx = makeHash("wire-export-sig-tx");
-        auto const blob = makeExportSigBlob(tx, senderPK);
-        wire.add_exportsignatures(blob);
-        ExtendedPosition position{makeHash("wire-position")};
-        position.exportSignaturesHash =
-            proposalExportSignaturesHash(wire.exportsignatures());
-        setWirePosition(wire, position);
-
-        ce.onTrustedPeerMessage(wire);
-        BEAST_EXPECT(ce.exportSigCollector().hasUnverifiedSignatures());
-        auto const beforeMalformed =
-            ce.exportSigCollector().unverifiedSignatures(tx);
-        BEAST_EXPECT(beforeMalformed.size() == 1);
-
-        protocol::TMProposeSet mismatch;
-        mismatch.set_nodepubkey(senderPK.data(), senderPK.size());
-        mismatch.set_previousledger(prevLedger.data(), prevLedger.size());
-        mismatch.add_exportsignatures(blob);
-        ExtendedPosition mismatchPosition{makeHash("wire-mismatch-position")};
-        mismatchPosition.exportSignaturesHash =
-            proposalExportSignaturesHash(std::vector<std::string>{"other"});
-        setWirePosition(mismatch, mismatchPosition);
-        ce.onTrustedPeerMessage(mismatch);
-        BEAST_EXPECT(
-            ce.exportSigCollector().unverifiedSignatures(tx) ==
-            beforeMalformed);
-
-        protocol::TMProposeSet malformed;
-        malformed.add_exportsignatures(blob);
-        malformed.set_nodepubkey("bad", 3);
-        setWirePosition(malformed, position);
-        ce.onTrustedPeerMessage(malformed);
-        auto const afterMalformed =
-            ce.exportSigCollector().unverifiedSignatures(tx);
-        BEAST_EXPECT(afterMalformed == beforeMalformed);
     }
 
     void
@@ -3969,15 +3690,12 @@ public:
         testTier2ThresholdAnchorsToOriginalView();
         testOnPreBuildTier2WithNegativeUNL();
         testProposalProofRoundTrip();
+        testProposalPrecheckUsesExportShareRelayLimits();
         testHarvestRngDataReplacementAndRejection();
-        testExportSidecarBuildsLocalSnapshot();
+        testExportV2CollectorBuildsAttributedUnion();
         testTransactionAcquireRejectsSidecarWireNodes();
         testAcquiredSetsRejectConsensusExtensionPseudos();
-        testExportSidecarIgnoresCancelOnlyExports();
-        testExportSidecarBuildCapsConsensusCandidates();
-        testExportAgreedSignaturesIgnoreLiveCollectorMutation();
-        testExportAgreedSignaturesTrustAcceptedRootMembership();
-        testOnPreBuildPreservesExportDecision();
+        testAgreedExportWitnessBuildsContributorBitmap();
         testRngSidecarBuildsLocalSnapshots();
         testOnPreBuildInjectsStandaloneEntropy();
         testOnPreBuildEntropyMismatchKeepsAgreed();
@@ -4012,8 +3730,6 @@ public:
         testParticipantDiagnosticsOnlyWhenExtensionEnabled();
         testExportDisabledRoundClearsCollector();
         testValidatorKeylessAuthoringNoops();
-        testReplayedProposalHarvestsExportSigs();
-        testWireProposalHarvestsExportSigs();
         testPublicHookNoopAndFailureBranches();
         testDecorateMessageStoresSelfProofs();
     }
