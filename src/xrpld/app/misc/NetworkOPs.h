@@ -46,21 +46,6 @@ class RCLConsensus;
 class Transaction;
 class ValidatorKeys;
 
-/** Node-local replacement view of admitted shares for one pending Export. */
-struct ExportSignatureSnapshot
-{
-    std::uint8_t version{ExportShare::currentVersion};
-    LedgerIndex validatedLedgerSeq{0};
-    uint256 validatedLedgerHash;
-    AccountID owner;
-    uint256 originTxn;
-    LedgerIndex originLedgerSeq{0};
-    uint256 originLedgerHash;
-    uint256 triggerTxn;
-    std::vector<ExportShare> shares;
-    bool terminal{false};
-};
-
 /** Provides server functionality for clients.
 
     Clients include backend applications, local commands, and connected
@@ -263,13 +248,12 @@ public:
     virtual void
     pubValidation(std::shared_ptr<STValidation> const& val) = 0;
 
-    /** Publish a uniquely admitted post-validation Export share. */
+    /** Publish an admitted Export share at a validated observation cursor. */
     virtual void
-    pubExportSignature(ExportShare const& share) = 0;
-
-    /** Publish the complete node-local share view for one pending Export. */
-    virtual void
-    pubExportSignatureSnapshot(ExportSignatureSnapshot const& snapshot) = 0;
+    pubExportSignature(
+        ExportShare const& share,
+        LedgerIndex validatedLedgerSeq,
+        uint256 const& validatedLedgerHash) = 0;
 
     virtual void
     stateAccounting(Json::Value& obj) = 0;

@@ -3609,12 +3609,12 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testExportStreamTerminalRetirement()
+    testExportStreamPerLedgerDedup()
     {
         using namespace std::chrono_literals;
         using namespace jtx;
 
-        testcase("Export stream retires tracked pending latch once");
+        testcase("Export stream emits one share type once per ledger");
 
         Env env{
             *this,
@@ -3634,43 +3634,51 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(validated))
             return;
 
-        auto const [key, _] = randomKeyPair(KeyType::secp256k1);
-        auto const owner = calcAccountID(key);
-        auto const origin = makeHash("retired-pending-export");
-        auto const originSeq = validated->info().seq;
-        auto const originHash = validated->info().hash;
-        ce.publishedExportOrigins_.emplace(
-            origin,
-            ConsensusExtensions::ExportSnapshotOrigin{
-                ExportShare::currentVersion,
-                owner,
-                originSeq,
-                originHash,
-                origin});
+        auto const [key, secret] = randomKeyPair(KeyType::secp256k1);
+        auto const signature = sign(key, secret, Slice{"stream-share", 12});
+        ExportShare const share{
+            ExportShare::currentVersion,
+            calcAccountID(key),
+            makeHash("stream-origin"),
+            validated->info().seq,
+            validated->info().hash,
+            makeHash("stream-origin"),
+            7,
+            key,
+            signature};
 
-        ce.onValidatedLedger(validated->info().seq, validated->info().hash);
+        {
+            std::lock_guard streamLock(ce.exportStreamMutex_);
+            BEAST_EXPECT(ce.publishExportShareLocked(
+                share, validated->info().seq, validated->info().hash));
+            BEAST_EXPECT(!ce.publishExportShareLocked(
+                share, validated->info().seq, validated->info().hash));
+        }
 
         BEAST_EXPECT(wsc->findMsg(5s, [&](Json::Value const& event) {
             return event[jss::stream] == "export_signatures" &&
-                event[jss::type] == "exportSignatureSnapshot" &&
-                event[jss::snapshot].asBool() && event["terminal"].asBool() &&
+                event[jss::type] == "exportSignatureReceived" &&
                 event[jss::ledger_index].asUInt() == validated->info().seq &&
                 event[jss::ledger_hash] == to_string(validated->info().hash) &&
-                event[jss::owner] == toBase58(owner) &&
-                event[jss::origin_txid] == to_string(origin) &&
-                event[jss::origin_ledger_seq].asUInt() == originSeq &&
-                event[jss::origin_ledger_hash] == to_string(originHash) &&
-                event[jss::shares].isArray() && event[jss::shares].size() == 0;
+                event[jss::origin_txid] == to_string(share.originTxn) &&
+                event[jss::universe_position].asUInt() ==
+                share.universePosition;
         }));
-        BEAST_EXPECT(ce.publishedExportOrigins_.empty());
-        BEAST_EXPECT(
-            ce.lastExportSnapshotSeq_.load(std::memory_order_relaxed) ==
-            validated->info().seq);
-
-        ce.onValidatedLedger(validated->info().seq, validated->info().hash);
         BEAST_EXPECT(!wsc->findMsg(250ms, [](Json::Value const& event) {
-            return event[jss::type] == "exportSignatureSnapshot" &&
-                event["terminal"].asBool();
+            return event[jss::type] == "exportSignatureReceived";
+        }));
+
+        auto const nextSeq = validated->info().seq + 1;
+        auto const nextHash = makeHash("stream-next-ledger");
+        {
+            std::lock_guard streamLock(ce.exportStreamMutex_);
+            BEAST_EXPECT(ce.publishExportShareLocked(share, nextSeq, nextHash));
+        }
+        BEAST_EXPECT(wsc->findMsg(5s, [&](Json::Value const& event) {
+            return event[jss::type] == "exportSignatureReceived" &&
+                event[jss::ledger_index].asUInt() == nextSeq &&
+                event[jss::ledger_hash] == to_string(nextHash) &&
+                event[jss::origin_txid] == to_string(share.originTxn);
         }));
 
         ce.stopExportShareService();
@@ -3704,16 +3712,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(validated))
             return;
 
-        auto const [key, _] = randomKeyPair(KeyType::secp256k1);
         auto const origin = makeHash("stop-fenced-pending-export");
-        ce.publishedExportOrigins_.emplace(
-            origin,
-            ConsensusExtensions::ExportSnapshotOrigin{
-                ExportShare::currentVersion,
-                calcAccountID(key),
-                validated->info().seq,
-                validated->info().hash,
-                origin});
+        ce.exportStreamEmissionSeq_ = validated->info().seq;
+        ce.exportStreamEmittedShares_.emplace(origin, 1);
 
         std::unique_lock streamLock{ce.exportStreamMutex_};
         std::promise<void> callbackStarted;
@@ -3741,9 +3742,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(stop.wait_for(5s) == std::future_status::ready);
         stop.get();
 
-        BEAST_EXPECT(ce.publishedExportOrigins_.empty());
+        BEAST_EXPECT(ce.exportStreamEmissionSeq_ == 0);
+        BEAST_EXPECT(ce.exportStreamEmittedShares_.empty());
         BEAST_EXPECT(!wsc->findMsg(250ms, [](Json::Value const& event) {
-            return event[jss::type] == "exportSignatureSnapshot";
+            return event[jss::type] == "exportSignatureReceived";
         }));
         BEAST_EXPECT(
             wsc->invoke("unsubscribe", stream)[jss::status] == "success");
@@ -3969,7 +3971,7 @@ public:
         testParticipantDiagnosticsOnlyWhenExtensionEnabled();
         testExportDisabledRoundClearsCollector();
         testValidatorKeylessAuthoringNoops();
-        testExportStreamTerminalRetirement();
+        testExportStreamPerLedgerDedup();
         testExportStreamStopFence();
         testPublicHookNoopAndFailureBranches();
         testDecorateMessageStoresSelfProofs();

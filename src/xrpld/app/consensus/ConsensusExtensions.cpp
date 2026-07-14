@@ -235,6 +235,30 @@ pendingExportLatches(ReadView const& view, LedgerIndex eligibleSeq)
 }  // namespace
 
 bool
+ConsensusExtensions::publishExportShareLocked(
+    ExportShare const& share,
+    LedgerIndex const validatedLedgerSeq,
+    uint256 const& validatedLedgerHash)
+{
+    if (!exportShareServiceStarted_.load(std::memory_order_acquire))
+        return false;
+
+    if (exportStreamEmissionSeq_ != validatedLedgerSeq)
+    {
+        exportStreamEmissionSeq_ = validatedLedgerSeq;
+        exportStreamEmittedShares_.clear();
+    }
+
+    auto const identity = std::pair{share.originTxn, share.universePosition};
+    if (!exportStreamEmittedShares_.insert(identity).second)
+        return false;
+
+    app_.getOPs().pubExportSignature(
+        share, validatedLedgerSeq, validatedLedgerHash);
+    return true;
+}
+
+bool
 ConsensusExtensions::onExportShare(ExportShare const& share)
 {
     if (!exportShareServiceStarted_.load(std::memory_order_acquire))
@@ -273,7 +297,8 @@ ConsensusExtensions::onExportShare(ExportShare const& share)
         auto const latest = app_.getLedgerMaster().getValidatedLedger();
         if (!latest || !isPendingExportShare(*latest, share, j_))
             return false;
-        app_.getOPs().pubExportSignature(share);
+        publishExportShareLocked(
+            share, latest->info().seq, latest->info().hash);
         return true;
     }
     if (outcome.result != ExportSigCollectorV2::AdmitResult::conflicted ||
@@ -320,6 +345,55 @@ ConsensusExtensions::onValidatedLedger(
             return;
 
         postValidationExportSigCollector_.cleanupStale(validated->info().seq);
+
+        // Replay the retained share view once at each validated cursor. Shares
+        // admitted concurrently are serialized by exportStreamMutex_: they
+        // either appear in this replay or publish afterward as edge events.
+        {
+            std::lock_guard streamLock(exportStreamMutex_);
+            if (!exportShareServiceStarted_.load(std::memory_order_acquire))
+                return;
+            if (lastExportReplaySeq_.load(std::memory_order_relaxed) <
+                validated->info().seq)
+            {
+                lastExportReplaySeq_.store(
+                    validated->info().seq, std::memory_order_relaxed);
+                auto const live =
+                    pendingExportLatches(*validated, validated->info().seq);
+                auto const unionSnapshot =
+                    postValidationExportSigCollector_.fullUnionSnapshot();
+                for (auto const& [origin, latch] : live)
+                {
+                    auto const it = unionSnapshot.find(origin);
+                    if (it == unionSnapshot.end())
+                        continue;
+
+                    auto const originSeq = latch->getFieldU32(sfLedgerSequence);
+                    auto const originHash = originSeq == validated->info().seq
+                        ? std::optional<uint256>{validated->info().hash}
+                        : hashOfSeq(*validated, originSeq, j_);
+                    if (!originHash)
+                        continue;
+
+                    for (auto const& contribution : it->second)
+                    {
+                        publishExportShareLocked(
+                            ExportShare{
+                                ExportShare::currentVersion,
+                                latch->getAccountID(sfAccount),
+                                origin,
+                                originSeq,
+                                *originHash,
+                                origin,
+                                contribution.position,
+                                contribution.signingKey,
+                                contribution.signature},
+                            validated->info().seq,
+                            validated->info().hash);
+                    }
+                }
+            }
+        }
 
         std::vector<ExportShare> shares;
         shares.reserve(ExportLimits::maxLiveExportLatches);
@@ -461,88 +535,6 @@ ConsensusExtensions::onValidatedLedger(
             }
             app_.overlay().broadcast(message);
         }
-
-        std::lock_guard streamLock(exportStreamMutex_);
-        if (!exportShareServiceStarted_.load(std::memory_order_acquire))
-            return;
-        if (lastExportSnapshotSeq_.load(std::memory_order_relaxed) <
-            validated->info().seq)
-        {
-            lastExportSnapshotSeq_.store(
-                validated->info().seq, std::memory_order_relaxed);
-            auto const live =
-                pendingExportLatches(*validated, validated->info().seq);
-            auto const unionSnapshot =
-                postValidationExportSigCollector_.fullUnionSnapshot();
-            std::map<uint256, ExportSnapshotOrigin> currentOrigins;
-            for (auto const& [origin, latch] : live)
-            {
-                auto const originSeq = latch->getFieldU32(sfLedgerSequence);
-                auto const originHash = originSeq == validated->info().seq
-                    ? std::optional<uint256>{validated->info().hash}
-                    : hashOfSeq(*validated, originSeq, j_);
-                if (!originHash)
-                    continue;
-
-                ripple::ExportSignatureSnapshot snapshot{
-                    ExportShare::currentVersion,
-                    validated->info().seq,
-                    validated->info().hash,
-                    latch->getAccountID(sfAccount),
-                    origin,
-                    originSeq,
-                    *originHash,
-                    origin,
-                    {},
-                    false};
-                if (auto const it = unionSnapshot.find(origin);
-                    it != unionSnapshot.end())
-                {
-                    snapshot.shares.reserve(it->second.size());
-                    for (auto const& contribution : it->second)
-                    {
-                        snapshot.shares.push_back(ExportShare{
-                            ExportShare::currentVersion,
-                            snapshot.owner,
-                            origin,
-                            originSeq,
-                            *originHash,
-                            origin,
-                            contribution.position,
-                            contribution.signingKey,
-                            contribution.signature});
-                    }
-                }
-                currentOrigins.emplace(
-                    origin,
-                    ExportSnapshotOrigin{
-                        snapshot.version,
-                        snapshot.owner,
-                        snapshot.originLedgerSeq,
-                        snapshot.originLedgerHash,
-                        snapshot.triggerTxn});
-                app_.getOPs().pubExportSignatureSnapshot(snapshot);
-            }
-
-            for (auto const& [origin, prior] : publishedExportOrigins_)
-            {
-                if (currentOrigins.contains(origin))
-                    continue;
-                app_.getOPs().pubExportSignatureSnapshot(
-                    ripple::ExportSignatureSnapshot{
-                        prior.version,
-                        validated->info().seq,
-                        validated->info().hash,
-                        prior.owner,
-                        origin,
-                        prior.originLedgerSeq,
-                        prior.originLedgerHash,
-                        prior.triggerTxn,
-                        {},
-                        true});
-            }
-            publishedExportOrigins_ = std::move(currentOrigins);
-        }
     }
     catch (std::exception const& e)
     {
@@ -560,8 +552,9 @@ void
 ConsensusExtensions::startExportShareService()
 {
     std::lock_guard streamLock(exportStreamMutex_);
-    publishedExportOrigins_.clear();
-    lastExportSnapshotSeq_.store(0, std::memory_order_relaxed);
+    exportStreamEmissionSeq_ = 0;
+    exportStreamEmittedShares_.clear();
+    lastExportReplaySeq_.store(0, std::memory_order_relaxed);
     exportShareServiceStarted_.store(true, std::memory_order_release);
 }
 
@@ -570,7 +563,8 @@ ConsensusExtensions::stopExportShareService() noexcept
 {
     exportShareServiceStarted_.store(false, std::memory_order_release);
     std::lock_guard streamLock(exportStreamMutex_);
-    publishedExportOrigins_.clear();
+    exportStreamEmissionSeq_ = 0;
+    exportStreamEmittedShares_.clear();
 }
 
 //------------------------------------------------------------------------------

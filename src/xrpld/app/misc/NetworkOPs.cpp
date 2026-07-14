@@ -403,10 +403,10 @@ public:
     void
     pubValidation(std::shared_ptr<STValidation> const& val) override;
     void
-    pubExportSignature(ExportShare const& share) override;
-    void
-    pubExportSignatureSnapshot(
-        ExportSignatureSnapshot const& snapshot) override;
+    pubExportSignature(
+        ExportShare const& share,
+        LedgerIndex validatedLedgerSeq,
+        uint256 const& validatedLedgerHash) override;
 
     //--------------------------------------------------------------------------
     //
@@ -2371,7 +2371,10 @@ NetworkOPsImp::pubValidation(std::shared_ptr<STValidation> const& val)
 }
 
 void
-NetworkOPsImp::pubExportSignature(ExportShare const& share)
+NetworkOPsImp::pubExportSignature(
+    ExportShare const& share,
+    LedgerIndex const validatedLedgerSeq,
+    uint256 const& validatedLedgerHash)
 {
     std::vector<InfoSub::pointer> subscribers;
     {
@@ -2399,6 +2402,8 @@ NetworkOPsImp::pubExportSignature(ExportShare const& share)
     event[jss::stream] = "export_signatures";
     event[jss::type] = "exportSignatureReceived";
     event[jss::version] = Json::UInt(share.version);
+    event[jss::ledger_index] = Json::UInt(validatedLedgerSeq);
+    event[jss::ledger_hash] = to_string(validatedLedgerHash);
     event[jss::owner] = toBase58(share.owner);
     event[jss::origin_txid] = to_string(share.originTxn);
     event[jss::origin_ledger_seq] = Json::UInt(share.originLedgerSeq);
@@ -2408,62 +2413,6 @@ NetworkOPsImp::pubExportSignature(ExportShare const& share)
     event[jss::signing_key] = toBase58(TokenType::NodePublic, share.signingKey);
     event[jss::signature] =
         strHex(Slice{share.signature.data(), share.signature.size()});
-
-    for (auto const& subscriber : subscribers)
-        subscriber->send(event, true);
-}
-
-void
-NetworkOPsImp::pubExportSignatureSnapshot(
-    ExportSignatureSnapshot const& snapshot)
-{
-    std::vector<InfoSub::pointer> subscribers;
-    {
-        std::lock_guard sl(mSubLock);
-        auto& stream = mStreamMaps[sExportSignatures];
-        subscribers.reserve(stream.size());
-        for (auto it = stream.begin(); it != stream.end();)
-        {
-            if (auto subscriber = it->second.lock())
-            {
-                subscribers.push_back(std::move(subscriber));
-                ++it;
-            }
-            else
-            {
-                it = stream.erase(it);
-            }
-        }
-    }
-
-    if (subscribers.empty())
-        return;
-
-    Json::Value event(Json::objectValue);
-    event[jss::stream] = "export_signatures";
-    event[jss::type] = "exportSignatureSnapshot";
-    event[jss::snapshot] = true;
-    event[jss::version] = Json::UInt(snapshot.version);
-    event[jss::ledger_index] = Json::UInt(snapshot.validatedLedgerSeq);
-    event[jss::ledger_hash] = to_string(snapshot.validatedLedgerHash);
-    event[jss::owner] = toBase58(snapshot.owner);
-    event[jss::origin_txid] = to_string(snapshot.originTxn);
-    event[jss::origin_ledger_seq] = Json::UInt(snapshot.originLedgerSeq);
-    event[jss::origin_ledger_hash] = to_string(snapshot.originLedgerHash);
-    event[jss::trigger_txid] = to_string(snapshot.triggerTxn);
-    event["terminal"] = snapshot.terminal;
-
-    auto& shares = event[jss::shares] = Json::arrayValue;
-    for (auto const& share : snapshot.shares)
-    {
-        Json::Value item(Json::objectValue);
-        item[jss::universe_position] = Json::UInt(share.universePosition);
-        item[jss::signing_key] =
-            toBase58(TokenType::NodePublic, share.signingKey);
-        item[jss::signature] =
-            strHex(Slice{share.signature.data(), share.signature.size()});
-        shares.append(std::move(item));
-    }
 
     for (auto const& subscriber : subscribers)
         subscriber->send(event, true);

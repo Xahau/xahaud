@@ -52,20 +52,20 @@ class ConsensusExtensions
 
     Application& app_;
     ExportSigCollectorV2 postValidationExportSigCollector_;
-    struct ExportSnapshotOrigin
-    {
-        std::uint8_t version;
-        AccountID owner;
-        LedgerIndex originLedgerSeq;
-        uint256 originLedgerHash;
-        uint256 triggerTxn;
-    };
     std::mutex exportStreamMutex_;
-    std::map<uint256, ExportSnapshotOrigin> publishedExportOrigins_;
+    LedgerIndex exportStreamEmissionSeq_{0};
+    std::set<std::pair<uint256, ExportSigCollectorV2::Position>>
+        exportStreamEmittedShares_;
     std::set<std::pair<uint256, ExportSigCollectorV2::Position>>
         proposalPublishedExportShares_;
     std::atomic<bool> exportShareServiceStarted_{false};
-    std::atomic<LedgerIndex> lastExportSnapshotSeq_{0};
+    std::atomic<LedgerIndex> lastExportReplaySeq_{0};
+
+    bool
+    publishExportShareLocked(
+        ExportShare const& share,
+        LedgerIndex validatedLedgerSeq,
+        uint256 const& validatedLedgerHash);
 
 public:
     beast::Journal j_;  // public: accessed by extensionsTick template
