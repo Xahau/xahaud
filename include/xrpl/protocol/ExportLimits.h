@@ -75,10 +75,18 @@ struct ExportLimits
     // Post-validation relay framing. Values are deliberately conservative
     // local tuning knobs and require measurement before activation; changing
     // them does not change the canonical per-share format.
-    static constexpr std::size_t maxExportShareRelayBytes = 256;
+    static constexpr std::size_t maxCanonicalExportSignatureBytes = 72;
+    // version + AccountID + 3 hashes + ledger sequence + universe position +
+    // compressed public key + one-byte VL prefix + maximum signature.
+    static constexpr std::size_t maxSerializedExportShareBytes = 1 + 20 + 32 +
+        4 + 32 + 32 + 2 + 33 + 1 + maxCanonicalExportSignatureBytes;
     static constexpr std::size_t maxExportSharesPerRelay = 32;
+    static constexpr std::size_t maxExportShareRelayPayloadBytes =
+        maxSerializedExportShareBytes * maxExportSharesPerRelay;
+    // Protobuf repeated-bytes framing is one tag byte plus a two-byte varint
+    // length for every maximum-size frame. This excludes the overlay header.
     static constexpr std::size_t maxExportShareRelayMessageBytes =
-        maxExportShareRelayBytes * maxExportSharesPerRelay;
+        maxExportShareRelayPayloadBytes + 3 * maxExportSharesPerRelay;
 };
 
 }  // namespace ripple

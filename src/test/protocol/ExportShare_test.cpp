@@ -29,8 +29,8 @@ class ExportShare_test : public beast::unit_test::suite
     static ExportShare
     makeShare()
     {
-        auto const key = randomKeyPair(KeyType::secp256k1).first;
-        std::uint8_t sigBytes[] = {0x30, 0x02, 0x01, 0x01};
+        auto const [key, secret] = randomKeyPair(KeyType::secp256k1);
+        auto const signature = sign(key, secret, Slice{"export-share", 12});
         return ExportShare{
             ExportShare::currentVersion,
             calcAccountID(key),
@@ -40,7 +40,7 @@ class ExportShare_test : public beast::unit_test::suite
             uint256{3},
             17,
             key,
-            Buffer{sigBytes, sizeof(sigBytes)}};
+            signature};
     }
 
 public:
@@ -51,7 +51,8 @@ public:
 
         auto const share = makeShare();
         auto const encoded = share.serialize();
-        BEAST_EXPECT(encoded.size() <= ExportLimits::maxExportShareRelayBytes);
+        BEAST_EXPECT(
+            encoded.size() <= ExportLimits::maxSerializedExportShareBytes);
 
         auto const parsed = ExportShare::parse(encoded.slice());
         BEAST_EXPECT(parsed.has_value());
@@ -66,7 +67,7 @@ public:
         BEAST_EXPECT(parsed->universePosition == share.universePosition);
         BEAST_EXPECT(parsed->signingKey == share.signingKey);
         BEAST_EXPECT(parsed->signature == share.signature);
-        BEAST_EXPECT(parsed->contentHash() == share.contentHash());
+        BEAST_EXPECT(parsed->wireHash() == share.wireHash());
         BEAST_EXPECT(parsed->serialize().slice() == encoded.slice());
     }
 
@@ -103,6 +104,10 @@ public:
 
         share = makeShare();
         share.signature = Buffer{73};
+        BEAST_EXPECT(!share.validShape());
+
+        share = makeShare();
+        share.signature = Buffer{4};
         BEAST_EXPECT(!share.validShape());
     }
 

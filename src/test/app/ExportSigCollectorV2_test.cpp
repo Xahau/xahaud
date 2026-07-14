@@ -78,7 +78,8 @@ public:
         auto const w = origin(1);
         auto const publication = collector.reopenPublication(w, w, 9);
         BEAST_EXPECT(publication.has_value());
-        auto first = collector.beginAdmission(w, contribution(7, keyA_, 1), 10);
+        auto first = collector.beginAttributedAdmission(
+            w, contribution(7, keyA_, 1), 10);
         BEAST_EXPECT(first.result == ExportSigCollectorV2::BeginResult::verify);
         BEAST_EXPECT(first.ticket.has_value());
         BEAST_EXPECT(collector.fullUnionSnapshot().empty());
@@ -93,14 +94,15 @@ public:
         BEAST_EXPECT(snapshot.at(w).size() == 1);
         BEAST_EXPECT(snapshot.at(w).front().position == 7);
 
-        auto duplicate =
-            collector.beginAdmission(w, contribution(7, keyA_, 1), 11);
+        auto duplicate = collector.beginAttributedAdmission(
+            w, contribution(7, keyA_, 1), 11);
         BEAST_EXPECT(
             duplicate.result == ExportSigCollectorV2::BeginResult::duplicate);
 
-        auto second =
-            collector.beginAdmission(w, contribution(7, keyB_, 2), 11);
-        auto third = collector.beginAdmission(w, contribution(7, keyA_, 3), 11);
+        auto second = collector.beginAttributedAdmission(
+            w, contribution(7, keyB_, 2), 11);
+        auto third = collector.beginAttributedAdmission(
+            w, contribution(7, keyA_, 3), 11);
         BEAST_EXPECT(second.ticket.has_value());
         BEAST_EXPECT(
             third.result == ExportSigCollectorV2::BeginResult::capacity);
@@ -112,13 +114,14 @@ public:
         BEAST_EXPECT(
             conflicted.result == ExportSigCollectorV2::AdmitResult::conflicted);
         BEAST_EXPECT(conflicted.priorContribution.has_value());
+        BEAST_EXPECT(conflicted.conflictingContribution.has_value());
         BEAST_EXPECT(
             collector.positionStatus(w, 7) ==
             ExportSigCollectorV2::PositionStatus::conflicted);
         BEAST_EXPECT(collector.fullUnionSnapshot().empty());
         BEAST_EXPECT(
-            collector.beginAdmission(w, contribution(7, keyA_, 4), 12).result ==
-            ExportSigCollectorV2::BeginResult::conflicted);
+            collector.beginAttributedAdmission(w, contribution(7, keyA_, 4), 12)
+                .result == ExportSigCollectorV2::BeginResult::conflicted);
     }
 
     void
@@ -130,8 +133,8 @@ public:
         auto const w = origin(2);
         auto publication = collector.reopenPublication(w, w, 19);
         BEAST_EXPECT(publication.has_value());
-        auto invalid =
-            collector.beginAdmission(w, contribution(3, keyA_, 10), 20);
+        auto invalid = collector.beginAttributedAdmission(
+            w, contribution(3, keyA_, 10), 20);
         BEAST_EXPECT(invalid.ticket.has_value());
         if (!invalid.ticket)
             return;
@@ -139,8 +142,8 @@ public:
             collector.admitContribution(std::move(*invalid.ticket), false, 20)
                 .result == ExportSigCollectorV2::AdmitResult::invalid);
 
-        auto valid =
-            collector.beginAdmission(w, contribution(3, keyA_, 11), 20);
+        auto valid = collector.beginAttributedAdmission(
+            w, contribution(3, keyA_, 11), 20);
         BEAST_EXPECT(valid.ticket.has_value());
         if (!valid.ticket)
             return;
@@ -148,8 +151,8 @@ public:
             collector.admitContribution(std::move(*valid.ticket), true, 20)
                 .result == ExportSigCollectorV2::AdmitResult::accepted);
 
-        auto other =
-            collector.beginAdmission(w, contribution(4, keyB_, 12), 20);
+        auto other = collector.beginAttributedAdmission(
+            w, contribution(4, keyB_, 12), 20);
         BEAST_EXPECT(other.ticket.has_value());
         if (!other.ticket)
             return;
@@ -180,6 +183,7 @@ public:
         BEAST_EXPECT(collector.publicationGeneration(w) == 2);
         BEAST_EXPECT(!collector.claimPublication(*publication, 4, 2));
         BEAST_EXPECT(collector.claimPublication(*nextPublication, 4, 1));
+        BEAST_EXPECT(!collector.reopenPublication(w, w, 23));
         BEAST_EXPECT(
             collector.positionStatus(w, 3) ==
             ExportSigCollectorV2::PositionStatus::unique);
@@ -199,42 +203,57 @@ public:
         ExportSigCollectorV2 collector;
         auto good = contribution(0, keyA_, 1);
         BEAST_EXPECT(
-            collector.beginAdmission(uint256{}, good).result ==
+            collector.beginAttributedAdmission(uint256{}, good).result ==
             ExportSigCollectorV2::BeginResult::malformed);
 
         auto const w = origin(3);
         BEAST_EXPECT(
-            collector.beginAdmission(w, good, 1).result ==
+            collector.beginAttributedAdmission(w, good, 1).result ==
             ExportSigCollectorV2::BeginResult::unknownOrigin);
         BEAST_EXPECT(collector.reopenPublication(w, w, 1).has_value());
 
         good.position = ExportLimits::maxValidatorUniverseMembers;
         BEAST_EXPECT(
-            collector.beginAdmission(w, good, 1).result ==
+            collector.beginAttributedAdmission(w, good, 1).result ==
             ExportSigCollectorV2::BeginResult::malformed);
 
         good.position = 0;
         good.signature = Buffer{};
         BEAST_EXPECT(
-            collector.beginAdmission(w, good, 1).result ==
+            collector.beginAttributedAdmission(w, good, 1).result ==
             ExportSigCollectorV2::BeginResult::malformed);
 
         std::vector<std::uint8_t> oversized(
             ExportSigCollectorV2::maxSignatureBytes + 1, 0xAB);
         good.signature = Buffer{oversized.data(), oversized.size()};
         BEAST_EXPECT(
-            collector.beginAdmission(w, good, 1).result ==
+            collector.beginAttributedAdmission(w, good, 1).result ==
             ExportSigCollectorV2::BeginResult::malformed);
 
         good = contribution(5, keyA_, 5);
-        auto abandoned = collector.beginAdmission(w, good, 2);
+        auto abandoned = collector.beginAttributedAdmission(w, good, 2);
         BEAST_EXPECT(abandoned.ticket.has_value());
         if (!abandoned.ticket)
             return;
         BEAST_EXPECT(collector.cancelAdmission(std::move(*abandoned.ticket)));
         BEAST_EXPECT(
-            collector.beginAdmission(w, good, 2).result ==
+            collector.beginAttributedAdmission(w, good, 2).result ==
             ExportSigCollectorV2::BeginResult::verify);
+
+        auto expired =
+            collector.beginAttributedAdmission(w, contribution(6, keyA_, 6), 3);
+        BEAST_EXPECT(expired.ticket.has_value());
+        BEAST_EXPECT(
+            collector.beginAttributedAdmission(w, contribution(6, keyB_, 7), 5)
+                .result == ExportSigCollectorV2::BeginResult::verify);
+
+        auto oldToken = collector.reopenPublication(w, origin(30), 6);
+        BEAST_EXPECT(oldToken.has_value());
+        collector.clear(w);
+        auto newToken = collector.reopenPublication(w, origin(31), 7);
+        BEAST_EXPECT(newToken.has_value());
+        if (oldToken)
+            BEAST_EXPECT(!collector.claimPublication(*oldToken, 0, 1));
     }
 
     void

@@ -37,14 +37,33 @@ struct ExportShare
     Buffer signature;
 
     bool
+    hasCanonicalSignature() const
+    {
+        auto const keyType = publicKeyType(signingKey);
+        if (!keyType)
+            return false;
+
+        auto const sig = Slice{signature.data(), signature.size()};
+        if (*keyType == KeyType::secp256k1)
+        {
+            auto const canonicality = ecdsaCanonicality(sig);
+            return canonicality &&
+                *canonicality == ECDSACanonicality::fullyCanonical;
+        }
+
+        // Full Ed25519 canonicality is enforced by cryptographic admission.
+        // The framing layer can still reject every impossible wire length.
+        return *keyType == KeyType::ed25519 && signature.size() == 64;
+    }
+
+    bool
     validShape() const
     {
         return version == currentVersion && owner != beast::zero &&
             !originTxn.isZero() && originLedgerSeq != 0 &&
             !originLedgerHash.isZero() && !triggerTxn.isZero() &&
             universePosition < ExportLimits::maxValidatorUniverseMembers &&
-            !signature.empty() &&
-            signature.size() <= ExportSigCollectorV2SignatureMax;
+            hasCanonicalSignature();
     }
 
     Serializer
@@ -67,8 +86,11 @@ struct ExportShare
     }
 
     uint256
-    contentHash() const
+    wireHash() const
     {
+        // Raw-wire suppression only. Routing context such as triggerTxn and
+        // universePosition is checked against validated state before relay and
+        // is not authenticated by the destination multisignature.
         auto const bytes = serialize();
         return sha512Half(bytes.slice());
     }
@@ -77,7 +99,7 @@ struct ExportShare
     parse(Slice bytes)
     {
         if (bytes.empty() ||
-            bytes.size() > ExportLimits::maxExportShareRelayBytes)
+            bytes.size() > ExportLimits::maxSerializedExportShareBytes)
             return std::nullopt;
 
         try
@@ -117,11 +139,6 @@ struct ExportShare
             return std::nullopt;
         }
     }
-
-private:
-    // Canonical secp256k1 DER signatures are at most 72 bytes; ed25519 uses
-    // 64. Kept local to avoid coupling the protocol codec to collector code.
-    static constexpr std::size_t ExportSigCollectorV2SignatureMax = 72;
 };
 
 }  // namespace ripple
