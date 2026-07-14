@@ -112,7 +112,7 @@ struct ExportLatch_test : beast::unit_test::suite
         auto const afterPending = sb.read(keylet::pendingExports());
         BEAST_EXPECT(afterAccount->getFieldU16(sfExportCount) == 31);
         BEAST_EXPECT(afterAccount->getFieldU32(sfOwnerCount) == 63);
-        BEAST_EXPECT(afterPending->getFieldU16(sfExportCount) == 31);
+        BEAST_EXPECT(afterPending->getFieldU16(sfExportCount) == 30);
 
         Sandbox reopened{&sb};
         std::set<uint256> recovered;
@@ -153,7 +153,7 @@ struct ExportLatch_test : beast::unit_test::suite
             31);
         BEAST_EXPECT(
             sb.read(keylet::pendingExports())->getFieldU16(sfExportCount) ==
-            31);
+            30);
 
         BEAST_EXPECT(sb.dirRemove(
             keylet::ownerDir(alice.id()), *legacyPage, legacyKey.key, false));
@@ -175,9 +175,9 @@ struct ExportLatch_test : beast::unit_test::suite
     }
 
     void
-    testGlobalLiveCapSurvivesPendingUnlink()
+    testWitnessedLatchReleasesGlobalPendingCap()
     {
-        testcase("global live latch cap survives pending unlink");
+        testcase("witnessed latch releases global pending cap");
 
         using namespace jtx;
         Account const alice{"alice"};
@@ -198,39 +198,56 @@ struct ExportLatch_test : beast::unit_test::suite
                 ExportLedgerOps::insertPendingExportLatch(sb, sb, latch, j)));
         }
 
-        for (auto const& latch : latches)
-            BEAST_EXPECT(isTesSuccess(
-                ExportLedgerOps::removePendingExportLink(sb, latch, j)));
-
+        auto const accountAtCap = sb.read(keylet::account(alice.id()));
         auto const rootAtCap = sb.read(keylet::pendingExports());
+        BEAST_EXPECT(accountAtCap);
         BEAST_EXPECT(rootAtCap);
-        if (!rootAtCap)
+        if (!accountAtCap || !rootAtCap)
             return;
         BEAST_EXPECT(
             rootAtCap->getFieldU16(sfExportCount) ==
             ExportLimits::maxLiveExportLatches);
-        BEAST_EXPECT(rootAtCap->getFieldV256(sfIndexes).empty());
+        auto const ownerCountAtCap = accountAtCap->getFieldU32(sfOwnerCount);
+
+        uint256 const witnessHash{99'999};
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::recordExportWitness(
+            sb, sb, latches.front(), witnessHash, j)));
+
+        auto const witnessed = sb.read(latches.front());
+        auto const accountAfterWitness = sb.read(keylet::account(alice.id()));
+        auto const rootAfterWitness = sb.read(keylet::pendingExports());
+        BEAST_EXPECT(witnessed);
+        BEAST_EXPECT(accountAfterWitness);
+        BEAST_EXPECT(rootAfterWitness);
+        if (!witnessed || !accountAfterWitness || !rootAfterWitness)
+            return;
+        BEAST_EXPECT(!witnessed->isFieldPresent(sfExportNode));
+        BEAST_EXPECT(
+            witnessed->getFieldH256(sfExportSignatureHash) == witnessHash);
+        BEAST_EXPECT(
+            accountAfterWitness->getFieldU16(sfExportCount) ==
+            ExportLimits::maxLiveExportLatches);
+        BEAST_EXPECT(
+            accountAfterWitness->getFieldU32(sfOwnerCount) == ownerCountAtCap);
+        BEAST_EXPECT(
+            rootAfterWitness->getFieldU16(sfExportCount) ==
+            ExportLimits::maxLiveExportLatches - 1);
 
         auto replacement =
             makeLatch(alice.id(), ExportLimits::maxLiveExportLatches);
-        BEAST_EXPECT(
-            ExportLedgerOps::insertPendingExportLatch(sb, sb, replacement, j) ==
-            tecDIR_FULL);
-
-        BEAST_EXPECT(isTesSuccess(
-            ExportLedgerOps::eraseExportLatch(sb, sb, latches.front(), j)));
         BEAST_EXPECT(isTesSuccess(
             ExportLedgerOps::insertPendingExportLatch(sb, sb, replacement, j)));
         BEAST_EXPECT(
             sb.read(keylet::pendingExports())->getFieldU16(sfExportCount) ==
             ExportLimits::maxLiveExportLatches);
+        BEAST_EXPECT(sb.exists(latches.front()));
     }
 
     void
     run() override
     {
         testDirectoryLifecycle();
-        testGlobalLiveCapSurvivesPendingUnlink();
+        testWitnessedLatchReleasesGlobalPendingCap();
     }
 };
 

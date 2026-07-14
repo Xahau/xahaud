@@ -313,10 +313,8 @@ removePendingExportLink(ApplyView& view, Keylet const& latchKey, beast::Journal)
     auto const pendingRoot = sb.peek(pendingKey);
     if (!pendingRoot || !pendingRoot->isFieldPresent(sfExportCount))
         return tefBAD_LEDGER;
-    // sfExportCount on the root counts every occupied Export latch, not just
-    // directory membership. Removing work from the pending index must not
-    // release global live-state capacity.
-    if (exportLatchCount(*pendingRoot) == 0)
+    auto const pendingCount = exportLatchCount(*pendingRoot);
+    if (pendingCount == 0)
         return tefBAD_LEDGER;
     if (!sb.dirRemove(
             pendingKey, latch->getFieldU64(sfExportNode), latchKey, true))
@@ -324,11 +322,16 @@ removePendingExportLink(ApplyView& view, Keylet const& latchKey, beast::Journal)
 
     latch->makeFieldAbsent(sfExportNode);
     sb.update(latch);
+    auto updatedRoot = sb.peek(pendingKey);
+    if (!updatedRoot)
+        return tefBAD_LEDGER;
+    updatedRoot->setFieldU16(sfExportCount, pendingCount - 1);
+    sb.update(updatedRoot);
     return tesSUCCESS;
 }
 
 /// Erase an enhanced Export latch and every remaining directory link, then
-/// release its live counters and owner reserve in the caller's apply sandbox.
+/// release its account count, optional pending-work slot, and owner reserve.
 inline TER
 eraseExportLatch(
     ApplyView& view,
@@ -360,13 +363,14 @@ eraseExportLatch(
 
     auto const accountCount = exportLatchCount(*sleAccount);
     auto const globalCount = exportLatchCount(*pendingRoot);
-    if (accountCount == 0 || globalCount == 0)
+    if (accountCount == 0)
         return tefBAD_LEDGER;
 
     auto const pending = latch->isFieldPresent(sfExportNode);
     if (pending)
     {
-        if (!sb.dirRemove(
+        if (globalCount == 0 ||
+            !sb.dirRemove(
                 pendingKey, latch->getFieldU64(sfExportNode), latchKey, true))
             return tefBAD_LEDGER;
     }
@@ -382,11 +386,14 @@ eraseExportLatch(
     sb.update(sleAccount);
     adjustOwnerCount(sb, sleAccount, -1, j);
 
-    pendingRoot = sb.peek(pendingKey);
-    if (!pendingRoot)
-        return tefBAD_LEDGER;
-    pendingRoot->setFieldU16(sfExportCount, globalCount - 1);
-    sb.update(pendingRoot);
+    if (pending)
+    {
+        pendingRoot = sb.peek(pendingKey);
+        if (!pendingRoot)
+            return tefBAD_LEDGER;
+        pendingRoot->setFieldU16(sfExportCount, globalCount - 1);
+        sb.update(pendingRoot);
+    }
     sb.erase(latch);
 
     sb.apply(rawView);
