@@ -5,13 +5,12 @@
 
 namespace ripple {
 
-/// Retriable export transaction.
-/// On open ledger: returns tesSUCCESS (provisional, consumes sequence/fee).
-/// On closed ledger: checks ExportSigCollector for validator quorum.
-///   - Quorum met → tesSUCCESS with sfExportResult in metadata.
-///   - Not enough sigs → terRETRY_EXPORT (retained for next ledger).
-///   - LLS expired → tecEXPORT_EXPIRED (sequence consumed, export failed).
-/// Also supports shadow ticket cancellation via sfCancelTicketSequence.
+/// Admit an export intent or cancel a shadow ticket.
+///
+/// A successful intent creates an origin-keyed pending latch. Validators sign
+/// only after its ledger validates; a later ttEXPORT_SIGNATURES pseudo records
+/// the canonical target-chain assembly and marks the latch witnessed. The outer
+/// LastLedgerSequence bounds admission, not signature publication.
 class Export : public Transactor
 {
 public:
