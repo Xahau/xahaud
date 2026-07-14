@@ -199,6 +199,16 @@ shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept
             LedgerNameSpace::SHADOW_TICKET, account, std::uint32_t(ticketSeq))};
 }
 
+//@@start export-origin-keylet
+Keylet
+shadowTicket(AccountID const& account, uint256 const& originTxnHash) noexcept
+{
+    return {
+        ltSHADOW_TICKET,
+        indexHash(LedgerNameSpace::SHADOW_TICKET, account, originTxnHash)};
+}
+//@@end export-origin-keylet
+
 Keylet
 hook(AccountID const& id) noexcept
 {
