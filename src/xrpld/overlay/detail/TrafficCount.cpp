@@ -157,6 +157,9 @@ TrafficCount::categorize(
     if (type == protocol::mtTRANSACTIONS)
         return TrafficCount::category::requested_transactions;
 
+    if (type == protocol::mtEXPORT_SHARES)
+        return TrafficCount::category::export_shares;
+
     return TrafficCount::category::unknown;
 }
 

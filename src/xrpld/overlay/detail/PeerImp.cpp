@@ -1127,6 +1127,57 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
 }
 
 void
+PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
+{
+    auto shares = detail::parseExportShareBatch(*m);
+    if (!shares)
+    {
+        fee_.update(Resource::feeMalformedRequest, "malformed export shares");
+        return;
+    }
+
+    std::vector<std::size_t> fresh;
+    fresh.reserve(shares->size());
+    for (std::size_t i = 0; i < shares->size(); ++i)
+    {
+        // This hash identifies only identical canonical wire frames. Semantic
+        // contribution deduplication belongs to application admission.
+        if (app_.getHashRouter().addSuppressionPeer(
+                (*shares)[i].wireHash(), id_))
+            fresh.push_back(i);
+    }
+
+    if (fresh.empty())
+    {
+        fee_.update(Resource::feeUselessData, "duplicate export shares");
+        return;
+    }
+
+    std::weak_ptr<PeerImp> weak = shared_from_this();
+    app_.getJobQueue().addJob(
+        jtPEER,
+        "recvExportShares",
+        [weak, m, shares = std::move(*shares), fresh = std::move(fresh)]() {
+            auto const peer = weak.lock();
+            if (!peer)
+                return;
+
+            protocol::TMExportShares accepted;
+            accepted.mutable_shares()->Reserve(fresh.size());
+            for (auto const index : fresh)
+            {
+                if (peer->overlay_.acceptExportShare(shares[index]))
+                    accepted.add_shares(m->shares(index));
+            }
+
+            // Structural validity is insufficient: only application-admitted
+            // frames are eligible for relay.
+            if (accepted.shares_size() != 0)
+                peer->overlay_.relay(accepted);
+        });
+}
+
+void
 PeerImp::onMessage(std::shared_ptr<protocol::TMPing> const& m)
 {
     if (m->type() == protocol::TMPing::ptPING)

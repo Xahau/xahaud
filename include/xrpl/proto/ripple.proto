@@ -27,6 +27,7 @@ enum MessageType
     mtREPLAY_DELTA_RESPONSE     = 60;
     mtHAVE_TRANSACTIONS         = 63;
     mtTRANSACTIONS              = 64;
+    mtEXPORT_SHARES             = 65;
 }
 
 // token, iterations, target, challenge = issue demand for proof of work
@@ -118,6 +119,15 @@ message TMTransaction
 message TMTransactions
 {
     repeated TMTransaction transactions = 1;
+}
+
+// Canonical post-validation Export signature contributions. Receivers enforce
+// ExportLimits caps for entry count, each frame, aggregate frame payload, and
+// encoded protobuf size. The encoded-size cap includes protobuf tags and
+// length prefixes but excludes the overlay message header.
+message TMExportShares
+{
+    repeated bytes shares = 1;
 }
 
 

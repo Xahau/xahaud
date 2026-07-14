@@ -1161,6 +1161,99 @@ OverlayImpl::broadcast(protocol::TMValidation& m)
     for_each([sm](std::shared_ptr<PeerImp>&& p) { p->send(sm); });
 }
 
+void
+OverlayImpl::broadcast(protocol::TMExportShares& m)
+{
+    auto const shares = detail::parseExportShareBatch(m);
+    if (!shares)
+    {
+        JLOG(journal_.error())
+            << "Refusing to broadcast malformed ExportShare batch";
+        return;
+    }
+
+    // Local callers are responsible for application admission before using
+    // this API. Register raw-wire suppression before routing the batch.
+    for (auto const& share : *shares)
+        app_.getHashRouter().addSuppression(share.wireHash());
+
+    relay(m);
+}
+
+void
+OverlayImpl::relay(protocol::TMExportShares& m)
+{
+    auto const shares = detail::parseExportShareBatch(m);
+    if (!shares)
+    {
+        JLOG(journal_.error())
+            << "Refusing to relay malformed ExportShare batch";
+        return;
+    }
+
+    using Route = std::pair<std::size_t, std::set<Peer::id_t>>;
+    std::vector<Route> routes;
+    routes.reserve(shares->size());
+    for (std::size_t i = 0; i < shares->size(); ++i)
+    {
+        if (auto const toSkip =
+                app_.getHashRouter().shouldRelay((*shares)[i].wireHash()))
+            routes.emplace_back(i, std::move(*toSkip));
+    }
+
+    if (routes.empty())
+        return;
+
+    for_each([&](std::shared_ptr<PeerImp>&& peer) {
+        protocol::TMExportShares outbound;
+        outbound.mutable_shares()->Reserve(routes.size());
+        for (auto const& [index, toSkip] : routes)
+        {
+            if (!toSkip.contains(peer->id()))
+                outbound.add_shares(m.shares(index));
+        }
+
+        if (outbound.shares_size() != 0)
+            peer->send(
+                std::make_shared<Message>(outbound, protocol::mtEXPORT_SHARES));
+    });
+}
+
+void
+OverlayImpl::setExportShareHandler(ExportShareHandler handler)
+{
+    std::lock_guard lock(exportShareHandlerLock_);
+    exportShareHandler_ = std::move(handler);
+}
+
+bool
+OverlayImpl::acceptExportShare(ExportShare const& share)
+{
+    ExportShareHandler handler;
+    {
+        std::lock_guard lock(exportShareHandlerLock_);
+        handler = exportShareHandler_;
+    }
+
+    if (!handler)
+        return false;
+
+    try
+    {
+        return handler(share);
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(journal_.error())
+            << "ExportShare admission callback failed: " << e.what();
+    }
+    catch (...)
+    {
+        JLOG(journal_.error()) << "ExportShare admission callback failed";
+    }
+    return false;
+}
+
 std::set<Peer::id_t>
 OverlayImpl::relay(
     protocol::TMValidation& m,
