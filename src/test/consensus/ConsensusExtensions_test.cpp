@@ -28,6 +28,7 @@
 #include <xrpld/app/main/CollectorManager.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
 #include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
@@ -68,6 +69,34 @@ namespace ripple {
 namespace test {
 
 namespace {
+
+Manifest
+makeValidatorManifest(
+    SecretKey const& masterSecret,
+    SecretKey const& signingSecret)
+{
+    auto const master = derivePublicKey(KeyType::secp256k1, masterSecret);
+    auto const signing = derivePublicKey(KeyType::secp256k1, signingSecret);
+    STObject object{sfGeneric};
+    object.setFieldU32(sfSequence, 0);
+    object.setFieldVL(sfPublicKey, master.slice());
+    object.setFieldVL(sfSigningPubKey, signing.slice());
+    sign(object, HashPrefix::manifest, KeyType::secp256k1, signingSecret);
+    sign(
+        object,
+        HashPrefix::manifest,
+        KeyType::secp256k1,
+        masterSecret,
+        sfMasterSignature);
+
+    Serializer serialized;
+    object.add(serialized);
+    auto manifest = deserializeManifest(std::string{
+        static_cast<char const*>(serialized.data()), serialized.size()});
+    if (!manifest)
+        Throw<std::runtime_error>("failed to build validator manifest");
+    return std::move(*manifest);
+}
 
 class ActiveNoopSink : public beast::Journal::Sink
 {
@@ -3733,6 +3762,21 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             valKeys.keys->publicKey,
             signature};
 
+        auto const foreignMasterSecret =
+            generateSecretKey(KeyType::secp256k1, randomSeed());
+        auto const foreignSigningSecret =
+            generateSecretKey(KeyType::secp256k1, randomSeed());
+        auto const foreignSigningKey =
+            derivePublicKey(KeyType::secp256k1, foreignSigningSecret);
+        BEAST_EXPECT(
+            env.app().validatorManifests().applyManifest(makeValidatorManifest(
+                foreignMasterSecret, foreignSigningSecret)) ==
+            ManifestDisposition::accepted);
+        auto wrongSigner = share;
+        wrongSigner.signingKey = foreignSigningKey;
+        wrongSigner.signature = ExportResultBuilder::signExportedTxn(
+            release.value(), foreignSigningKey, foreignSigningSecret);
+
         auto wsc = makeWSClient(env.app().config());
         Json::Value stream;
         stream[jss::streams] = Json::arrayValue;
@@ -3808,12 +3852,16 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(admission.disposition == ExportShareDisposition::deferred);
         BEAST_EXPECT(deferredCount() == 2);
 
+        admission = ce.onExportShare(wrongSigner, deferredCharge);
+        BEAST_EXPECT(admission.disposition == ExportShareDisposition::deferred);
+        BEAST_EXPECT(deferredCount() == 3);
+
         auto beyondHorizon = share;
         beyondHorizon.originLedgerSeq = universe->info().seq +
             ConsensusExtensions::maxDeferredExportShareFutureLedgers_ + 1;
         admission = ce.onExportShare(beyondHorizon, deferredCharge);
         BEAST_EXPECT(admission.disposition == ExportShareDisposition::deferred);
-        BEAST_EXPECT(deferredCount() == 2);
+        BEAST_EXPECT(deferredCount() == 3);
 
         installValidated(originLedger);
 
@@ -3883,6 +3931,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(admission.disposition == ExportShareDisposition::invalid);
         BEAST_EXPECT(admission.charge == ExportShareCharge::invalidData);
 
+        admission = ce.onExportShare(wrongSigner, {});
+        BEAST_EXPECT(admission.disposition == ExportShareDisposition::invalid);
+        BEAST_EXPECT(admission.charge == ExportShareCharge::invalidData);
+
         auto invalidSignature = share;
         invalidSignature.signature = sign(
             valKeys.keys->publicKey,
@@ -3893,7 +3945,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(admission.charge == ExportShareCharge::invalidSignature);
 
         BEAST_EXPECT(deferredCount() == 0);
-        BEAST_EXPECT(deferredCharges.load(std::memory_order_relaxed) == 1);
+        BEAST_EXPECT(deferredCharges.load(std::memory_order_relaxed) == 2);
         BEAST_EXPECT(
             lastDeferredCharge.load(std::memory_order_relaxed) ==
             ExportShareCharge::invalidData);
