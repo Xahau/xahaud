@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/consensus/RCLValidations.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
@@ -352,13 +353,16 @@ LedgerMaster::enqueueValidatedLedgerWork(detail::ValidatedLedgerWork work)
         return;
 
     auto const queue = mValidatedLedgerWorkQueue;
-    if (!app_.getJobQueue().addJob(jtADVANCE, "validatedLedgerWork", [queue]() {
-            // Plateau A only schedules exact validation identities. The
-            // Export consumer attaches at the semantic flip. Capture the
-            // independently owned queue, never LedgerMaster: setup may
-            // fail before the normal JobQueue shutdown path runs.
-            queue->drain([](detail::ValidatedLedgerWork const&) noexcept {});
-        }))
+    auto const extensions = app_.getConsensusExtensionsWeak();
+    if (!app_.getJobQueue().addJob(
+            jtADVANCE, "validatedLedgerWork", [queue, extensions]() {
+                queue->drain(
+                    [extensions](
+                        detail::ValidatedLedgerWork const& work) noexcept {
+                        if (auto const service = extensions.lock())
+                            service->onValidatedLedger(work.seq, work.hash);
+                    });
+            }))
         mValidatedLedgerWorkQueue->cancelDrain();
 }
 

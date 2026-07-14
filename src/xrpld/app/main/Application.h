@@ -221,6 +221,8 @@ public:
     getLedgerReplayer() = 0;
     virtual ConsensusExtensions&
     getConsensusExtensions() = 0;
+    virtual std::weak_ptr<ConsensusExtensions>
+    getConsensusExtensionsWeak() = 0;
     virtual NetworkOPs&
     getOPs() = 0;
     virtual OrderBookDB&

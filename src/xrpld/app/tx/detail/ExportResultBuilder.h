@@ -51,7 +51,9 @@ buildMultiSignedExportedTxn(
 STTx
 buildSignatureWitness(
     uint256 const& exportTxHash,
+    STTx const& releaseTarget,
     SignatureSnapshot const& signatures,
+    Blob const& contributors,
     LedgerIndex currentSeq);
 
 std::optional<SignatureSnapshot>

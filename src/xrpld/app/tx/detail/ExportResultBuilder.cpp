@@ -106,16 +106,21 @@ buildMultiSignedExportedTxn(
 STTx
 buildSignatureWitness(
     uint256 const& exportTxHash,
+    STTx const& releaseTarget,
     SignatureSnapshot const& signatures,
+    Blob const& contributors,
     LedgerIndex currentSeq)
 {
+    auto const assembled =
+        buildMultiSignedExportedTxn(releaseTarget, signatures);
     return STTx(ttEXPORT_SIGNATURES, [&](auto& obj) {
         obj.setFieldU32(sfLedgerSequence, currentSeq);
         obj.setAccountID(sfAccount, AccountID{});
         obj.setFieldU32(sfSequence, 0);
         obj.setFieldAmount(sfFee, STAmount{});
         obj.setFieldH256(sfTransactionHash, exportTxHash);
-        obj.setFieldArray(sfSigners, buildSigners(signatures, false));
+        obj.set(std::make_unique<STObject>(assembled));
+        obj.setFieldVL(sfEntropyContributors, contributors);
     });
 }
 
@@ -123,11 +128,17 @@ std::optional<SignatureSnapshot>
 signaturesFromWitness(STTx const& witness)
 {
     if (witness.getTxnType() != ttEXPORT_SIGNATURES ||
-        !witness.isFieldPresent(sfSigners))
+        !witness.isFieldPresent(sfExportedTxn))
+        return std::nullopt;
+
+    auto const& exported = const_cast<STTx&>(witness)
+                               .peekAtField(sfExportedTxn)
+                               .downcast<STObject>();
+    if (!exported.isFieldPresent(sfSigners))
         return std::nullopt;
 
     SignatureSnapshot signatures;
-    for (auto const& signer : witness.getFieldArray(sfSigners))
+    for (auto const& signer : exported.getFieldArray(sfSigners))
     {
         if (signer.getFName() != sfSigner ||
             !signer.isFieldPresent(sfAccount) ||

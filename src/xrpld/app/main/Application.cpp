@@ -220,7 +220,7 @@ public:
     RCLValidations mValidations;
     std::unique_ptr<LoadManager> m_loadManager;
     std::unique_ptr<TxQ> txQ_;
-    std::unique_ptr<ConsensusExtensions> consensusExtensions_;
+    std::shared_ptr<ConsensusExtensions> consensusExtensions_;
     ClosureCounter<void, boost::system::error_code const&> waitHandlerCounter_;
     boost::asio::steady_timer sweepTimer_;
     boost::asio::steady_timer entropyTimer_;
@@ -465,7 +465,7 @@ public:
         , txQ_(
               std::make_unique<TxQ>(setup_TxQ(*config_), logs_->journal("TxQ")))
 
-        , consensusExtensions_(std::make_unique<ConsensusExtensions>(
+        , consensusExtensions_(std::make_shared<ConsensusExtensions>(
               *this,
               logs_->journal("ConsensusExtensions")))
 
@@ -852,6 +852,12 @@ public:
             consensusExtensions_,
             "ripple::ApplicationImp::getConsensusExtensions : non-null");
         return *consensusExtensions_;
+    }
+
+    std::weak_ptr<ConsensusExtensions>
+    getConsensusExtensionsWeak() override
+    {
+        return consensusExtensions_;
     }
 
     RelationalDatabase&
@@ -1603,7 +1609,16 @@ ApplicationImp::start(bool withTimers)
     m_loadManager->start();
     m_shaMapStore->start();
     if (overlay_)
+    {
         overlay_->start();
+        auto const weak =
+            std::weak_ptr<ConsensusExtensions>{consensusExtensions_};
+        overlay_->setExportShareHandler([weak](ExportShare const& share) {
+            auto const extensions = weak.lock();
+            return extensions && extensions->onExportShare(share);
+        });
+        consensusExtensions_->startExportShareService();
+    }
 
     if (grpcServer_->start())
         fixConfigPorts(
@@ -1690,6 +1705,9 @@ ApplicationImp::run()
 
     // The order of these stop calls is delicate.
     // Re-ordering them risks undefined behavior.
+    consensusExtensions_->stopExportShareService();
+    if (overlay_)
+        overlay_->setExportShareHandler({});
     m_loadManager->stop();
     m_shaMapStore->stop();
     m_jobQueue->stop();

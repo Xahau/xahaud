@@ -18,7 +18,6 @@
 //==============================================================================
 
 #include <xrpld/app/hook/applyHook.h>
-#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
@@ -1043,10 +1042,11 @@ Import::preclaim(PreclaimContext const& ctx)
                 parsed.value().origin.targetDomain != expectedTarget)
                 return temMALFORMED;
 
-            auto const anchorLedger = ctx.app.getLedgerMaster().getLedgerBySeq(
-                parsed.value().anchor->ledgerSequence);
-            if (!anchorLedger ||
-                anchorLedger->info().hash != parsed.value().anchor->ledgerHash)
+            if (parsed.value().anchor->ledgerSequence >= ctx.view.info().seq)
+                return telSHADOW_TICKET_REQUIRED;
+            auto const anchorHash = hashOfSeq(
+                ctx.view, parsed.value().anchor->ledgerSequence, ctx.j);
+            if (!anchorHash || *anchorHash != parsed.value().anchor->ledgerHash)
                 return telSHADOW_TICKET_REQUIRED;
 
             stKey = keylet::shadowTicket(

@@ -10,6 +10,7 @@
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STObject.h>
@@ -17,6 +18,7 @@
 #include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/ValidatorBitset.h>
 
 namespace ripple {
 
@@ -39,9 +41,21 @@ Export::preflight(PreflightContext const& ctx)
 
     if (hasExport)
     {
-        if (auto const ter = ExportLedgerOps::validateCommitteeShape(ctx.tx, ctx.j);
-            !isTesSuccess(ter))
-            return ter;
+        bool const hasUniverse = ctx.tx.isFieldPresent(sfExportUniverseHash);
+        bool const hasCommittee = ctx.tx.isFieldPresent(sfExportCommittee);
+        if (hasUniverse != hasCommittee)
+            return temMALFORMED;
+        if (hasUniverse)
+        {
+            if (auto const ter =
+                    ExportLedgerOps::validateCommitteeShape(ctx.tx, ctx.j);
+                !isTesSuccess(ter))
+                return ter;
+        }
+        else if (!ctx.tx.isFieldPresent(sfEmitDetails))
+        {
+            return temMALFORMED;
+        }
     }
     else if (
         ctx.tx.isFieldPresent(sfExportUniverseHash) ||
@@ -65,7 +79,8 @@ Export::preclaim(PreclaimContext const& ctx)
     if (!ctx.tx.isFieldPresent(sfExportedTxn))
         return tesSUCCESS;
 
-    if (ctx.tx.getFieldH256(sfExportUniverseHash) != ctx.view.info().parentHash)
+    if (ctx.tx.isFieldPresent(sfExportUniverseHash) &&
+        ctx.tx.getFieldH256(sfExportUniverseHash) != ctx.view.info().parentHash)
         return tecEXPORT_UNIVERSE_MISMATCH;
 
     auto innerTx = ExportLedgerOps::innerExportedTx(ctx.tx);
@@ -137,14 +152,27 @@ Export::doApply()
 
     auto const validatorView =
         ctx_.app.getConsensusExtensions().makeActiveValidatorView(parentLedger);
-    if (!validatorView->fromUNLReport ||
-        !validatorView->sourceLedgerHash ||
-        *validatorView->sourceLedgerHash !=
-            ctx_.tx.getFieldH256(sfExportUniverseHash))
+    auto const universeHash = view().info().parentHash;
+    if (!validatorView->fromUNLReport || !validatorView->sourceLedgerHash ||
+        *validatorView->sourceLedgerHash != universeHash)
         return tecEXPORT_UNIVERSE_MISMATCH;
 
+    Blob committeeBitmap;
+    if (ctx_.tx.isFieldPresent(sfExportCommittee))
+        committeeBitmap = ctx_.tx.getFieldVL(sfExportCommittee);
+    else
+    {
+        if (validatorView->orderedOriginalMasterKeys.empty() ||
+            validatorView->orderedOriginalMasterKeys.size() >
+                ExportLimits::maxCommitteeMembers)
+            return tecEXPORT_UNIVERSE_MISMATCH;
+        committeeBitmap = makeValidatorBitset(
+            validatorView->orderedOriginalMasterKeys.size(),
+            [](std::size_t) { return true; });
+    }
+
     auto const committee = resolveExportCommittee(
-        makeSlice(ctx_.tx.getFieldVL(sfExportCommittee)),
+        makeSlice(committeeBitmap),
         validatorView->orderedOriginalMasterKeys.size());
     if (!committee)
         return tecEXPORT_UNIVERSE_MISMATCH;
@@ -159,12 +187,19 @@ Export::doApply()
     if (!identity)
         return tefINTERNAL;
 
+    if (auto const prune = ExportLedgerOps::pruneExpiredExportLatches(
+            view(), ctx_.rawView(), currentSeq, j_);
+        !isTesSuccess(prune))
+        return prune;
+
     auto const ter = ExportLedgerOps::createPendingExportLatch(
         view(),
         ctx_.rawView(),
         account,
         ctx_.tx,
         identity.value(),
+        universeHash,
+        committeeBitmap,
         mPriorBalance,
         j_);
     if (!isTesSuccess(ter))

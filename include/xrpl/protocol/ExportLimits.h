@@ -53,6 +53,11 @@ struct ExportLimits
     //   - validator signing work per round
     static constexpr std::uint8_t maxPendingExports = 8;
 
+    // Global live latch and per-validation scan bound. This is a provisional
+    // activation tuning value: it bounds directory walks and local signature
+    // work while still allowing several ledgers of admitted intents to overlap.
+    static constexpr std::uint16_t maxLiveExportLatches = 64;
+
     // Maximum number of ledgers a pending export may retry before its
     // mandatory LastLedgerSequence expires. This bounds validator signing work
     // for both hook-emitted and user-submitted exports.

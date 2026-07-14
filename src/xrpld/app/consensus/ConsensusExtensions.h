@@ -6,6 +6,7 @@
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpld/app/consensus/RCLCxTx.h>
 #include <xrpld/app/misc/ExportSigCollector.h>
+#include <xrpld/app/misc/ExportSigCollectorV2.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/consensus/ConsensusTypes.h>
 #include <xrpld/overlay/Message.h>
@@ -14,6 +15,7 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/EntropyTier.h>
+#include <xrpl/protocol/ExportShare.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <atomic>
 #include <chrono>
@@ -21,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -50,6 +53,10 @@ class ConsensusExtensions
 
     Application& app_;
     ExportSigCollector exportSigCollector_;
+    ExportSigCollectorV2 postValidationExportSigCollector_;
+    std::set<std::pair<uint256, ExportSigCollectorV2::Position>>
+        proposalPublishedExportShares_;
+    std::atomic<bool> exportShareServiceStarted_{false};
 
 public:
     beast::Journal j_;  // public: accessed by extensionsTick template
@@ -69,6 +76,11 @@ public:
     using ActiveValidatorView = ripple::ActiveValidatorView;
     using ActiveValidatorViewPtr = std::shared_ptr<ActiveValidatorView const>;
     using ExportSignatureSnapshot = std::map<PublicKey, Buffer>;
+    struct ExportWitnessMaterial
+    {
+        ExportSignatureSnapshot signatures;
+        Blob contributors;
+    };
 
 private:
     enum class RngContributionKind : uint8_t { commit, reveal };
@@ -175,6 +187,38 @@ public:
     {
         return exportSigCollector_;
     }
+
+    ExportSigCollectorV2&
+    postValidationExportSigCollector()
+    {
+        return postValidationExportSigCollector_;
+    }
+
+    ExportSigCollectorV2 const&
+    postValidationExportSigCollector() const
+    {
+        return postValidationExportSigCollector_;
+    }
+
+    /** Admit one post-validation Export share from any transport.
+
+        Structural parsing happens at the transport boundary. This method
+        binds the frame to validated ledger state, the intent-selected
+        committee position, the live manifest, and the destination multisign
+        payload before admitting it to the sidecar union.
+    */
+    bool
+    onExportShare(ExportShare const& share);
+
+    /** Release local shares unlocked by an exact network-validated ledger. */
+    void
+    onValidatedLedger(LedgerIndex seq, uint256 const& hash) noexcept;
+
+    void
+    startExportShareService();
+
+    void
+    stopExportShareService() noexcept;
 
     /// Set the current consensus mode (called by adaptor).
     void
@@ -345,6 +389,14 @@ public:
     agreedExportSignatures(
         STTx const& exportTx,
         uint256 const& txHash,
+        std::size_t threshold) const;
+
+    std::optional<ExportWitnessMaterial>
+    agreedExportWitness(
+        STTx const& releaseTarget,
+        uint256 const& origin,
+        Blob const& committee,
+        std::size_t universeSize,
         std::size_t threshold) const;
 
     ActiveValidatorViewPtr

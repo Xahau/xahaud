@@ -25,6 +25,7 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
@@ -40,7 +41,10 @@
 #include <xrpl/basics/strHex.h>
 #include <xrpl/crypto/csprng.h>
 #include <xrpl/protocol/EntropyTier.h>
+#include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportOriginMemo.h>
+#include <xrpl/protocol/ExportShare.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/SidecarType.h>
@@ -60,6 +64,377 @@ namespace ripple {
 ConsensusExtensions::ConsensusExtensions(Application& app, beast::Journal j)
     : app_(app), j_(j)
 {
+}
+
+namespace {
+
+struct ResolvedExportShare
+{
+    std::shared_ptr<SLE const> latch;
+    STTx releaseTarget;
+};
+
+std::optional<ResolvedExportShare>
+resolveExportShare(
+    Application& app,
+    ConsensusExtensions const& extensions,
+    ExportShare const& share,
+    std::shared_ptr<Ledger const> const& validated,
+    beast::Journal j)
+{
+    if (!validated || !validated->rules().enabled(featureExport) ||
+        share.triggerTxn != share.originTxn ||
+        share.originLedgerSeq > validated->info().seq)
+        return std::nullopt;
+
+    auto const originHash = share.originLedgerSeq == validated->info().seq
+        ? std::optional<uint256>{validated->info().hash}
+        : hashOfSeq(*validated, share.originLedgerSeq, j);
+    if (!originHash || *originHash != share.originLedgerHash)
+        return std::nullopt;
+
+    auto const latchKey = keylet::shadowTicket(share.owner, share.originTxn);
+    auto const latch = validated->read(latchKey);
+    if (!latch || latch->getType() != ltSHADOW_TICKET ||
+        !latch->isFieldPresent(sfTransactionHash) ||
+        !latch->isFieldPresent(sfExportUniverseHash) ||
+        !latch->isFieldPresent(sfExportCommittee) ||
+        !latch->isFieldPresent(sfLastLedgerSequence) ||
+        latch->getAccountID(sfAccount) != share.owner ||
+        latch->getFieldH256(sfTransactionHash) != share.originTxn ||
+        latch->getFieldU32(sfLedgerSequence) != share.originLedgerSeq ||
+        validated->info().seq > latch->getFieldU32(sfLastLedgerSequence))
+        return std::nullopt;
+
+    auto const originLedger =
+        app.getLedgerMaster().getLedgerByHash(share.originLedgerHash);
+    if (!originLedger || originLedger->info().seq != share.originLedgerSeq)
+        return std::nullopt;
+
+    auto const [outer, _] = originLedger->txRead(share.originTxn);
+    if (!outer || outer->getTxnType() != ttEXPORT ||
+        !outer->isFieldPresent(sfExportedTxn) ||
+        outer->getAccountID(sfAccount) != share.owner)
+        return std::nullopt;
+
+    bool const hasUniverse = outer->isFieldPresent(sfExportUniverseHash);
+    bool const hasCommittee = outer->isFieldPresent(sfExportCommittee);
+    if (hasUniverse != hasCommittee ||
+        (!hasUniverse && !outer->isFieldPresent(sfEmitDetails)) ||
+        (hasUniverse &&
+         (outer->getFieldH256(sfExportUniverseHash) !=
+              latch->getFieldH256(sfExportUniverseHash) ||
+          outer->getFieldVL(sfExportCommittee) !=
+              latch->getFieldVL(sfExportCommittee))))
+        return std::nullopt;
+
+    auto const universeHash = latch->getFieldH256(sfExportUniverseHash);
+    if (originLedger->info().parentHash != universeHash)
+        return std::nullopt;
+    auto const universeLedger =
+        app.getLedgerMaster().getLedgerByHash(universeHash);
+    if (!universeLedger)
+        return std::nullopt;
+
+    auto const validatorView =
+        extensions.makeActiveValidatorView(universeLedger);
+    if (!validatorView->fromUNLReport || !validatorView->sourceLedgerHash ||
+        *validatorView->sourceLedgerHash != universeHash ||
+        share.universePosition >=
+            validatorView->orderedOriginalMasterKeys.size())
+        return std::nullopt;
+
+    auto const committee = resolveExportCommittee(
+        makeSlice(latch->getFieldVL(sfExportCommittee)),
+        validatorView->orderedOriginalMasterKeys.size());
+    if (!committee || !committee->members.contains(share.universePosition))
+        return std::nullopt;
+
+    auto const& expectedMaster =
+        validatorView->orderedOriginalMasterKeys[share.universePosition];
+    if (app.validatorManifests().getMasterKey(share.signingKey) !=
+        expectedMaster)
+        return std::nullopt;
+
+    auto const inner = ExportLedgerOps::innerExportedTx(*outer);
+    if (!inner)
+        return std::nullopt;
+    auto const targetNetworkID = inner->isFieldPresent(sfNetworkID)
+        ? inner->getFieldU32(sfNetworkID)
+        : std::uint32_t{0};
+    ExportOriginMemo::Origin const origin{
+        app.config().NETWORK_ID, targetNetworkID, share.originTxn};
+    auto const identity = ExportOriginMemo::identityForm(*inner, origin);
+    auto release = ExportOriginMemo::releaseForm(
+        *inner,
+        origin,
+        ExportOriginMemo::Anchor{
+            share.originLedgerSeq, share.originLedgerHash});
+    if (!identity || !release ||
+        ExportResultBuilder::exportIntentHash(identity.value()) !=
+            latch->getFieldH256(sfDigest))
+        return std::nullopt;
+
+    auto const signer = calcAccountID(share.signingKey);
+    auto const data = buildMultiSigningData(release.value(), signer);
+    if (!verify(
+            share.signingKey,
+            data.slice(),
+            Slice{share.signature.data(), share.signature.size()}))
+        return std::nullopt;
+
+    return ResolvedExportShare{latch, std::move(release.value())};
+}
+
+ExportShare
+withContribution(
+    ExportShare const& context,
+    ExportSigCollectorV2::Contribution const& contribution)
+{
+    return ExportShare{
+        context.version,
+        context.owner,
+        context.originTxn,
+        context.originLedgerSeq,
+        context.originLedgerHash,
+        context.triggerTxn,
+        contribution.position,
+        contribution.signingKey,
+        contribution.signature};
+}
+
+std::map<uint256, std::shared_ptr<SLE const>>
+pendingExportLatches(ReadView const& view)
+{
+    std::map<uint256, std::shared_ptr<SLE const>> result;
+    forEachItem(
+        view,
+        keylet::pendingExports(),
+        [&](std::shared_ptr<SLE const> const& latch) {
+            if (!latch || latch->getType() != ltSHADOW_TICKET ||
+                !latch->isFieldPresent(sfTransactionHash) ||
+                result.size() >= ExportLimits::maxLiveExportLatches)
+                return;
+            result.emplace(latch->getFieldH256(sfTransactionHash), latch);
+        });
+    return result;
+}
+
+}  // namespace
+
+bool
+ConsensusExtensions::onExportShare(ExportShare const& share)
+{
+    if (!exportShareServiceStarted_.load(std::memory_order_acquire))
+        return false;
+
+    auto const validated = app_.getLedgerMaster().getValidatedLedger();
+    auto const resolved = resolveExportShare(app_, *this, share, validated, j_);
+    if (!resolved)
+        return false;
+
+    if (!postValidationExportSigCollector_.reopenPublication(
+            share.originTxn, share.triggerTxn, validated->info().seq))
+        return false;
+
+    ExportSigCollectorV2::Contribution contribution{
+        share.universePosition, share.signingKey, share.signature};
+    auto admission = postValidationExportSigCollector_.beginAttributedAdmission(
+        share.originTxn, std::move(contribution), validated->info().seq);
+    if (admission.result != ExportSigCollectorV2::BeginResult::verify ||
+        !admission.ticket)
+        return false;
+
+    auto outcome = postValidationExportSigCollector_.admitContribution(
+        std::move(*admission.ticket), true, validated->info().seq);
+    if (outcome.result == ExportSigCollectorV2::AdmitResult::accepted)
+        return true;
+    if (outcome.result != ExportSigCollectorV2::AdmitResult::conflicted ||
+        !outcome.priorContribution || !outcome.conflictingContribution)
+        return false;
+
+    // Propagate both valid encodings so every honest collector can observe the
+    // same absorbing conflict even if it missed the first frame.
+    protocol::TMExportShares conflict;
+    for (auto const* contribution :
+         {&*outcome.priorContribution, &*outcome.conflictingContribution})
+    {
+        auto const frame = withContribution(share, *contribution).serialize();
+        conflict.add_shares(frame.data(), frame.size());
+    }
+    app_.overlay().broadcast(conflict);
+    return false;
+}
+
+void
+ConsensusExtensions::onValidatedLedger(
+    LedgerIndex const seq,
+    uint256 const& hash) noexcept
+{
+    if (!exportShareServiceStarted_.load(std::memory_order_acquire))
+        return;
+
+    try
+    {
+        auto const eventLedger = app_.getLedgerMaster().getLedgerByHash(hash);
+        auto const validated = app_.getLedgerMaster().getValidatedLedger();
+        if (!eventLedger || eventLedger->info().seq != seq || !validated ||
+            validated->info().seq < seq ||
+            !validated->rules().enabled(featureExport))
+            return;
+        auto const canonicalEventHash = seq == validated->info().seq
+            ? std::optional<uint256>{validated->info().hash}
+            : hashOfSeq(*validated, seq, j_);
+        if (!canonicalEventHash || *canonicalEventHash != hash)
+            return;
+
+        auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();
+        if (cfg && cfg->noExportSig && *cfg->noExportSig)
+            return;
+
+        postValidationExportSigCollector_.cleanupStale(validated->info().seq);
+
+        auto const& keys = app_.getValidatorKeys();
+        if (!keys.keys || keys.nodeID == beast::zero)
+            return;
+
+        std::vector<ExportShare> shares;
+        shares.reserve(ExportLimits::maxLiveExportLatches);
+        forEachItem(
+            *validated,
+            keylet::pendingExports(),
+            [&](std::shared_ptr<SLE const> const& latch) {
+                if (!latch ||
+                    shares.size() >= ExportLimits::maxLiveExportLatches ||
+                    latch->getType() != ltSHADOW_TICKET ||
+                    !latch->isFieldPresent(sfTransactionHash) ||
+                    !latch->isFieldPresent(sfExportUniverseHash) ||
+                    !latch->isFieldPresent(sfExportCommittee) ||
+                    !latch->isFieldPresent(sfLastLedgerSequence) ||
+                    validated->info().seq >
+                        latch->getFieldU32(sfLastLedgerSequence))
+                    return;
+
+                auto const origin = latch->getFieldH256(sfTransactionHash);
+                auto const originSeq = latch->getFieldU32(sfLedgerSequence);
+                auto const originHash = originSeq == validated->info().seq
+                    ? std::optional<uint256>{validated->info().hash}
+                    : hashOfSeq(*validated, originSeq, j_);
+                if (!originHash)
+                    return;
+
+                auto const universeHash =
+                    latch->getFieldH256(sfExportUniverseHash);
+                auto const universeLedger =
+                    app_.getLedgerMaster().getLedgerByHash(universeHash);
+                if (!universeLedger)
+                    return;
+                auto const validatorView =
+                    makeActiveValidatorView(universeLedger);
+                if (!validatorView->fromUNLReport ||
+                    !validatorView->sourceLedgerHash ||
+                    *validatorView->sourceLedgerHash != universeHash)
+                    return;
+
+                auto const committee = resolveExportCommittee(
+                    makeSlice(latch->getFieldVL(sfExportCommittee)),
+                    validatorView->orderedOriginalMasterKeys.size());
+                auto const position = std::find(
+                    validatorView->orderedOriginalMasterKeys.begin(),
+                    validatorView->orderedOriginalMasterKeys.end(),
+                    keys.keys->masterPublicKey);
+                if (!committee ||
+                    position == validatorView->orderedOriginalMasterKeys.end())
+                    return;
+                auto const index = static_cast<std::size_t>(std::distance(
+                    validatorView->orderedOriginalMasterKeys.begin(),
+                    position));
+                if (!committee->members.contains(index) ||
+                    postValidationExportSigCollector_.positionStatus(
+                        origin, static_cast<std::uint16_t>(index)) !=
+                        ExportSigCollectorV2::PositionStatus::empty)
+                    return;
+
+                auto const originLedger =
+                    app_.getLedgerMaster().getLedgerByHash(*originHash);
+                if (!originLedger ||
+                    originLedger->info().parentHash != universeHash)
+                    return;
+                auto const [outer, _] = originLedger->txRead(origin);
+                if (!outer)
+                    return;
+                auto const inner = ExportLedgerOps::innerExportedTx(*outer);
+                if (!inner)
+                    return;
+
+                auto const targetNetworkID = inner->isFieldPresent(sfNetworkID)
+                    ? inner->getFieldU32(sfNetworkID)
+                    : std::uint32_t{0};
+                auto release = ExportOriginMemo::releaseForm(
+                    *inner,
+                    ExportOriginMemo::Origin{
+                        app_.config().NETWORK_ID, targetNetworkID, origin},
+                    ExportOriginMemo::Anchor{originSeq, *originHash});
+                if (!release)
+                    return;
+
+                auto const signer = calcAccountID(keys.keys->publicKey);
+                auto const data =
+                    buildMultiSigningData(release.value(), signer);
+                auto const signature = sign(
+                    keys.keys->publicKey, keys.keys->secretKey, data.slice());
+                ExportShare share{
+                    ExportShare::currentVersion,
+                    latch->getAccountID(sfAccount),
+                    origin,
+                    originSeq,
+                    *originHash,
+                    origin,
+                    static_cast<std::uint16_t>(index),
+                    keys.keys->publicKey,
+                    signature};
+                if (onExportShare(share))
+                    shares.push_back(std::move(share));
+            });
+
+        for (std::size_t first = 0; first < shares.size();
+             first += ExportLimits::maxExportSharesPerRelay)
+        {
+            protocol::TMExportShares message;
+            auto const last = std::min(
+                shares.size(), first + ExportLimits::maxExportSharesPerRelay);
+            for (auto i = first; i < last; ++i)
+            {
+                auto const frame = shares[i].serialize();
+                message.add_shares(frame.data(), frame.size());
+            }
+            app_.overlay().broadcast(message);
+        }
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j_.error()) << "Export: validated release failed seq=" << seq
+                         << " hash=" << hash << " error=" << e.what();
+    }
+    catch (...)
+    {
+        JLOG(j_.error()) << "Export: validated release failed seq=" << seq
+                         << " hash=" << hash << " error=unknown";
+    }
+}
+
+void
+ConsensusExtensions::startExportShareService()
+{
+    exportShareServiceStarted_.store(true, std::memory_order_release);
+    if (auto const validated = app_.getLedgerMaster().getValidatedLedger())
+        onValidatedLedger(validated->info().seq, validated->info().hash);
+}
+
+void
+ConsensusExtensions::stopExportShareService() noexcept
+{
+    exportShareServiceStarted_.store(false, std::memory_order_release);
 }
 
 //------------------------------------------------------------------------------
@@ -292,31 +667,6 @@ buildExportTxnLookup(SHAMap const& txns, beast::Journal j)
         }
     });
     return exportTxns;
-}
-
-ExportTxnLookup
-buildOpenLedgerExportTxnLookup(Application& app)
-{
-    ExportTxnLookup exportTxns;
-    auto const openLedger = app.openLedger().current();
-    if (!openLedger)
-        return exportTxns;
-
-    for (auto const& entry : openLedger->txs)
-    {
-        auto const& stx = entry.first;
-        if (stx && ExportLedgerOps::isPendingExportWorkTxn(*stx))
-            addExportSidecarCandidate(exportTxns, stx);
-    }
-    return exportTxns;
-}
-
-LedgerIndex
-currentClosedLedgerSeq(Application& app)
-{
-    if (auto const closed = app.getLedgerMaster().getClosedLedger())
-        return closed->info().seq;
-    return 0;
 }
 
 }  // namespace
@@ -1216,46 +1566,43 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
 uint256
 ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
 {
-    //@@start current-export-global-sigset-build
     auto map =
         std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
     map->setUnbacked();
 
-    auto const validatorView = activeValidatorView();
-    // Export sidecar convergence should not advertise signatures from trusted
-    // but inactive validators; those signatures cannot count at apply time.
-    auto const allSigs = exportSigCollector_.snapshotWithSigs(
-        activeSignerFilter(*this, validatorView));
-    // Only signatures for export txns in the consensus candidate can affect
-    // this round's sidecar hash; open-ledger-only txns stay cached for later.
+    auto const validated = app_.getLedgerMaster().getValidatedLedger();
+    auto const live = validated
+        ? pendingExportLatches(*validated)
+        : std::map<uint256, std::shared_ptr<SLE const>>{};
+    auto const allSigs = postValidationExportSigCollector_.fullUnionSnapshot();
     std::size_t entryCount = 0;
 
-    for (auto const& [txHash, valSigs] : allSigs)
+    for (auto const& [origin, contributions] : allSigs)
     {
-        // Candidate membership is the deterministic publication gate. A sig
-        // may have been verified earlier from the open ledger, but it only
-        // enters the sidecar hash if the same tx hash is in the converged set.
-        if (consensusExportTxns_.find(txHash) == consensusExportTxns_.end())
+        if (live.find(origin) == live.end())
             continue;
 
-        for (auto const& [valPK, sigBuf] : valSigs)
+        for (auto const& contribution : contributions)
         {
             STObject sidecar(sfGeneric);
             sidecar.setFieldU8(sfSidecarType, sidecarExportSig);
-            sidecar.setFieldH256(sfTransactionHash, txHash);
-            sidecar.setFieldVL(sfSigningPubKey, valPK.slice());
-            if (sigBuf.size() > 0)
-                sidecar.setFieldVL(
-                    sfTxnSignature, Slice(sigBuf.data(), sigBuf.size()));
+            sidecar.setFieldH256(sfTransactionHash, origin);
+            sidecar.setFieldU32(sfTransactionIndex, contribution.position);
+            sidecar.setFieldVL(
+                sfSigningPubKey, contribution.signingKey.slice());
+            sidecar.setFieldVL(
+                sfTxnSignature,
+                Slice{
+                    contribution.signature.data(),
+                    contribution.signature.size()});
 
             map->addItem(SHAMapNodeType::tnSIDECAR, makeSidecarItem(sidecar));
             ++entryCount;
         }
     }
 
-    auto const maxExportSidecarLeaves = validatorView->size() *
-        std::min(consensusExportTxns_.size(),
-                 static_cast<std::size_t>(ExportLimits::maxPendingExports));
+    auto const maxExportSidecarLeaves =
+        ExportLimits::maxLiveExportLatches * ExportLimits::maxCommitteeMembers;
     XRPL_ASSERT(
         entryCount <= maxExportSidecarLeaves,
         "ripple::ConsensusExtensions::buildExportSigSet : "
@@ -1273,36 +1620,27 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
     JLOG(j_.debug()) << "Export: built exportSigSet SHAMap"
                      << " hash=" << hash << " seq=" << seq
                      << " entries=" << entryCount
-                     << " candidateExportTxns=" << consensusExportTxns_.size()
-                     << " activeValidators=" << validatorView->size();
-    //@@end current-export-global-sigset-build
+                     << " liveOrigins=" << live.size();
     return hash;
 }
 
 bool
 ConsensusExtensions::hasPendingExportSigs() const
 {
-    auto const validatorView = activeValidatorView();
-    // The export convergence gate only needs to run for signatures that are
-    // eligible under the active view used by final quorum evaluation.
-    auto const allSigs = exportSigCollector_.snapshotWithSigs(
-        activeSignerFilter(*this, validatorView));
-    if (allSigs.empty() || !consensusTxSetMap_)
+    auto const validated = app_.getLedgerMaster().getValidatedLedger();
+    if (!validated)
         return false;
-
-    for (auto const& entry : allSigs)
-    {
-        if (consensusExportTxns_.find(entry.first) !=
-            consensusExportTxns_.end())
-            return true;
-    }
-    return false;
+    auto const live = pendingExportLatches(*validated);
+    auto const allSigs = postValidationExportSigCollector_.fullUnionSnapshot();
+    return std::any_of(allSigs.begin(), allSigs.end(), [&](auto const& entry) {
+        return live.find(entry.first) != live.end();
+    });
 }
 
 bool
 ConsensusExtensions::hasConsensusExportTxns() const
 {
-    return !consensusExportTxns_.empty();
+    return hasPendingExportSigs();
 }
 
 void
@@ -1476,6 +1814,136 @@ ConsensusExtensions::agreedExportSignatures(
     return signatures;
 }
 
+std::optional<ConsensusExtensions::ExportWitnessMaterial>
+ConsensusExtensions::agreedExportWitness(
+    STTx const& releaseTarget,
+    uint256 const& origin,
+    Blob const& committeeBitmap,
+    std::size_t universeSize,
+    std::size_t threshold) const
+{
+    auto const committee =
+        resolveExportCommittee(makeSlice(committeeBitmap), universeSize);
+    if (!committee || committee->quorum != threshold)
+        return std::nullopt;
+
+    auto const acceptedHash = acceptedExportSigSetHash_
+        ? *acceptedExportSigSetHash_
+        : app_.config().standalone() && exportSigSetMap_
+        ? exportSigSetMap_->getHash().as_uint256()
+        : uint256{};
+    if (acceptedHash.isZero())
+        return std::nullopt;
+    std::shared_ptr<SHAMap> agreedMap;
+    if (exportSigSetMap_ &&
+        exportSigSetMap_->getHash().as_uint256() == acceptedHash)
+        agreedMap = exportSigSetMap_;
+    else
+        agreedMap = app_.getInboundTransactions().getSet(acceptedHash, false);
+
+    if (!agreedMap || agreedMap->mapType() != SHAMapType::SIDECAR ||
+        agreedMap->getHash().as_uint256() != acceptedHash)
+        return std::nullopt;
+
+    ExportWitnessMaterial material;
+    material.contributors.resize(validatorBitsetBytes(universeSize), 0);
+    std::set<std::uint32_t> positions;
+    hash_set<AccountID> signerAccounts;
+    bool invalid = false;
+    agreedMap->visitLeaves(
+        [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+            if (invalid)
+                return;
+            try
+            {
+                auto admitted = admitSidecarLeaf(
+                    item->key(),
+                    item->slice(),
+                    acceptedHash,
+                    j_,
+                    "Export",
+                    "exportSigSet",
+                    "witness",
+                    ExportLimits::maxExportSignatureSidecarBytes,
+                    &invalid);
+                if (!admitted || admitted->type != sidecarExportSig)
+                {
+                    invalid = true;
+                    return;
+                }
+
+                auto const& sidecar = admitted->sidecar;
+                if (!sidecar.isFieldPresent(sfTransactionHash) ||
+                    !sidecar.isFieldPresent(sfTransactionIndex) ||
+                    !sidecar.isFieldPresent(sfSigningPubKey) ||
+                    !sidecar.isFieldPresent(sfTxnSignature))
+                {
+                    invalid = true;
+                    return;
+                }
+                if (sidecar.getFieldH256(sfTransactionHash) != origin)
+                    return;
+
+                auto const position = sidecar.getFieldU32(sfTransactionIndex);
+                if (position >= universeSize ||
+                    !committee->members.contains(position) ||
+                    !positions.insert(position).second)
+                {
+                    invalid = true;
+                    return;
+                }
+
+                auto const keyBytes = sidecar.getFieldVL(sfSigningPubKey);
+                if (!publicKeyType(makeSlice(keyBytes)))
+                {
+                    invalid = true;
+                    return;
+                }
+                PublicKey const key{makeSlice(keyBytes)};
+                auto const signer = calcAccountID(key);
+                if (!signerAccounts.insert(signer).second)
+                {
+                    invalid = true;
+                    return;
+                }
+
+                auto const signature = sidecar.getFieldVL(sfTxnSignature);
+                auto const data = buildMultiSigningData(releaseTarget, signer);
+                if (signature.empty() ||
+                    signature.size() >
+                        ExportSigCollectorV2::maxSignatureBytes ||
+                    !verify(key, data.slice(), makeSlice(signature)))
+                {
+                    invalid = true;
+                    return;
+                }
+
+                auto const [_, inserted] = material.signatures.emplace(
+                    key, Buffer{signature.data(), signature.size()});
+                if (!inserted)
+                {
+                    invalid = true;
+                    return;
+                }
+                material.contributors[position / 8] |=
+                    static_cast<std::uint8_t>(1u << (position % 8));
+            }
+            catch (std::exception const& e)
+            {
+                JLOG(j_.warn())
+                    << "Export: witness sidecar parse failed"
+                    << " origin=" << origin << " setHash=" << acceptedHash
+                    << " error=" << e.what();
+                invalid = true;
+            }
+        });
+
+    if (invalid || material.signatures.size() < threshold ||
+        material.signatures.size() > ExportLimits::maxCommitteeMembers)
+        return std::nullopt;
+    return material;
+}
+
 void
 ConsensusExtensions::generateEntropySecret()
 {
@@ -1559,10 +2027,12 @@ ConsensusExtensions::clearRngState()
         // Drop cached signatures so an emergency stop cannot leave old quorum
         // material waiting for a later re-enable.
         exportSigCollector_.clearAll();
+        postValidationExportSigCollector_.clearAll();
     }
     exportSigSetMap_.reset();
     acceptedExportSigSetHash_.reset();
     consensusExportTxns_.clear();
+    proposalPublishedExportShares_.clear();
     exportSigGateStarted_ = false;
     exportSigGateStart_ = {};
     exportSigConvergenceFailed_ = false;
@@ -1981,155 +2451,127 @@ ConsensusExtensions::onPreBuild(
 
     if (exportEnabled())
     {
-        //@@start export-witness-scrub-stale
-        auto const validatorView = activeValidatorView();
+        //@@start export-later-ledger-witness-materialization
+        // Export witnesses are synthetic consequences of the accepted sidecar
+        // root. Never preserve a transaction-set supplied variant.
         for (auto it = retriableTxs.begin(); it != retriableTxs.end();)
         {
             auto const& tx = it->second;
             if (tx && tx->getTxnType() == ttEXPORT_SIGNATURES)
-            {
-                // Live witnesses are build-time materializations of the
-                // accepted sidecar root. Remove stale or externally supplied
-                // pseudos before reinserting the deterministic witness below.
                 it = retriableTxs.erase(it);
-                continue;
-            }
-            ++it;
+            else
+                ++it;
         }
-        //@@end export-witness-scrub-stale
 
-        if (app_.config().standalone())
+        auto const parent =
+            app_.getLedgerMaster().getLedgerByHash(roundPrevLedgerHash_);
+        auto const validated = app_.getLedgerMaster().getValidatedLedger();
+        bool parentExtendsValidated =
+            parent && validated && validated->info().seq <= parent->info().seq;
+        if (parentExtendsValidated &&
+            validated->info().seq < parent->info().seq)
         {
-            auto const& valKeys = app_.getValidatorKeys();
-            if (valKeys.keys)
-            {
-                for (auto const& entry : retriableTxs)
-                {
-                    auto const& stx = entry.second;
-                    if (!stx || stx->getTxnType() != ttEXPORT ||
-                        !stx->isFieldPresent(sfExportedTxn))
-                    {
-                        continue;
-                    }
-
-                    auto const exportTxHash = stx->getTransactionID();
-                    auto const existing = std::find_if(
-                        retriableTxs.begin(),
-                        retriableTxs.end(),
-                        [&](auto const& candidate) {
-                            auto const& tx = candidate.second;
-                            return tx &&
-                                tx->getTxnType() == ttEXPORT_SIGNATURES &&
-                                tx->isFieldPresent(sfTransactionHash) &&
-                                tx->getFieldH256(sfTransactionHash) ==
-                                exportTxHash;
-                        });
-
-                    if (existing != retriableTxs.end())
-                        continue;
-
-                    auto innerTx = ExportLedgerOps::innerExportedTx(*stx);
-                    if (!innerTx)
-                    {
-                        JLOG(j_.warn()) << "Export: standalone witness skipped"
-                                        << " exportTxHash=" << exportTxHash
-                                        << " reason=inner-tx-parse-failed";
-                        continue;
-                    }
-
-                    ExportResultBuilder::SignatureSnapshot signatures;
-                    signatures.emplace(
-                        valKeys.keys->publicKey,
-                        ExportResultBuilder::signExportedTxn(
-                            *innerTx,
-                            valKeys.keys->publicKey,
-                            valKeys.keys->secretKey));
-
-                    auto witness = ExportResultBuilder::buildSignatureWitness(
-                        exportTxHash, signatures, seq);
-
-                    // Standalone uses the same replay witness shape as
-                    // network mode, but the witness is locally synthesized
-                    // from the node's validator key instead of quorum sidecar
-                    // convergence.
-                    retriableTxs.insert(
-                        std::make_shared<STTx>(std::move(witness)));
-                }
-            }
+            auto const validatedHash =
+                hashOfSeq(*parent, validated->info().seq, j_);
+            parentExtendsValidated =
+                validatedHash && *validatedHash == validated->info().hash;
         }
-        //@@start export-witness-from-accepted-root
-        else if (validatorView->fromUNLReport)
+        else if (parentExtendsValidated)
         {
-            auto const threshold = exportWitnessThreshold(*validatorView);
-            for (auto const& entry : retriableTxs)
+            parentExtendsValidated =
+                parent->info().hash == validated->info().hash;
+        }
+
+        if (parentExtendsValidated)
+        {
+            auto const pending = pendingExportLatches(*parent);
+            for (auto const& [origin, latch] : pending)
             {
-                auto const& stx = entry.second;
-                if (!stx || stx->getTxnType() != ttEXPORT ||
-                    !stx->isFieldPresent(sfExportedTxn))
+                if (!latch->isFieldPresent(sfExportUniverseHash) ||
+                    !latch->isFieldPresent(sfExportCommittee) ||
+                    !latch->isFieldPresent(sfLastLedgerSequence) ||
+                    seq > latch->getFieldU32(sfLastLedgerSequence))
                     continue;
 
-                auto const exportTxHash = stx->getTransactionID();
-                auto sigs =
-                    agreedExportSignatures(*stx, exportTxHash, threshold);
-                if (!sigs)
+                auto const originSeq = latch->getFieldU32(sfLedgerSequence);
+                auto const originHash = hashOfSeq(*parent, originSeq, j_);
+                auto const validatedOriginHash =
+                    originSeq == validated->info().seq
+                    ? std::optional<uint256>{validated->info().hash}
+                    : hashOfSeq(*validated, originSeq, j_);
+                if (!originHash || !validatedOriginHash ||
+                    *originHash != *validatedOriginHash)
+                    continue;
+
+                auto const originLedger =
+                    app_.getLedgerMaster().getLedgerByHash(*originHash);
+                if (!originLedger)
+                    continue;
+                auto const [outer, _] = originLedger->txRead(origin);
+                if (!outer || outer->getTxnType() != ttEXPORT)
+                    continue;
+                auto const inner = ExportLedgerOps::innerExportedTx(*outer);
+                if (!inner)
+                    continue;
+
+                auto const universeHash =
+                    latch->getFieldH256(sfExportUniverseHash);
+                if (originLedger->info().parentHash != universeHash)
+                    continue;
+                auto const universeLedger =
+                    app_.getLedgerMaster().getLedgerByHash(universeHash);
+                if (!universeLedger)
+                    continue;
+                auto const validatorView =
+                    makeActiveValidatorView(universeLedger);
+                if (!validatorView->fromUNLReport ||
+                    !validatorView->sourceLedgerHash ||
+                    *validatorView->sourceLedgerHash != universeHash)
+                    continue;
+
+                auto const committeeBitmap =
+                    latch->getFieldVL(sfExportCommittee);
+                auto const committee = resolveExportCommittee(
+                    makeSlice(committeeBitmap),
+                    validatorView->orderedOriginalMasterKeys.size());
+                if (!committee)
+                    continue;
+
+                auto const targetNetworkID = inner->isFieldPresent(sfNetworkID)
+                    ? inner->getFieldU32(sfNetworkID)
+                    : std::uint32_t{0};
+                auto const release = ExportOriginMemo::releaseForm(
+                    *inner,
+                    ExportOriginMemo::Origin{
+                        app_.config().NETWORK_ID, targetNetworkID, origin},
+                    ExportOriginMemo::Anchor{originSeq, *originHash});
+                if (!release)
+                    continue;
+
+                auto material = agreedExportWitness(
+                    release.value(),
+                    origin,
+                    committeeBitmap,
+                    validatorView->orderedOriginalMasterKeys.size(),
+                    committee->quorum);
+                if (!material)
                     continue;
 
                 auto witness = ExportResultBuilder::buildSignatureWitness(
-                    exportTxHash, *sigs, seq);
-                auto const witnessHash = witness.getTransactionID();
-                auto const existing = std::find_if(
-                    retriableTxs.begin(),
-                    retriableTxs.end(),
-                    [&](auto const& candidate) {
-                        auto const& tx = candidate.second;
-                        return tx && tx->getTxnType() == ttEXPORT_SIGNATURES &&
-                            tx->isFieldPresent(sfTransactionHash) &&
-                            tx->getFieldH256(sfTransactionHash) == exportTxHash;
-                    });
-
-                if (existing != retriableTxs.end())
-                {
-                    auto const existingHash =
-                        existing->second->getTransactionID();
-                    if (existingHash == witnessHash)
-                        continue;
-
-                    JLOG(j_.error())
-                        << "Export: signature witness pseudo-tx mismatch"
-                        << " exportTxHash=" << exportTxHash
-                        << " witnessHash=" << witnessHash
-                        << " existingHash=" << existingHash
-                        << " action=replace-with-agreed";
-                    // The witness is build-time materialization of the
-                    // accepted sidecar, not a base consensus-set transaction.
-                    // Replacing a mismatch keeps the tx stream tied to the
-                    // accepted root instead of preserving stale local input.
-                    retriableTxs.erase(existing);
-                }
-
-                // Export signatures determine source quorum success and the
-                // exported-result witness reference, so they must be tx-stream
-                // input, not only accepted sidecar memory. The matching
-                // ttEXPORT consumes this pseudo through the BuildLedger
-                // pre-scan; the pseudo itself has no ledger effect.
+                    origin,
+                    release.value(),
+                    material->signatures,
+                    material->contributors,
+                    seq);
                 retriableTxs.insert(std::make_shared<STTx>(std::move(witness)));
             }
         }
-        //@@end export-witness-from-accepted-root
-        else if (!consensusExportTxns_.empty())
-        {
-            JLOG(j_.warn())
-                << "Export: not injecting signature witnesses"
-                << " reason=no-ledger-anchored-validator-view"
-                << " seq=" << seq
-                << " candidateExportTxns=" << consensusExportTxns_.size();
-        }
+        //@@end export-later-ledger-witness-materialization
     }
 
     //@@start accept-time-cleanup-success
-    // Export's ledger-defining signature witness is now in the tx stream.
-    // After this point build/replay must use the pre-scanned pseudo, not
-    // ephemeral sidecar state retained from consensus establish.
+    // Export's ledger-defining signature witnesses are now self-contained
+    // transactions in the stream; no later apply step reads sidecar memory.
     clearRngStatePreservingExport();
     //@@end accept-time-cleanup-success
 }
@@ -2520,35 +2962,25 @@ ConsensusExtensions::logPosition(
 std::size_t
 ConsensusExtensions::harvestExportSignatures(
     PublicKey const& senderPK,
-    uint256 const& proposalPrevLedger,
+    uint256 const&,
     std::vector<std::string> const& exportSignatures,
-    char const* source)
+    char const*)
 {
-    if (!exportEnabled())
+    if (!exportEnabled() || exportSignatures.empty() ||
+        exportSignatures.size() > ExportLimits::maxExportSharesPerRelay)
         return 0;
 
-    if (exportSignatures.empty())
-        return 0;
-
-    auto const validatorView = activeValidatorView();
-    // Proposal ingress is outside the consensus mutex, so take a snapshot of
-    // the shared active view and reject trusted-but-inactive signers here.
-    auto const exportTxns = buildOpenLedgerExportTxnLookup(app_);
-    auto const currentSeq = currentClosedLedgerSeq(app_);
-
-    return ripple::harvestExportSignatures(
-        ExportSignatureHarvestInput{
-            senderPK,
-            proposalPrevLedger,
-            exportSignatures,
-            validatorView->sourceLedgerHash,
-            activeSignerFilter(*this, validatorView),
-            exportTxns,
-            currentSeq,
-            source,
-            ExportLimits::maxPendingExports},
-        exportSigCollector_,
-        j_);
+    std::size_t accepted = 0;
+    for (auto const& bytes : exportSignatures)
+    {
+        auto const share = ExportShare::parse(makeSlice(bytes));
+        if (!share || share->signingKey != senderPK ||
+            share->serialize().slice() != makeSlice(bytes))
+            continue;
+        if (onExportShare(*share))
+            ++accepted;
+    }
+    return accepted;
 }
 
 //@@start peer-harvest-export-sigs
@@ -2585,7 +3017,7 @@ ConsensusExtensions::onTrustedPeerMessage(
     for (int i = 0; i < wireMsg.exportsignatures_size(); ++i)
     {
         if (wireMsg.exportsignatures(i).size() >
-            ExportLimits::maxExportSignatureBytes)
+            ExportLimits::maxSerializedExportShareBytes)
             return;
         exportSignatures.push_back(wireMsg.exportsignatures(i));
     }
@@ -2661,158 +3093,67 @@ ConsensusExtensions::decoratePosition(
 void
 ConsensusExtensions::attachExportSignatures(
     protocol::TMProposeSet& prop,
-    RCLCxPeerPos::Proposal const& proposal)
+    RCLCxPeerPos::Proposal const&)
 {
-    auto const& valKeys = app_.getValidatorKeys();
-
-    //@@start export-proposal-signature-feature-gate
     if (!exportEnabled())
         return;
 
-    // Attach export signatures for any ttEXPORT txns in the open ledger.
-    // Gated on featureExport amendment.
-    //@@start runtime-export-no-sig
-    // RuntimeConfig no_export_sig disables sig attachment (testing sub-quorum).
-    {
-        auto& rc = app_.getRuntimeConfig();
-        if (rc.active())
-        {
-            if (auto cfg = rc.getConsensusTestConfig())
-            {
-                if (cfg->noExportSig && *cfg->noExportSig)
-                {
-                    JLOG(j_.debug()) << "Export: skipping proposal signatures"
-                                     << " reason=runtime-config-noExportSig";
-                    return;
-                }
-            }
-        }
-    }
-    //@@end runtime-export-no-sig
-
-    auto const openLedger = app_.openLedger().current();
-    if (!openLedger || !openLedger->rules().enabled(featureExport))
-        return;
-    //@@end export-proposal-signature-feature-gate
-
-    if (!valKeys.keys || valKeys.nodeID == beast::zero)
-    {
-        // Export signatures are validator attestations. Non-validator nodes may
-        // relay proposals, but must not advertise locally authored signatures.
-        JLOG(j_.debug()) << "Export: skipping proposal signatures"
-                         << " reason=no-validator-key";
-        return;
-    }
-
-    auto const& valPK = valKeys.keys->publicKey;
-    auto const& valSK = valKeys.keys->secretKey;
-    auto const validatorView = activeValidatorView();
-    if (!validatorView->fromUNLReport)
-    {
-        // Proposal signatures are immediately usable target-chain
-        // capabilities. Do not publish them from a local fallback authority
-        // when closed-ledger apply cannot create the matching source latch.
-        JLOG(j_.debug()) << "Export: skipping proposal signatures"
-                         << " reason=no-ledger-anchored-validator-view";
-        return;
-    }
-
-    if (!exportAuthorityFitsTargetSignerCap(
-            *validatorView, STTx::maxMultiSigners()))
-    {
-        JLOG(j_.warn()) << "Export: skipping proposal signatures"
-                        << " reason=source-authority-exceeds-target-signer-cap"
-                        << " activeValidators=" << validatorView->size()
-                        << " originalValidators="
-                        << validatorView->originalViewSize
-                        << " targetSignerCap=" << STTx::maxMultiSigners();
-        return;
-    }
-
-    // A locally configured validator may be trusted but not active for this
-    // round; only active validators should advertise export signatures.
-    if (!isActiveValidator(valPK))
+    auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();
+    if (cfg && cfg->noExportSig && *cfg->noExportSig)
         return;
 
-    auto const signerAcctID = calcAccountID(valPK);
-    std::uint8_t attached = 0;
+    auto const& keys = app_.getValidatorKeys();
+    auto const validated = app_.getLedgerMaster().getValidatedLedger();
+    if (!keys.keys || keys.nodeID == beast::zero || !validated ||
+        !validated->rules().enabled(featureExport))
+        return;
 
-    for (auto const& [stx, meta] : openLedger->txs)
+    auto const live = pendingExportLatches(*validated);
+    auto const snapshot = postValidationExportSigCollector_.fullUnionSnapshot();
+    std::size_t attached = 0;
+    for (auto const& [origin, contributions] : snapshot)
     {
-        if (!stx || !ExportLedgerOps::isPendingExportWorkTxn(*stx))
+        auto const latchIt = live.find(origin);
+        if (latchIt == live.end())
+            continue;
+        auto const& latch = latchIt->second;
+        auto const originSeq = latch->getFieldU32(sfLedgerSequence);
+        auto const originHash = originSeq == validated->info().seq
+            ? std::optional<uint256>{validated->info().hash}
+            : hashOfSeq(*validated, originSeq, j_);
+        if (!originHash)
             continue;
 
-        if (attached >= ExportLimits::maxPendingExports)
+        for (auto const& contribution : contributions)
         {
-            JLOG(j_.debug())
-                << "Export: proposal signature attachment cap reached"
-                << " max=" << +ExportLimits::maxPendingExports
-                << " openLedgerSeq=" << openLedger->info().seq;
-            break;
+            if (attached >= ExportLimits::maxExportSharesPerRelay)
+                return;
+            if (contribution.signingKey != keys.keys->publicKey)
+                continue;
+            auto const identity =
+                std::pair<uint256, ExportSigCollectorV2::Position>{
+                    origin, contribution.position};
+            if (proposalPublishedExportShares_.count(identity) != 0)
+                continue;
+
+            ExportShare share{
+                ExportShare::currentVersion,
+                latch->getAccountID(sfAccount),
+                origin,
+                originSeq,
+                *originHash,
+                origin,
+                contribution.position,
+                contribution.signingKey,
+                contribution.signature};
+            if (!resolveExportShare(app_, *this, share, validated, j_))
+                continue;
+
+            auto const frame = share.serialize();
+            prop.add_exportsignatures(frame.data(), frame.size());
+            proposalPublishedExportShares_.insert(identity);
+            ++attached;
         }
-
-        auto const txHash = stx->getTransactionID();
-
-        // Only attach our sig on the first proposal this round, and only for
-        // the bounded export sidecar candidate set.
-        if (!exportSigCollector_.markSent(
-                txHash, ExportLimits::maxPendingExports))
-            continue;
-
-        //@@start export-compute-proposal-sig
-        Buffer sigBuf;
-        if (stx->isFieldPresent(sfExportedTxn))
-        {
-            try
-            {
-                auto innerTx = ExportLedgerOps::innerExportedTx(*stx);
-                if (!innerTx)
-                {
-                    JLOG(j_.warn())
-                        << "Export: failed to sign inner tx"
-                        << " txHash=" << txHash
-                        << " openLedgerSeq=" << openLedger->info().seq
-                        << " reason=inner-tx-parse-failed";
-                }
-                else
-                {
-                    auto sigData =
-                        buildMultiSigningData(*innerTx, signerAcctID);
-                    sigBuf = sign(valPK, valSK, sigData.slice());
-                }
-            }
-            catch (std::exception const& e)
-            {
-                JLOG(j_.warn()) << "Export: failed to sign inner tx"
-                                << " txHash=" << txHash
-                                << " openLedgerSeq=" << openLedger->info().seq
-                                << " error=" << e.what();
-            }
-        }
-        //@@end export-compute-proposal-sig
-
-        //@@start export-attach-wire-sigs
-        Serializer s;
-        s.addBitString(txHash);
-        s.addRaw(valPK.slice());
-        if (sigBuf.size() > 0)
-            s.addRaw(Slice(sigBuf.data(), sigBuf.size()));
-        prop.add_exportsignatures(s.peekData().data(), s.peekData().size());
-        ++attached;
-        //@@end export-attach-wire-sigs
-
-        // Only store if we actually produced a signature.
-        // sigBuf is empty if the inner tx failed to deserialize.
-        if (sigBuf.size() > 0)
-            exportSigCollector_.addVerifiedSignature(
-                txHash, valPK, sigBuf, openLedger->info().seq);
-
-        JLOG(j_.debug()) << "Export: attached proposal signature"
-                         << " txHash=" << txHash
-                         << " signer=" << calcNodeID(valPK)
-                         << " openLedgerSeq=" << openLedger->info().seq
-                         << " sigLen=" << sigBuf.size()
-                         << " attached=" << +attached;
     }
 }
 //@@end export-sig-attachment
@@ -2868,7 +3209,6 @@ ConsensusExtensions::onTick(TickContext const& ctx)
     if (exportEnabled())
     {
         cacheConsensusTxSet(ctx.getTxns());
-        verifyPendingExportSigs(ctx.getTxns(), ctx.buildSeq);
     }
     else
     {

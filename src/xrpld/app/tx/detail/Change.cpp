@@ -23,6 +23,7 @@
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/detail/Change.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
@@ -35,11 +36,15 @@
 #include <xrpl/hook/Guard.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/EntropyTier.h>
+#include <xrpl/protocol/ExportCommittee.h>
+#include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/ValidatorBitset.h>
+#include <bit>
 #include <set>
 #include <string_view>
 
@@ -180,10 +185,12 @@ Change::preflight(PreflightContext const& ctx)
             return temDISABLED;
         }
 
-        if (!ctx.tx.isFieldPresent(sfSigners) ||
-            ctx.tx.getFieldArray(sfSigners).empty())
+        if (!ctx.tx.isFieldPresent(sfExportedTxn) ||
+            !ctx.tx.isFieldPresent(sfEntropyContributors) ||
+            ctx.tx.getFieldVL(sfEntropyContributors).empty())
         {
-            JLOG(ctx.j.warn()) << "Change: ExportSignatures missing signers";
+            JLOG(ctx.j.warn())
+                << "Change: ExportSignatures missing assembled witness";
             return temMALFORMED;
         }
 
@@ -345,12 +352,97 @@ Change::doApply()
 TER
 Change::applyExportSignatures()
 {
-    //@@start current-export-witness-no-state-effect
-    // The signature witness is transaction-stream input for ttEXPORT replay.
-    // It intentionally has no ledger-state effect; Export::doApply consumes the
-    // pre-scanned witness snapshot when the matching ttEXPORT applies.
-    //@@end current-export-witness-no-state-effect
-    return tesSUCCESS;
+    //@@start export-later-ledger-witness-apply
+    if (ctx_.tx.getFieldU32(sfLedgerSequence) != view().info().seq)
+        return tefFAILURE;
+
+    auto const origin = ctx_.tx.getFieldH256(sfTransactionHash);
+    auto target = ExportLedgerOps::innerExportedTx(ctx_.tx);
+    auto signatures = ExportResultBuilder::signaturesFromWitness(ctx_.tx);
+    if (!target || !signatures || signatures->empty())
+        return tefFAILURE;
+
+    auto const stamp = ExportOriginMemo::parse(*target);
+    if (!stamp || !stamp.value().anchor ||
+        stamp.value().origin.sourceDomain != ctx_.app.config().NETWORK_ID ||
+        stamp.value().origin.transactionHash != origin)
+        return tefFAILURE;
+
+    auto const targetDomain = target->isFieldPresent(sfNetworkID)
+        ? target->getFieldU32(sfNetworkID)
+        : std::uint32_t{0};
+    if (stamp.value().origin.targetDomain != targetDomain ||
+        !target->isFieldPresent(sfTicketSequence))
+        return tefFAILURE;
+
+    auto const account = target->getAccountID(sfAccount);
+    auto const latchKey = keylet::shadowTicket(account, origin);
+    auto const latch = view().read(latchKey);
+    // A concurrently ordered cancel/expiry may remove the latch after the
+    // accepted sidecar selected this witness. The historical evidence remains
+    // valid, but there is no state transition left to perform.
+    if (!latch)
+        return tesSUCCESS;
+    if (latch->getType() != ltSHADOW_TICKET ||
+        !latch->isFieldPresent(sfExportCommittee) ||
+        !latch->isFieldPresent(sfLastLedgerSequence) ||
+        latch->getAccountID(sfAccount) != account ||
+        latch->getFieldH256(sfTransactionHash) != origin ||
+        latch->getFieldU32(sfTicketSequence) !=
+            target->getFieldU32(sfTicketSequence) ||
+        stamp.value().anchor->ledgerSequence !=
+            latch->getFieldU32(sfLedgerSequence))
+        return tefFAILURE;
+    if (view().info().seq > latch->getFieldU32(sfLastLedgerSequence))
+        return tesSUCCESS;
+
+    auto const anchorHash =
+        hashOfSeq(view(), stamp.value().anchor->ledgerSequence, j_);
+    if (!anchorHash || *anchorHash != stamp.value().anchor->ledgerHash)
+        return tefFAILURE;
+
+    auto const identity = ExportOriginMemo::projectIdentity(*target);
+    if (!identity ||
+        ExportResultBuilder::exportIntentHash(identity.value()) !=
+            latch->getFieldH256(sfDigest))
+        return tefFAILURE;
+
+    auto const& committee = latch->getFieldVL(sfExportCommittee);
+    auto const& contributors = ctx_.tx.getFieldVL(sfEntropyContributors);
+    if (contributors.size() != committee.size())
+        return tefFAILURE;
+
+    std::size_t committeeCount = 0;
+    std::size_t contributorCount = 0;
+    for (std::size_t i = 0; i < committee.size(); ++i)
+    {
+        if ((contributors[i] & static_cast<std::uint8_t>(~committee[i])) != 0)
+            return tefFAILURE;
+        committeeCount += std::popcount(committee[i]);
+        contributorCount += std::popcount(contributors[i]);
+    }
+    if (committeeCount == 0 ||
+        committeeCount > ExportLimits::maxCommitteeMembers ||
+        contributorCount <
+            ExportLimits::committeeQuorumThreshold(committeeCount) ||
+        contributorCount != signatures->size())
+        return tefFAILURE;
+
+    hash_set<AccountID> signerAccounts;
+    for (auto const& [key, signature] : *signatures)
+    {
+        auto const signer = calcAccountID(key);
+        if (!signerAccounts.insert(signer).second)
+            return tefFAILURE;
+        auto const data = buildMultiSigningData(*target, signer);
+        if (!verify(
+                key, data.slice(), Slice{signature.data(), signature.size()}))
+            return tefFAILURE;
+    }
+
+    return ExportLedgerOps::recordExportWitness(
+        view(), ctx_.rawView(), latchKey, ctx_.tx.getTransactionID(), j_);
+    //@@end export-later-ledger-witness-apply
 }
 
 TER

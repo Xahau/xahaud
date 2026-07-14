@@ -196,6 +196,8 @@ insertPendingExportLatch(
     constexpr auto maxCount = std::numeric_limits<std::uint16_t>::max();
     if (accountCount == maxCount || globalCount == maxCount)
         return tecDIR_FULL;
+    if (globalCount >= ExportLimits::maxLiveExportLatches)
+        return tecDIR_FULL;
     if (accountCount > globalCount)
         return tefBAD_LEDGER;
 
@@ -237,12 +239,13 @@ createPendingExportLatch(
     AccountID const& account,
     STTx const& exportTx,
     STTx const& identityTarget,
+    uint256 const& universeHash,
+    Blob const& committee,
     XRPAmount const& priorBalance,
     beast::Journal j)
 {
     if (!identityTarget.isFieldPresent(sfTicketSequence) ||
-        !exportTx.isFieldPresent(sfExportUniverseHash) ||
-        !exportTx.isFieldPresent(sfExportCommittee))
+        universeHash.isZero() || committee.empty())
         return temMALFORMED;
 
     auto const origin = exportTx.getTransactionID();
@@ -263,7 +266,6 @@ createPendingExportLatch(
     bool duplicateTicket = false;
     forEachItem(view, account, [&](std::shared_ptr<SLE const> const& sle) {
         if (sle && sle->getType() == ltSHADOW_TICKET &&
-            sle->isFieldPresent(sfTransactionHash) &&
             sle->getFieldU32(sfTicketSequence) == ticketSeq)
             duplicateTicket = true;
     });
@@ -282,11 +284,8 @@ createPendingExportLatch(
     latch->setFieldH256(
         sfDigest, ExportResultBuilder::exportIntentHash(identityTarget));
     latch->setFieldU32(sfLedgerSequence, view.info().seq);
-    latch->setFieldH256(
-        sfExportUniverseHash,
-        exportTx.getFieldH256(sfExportUniverseHash));
-    latch->setFieldVL(
-        sfExportCommittee, exportTx.getFieldVL(sfExportCommittee));
+    latch->setFieldH256(sfExportUniverseHash, universeHash);
+    latch->setFieldVL(sfExportCommittee, committee);
 
     auto const deadline = std::min<std::uint64_t>(
         std::numeric_limits<std::uint32_t>::max(),
@@ -383,6 +382,39 @@ eraseExportLatch(
 
     sb.apply(rawView);
 
+    return tesSUCCESS;
+}
+
+/** Deterministically reclaim expired pending latches during paid Export work.
+ */
+inline TER
+pruneExpiredExportLatches(
+    ApplyView& view,
+    RawView& rawView,
+    LedgerIndex currentSeq,
+    beast::Journal j)
+{
+    std::vector<Keylet> expired;
+    expired.reserve(ExportLimits::maxLiveExportLatches);
+    forEachItem(
+        view,
+        keylet::pendingExports(),
+        [&](std::shared_ptr<SLE const> const& latch) {
+            if (!latch ||
+                expired.size() >= ExportLimits::maxLiveExportLatches ||
+                latch->getType() != ltSHADOW_TICKET ||
+                !latch->isFieldPresent(sfLastLedgerSequence) ||
+                currentSeq <= latch->getFieldU32(sfLastLedgerSequence))
+                return;
+            expired.push_back(Keylet{ltSHADOW_TICKET, latch->key()});
+        });
+
+    for (auto const& key : expired)
+    {
+        auto const ter = eraseExportLatch(view, rawView, key, j);
+        if (!isTesSuccess(ter) && ter != tecNO_ENTRY)
+            return ter;
+    }
     return tesSUCCESS;
 }
 
