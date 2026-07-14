@@ -11,11 +11,10 @@ namespace ripple {
 // Export system caps.
 //
 // These limits bound the DoS surface of the export signature system:
-// - Each pending export requires every validator to sign it every round
-//   (sign-once, attach once via TMProposeSet)
+// - Each selected validator signs once after exact source validation
+// - Pending shares are re-advertised through bounded proposal/relay batches
 // - Inbound signature processing involves crypto verification per sig
-// - The open-ledger cap (maxPendingExports) is the root constraint;
-//   signing throughput and inbound processing are transitively bounded by it
+// - Durable and per-message caps bound scans, crypto, and sidecar leaves
 struct ExportLimits
 {
     // V1 bitmaps are defined over at most 256 canonical pre-NegativeUNL
@@ -45,12 +44,8 @@ struct ExportLimits
     // constant hook_api::max_export must stay equal.
     static constexpr std::uint8_t maxExportsPerHook = 2;
 
-    // Maximum pending export transactions in an open/apply ledger.
-    // Hook-emitted export backlog drains into the open ledger at this cap.
-    // This transitively caps:
-    //   - signatures per TMProposeSet message (1 per pending export)
-    //   - inbound proposal signature processing (clamped to this)
-    //   - validator signing work per round
+    // Maximum Export intents admitted in one ledger and maximum live latches
+    // owned by one account.
     static constexpr std::uint8_t maxPendingExports = 8;
 
     // Global live latch and per-validation scan bound. This is a provisional
@@ -58,9 +53,9 @@ struct ExportLimits
     // work while still allowing several ledgers of admitted intents to overlap.
     static constexpr std::uint16_t maxLiveExportLatches = 64;
 
-    // Maximum number of ledgers a pending export may retry before its
-    // mandatory LastLedgerSequence expires. This bounds validator signing work
-    // for both hook-emitted and user-submitted exports.
+    // Maximum post-validation publication/witness window requested through the
+    // mandatory outer LastLedgerSequence. Review with measured validation and
+    // sidecar latency before activation.
     static constexpr std::uint32_t maxRetryLedgers = 5;
 
     // Maximum byte length of a single export-signature wire blob:

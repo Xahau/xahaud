@@ -396,11 +396,9 @@ Change::applyExportSignatures()
     if (view().info().seq > latch->getFieldU32(sfLastLedgerSequence))
         return tesSUCCESS;
 
-    auto const anchorHash =
-        hashOfSeq(view(), stamp.value().anchor->ledgerSequence, j_);
-    if (!anchorHash || *anchorHash != stamp.value().anchor->ledgerHash)
-        return tefFAILURE;
-
+    // The origin-keyed latch can only exist on descendants of the ledger that
+    // created it. Do not query mutable local history here: qC authenticated the
+    // anchor bytes, while replay must depend only on transaction and state.
     auto const identity = ExportOriginMemo::projectIdentity(*target);
     if (!identity ||
         ExportResultBuilder::exportIntentHash(identity.value()) !=

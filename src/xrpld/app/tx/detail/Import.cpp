@@ -1044,10 +1044,10 @@ Import::preclaim(PreclaimContext const& ctx)
 
             if (parsed.value().anchor->ledgerSequence >= ctx.view.info().seq)
                 return telSHADOW_TICKET_REQUIRED;
-            auto const anchorHash = hashOfSeq(
-                ctx.view, parsed.value().anchor->ledgerSequence, ctx.j);
-            if (!anchorHash || *anchorHash != parsed.value().anchor->ledgerHash)
-                return telSHADOW_TICKET_REQUIRED;
+
+            // The origin-keyed latch below is the deterministic ancestry
+            // proof. The anchor hash was authenticated by qC and executed on
+            // the target; no node-local history lookup belongs in preclaim.
 
             stKey = keylet::shadowTicket(
                 acc, parsed.value().origin.transactionHash);

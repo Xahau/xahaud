@@ -287,11 +287,10 @@ createPendingExportLatch(
     latch->setFieldH256(sfExportUniverseHash, universeHash);
     latch->setFieldVL(sfExportCommittee, committee);
 
-    auto const deadline = std::min<std::uint64_t>(
-        std::numeric_limits<std::uint32_t>::max(),
-        static_cast<std::uint64_t>(view.info().seq) +
-            ExportLimits::maxRetryLedgers);
-    latch->setFieldU32(sfLastLedgerSequence, deadline);
+    if (!exportTx.isFieldPresent(sfLastLedgerSequence))
+        return temMALFORMED;
+    latch->setFieldU32(
+        sfLastLedgerSequence, exportTx.getFieldU32(sfLastLedgerSequence));
 
     return insertPendingExportLatch(view, rawView, latch, j);
 }
