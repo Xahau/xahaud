@@ -189,12 +189,14 @@ async def submit_direct_export(ctx, log, tx, wallet, *, timeout=60, max_rebases=
         if result.get("engine_result") != "tecEXPORT_UNIVERSE_MISMATCH":
             return result
 
-        tx_hash = result.get("tx_json", {}).get("hash")
+        tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
         if not tx_hash:
             raise AssertionError(f"Universe mismatch missing tx hash: {result}")
-        validated = await wait_for_validated_transaction(
-            ctx, tx_hash, after_ledger=current
-        )
+        validated = result
+        if not result.get("validated"):
+            validated = await wait_for_validated_transaction(
+                ctx, tx_hash, after_ledger=current
+            )
         meta = validated.get("meta", {})
         if meta.get("TransactionResult") != "tecEXPORT_UNIVERSE_MISMATCH":
             raise AssertionError(
@@ -311,11 +313,22 @@ def assert_shadow_ticket(
     ledger_hash=None,
 ):
     """Assert shadow ticket exists (or doesn't) for the account."""
-    params = {"account": account_address}
+    params = {"account": account_address, "ledger_index": "validated"}
     if ledger_hash is not None:
+        del params["ledger_index"]
         params["ledger_hash"] = ledger_hash
     obj_result = ctx.rpc.request(0, "account_objects", params)
-    all_objects = (obj_result or {}).get("account_objects", [])
+    if not obj_result or obj_result.get("error"):
+        raise AssertionError(f"account_objects RPC failed: {obj_result}")
+    if obj_result.get("validated") is not True:
+        raise AssertionError(f"account_objects result is not validated: {obj_result}")
+    if ledger_hash is not None and obj_result.get("ledger_hash") != ledger_hash:
+        raise AssertionError(
+            "account_objects returned wrong ledger: "
+            f"expected {ledger_hash}, got {obj_result.get('ledger_hash')}"
+        )
+
+    all_objects = obj_result.get("account_objects", [])
     shadow_tickets = [
         obj for obj in all_objects if obj.get("LedgerEntryType") == "ShadowTicket"
     ]
