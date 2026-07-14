@@ -3,6 +3,7 @@
 
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/ledger/ApplyView.h>
+#include <xrpld/ledger/Sandbox.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/ExportLimits.h>
@@ -127,6 +128,7 @@ exportLatchCount(SLE const& sle)
 inline TER
 insertPendingExportLatch(
     ApplyView& view,
+    RawView& rawView,
     std::shared_ptr<SLE> const& latch,
     beast::Journal j)
 {
@@ -144,7 +146,7 @@ insertPendingExportLatch(
     if (view.exists(expected))
         return tecDUPLICATE;
 
-    auto& sb = view;
+    Sandbox sb{&view};
     auto sleAccount = sb.peek(keylet::account(account));
     if (!sleAccount)
         return tefBAD_LEDGER;
@@ -187,6 +189,8 @@ insertPendingExportLatch(
     pendingRoot->setFieldU16(sfExportCount, globalCount + 1);
     sb.update(pendingRoot);
 
+    sb.apply(rawView);
+
     return tesSUCCESS;
 }
 
@@ -218,17 +222,26 @@ removePendingExportLink(ApplyView& view, Keylet const& latchKey, beast::Journal)
 /// Erase an enhanced Export latch and every remaining directory link, then
 /// release its live counters and owner reserve in the caller's apply sandbox.
 inline TER
-eraseExportLatch(ApplyView& view, Keylet const& latchKey, beast::Journal j)
+eraseExportLatch(
+    ApplyView& view,
+    RawView& rawView,
+    Keylet const& latchKey,
+    beast::Journal j)
 {
-    auto& sb = view;
+    Sandbox sb{&view};
     auto latch = sb.peek(latchKey);
     if (!latch || latch->getType() != ltSHADOW_TICKET)
         return tecNO_ENTRY;
     if (!latch->isFieldPresent(sfOwnerNode) ||
-        !latch->isFieldPresent(sfAccount))
+        !latch->isFieldPresent(sfAccount) ||
+        !latch->isFieldPresent(sfTransactionHash))
         return tefBAD_LEDGER;
 
     auto const account = latch->getAccountID(sfAccount);
+    if (keylet::shadowTicket(account, latch->getFieldH256(sfTransactionHash))
+            .key != latchKey.key)
+        return tefBAD_LEDGER;
+
     auto sleAccount = sb.peek(keylet::account(account));
     auto const pendingKey = keylet::pendingExports();
     auto pendingRoot = sb.peek(pendingKey);
@@ -264,6 +277,8 @@ eraseExportLatch(ApplyView& view, Keylet const& latchKey, beast::Journal j)
     pendingRoot->setFieldU16(sfExportCount, globalCount - 1);
     sb.update(pendingRoot);
     sb.erase(latch);
+
+    sb.apply(rawView);
 
     return tesSUCCESS;
 }

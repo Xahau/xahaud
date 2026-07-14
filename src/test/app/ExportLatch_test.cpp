@@ -22,6 +22,7 @@
 #include <xrpld/ledger/Sandbox.h>
 #include <xrpl/protocol/Protocol.h>
 
+#include <set>
 #include <vector>
 
 namespace ripple {
@@ -54,6 +55,7 @@ struct ExportLatch_test : beast::unit_test::suite
         Account const alice{"alice"};
         Env env{*this};
         env.fund(XRP(10'000), alice);
+        env(ticket::create(alice, dirNodeMaxEntries));
         env.close();
 
         beast::Journal j{beast::Journal::getNullSink()};
@@ -66,28 +68,33 @@ struct ExportLatch_test : beast::unit_test::suite
             auto latch = makeLatch(alice.id(), i);
             latches.emplace_back(keylet::unchecked(latch->key()));
             auto const ter =
-                ExportLedgerOps::insertPendingExportLatch(sb, latch, j);
-            BEAST_EXPECTS(
-                isTesSuccess(ter),
-                "ordinal=" + std::to_string(i) + " ter=" + transToken(ter));
+                ExportLedgerOps::insertPendingExportLatch(sb, sb, latch, j);
+            if (!BEAST_EXPECTS(
+                    isTesSuccess(ter),
+                    "ordinal=" + std::to_string(i) + " ter=" + transToken(ter)))
+                return;
         }
 
         auto const account = sb.read(keylet::account(alice.id()));
         auto const pending = sb.read(keylet::pendingExports());
         BEAST_EXPECT(account);
         BEAST_EXPECT(pending);
+        if (!account || !pending)
+            return;
         BEAST_EXPECT(account->getFieldU16(sfExportCount) == 33);
-        BEAST_EXPECT(account->getFieldU32(sfOwnerCount) == 33);
+        BEAST_EXPECT(account->getFieldU32(sfOwnerCount) == 65);
         BEAST_EXPECT(pending->getFieldU16(sfExportCount) == 33);
         BEAST_EXPECT(pending->getFieldV256(sfIndexes).size() == 32);
 
         auto const first = sb.read(latches.front());
         auto const last = sb.read(latches.back());
-        BEAST_EXPECT(first && first->getFieldU64(sfOwnerNode) == 0);
+        BEAST_EXPECT(first && first->getFieldU64(sfOwnerNode) == 1);
         BEAST_EXPECT(first && first->isFieldPresent(sfExportNode));
         BEAST_EXPECT(first && first->getFieldU64(sfExportNode) == 0);
-        BEAST_EXPECT(last && last->getFieldU64(sfOwnerNode) == 1);
+        BEAST_EXPECT(last && last->getFieldU64(sfOwnerNode) == 2);
         BEAST_EXPECT(last && last->getFieldU64(sfExportNode) == 1);
+        if (!first || !last)
+            return;
 
         BEAST_EXPECT(isTesSuccess(
             ExportLedgerOps::removePendingExportLink(sb, latches.front(), j)));
@@ -97,34 +104,69 @@ struct ExportLatch_test : beast::unit_test::suite
             ExportLedgerOps::removePendingExportLink(sb, latches.back(), j)));
 
         BEAST_EXPECT(isTesSuccess(
-            ExportLedgerOps::eraseExportLatch(sb, latches.front(), j)));
-        BEAST_EXPECT(
-            isTesSuccess(ExportLedgerOps::eraseExportLatch(sb, latches[1], j)));
+            ExportLedgerOps::eraseExportLatch(sb, sb, latches.front(), j)));
+        BEAST_EXPECT(isTesSuccess(
+            ExportLedgerOps::eraseExportLatch(sb, sb, latches[1], j)));
 
         auto const afterAccount = sb.read(keylet::account(alice.id()));
         auto const afterPending = sb.read(keylet::pendingExports());
         BEAST_EXPECT(afterAccount->getFieldU16(sfExportCount) == 31);
-        BEAST_EXPECT(afterAccount->getFieldU32(sfOwnerCount) == 31);
+        BEAST_EXPECT(afterAccount->getFieldU32(sfOwnerCount) == 63);
         BEAST_EXPECT(afterPending->getFieldU16(sfExportCount) == 31);
 
-        Sandbox restarted{&sb};
-        std::vector<uint256> recovered;
+        Sandbox reopened{&sb};
+        std::set<uint256> recovered;
         forEachItem(
-            restarted,
+            reopened,
             keylet::pendingExports(),
             [&](std::shared_ptr<SLE const> const& sle) {
-                recovered.push_back(sle->key());
+                recovered.insert(sle->key());
             });
         BEAST_EXPECT(recovered.size() == 30);
+        std::set<uint256> expected;
+        for (std::size_t i = 2; i + 1 < latches.size(); ++i)
+            expected.insert(latches[i].key);
+        BEAST_EXPECT(recovered == expected);
+
+        // A legacy ticket-keyed latch must not alter enhanced-latch counts.
+        auto const legacyKey = keylet::shadowTicket(alice.id(), 77u);
+        auto legacy = std::make_shared<SLE>(legacyKey);
+        legacy->setAccountID(sfAccount, alice.id());
+        legacy->setFieldU32(sfTicketSequence, 77);
+        legacy->setFieldH256(sfDigest, uint256{77});
+        legacy->setFieldU32(sfLedgerSequence, 4'000'077);
+        auto const legacyPage = sb.dirInsert(
+            keylet::ownerDir(alice.id()),
+            legacyKey.key,
+            describeOwnerDir(alice.id()));
+        if (!BEAST_EXPECT(legacyPage.has_value()))
+            return;
+        legacy->setFieldU64(sfOwnerNode, *legacyPage);
+        sb.insert(legacy);
+
+        BEAST_EXPECT(
+            ExportLedgerOps::eraseExportLatch(sb, sb, legacyKey, j) ==
+            tefBAD_LEDGER);
+        BEAST_EXPECT(sb.exists(legacyKey));
+        BEAST_EXPECT(
+            sb.read(keylet::account(alice.id()))->getFieldU16(sfExportCount) ==
+            31);
+        BEAST_EXPECT(
+            sb.read(keylet::pendingExports())->getFieldU16(sfExportCount) ==
+            31);
+
+        BEAST_EXPECT(sb.dirRemove(
+            keylet::ownerDir(alice.id()), *legacyPage, legacyKey.key, false));
+        sb.erase(legacy);
 
         for (std::size_t i = 2; i < latches.size(); ++i)
             BEAST_EXPECT(isTesSuccess(
-                ExportLedgerOps::eraseExportLatch(sb, latches[i], j)));
+                ExportLedgerOps::eraseExportLatch(sb, sb, latches[i], j)));
 
         auto const finalAccount = sb.read(keylet::account(alice.id()));
         auto const finalPending = sb.read(keylet::pendingExports());
         BEAST_EXPECT(finalAccount->getFieldU16(sfExportCount) == 0);
-        BEAST_EXPECT(finalAccount->getFieldU32(sfOwnerCount) == 0);
+        BEAST_EXPECT(finalAccount->getFieldU32(sfOwnerCount) == 32);
         BEAST_EXPECT(finalPending);
         BEAST_EXPECT(finalPending->getFieldU16(sfExportCount) == 0);
         BEAST_EXPECT(finalPending->getFieldV256(sfIndexes).empty());
