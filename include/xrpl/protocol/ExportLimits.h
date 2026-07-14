@@ -29,6 +29,18 @@ struct ExportLimits
     // reserves a separate operator signer must select fewer validators.
     static constexpr std::size_t maxCommitteeMembers = 32;
 
+    // V1 witnesses require the standard 80% quorum of the intent-selected
+    // committee, rounded up. The intent selects members but cannot lower this
+    // threshold. Split quotient/remainder arithmetic avoids overflow while
+    // preserving ceil(memberCount * 0.8).
+    static constexpr std::size_t
+    committeeQuorumThreshold(std::size_t memberCount)
+    {
+        auto const quotient = memberCount / 5;
+        auto const remainder = memberCount % 5;
+        return quotient * 4 + (remainder * 4 + 4) / 5;
+    }
+
     // Maximum exports a single hook execution may produce. Hook API ABI
     // constant hook_api::max_export must stay equal.
     static constexpr std::uint8_t maxExportsPerHook = 2;

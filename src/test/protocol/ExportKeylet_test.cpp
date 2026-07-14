@@ -27,6 +27,7 @@
 #include <xrpl/protocol/ValidatorBitset.h>
 #include <xrpl/protocol/digest.h>
 
+#include <array>
 #include <cstring>
 
 namespace ripple {
@@ -116,6 +117,15 @@ public:
         BEAST_EXPECT(ExportLimits::maxCommitteeMaskBytes == 32);
         BEAST_EXPECT(
             ExportLimits::maxCommitteeMembers == STTx::maxMultiSigners());
+
+        std::array<std::size_t, 11> constexpr expected{
+            0, 1, 2, 3, 4, 4, 5, 6, 7, 8, 8};
+        for (std::size_t members = 0; members < expected.size(); ++members)
+            BEAST_EXPECT(
+                ExportLimits::committeeQuorumThreshold(members) ==
+                expected[members]);
+        BEAST_EXPECT(ExportLimits::committeeQuorumThreshold(28) == 23);
+        BEAST_EXPECT(ExportLimits::committeeQuorumThreshold(32) == 26);
     }
 
     void
