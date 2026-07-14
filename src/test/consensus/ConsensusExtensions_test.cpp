@@ -17,6 +17,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <test/jtx/WSClient.h>
 #include <xrpld/app/consensus/ActiveValidatorView.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/consensus/ProposalPrecheck.h>
@@ -52,8 +53,10 @@
 #include <algorithm>
 #include <cstring>
 #include <deque>
+#include <future>
 #include <limits>
 #include <string>
+#include <thread>
 #include <tuple>
 
 namespace ripple {
@@ -3512,6 +3515,147 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExportStreamTerminalRetirement()
+    {
+        using namespace std::chrono_literals;
+        using namespace jtx;
+
+        testcase("Export stream retires tracked pending latch once");
+
+        Env env{
+            *this,
+            envconfig(),
+            supported_amendments() | featureExport,
+            nullptr};
+        auto wsc = makeWSClient(env.app().config());
+        Json::Value stream;
+        stream[jss::streams] = Json::arrayValue;
+        stream[jss::streams].append("export_signatures");
+        BEAST_EXPECT(
+            wsc->invoke("subscribe", stream)[jss::status] == "success");
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.startExportShareService();
+        auto const validated = env.app().getLedgerMaster().getValidatedLedger();
+        if (!BEAST_EXPECT(validated))
+            return;
+
+        auto const [key, _] = randomKeyPair(KeyType::secp256k1);
+        auto const owner = calcAccountID(key);
+        auto const origin = makeHash("retired-pending-export");
+        auto const originSeq = validated->info().seq;
+        auto const originHash = validated->info().hash;
+        ce.publishedExportOrigins_.emplace(
+            origin,
+            ConsensusExtensions::ExportSnapshotOrigin{
+                ExportShare::currentVersion,
+                owner,
+                originSeq,
+                originHash,
+                origin});
+
+        ce.onValidatedLedger(validated->info().seq, validated->info().hash);
+
+        BEAST_EXPECT(wsc->findMsg(5s, [&](Json::Value const& event) {
+            return event[jss::stream] == "export_signatures" &&
+                event[jss::type] == "exportSignatureSnapshot" &&
+                event[jss::snapshot].asBool() && event["terminal"].asBool() &&
+                event[jss::ledger_index].asUInt() == validated->info().seq &&
+                event[jss::ledger_hash] == to_string(validated->info().hash) &&
+                event[jss::owner] == toBase58(owner) &&
+                event[jss::origin_txid] == to_string(origin) &&
+                event[jss::origin_ledger_seq].asUInt() == originSeq &&
+                event[jss::origin_ledger_hash] == to_string(originHash) &&
+                event[jss::shares].isArray() && event[jss::shares].size() == 0;
+        }));
+        BEAST_EXPECT(ce.publishedExportOrigins_.empty());
+        BEAST_EXPECT(
+            ce.lastExportSnapshotSeq_.load(std::memory_order_relaxed) ==
+            validated->info().seq);
+
+        ce.onValidatedLedger(validated->info().seq, validated->info().hash);
+        BEAST_EXPECT(!wsc->findMsg(250ms, [](Json::Value const& event) {
+            return event[jss::type] == "exportSignatureSnapshot" &&
+                event["terminal"].asBool();
+        }));
+
+        ce.stopExportShareService();
+        BEAST_EXPECT(
+            wsc->invoke("unsubscribe", stream)[jss::status] == "success");
+    }
+
+    void
+    testExportStreamStopFence()
+    {
+        using namespace std::chrono_literals;
+        using namespace jtx;
+
+        testcase("Export stream stop fences a waiting validated callback");
+
+        Env env{
+            *this,
+            envconfig(),
+            supported_amendments() | featureExport,
+            nullptr};
+        auto wsc = makeWSClient(env.app().config());
+        Json::Value stream;
+        stream[jss::streams] = Json::arrayValue;
+        stream[jss::streams].append("export_signatures");
+        BEAST_EXPECT(
+            wsc->invoke("subscribe", stream)[jss::status] == "success");
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.startExportShareService();
+        auto const validated = env.app().getLedgerMaster().getValidatedLedger();
+        if (!BEAST_EXPECT(validated))
+            return;
+
+        auto const [key, _] = randomKeyPair(KeyType::secp256k1);
+        auto const origin = makeHash("stop-fenced-pending-export");
+        ce.publishedExportOrigins_.emplace(
+            origin,
+            ConsensusExtensions::ExportSnapshotOrigin{
+                ExportShare::currentVersion,
+                calcAccountID(key),
+                validated->info().seq,
+                validated->info().hash,
+                origin});
+
+        std::unique_lock streamLock{ce.exportStreamMutex_};
+        std::promise<void> callbackStarted;
+        auto callbackStartedFuture = callbackStarted.get_future();
+        auto callback = std::async(std::launch::async, [&] {
+            callbackStarted.set_value();
+            ce.onValidatedLedger(validated->info().seq, validated->info().hash);
+        });
+        callbackStartedFuture.wait();
+        BEAST_EXPECT(callback.wait_for(50ms) == std::future_status::timeout);
+
+        auto stop = std::async(
+            std::launch::async, [&] { ce.stopExportShareService(); });
+        auto const deadline = std::chrono::steady_clock::now() + 1s;
+        while (ce.exportShareServiceStarted_.load(std::memory_order_acquire) &&
+               std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(1ms);
+        BEAST_EXPECT(
+            !ce.exportShareServiceStarted_.load(std::memory_order_acquire));
+        BEAST_EXPECT(stop.wait_for(0ms) == std::future_status::timeout);
+
+        streamLock.unlock();
+        BEAST_EXPECT(callback.wait_for(5s) == std::future_status::ready);
+        callback.get();
+        BEAST_EXPECT(stop.wait_for(5s) == std::future_status::ready);
+        stop.get();
+
+        BEAST_EXPECT(ce.publishedExportOrigins_.empty());
+        BEAST_EXPECT(!wsc->findMsg(250ms, [](Json::Value const& event) {
+            return event[jss::type] == "exportSignatureSnapshot";
+        }));
+        BEAST_EXPECT(
+            wsc->invoke("unsubscribe", stream)[jss::status] == "success");
+    }
+
+    void
     testPublicHookNoopAndFailureBranches()
     {
         testcase("public hook no-op and failure branches");
@@ -3730,6 +3874,8 @@ public:
         testParticipantDiagnosticsOnlyWhenExtensionEnabled();
         testExportDisabledRoundClearsCollector();
         testValidatorKeylessAuthoringNoops();
+        testExportStreamTerminalRetirement();
+        testExportStreamStopFence();
         testPublicHookNoopAndFailureBranches();
         testDecorateMessageStoresSelfProofs();
     }
