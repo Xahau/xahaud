@@ -286,8 +286,12 @@ createPendingExportLatch(
 
     if (!exportTx.isFieldPresent(sfLastLedgerSequence))
         return temMALFORMED;
+    auto const publicationEnd = static_cast<std::uint64_t>(view.info().seq) +
+        ExportLimits::maxPublicationLedgers;
+    if (publicationEnd > std::numeric_limits<std::uint32_t>::max())
+        return tefINTERNAL;
     latch->setFieldU32(
-        sfLastLedgerSequence, exportTx.getFieldU32(sfLastLedgerSequence));
+        sfLastLedgerSequence, static_cast<std::uint32_t>(publicationEnd));
 
     return insertPendingExportLatch(view, rawView, latch, j);
 }

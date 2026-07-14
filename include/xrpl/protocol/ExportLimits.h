@@ -53,10 +53,17 @@ struct ExportLimits
     // work while still allowing several ledgers of admitted intents to overlap.
     static constexpr std::uint16_t maxLiveExportLatches = 64;
 
-    // Maximum post-validation publication/witness window requested through the
-    // mandatory outer LastLedgerSequence. Review with measured validation and
-    // sidecar latency before activation.
+    // Maximum admission window requested through the mandatory outer
+    // LastLedgerSequence. This bounds how long an Export may remain queued
+    // before entering a ledger; it does not bound post-validation release.
     static constexpr std::uint32_t maxRetryLedgers = 5;
+
+    // Fixed source-ledger window for post-validation share publication and
+    // witness materialization, measured from the ledger that admits the
+    // intent. This is a provisional activation tuning value. Keeping it
+    // separate from the outer LastLedgerSequence prevents queue delay from
+    // consuming the publication window.
+    static constexpr std::uint32_t maxPublicationLedgers = 5;
 
     // Maximum byte length of a single export-signature wire blob:
     //   txHash(32) + validator pubkey(33) + multisign signature(<= 72).

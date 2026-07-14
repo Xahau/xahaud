@@ -1269,7 +1269,10 @@ struct Export_test : public beast::unit_test::suite
         auto innerObj = buildExportedPayment(
             alice.id(), carol.id(), originSeq, originSeq + 5, ticketSeq);
         auto const innerTx = makeSTTx(innerObj);
-        auto jt = makeExportJTx(env, alice, innerObj, originSeq + 5);
+        // The outer LastLedgerSequence expires at admission. The durable
+        // publication window starts from the ledger that actually admits the
+        // intent and therefore extends independently beyond that outer bound.
+        auto jt = makeExportJTx(env, alice, innerObj, originSeq);
         auto const exportTx = jt.stx;
         BEAST_EXPECT(exportTx);
         if (!exportTx)
@@ -1298,6 +1301,9 @@ struct Export_test : public beast::unit_test::suite
             return;
         BEAST_EXPECT(!pendingLatch->isFieldPresent(sfExportSignatureHash));
         BEAST_EXPECT(pendingLatch->isFieldPresent(sfExportNode));
+        BEAST_EXPECT(
+            pendingLatch->getFieldU32(sfLastLedgerSequence) ==
+            originLedger->seq() + ExportLimits::maxPublicationLedgers);
         auto const originPendingRoot =
             originLedger->read(keylet::pendingExports());
         auto const originAccount =
