@@ -21,11 +21,13 @@
 #include <xrpld/app/consensus/ActiveValidatorView.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/consensus/ProposalPrecheck.h>
+#include <xrpld/app/ledger/BuildLedger.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/detail/TransactionAcquire.h>
 #include <xrpld/app/main/CollectorManager.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
+#include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
@@ -40,6 +42,7 @@
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/ExportShare.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
@@ -3609,18 +3612,130 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testExportStreamPerLedgerDedup()
+    runExportStreamRetainedReplayRace(bool replayWins)
     {
         using namespace std::chrono_literals;
         using namespace jtx;
 
-        testcase("Export stream emits one share type once per ledger");
+        testcase(
+            replayWins ? "Export stream replay wins before an accepted edge"
+                       : "Export stream accepted edge wins before replay");
 
+        auto config = envconfig(validator, "");
+        config->NETWORK_ID = 21337;
         Env env{
             *this,
-            envconfig(),
+            std::move(config),
             supported_amendments() | featureExport,
             nullptr};
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+        env.fund(XRP(1000), alice, carol);
+        env.close();
+
+        auto const& valKeys = env.app().getValidatorKeys();
+        if (!BEAST_EXPECT(valKeys.keys))
+            return;
+
+        env.app().openLedger().modify(
+            [&](OpenView& view, beast::Journal) -> bool {
+                STTx tx(ttUNL_REPORT, [&](auto& obj) {
+                    obj.setFieldU32(sfLedgerSequence, env.current()->seq());
+                    auto active = std::make_unique<STObject>(sfActiveValidator);
+                    active->setFieldVL(
+                        sfPublicKey, valKeys.keys->masterPublicKey);
+                    obj.set(std::move(active));
+                });
+                auto const txID = tx.getTransactionID();
+                auto serializer = std::make_shared<Serializer>();
+                tx.add(*serializer);
+                env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                view.rawTxInsert(txID, std::move(serializer), nullptr);
+                return true;
+            });
+        if (!BEAST_EXPECT(env.close(
+                env.now() + std::chrono::seconds{5},
+                std::chrono::milliseconds{0})))
+            return;
+        forceNonStandalone(env.app());
+
+        auto& ledgerMaster = env.app().getLedgerMaster();
+        auto const universe = ledgerMaster.getClosedLedger();
+        if (!BEAST_EXPECT(universe && universe->read(keylet::UNLReport())))
+            return;
+
+        auto installValidated = [&](std::shared_ptr<Ledger> const& ledger) {
+            ledgerMaster.storeLedger(ledger);
+            ledgerMaster.setFullLedger(ledger, false, false);
+            auto const current = ledgerMaster.getValidatedLedger();
+            BEAST_EXPECT(
+                current && current->info().seq == ledger->info().seq &&
+                current->info().hash == ledger->info().hash);
+        };
+
+        auto const originSeq = universe->info().seq + 1;
+        auto innerObj = makeExportedPayment(alice.id(), carol.id());
+        innerObj.setFieldU32(sfFirstLedgerSequence, originSeq);
+        innerObj.setFieldU32(sfLastLedgerSequence, originSeq + 5);
+        auto const innerTx = makeSTTx(innerObj);
+
+        Json::Value exportJson;
+        exportJson[jss::TransactionType] = jss::Export;
+        exportJson[jss::Account] = alice.human();
+        exportJson[jss::LastLedgerSequence] = originSeq;
+        exportJson[sfExportedTxn.jsonName] =
+            innerObj.getJson(JsonOptions::none);
+        exportJson[sfExportUniverseHash.jsonName] =
+            to_string(universe->info().hash);
+        exportJson[sfExportCommittee.jsonName] = strHex(Blob{0x01});
+        auto const exportTx =
+            env.jt(exportJson, fee(XRP(1)), ter(tesSUCCESS)).stx;
+        if (!BEAST_EXPECT(exportTx))
+            return;
+
+        CanonicalTXSet originTxs{universe->info().hash};
+        originTxs.insert(exportTx);
+        std::set<TxID> failed;
+        auto originLedger = buildLedger(
+            universe,
+            env.app().timeKeeper().closeTime(),
+            true,
+            universe->info().closeTimeResolution,
+            env.app(),
+            originTxs,
+            failed,
+            env.journal);
+        BEAST_EXPECT(originTxs.empty());
+        BEAST_EXPECT(failed.empty());
+        auto const origin = exportTx->getTransactionID();
+        auto const latchKey = keylet::shadowTicket(alice.id(), origin);
+        auto const pendingLatch = originLedger->read(latchKey);
+        if (!BEAST_EXPECT(
+                pendingLatch && pendingLatch->isFieldPresent(sfExportNode) &&
+                !pendingLatch->isFieldPresent(sfExportSignatureHash)))
+            return;
+        installValidated(originLedger);
+
+        auto release = ExportOriginMemo::releaseForm(
+            innerTx,
+            ExportOriginMemo::Origin{env.app().config().NETWORK_ID, 0, origin},
+            ExportOriginMemo::Anchor{
+                originLedger->info().seq, originLedger->info().hash});
+        if (!BEAST_EXPECT(release))
+            return;
+        auto const signature = ExportResultBuilder::signExportedTxn(
+            release.value(), valKeys.keys->publicKey, valKeys.keys->secretKey);
+        ExportShare const share{
+            ExportShare::currentVersion,
+            alice.id(),
+            origin,
+            originLedger->info().seq,
+            originLedger->info().hash,
+            origin,
+            0,
+            valKeys.keys->publicKey,
+            signature};
+
         auto wsc = makeWSClient(env.app().config());
         Json::Value stream;
         stream[jss::streams] = Json::arrayValue;
@@ -3630,60 +3745,149 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
         ce.startExportShareService();
-        auto const validated = env.app().getLedgerMaster().getValidatedLedger();
-        if (!BEAST_EXPECT(validated))
-            return;
 
-        auto const [key, secret] = randomKeyPair(KeyType::secp256k1);
-        auto const signature = sign(key, secret, Slice{"stream-share", 12});
-        ExportShare const share{
-            ExportShare::currentVersion,
-            calcAccountID(key),
-            makeHash("stream-origin"),
-            validated->info().seq,
-            validated->info().hash,
-            makeHash("stream-origin"),
-            7,
-            key,
-            signature};
+        auto hasRetainedContribution = [&] {
+            auto const snapshot =
+                ce.postValidationExportSigCollector().fullUnionSnapshot();
+            auto const found = snapshot.find(origin);
+            return found != snapshot.end() && found->second.size() == 1 &&
+                found->second.front().position == share.universePosition &&
+                found->second.front().signingKey == share.signingKey &&
+                found->second.front().signature == share.signature;
+        };
+        auto expectNoShareEvent = [&] {
+            BEAST_EXPECT(!wsc->findMsg(250ms, [](Json::Value const& event) {
+                return event[jss::type] == "exportSignatureReceived";
+            }));
+        };
+        auto expectOneShareEvent = [&](Ledger const& cursor) {
+            auto const event =
+                wsc->findMsg(5s, [&](Json::Value const& message) {
+                    return message[jss::type] == "exportSignatureReceived" &&
+                        message[jss::origin_txid] == to_string(origin);
+                });
+            BEAST_EXPECT(event);
+            if (event)
+            {
+                BEAST_EXPECT((*event)[jss::stream] == "export_signatures");
+                BEAST_EXPECT(
+                    (*event)[jss::ledger_index].asUInt() == cursor.info().seq);
+                BEAST_EXPECT(
+                    (*event)[jss::ledger_hash] ==
+                    to_string(cursor.info().hash));
+                BEAST_EXPECT(
+                    (*event)[jss::universe_position].asUInt() ==
+                    share.universePosition);
+            }
+            expectNoShareEvent();
+        };
 
+        if (replayWins)
         {
-            std::lock_guard streamLock(ce.exportStreamMutex_);
-            BEAST_EXPECT(ce.publishExportShareLocked(
-                share, validated->info().seq, validated->info().hash));
-            BEAST_EXPECT(!ce.publishExportShareLocked(
-                share, validated->info().seq, validated->info().hash));
+            std::unique_lock streamLock{ce.exportStreamMutex_};
+            std::promise<void> callbackStarted;
+            auto callbackStartedFuture = callbackStarted.get_future();
+            auto callback = std::async(std::launch::async, [&] {
+                callbackStarted.set_value();
+                ce.onValidatedLedger(
+                    originLedger->info().seq, originLedger->info().hash);
+            });
+            callbackStartedFuture.wait();
+            BEAST_EXPECT(
+                callback.wait_for(50ms) == std::future_status::timeout);
+            streamLock.unlock();
+            auto const status = callback.wait_for(5s);
+            BEAST_EXPECT(status == std::future_status::ready);
+            if (status != std::future_status::ready)
+                return;
+            callback.get();
+
+            // Replay snapshots first; local authoring then admits and publishes
+            // the accepted edge in the same validated-ledger callback.
+            BEAST_EXPECT(hasRetainedContribution());
+        }
+        else
+        {
+            std::unique_lock streamLock{ce.exportStreamMutex_};
+            std::promise<void> edgeStarted;
+            auto edgeStartedFuture = edgeStarted.get_future();
+            auto edge = std::async(std::launch::async, [&] {
+                edgeStarted.set_value();
+                return ce.onExportShare(share);
+            });
+            edgeStartedFuture.wait();
+            auto const deadline = std::chrono::steady_clock::now() + 5s;
+            while (!hasRetainedContribution() &&
+                   edge.wait_for(0ms) == std::future_status::timeout &&
+                   std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(1ms);
+            BEAST_EXPECT(hasRetainedContribution());
+            BEAST_EXPECT(edge.wait_for(0ms) == std::future_status::timeout);
+            streamLock.unlock();
+            auto const status = edge.wait_for(5s);
+            BEAST_EXPECT(status == std::future_status::ready);
+            if (status != std::future_status::ready)
+                return;
+            BEAST_EXPECT(edge.get());
+
+            ce.onValidatedLedger(
+                originLedger->info().seq, originLedger->info().hash);
         }
 
-        BEAST_EXPECT(wsc->findMsg(5s, [&](Json::Value const& event) {
-            return event[jss::stream] == "export_signatures" &&
-                event[jss::type] == "exportSignatureReceived" &&
-                event[jss::ledger_index].asUInt() == validated->info().seq &&
-                event[jss::ledger_hash] == to_string(validated->info().hash) &&
-                event[jss::origin_txid] == to_string(share.originTxn) &&
-                event[jss::universe_position].asUInt() ==
-                share.universePosition;
-        }));
-        BEAST_EXPECT(!wsc->findMsg(250ms, [](Json::Value const& event) {
-            return event[jss::type] == "exportSignatureReceived";
-        }));
+        BEAST_EXPECT(hasRetainedContribution());
+        BEAST_EXPECT(
+            ce.lastExportReplaySeq_.load(std::memory_order_relaxed) ==
+            originLedger->info().seq);
+        expectOneShareEvent(*originLedger);
 
-        auto const nextSeq = validated->info().seq + 1;
-        auto const nextHash = makeHash("stream-next-ledger");
-        {
-            std::lock_guard streamLock(ce.exportStreamMutex_);
-            BEAST_EXPECT(ce.publishExportShareLocked(share, nextSeq, nextHash));
-        }
-        BEAST_EXPECT(wsc->findMsg(5s, [&](Json::Value const& event) {
-            return event[jss::type] == "exportSignatureReceived" &&
-                event[jss::ledger_index].asUInt() == nextSeq &&
-                event[jss::ledger_hash] == to_string(nextHash) &&
-                event[jss::origin_txid] == to_string(share.originTxn);
-        }));
+        auto next = std::make_shared<Ledger>(
+            *originLedger, env.app().timeKeeper().closeTime());
+        next->updateSkipList();
+        next->setAccepted(
+            next->info().closeTime, next->info().closeTimeResolution, true);
+        installValidated(next);
+        ce.onValidatedLedger(next->info().seq, next->info().hash);
+        expectOneShareEvent(*next);
+        ce.onValidatedLedger(next->info().seq, next->info().hash);
+        expectNoShareEvent();
+
+        auto witnessed =
+            std::make_shared<Ledger>(*next, env.app().timeKeeper().closeTime());
+        Sandbox witnessChanges{witnessed.get(), tapNONE};
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::recordExportWitness(
+            witnessChanges,
+            witnessChanges,
+            latchKey,
+            makeHash("stream-witness"),
+            env.journal)));
+        witnessChanges.apply(*witnessed);
+        witnessed->updateSkipList();
+        witnessed->setAccepted(
+            witnessed->info().closeTime,
+            witnessed->info().closeTimeResolution,
+            true);
+        installValidated(witnessed);
+
+        auto const terminalLatch = witnessed->read(latchKey);
+        BEAST_EXPECT(
+            terminalLatch && !terminalLatch->isFieldPresent(sfExportNode) &&
+            terminalLatch->isFieldPresent(sfExportSignatureHash));
+        BEAST_EXPECT(hasRetainedContribution());
+        ce.onValidatedLedger(witnessed->info().seq, witnessed->info().hash);
+        BEAST_EXPECT(!ce.onExportShare(share));
+        BEAST_EXPECT(hasRetainedContribution());
+        expectNoShareEvent();
 
         ce.stopExportShareService();
         BEAST_EXPECT(
             wsc->invoke("unsubscribe", stream)[jss::status] == "success");
+    }
+
+    void
+    testExportStreamRetainedReplayRace()
+    {
+        runExportStreamRetainedReplayRace(false);
+        runExportStreamRetainedReplayRace(true);
     }
 
     void
@@ -3971,7 +4175,7 @@ public:
         testParticipantDiagnosticsOnlyWhenExtensionEnabled();
         testExportDisabledRoundClearsCollector();
         testValidatorKeylessAuthoringNoops();
-        testExportStreamPerLedgerDedup();
+        testExportStreamRetainedReplayRace();
         testExportStreamStopFence();
         testPublicHookNoopAndFailureBranches();
         testDecorateMessageStoresSelfProofs();
