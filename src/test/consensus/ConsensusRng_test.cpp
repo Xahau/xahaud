@@ -22,6 +22,8 @@
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/EntropyTier.h>
 
+#include <algorithm>
+
 namespace ripple {
 namespace test {
 
@@ -1413,7 +1415,12 @@ public:
             BEAST_EXPECT(peer->lastClosedLedger.isAncestor(witnessLedger));
             BEAST_EXPECT(peer->fullyValidatedLedger.isAncestor(witnessLedger));
         }
-        BEAST_EXPECT(!jumps[peers[0]->id].closeJumps.empty());
+        auto const& peer0Jumps = jumps[peers[0]->id].closeJumps;
+        BEAST_EXPECT(std::any_of(
+            peer0Jumps.begin(), peer0Jumps.end(), [&](auto const& jump) {
+                return jump.from.id() == witnesslessLedger.id() &&
+                    jump.to.isAncestor(witnessLedger);
+            }));
     }
 
     void
