@@ -8,6 +8,7 @@
 #include <xrpld/app/misc/ExportSigCollectorV2.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/consensus/ConsensusTypes.h>
+#include <xrpld/overlay/ExportShareAdmission.h>
 #include <xrpld/overlay/Message.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/Buffer.h>
@@ -61,11 +62,49 @@ class ConsensusExtensions
     std::atomic<bool> exportShareServiceStarted_{false};
     std::atomic<LedgerIndex> lastExportReplaySeq_{0};
 
+    struct DeferredExportShare
+    {
+        ExportShare share;
+        ExportShareChargeHandler charge;
+        std::size_t serializedBytes;
+    };
+
+    static constexpr std::size_t maxDeferredExportShareOrigins_ =
+        ExportLimits::maxLiveExportLatches;
+    static constexpr std::size_t maxDeferredExportShares_ =
+        ExportLimits::maxLiveExportLatches * ExportLimits::maxCommitteeMembers;
+    static constexpr std::size_t maxDeferredExportShareBytes_ =
+        maxDeferredExportShares_ * ExportLimits::maxSerializedExportShareBytes;
+    static constexpr LedgerIndex maxDeferredExportShareFutureLedgers_ = 8;
+
+    std::mutex deferredExportSharesMutex_;
+    std::map<uint256, DeferredExportShare> deferredExportShares_;
+    std::map<uint256, std::size_t> deferredExportShareOrigins_;
+    std::size_t deferredExportShareBytes_{0};
+
     bool
     publishExportShareLocked(
         ExportShare const& share,
         LedgerIndex validatedLedgerSeq,
         uint256 const& validatedLedgerHash);
+
+    ExportShareAdmission
+    admitExportShare(
+        ExportShare const& share,
+        ExportShareChargeHandler deferredCharge,
+        bool allowDeferral);
+
+    ExportShareAdmission
+    deferExportShare(
+        ExportShare const& share,
+        ExportShareChargeHandler deferredCharge,
+        LedgerIndex validatedLedgerSeq);
+
+    void
+    retryDeferredExportShares(LedgerIndex validatedLedgerSeq);
+
+    void
+    clearDeferredExportShares();
 
 public:
     beast::Journal j_;  // public: accessed by extensionsTick template
@@ -202,6 +241,11 @@ public:
     */
     bool
     onExportShare(ExportShare const& share);
+
+    ExportShareAdmission
+    onExportShare(
+        ExportShare const& share,
+        ExportShareChargeHandler deferredCharge);
 
     /** Release local shares unlocked by an exact network-validated ledger. */
     void

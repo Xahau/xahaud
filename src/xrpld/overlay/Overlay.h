@@ -20,6 +20,7 @@
 #ifndef RIPPLE_OVERLAY_OVERLAY_H_INCLUDED
 #define RIPPLE_OVERLAY_OVERLAY_H_INCLUDED
 
+#include <xrpld/overlay/ExportShareAdmission.h>
 #include <xrpld/overlay/Peer.h>
 #include <xrpld/overlay/PeerSet.h>
 #include <xrpl/beast/utility/PropertyStream.h>
@@ -65,12 +66,9 @@ protected:
 public:
     enum class Promote { automatic, never, always };
 
-    /** Application admission for a structurally valid ExportShare.
-
-        Returning true means the application has verified the share against
-        its origin context, committee position/key, and target multisignature.
-    */
-    using ExportShareHandler = std::function<bool(ExportShare const&)>;
+    /** Application admission for a structurally valid ExportShare. */
+    using ExportShareHandler = std::function<
+        ExportShareAdmission(ExportShare const&, ExportShareChargeHandler)>;
 
     struct Setup
     {
@@ -176,8 +174,10 @@ public:
 
         With no callback installed, admission fails closed.
     */
-    virtual bool
-    acceptExportShare(ExportShare const& share) = 0;
+    virtual ExportShareAdmission
+    acceptExportShare(
+        ExportShare const& share,
+        ExportShareChargeHandler deferredCharge) = 0;
 
     /** Relay a proposal.
      * @param m the serialized proposal

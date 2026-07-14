@@ -1612,10 +1612,18 @@ ApplicationImp::start(bool withTimers)
     {
         auto const weak =
             std::weak_ptr<ConsensusExtensions>{consensusExtensions_};
-        overlay_->setExportShareHandler([weak](ExportShare const& share) {
-            auto const extensions = weak.lock();
-            return extensions && extensions->onExportShare(share);
-        });
+        overlay_->setExportShareHandler(
+            [weak](
+                ExportShare const& share,
+                ExportShareChargeHandler deferredCharge) {
+                auto const extensions = weak.lock();
+                if (!extensions)
+                    return ExportShareAdmission{
+                        ExportShareDisposition::deferred,
+                        ExportShareCharge::none};
+                return extensions->onExportShare(
+                    share, std::move(deferredCharge));
+            });
         consensusExtensions_->startExportShareService();
         overlay_->start();
     }

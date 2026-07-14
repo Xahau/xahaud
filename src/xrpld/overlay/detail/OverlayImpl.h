@@ -235,8 +235,10 @@ public:
     void
     setExportShareHandler(ExportShareHandler handler) override;
 
-    bool
-    acceptExportShare(ExportShare const& share) override;
+    ExportShareAdmission
+    acceptExportShare(
+        ExportShare const& share,
+        ExportShareChargeHandler deferredCharge) override;
 
     std::set<Peer::id_t>
     relay(

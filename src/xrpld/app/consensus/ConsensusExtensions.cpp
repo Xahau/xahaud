@@ -74,6 +74,19 @@ struct ResolvedExportShare
     STTx releaseTarget;
 };
 
+enum class ExportShareResolutionStatus {
+    resolved,
+    deferred,
+    duplicate,
+    invalid
+};
+
+struct ExportShareResolution
+{
+    ExportShareResolutionStatus status;
+    std::optional<ResolvedExportShare> value;
+};
+
 bool
 isPendingExportShare(
     ReadView const& view,
@@ -104,7 +117,7 @@ isPendingExportShare(
         view.info().seq <= latch->getFieldU32(sfLastLedgerSequence);
 }
 
-std::optional<ResolvedExportShare>
+ExportShareResolution
 resolveExportShare(
     Application& app,
     ConsensusExtensions const& extensions,
@@ -112,26 +125,55 @@ resolveExportShare(
     std::shared_ptr<Ledger const> const& validated,
     beast::Journal j)
 {
-    if (!validated || !validated->rules().enabled(featureExport) ||
-        share.triggerTxn != share.originTxn ||
-        !isPendingExportShare(*validated, share, j))
-        return std::nullopt;
+    if (!validated)
+        return {ExportShareResolutionStatus::deferred, std::nullopt};
+    if (!validated->rules().enabled(featureExport) ||
+        share.triggerTxn != share.originTxn)
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
+    if (share.originLedgerSeq > validated->info().seq)
+        return {ExportShareResolutionStatus::deferred, std::nullopt};
+
+    auto const canonicalOriginHash =
+        share.originLedgerSeq == validated->info().seq
+        ? std::optional<uint256>{validated->info().hash}
+        : hashOfSeq(*validated, share.originLedgerSeq, j);
+    if (!canonicalOriginHash)
+        return {ExportShareResolutionStatus::deferred, std::nullopt};
+    if (*canonicalOriginHash != share.originLedgerHash)
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
 
     auto const latchKey = keylet::shadowTicket(share.owner, share.originTxn);
     auto const latch = validated->read(latchKey);
     if (!latch)
-        return std::nullopt;
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
+    if (latch->getType() != ltSHADOW_TICKET ||
+        !latch->isFieldPresent(sfTransactionHash) ||
+        !latch->isFieldPresent(sfExportUniverseHash) ||
+        !latch->isFieldPresent(sfExportCommittee) ||
+        !latch->isFieldPresent(sfLastLedgerSequence) ||
+        !latch->isFieldPresent(sfAccount) ||
+        !latch->isFieldPresent(sfLedgerSequence) ||
+        latch->getAccountID(sfAccount) != share.owner ||
+        latch->getFieldH256(sfTransactionHash) != share.originTxn ||
+        latch->getFieldU32(sfLedgerSequence) != share.originLedgerSeq)
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
+    if (!latch->isFieldPresent(sfExportNode) ||
+        latch->isFieldPresent(sfExportSignatureHash) ||
+        validated->info().seq > latch->getFieldU32(sfLastLedgerSequence))
+        return {ExportShareResolutionStatus::duplicate, std::nullopt};
 
     auto const originLedger =
         app.getLedgerMaster().getLedgerByHash(share.originLedgerHash);
-    if (!originLedger || originLedger->info().seq != share.originLedgerSeq)
-        return std::nullopt;
+    if (!originLedger)
+        return {ExportShareResolutionStatus::deferred, std::nullopt};
+    if (originLedger->info().seq != share.originLedgerSeq)
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
 
     auto const [outer, _] = originLedger->txRead(share.originTxn);
     if (!outer || outer->getTxnType() != ttEXPORT ||
         !outer->isFieldPresent(sfExportedTxn) ||
         outer->getAccountID(sfAccount) != share.owner)
-        return std::nullopt;
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
 
     bool const hasUniverse = outer->isFieldPresent(sfExportUniverseHash);
     bool const hasCommittee = outer->isFieldPresent(sfExportCommittee);
@@ -142,15 +184,15 @@ resolveExportShare(
               latch->getFieldH256(sfExportUniverseHash) ||
           outer->getFieldVL(sfExportCommittee) !=
               latch->getFieldVL(sfExportCommittee))))
-        return std::nullopt;
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
 
     auto const universeHash = latch->getFieldH256(sfExportUniverseHash);
     if (originLedger->info().parentHash != universeHash)
-        return std::nullopt;
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
     auto const universeLedger =
         app.getLedgerMaster().getLedgerByHash(universeHash);
     if (!universeLedger)
-        return std::nullopt;
+        return {ExportShareResolutionStatus::deferred, std::nullopt};
 
     auto const validatorView =
         extensions.makeActiveValidatorView(universeLedger);
@@ -158,23 +200,23 @@ resolveExportShare(
         *validatorView->sourceLedgerHash != universeHash ||
         share.universePosition >=
             validatorView->orderedOriginalMasterKeys.size())
-        return std::nullopt;
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
 
     auto const committee = resolveExportCommittee(
         makeSlice(latch->getFieldVL(sfExportCommittee)),
         validatorView->orderedOriginalMasterKeys.size());
     if (!committee || !committee->members.contains(share.universePosition))
-        return std::nullopt;
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
 
     auto const& expectedMaster =
         validatorView->orderedOriginalMasterKeys[share.universePosition];
     if (app.validatorManifests().getMasterKey(share.signingKey) !=
         expectedMaster)
-        return std::nullopt;
+        return {ExportShareResolutionStatus::duplicate, std::nullopt};
 
     auto const inner = ExportLedgerOps::innerExportedTx(*outer);
     if (!inner)
-        return std::nullopt;
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
     auto const targetNetworkID = inner->isFieldPresent(sfNetworkID)
         ? inner->getFieldU32(sfNetworkID)
         : std::uint32_t{0};
@@ -189,9 +231,11 @@ resolveExportShare(
     if (!identity || !release ||
         ExportResultBuilder::exportIntentHash(identity.value()) !=
             latch->getFieldH256(sfDigest))
-        return std::nullopt;
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
 
-    return ResolvedExportShare{latch, std::move(release.value())};
+    return {
+        ExportShareResolutionStatus::resolved,
+        ResolvedExportShare{latch, std::move(release.value())}};
 }
 
 ExportShare
@@ -261,17 +305,144 @@ ConsensusExtensions::publishExportShareLocked(
 bool
 ConsensusExtensions::onExportShare(ExportShare const& share)
 {
+    return admitExportShare(share, {}, true).isAccepted();
+}
+
+ExportShareAdmission
+ConsensusExtensions::onExportShare(
+    ExportShare const& share,
+    ExportShareChargeHandler deferredCharge)
+{
+    return admitExportShare(share, std::move(deferredCharge), true);
+}
+
+ExportShareAdmission
+ConsensusExtensions::deferExportShare(
+    ExportShare const& share,
+    ExportShareChargeHandler deferredCharge,
+    LedgerIndex const validatedLedgerSeq)
+{
+    if (share.originLedgerSeq <= validatedLedgerSeq ||
+        share.originLedgerSeq - validatedLedgerSeq >
+            maxDeferredExportShareFutureLedgers_)
+        return {ExportShareDisposition::deferred, ExportShareCharge::none};
+
+    std::size_t const serializedBytes = share.serialize().size();
+    auto const wireHash = share.wireHash();
+
+    std::lock_guard lock(deferredExportSharesMutex_);
     if (!exportShareServiceStarted_.load(std::memory_order_acquire))
-        return false;
+        return {ExportShareDisposition::duplicate, ExportShareCharge::none};
+
+    if (auto const it = deferredExportShares_.find(wireHash);
+        it != deferredExportShares_.end())
+    {
+        if (!it->second.charge && deferredCharge)
+            it->second.charge = std::move(deferredCharge);
+        return {ExportShareDisposition::duplicate, ExportShareCharge::none};
+    }
+
+    bool const newOrigin =
+        !deferredExportShareOrigins_.contains(share.originTxn);
+    if (deferredExportShares_.size() >= maxDeferredExportShares_ ||
+        serializedBytes > maxDeferredExportShareBytes_ ||
+        deferredExportShareBytes_ >
+            maxDeferredExportShareBytes_ - serializedBytes ||
+        (newOrigin &&
+         deferredExportShareOrigins_.size() >= maxDeferredExportShareOrigins_))
+        return {ExportShareDisposition::deferred, ExportShareCharge::none};
+
+    deferredExportShareBytes_ += serializedBytes;
+    ++deferredExportShareOrigins_[share.originTxn];
+    deferredExportShares_.emplace(
+        wireHash,
+        DeferredExportShare{share, std::move(deferredCharge), serializedBytes});
+    return {ExportShareDisposition::deferred, ExportShareCharge::none};
+}
+
+void
+ConsensusExtensions::retryDeferredExportShares(
+    LedgerIndex const validatedLedgerSeq)
+{
+    std::vector<DeferredExportShare> retry;
+    {
+        std::lock_guard lock(deferredExportSharesMutex_);
+        for (auto it = deferredExportShares_.begin();
+             it != deferredExportShares_.end();)
+        {
+            if (it->second.share.originLedgerSeq > validatedLedgerSeq)
+            {
+                ++it;
+                continue;
+            }
+
+            auto const origin = it->second.share.originTxn;
+            deferredExportShareBytes_ -= it->second.serializedBytes;
+            auto const originIt = deferredExportShareOrigins_.find(origin);
+            if (originIt != deferredExportShareOrigins_.end() &&
+                --originIt->second == 0)
+                deferredExportShareOrigins_.erase(originIt);
+            retry.push_back(std::move(it->second));
+            it = deferredExportShares_.erase(it);
+        }
+    }
+
+    for (auto& deferred : retry)
+    {
+        auto const result = admitExportShare(deferred.share, {}, false);
+        if (result.isAccepted())
+        {
+            auto const frame = deferred.share.serialize();
+            protocol::TMExportShares message;
+            message.add_shares(frame.data(), frame.size());
+            app_.overlay().broadcast(message);
+        }
+        else if (
+            result.disposition == ExportShareDisposition::invalid &&
+            result.charge != ExportShareCharge::none && deferred.charge)
+        {
+            deferred.charge(result.charge);
+        }
+    }
+}
+
+void
+ConsensusExtensions::clearDeferredExportShares()
+{
+    std::lock_guard lock(deferredExportSharesMutex_);
+    deferredExportShares_.clear();
+    deferredExportShareOrigins_.clear();
+    deferredExportShareBytes_ = 0;
+}
+
+ExportShareAdmission
+ConsensusExtensions::admitExportShare(
+    ExportShare const& share,
+    ExportShareChargeHandler deferredCharge,
+    bool const allowDeferral)
+{
+    if (!exportShareServiceStarted_.load(std::memory_order_acquire))
+        return {ExportShareDisposition::duplicate, ExportShareCharge::none};
 
     auto const validated = app_.getLedgerMaster().getValidatedLedger();
-    auto const resolved = resolveExportShare(app_, *this, share, validated, j_);
-    if (!resolved)
-        return false;
+    if (allowDeferral && validated &&
+        share.originLedgerSeq > validated->info().seq)
+        return deferExportShare(
+            share, std::move(deferredCharge), validated->info().seq);
+
+    auto resolved = resolveExportShare(app_, *this, share, validated, j_);
+    if (resolved.status == ExportShareResolutionStatus::deferred)
+        return {ExportShareDisposition::deferred, ExportShareCharge::none};
+    if (resolved.status == ExportShareResolutionStatus::duplicate)
+        return {ExportShareDisposition::duplicate, ExportShareCharge::none};
+    if (resolved.status == ExportShareResolutionStatus::invalid ||
+        !resolved.value || !validated)
+        return {
+            ExportShareDisposition::invalid, ExportShareCharge::invalidData};
 
     if (!postValidationExportSigCollector_.reopenPublication(
             share.originTxn, share.triggerTxn, validated->info().seq))
-        return false;
+        return {ExportShareDisposition::deferred, ExportShareCharge::none};
 
     ExportSigCollectorV2::Contribution contribution{
         share.universePosition, share.signingKey, share.signature};
@@ -279,10 +450,31 @@ ConsensusExtensions::onExportShare(ExportShare const& share)
         share.originTxn, std::move(contribution), validated->info().seq);
     if (admission.result != ExportSigCollectorV2::BeginResult::verify ||
         !admission.ticket)
-        return false;
+    {
+        switch (admission.result)
+        {
+            case ExportSigCollectorV2::BeginResult::duplicate:
+            case ExportSigCollectorV2::BeginResult::conflicted:
+                return {
+                    ExportShareDisposition::duplicate, ExportShareCharge::none};
+            case ExportSigCollectorV2::BeginResult::unknownOrigin:
+            case ExportSigCollectorV2::BeginResult::capacity:
+                return {
+                    ExportShareDisposition::deferred, ExportShareCharge::none};
+            case ExportSigCollectorV2::BeginResult::malformed:
+                return {
+                    ExportShareDisposition::invalid,
+                    ExportShareCharge::invalidData};
+            case ExportSigCollectorV2::BeginResult::verify:
+                break;
+        }
+        return {
+            ExportShareDisposition::invalid, ExportShareCharge::invalidData};
+    }
 
     auto const signer = calcAccountID(share.signingKey);
-    auto const data = buildMultiSigningData(resolved->releaseTarget, signer);
+    auto const data =
+        buildMultiSigningData(resolved.value->releaseTarget, signer);
     auto const signatureVerified = verify(
         share.signingKey,
         data.slice(),
@@ -293,17 +485,21 @@ ConsensusExtensions::onExportShare(ExportShare const& share)
     {
         std::lock_guard streamLock(exportStreamMutex_);
         if (!exportShareServiceStarted_.load(std::memory_order_acquire))
-            return false;
+            return {ExportShareDisposition::duplicate, ExportShareCharge::none};
         auto const latest = app_.getLedgerMaster().getValidatedLedger();
         if (!latest || !isPendingExportShare(*latest, share, j_))
-            return false;
+            return {ExportShareDisposition::duplicate, ExportShareCharge::none};
         publishExportShareLocked(
             share, latest->info().seq, latest->info().hash);
-        return true;
+        return {ExportShareDisposition::accepted, ExportShareCharge::none};
     }
+    if (outcome.result == ExportSigCollectorV2::AdmitResult::invalid)
+        return {
+            ExportShareDisposition::invalid,
+            ExportShareCharge::invalidSignature};
     if (outcome.result != ExportSigCollectorV2::AdmitResult::conflicted ||
         !outcome.priorContribution || !outcome.conflictingContribution)
-        return false;
+        return {ExportShareDisposition::duplicate, ExportShareCharge::none};
 
     // Propagate both valid encodings so every honest collector can observe the
     // same absorbing conflict even if it missed the first frame.
@@ -315,7 +511,7 @@ ConsensusExtensions::onExportShare(ExportShare const& share)
         conflict.add_shares(frame.data(), frame.size());
     }
     app_.overlay().broadcast(conflict);
-    return false;
+    return {ExportShareDisposition::duplicate, ExportShareCharge::none};
 }
 
 void
@@ -394,6 +590,11 @@ ConsensusExtensions::onValidatedLedger(
                 }
             }
         }
+
+        // Retained replay owns the start of this cursor. Deferred relay shares
+        // are reconsidered afterward, so newly accepted entries publish as
+        // edge events before this node authors its own shares below.
+        retryDeferredExportShares(validated->info().seq);
 
         std::vector<ExportShare> shares;
         shares.reserve(ExportLimits::maxLiveExportLatches);
@@ -551,6 +752,7 @@ ConsensusExtensions::onValidatedLedger(
 void
 ConsensusExtensions::startExportShareService()
 {
+    clearDeferredExportShares();
     std::lock_guard streamLock(exportStreamMutex_);
     exportStreamEmissionSeq_ = 0;
     exportStreamEmittedShares_.clear();
@@ -562,9 +764,12 @@ void
 ConsensusExtensions::stopExportShareService() noexcept
 {
     exportShareServiceStarted_.store(false, std::memory_order_release);
-    std::lock_guard streamLock(exportStreamMutex_);
-    exportStreamEmissionSeq_ = 0;
-    exportStreamEmittedShares_.clear();
+    {
+        std::lock_guard streamLock(exportStreamMutex_);
+        exportStreamEmissionSeq_ = 0;
+        exportStreamEmittedShares_.clear();
+    }
+    clearDeferredExportShares();
 }
 
 //------------------------------------------------------------------------------
@@ -3180,7 +3385,8 @@ ConsensusExtensions::attachExportSignatures(
                 contribution.position,
                 contribution.signingKey,
                 contribution.signature};
-            if (!resolveExportShare(app_, *this, share, validated, j_))
+            if (resolveExportShare(app_, *this, share, validated, j_).status !=
+                ExportShareResolutionStatus::resolved)
                 continue;
 
             auto const frame = share.serialize();

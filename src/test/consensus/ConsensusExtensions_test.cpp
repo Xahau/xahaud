@@ -3714,7 +3714,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 pendingLatch && pendingLatch->isFieldPresent(sfExportNode) &&
                 !pendingLatch->isFieldPresent(sfExportSignatureHash)))
             return;
-        installValidated(originLedger);
 
         auto release = ExportOriginMemo::releaseForm(
             innerTx,
@@ -3782,6 +3781,44 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             expectNoShareEvent();
         };
 
+        auto deferredCount = [&] {
+            std::lock_guard lock(ce.deferredExportSharesMutex_);
+            return ce.deferredExportShares_.size();
+        };
+        std::atomic<std::size_t> deferredCharges{0};
+        std::atomic<ExportShareCharge> lastDeferredCharge{
+            ExportShareCharge::none};
+        auto const deferredCharge = [&](ExportShareCharge const charge) {
+            lastDeferredCharge.store(charge, std::memory_order_relaxed);
+            deferredCharges.fetch_add(1, std::memory_order_relaxed);
+        };
+
+        auto admission = ce.onExportShare(share, deferredCharge);
+        BEAST_EXPECT(admission.disposition == ExportShareDisposition::deferred);
+        BEAST_EXPECT(admission.charge == ExportShareCharge::none);
+        BEAST_EXPECT(deferredCount() == 1);
+        BEAST_EXPECT(!hasRetainedContribution());
+
+        admission = ce.onExportShare(share, deferredCharge);
+        BEAST_EXPECT(
+            admission.disposition == ExportShareDisposition::duplicate);
+        BEAST_EXPECT(deferredCount() == 1);
+
+        auto wrongBranch = share;
+        wrongBranch.originLedgerHash = makeHash("wrong-export-origin");
+        admission = ce.onExportShare(wrongBranch, deferredCharge);
+        BEAST_EXPECT(admission.disposition == ExportShareDisposition::deferred);
+        BEAST_EXPECT(deferredCount() == 2);
+
+        auto beyondHorizon = share;
+        beyondHorizon.originLedgerSeq = universe->info().seq +
+            ConsensusExtensions::maxDeferredExportShareFutureLedgers_ + 1;
+        admission = ce.onExportShare(beyondHorizon, deferredCharge);
+        BEAST_EXPECT(admission.disposition == ExportShareDisposition::deferred);
+        BEAST_EXPECT(deferredCount() == 2);
+
+        installValidated(originLedger);
+
         if (replayWins)
         {
             std::unique_lock streamLock{ce.exportStreamMutex_};
@@ -3839,6 +3876,29 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         }
 
         BEAST_EXPECT(hasRetainedContribution());
+        admission = ce.onExportShare(share, {});
+        BEAST_EXPECT(
+            admission.disposition == ExportShareDisposition::duplicate);
+        BEAST_EXPECT(admission.charge == ExportShareCharge::none);
+
+        admission = ce.onExportShare(wrongBranch, {});
+        BEAST_EXPECT(admission.disposition == ExportShareDisposition::invalid);
+        BEAST_EXPECT(admission.charge == ExportShareCharge::invalidData);
+
+        auto invalidSignature = share;
+        invalidSignature.signature = sign(
+            valKeys.keys->publicKey,
+            valKeys.keys->secretKey,
+            Slice{"invalid-export-share", 20});
+        admission = ce.onExportShare(invalidSignature, {});
+        BEAST_EXPECT(admission.disposition == ExportShareDisposition::invalid);
+        BEAST_EXPECT(admission.charge == ExportShareCharge::invalidSignature);
+
+        BEAST_EXPECT(deferredCount() == 0);
+        BEAST_EXPECT(deferredCharges.load(std::memory_order_relaxed) == 1);
+        BEAST_EXPECT(
+            lastDeferredCharge.load(std::memory_order_relaxed) ==
+            ExportShareCharge::invalidData);
         BEAST_EXPECT(
             ce.lastExportReplaySeq_.load(std::memory_order_relaxed) ==
             originLedger->info().seq);
@@ -3882,7 +3942,15 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(hasRetainedContribution());
         expectNoShareEvent();
 
+        auto pendingAtStop = share;
+        pendingAtStop.originLedgerSeq = witnessed->info().seq + 1;
+        pendingAtStop.originLedgerHash = makeHash("pending-at-stop");
+        admission = ce.onExportShare(pendingAtStop, deferredCharge);
+        BEAST_EXPECT(admission.disposition == ExportShareDisposition::deferred);
+        BEAST_EXPECT(deferredCount() == 1);
+
         ce.stopExportShareService();
+        BEAST_EXPECT(deferredCount() == 0);
         BEAST_EXPECT(
             wsc->invoke("unsubscribe", stream)[jss::status] == "success");
     }

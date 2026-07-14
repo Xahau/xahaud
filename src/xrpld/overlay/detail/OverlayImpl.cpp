@@ -1226,8 +1226,10 @@ OverlayImpl::setExportShareHandler(ExportShareHandler handler)
     exportShareHandler_ = std::move(handler);
 }
 
-bool
-OverlayImpl::acceptExportShare(ExportShare const& share)
+ExportShareAdmission
+OverlayImpl::acceptExportShare(
+    ExportShare const& share,
+    ExportShareChargeHandler deferredCharge)
 {
     ExportShareHandler handler;
     {
@@ -1236,11 +1238,11 @@ OverlayImpl::acceptExportShare(ExportShare const& share)
     }
 
     if (!handler)
-        return false;
+        return {ExportShareDisposition::deferred, ExportShareCharge::none};
 
     try
     {
-        return handler(share);
+        return handler(share, std::move(deferredCharge));
     }
     catch (std::exception const& e)
     {
@@ -1251,7 +1253,7 @@ OverlayImpl::acceptExportShare(ExportShare const& share)
     {
         JLOG(journal_.error()) << "ExportShare admission callback failed";
     }
-    return false;
+    return {ExportShareDisposition::deferred, ExportShareCharge::none};
 }
 
 std::set<Peer::id_t>

@@ -64,6 +64,21 @@ std::chrono::milliseconds constexpr peerHighLatency{300};
 
 /** How often we PING the peer to check for latency and sendq probe */
 std::chrono::seconds constexpr peerTimerInterval{60};
+
+Resource::Charge const*
+exportShareFee(ExportShareCharge const charge)
+{
+    switch (charge)
+    {
+        case ExportShareCharge::none:
+            return nullptr;
+        case ExportShareCharge::invalidData:
+            return &Resource::feeInvalidData;
+        case ExportShareCharge::invalidSignature:
+            return &Resource::feeInvalidSignature;
+    }
+    return nullptr;
+}
 }  // namespace
 
 // TODO: Remove this exclusion once unit tests are added after the hotfix
@@ -1151,10 +1166,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
     }
 
     if (fresh.empty())
-    {
-        fee_.update(Resource::feeUselessData, "duplicate export shares");
         return;
-    }
 
     std::weak_ptr<PeerImp> weak = shared_from_this();
     app_.getJobQueue().addJob(
@@ -1169,7 +1181,16 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
             accepted.mutable_shares()->Reserve(fresh.size());
             for (auto const index : fresh)
             {
-                if (peer->overlay_.acceptExportShare(shares[index]))
+                auto const chargeDeferred =
+                    [weak](ExportShareCharge const charge) {
+                        auto const peer = weak.lock();
+                        auto const fee = exportShareFee(charge);
+                        if (peer && fee)
+                            peer->charge(*fee, "deferred export share");
+                    };
+                auto const admission = peer->overlay_.acceptExportShare(
+                    shares[index], chargeDeferred);
+                if (admission.isAccepted())
                 {
                     // Stable raw-wire routing begins only after semantic
                     // admission; an early state-relative rejection must not
@@ -1177,6 +1198,10 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
                     peer->app_.getHashRouter().addSuppressionPeer(
                         shares[index].wireHash(), peer->id_);
                     accepted.add_shares(m->shares(index));
+                }
+                else if (auto const fee = exportShareFee(admission.charge))
+                {
+                    peer->charge(*fee, "export share");
                 }
             }
 
