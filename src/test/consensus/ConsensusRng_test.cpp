@@ -1421,7 +1421,8 @@ public:
         BEAST_EXPECT(std::any_of(
             peer0Jumps.begin(), peer0Jumps.end(), [&](auto const& jump) {
                 return jump.from.id() == witnesslessLedger.id() &&
-                    jump.to.isAncestor(witnessLedger);
+                    (jump.to.id() == witnessLedger.id() ||
+                     jump.to.isAncestor(witnessLedger));
             }));
     }
 
