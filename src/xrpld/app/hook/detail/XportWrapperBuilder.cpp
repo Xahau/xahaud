@@ -45,6 +45,11 @@ build(Input const& input)
         !isTesSuccess(ter))
         return Unexpected(::hook_api::hook_return_code::EXPORT_FAILURE);
 
+    if (auto ter = ExportLedgerOps::validateOriginMemoProjection(
+            *innerTx, input.networkID, input.j);
+        !isTesSuccess(ter))
+        return Unexpected(::hook_api::hook_return_code::EXPORT_FAILURE);
+
     if (auto ter = ExportLedgerOps::validateTicketSequence(*innerTx, input.j);
         !isTesSuccess(ter))
         return Unexpected(::hook_api::hook_return_code::EXPORT_FAILURE);

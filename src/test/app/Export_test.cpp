@@ -947,6 +947,49 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportRejectsInvalidOriginMemoProjection()
+    {
+        testcase("Export validates future origin Memo projection");
+
+        jtx::Account const alice{"alice"};
+        jtx::Account const carol{"carol"};
+        auto const j = beast::Journal{beast::Journal::getNullSink()};
+        auto const sourceNetworkID = maxNetworkIDWithoutTxField + 1;
+
+        auto innerObj = buildExportedPayment(alice.id(), carol.id(), 2, 6);
+        BEAST_EXPECT(
+            ExportLedgerOps::validateOriginMemoProjection(
+                makeSTTx(innerObj), sourceNetworkID, j) == tesSUCCESS);
+
+        STArray memos{sfMemos};
+        STObject reservedMemo{sfMemo};
+        reservedMemo.setFieldVL(
+            sfMemoType,
+            Blob(
+                ExportOriginMemo::memoType.begin(),
+                ExportOriginMemo::memoType.end()));
+        reservedMemo.setFieldVL(
+            sfMemoData, Blob(ExportOriginMemo::identityBytes));
+        memos.emplace_back(std::move(reservedMemo));
+        innerObj.setFieldArray(sfMemos, memos);
+        BEAST_EXPECT(
+            ExportLedgerOps::validateOriginMemoProjection(
+                makeSTTx(innerObj), sourceNetworkID, j) == temMALFORMED);
+
+        memos.clear();
+        STObject fullMemo{sfMemo};
+        fullMemo.setFieldVL(sfMemoType, Blob{'u', 's', 'e', 'r'});
+        fullMemo.setFieldVL(sfMemoData, Blob(930, 0x5A));
+        memos.emplace_back(std::move(fullMemo));
+        innerObj.setFieldArray(sfMemos, memos);
+        std::string reason;
+        BEAST_EXPECT(passesLocalChecks(makeSTTx(innerObj), reason));
+        BEAST_EXPECT(
+            ExportLedgerOps::validateOriginMemoProjection(
+                makeSTTx(innerObj), sourceNetworkID, j) == temMALFORMED);
+    }
+
+    void
     testXportEmissionLimit(FeatureBitset features)
     {
         testcase("Xport emitted export limit");
@@ -2359,6 +2402,7 @@ struct Export_test : public beast::unit_test::suite
         testXportRejectsLocalNetworkID(allWithExport);
         testXportRejectsUnconfiguredNetworkID(allWithExport);
         testExportRejectsAmbiguousAbsentNetworkID();
+        testExportRejectsInvalidOriginMemoProjection();
         testXportEmissionLimit(allWithExport);
 
         // ttEXPORT transactor tests

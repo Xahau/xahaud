@@ -71,6 +71,11 @@ Export::preclaim(PreclaimContext const& ctx)
         !isTesSuccess(ter))
         return ter;
 
+    if (auto ter = ExportLedgerOps::validateOriginMemoProjection(
+            *innerTx, ctx.app.config().NETWORK_ID, ctx.j);
+        !isTesSuccess(ter))
+        return ter;
+
     if (auto ter = ExportLedgerOps::validateTicketSequence(*innerTx, ctx.j);
         !isTesSuccess(ter))
         return ter;

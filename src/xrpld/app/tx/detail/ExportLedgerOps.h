@@ -6,6 +6,7 @@
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STObject.h>
@@ -181,6 +182,32 @@ validateNetworkID(
     }
 
     return tesSUCCESS;
+}
+
+/// Validate the embedded target transaction and its future canonical release
+/// projection before accepting an Export intent. The all-zero origin/anchor
+/// values are size-equivalent placeholders; live signing later substitutes
+/// the real source transaction and validated-ledger identity.
+inline TER
+validateOriginMemoProjection(
+    STTx const& stx,
+    std::uint32_t sourceNetworkID,
+    beast::Journal j)
+{
+    auto const targetNetworkID = stx.isFieldPresent(sfNetworkID)
+        ? stx.getFieldU32(sfNetworkID)
+        : std::uint32_t{0};
+    auto const projected = ExportOriginMemo::releaseForm(
+        stx,
+        ExportOriginMemo::Origin{sourceNetworkID, targetNetworkID, uint256{}},
+        ExportOriginMemo::Anchor{0, uint256{}});
+    if (projected)
+        return tesSUCCESS;
+
+    JLOG(j.warn())
+        << "ExportLedgerOps: exported tx cannot form canonical origin Memo"
+        << " error=" << static_cast<unsigned>(projected.error());
+    return temMALFORMED;
 }
 
 /// Validate that the exported transaction's Account matches the

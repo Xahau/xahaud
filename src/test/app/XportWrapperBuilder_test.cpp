@@ -20,6 +20,7 @@
 #include <xrpl/basics/Expected.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/STAmount.h>
 #include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/STObject.h>
@@ -83,6 +84,19 @@ makeExportedPayment(
     if (networkID)
         obj.setFieldU32(sfNetworkID, *networkID);
     return makeSTTx(obj);
+}
+
+STTx
+withMemo(STTx tx, Blob type, Blob data)
+{
+    STArray memos = tx.isFieldPresent(sfMemos) ? tx.getFieldArray(sfMemos)
+                                               : STArray{sfMemos};
+    STObject memo{sfMemo};
+    memo.setFieldVL(sfMemoType, std::move(type));
+    memo.setFieldVL(sfMemoData, std::move(data));
+    memos.emplace_back(std::move(memo));
+    tx.setFieldArray(sfMemos, memos);
+    return tx;
 }
 
 beast::Journal
@@ -206,6 +220,37 @@ public:
         auto const& emitDetails =
             result->wrapperTx.peekAtField(sfEmitDetails).downcast<STObject>();
         BEAST_EXPECT(!emitDetails.isFieldPresent(sfEmitCallback));
+    }
+
+    void
+    testPreservesUserMemos()
+    {
+        testcase("preserves user memos");
+
+        auto const exporter = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const innerTx = withMemo(
+            makeExportedPayment(
+                calcAccountID(exporter.first), calcAccountID(dst.first)),
+            Blob{'u', 's', 'e', 'r'},
+            Blob{1, 2, 3, 4});
+        auto const serialized = serialize(innerTx);
+
+        auto const result = hook::XportWrapperBuilder::build(makeInput(
+            Slice(serialized.data(), serialized.size()),
+            calcAccountID(exporter.first)));
+
+        BEAST_EXPECT(result);
+        if (!result)
+            return;
+
+        auto const& exported =
+            result->wrapperTx.peekAtField(sfExportedTxn).downcast<STObject>();
+        Serializer exportedSer;
+        exported.add(exportedSer);
+        STTx parsedInner{SerialIter{exportedSer.slice()}};
+        BEAST_EXPECT(serialize(parsedInner) == serialized);
+        BEAST_EXPECT(!ExportOriginMemo::hasReservedMemo(parsedInner));
     }
 
     void
@@ -382,6 +427,23 @@ public:
                 result.error() == ::hook_api::hook_return_code::EXPORT_FAILURE);
             BEAST_EXPECT(!nonceCalled);
         }
+
+        {
+            auto const reservedType = Blob(
+                ExportOriginMemo::memoType.begin(),
+                ExportOriginMemo::memoType.end());
+            auto const reservedMemoTx = withMemo(
+                innerTx, reservedType, Blob(ExportOriginMemo::identityBytes));
+            expectSigningEnvelopeRejected(reservedMemoTx);
+        }
+
+        {
+            auto const fullMemoTx =
+                withMemo(innerTx, Blob{'u', 's', 'e', 'r'}, Blob(930, 0x5A));
+            std::string reason;
+            BEAST_EXPECT(passesLocalChecks(fullMemoTx, reason));
+            expectSigningEnvelopeRejected(fullMemoTx);
+        }
     }
 
     void
@@ -479,6 +541,7 @@ public:
     {
         testBuildsWrapper();
         testBuildsWrapperWithoutCallback();
+        testPreservesUserMemos();
         testRejectsInvalidInputs();
         testRejectsMissingCallbacks();
         testMapsNonceFailureToInternalError();
