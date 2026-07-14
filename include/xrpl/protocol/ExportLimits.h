@@ -71,6 +71,14 @@ struct ExportLimits
     // STObject envelope. Keep this comfortably above the canonical encoding
     // while bounding fetched, peer-supplied leaf bytes before parse/hash work.
     static constexpr std::size_t maxExportSignatureSidecarBytes = 256;
+
+    // Post-validation relay framing. Values are deliberately conservative
+    // local tuning knobs and require measurement before activation; changing
+    // them does not change the canonical per-share format.
+    static constexpr std::size_t maxExportShareRelayBytes = 256;
+    static constexpr std::size_t maxExportSharesPerRelay = 32;
+    static constexpr std::size_t maxExportShareRelayMessageBytes =
+        maxExportShareRelayBytes * maxExportSharesPerRelay;
 };
 
 }  // namespace ripple
