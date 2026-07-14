@@ -112,7 +112,7 @@ struct ExportLatch_test : beast::unit_test::suite
         auto const afterPending = sb.read(keylet::pendingExports());
         BEAST_EXPECT(afterAccount->getFieldU16(sfExportCount) == 31);
         BEAST_EXPECT(afterAccount->getFieldU32(sfOwnerCount) == 63);
-        BEAST_EXPECT(afterPending->getFieldU16(sfExportCount) == 31);
+        BEAST_EXPECT(afterPending->getFieldU16(sfExportCount) == 30);
 
         Sandbox reopened{&sb};
         std::set<uint256> recovered;
@@ -153,7 +153,7 @@ struct ExportLatch_test : beast::unit_test::suite
             31);
         BEAST_EXPECT(
             sb.read(keylet::pendingExports())->getFieldU16(sfExportCount) ==
-            31);
+            30);
 
         BEAST_EXPECT(sb.dirRemove(
             keylet::ownerDir(alice.id()), *legacyPage, legacyKey.key, false));

@@ -1610,7 +1610,6 @@ ApplicationImp::start(bool withTimers)
     m_shaMapStore->start();
     if (overlay_)
     {
-        overlay_->start();
         auto const weak =
             std::weak_ptr<ConsensusExtensions>{consensusExtensions_};
         overlay_->setExportShareHandler([weak](ExportShare const& share) {
@@ -1618,6 +1617,7 @@ ApplicationImp::start(bool withTimers)
             return extensions && extensions->onExportShare(share);
         });
         consensusExtensions_->startExportShareService();
+        overlay_->start();
     }
 
     if (grpcServer_->start())

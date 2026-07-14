@@ -121,7 +121,7 @@ struct Export_test : public beast::unit_test::suite
         innerObj.setFieldU32(sfNetworkID, targetNetworkID);
         innerObj.setFieldU32(sfLastLedgerSequence, 100);
         innerObj.setFieldAmount(sfAmount, XRPAmount{1000000});
-        innerObj.setFieldAmount(sfFee, XRPAmount{20});
+        innerObj.setFieldAmount(sfFee, XRPAmount{1000});
         innerObj.setFieldVL(sfSigningPubKey, Blob{});
         innerObj.setAccountID(sfAccount, alice.id());
         innerObj.setAccountID(sfDestination, carol.id());
@@ -132,6 +132,13 @@ struct Export_test : public beast::unit_test::suite
         jvExport[jss::LastLedgerSequence] =
             xahau.current()->seq() + ExportLimits::maxRetryLedgers;
         jvExport[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+
+        auto const& valKeys = xahau.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return {};
+        seedUNLReportLedger(xahau, {valKeys.keys->masterPublicKey});
+        bindExportAuthority(xahau, jvExport);
 
         xahau(jvExport, fee(XRP(1)), ter(tesSUCCESS));
         auto const origin = xahau.tx()->getTransactionID();
@@ -346,8 +353,13 @@ struct Export_test : public beast::unit_test::suite
             [&](OpenView& view, beast::Journal) -> bool {
                 for (auto const& pk : activeKeys)
                 {
-                    STTx tx =
-                        unl::createUNLReportTx(env.current()->seq(), pk, pk);
+                    STTx tx(ttUNL_REPORT, [&](auto& obj) {
+                        obj.setFieldU32(sfLedgerSequence, env.current()->seq());
+                        auto active =
+                            std::make_unique<STObject>(sfActiveValidator);
+                        active->setFieldVL(sfPublicKey, pk);
+                        obj.set(std::move(active));
+                    });
                     auto txID = tx.getTransactionID();
                     auto s = std::make_shared<Serializer>();
                     tx.add(*s);
@@ -374,7 +386,16 @@ struct Export_test : public beast::unit_test::suite
         jv[jss::Account] = account.human();
         jv[jss::LastLedgerSequence] = lls;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+        bindExportAuthority(env, jv);
         return env.jt(jv, jtx::fee(jtx::XRP(1)), jtx::ter(tesSUCCESS));
+    }
+
+    static void
+    bindExportAuthority(jtx::Env& env, Json::Value& jv)
+    {
+        jv[sfExportUniverseHash.jsonName] =
+            to_string(env.closed()->info().hash);
+        jv[sfExportCommittee.jsonName] = strHex(Blob{0x01});
     }
 
     // Build a minimal unsigned Payment STObject suitable for sfExportedTxn.
@@ -709,6 +730,11 @@ struct Export_test : public beast::unit_test::suite
 
         env.fund(XRP(10000), alice, bob, carol);
         env.close();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+        seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
 
         // Install xport hook on alice
         env(ripple::test::jtx::hook(alice, {{hso(xport_wasm)}}, 0),
@@ -788,13 +814,27 @@ struct Export_test : public beast::unit_test::suite
 
         // Validation of the origin ledger releases signatures. The assembled
         // witness is therefore materialized in a subsequent ledger.
-        env.close();
+        env.app().getJobQueue().rendezvous();
+        auto const releasedShares = env.app()
+                                        .getConsensusExtensions()
+                                        .postValidationExportSigCollector()
+                                        .fullUnionSnapshot();
+        BEAST_EXPECT(releasedShares.contains(*origin));
+        if (auto const it = releasedShares.find(*origin);
+            it != releasedShares.end())
+            BEAST_EXPECT(it->second.size() == 1);
         std::shared_ptr<STTx const> witness;
-        for (auto const& [stx, _] : env.closed()->txs)
+        for (std::size_t attempt = 0;
+             attempt < ExportLimits::maxRetryLedgers && !witness;
+             ++attempt)
         {
-            if (stx->getTxnType() == ttEXPORT_SIGNATURES &&
-                stx->getFieldH256(sfTransactionHash) == *origin)
-                witness = stx;
+            env.close();
+            for (auto const& [stx, _] : env.closed()->txs)
+            {
+                if (stx->getTxnType() == ttEXPORT_SIGNATURES &&
+                    stx->getFieldH256(sfTransactionHash) == *origin)
+                    witness = stx;
+            }
         }
         BEAST_EXPECT(witness);
         if (!witness)
@@ -1032,6 +1072,11 @@ struct Export_test : public beast::unit_test::suite
 
         env.fund(XRP(10000), alice, carol);
         env.close();
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+        seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
 
         auto const seq = env.current()->seq();
         auto innerObj = buildExportedPayment(
@@ -1044,6 +1089,7 @@ struct Export_test : public beast::unit_test::suite
         jv[jss::TransactionType] = jss::Export;
         jv[jss::Account] = alice.human();
         jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+        bindExportAuthority(env, jv);
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
 
         env(jv, fee(XRP(1)), ter(tesSUCCESS));
@@ -1068,7 +1114,7 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(valKeys.keys);
         if (!valKeys.keys)
             return;
-        seedUNLReportLedger(env, {valKeys.keys->publicKey});
+        seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
         forceNonStandalone(env.app());
         BEAST_EXPECT(!env.app().config().standalone());
         ConsensusTestConfig cfg;
@@ -1086,6 +1132,7 @@ struct Export_test : public beast::unit_test::suite
         jv[jss::Account] = alice.human();
         jv[jss::LastLedgerSequence] = lls;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+        bindExportAuthority(env, jv);
 
         env(jv, fee(XRP(1)), ter(tesSUCCESS));
         auto const origin = env.tx()->getTransactionID();
@@ -1142,8 +1189,7 @@ struct Export_test : public beast::unit_test::suite
         if (!valKeys.keys)
             return;
 
-        auto const& valPK = valKeys.keys->publicKey;
-        seedUNLReportLedger(env, {valPK});
+        seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
         forceNonStandalone(env.app());
 
         auto const parent = env.app().getLedgerMaster().getClosedLedger();
@@ -1200,7 +1246,7 @@ struct Export_test : public beast::unit_test::suite
         if (!valKeys.keys)
             return;
 
-        seedUNLReportLedger(env, {valKeys.keys->publicKey});
+        seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
         forceNonStandalone(env.app());
         BEAST_EXPECT(!env.app().config().standalone());
 
@@ -1344,9 +1390,9 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
-    testExportNetworkRetryWithoutUNLReport(FeatureBitset features)
+    testExportNetworkRejectsWithoutUNLReport(FeatureBitset features)
     {
-        testcase("ttEXPORT network mode retries without UNLReport view");
+        testcase("ttEXPORT rejects without pinned UNLReport universe");
 
         using namespace jtx;
 
@@ -1385,8 +1431,8 @@ struct Export_test : public beast::unit_test::suite
         auto const result =
             ripple::apply(env.app(), accum, *exportTx, tapNONE, env.journal);
 
-        BEAST_EXPECT(result.ter == terRETRY_EXPORT);
-        BEAST_EXPECT(!result.applied);
+        BEAST_EXPECT(result.ter == tecEXPORT_UNIVERSE_MISMATCH);
+        BEAST_EXPECT(result.applied);
         BEAST_EXPECT(!next->read(keylet::shadowTicket(alice.id(), txHash)));
     }
 
@@ -1407,7 +1453,7 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(valKeys.keys);
         if (!valKeys.keys)
             return;
-        seedUNLReportLedger(env, {valKeys.keys->publicKey});
+        seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
         forceNonStandalone(env.app());
 
         auto const parent = env.app().getLedgerMaster().getClosedLedger();
@@ -1447,6 +1493,12 @@ struct Export_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, carol);
         env.close();
 
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+        seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
+
         auto submitExport = [&](std::uint32_t ticketSeq, TER expected) {
             auto const seq = env.current()->seq();
             auto innerObj = buildExportedPayment(
@@ -1461,6 +1513,7 @@ struct Export_test : public beast::unit_test::suite
             jv[jss::Account] = alice.human();
             jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
             jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+            bindExportAuthority(env, jv);
 
             env(jv, fee(XRP(1)), ter(expected));
         };
@@ -1486,6 +1539,12 @@ struct Export_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, carol);
         env.close();
 
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+        seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
+
         std::map<std::uint32_t, uint256> origins;
 
         auto submitClosedExport = [&](std::uint32_t ticketSeq,
@@ -1504,8 +1563,9 @@ struct Export_test : public beast::unit_test::suite
             jv[jss::Account] = alice.human();
             jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
             jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+            bindExportAuthority(env, jv);
 
-            env(jv, fee(XRP(1)), ter(tesSUCCESS));
+            env(jv, fee(XRP(1)), ter(expected));
             auto const submittedOrigin = env.tx()->getTransactionID();
             auto const meta = env.meta();
             BEAST_EXPECT(meta);
@@ -1526,7 +1586,7 @@ struct Export_test : public beast::unit_test::suite
         for (std::uint32_t i = 1; i <= ExportLimits::maxPendingExports; ++i)
             submitClosedExport(i, tesSUCCESS, true);
 
-        submitClosedExport(1, tecDUPLICATE, true);
+        submitClosedExport(1, tecDIR_FULL, true);
         submitClosedExport(
             ExportLimits::maxPendingExports + 1, tecDIR_FULL, false);
     }
@@ -1546,6 +1606,12 @@ struct Export_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, carol);
         env.close();
 
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+        seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
+
         auto const seq = env.current()->seq();
 
         std::uint32_t constexpr ticketSeq = 42;
@@ -1561,6 +1627,7 @@ struct Export_test : public beast::unit_test::suite
         jv[jss::Account] = alice.human();
         jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+        bindExportAuthority(env, jv);
 
         env(jv, fee(XRP(1)), ter(tesSUCCESS));
         auto const origin = env.tx()->getTransactionID();
@@ -1580,9 +1647,16 @@ struct Export_test : public beast::unit_test::suite
             BEAST_EXPECT(shadow->isFieldPresent(sfDigest));
             BEAST_EXPECT(shadow->isFieldPresent(sfExportNode));
             BEAST_EXPECT(!shadow->isFieldPresent(sfExportSignatureHash));
-            BEAST_EXPECT(
-                shadow->getFieldH256(sfDigest) ==
-                ExportResultBuilder::exportIntentHash(makeSTTx(innerObj)));
+            BEAST_EXPECT(shadow->getFieldH256(sfDigest) == [&] {
+                auto const identity = ExportOriginMemo::identityForm(
+                    makeSTTx(innerObj),
+                    ExportOriginMemo::Origin{
+                        env.app().config().NETWORK_ID, 0, origin});
+                BEAST_EXPECT(identity);
+                return identity
+                    ? ExportResultBuilder::exportIntentHash(identity.value())
+                    : uint256{};
+            }());
         }
 
         env.close();
@@ -1601,6 +1675,12 @@ struct Export_test : public beast::unit_test::suite
         Account const carol{"carol"};
         env.fund(XRP(10000), alice, carol);
         env.close();
+
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+        seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
 
         // Cancel non-existent ticket → tecNO_ENTRY
         Json::Value jvCancel;
@@ -1625,6 +1705,7 @@ struct Export_test : public beast::unit_test::suite
         jvExport[jss::Account] = alice.human();
         jvExport[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
         jvExport[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+        bindExportAuthority(env, jvExport);
 
         env(jvExport, fee(XRP(1)), ter(tesSUCCESS));
         auto const origin = env.tx()->getTransactionID();
@@ -1679,6 +1760,7 @@ struct Export_test : public beast::unit_test::suite
         jv[jss::Account] = alice.human();
         jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+        bindExportAuthority(env, jv);
 
         env(jv, fee(XRP(1)), ter(temMALFORMED));
         env.close();
@@ -1710,6 +1792,7 @@ struct Export_test : public beast::unit_test::suite
         jv[jss::TransactionType] = jss::Export;
         jv[jss::Account] = alice.human();
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+        bindExportAuthority(env, jv);
 
         env(jv, fee(XRP(1)), ter(temMALFORMED));
         env.close();
@@ -1741,6 +1824,7 @@ struct Export_test : public beast::unit_test::suite
         jv[jss::Account] = alice.human();
         jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+        bindExportAuthority(env, jv);
 
         env(jv, fee(XRP(1)), ter(temMALFORMED));
     }
@@ -1770,6 +1854,7 @@ struct Export_test : public beast::unit_test::suite
         jv[jss::Account] = alice.human();
         jv[jss::LastLedgerSequence] = lls;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+        bindExportAuthority(env, jv);
 
         env(jv, fee(XRP(1)), ter(temMALFORMED));
         env.close();
@@ -1903,6 +1988,7 @@ struct Export_test : public beast::unit_test::suite
         rearm[jss::LastLedgerSequence] =
             xahau.current()->seq() + ExportLimits::maxRetryLedgers;
         rearm[sfExportedTxn.jsonName] = callback.exportedTxnJson;
+        bindExportAuthority(xahau, rearm);
         xahau(rearm, fee(XRP(1)), ter(tesSUCCESS));
         auto const rearmedOrigin = xahau.tx()->getTransactionID();
         xahau.close();
@@ -2003,7 +2089,7 @@ struct Export_test : public beast::unit_test::suite
         testExportNetworkAdmitsIntentWithoutQuorum(allWithExport);
         testExportShadowTicketInsufficientReserve(allWithExport);
         testLaterLedgerWitnessTransitionAndReplay(allWithExport);
-        testExportNetworkRetryWithoutUNLReport(allWithExport);
+        testExportNetworkRejectsWithoutUNLReport(allWithExport);
         testExportNetworkLastLedgerSequenceBoundary(allWithExport);
         testOpenLedgerExportLimit(allWithExport);
         testShadowTicketLimit(allWithExport);

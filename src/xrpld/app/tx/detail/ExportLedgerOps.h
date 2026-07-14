@@ -198,9 +198,6 @@ insertPendingExportLatch(
         return tecDIR_FULL;
     if (globalCount >= ExportLimits::maxLiveExportLatches)
         return tecDIR_FULL;
-    if (accountCount > globalCount)
-        return tefBAD_LEDGER;
-
     auto inserted = std::make_shared<SLE>(*latch);
     auto const ownerPage = sb.dirInsert(
         keylet::ownerDir(account), inserted->key(), describeOwnerDir(account));
@@ -295,8 +292,9 @@ createPendingExportLatch(
     return insertPendingExportLatch(view, rawView, latch, j);
 }
 
-/// Remove only the pending-work link from an enhanced Export latch. Live
-/// counters and owner reserve remain held until terminal latch erasure.
+/// Remove the pending-work link and release its global signing-work slot.
+/// The per-account latch count and owner reserve remain held until terminal
+/// latch erasure.
 inline TER
 removePendingExportLink(ApplyView& view, Keylet const& latchKey, beast::Journal)
 {
@@ -311,12 +309,20 @@ removePendingExportLink(ApplyView& view, Keylet const& latchKey, beast::Journal)
     auto const pendingRoot = sb.peek(pendingKey);
     if (!pendingRoot || !pendingRoot->isFieldPresent(sfExportCount))
         return tefBAD_LEDGER;
+    auto const pendingCount = exportLatchCount(*pendingRoot);
+    if (pendingCount == 0)
+        return tefBAD_LEDGER;
     if (!sb.dirRemove(
             pendingKey, latch->getFieldU64(sfExportNode), latchKey, true))
         return tefBAD_LEDGER;
 
     latch->makeFieldAbsent(sfExportNode);
     sb.update(latch);
+    auto updatedRoot = sb.peek(pendingKey);
+    if (!updatedRoot)
+        return tefBAD_LEDGER;
+    updatedRoot->setFieldU16(sfExportCount, pendingCount - 1);
+    sb.update(updatedRoot);
     return tesSUCCESS;
 }
 
@@ -353,13 +359,17 @@ eraseExportLatch(
 
     auto const accountCount = exportLatchCount(*sleAccount);
     auto const globalCount = exportLatchCount(*pendingRoot);
-    if (accountCount == 0 || globalCount == 0 || accountCount > globalCount)
+    if (accountCount == 0)
         return tefBAD_LEDGER;
 
-    if (latch->isFieldPresent(sfExportNode) &&
-        !sb.dirRemove(
-            pendingKey, latch->getFieldU64(sfExportNode), latchKey, true))
-        return tefBAD_LEDGER;
+    auto const pending = latch->isFieldPresent(sfExportNode);
+    if (pending)
+    {
+        if (globalCount == 0 ||
+            !sb.dirRemove(
+                pendingKey, latch->getFieldU64(sfExportNode), latchKey, true))
+            return tefBAD_LEDGER;
+    }
 
     if (!sb.dirRemove(
             keylet::ownerDir(account),
@@ -372,11 +382,14 @@ eraseExportLatch(
     sb.update(sleAccount);
     adjustOwnerCount(sb, sleAccount, -1, j);
 
-    pendingRoot = sb.peek(pendingKey);
-    if (!pendingRoot)
-        return tefBAD_LEDGER;
-    pendingRoot->setFieldU16(sfExportCount, globalCount - 1);
-    sb.update(pendingRoot);
+    if (pending)
+    {
+        pendingRoot = sb.peek(pendingKey);
+        if (!pendingRoot)
+            return tefBAD_LEDGER;
+        pendingRoot->setFieldU16(sfExportCount, globalCount - 1);
+        sb.update(pendingRoot);
+    }
     sb.erase(latch);
 
     sb.apply(rawView);

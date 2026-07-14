@@ -335,7 +335,6 @@ LedgerMaster::setValidLedger(std::shared_ptr<Ledger const> const& l)
         }
     }
 
-    enqueueValidatedLedgerWork({l->info().seq, l->info().hash});
 }
 
 void
@@ -471,6 +470,8 @@ LedgerMaster::switchLCL(std::shared_ptr<Ledger const> const& lastClosed)
     if (standalone_)
     {
         setFullLedger(lastClosed, true, false);
+        enqueueValidatedLedgerWork(
+            {lastClosed->info().seq, lastClosed->info().hash});
         tryAdvance();
     }
     else
@@ -1079,6 +1080,7 @@ LedgerMaster::checkAccept(std::shared_ptr<Ledger const> const& ledger)
     ledger->setValidated();
     ledger->setFull();
     setValidLedger(ledger);
+    enqueueValidatedLedgerWork({ledger->info().seq, ledger->info().hash});
 
     JLOG(m_journal.info()) << "checkAccept (" << ledger->info().seq
                            << ") = validated\n";

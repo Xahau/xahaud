@@ -18,6 +18,9 @@
 
 #include <xrpld/app/consensus/ProposalPrecheck.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/ExportShare.h>
+#include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/digest.h>
 
 #include <cstring>
@@ -199,7 +202,8 @@ public:
             setPreviousLedger(tooMany);
             ExtendedPosition position{makeHash("too-many-position")};
             setPosition(tooMany, position);
-            for (std::uint8_t i = 0; i <= ExportLimits::maxPendingExports; ++i)
+            for (std::size_t i = 0; i <= ExportLimits::maxExportSharesPerRelay;
+                 ++i)
                 tooMany.add_exportsignatures("sig");
             BEAST_EXPECT(
                 detail::checkProposalExtensions(tooMany, true, true).result ==
@@ -243,12 +247,12 @@ public:
                 ok);
 
             // A single oversized blob is rejected before its bytes are hashed,
-            // even though the count is within maxPendingExports. This bounds
-            // the pre-auth SHA512 work on the proposal ingress path.
+            // even though the count is within the relay cap. This bounds the
+            // pre-auth SHA512 work on the proposal ingress path.
             protocol::TMProposeSet oversized;
             setPreviousLedger(oversized);
             std::string const bigSig(
-                ExportLimits::maxExportSignatureBytes + 1, 'x');
+                ExportLimits::maxSerializedExportShareBytes + 1, 'x');
             std::vector<std::string> const bigSigs{bigSig};
             ExtendedPosition oversizedPos{
                 makeHash("export-oversized-position")};
@@ -264,7 +268,7 @@ public:
             protocol::TMProposeSet maxSized;
             setPreviousLedger(maxSized);
             std::string const maxSig(
-                ExportLimits::maxExportSignatureBytes, 'x');
+                ExportLimits::maxSerializedExportShareBytes, 'x');
             std::vector<std::string> const maxSigs{maxSig};
             ExtendedPosition maxPos{makeHash("export-maxsize-position")};
             maxPos.exportSignaturesHash = proposalExportSignaturesHash(maxSigs);
@@ -273,6 +277,33 @@ public:
             BEAST_EXPECT(
                 detail::checkProposalExtensions(maxSized, true, true).result ==
                 ok);
+
+            auto const [key, secret] = randomKeyPair(KeyType::ed25519);
+            auto const signature = sign(key, secret, Slice{"share", 5});
+            auto const share =
+                ExportShare{
+                    ExportShare::currentVersion,
+                    calcAccountID(key),
+                    makeHash("export-origin"),
+                    42,
+                    makeHash("export-ledger"),
+                    makeHash("export-trigger"),
+                    3,
+                    key,
+                    signature}
+                    .serialize();
+            protocol::TMProposeSet encodedShare;
+            setPreviousLedger(encodedShare);
+            std::vector<std::string> const frames{std::string{
+                reinterpret_cast<char const*>(share.data()), share.size()}};
+            ExtendedPosition sharePos{makeHash("export-share-position")};
+            sharePos.exportSignaturesHash =
+                proposalExportSignaturesHash(frames);
+            setPosition(encodedShare, sharePos);
+            encodedShare.add_exportsignatures(frames.front());
+            BEAST_EXPECT(
+                detail::checkProposalExtensions(encodedShare, true, true)
+                    .result == ok);
         }
         //@@end test-proposal-export-signature-binding
 

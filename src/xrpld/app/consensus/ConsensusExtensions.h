@@ -5,7 +5,6 @@
 #include <xrpld/app/consensus/RCLCxLedger.h>
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpld/app/consensus/RCLCxTx.h>
-#include <xrpld/app/misc/ExportSigCollector.h>
 #include <xrpld/app/misc/ExportSigCollectorV2.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/consensus/ConsensusTypes.h>
@@ -52,11 +51,11 @@ class ConsensusExtensions
     friend class test::ConsensusExtensions_test;
 
     Application& app_;
-    ExportSigCollector exportSigCollector_;
     ExportSigCollectorV2 postValidationExportSigCollector_;
     std::set<std::pair<uint256, ExportSigCollectorV2::Position>>
         proposalPublishedExportShares_;
     std::atomic<bool> exportShareServiceStarted_{false};
+    std::atomic<LedgerIndex> lastExportSnapshotSeq_{0};
 
 public:
     beast::Journal j_;  // public: accessed by extensionsTick template
@@ -117,10 +116,6 @@ private:
     // Consensus parent ledger hash, pinned at round start. Input to the
     // Tier 1 consensus_fallback entropy digest.
     uint256 roundPrevLedgerHash_;
-    std::shared_ptr<SHAMap const> consensusTxSetMap_;
-    hash_map<uint256, std::shared_ptr<STTx const>> consensusExportTxns_;
-    std::optional<uint256> consensusTxSetHash_;
-
     // Parent-ledger validator view used by RNG and Export quorum logic.
     ActiveValidatorViewPtr activeValidatorView_ =
         std::make_shared<ActiveValidatorView const>();
@@ -175,18 +170,6 @@ private:
 
 public:
     ConsensusExtensions(Application& app, beast::Journal j);
-
-    ExportSigCollector&
-    exportSigCollector()
-    {
-        return exportSigCollector_;
-    }
-
-    ExportSigCollector const&
-    exportSigCollector() const
-    {
-        return exportSigCollector_;
-    }
 
     ExportSigCollectorV2&
     postValidationExportSigCollector()
@@ -447,12 +430,6 @@ public:
 
     std::string const&
     observedParticipantsBitmapBin() const;
-
-    void
-    cacheConsensusTxSet(RCLTxSet const& txns);
-
-    std::size_t
-    verifyPendingExportSigs(RCLTxSet const& txns, LedgerIndex seq);
 
     void
     cacheUNLReport(std::shared_ptr<Ledger const> const& prevLedger = {});

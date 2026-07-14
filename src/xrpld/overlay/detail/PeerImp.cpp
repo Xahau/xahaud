@@ -1138,12 +1138,15 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
 
     std::vector<std::size_t> fresh;
     fresh.reserve(shares->size());
+    auto const validatedSeq = app_.getLedgerMaster().getValidLedgerIndex();
     for (std::size_t i = 0; i < shares->size(); ++i)
     {
-        // This hash identifies only identical canonical wire frames. Semantic
-        // contribution deduplication belongs to application admission.
-        if (app_.getHashRouter().addSuppressionPeer(
-                (*shares)[i].wireHash(), id_))
+        // Admission depends on the validated chain. Reconsider an identical
+        // frame after validation advances, while suppressing duplicates
+        // against the same receiver state.
+        auto const admissionKey =
+            sha512Half((*shares)[i].wireHash(), validatedSeq);
+        if (app_.getHashRouter().addSuppressionPeer(admissionKey, id_))
             fresh.push_back(i);
     }
 
@@ -1167,7 +1170,14 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
             for (auto const index : fresh)
             {
                 if (peer->overlay_.acceptExportShare(shares[index]))
+                {
+                    // Stable raw-wire routing begins only after semantic
+                    // admission; an early state-relative rejection must not
+                    // poison later relay of the same bytes.
+                    peer->app_.getHashRouter().addSuppressionPeer(
+                        shares[index].wireHash(), peer->id_);
                     accepted.add_shares(m->shares(index));
+                }
             }
 
             // Structural validity is insufficient: only application-admitted

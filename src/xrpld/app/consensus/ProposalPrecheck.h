@@ -132,7 +132,7 @@ checkProposalExtensions(
             ProposalPrecheckResult::extensionDiagnosticsDisabled,
             parsedPosition};
 
-    if (set.exportsignatures_size() > ExportLimits::maxPendingExports)
+    if (set.exportsignatures_size() > ExportLimits::maxExportSharesPerRelay)
         return {
             ProposalPrecheckResult::tooManyExportSignatures, parsedPosition};
 
@@ -141,7 +141,7 @@ checkProposalExtensions(
     // would otherwise let an unauthenticated peer force a large SHA512/copy.
     for (auto const& blob : set.exportsignatures())
     {
-        if (blob.size() > ExportLimits::maxExportSignatureBytes)
+        if (blob.size() > ExportLimits::maxSerializedExportShareBytes)
             return {
                 ProposalPrecheckResult::oversizedExportSignature,
                 parsedPosition};

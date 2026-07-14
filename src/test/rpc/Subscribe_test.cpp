@@ -475,6 +475,47 @@ public:
                 strHex(Slice{share.signature.data(), share.signature.size()});
         }));
 
+        ExportSignatureSnapshot snapshot{
+            ExportShare::currentVersion,
+            4'200'001,
+            uint256{4},
+            share.owner,
+            share.originTxn,
+            share.originLedgerSeq,
+            share.originLedgerHash,
+            share.triggerTxn,
+            {share}};
+        env.app().getOPs().pubExportSignatureSnapshot(snapshot);
+        BEAST_EXPECT(wsc->findMsg(5s, [&](Json::Value const& event) {
+            auto const& shares = event[jss::shares];
+            return event[jss::stream] == "export_signatures" &&
+                event[jss::type] == "exportSignatureSnapshot" &&
+                event[jss::snapshot].asBool() &&
+                event[jss::ledger_index].asUInt() ==
+                snapshot.validatedLedgerSeq &&
+                event[jss::ledger_hash] ==
+                to_string(snapshot.validatedLedgerHash) &&
+                event[jss::origin_txid] == to_string(share.originTxn) &&
+                shares.isArray() && shares.size() == 1 &&
+                shares[0u][jss::universe_position].asUInt() ==
+                share.universePosition &&
+                shares[0u][jss::signing_key] ==
+                toBase58(TokenType::NodePublic, share.signingKey) &&
+                shares[0u][jss::signature] ==
+                strHex(Slice{share.signature.data(), share.signature.size()});
+        }));
+
+        snapshot.validatedLedgerSeq += 1;
+        snapshot.validatedLedgerHash = uint256{5};
+        snapshot.shares.clear();
+        env.app().getOPs().pubExportSignatureSnapshot(snapshot);
+        BEAST_EXPECT(wsc->findMsg(5s, [&](Json::Value const& event) {
+            return event[jss::type] == "exportSignatureSnapshot" &&
+                event[jss::ledger_index].asUInt() ==
+                snapshot.validatedLedgerSeq &&
+                event[jss::shares].isArray() && event[jss::shares].size() == 0;
+        }));
+
         jv = wsc->invoke("unsubscribe", stream);
         BEAST_EXPECT(jv[jss::status] == "success");
     }
