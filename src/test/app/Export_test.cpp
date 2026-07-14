@@ -1381,7 +1381,7 @@ struct Export_test : public beast::unit_test::suite
         if (releasedPendingRoot && releasedAccount)
         {
             BEAST_EXPECT(
-                countExportWork(releasedPendingRoot) == parentPendingCount);
+                countExportWork(releasedPendingRoot) == parentPendingCount + 1);
             BEAST_EXPECT(
                 countExportWork(releasedAccount) ==
                 parentAccountExportCount + 1);

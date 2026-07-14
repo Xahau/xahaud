@@ -112,7 +112,7 @@ struct ExportLatch_test : beast::unit_test::suite
         auto const afterPending = sb.read(keylet::pendingExports());
         BEAST_EXPECT(afterAccount->getFieldU16(sfExportCount) == 31);
         BEAST_EXPECT(afterAccount->getFieldU32(sfOwnerCount) == 63);
-        BEAST_EXPECT(afterPending->getFieldU16(sfExportCount) == 30);
+        BEAST_EXPECT(afterPending->getFieldU16(sfExportCount) == 31);
 
         Sandbox reopened{&sb};
         std::set<uint256> recovered;
@@ -153,7 +153,7 @@ struct ExportLatch_test : beast::unit_test::suite
             31);
         BEAST_EXPECT(
             sb.read(keylet::pendingExports())->getFieldU16(sfExportCount) ==
-            30);
+            31);
 
         BEAST_EXPECT(sb.dirRemove(
             keylet::ownerDir(alice.id()), *legacyPage, legacyKey.key, false));
@@ -175,9 +175,62 @@ struct ExportLatch_test : beast::unit_test::suite
     }
 
     void
+    testGlobalLiveCapSurvivesPendingUnlink()
+    {
+        testcase("global live latch cap survives pending unlink");
+
+        using namespace jtx;
+        Account const alice{"alice"};
+        Env env{*this};
+        env.fund(XRP(10'000), alice);
+        env.close();
+
+        beast::Journal j{beast::Journal::getNullSink()};
+        Sandbox sb{env.closed().get(), tapNONE};
+        std::vector<Keylet> latches;
+        latches.reserve(ExportLimits::maxLiveExportLatches);
+
+        for (std::uint32_t i = 0; i < ExportLimits::maxLiveExportLatches; ++i)
+        {
+            auto latch = makeLatch(alice.id(), i);
+            latches.emplace_back(keylet::unchecked(latch->key()));
+            BEAST_EXPECT(isTesSuccess(
+                ExportLedgerOps::insertPendingExportLatch(sb, sb, latch, j)));
+        }
+
+        for (auto const& latch : latches)
+            BEAST_EXPECT(isTesSuccess(
+                ExportLedgerOps::removePendingExportLink(sb, latch, j)));
+
+        auto const rootAtCap = sb.read(keylet::pendingExports());
+        BEAST_EXPECT(rootAtCap);
+        if (!rootAtCap)
+            return;
+        BEAST_EXPECT(
+            rootAtCap->getFieldU16(sfExportCount) ==
+            ExportLimits::maxLiveExportLatches);
+        BEAST_EXPECT(rootAtCap->getFieldV256(sfIndexes).empty());
+
+        auto replacement =
+            makeLatch(alice.id(), ExportLimits::maxLiveExportLatches);
+        BEAST_EXPECT(
+            ExportLedgerOps::insertPendingExportLatch(sb, sb, replacement, j) ==
+            tecDIR_FULL);
+
+        BEAST_EXPECT(isTesSuccess(
+            ExportLedgerOps::eraseExportLatch(sb, sb, latches.front(), j)));
+        BEAST_EXPECT(isTesSuccess(
+            ExportLedgerOps::insertPendingExportLatch(sb, sb, replacement, j)));
+        BEAST_EXPECT(
+            sb.read(keylet::pendingExports())->getFieldU16(sfExportCount) ==
+            ExportLimits::maxLiveExportLatches);
+    }
+
+    void
     run() override
     {
         testDirectoryLifecycle();
+        testGlobalLiveCapSurvivesPendingUnlink();
     }
 };
 
