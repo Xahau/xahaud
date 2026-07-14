@@ -16,6 +16,7 @@
 #include <xrpl/protocol/XRPAmount.h>
 
 #include <functional>
+#include <limits>
 #include <optional>
 
 namespace ripple {
@@ -111,6 +112,160 @@ shadowTicketCount(ReadView const& view, AccountID const& account)
             ++count;
     });
     return count;
+}
+
+inline std::uint16_t
+exportLatchCount(SLE const& sle)
+{
+    return sle.isFieldPresent(sfExportCount) ? sle.getFieldU16(sfExportCount)
+                                             : 0;
+}
+
+/// Link a new-format Export latch into its owner's directory and the global
+/// pending-work directory. All mutations remain in the caller's apply sandbox
+/// and are behavior-neutral until the post-validation Export cutover calls it.
+inline TER
+insertPendingExportLatch(
+    ApplyView& view,
+    std::shared_ptr<SLE> const& latch,
+    beast::Journal j)
+{
+    if (!latch || latch->getType() != ltSHADOW_TICKET ||
+        !latch->isFieldPresent(sfAccount) ||
+        !latch->isFieldPresent(sfTransactionHash) ||
+        latch->isFieldPresent(sfExportNode))
+        return tefINTERNAL;
+
+    auto const account = latch->getAccountID(sfAccount);
+    auto const expected =
+        keylet::shadowTicket(account, latch->getFieldH256(sfTransactionHash));
+    if (latch->key() != expected.key)
+        return tefINTERNAL;
+    if (view.exists(expected))
+        return tecDUPLICATE;
+
+    auto& sb = view;
+    auto sleAccount = sb.peek(keylet::account(account));
+    if (!sleAccount)
+        return tefBAD_LEDGER;
+
+    auto const pendingKey = keylet::pendingExports();
+    auto pendingRoot = sb.peek(pendingKey);
+    if (pendingRoot && !pendingRoot->isFieldPresent(sfExportCount))
+        return tefBAD_LEDGER;
+
+    auto const accountCount = exportLatchCount(*sleAccount);
+    auto const globalCount = pendingRoot ? exportLatchCount(*pendingRoot) : 0;
+    constexpr auto maxCount = std::numeric_limits<std::uint16_t>::max();
+    if (accountCount == maxCount || globalCount == maxCount)
+        return tecDIR_FULL;
+    if (accountCount > globalCount)
+        return tefBAD_LEDGER;
+
+    auto inserted = std::make_shared<SLE>(*latch);
+    auto const ownerPage = sb.dirInsert(
+        keylet::ownerDir(account), inserted->key(), describeOwnerDir(account));
+    if (!ownerPage)
+        return tecDIR_FULL;
+
+    auto const pendingPage = sb.dirInsert(
+        pendingKey, inserted->key(), [](std::shared_ptr<SLE> const&) {});
+    if (!pendingPage)
+        return tecDIR_FULL;
+
+    inserted->setFieldU64(sfOwnerNode, *ownerPage);
+    inserted->setFieldU64(sfExportNode, *pendingPage);
+    sb.insert(inserted);
+
+    sleAccount->setFieldU16(sfExportCount, accountCount + 1);
+    sb.update(sleAccount);
+    adjustOwnerCount(sb, sleAccount, 1, j);
+
+    pendingRoot = sb.peek(pendingKey);
+    if (!pendingRoot)
+        return tefBAD_LEDGER;
+    pendingRoot->setFieldU16(sfExportCount, globalCount + 1);
+    sb.update(pendingRoot);
+
+    return tesSUCCESS;
+}
+
+/// Remove only the pending-work link from an enhanced Export latch. Live
+/// counters and owner reserve remain held until terminal latch erasure.
+inline TER
+removePendingExportLink(ApplyView& view, Keylet const& latchKey, beast::Journal)
+{
+    auto& sb = view;
+    auto latch = sb.peek(latchKey);
+    if (!latch || latch->getType() != ltSHADOW_TICKET)
+        return tecNO_ENTRY;
+    if (!latch->isFieldPresent(sfExportNode))
+        return tesSUCCESS;
+
+    auto const pendingKey = keylet::pendingExports();
+    auto const pendingRoot = sb.peek(pendingKey);
+    if (!pendingRoot || !pendingRoot->isFieldPresent(sfExportCount))
+        return tefBAD_LEDGER;
+    if (!sb.dirRemove(
+            pendingKey, latch->getFieldU64(sfExportNode), latchKey, true))
+        return tefBAD_LEDGER;
+
+    latch->makeFieldAbsent(sfExportNode);
+    sb.update(latch);
+    return tesSUCCESS;
+}
+
+/// Erase an enhanced Export latch and every remaining directory link, then
+/// release its live counters and owner reserve in the caller's apply sandbox.
+inline TER
+eraseExportLatch(ApplyView& view, Keylet const& latchKey, beast::Journal j)
+{
+    auto& sb = view;
+    auto latch = sb.peek(latchKey);
+    if (!latch || latch->getType() != ltSHADOW_TICKET)
+        return tecNO_ENTRY;
+    if (!latch->isFieldPresent(sfOwnerNode) ||
+        !latch->isFieldPresent(sfAccount))
+        return tefBAD_LEDGER;
+
+    auto const account = latch->getAccountID(sfAccount);
+    auto sleAccount = sb.peek(keylet::account(account));
+    auto const pendingKey = keylet::pendingExports();
+    auto pendingRoot = sb.peek(pendingKey);
+    if (!sleAccount || !pendingRoot ||
+        !sleAccount->isFieldPresent(sfExportCount) ||
+        !pendingRoot->isFieldPresent(sfExportCount))
+        return tefBAD_LEDGER;
+
+    auto const accountCount = exportLatchCount(*sleAccount);
+    auto const globalCount = exportLatchCount(*pendingRoot);
+    if (accountCount == 0 || globalCount == 0 || accountCount > globalCount)
+        return tefBAD_LEDGER;
+
+    if (latch->isFieldPresent(sfExportNode) &&
+        !sb.dirRemove(
+            pendingKey, latch->getFieldU64(sfExportNode), latchKey, true))
+        return tefBAD_LEDGER;
+
+    if (!sb.dirRemove(
+            keylet::ownerDir(account),
+            latch->getFieldU64(sfOwnerNode),
+            latchKey,
+            false))
+        return tefBAD_LEDGER;
+
+    sleAccount->setFieldU16(sfExportCount, accountCount - 1);
+    sb.update(sleAccount);
+    adjustOwnerCount(sb, sleAccount, -1, j);
+
+    pendingRoot = sb.peek(pendingKey);
+    if (!pendingRoot)
+        return tefBAD_LEDGER;
+    pendingRoot->setFieldU16(sfExportCount, globalCount - 1);
+    sb.update(pendingRoot);
+    sb.erase(latch);
+
+    return tesSUCCESS;
 }
 
 inline TER
