@@ -47,6 +47,7 @@ public:
         verify,
         duplicate,
         conflicted,
+        unknownOrigin,
         capacity,
         malformed
     };
@@ -93,6 +94,19 @@ public:
         std::optional<AdmissionTicket> ticket;
     };
 
+    class PublicationToken
+    {
+        friend class ExportSigCollectorV2;
+
+        uint256 origin_;
+        std::uint64_t generation_;
+
+        PublicationToken(uint256 const& origin, std::uint64_t generation)
+            : origin_(origin), generation_(generation)
+        {
+        }
+    };
+
     struct AdmitOutcome
     {
         AdmitResult result;
@@ -120,6 +134,7 @@ private:
     {
         std::map<Position, PositionEntry> positions;
         std::set<Position> published;
+        uint256 publicationTrigger;
         std::uint64_t publicationGeneration{0};
         std::uint32_t lastTouchedSeq{0};
     };
@@ -140,6 +155,15 @@ private:
     {
         if (currentSeq > entry.lastTouchedSeq)
             entry.lastTouchedSeq = currentSeq;
+    }
+
+    static void
+    eraseEmptyPosition(OriginEntry& origin, Position position)
+    {
+        auto const it = origin.positions.find(position);
+        if (it != origin.positions.end() && !it->second.unique &&
+            !it->second.conflicted && it->second.reservations.empty())
+            origin.positions.erase(it);
     }
 
     std::uint64_t
@@ -165,7 +189,7 @@ public:
         Contribution contribution,
         std::uint32_t currentSeq = 0)
     {
-        if (origin.isZero() ||
+        if (origin.isZero() || currentSeq == 0 ||
             contribution.position >=
                 ExportLimits::maxValidatorUniverseMembers ||
             contribution.signature.empty() ||
@@ -175,14 +199,9 @@ public:
         std::lock_guard lock(mutex_);
         auto originIt = origins_.find(origin);
         if (originIt == origins_.end())
-        {
-            if (origins_.size() >= maxTrackedOrigins)
-                return {BeginResult::capacity, std::nullopt};
-            originIt = origins_.emplace(origin, OriginEntry{}).first;
-        }
+            return {BeginResult::unknownOrigin, std::nullopt};
 
         auto& originEntry = originIt->second;
-        touch(originEntry, currentSeq);
         auto& position = originEntry.positions[contribution.position];
         if (position.conflicted)
             return {BeginResult::conflicted, std::nullopt};
@@ -205,6 +224,28 @@ public:
         return {
             BeginResult::verify,
             AdmissionTicket{origin, reservation, std::move(contribution)}};
+    }
+
+    /** Cancel a reservation when verification cannot be completed. */
+    bool
+    cancelAdmission(AdmissionTicket ticket)
+    {
+        std::lock_guard lock(mutex_);
+        auto originIt = origins_.find(ticket.origin_);
+        if (originIt == origins_.end())
+            return false;
+        auto positionIt =
+            originIt->second.positions.find(ticket.contribution_.position);
+        if (positionIt == originIt->second.positions.end())
+            return false;
+        auto reservationIt =
+            positionIt->second.reservations.find(ticket.reservation_);
+        if (reservationIt == positionIt->second.reservations.end() ||
+            !(reservationIt->second == ticket.contribution_))
+            return false;
+        positionIt->second.reservations.erase(reservationIt);
+        eraseEmptyPosition(originIt->second, ticket.contribution_.position);
+        return true;
     }
 
     /** Complete a reserved admission after signature verification. */
@@ -231,15 +272,18 @@ public:
             !(reservationIt->second == ticket.contribution_))
             return {AdmitResult::stale, std::nullopt};
         position.reservations.erase(reservationIt);
-        touch(originEntry, currentSeq);
 
         if (!verified)
+        {
+            eraseEmptyPosition(originEntry, ticket.contribution_.position);
             return {AdmitResult::invalid, std::nullopt};
+        }
         if (position.conflicted)
             return {AdmitResult::stale, std::nullopt};
         if (!position.unique)
         {
             position.unique = std::move(ticket.contribution_);
+            touch(originEntry, currentSeq);
             return {AdmitResult::accepted, std::nullopt};
         }
         if (sameEncoding(*position.unique, ticket.contribution_))
@@ -249,41 +293,54 @@ public:
         position.unique.reset();
         position.conflicted = true;
         position.reservations.clear();
+        touch(originEntry, currentSeq);
         return {AdmitResult::conflicted, std::move(prior)};
     }
 
     /** Reopen per-attempt publication without changing contribution state. */
-    bool
-    reopenPublication(uint256 const& origin, std::uint32_t currentSeq = 0)
+    std::optional<PublicationToken>
+    reopenPublication(
+        uint256 const& origin,
+        uint256 const& trigger,
+        std::uint32_t currentSeq)
     {
+        if (origin.isZero() || trigger.isZero() || currentSeq == 0)
+            return std::nullopt;
+
         std::lock_guard lock(mutex_);
         auto it = origins_.find(origin);
         if (it == origins_.end())
         {
             if (origins_.size() >= maxTrackedOrigins)
-                return false;
+                return std::nullopt;
             it = origins_.emplace(origin, OriginEntry{}).first;
         }
 
         auto& entry = it->second;
+        if (entry.publicationGeneration != 0 &&
+            entry.publicationTrigger == trigger)
+            return PublicationToken{origin, entry.publicationGeneration};
+
         entry.published.clear();
+        entry.publicationTrigger = trigger;
         ++entry.publicationGeneration;
         if (entry.publicationGeneration == 0)
             entry.publicationGeneration = 1;
         touch(entry, currentSeq);
-        return true;
+        return PublicationToken{origin, entry.publicationGeneration};
     }
 
     /** Claim one position's publication slot in the current attempt. */
     bool
     claimPublication(
-        uint256 const& origin,
+        PublicationToken const& token,
         Position position,
         std::size_t maxDistinct)
     {
         std::lock_guard lock(mutex_);
-        auto it = origins_.find(origin);
-        if (it == origins_.end() || it->second.publicationGeneration == 0)
+        auto it = origins_.find(token.origin_);
+        if (it == origins_.end() ||
+            it->second.publicationGeneration != token.generation_)
             return false;
         auto const positionIt = it->second.positions.find(position);
         if (positionIt == it->second.positions.end() ||
@@ -361,7 +418,8 @@ public:
         for (auto it = origins_.begin(); it != origins_.end();)
         {
             auto const last = it->second.lastTouchedSeq;
-            if (last > 0 && currentSeq > last + maxStaleLedgers)
+            if (last > 0 && currentSeq > last &&
+                currentSeq - last > maxStaleLedgers)
                 it = origins_.erase(it);
             else
                 ++it;
