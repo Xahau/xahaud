@@ -84,10 +84,26 @@ public:
     }
 
     void
+    testPendingDirectory()
+    {
+        testcase("pending Export directory");
+
+        uint256 const expected{
+            "70D4A5FF7B4087C41414E71BD1FF2ABE"
+            "5F49C380C158ACDCC76254279B176018"};
+        auto const& pending = keylet::pendingExports();
+
+        BEAST_EXPECT(pending.type == ltDIR_NODE);
+        BEAST_EXPECT(pending.key == expected);
+        BEAST_EXPECT(&pending == &keylet::pendingExports());
+    }
+
+    void
     run() override
     {
         testOriginIdentity();
         testLegacyKeySeparation();
+        testPendingDirectory();
     }
 };
 

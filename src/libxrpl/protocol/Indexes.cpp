@@ -74,7 +74,8 @@ enum class LedgerNameSpace : std::uint16_t {
     HOOK_DEFINITION = 'D',
     EMITTED_TXN = 'E',
     EMITTED_DIR = 'F',
-    SHADOW_TICKET = 0x5374,  // St
+    SHADOW_TICKET = 0x5374,       // St
+    EXPORT_PENDING_DIR = 0x4570,  // Ep
     NFTOKEN_OFFER = 'q',
     NFTOKEN_BUY_OFFERS = 'h',
     NFTOKEN_SELL_OFFERS = 'i',
@@ -208,6 +209,16 @@ shadowTicket(AccountID const& account, uint256 const& originTxnHash) noexcept
         indexHash(LedgerNameSpace::SHADOW_TICKET, account, originTxnHash)};
 }
 //@@end export-origin-keylet
+
+//@@start export-pending-directory-keylet
+Keylet const&
+pendingExports() noexcept
+{
+    static Keylet const ret{
+        ltDIR_NODE, indexHash(LedgerNameSpace::EXPORT_PENDING_DIR)};
+    return ret;
+}
+//@@end export-pending-directory-keylet
 
 Keylet
 hook(AccountID const& id) noexcept

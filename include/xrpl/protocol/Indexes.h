@@ -75,6 +75,10 @@ shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept;
 Keylet
 shadowTicket(AccountID const& account, uint256 const& originTxnHash) noexcept;
 
+/** The fixed global directory of Export latches awaiting witness work. */
+Keylet const&
+pendingExports() noexcept;
+
 Keylet
 hookDefinition(uint256 const& hash) noexcept;
 
