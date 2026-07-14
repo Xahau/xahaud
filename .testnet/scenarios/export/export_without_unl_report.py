@@ -12,6 +12,7 @@ from export_helpers import (
     assert_shadow_ticket,
     export_authority,
     require_export,
+    wait_for_validated_transaction,
 )
 
 
@@ -52,9 +53,8 @@ async def scenario(ctx, log):
         timeout=60,
     )
 
-    final_seq = ctx.validated_ledger_index(0)
     engine_result = result.get("engine_result", "")
-    log(f"Export completed at ledger {final_seq}, result: {engine_result}")
+    log(f"Export submit result: {engine_result}")
 
     if engine_result == "tesSUCCESS":
         raise AssertionError(
@@ -67,6 +67,31 @@ async def scenario(ctx, log):
             f"got {engine_result}"
         )
 
-    assert_shadow_ticket(ctx, alice.address, log, expect_exists=False)
+    tx_hash = result.get("tx_json", {}).get("hash")
+    if not tx_hash:
+        raise AssertionError(f"Rejected Export missing tx hash: {result}")
+    validated = await wait_for_validated_transaction(
+        ctx, tx_hash, after_ledger=current_seq
+    )
+    meta = validated.get("meta", validated.get("metaData", {}))
+    if meta.get("TransactionResult") != "tecEXPORT_UNIVERSE_MISMATCH":
+        raise AssertionError(f"Unexpected validated result: {validated}")
+
+    final_seq = validated.get("ledger_index")
+    final_ledger = ctx.ledger(final_seq) or {}
+    ledger_hash = final_ledger.get("ledger_hash") or final_ledger.get("ledger", {}).get(
+        "hash"
+    )
+    if not ledger_hash:
+        raise AssertionError(f"Validated failure ledger unavailable: {final_ledger}")
+    log(f"Export failure validated in ledger {final_seq}")
+
+    assert_shadow_ticket(
+        ctx,
+        alice.address,
+        log,
+        expect_exists=False,
+        ledger_hash=ledger_hash,
+    )
 
     log("PASS")

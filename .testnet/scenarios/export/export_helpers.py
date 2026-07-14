@@ -78,11 +78,14 @@ def export_authority(ctx, *, require_unl_report=True):
     if not universe_hash:
         raise AssertionError(f"Validated ledger hash unavailable: {ledger_result}")
 
-    report = ctx.rpc.request(
-        0,
-        "ledger_entry",
-        {"index": _unl_report_index(), "ledger_hash": universe_hash},
-    ) or {}
+    report = (
+        ctx.rpc.request(
+            0,
+            "ledger_entry",
+            {"index": _unl_report_index(), "ledger_hash": universe_hash},
+        )
+        or {}
+    )
     active = report.get("node", {}).get("ActiveValidators", [])
     if not active:
         if require_unl_report:
@@ -124,12 +127,17 @@ async def wait_for_export_signature_witness(
 ):
     """Wait through the publication window for an origin-keyed witness."""
     scanned = after_ledger
-    for _ in range(max_ledgers):
-        await ctx.wait_for_ledgers(1, node_id=0, timeout=30)
+    target = after_ledger + max_ledgers
+    while scanned < target:
         current = ctx.validated_ledger_index(0)
-        if current is None:
+        if current is None or current <= scanned:
+            await ctx.wait_for_ledger(scanned + 1, node_id=0, timeout=30)
+            current = ctx.validated_ledger_index(0)
+        if current is None or current <= scanned:
             continue
-        for seq in range(scanned + 1, current + 1):
+
+        scan_through = min(current, target)
+        for seq in range(scanned + 1, scan_through + 1):
             witness = find_export_signature_witness(ctx, seq, origin_hash)
             if witness:
                 if not expect_witness:
@@ -138,7 +146,7 @@ async def wait_for_export_signature_witness(
                     )
                 log(f"  ExportSignatures witness found in ledger {seq}")
                 return assert_export_witness(witness, origin_hash, seq, log)
-        scanned = max(scanned, current)
+        scanned = scan_through
 
     if expect_witness:
         raise AssertionError(
@@ -147,6 +155,54 @@ async def wait_for_export_signature_witness(
         )
     log(f"  No witness observed through ledger {scanned}")
     return None
+
+
+async def wait_for_validated_transaction(
+    ctx, tx_hash, *, after_ledger, max_ledgers=EXPORT_RETRY_LEDGER_WINDOW
+):
+    """Resolve a raw non-tes submit result to validated transaction evidence."""
+    checked = after_ledger
+    target = after_ledger + max_ledgers
+    while True:
+        result = ctx.rpc.request(0, "tx", {"transaction": tx_hash}) or {}
+        if result.get("validated"):
+            return result
+        if checked >= target:
+            break
+        await ctx.wait_for_ledger(checked + 1, node_id=0, timeout=30)
+        current = ctx.validated_ledger_index(0)
+        checked = min(target, max(checked + 1, current or checked + 1))
+    raise AssertionError(f"Transaction {tx_hash} did not validate by ledger {target}")
+
+
+async def submit_direct_export(ctx, log, tx, wallet, *, timeout=60, max_rebases=2):
+    """Submit a direct Export, rebasing after a validated parent mismatch."""
+    for attempt in range(max_rebases + 1):
+        current = ctx.validated_ledger_index(0)
+        if current is None:
+            raise AssertionError("Validated ledger unavailable before Export")
+
+        candidate = dict(tx)
+        candidate.update(export_authority(ctx))
+        candidate["LastLedgerSequence"] = current + EXPORT_RETRY_LEDGER_WINDOW
+        result = await ctx.submit_and_wait(candidate, wallet, timeout=timeout)
+        if result.get("engine_result") != "tecEXPORT_UNIVERSE_MISMATCH":
+            return result
+
+        tx_hash = result.get("tx_json", {}).get("hash")
+        if not tx_hash:
+            raise AssertionError(f"Universe mismatch missing tx hash: {result}")
+        validated = await wait_for_validated_transaction(
+            ctx, tx_hash, after_ledger=current
+        )
+        meta = validated.get("meta", {})
+        if meta.get("TransactionResult") != "tecEXPORT_UNIVERSE_MISMATCH":
+            raise AssertionError(
+                f"Unexpected validated rebase result for {tx_hash}: {validated}"
+            )
+        log(f"  Direct Export parent changed; rebasing attempt {attempt + 1}")
+
+    raise AssertionError(f"Direct Export parent changed more than {max_rebases} times")
 
 
 def dst_param(address):
@@ -252,9 +308,13 @@ def assert_shadow_ticket(
     expect_exists=True,
     origin_hash=None,
     expect_witness=None,
+    ledger_hash=None,
 ):
     """Assert shadow ticket exists (or doesn't) for the account."""
-    obj_result = ctx.rpc.request(0, "account_objects", {"account": account_address})
+    params = {"account": account_address}
+    if ledger_hash is not None:
+        params["ledger_hash"] = ledger_hash
+    obj_result = ctx.rpc.request(0, "account_objects", params)
     all_objects = (obj_result or {}).get("account_objects", [])
     shadow_tickets = [
         obj for obj in all_objects if obj.get("LedgerEntryType") == "ShadowTicket"

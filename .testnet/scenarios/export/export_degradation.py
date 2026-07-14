@@ -18,8 +18,8 @@ from __future__ import annotations
 from export_helpers import (
     EXPORT_RETRY_LEDGER_WINDOW,
     assert_shadow_ticket,
-    export_authority,
     require_export,
+    submit_direct_export,
     wait_for_export_signature_witness,
 )
 
@@ -40,12 +40,13 @@ async def scenario(ctx, log):
 
     #@@start test-export-below-quorum-expiry
     # --- Submit intent; only 3/5 validators release shares. ---
-    result = await ctx.submit_and_wait(
+    result = await submit_direct_export(
+        ctx,
+        log,
         {
             "TransactionType": "Export",
             "LastLedgerSequence": current_seq + EXPORT_RETRY_LEDGER_WINDOW,
             "Fee": "1000000",
-            **export_authority(ctx),
             "ExportedTxn": {
                 "TransactionType": "Payment",
                 "Account": alice.address,

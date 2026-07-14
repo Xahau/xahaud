@@ -11,8 +11,9 @@ from collections import Counter
 import json
 
 from export.export_helpers import (
-    export_authority,
+    EXPORT_RETRY_LEDGER_WINDOW,
     require_export,
+    submit_direct_export,
     wait_for_export_signature_witness,
 )
 from helpers import consensus_entropy_feature, get_entropy_tx
@@ -58,12 +59,13 @@ async def _submit_direct_export(ctx, log, *, timeout):
 
     log(f"Submitting direct Export at validated ledger {current_seq}")
     started = ctx.mark("latency-export-submit-start")
-    result = await ctx.submit_and_wait(
+    result = await submit_direct_export(
+        ctx,
+        log,
         {
             "TransactionType": "Export",
-            "LastLedgerSequence": current_seq + 12,
+            "LastLedgerSequence": current_seq + EXPORT_RETRY_LEDGER_WINDOW,
             "Fee": "1000000",
-            **export_authority(ctx),
             "ExportedTxn": {
                 "TransactionType": "Payment",
                 "Account": alice.address,
