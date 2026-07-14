@@ -88,6 +88,14 @@ private:
     std::map<uint256, TaggedSet> sets_;
 };
 
+/** A validator's post-validation Export share in the CSF model. */
+struct CsfExportShare
+{
+    Ledger::ID originLedger;
+    PeerID signer;
+    uint256 signature;
+};
+
 struct Peer
 {
     /** Basic wrapper of a proposed position taken by a peer.
@@ -337,6 +345,7 @@ struct Peer
         hash_map<PeerID, uint256> pendingCommits_;
         hash_map<PeerID, uint256> pendingReveals_;
         hash_map<PeerID, uint256> pendingExportSigs_;
+        std::optional<Ledger::ID> releasedExportOrigin_;
         hash_map<PeerID, PeerKey> nodeKeys_;
         uint256 myEntropySecret_;
         bool commitSetFrozen_ = false;
@@ -357,6 +366,7 @@ struct Peer
         EntropyTier lastEntropyTier_ = entropyTierNone;
         bool lastExportSucceeded_ = false;
         bool lastExportRetried_ = false;
+        std::optional<uint256> lastExportWitnessEffect_;
 
         // Optional test hook: force a specific commit-set hash
         std::optional<uint256> forcedCommitSetHash_;
@@ -387,9 +397,18 @@ struct Peer
         hash_set<PeerID> dropRevealFrom_;
         // Optional test hook: drop proposal-carried export signatures.
         hash_set<PeerID> dropExportSigFrom_;
+        // Optional test hook: drop direct post-validation Export shares from
+        // specific validators while still receiving their proposals.
+        hash_set<PeerID> dropDirectExportSigFrom_;
+        // Cumulative diagnostics proving that both delivery paths were
+        // exercised by a composed-loss regression.
+        hash_set<PeerID> droppedProposalExportSigs_;
+        hash_set<PeerID> droppedDirectExportSigs_;
         // Optional test hook: stay an active proposer but do not originate an
         // export signature, so tests can force missing local export material.
         bool suppressOwnExportSig_ = false;
+        // Model accepted Export witness bytes as an accept-time ledger effect.
+        bool modelExportWitnessLedgerEffect_ = false;
         // Optional test hook: exercise generic Consensus bootstrap timing
         // without making the CSF runtime-config aware.
         bool testBootstrapFastStartEnabled_ = false;
@@ -677,7 +696,6 @@ struct Peer
         {
             pendingCommits_.clear();
             pendingReveals_.clear();
-            pendingExportSigs_.clear();
             nodeKeys_.clear();
             likelyParticipants_.clear();
             myEntropySecret_.zero();
@@ -689,6 +707,52 @@ struct Peer
             exportSigGateStarted_ = false;
             exportSigGateStart_ = {};
             exportSigConvergenceFailed_ = false;
+        }
+
+        std::optional<CsfExportShare>
+        releaseExportForValidated(Ledger const& ledger)
+        {
+            if (!enableExportConsensus_ || !peer.runAsValidator ||
+                ledger.id() != peer.fullyValidatedLedger.id())
+                return std::nullopt;
+
+            if (!releasedExportOrigin_ || *releasedExportOrigin_ != ledger.id())
+            {
+                releasedExportOrigin_ = ledger.id();
+                pendingExportSigs_.clear();
+            }
+
+            auto const signature = sha512Half(
+                std::string("csf-export-sig"),
+                static_cast<std::uint32_t>(peer.id),
+                peer.key.second,
+                static_cast<std::uint32_t>(ledger.id()),
+                static_cast<std::uint32_t>(ledger.seq()));
+            if (suppressOwnExportSig_)
+                return std::nullopt;
+
+            pendingExportSigs_[peer.id] = signature;
+            return CsfExportShare{ledger.id(), peer.id, signature};
+        }
+
+        bool
+        ingestDirectExportShare(CsfExportShare const& share)
+        {
+            if (!enableExportConsensus_ || !releasedExportOrigin_ ||
+                share.originLedger != *releasedExportOrigin_ ||
+                share.originLedger != peer.fullyValidatedLedger.id() ||
+                !isUNLReportMember(share.signer))
+                return false;
+
+            if (dropDirectExportSigFrom_.contains(share.signer))
+            {
+                droppedDirectExportSigs_.insert(share.signer);
+                return false;
+            }
+
+            auto const [_, inserted] = pendingExportSigs_.insert_or_assign(
+                share.signer, share.signature);
+            return inserted;
         }
 
         void
@@ -758,11 +822,23 @@ struct Peer
                 }
             }
 
+            auto const harvestExportShare = [&] {
+                if (!enableExportConsensus_ ||
+                    !position.exportSignatureOrigin ||
+                    !position.myExportSignature || !releasedExportOrigin_ ||
+                    *position.exportSignatureOrigin != *releasedExportOrigin_)
+                    return;
+                if (dropExportSigFrom_.contains(nodeId))
+                {
+                    droppedProposalExportSigs_.insert(nodeId);
+                    return;
+                }
+                pendingExportSigs_[nodeId] = *position.myExportSignature;
+            };
+
             if (!enableRngConsensus_ || !position.myReveal)
             {
-                if (enableExportConsensus_ && position.myExportSignature &&
-                    dropExportSigFrom_.count(nodeId) == 0)
-                    pendingExportSigs_[nodeId] = *position.myExportSignature;
+                harvestExportShare();
                 return;
             }
 
@@ -789,9 +865,7 @@ struct Peer
                 }
             }
 
-            if (enableExportConsensus_ && position.myExportSignature &&
-                dropExportSigFrom_.count(nodeId) == 0)
-                pendingExportSigs_[nodeId] = *position.myExportSignature;
+            harvestExportShare();
         }
 
         bool
@@ -926,6 +1000,7 @@ struct Peer
         void
         finalizeRoundExport()
         {
+            lastExportWitnessEffect_.reset();
             if (!enableExportConsensus_)
             {
                 lastExportSucceeded_ = false;
@@ -950,6 +1025,8 @@ struct Peer
 
             lastExportSucceeded_ = activeSigCount >= exportWitnessThreshold();
             lastExportRetried_ = !lastExportSucceeded_;
+            if (lastExportSucceeded_ && acceptedExportSigSetHash_)
+                lastExportWitnessEffect_ = *acceptedExportSigSetHash_;
         }
 
         // --- Lifecycle hooks (matching design doc) ---
@@ -1019,17 +1096,12 @@ struct Peer
             if (!enableExportConsensus_ || !proposing || !peer.runAsValidator)
                 return;
 
-            auto const seq = static_cast<std::uint32_t>(prevLedger.seq()) + 1;
-            auto const sig = sha512Half(
-                std::string("csf-export-sig"),
-                static_cast<std::uint32_t>(peer.id),
-                peer.key.second,
-                seq);
-            if (!suppressOwnExportSig_)
-            {
-                pos.myExportSignature = sig;
-                pendingExportSigs_[peer.id] = sig;
-            }
+            auto const own = pendingExportSigs_.find(peer.id);
+            if (!releasedExportOrigin_ || own == pendingExportSigs_.end())
+                return;
+
+            pos.exportSignatureOrigin = *releasedExportOrigin_;
+            pos.myExportSignature = own->second;
             nodeKeys_.insert_or_assign(peer.id, peer.key);
         }
 
@@ -1061,7 +1133,7 @@ struct Peer
         bool
         hasConsensusExportTxns() const
         {
-            return enableExportConsensus_;
+            return enableExportConsensus_ && releasedExportOrigin_.has_value();
         }
         void
         setExportSigConvergenceFailed()
@@ -1217,6 +1289,21 @@ struct Peer
         collectors.on(id, scheduler.now(), event);
     }
 
+    // CsfExportShare is a focused test transport, not part of the historical
+    // CollectorRef event ABI. Its path coverage is recorded by Extensions.
+    void
+    issue(Share<CsfExportShare> const&)
+    {
+    }
+    void
+    issue(Relay<CsfExportShare> const&)
+    {
+    }
+    void
+    issue(Receive<CsfExportShare> const&)
+    {
+    }
+
     //--------------------------------------------------------------------------
     // Trust and Network members
     // Methods for modifying and querying the network and trust graphs from
@@ -1319,10 +1406,14 @@ struct Peer
                     {
                         // if the ledger is found, send it back to the original
                         // requesting peer where it is added to the available
-                        // ledgers
+                        // ledgers and reconsidered against validations that
+                        // may already have reached quorum while acquisition
+                        // was in flight.
                         to->net.send(to, from, [from, ledger = it->second]() {
                             from->acquiringLedgers.erase(ledger.id());
-                            from->ledgers.emplace(ledger.id(), ledger);
+                            auto const [stored, _] =
+                                from->ledgers.emplace(ledger.id(), ledger);
+                            from->checkFullyValidated(stored->second);
                         });
                     }
                 });
@@ -1459,7 +1550,10 @@ struct Peer
                 prevLedger,
                 acceptedTxs.txs(),
                 closeResolution,
-                result.position.closeTime());
+                result.position.closeTime(),
+                ce().modelExportWitnessLedgerEffect_
+                    ? ce().lastExportWitnessEffect_
+                    : std::nullopt);
             ledgers[newLedger.id()] = newLedger;
 
             issue(AcceptLedger{newLedger, lastClosedLedger});
@@ -1764,6 +1858,12 @@ struct Peer
 
         // Will only relay if current
         return addTrustedValidation(v);
+    }
+
+    bool
+    handle(CsfExportShare const& share)
+    {
+        return ce().ingestDirectExportShare(share);
     }
 
     bool

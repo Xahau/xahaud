@@ -22,6 +22,7 @@
 #include <test/csf/Tx.h>
 #include <xrpld/consensus/LedgerTiming.h>
 #include <xrpl/basics/UnorderedContainers.h>
+#include <xrpl/basics/base_uint.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/basics/comparators.h>
 #include <xrpl/basics/tagged_integer.h>
@@ -100,6 +101,10 @@ private:
         //! Parent ledger close time
         NetClock::time_point parentCloseTime;
 
+        //! Synthetic accept-time consensus-extension effect. This models
+        //! pseudo-transaction bytes that are not part of the agreed TxSet.
+        std::optional<uint256> consensusExtensionEffect;
+
         //! IDs of this ledgers ancestors. Since each ledger already has unique
         //! ancestors based on the parentID, this member is not needed for any
         //! of the operators below.
@@ -115,7 +120,8 @@ private:
                 closeTime,
                 closeTimeAgree,
                 parentID,
-                parentCloseTime);
+                parentCloseTime,
+                consensusExtensionEffect);
         }
 
         friend bool
@@ -211,6 +217,12 @@ public:
         return instance_->txs;
     }
 
+    std::optional<uint256> const&
+    consensusExtensionEffect() const
+    {
+        return instance_->consensusExtensionEffect;
+    }
+
     /** Determine whether ancestor is really an ancestor of this ledger */
     bool
     isAncestor(Ledger const& ancestor) const;
@@ -275,7 +287,8 @@ public:
         Ledger const& curr,
         TxSetType const& txs,
         NetClock::duration closeTimeResolution,
-        NetClock::time_point const& consensusCloseTime);
+        NetClock::time_point const& consensusCloseTime,
+        std::optional<uint256> const& consensusExtensionEffect = std::nullopt);
 
     Ledger
     accept(Ledger const& curr, Tx tx)

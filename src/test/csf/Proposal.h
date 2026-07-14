@@ -46,6 +46,7 @@ struct RngPosition
     std::optional<uint256> exportSigSetHash;
     std::optional<uint256> myCommitment;
     std::optional<uint256> myReveal;
+    std::optional<Ledger::ID> exportSignatureOrigin;
     std::optional<uint256> myExportSignature;
 
     RngPosition() = default;
@@ -77,7 +78,7 @@ void
 hash_append(Hasher& h, RngPosition const& pos)
 {
     using beast::hash_append;
-    auto appendOpt = [&](std::optional<uint256> const& o) {
+    auto appendOpt = [&](auto const& o) {
         hash_append(h, static_cast<std::uint8_t>(o.has_value() ? 1 : 0));
         if (o)
             hash_append(h, *o);
@@ -89,6 +90,7 @@ hash_append(Hasher& h, RngPosition const& pos)
     appendOpt(pos.exportSigSetHash);
     appendOpt(pos.myCommitment);
     appendOpt(pos.myReveal);
+    appendOpt(pos.exportSignatureOrigin);
     appendOpt(pos.myExportSignature);
 }
 

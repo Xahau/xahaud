@@ -1220,6 +1220,15 @@ class ConsensusExport_test : public beast::unit_test::suite
 {
     SuiteJournal journal_;
 
+    static void
+    releaseValidatedExports(csf::PeerGroup const& peers)
+    {
+        for (csf::Peer* peer : peers)
+            if (auto const share = peer->ce().releaseExportForValidated(
+                    peer->fullyValidatedLedger))
+                peer->share(*share);
+    }
+
 public:
     ConsensusExport_test() : journal_("ConsensusExport_test", *this)
     {
@@ -1243,7 +1252,10 @@ public:
         peers.trustAndConnect(
             peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
 
-        sim.run(2);
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+        releaseValidatedExports(peers);
+        sim.run(1);
 
         BEAST_EXPECT(sim.synchronized(peers));
         for (Peer const* peer : peers)
@@ -1271,10 +1283,13 @@ public:
         peers.trustAndConnect(
             peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
 
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+        releaseValidatedExports(peers);
         peers[0]->ce().forcedExportSigSetHash_ =
             sha512Half(std::string("forced-export-only"));
 
-        sim.run(3);
+        sim.run(2);
 
         PeerGroup honest{
             std::vector<Peer*>{peers[1], peers[2], peers[3], peers[4]}};
@@ -1290,54 +1305,115 @@ public:
     }
 
     void
-    testExportOnlyMissingProposalSignaturesRetries()
+    testExportMissingBothSharePathsRecoversPreferredLedger()
     {
-        //@@start export-missing-signatures-fallback-test
         using namespace csf;
         using namespace std::chrono;
 
-        testcase("Export-only missing proposal signatures retries");
+        testcase("Export missing both share paths recovers preferred ledger");
 
         ConsensusParms const parms{};
         Sim sim;
         PeerGroup peers = sim.createGroup(5);
 
         for (Peer* peer : peers)
+        {
             peer->ce().enableExportConsensus_ = true;
+            peer->ce().modelExportWitnessLedgerEffect_ = true;
+        }
 
-        // Peer 0 remains an active validator/proposer, but drops
-        // proposal-carried export signatures from peers. Advertised sidecar
-        // roots do not reconstruct missing signature material; the export must
-        // retry locally while peers that received quorum signatures can apply.
-        //
-        // CSF's Ledger ID is still the base tx-set only. In production the
-        // quorum peers' ttEXPORT_SIGNATURES witness would make their synthetic
-        // ledger differ from peer 0's retry ledger until validations pull the
-        // missing-material peer onto the quorum ledger. Assert the quorum
-        // cohort's decision rather than full-network synchronization at a
-        // fixed simulator tick.
+        CollectByNode<JumpCollector> jumps;
+        sim.collectors.add(jumps);
+
         peers[0]->ce().suppressOwnExportSig_ = true;
         for (std::size_t i = 1; i < peers.size(); ++i)
+        {
             peers[0]->ce().dropExportSigFrom_.insert(peers[i]->id);
+            peers[0]->ce().dropDirectExportSigFrom_.insert(peers[i]->id);
+        }
 
         peers.trustAndConnect(
             peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
 
-        sim.run(3);
+        // First establish one common fully validated Export origin. Direct
+        // release is then scheduled before the next simulated round, so it is
+        // processed after round-state clearing and before initial proposals.
+        sim.run(1);
+        BEAST_EXPECT(sim.synchronized(peers));
+        releaseValidatedExports(peers);
+        sim.run(1);
 
         PeerGroup honest{
             std::vector<Peer*>{peers[1], peers[2], peers[3], peers[4]}};
-        BEAST_EXPECT(sim.branches(honest) == 1);
-        BEAST_EXPECT(sim.synchronized(honest));
+        auto const witnessLedger = peers[1]->lastClosedLedger;
+        auto const witnessEffect = witnessLedger.consensusExtensionEffect();
+        BEAST_EXPECT(witnessEffect);
+        for (Peer const* peer : honest)
+        {
+            BEAST_EXPECT(peer->lastClosedLedger.id() == witnessLedger.id());
+            BEAST_EXPECT(
+                peer->lastClosedLedger.consensusExtensionEffect() ==
+                witnessEffect);
+            BEAST_EXPECT(peer->ce().lastExportSucceeded_);
+            BEAST_EXPECT(!peer->ce().lastExportRetried_);
+        }
+
+        auto const witnesslessLedger = peers[0]->lastClosedLedger;
+        BEAST_EXPECT(!witnesslessLedger.consensusExtensionEffect());
+        BEAST_EXPECT(witnesslessLedger.id() != witnessLedger.id());
+        BEAST_EXPECT(witnesslessLedger.parentID() == witnessLedger.parentID());
+        BEAST_EXPECT(witnesslessLedger.seq() == witnessLedger.seq());
+        BEAST_EXPECT(witnesslessLedger.txs() == witnessLedger.txs());
+        BEAST_EXPECT(
+            witnesslessLedger.closeTimeResolution() ==
+            witnessLedger.closeTimeResolution());
+        BEAST_EXPECT(
+            witnesslessLedger.closeTime() == witnessLedger.closeTime());
         BEAST_EXPECT(!peers[0]->ce().lastExportSucceeded_);
         BEAST_EXPECT(peers[0]->ce().lastExportRetried_);
 
+        hash_set<PeerID> alignedRootProposers;
+        auto const positions =
+            peers[0]->peerPositions.find(witnesslessLedger.parentID());
+        if (BEAST_EXPECT(positions != peers[0]->peerPositions.end()) &&
+            witnessEffect)
+        {
+            for (auto const& proposal : positions->second)
+            {
+                if (proposal.position().exportSigSetHash == witnessEffect)
+                    alignedRootProposers.insert(proposal.nodeID());
+            }
+        }
+        BEAST_EXPECT(
+            alignedRootProposers.size() >=
+            peers[0]->ce().exportRootAlignmentThreshold());
+
         for (std::size_t i = 1; i < peers.size(); ++i)
         {
-            BEAST_EXPECT(peers[i]->ce().lastExportSucceeded_);
-            BEAST_EXPECT(!peers[i]->ce().lastExportRetried_);
+            BEAST_EXPECT(
+                peers[0]->ce().droppedDirectExportSigs_.contains(peers[i]->id));
+            BEAST_EXPECT(peers[0]->ce().droppedProposalExportSigs_.contains(
+                peers[i]->id));
         }
-        //@@end export-missing-signatures-fallback-test
+
+        // Four witness-ledger validations make that branch preferred. Peer 0
+        // must never fully validate its local witness-less build and must
+        // subsequently jump back to the witness-bearing history.
+        BEAST_EXPECT(
+            peers[0]->fullyValidatedLedger.id() != witnesslessLedger.id());
+        for (Peer* peer : peers)
+            peer->ce().enableExportConsensus_ = false;
+        sim.run(3);
+
+        BEAST_EXPECT(sim.branches(peers) == 1);
+        auto const recoveredValidated = peers[0]->fullyValidatedLedger.id();
+        for (Peer const* peer : peers)
+        {
+            BEAST_EXPECT(peer->fullyValidatedLedger.id() == recoveredValidated);
+            BEAST_EXPECT(peer->lastClosedLedger.isAncestor(witnessLedger));
+            BEAST_EXPECT(peer->fullyValidatedLedger.isAncestor(witnessLedger));
+        }
+        BEAST_EXPECT(!jumps[peers[0]->id].closeJumps.empty());
     }
 
     void
@@ -1365,6 +1441,8 @@ public:
         // the extension tick scenario.
         sim.run(1);
         BEAST_EXPECT(sim.synchronized(peers));
+
+        releaseValidatedExports(peers);
 
         peers[0]->ce().forcedExportSigSetHash_ =
             sha512Half(std::string("forced-export-minority"));
@@ -1407,6 +1485,8 @@ public:
 
         sim.run(1);
         BEAST_EXPECT(sim.synchronized(peers));
+
+        releaseValidatedExports(peers);
 
         peers[0]->ce().forcedExportSigSetHash_ =
             sha512Half(std::string("forced-export-conflict-a"));
@@ -1452,6 +1532,8 @@ public:
 
         sim.run(1);
         BEAST_EXPECT(sim.synchronized(peers));
+
+        releaseValidatedExports(peers);
 
         left.disconnect(right);
 
@@ -1501,7 +1583,7 @@ public:
 
         RUN(testExportOnlySteadyStateSucceeds);
         RUN(testExportOnlyQuorumIgnoresMinorityConflict);
-        RUN(testExportOnlyMissingProposalSignaturesRetries);
+        RUN(testExportMissingBothSharePathsRecoversPreferredLedger);
         RUN(testExportSigSetQuorumAlignmentIgnoresMinorityConflict);
         RUN(testExportSigSetConflictWithoutQuorumRetries);
         RUN(testExportSigSetRejectsEquivocatedSplitMajorities);
