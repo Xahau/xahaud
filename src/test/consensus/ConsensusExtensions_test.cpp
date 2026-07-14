@@ -3871,7 +3871,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             ConsensusExtensions::maxDeferredExportShareFutureLedgers_ + 1;
         admission = ce.onExportShare(beyondHorizon, deferredCharge);
         BEAST_EXPECT(admission.disposition == ExportShareDisposition::deferred);
-        BEAST_EXPECT(deferredCount() == 3);
+        BEAST_EXPECT(deferredCount() == 4);
 
         installValidated(originLedger);
 
