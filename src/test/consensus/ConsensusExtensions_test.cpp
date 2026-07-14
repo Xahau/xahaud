@@ -3795,6 +3795,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             callbackStartedFuture.wait();
             BEAST_EXPECT(
                 callback.wait_for(50ms) == std::future_status::timeout);
+            // The callback must reach retained replay before it authors this
+            // node's share. Reordering local authoring ahead of replay would
+            // admit the contribution while blocked on exportStreamMutex_.
+            BEAST_EXPECT(!hasRetainedContribution());
             streamLock.unlock();
             auto const status = callback.wait_for(5s);
             BEAST_EXPECT(status == std::future_status::ready);
