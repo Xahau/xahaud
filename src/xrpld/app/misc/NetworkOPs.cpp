@@ -2451,6 +2451,7 @@ NetworkOPsImp::pubExportSignatureSnapshot(
     event[jss::origin_ledger_seq] = Json::UInt(snapshot.originLedgerSeq);
     event[jss::origin_ledger_hash] = to_string(snapshot.originLedgerHash);
     event[jss::trigger_txid] = to_string(snapshot.triggerTxn);
+    event["terminal"] = snapshot.terminal;
 
     auto& shares = event[jss::shares] = Json::arrayValue;
     for (auto const& share : snapshot.shares)

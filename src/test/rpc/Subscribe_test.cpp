@@ -495,6 +495,7 @@ public:
                 snapshot.validatedLedgerSeq &&
                 event[jss::ledger_hash] ==
                 to_string(snapshot.validatedLedgerHash) &&
+                !event["terminal"].asBool() &&
                 event[jss::origin_txid] == to_string(share.originTxn) &&
                 shares.isArray() && shares.size() == 1 &&
                 shares[0u][jss::universe_position].asUInt() ==
@@ -508,12 +509,14 @@ public:
         snapshot.validatedLedgerSeq += 1;
         snapshot.validatedLedgerHash = uint256{5};
         snapshot.shares.clear();
+        snapshot.terminal = true;
         env.app().getOPs().pubExportSignatureSnapshot(snapshot);
         BEAST_EXPECT(wsc->findMsg(5s, [&](Json::Value const& event) {
             return event[jss::type] == "exportSignatureSnapshot" &&
                 event[jss::ledger_index].asUInt() ==
                 snapshot.validatedLedgerSeq &&
-                event[jss::shares].isArray() && event[jss::shares].size() == 0;
+                event["terminal"].asBool() && event[jss::shares].isArray() &&
+                event[jss::shares].size() == 0;
         }));
 
         jv = wsc->invoke("unsubscribe", stream);

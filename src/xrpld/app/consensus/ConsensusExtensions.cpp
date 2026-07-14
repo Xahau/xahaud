@@ -74,6 +74,36 @@ struct ResolvedExportShare
     STTx releaseTarget;
 };
 
+bool
+isPendingExportShare(
+    ReadView const& view,
+    ExportShare const& share,
+    beast::Journal j)
+{
+    if (share.originLedgerSeq > view.info().seq)
+        return false;
+
+    auto const originHash = share.originLedgerSeq == view.info().seq
+        ? std::optional<uint256>{view.info().hash}
+        : hashOfSeq(view, share.originLedgerSeq, j);
+    if (!originHash || *originHash != share.originLedgerHash)
+        return false;
+
+    auto const latch =
+        view.read(keylet::shadowTicket(share.owner, share.originTxn));
+    return latch && latch->getType() == ltSHADOW_TICKET &&
+        latch->isFieldPresent(sfTransactionHash) &&
+        latch->isFieldPresent(sfExportUniverseHash) &&
+        latch->isFieldPresent(sfExportCommittee) &&
+        latch->isFieldPresent(sfLastLedgerSequence) &&
+        latch->isFieldPresent(sfExportNode) &&
+        !latch->isFieldPresent(sfExportSignatureHash) &&
+        latch->getAccountID(sfAccount) == share.owner &&
+        latch->getFieldH256(sfTransactionHash) == share.originTxn &&
+        latch->getFieldU32(sfLedgerSequence) == share.originLedgerSeq &&
+        view.info().seq <= latch->getFieldU32(sfLastLedgerSequence);
+}
+
 std::optional<ResolvedExportShare>
 resolveExportShare(
     Application& app,
@@ -84,26 +114,12 @@ resolveExportShare(
 {
     if (!validated || !validated->rules().enabled(featureExport) ||
         share.triggerTxn != share.originTxn ||
-        share.originLedgerSeq > validated->info().seq)
-        return std::nullopt;
-
-    auto const originHash = share.originLedgerSeq == validated->info().seq
-        ? std::optional<uint256>{validated->info().hash}
-        : hashOfSeq(*validated, share.originLedgerSeq, j);
-    if (!originHash || *originHash != share.originLedgerHash)
+        !isPendingExportShare(*validated, share, j))
         return std::nullopt;
 
     auto const latchKey = keylet::shadowTicket(share.owner, share.originTxn);
     auto const latch = validated->read(latchKey);
-    if (!latch || latch->getType() != ltSHADOW_TICKET ||
-        !latch->isFieldPresent(sfTransactionHash) ||
-        !latch->isFieldPresent(sfExportUniverseHash) ||
-        !latch->isFieldPresent(sfExportCommittee) ||
-        !latch->isFieldPresent(sfLastLedgerSequence) ||
-        latch->getAccountID(sfAccount) != share.owner ||
-        latch->getFieldH256(sfTransactionHash) != share.originTxn ||
-        latch->getFieldU32(sfLedgerSequence) != share.originLedgerSeq ||
-        validated->info().seq > latch->getFieldU32(sfLastLedgerSequence))
+    if (!latch)
         return std::nullopt;
 
     auto const originLedger =
@@ -251,6 +267,12 @@ ConsensusExtensions::onExportShare(ExportShare const& share)
         std::move(*admission.ticket), signatureVerified, validated->info().seq);
     if (outcome.result == ExportSigCollectorV2::AdmitResult::accepted)
     {
+        std::lock_guard streamLock(exportStreamMutex_);
+        if (!exportShareServiceStarted_.load(std::memory_order_acquire))
+            return false;
+        auto const latest = app_.getLedgerMaster().getValidatedLedger();
+        if (!latest || !isPendingExportShare(*latest, share, j_))
+            return false;
         app_.getOPs().pubExportSignature(share);
         return true;
     }
@@ -440,21 +462,18 @@ ConsensusExtensions::onValidatedLedger(
             app_.overlay().broadcast(message);
         }
 
-        auto observedSeq =
-            lastExportSnapshotSeq_.load(std::memory_order_relaxed);
-        while (observedSeq < validated->info().seq &&
-               !lastExportSnapshotSeq_.compare_exchange_weak(
-                   observedSeq,
-                   validated->info().seq,
-                   std::memory_order_acq_rel,
-                   std::memory_order_relaxed))
+        std::lock_guard streamLock(exportStreamMutex_);
+        if (!exportShareServiceStarted_.load(std::memory_order_acquire))
+            return;
+        if (lastExportSnapshotSeq_.load(std::memory_order_relaxed) <
+            validated->info().seq)
         {
-        }
-        if (observedSeq < validated->info().seq)
-        {
+            lastExportSnapshotSeq_.store(
+                validated->info().seq, std::memory_order_relaxed);
             auto const live = pendingExportLatches(*validated);
             auto const unionSnapshot =
                 postValidationExportSigCollector_.fullUnionSnapshot();
+            std::map<uint256, ExportSnapshotOrigin> currentOrigins;
             for (auto const& [origin, latch] : live)
             {
                 auto const originSeq = latch->getFieldU32(sfLedgerSequence);
@@ -473,7 +492,8 @@ ConsensusExtensions::onValidatedLedger(
                     originSeq,
                     *originHash,
                     origin,
-                    {}};
+                    {},
+                    false};
                 if (auto const it = unionSnapshot.find(origin);
                     it != unionSnapshot.end())
                 {
@@ -492,8 +512,35 @@ ConsensusExtensions::onValidatedLedger(
                             contribution.signature});
                     }
                 }
+                currentOrigins.emplace(
+                    origin,
+                    ExportSnapshotOrigin{
+                        snapshot.version,
+                        snapshot.owner,
+                        snapshot.originLedgerSeq,
+                        snapshot.originLedgerHash,
+                        snapshot.triggerTxn});
                 app_.getOPs().pubExportSignatureSnapshot(snapshot);
             }
+
+            for (auto const& [origin, prior] : publishedExportOrigins_)
+            {
+                if (currentOrigins.contains(origin))
+                    continue;
+                app_.getOPs().pubExportSignatureSnapshot(
+                    ripple::ExportSignatureSnapshot{
+                        prior.version,
+                        validated->info().seq,
+                        validated->info().hash,
+                        prior.owner,
+                        origin,
+                        prior.originLedgerSeq,
+                        prior.originLedgerHash,
+                        prior.triggerTxn,
+                        {},
+                        true});
+            }
+            publishedExportOrigins_ = std::move(currentOrigins);
         }
     }
     catch (std::exception const& e)
@@ -511,6 +558,8 @@ ConsensusExtensions::onValidatedLedger(
 void
 ConsensusExtensions::startExportShareService()
 {
+    std::lock_guard streamLock(exportStreamMutex_);
+    publishedExportOrigins_.clear();
     lastExportSnapshotSeq_.store(0, std::memory_order_relaxed);
     exportShareServiceStarted_.store(true, std::memory_order_release);
 }
@@ -519,6 +568,8 @@ void
 ConsensusExtensions::stopExportShareService() noexcept
 {
     exportShareServiceStarted_.store(false, std::memory_order_release);
+    std::lock_guard streamLock(exportStreamMutex_);
+    publishedExportOrigins_.clear();
 }
 
 //------------------------------------------------------------------------------

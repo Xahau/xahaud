@@ -58,6 +58,7 @@ struct ExportSignatureSnapshot
     uint256 originLedgerHash;
     uint256 triggerTxn;
     std::vector<ExportShare> shares;
+    bool terminal{false};
 };
 
 /** Provides server functionality for clients.

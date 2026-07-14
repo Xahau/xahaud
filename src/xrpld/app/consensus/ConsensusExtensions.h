@@ -52,6 +52,16 @@ class ConsensusExtensions
 
     Application& app_;
     ExportSigCollectorV2 postValidationExportSigCollector_;
+    struct ExportSnapshotOrigin
+    {
+        std::uint8_t version;
+        AccountID owner;
+        LedgerIndex originLedgerSeq;
+        uint256 originLedgerHash;
+        uint256 triggerTxn;
+    };
+    std::mutex exportStreamMutex_;
+    std::map<uint256, ExportSnapshotOrigin> publishedExportOrigins_;
     std::set<std::pair<uint256, ExportSigCollectorV2::Position>>
         proposalPublishedExportShares_;
     std::atomic<bool> exportShareServiceStarted_{false};
