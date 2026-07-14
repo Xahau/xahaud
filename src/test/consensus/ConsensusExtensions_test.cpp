@@ -29,9 +29,11 @@
 #include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/consensus/ConsensusExtensionsTick.h>
 #include <xrpld/consensus/ConsensusProposal.h>
+#include <xrpld/ledger/Sandbox.h>
 #include <xrpld/overlay/PeerSet.h>
 #include <xrpld/shamap/SHAMapSidecarLeafNode.h>
 #include <xrpl/basics/StringUtilities.h>
@@ -2357,6 +2359,98 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExportSidecarCandidateDeadline()
+    {
+        testcase("Export sidecar candidate deadline is inclusive");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureExport,
+            nullptr};
+        Account const alice{"alice"};
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        BEAST_EXPECT(parent);
+        if (!parent)
+            return;
+        auto validated = std::make_shared<Ledger>(
+            *parent, env.app().timeKeeper().closeTime());
+        auto const deadline = validated->info().seq;
+        auto const origin = makeHash("export-sidecar-deadline-origin");
+        auto latch =
+            std::make_shared<SLE>(keylet::shadowTicket(alice.id(), origin));
+        latch->setAccountID(sfAccount, alice.id());
+        latch->setFieldU32(sfTicketSequence, 1);
+        latch->setFieldH256(sfTransactionHash, origin);
+        latch->setFieldH256(sfDigest, makeHash("export-sidecar-intent"));
+        latch->setFieldU32(sfLedgerSequence, deadline);
+        latch->setFieldH256(sfExportUniverseHash, validated->info().parentHash);
+        latch->setFieldVL(sfExportCommittee, Blob{0x01});
+        latch->setFieldU32(sfLastLedgerSequence, deadline);
+
+        Sandbox sandbox{validated.get(), tapNONE};
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::insertPendingExportLatch(
+            sandbox, sandbox, latch, env.journal)));
+        sandbox.apply(*validated);
+        validated->updateSkipList();
+        validated->setAccepted(
+            validated->info().closeTime,
+            validated->info().closeTimeResolution,
+            true);
+        env.app().getLedgerMaster().setFullLedger(validated, false, false);
+        auto const currentValidated =
+            env.app().getLedgerMaster().getValidatedLedger();
+        BEAST_EXPECT(
+            currentValidated && currentValidated->info().seq == deadline);
+        if (!currentValidated || currentValidated->info().seq != deadline)
+            return;
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        auto& collector = ce.postValidationExportSigCollector();
+        auto const signer = randomKeyPair(KeyType::secp256k1).first;
+        std::uint8_t const signatureBytes[] = {1, 2, 3};
+        Buffer const signature{signatureBytes, sizeof(signatureBytes)};
+        BEAST_EXPECT(collector.reopenPublication(origin, origin, deadline));
+        auto admission = collector.beginAttributedAdmission(
+            origin,
+            ExportSigCollectorV2::Contribution{0, signer, signature},
+            deadline);
+        BEAST_EXPECT(admission.ticket);
+        if (!admission.ticket)
+            return;
+        BEAST_EXPECT(
+            collector
+                .admitContribution(std::move(*admission.ticket), true, deadline)
+                .result == ExportSigCollectorV2::AdmitResult::accepted);
+
+        auto const leafCount = [&](uint256 const& hash) {
+            auto const map =
+                env.app().getInboundTransactions().getSet(hash, false);
+            BEAST_EXPECT(map);
+            std::size_t count = 0;
+            if (map)
+                map->visitLeaves([&](auto const&) { ++count; });
+            return count;
+        };
+
+        // The validated view remains D in both cases. Candidate D is the
+        // inclusive final publication opportunity; candidate D+1 is expired.
+        ce.rngRoundSeq_ = deadline;
+        BEAST_EXPECT(ce.hasConsensusExportTxns());
+        BEAST_EXPECT(ce.hasPendingExportSigs());
+        BEAST_EXPECT(leafCount(ce.buildExportSigSet(deadline)) == 1);
+
+        ce.rngRoundSeq_ = deadline + 1;
+        BEAST_EXPECT(!ce.hasConsensusExportTxns());
+        BEAST_EXPECT(!ce.hasPendingExportSigs());
+        BEAST_EXPECT(leafCount(ce.buildExportSigSet(deadline + 1)) == 0);
+    }
+
+    void
     testTransactionAcquireRejectsSidecarWireNodes()
     {
         testcase("Transaction acquire rejects sidecar wire nodes");
@@ -3837,6 +3931,7 @@ public:
         testProposalPrecheckUsesExportShareRelayLimits();
         testHarvestRngDataReplacementAndRejection();
         testExportV2CollectorBuildsAttributedUnion();
+        testExportSidecarCandidateDeadline();
         testTransactionAcquireRejectsSidecarWireNodes();
         testAcquiredSetsRejectConsensusExtensionPseudos();
         testAgreedExportWitnessBuildsContributorBitmap();

@@ -212,7 +212,7 @@ withContribution(
 }
 
 std::map<uint256, std::shared_ptr<SLE const>>
-pendingExportLatches(ReadView const& view)
+pendingExportLatches(ReadView const& view, LedgerIndex eligibleSeq)
 {
     std::map<uint256, std::shared_ptr<SLE const>> result;
     forEachItem(
@@ -224,7 +224,7 @@ pendingExportLatches(ReadView const& view)
                 !latch->isFieldPresent(sfLedgerSequence) ||
                 !latch->isFieldPresent(sfAccount) ||
                 !latch->isFieldPresent(sfLastLedgerSequence) ||
-                view.info().seq > latch->getFieldU32(sfLastLedgerSequence) ||
+                eligibleSeq > latch->getFieldU32(sfLastLedgerSequence) ||
                 result.size() >= ExportLimits::maxLiveExportLatches)
                 return;
             result.emplace(latch->getFieldH256(sfTransactionHash), latch);
@@ -470,7 +470,8 @@ ConsensusExtensions::onValidatedLedger(
         {
             lastExportSnapshotSeq_.store(
                 validated->info().seq, std::memory_order_relaxed);
-            auto const live = pendingExportLatches(*validated);
+            auto const live =
+                pendingExportLatches(*validated, validated->info().seq);
             auto const unionSnapshot =
                 postValidationExportSigCollector_.fullUnionSnapshot();
             std::map<uint256, ExportSnapshotOrigin> currentOrigins;
@@ -1657,7 +1658,7 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
 
     auto const validated = app_.getLedgerMaster().getValidatedLedger();
     auto const live = validated
-        ? pendingExportLatches(*validated)
+        ? pendingExportLatches(*validated, seq)
         : std::map<uint256, std::shared_ptr<SLE const>>{};
     auto const allSigs = postValidationExportSigCollector_.fullUnionSnapshot();
     std::size_t entryCount = 0;
@@ -1715,7 +1716,14 @@ ConsensusExtensions::hasPendingExportSigs() const
     auto const validated = app_.getLedgerMaster().getValidatedLedger();
     if (!validated)
         return false;
-    auto const live = pendingExportLatches(*validated);
+    auto candidateSeq = rngRoundSeq_;
+    if (!candidateSeq)
+    {
+        if (validated->info().seq == std::numeric_limits<LedgerIndex>::max())
+            return false;
+        candidateSeq = validated->info().seq + 1;
+    }
+    auto const live = pendingExportLatches(*validated, *candidateSeq);
     auto const allSigs = postValidationExportSigCollector_.fullUnionSnapshot();
     return std::any_of(allSigs.begin(), allSigs.end(), [&](auto const& entry) {
         return live.find(entry.first) != live.end();
@@ -1726,7 +1734,16 @@ bool
 ConsensusExtensions::hasConsensusExportTxns() const
 {
     auto const validated = app_.getLedgerMaster().getValidatedLedger();
-    return validated && !pendingExportLatches(*validated).empty();
+    if (!validated)
+        return false;
+    auto candidateSeq = rngRoundSeq_;
+    if (!candidateSeq)
+    {
+        if (validated->info().seq == std::numeric_limits<LedgerIndex>::max())
+            return false;
+        candidateSeq = validated->info().seq + 1;
+    }
+    return !pendingExportLatches(*validated, *candidateSeq).empty();
 }
 
 void
@@ -2506,7 +2523,7 @@ ConsensusExtensions::onPreBuild(
 
         if (parentExtendsValidated)
         {
-            auto const pending = pendingExportLatches(*parent);
+            auto const pending = pendingExportLatches(*parent, seq);
             for (auto const& [origin, latch] : pending)
             {
                 if (!latch->isFieldPresent(sfExportUniverseHash) ||
@@ -3115,7 +3132,7 @@ ConsensusExtensions::decoratePosition(
 void
 ConsensusExtensions::attachExportSignatures(
     protocol::TMProposeSet& prop,
-    RCLCxPeerPos::Proposal const&)
+    RCLCxPeerPos::Proposal const& proposal)
 {
     if (!exportEnabled())
         return;
@@ -3127,10 +3144,11 @@ ConsensusExtensions::attachExportSignatures(
     auto const& keys = app_.getValidatorKeys();
     auto const validated = app_.getLedgerMaster().getValidatedLedger();
     if (!keys.keys || keys.nodeID == beast::zero || !validated ||
-        !validated->rules().enabled(featureExport))
+        !validated->rules().enabled(featureExport) || !rngRoundSeq_ ||
+        proposal.prevLedger() != roundPrevLedgerHash_)
         return;
 
-    auto const live = pendingExportLatches(*validated);
+    auto const live = pendingExportLatches(*validated, *rngRoundSeq_);
     auto const snapshot = postValidationExportSigCollector_.fullUnionSnapshot();
     std::size_t attached = 0;
     for (auto const& [origin, contributions] : snapshot)
