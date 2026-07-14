@@ -48,9 +48,10 @@ struct ExportLimits
     // owned by one account.
     static constexpr std::uint8_t maxPendingExports = 8;
 
-    // Global live latch and per-validation scan bound. This is a provisional
-    // activation tuning value: it bounds directory walks and local signature
-    // work while still allowing several ledgers of admitted intents to overlap.
+    // Global pending-latch and per-validation scan bound. Witnessed or canceled
+    // latches release this signing-work slot while their account owner count
+    // and reserve continue to bound retained state. This is a provisional
+    // activation tuning value.
     static constexpr std::uint16_t maxLiveExportLatches = 64;
 
     // Maximum admission window requested through the mandatory outer
