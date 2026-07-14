@@ -2575,70 +2575,156 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     void
     testAgreedExportWitnessBuildsContributorBitmap()
     {
-        testcase("agreed Export witness assembles target and contributors");
+        testcase(
+            "agreed Export witness materialization is insertion-order "
+            "independent");
 
         using namespace jtx;
-        Env env{
-            *this, envconfig(validator, ""), supported_amendments(), nullptr};
-        ConsensusExtensions ce{env.app(), activeNoopJournal()};
-
         auto const signerA = randomKeyPair(KeyType::secp256k1);
         auto const signerB = randomKeyPair(KeyType::secp256k1);
+        auto const signerC = randomKeyPair(KeyType::secp256k1);
         auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
         auto const releaseTarget =
             makeSTTx(makeExportedPayment(calcAccountID(signerA.first), dst));
         auto const origin = makeHash("agreed-export-v2-origin");
-        Blob const committee{0x05};
+        Blob const committee{0x25};
+        constexpr std::size_t universeSize = 6;
+        auto const threshold = ExportLimits::committeeQuorumThreshold(3);
+        BEAST_EXPECT(threshold == 3);
 
-        auto map = std::make_shared<SHAMap>(
-            SHAMapType::SIDECAR, env.app().getNodeFamily());
-        map->setUnbacked();
-        auto addContribution = [&](std::uint32_t position,
-                                   PublicKey const& publicKey,
-                                   SecretKey const& secretKey) {
-            auto const signature = ExportResultBuilder::signExportedTxn(
-                releaseTarget, publicKey, secretKey);
-            STObject sidecar(sfGeneric);
-            sidecar.setFieldU8(sfSidecarType, sidecarExportSig);
-            sidecar.setFieldH256(sfTransactionHash, origin);
-            sidecar.setFieldU32(sfTransactionIndex, position);
-            sidecar.setFieldVL(sfSigningPubKey, publicKey.slice());
-            sidecar.setFieldVL(
-                sfTxnSignature, Slice{signature.data(), signature.size()});
-            Serializer serialized;
-            sidecar.add(serialized);
-            map->addItem(
-                SHAMapNodeType::tnSIDECAR,
-                make_shamapitem(
-                    sidecar.getHash(HashPrefix::sidecar), serialized.slice()));
+        struct Contribution
+        {
+            std::uint32_t position;
+            PublicKey signingKey;
+            Buffer signature;
         };
-        addContribution(0, signerA.first, signerA.second);
-        addContribution(2, signerB.first, signerB.second);
-        map = map->snapShot(false);
 
-        auto const acceptedHash = map->getHash().as_uint256();
-        env.app().getInboundTransactions().giveSet(acceptedHash, map, false);
-        auto const threshold = ExportLimits::committeeQuorumThreshold(2);
-        BEAST_EXPECT(threshold == 2);
-        BEAST_EXPECT(!ce.agreedExportWitness(
-            releaseTarget, origin, committee, 3, threshold));
-        ce.acceptExportSigSet(acceptedHash);
+        std::vector<Contribution> const contributions = {
+            {0,
+             signerA.first,
+             ExportResultBuilder::signExportedTxn(
+                 releaseTarget, signerA.first, signerA.second)},
+            {2,
+             signerB.first,
+             ExportResultBuilder::signExportedTxn(
+                 releaseTarget, signerB.first, signerB.second)},
+            {5,
+             signerC.first,
+             ExportResultBuilder::signExportedTxn(
+                 releaseTarget, signerC.first, signerC.second)}};
 
-        auto const material = ce.agreedExportWitness(
-            releaseTarget, origin, committee, 3, threshold);
-        BEAST_EXPECT(material);
-        if (!material)
+        struct MaterializedWitness
+        {
+            uint256 root;
+            ExportResultBuilder::PositionedSignatureSnapshot signatures;
+            Blob contributors;
+            std::vector<std::uint8_t> serialized;
+            uint256 txid;
+        };
+
+        auto const materialize =
+            [&](std::vector<std::size_t> const& insertionOrder)
+            -> std::optional<MaterializedWitness> {
+            Env env{
+                *this,
+                envconfig(validator, ""),
+                supported_amendments(),
+                nullptr};
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+
+            auto map = std::make_shared<SHAMap>(
+                SHAMapType::SIDECAR, env.app().getNodeFamily());
+            map->setUnbacked();
+            for (auto const index : insertionOrder)
+            {
+                auto const& contribution = contributions[index];
+                STObject sidecar(sfGeneric);
+                sidecar.setFieldU8(sfSidecarType, sidecarExportSig);
+                sidecar.setFieldH256(sfTransactionHash, origin);
+                sidecar.setFieldU32(sfTransactionIndex, contribution.position);
+                sidecar.setFieldVL(
+                    sfSigningPubKey, contribution.signingKey.slice());
+                sidecar.setFieldVL(
+                    sfTxnSignature,
+                    Slice{
+                        contribution.signature.data(),
+                        contribution.signature.size()});
+                Serializer serialized;
+                sidecar.add(serialized);
+                BEAST_EXPECT(map->addItem(
+                    SHAMapNodeType::tnSIDECAR,
+                    make_shamapitem(
+                        sidecar.getHash(HashPrefix::sidecar),
+                        serialized.slice())));
+            }
+            map = map->snapShot(false);
+
+            auto const acceptedHash = map->getHash().as_uint256();
+            env.app().getInboundTransactions().giveSet(
+                acceptedHash, map, false);
+            BEAST_EXPECT(!ce.agreedExportWitness(
+                releaseTarget, origin, committee, universeSize, threshold));
+            ce.acceptExportSigSet(acceptedHash);
+
+            auto const material = ce.agreedExportWitness(
+                releaseTarget, origin, committee, universeSize, threshold);
+            BEAST_EXPECT(material);
+            if (!material)
+                return std::nullopt;
+
+            auto const witness = ExportResultBuilder::buildSignatureWitness(
+                origin, releaseTarget, material->signatures, universeSize, 20);
+            BEAST_EXPECT(!witness.isFieldPresent(sfSigners));
+            BEAST_EXPECT(
+                witness.getFieldVL(sfEntropyContributors) == committee);
+            auto const& assembled =
+                witness.peekAtField(sfExportedTxn).downcast<STObject>();
+            BEAST_EXPECT(!assembled.isFieldPresent(sfSigners));
+            BEAST_EXPECT(
+                witness.getFieldArray(sfExportSigners).size() ==
+                contributions.size());
+
+            Serializer serialized;
+            witness.add(serialized);
+            return MaterializedWitness{
+                acceptedHash,
+                material->signatures,
+                witness.getFieldVL(sfEntropyContributors),
+                serialized.peekData(),
+                witness.getTransactionID()};
+        };
+
+        auto const forward = materialize({0, 1, 2});
+        auto const reverse = materialize({2, 1, 0});
+        BEAST_EXPECT(forward && reverse);
+        if (!forward || !reverse)
             return;
-        BEAST_EXPECT(material->signatures.size() == 2);
 
-        auto const witness = ExportResultBuilder::buildSignatureWitness(
-            origin, releaseTarget, material->signatures, 3, 20);
-        BEAST_EXPECT(!witness.isFieldPresent(sfSigners));
-        BEAST_EXPECT(witness.getFieldVL(sfEntropyContributors) == Blob{0x05});
-        auto const& assembled =
-            witness.peekAtField(sfExportedTxn).downcast<STObject>();
-        BEAST_EXPECT(!assembled.isFieldPresent(sfSigners));
-        BEAST_EXPECT(witness.getFieldArray(sfExportSigners).size() == 2);
+        auto const expectMapping =
+            [&](ExportResultBuilder::PositionedSignatureSnapshot const&
+                    signatures) {
+                BEAST_EXPECT(signatures.size() == contributions.size());
+                for (auto const& expected : contributions)
+                {
+                    auto const found = signatures.find(expected.position);
+                    BEAST_EXPECT(found != signatures.end());
+                    if (found != signatures.end())
+                    {
+                        BEAST_EXPECT(
+                            found->second.signingKey == expected.signingKey);
+                        BEAST_EXPECT(
+                            found->second.signature == expected.signature);
+                    }
+                }
+            };
+        expectMapping(forward->signatures);
+        expectMapping(reverse->signatures);
+
+        BEAST_EXPECT(forward->root == reverse->root);
+        BEAST_EXPECT(forward->contributors == committee);
+        BEAST_EXPECT(reverse->contributors == committee);
+        BEAST_EXPECT(forward->serialized == reverse->serialized);
+        BEAST_EXPECT(forward->txid == reverse->txid);
     }
 
     void
