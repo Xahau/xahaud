@@ -17,6 +17,7 @@
 //==============================================================================
 
 #include <xrpl/basics/StringUtilities.h>
+#include <xrpl/basics/strHex.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/STAmount.h>
@@ -99,13 +100,16 @@ public:
         auto const expectedRelease = strUnHex(
             "0100000053590000000000000000000000000000000000000000000000000000"
             "00000000000000000002003EEA40000000000000000000000000000000000000"
-            "000000000000000000000000000003");
+            "0000000000000000000000000003");
         BEAST_EXPECT(expectedIdentity);
         BEAST_EXPECT(expectedRelease);
         if (expectedIdentity && expectedRelease)
         {
             BEAST_EXPECT(reservedData(identity.value()) == *expectedIdentity);
-            BEAST_EXPECT(reservedData(release.value()) == *expectedRelease);
+            BEAST_EXPECTS(
+                reservedData(release.value()) == *expectedRelease,
+                strHex(reservedData(release.value())) +
+                    " != " + strHex(*expectedRelease));
         }
 
         auto const parsedIdentity = ExportOriginMemo::parse(identity.value());
