@@ -1231,6 +1231,22 @@ ConsensusExtensions::ingestRngContribution(
     }
     //@@end rng-contribution-identity-gate
 
+    // A seq-0 proof makes the round's signing key authoritative for this
+    // validator. A later manifest may legitimately rotate the live mapping,
+    // but it must not retarget already accepted commit/reveal material.
+    if (hasProofedCommit(nodeId))
+    {
+        auto const key = nodeIdToKey_.find(nodeId);
+        if (key == nodeIdToKey_.end() || key->second != publicKey)
+        {
+            JLOG(j_.warn()) << "RNG: rejecting contribution"
+                            << " reason=key-changed-after-proofed-commit"
+                            << " kind=" << kindName << " source=" << sourceTag
+                            << " node=" << nodeId;
+            return false;
+        }
+    }
+
     if (isCommit)
     {
         auto const existing = pendingCommits_.find(nodeId);

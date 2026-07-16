@@ -74,12 +74,13 @@ namespace {
 Manifest
 makeValidatorManifest(
     SecretKey const& masterSecret,
-    SecretKey const& signingSecret)
+    SecretKey const& signingSecret,
+    std::uint32_t sequence = 0)
 {
     auto const master = derivePublicKey(KeyType::secp256k1, masterSecret);
     auto const signing = derivePublicKey(KeyType::secp256k1, signingSecret);
     STObject object{sfGeneric};
-    object.setFieldU32(sfSequence, 0);
+    object.setFieldU32(sfSequence, sequence);
     object.setFieldVL(sfPublicKey, master.slice());
     object.setFieldVL(sfSigningPubKey, signing.slice());
     sign(object, HashPrefix::manifest, KeyType::secp256k1, signingSecret);
@@ -2317,6 +2318,105 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testRngManifestArrivalDoesNotRetargetProofedCommit()
+    {
+        testcase("RNG manifest arrival does not retarget proofed commit");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        auto const masterSecret =
+            generateSecretKey(KeyType::secp256k1, randomSeed());
+        auto const signingSecret1 =
+            generateSecretKey(KeyType::secp256k1, randomSeed());
+        auto const signingSecret2 =
+            generateSecretKey(KeyType::secp256k1, randomSeed());
+        auto const masterKey =
+            derivePublicKey(KeyType::secp256k1, masterSecret);
+        auto const signingKey1 =
+            derivePublicKey(KeyType::secp256k1, signingSecret1);
+        auto const signingKey2 =
+            derivePublicKey(KeyType::secp256k1, signingSecret2);
+        auto const nodeId = calcNodeID(masterKey);
+
+        BEAST_EXPECT(
+            env.app().validatorManifests().applyManifest(
+                makeValidatorManifest(masterSecret, signingSecret1)) ==
+            ManifestDisposition::accepted);
+
+        ConsensusExtensions manifestFirst{env.app(), activeNoopJournal()};
+        ConsensusExtensions proposalFirst{env.app(), activeNoopJournal()};
+        auto const universe = makeUNLReportLedger(env, {masterKey});
+        manifestFirst.cacheUNLReport(universe);
+        proposalFirst.cacheUNLReport(universe);
+
+        auto const seq = ledger->seq() + 1;
+        auto const closeTime = NetClock::time_point{NetClock::duration{655}};
+        auto const txSetHash = makeHash("manifest-arrival-txset");
+        auto const reveal = makeHash("manifest-arrival-reveal");
+        auto const commitment = sha512Half(reveal, signingKey1, seq);
+        for (auto* ce : {&manifestFirst, &proposalFirst})
+            harvestCommitReveal(
+                *ce,
+                nodeId,
+                signingKey1,
+                signingSecret1,
+                txSetHash,
+                seq,
+                closeTime,
+                ledger->info().hash,
+                reveal);
+
+        ExtendedPosition rotated{txSetHash};
+        rotated.myCommitment = commitment;
+        auto const rotatedSig = signPosition(
+            signingKey2,
+            signingSecret2,
+            rotated,
+            2,
+            closeTime,
+            ledger->info().hash);
+
+        // Before the manifest arrives, the rotated key is not trusted and the
+        // proposal is ignored. Installing the manifest later does not replay
+        // the packet.
+        proposalFirst.harvestRngData(
+            nodeId,
+            signingKey2,
+            rotated,
+            2,
+            closeTime,
+            ledger->info().hash,
+            Slice(rotatedSig.data(), rotatedSig.size()));
+        BEAST_EXPECT(
+            env.app().validatorManifests().applyManifest(
+                makeValidatorManifest(masterSecret, signingSecret2, 1)) ==
+            ManifestDisposition::accepted);
+
+        // The same packet is trusted when the manifest arrives first, but the
+        // proofed K1 commit must keep K1 as its per-round signing key.
+        manifestFirst.harvestRngData(
+            nodeId,
+            signingKey2,
+            rotated,
+            2,
+            closeTime,
+            ledger->info().hash,
+            Slice(rotatedSig.data(), rotatedSig.size()));
+
+        BEAST_EXPECT(
+            manifestFirst.pendingCommits_ == proposalFirst.pendingCommits_);
+        BEAST_EXPECT(
+            manifestFirst.pendingReveals_ == proposalFirst.pendingReveals_);
+        BEAST_EXPECT(manifestFirst.nodeIdToKey_.at(nodeId) == signingKey1);
+        BEAST_EXPECT(proposalFirst.nodeIdToKey_.at(nodeId) == signingKey1);
+        BEAST_EXPECT(
+            manifestFirst.buildEntropySet(seq) ==
+            proposalFirst.buildEntropySet(seq));
+    }
+
+    void
     testExportCollectorBuildsAttributedUnion()
     {
         testcase("Export collector builds attributed union");
@@ -4485,6 +4585,7 @@ public:
         testProposalProofRoundTrip();
         testProposalPrecheckUsesExportShareRelayLimits();
         testHarvestRngDataReplacementAndRejection();
+        testRngManifestArrivalDoesNotRetargetProofedCommit();
         testExportCollectorBuildsAttributedUnion();
         testExportSidecarCandidateDeadline();
         testTransactionAcquireRejectsSidecarWireNodes();
