@@ -16,6 +16,8 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpl/protocol/EntropyTier.h>
@@ -204,6 +206,40 @@ struct PseudoTx_test : public beast::unit_test::suite
             consensusEntropyTx(
                 seq, entropyTierValidatorQuorum, 2, 3, Blob{0x01}),
             temMALFORMED);
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(seq, entropyTierValidatorFull, 2, 3, Blob{0x03}),
+            temMALFORMED);
+    }
+
+    void
+    testConsensusEntropyLedgerSequence()
+    {
+        testcase("ConsensusEntropy current ledger binding");
+
+        using namespace jtx;
+        Env env(*this, supported_amendments() | featureConsensusEntropy);
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        auto const seq = parent->seq() + 1;
+
+        auto applyToNextLedger = [&](STTx const& tx, TER expected) {
+            auto next = std::make_shared<Ledger>(
+                *parent, env.app().timeKeeper().closeTime());
+            OpenView accum(&*next);
+            auto const result =
+                ripple::apply(env.app(), accum, tx, tapNONE, env.journal);
+            BEAST_EXPECT(result.ter == expected);
+            BEAST_EXPECT(result.applied == isTesSuccess(expected));
+        };
+
+        applyToNextLedger(
+            consensusEntropyTx(
+                seq + 1, entropyTierValidatorQuorum, 1, 1, Blob{0x01}),
+            tefFAILURE);
+        applyToNextLedger(
+            consensusEntropyTx(
+                seq, entropyTierValidatorQuorum, 1, 1, Blob{0x01}),
+            tesSUCCESS);
     }
 
     void
@@ -217,6 +253,7 @@ struct PseudoTx_test : public beast::unit_test::suite
         testPrevented(all);
         testAllowed();
         testConsensusEntropyContributorMaskPreflight();
+        testConsensusEntropyLedgerSequence();
     }
 };
 

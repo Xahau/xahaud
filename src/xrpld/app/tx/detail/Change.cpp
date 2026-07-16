@@ -68,6 +68,9 @@ validEntropyContributorMask(
     if (tier < entropyTierParticipantAligned || tier > entropyTierValidatorFull)
         return false;
 
+    if (tier == entropyTierValidatorFull && count != denominator)
+        return false;
+
     auto const bitset =
         validateValidatorBitset(makeSlice(contributors), denominator);
     return bitset && bitset->selected() == count;
@@ -453,6 +456,9 @@ Change::applyExportSignatures()
 TER
 Change::applyConsensusEntropy()
 {
+    if (ctx_.tx.getFieldU32(sfLedgerSequence) != view().info().seq)
+        return tefFAILURE;
+
     auto const entropy = ctx_.tx.getFieldH256(sfDigest);
 
     //@@start rng-consensus-entropy-sle-write
