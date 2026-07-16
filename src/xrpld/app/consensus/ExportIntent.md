@@ -118,12 +118,15 @@ position contributes nothing to qC.
 
 The complete bounded admitted-share union is content-addressed and its root is
 advertised in signed extended positions. In network mode, witness
-materialization uses only the local node's own currently published root after
-qV alignment. qV is a go/no-go gate for that root; it never selects a root from
-peer positions. The local node must possess a SIDECAR map with that exact root
-and independently verify its content addresses, leaf type and required fields,
-origin-relative committee positions, unique positions and signer AccountIDs,
-signature bounds, and every target multisignature before qC can materialize.
+materialization uses only the node's own locally built current-position root
+after qV alignment. qV is a go/no-go gate for that root; it never selects a root
+from peer positions. Only an active validator that is proposing counts its own
+root locally toward qV. An observer may nevertheless materialize its locally
+possessed matching root after a peer-only qV advertises that same root. The
+local node must possess a SIDECAR map with that exact root and independently
+verify its content addresses, leaf type and required fields, origin-relative
+committee positions, unique positions and signer AccountIDs, signature bounds,
+and every target multisignature before qC can materialize.
 Standalone test execution substitutes exact possession of its locally verified
 map; intent admission still requires the UNLReport-backed parent state. Late
 collector arrivals cannot mutate the accepted root.
@@ -155,9 +158,11 @@ target signature. It does not consult mutable manifest state. Only after that
 does apply consult the evolving view for a state transition. If the latch still
 exists and its publication deadline has not passed, apply records the witness
 transaction ID and removes the pending-work link, or erases the latch if XPOP
-was already recorded. If an earlier same-ledger erase or XPOP removed it, or
-the deadline has passed, fully valid evidence remains an evidence-only
-`tesSUCCESS`; malformed evidence still fails.
+was already recorded. If an earlier same-ledger explicit erase removed the latch,
+or the inclusive publication deadline has passed, fully valid evidence remains
+an evidence-only `tesSUCCESS`. An earlier XPOP instead causes the witness to
+terminally erase the latch while the deadline remains live; after expiry, the
+deadline no-op takes precedence. Malformed evidence still fails.
 
 Sidecar memory is deliberation state, not replay input. Historical replay never
 regenerates or strips persisted witnesses; it applies the same ordered bytes
