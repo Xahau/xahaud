@@ -1300,8 +1300,8 @@ class Invariants_test : public beast::unit_test::suite
                 return true;
             });
 
-        // Once created, even a structurally valid roster replacement is an
-        // invariant violation.
+        // Once created, even a change that preserves the content-addressed
+        // fields is an invariant violation.
         doInvariantCheck(
             {{"Invariant failed: malformed or mutated Export committee"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
@@ -1311,8 +1311,8 @@ class Invariants_test : public beast::unit_test::suite
                     ac.view().peek(keylet::exportCommittee(A1.id(), digest));
                 if (!sle)
                     return false;
-                sle->setFieldVL(
-                    sfExportCommittee, serializeExportCommittee({A1.pk()}));
+                sle->setFieldU64(
+                    sfOwnerNode, sle->getFieldU64(sfOwnerNode) + 1);
                 ac.view().update(sle);
                 return true;
             },
