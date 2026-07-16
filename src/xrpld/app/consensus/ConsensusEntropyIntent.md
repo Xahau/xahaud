@@ -114,11 +114,14 @@ All thresholds are computed over the **fixed parent-ledger UNLReport active-view
 size** (tier-2 over the *original* pre-NegativeUNL size). No node-local
 observation may grow or shrink that denominator `N`. This is load-bearing for
 tier-2 equivocation-uniqueness (`2t − N > f`).
-`featureNegativeUNLActiveViewCap` should be active before or with CE on networks
-that use NegativeUNL: it makes producer-side nUNL disable voting use the same
-parent-ledger UNLReport denominator that this invariant relies on. The
-consumer-side active-view builder still caps raw ledger NegativeUNL subtraction
-defensively against `originalViewSize`.
+`featureConsensusEntropy` and `featureNegativeUNLActiveViewCap` are independent
+amendments; source does not enforce an activation dependency. On a network that
+uses NegativeUNL, the rollout prerequisite is to activate
+`featureNegativeUNLActiveViewCap` no later than CE, so producer-side disable
+voting and this consumer use the same parent-ledger UNLReport cap denominator.
+The consumer-side active-view builder still caps raw ledger NegativeUNL
+subtraction defensively against `originalViewSize` even when rollout ordering is
+misconfigured.
 *Enforced:* `quorumThreshold` / `tier2Threshold` over `activeValidatorView`; the
 alignment-counting universe is filtered to the active view; amended
 `NegativeUNLVote` uses the same UNLReport active count for its disable cap when
@@ -145,7 +148,11 @@ verified before any commitment, reveal, or advertised sidecar root is harvested.
 Cluster-peer transport trust never substitutes for that signature check. Ingress
 also resolves the proposal signing key to the claimed active-view master
 `NodeID`; once a validator has a proofed commitment, that signing key is pinned
-for the remainder of the round even if the live manifest cache changes.
+against substitution for the remainder of the round. Every later contribution
+still passes the live manifest mapping first. A mid-round rotation may therefore
+make the old key's otherwise matching reveal inadmissible, while the new key
+cannot replace the proofed commitment; that contributor is omitted and the
+round may downgrade or fall back rather than retarget authority.
 
 A commitment qualifies only when it came from proposal sequence zero and has a
 self-contained proof of the signed `ExtendedPosition`. Its value is
@@ -215,12 +222,35 @@ view; otherwise `consensus_fallback`. A non-standalone node without a
 parent-ledger UNLReport always falls back even if its locally configured trust
 set and reveal count would otherwise qualify. Below-threshold accepted material
 also falls back as a whole, with count/denominator `0/0` and an empty bitmap.
+
+For draw index `i`, the first 32-byte block is
+`sha512Half(viewSequence, originatingTransactionID, originatingAccount,
+hookHash, hookAccount, hookChainPosition, strong|weak, callback|direct,
+entropyDigest, i)`. The counter is local to one Hook execution role and is
+post-incremented once when a draw stream passes snapshot admission; rejected
+arguments or entropy do not consume it. Further blocks are
+`sha512Half(previousBlock)`. `dice` rejects zero sides and uses deterministic
+32-bit rejection sampling rather than biased modulo reduction. `random` accepts
+one through 512 requested bytes, rounds its internal generation length to a
+32-byte boundary, and writes only the requested prefix. Missing, malformed,
+future, older-than-one-ledger, or below-tier entropy makes either draw return
+`TOO_LITTLE_ENTROPY`; invalid arguments retain their specific Hook API error,
+and `random` performs no output write on an entropy failure.
+
+`entropy_status()` is observational, not a draw. Subject only to missing,
+malformed, or future-snapshot errors, it returns the stored metadata even when
+that snapshot is too old for `dice` or `random`, packed as
+`(tier << 32) | (count << 16) | denominator`. This is deliberate: freshness is
+the draw API's safety policy, while status is advisory input to Hook policy.
 *Enforced:* `fairRng` tier/freshness gate and metadata-only `entropy_status`.
 
 **INV-7 — Inert when un-amended.**
 With `featureConsensusEntropy` off, no RNG sidecar state is consensus-visible and
 CE itself adds no proposal bytes. Export may independently use the same extended
 proposal envelope when `featureExport` is active.
+The `dice`, `random`, and `entropy_status` Hook imports are independently gated
+by `featureConsensusEntropy`; they are unavailable before that amendment rule is
+enabled even if a stale entropy singleton happens to exist.
 *Enforced:* the CE per-round enable latch is snapshotted from the *parent
 ledger's* rules; `ExtendedPosition` serializes to exactly the legacy 32-byte
 tx-set hash only when neither feature has populated a sidecar field.
@@ -236,9 +266,18 @@ operators must upgrade the proposal-processing network first, or add explicit
 version/capability negotiation before attempting a heterogeneous rollout.
 
 **INV-8 — No unbounded liveness dependency.**
-Every sub-state has a bounded timeout with a deterministic downgrade. CE must
-never be the reason a round stalls once base consensus is itself making progress.
-*Enforced:* bounded reveal/entropy deadlines → fallback.
+CE may deliberately hold accept while its bounded sub-state is open, but no
+sidecar wait is unbounded. Commit collection waits at most
+`rngPIPELINE_TIMEOUT`; on expiry it advances with a proofed cohort that meets the
+entropy gate or degrades toward fallback. An observed commit-root conflict gets
+at most `rngREVEAL_TIMEOUT` before reveal publication proceeds. Reveal
+collection gets at most `rngREVEAL_TIMEOUT` from entry into the reveal phase.
+After publishing a reveal root, the first tick is always an observation window;
+unresolved root conflict or insufficient positive alignment then gets at most
+`2 * rngREVEAL_TIMEOUT` before the accepted root is cleared and selection falls
+back. These deadlines may add bounded close latency, but CE must not convert any
+of them into an indefinite wait or a dependency on unanimity.
+*Enforced:* the fixed deadlines and fallback transitions in `extensionsTick`.
 
 **INV-9 — Live construction owns cardinality and first application.**
 When the parent-rule latch enables CE, live construction contains exactly one
