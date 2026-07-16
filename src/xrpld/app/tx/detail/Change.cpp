@@ -19,6 +19,7 @@
 
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
@@ -378,24 +379,24 @@ Change::applyExportSignatures()
 
     auto const account = signingPayload->getAccountID(sfAccount);
     auto const latchKey = keylet::exportLatch(account, origin);
-    auto const latch = view().read(latchKey);
-    // A concurrently ordered explicit erase may remove the latch after the
-    // accepted sidecar selected this witness. The historical evidence remains
-    // valid, but there is no state transition left to perform.
-    if (!latch)
-        return tesSUCCESS;
-    if (latch->getType() != ltEXPORT_LATCH ||
-        !latch->isFieldPresent(sfExportCommitteeHash) ||
-        !latch->isFieldPresent(sfLastLedgerSequence) ||
-        latch->getAccountID(sfAccount) != account ||
-        latch->getFieldH256(sfTransactionHash) != origin ||
-        latch->getFieldU32(sfTicketSequence) !=
+    auto parent = ctx_.replayParentLedger();
+    if (!parent)
+        parent = ctx_.app.getLedgerMaster().getLedgerByHash(
+            view().info().parentHash);
+    if (!parent || parent->info().hash != view().info().parentHash)
+        return tefBAD_LEDGER;
+
+    auto const parentLatch = parent->read(latchKey);
+    if (!parentLatch || parentLatch->getType() != ltEXPORT_LATCH ||
+        !parentLatch->isFieldPresent(sfExportCommitteeHash) ||
+        !parentLatch->isFieldPresent(sfLastLedgerSequence) ||
+        parentLatch->getAccountID(sfAccount) != account ||
+        parentLatch->getFieldH256(sfTransactionHash) != origin ||
+        parentLatch->getFieldU32(sfTicketSequence) !=
             signingPayload->getFieldU32(sfTicketSequence) ||
         stamp.value().anchor->ledgerSequence !=
-            latch->getFieldU32(sfLedgerSequence))
+            parentLatch->getFieldU32(sfLedgerSequence))
         return tefFAILURE;
-    if (view().info().seq > latch->getFieldU32(sfLastLedgerSequence))
-        return tesSUCCESS;
 
     // The origin-keyed latch can only exist on descendants of the ledger that
     // created it. Do not query mutable local history here: qC authenticated the
@@ -403,12 +404,12 @@ Change::applyExportSignatures()
     auto const identity = ExportOriginMemo::projectIdentity(*signingPayload);
     if (!identity ||
         ExportResultBuilder::exportIntentHash(identity.value()) !=
-            latch->getFieldH256(sfDigest))
+            parentLatch->getFieldH256(sfDigest))
         return tefFAILURE;
 
-    auto const committeeHash = latch->getFieldH256(sfExportCommitteeHash);
+    auto const committeeHash = parentLatch->getFieldH256(sfExportCommitteeHash);
     auto const committeeSLE =
-        view().read(keylet::exportCommittee(account, committeeHash));
+        parent->read(keylet::exportCommittee(account, committeeHash));
     if (!committeeSLE || !committeeSLE->isFieldPresent(sfExportCommittee))
         return tefFAILURE;
     auto const& roster = committeeSLE->getFieldVL(sfExportCommittee);
@@ -447,6 +448,16 @@ Change::applyExportSignatures()
                 Slice{witness.signature.data(), witness.signature.size()}))
             return tefFAILURE;
     }
+
+    // A concurrently ordered explicit erase or XPOP may remove the latch after
+    // the accepted sidecar selected this witness. Publication expiry may make
+    // the retained latch transition-free. Validate the durable evidence above
+    // against the immutable parent in either case, then consult the evolving
+    // view only to decide whether any state transition remains.
+    auto const currentLatch = view().read(latchKey);
+    if (!currentLatch ||
+        view().info().seq > currentLatch->getFieldU32(sfLastLedgerSequence))
+        return tesSUCCESS;
 
     return ExportLedgerOps::recordExportWitness(
         view(), ctx_.rawView(), latchKey, ctx_.tx.getTransactionID(), j_);

@@ -1636,8 +1636,13 @@ struct Export_test : public beast::unit_test::suite
                 *originLedger, env.app().timeKeeper().closeTime());
             BEAST_EXPECT(next->seq() == witnessSeq);
             OpenView accum(&*next);
-            auto const result =
-                ripple::apply(env.app(), accum, rejected, tapNONE, env.journal);
+            auto const result = ripple::apply(
+                env.app(),
+                accum,
+                rejected,
+                tapNONE,
+                env.journal,
+                ApplyOptions{originLedger});
             BEAST_EXPECT(result.ter == rejectedCase.expected);
             BEAST_EXPECT(!result.applied);
 
@@ -1651,6 +1656,36 @@ struct Export_test : public beast::unit_test::suite
                     after->getSerializer().peekData() == pendingLatchBytes);
             }
         }
+
+        auto applyWitnessAfterErase = [&](STTx const& witness, TER expected) {
+            auto next = std::make_shared<Ledger>(
+                *originLedger, env.app().timeKeeper().closeTime());
+            OpenView accum(&*next);
+            auto const existing = accum.read(latchKey);
+            BEAST_EXPECT(existing);
+            if (!existing)
+                return;
+            accum.rawErase(std::make_shared<SLE>(*existing));
+            BEAST_EXPECT(!accum.read(latchKey));
+
+            auto const result = ripple::apply(
+                env.app(),
+                accum,
+                witness,
+                tapNONE,
+                env.journal,
+                ApplyOptions{originLedger});
+            BEAST_EXPECT(result.ter == expected);
+            BEAST_EXPECT(result.applied == isTesSuccess(expected));
+            BEAST_EXPECT(!accum.read(latchKey));
+        };
+
+        // An erase ordered before the witness removes only the state
+        // transition. The witness must still validate against the immutable
+        // parent; malformed evidence cannot become an evidence-only success.
+        applyWitnessAfterErase(
+            makeRejectedWitness(WitnessFault::wrongSignature), tefFAILURE);
+        applyWitnessAfterErase(validWitness, tesSUCCESS);
 
         auto const witnessTx = std::make_shared<STTx const>(validWitness);
 
