@@ -61,20 +61,28 @@ qC is the content threshold for one account-selected committee:
 `ceil(0.8 * committeeSize)`. The intent cannot lower it. Committee positions
 are indexes into the immutable canonical roster.
 
-qV is the root-alignment threshold over the source consensus active-validator
-view. It coordinates which complete bounded sidecar union may materialize
-witnesses. qV does not decide committee membership, prove target authorization,
-or replace local possession and verification of qC signatures.
+qV is `safeQuorumThreshold(N)` over the exact parent-ledger effective active
+validator view: `ceil(0.8 * N)` when `N > 0`, otherwise the fail-closed floor
+of one. The view is the parent `UNLReport` active set after NegativeUNL
+subtraction. qV coordinates which complete bounded sidecar union may
+materialize witnesses. It does not decide committee membership, prove target
+authorization, or replace local possession and verification of qC signatures.
 
 Neither denominator is derived from locally observed peers or signatures, and
 silence never lowers either threshold.
 
 **INV-4 - Honest shares are post-validation attestations.**
-A validator signs only after its node accepts the exact source ledger containing
-the intent as validated. Closing/building that ledger, emitting the node's own
-validation, or advancing the build cursor does not unlock signing. Ledger
-building may run ahead of the validated cursor; Export waits without holding
-base consensus open.
+The local producer signs only after its node accepts the exact source ledger
+containing the intent as validated. Closing or building that ledger, emitting
+the node's own validation, or advancing the build cursor does not unlock
+signing. Ledger building may run ahead of the validated cursor; Export waits
+without holding base consensus open.
+
+Signature verification proves identity and content, not release time. The
+enforced receiving-side rule is therefore separate: a share contributes to the
+union only after its origin resolves against that node's validated state.
+Shares for provisional or otherwise unvalidated origins contribute nothing,
+regardless of transport or signature validity.
 
 The release-stamped target binds source domain, target domain, origin
 transaction ID `W`, origin ledger sequence, and origin ledger hash in a reserved
@@ -195,10 +203,18 @@ control or defense in depth, but it is not a protocol prerequisite and cannot
 replace qC. Reserving such an entry reduces the validator committee that fits
 the target's 32-signer limit.
 
-Activating `featureExport` or `featureConsensusEntropy` switches proposal
-participants to extension-aware semantics. A proposal with no populated
-sidecar fields may still use the legacy 32-byte serialization, but that compact
-message does not restore legacy network semantics.
+Extension semantics are latched once per round from the exact consensus parent
+ledger. A ledger that activates `featureExport` or `featureConsensusEntropy`
+does not retroactively enable that extension in the same round; the following
+parent-enabled round does. `ttEXPORT`, `ttEXPORT_SIGNATURES`, share production,
+carriage, alignment, materialization, and ticket callbacks fail closed or
+become no-ops while Export is disabled; callbacks additionally require Import.
+Starting a disabled-parent round clears cached Export collector material and
+the accepted root so pre-activation evidence cannot cross the boundary.
+
+A proposal with no populated sidecar fields may still use the legacy 32-byte
+serialization, but that compact message is only a wire-format case and never
+restores legacy network semantics after either extension is active.
 
 **INV-11 - The destination trust claim is configuration-specific.**
 XRPL verifies ordinary keys and signatures, not Xahau finality, committee
