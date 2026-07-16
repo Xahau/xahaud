@@ -1719,7 +1719,7 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
     // Track the active RNG round explicitly. Nodes in observing/switching
     // mode can have a closed ledger index behind the consensus round while
     // still building that round's local RNG snapshots.
-    rngRoundSeq_ = seq;
+    buildingLedgerSeq_ = seq;
 
     auto map =
         std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
@@ -1783,7 +1783,7 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
 uint256
 ConsensusExtensions::buildEntropySet(LedgerIndex seq)
 {
-    rngRoundSeq_ = seq;
+    buildingLedgerSeq_ = seq;
 
     auto map =
         std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
@@ -1913,7 +1913,7 @@ ConsensusExtensions::hasPendingExportSigs() const
     auto const validated = app_.getLedgerMaster().getValidatedLedger();
     if (!validated)
         return false;
-    auto candidateSeq = rngRoundSeq_;
+    auto candidateSeq = buildingLedgerSeq_;
     if (!candidateSeq)
     {
         if (validated->info().seq == std::numeric_limits<LedgerIndex>::max())
@@ -1928,12 +1928,12 @@ ConsensusExtensions::hasPendingExportSigs() const
 }
 
 bool
-ConsensusExtensions::hasConsensusExportTxns() const
+ConsensusExtensions::hasEligiblePendingExports() const
 {
     auto const validated = app_.getLedgerMaster().getValidatedLedger();
     if (!validated)
         return false;
-    auto candidateSeq = rngRoundSeq_;
+    auto candidateSeq = buildingLedgerSeq_;
     if (!candidateSeq)
     {
         if (validated->info().seq == std::numeric_limits<LedgerIndex>::max())
@@ -2148,7 +2148,7 @@ ConsensusExtensions::clearRngStatePreservingExport()
     commitSetMap_.reset();
     entropySetMap_.reset();
     acceptedEntropySetHash_.reset();
-    rngRoundSeq_.reset();
+    buildingLedgerSeq_.reset();
     roundPrevLedgerHash_ = uint256{};
     observedParticipantsHash_.reset();
     observedParticipantsCount_ = 0;
@@ -2167,9 +2167,8 @@ ConsensusExtensions::clearRngState()
     //@@start round-stop-export-reset
     if (!exportEnabled())
     {
-        // Export disabled is an amendment boundary, not a retry boundary.
-        // Drop cached signatures so an emergency stop cannot leave old quorum
-        // material waiting for a later re-enable.
+        // Export disabled marks a pre-activation amendment boundary. Drop any
+        // locally cached material that cannot belong to an enabled ancestry.
         postValidationExportSigCollector_.clearAll();
     }
     exportSigSetMap_.reset();
@@ -2863,7 +2862,7 @@ ConsensusExtensions::onRoundStart(
     clearRngState();
 
     roundPrevLedgerHash_ = prevLedger.ledger_->info().hash;
-    rngRoundSeq_ = prevLedger.ledger_->info().seq + 1;
+    buildingLedgerSeq_ = prevLedger.ledger_->info().seq + 1;
     cacheUNLReport(prevLedger.ledger_);
     auto const validatorView = activeValidatorView();
     if (validatorView->sourceLedgerHash)
@@ -3142,11 +3141,11 @@ ConsensusExtensions::attachExportSignatures(
     auto const& keys = app_.getValidatorKeys();
     auto const validated = app_.getLedgerMaster().getValidatedLedger();
     if (!keys.keys || keys.nodeID == beast::zero || !validated ||
-        !validated->rules().enabled(featureExport) || !rngRoundSeq_ ||
+        !validated->rules().enabled(featureExport) || !buildingLedgerSeq_ ||
         proposal.prevLedger() != roundPrevLedgerHash_)
         return;
 
-    auto const live = pendingExportLatches(*validated, *rngRoundSeq_);
+    auto const live = pendingExportLatches(*validated, *buildingLedgerSeq_);
     auto const snapshot = postValidationExportSigCollector_.fullUnionSnapshot();
     std::size_t attached = 0;
     for (auto const& [origin, contributions] : snapshot)

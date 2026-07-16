@@ -164,7 +164,7 @@ private:
     // accept. Closed-ledger export apply may only consume the map root the
     // sidecar gate accepted for this round.
     std::optional<uint256> acceptedExportSigSetHash_;
-    std::optional<LedgerIndex> rngRoundSeq_;
+    std::optional<LedgerIndex> buildingLedgerSeq_;
     // Consensus parent ledger hash, pinned at round start. Input to the
     // Tier 1 consensus_fallback entropy digest.
     uint256 roundPrevLedgerHash_;
@@ -400,7 +400,7 @@ public:
     hasPendingExportSigs() const;
 
     bool
-    hasConsensusExportTxns() const;
+    hasEligiblePendingExports() const;
 
     void
     setExportSigConvergenceFailed();

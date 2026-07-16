@@ -567,7 +567,7 @@ struct FakeExtensions
     }
 
     bool
-    hasConsensusExportTxns() const
+    hasEligiblePendingExports() const
     {
         return livePendingExportLatches;
     }
@@ -2444,13 +2444,13 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         // The validated view remains D in both cases. Candidate D is the
         // inclusive final publication opportunity; candidate D+1 is expired.
-        ce.rngRoundSeq_ = deadline;
-        BEAST_EXPECT(ce.hasConsensusExportTxns());
+        ce.buildingLedgerSeq_ = deadline;
+        BEAST_EXPECT(ce.hasEligiblePendingExports());
         BEAST_EXPECT(ce.hasPendingExportSigs());
         BEAST_EXPECT(leafCount(ce.buildExportSigSet(deadline)) == 1);
 
-        ce.rngRoundSeq_ = deadline + 1;
-        BEAST_EXPECT(!ce.hasConsensusExportTxns());
+        ce.buildingLedgerSeq_ = deadline + 1;
+        BEAST_EXPECT(!ce.hasEligiblePendingExports());
         BEAST_EXPECT(!ce.hasPendingExportSigs());
         BEAST_EXPECT(leafCount(ce.buildExportSigSet(deadline + 1)) == 0);
     }

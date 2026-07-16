@@ -1263,7 +1263,7 @@ public:
         for (Peer const* peer : peers)
         {
             BEAST_EXPECT(peer->ce().lastExportSucceeded_);
-            BEAST_EXPECT(!peer->ce().lastExportRetried_);
+            BEAST_EXPECT(!peer->ce().lastExportDeferred_);
         }
     }
 
@@ -1301,7 +1301,7 @@ public:
         for (Peer const* peer : honest)
         {
             BEAST_EXPECT(peer->ce().lastExportSucceeded_);
-            BEAST_EXPECT(!peer->ce().lastExportRetried_);
+            BEAST_EXPECT(!peer->ce().lastExportDeferred_);
         }
         BEAST_EXPECT(!peers[0]->ce().lastExportSucceeded_);
     }
@@ -1357,7 +1357,7 @@ public:
                 peer->lastClosedLedger.consensusExtensionEffect() ==
                 witnessEffect);
             BEAST_EXPECT(peer->ce().lastExportSucceeded_);
-            BEAST_EXPECT(!peer->ce().lastExportRetried_);
+            BEAST_EXPECT(!peer->ce().lastExportDeferred_);
         }
 
         auto const witnesslessLedger = peers[0]->lastClosedLedger;
@@ -1372,7 +1372,7 @@ public:
         BEAST_EXPECT(
             witnesslessLedger.closeTime() == witnessLedger.closeTime());
         BEAST_EXPECT(!peers[0]->ce().lastExportSucceeded_);
-        BEAST_EXPECT(peers[0]->ce().lastExportRetried_);
+        BEAST_EXPECT(peers[0]->ce().lastExportDeferred_);
 
         hash_set<PeerID> alignedRootProposers;
         auto const positions =
@@ -1466,7 +1466,7 @@ public:
         for (Peer const* peer : honest)
         {
             BEAST_EXPECT(peer->ce().lastExportSucceeded_);
-            BEAST_EXPECT(!peer->ce().lastExportRetried_);
+            BEAST_EXPECT(!peer->ce().lastExportDeferred_);
         }
         BEAST_EXPECT(!peers[0]->ce().lastExportSucceeded_);
     }
@@ -1508,7 +1508,7 @@ public:
         for (Peer const* peer : peers)
         {
             BEAST_EXPECT(!peer->ce().lastExportSucceeded_);
-            BEAST_EXPECT(peer->ce().lastExportRetried_);
+            BEAST_EXPECT(peer->ce().lastExportDeferred_);
         }
     }
 
@@ -1573,7 +1573,7 @@ public:
         for (Peer const* peer : honest)
         {
             BEAST_EXPECT(!peer->ce().lastExportSucceeded_);
-            BEAST_EXPECT(peer->ce().lastExportRetried_);
+            BEAST_EXPECT(peer->ce().lastExportDeferred_);
         }
     }
 

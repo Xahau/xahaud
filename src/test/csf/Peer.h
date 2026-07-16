@@ -366,7 +366,7 @@ struct Peer
         bool lastEntropyWasFallback_ = true;
         EntropyTier lastEntropyTier_ = entropyTierNone;
         bool lastExportSucceeded_ = false;
-        bool lastExportRetried_ = false;
+        bool lastExportDeferred_ = false;
         std::optional<uint256> lastExportWitnessEffect_;
 
         // Optional test hook: force a specific commit-set hash
@@ -1008,7 +1008,7 @@ struct Peer
             if (!enableExportConsensus_)
             {
                 lastExportSucceeded_ = false;
-                lastExportRetried_ = false;
+                lastExportDeferred_ = false;
                 return;
             }
 
@@ -1028,7 +1028,7 @@ struct Peer
             }
 
             lastExportSucceeded_ = activeSigCount >= exportCommitteeThreshold();
-            lastExportRetried_ = !lastExportSucceeded_;
+            lastExportDeferred_ = !lastExportSucceeded_;
             if (lastExportSucceeded_ && acceptedExportSigSetHash_)
                 lastExportWitnessEffect_ = *acceptedExportSigSetHash_;
         }
@@ -1135,7 +1135,7 @@ struct Peer
             return enableExportConsensus_ && !pendingExportSigs_.empty();
         }
         bool
-        hasConsensusExportTxns() const
+        hasEligiblePendingExports() const
         {
             return enableExportConsensus_ && releasedExportOrigin_.has_value();
         }

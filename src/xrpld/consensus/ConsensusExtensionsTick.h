@@ -969,7 +969,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
 
         bool hasLocalExportSigs = ext.hasPendingExportSigs();
         //@@start export-sigset-material-wait
-        if (!hasLocalExportSigs && ext.hasConsensusExportTxns())
+        if (!hasLocalExportSigs && ext.hasEligiblePendingExports())
         {
             auto const peerSets = observedPeerExportSigSets(ctx.getPosition());
             if (peerSets > 0)
@@ -1002,7 +1002,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         << " peerSets=" << peerSets
                         << " elapsedMs=" << toMs(elapsed)
                         << " deadlineMs=" << toMs(deadline)
-                        << " action=retry-or-expire";
+                        << " action=wait-or-expire";
                 }
             }
             else
@@ -1034,7 +1034,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     << " buildSeq=" << ctx.buildSeq
                     << " elapsedMs=" << toMs(elapsed)
                     << " deadlineMs=" << toMs(deadline)
-                    << " action=retry-or-expire";
+                    << " action=wait-or-expire";
             }
         }
         //@@end export-sigset-material-wait
@@ -1207,7 +1207,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     JLOG(ext.j_.warn())
                         << "Export: exportSigSet quorum alignment timeout"
                         << " buildSeq=" << buildSeqExport
-                        << " action=retry-or-expire"
+                        << " action=wait-or-expire"
                         << " alignedParticipants="
                         << exportState.alignedParticipants()
                         << " quorum=" << exportQuorum
