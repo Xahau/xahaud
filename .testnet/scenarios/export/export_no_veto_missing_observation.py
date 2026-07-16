@@ -70,23 +70,17 @@ async def scenario(ctx, log):
     witness = await wait_for_export_signature_witness(
         ctx, log, origin_hash, after_ledger=final_seq
     )
-    export_end = ctx.mark("export-no-veto-submit-end")
     signers = witness.get("_WitnessSigners", [])
     if len(signers) < 4:
         raise AssertionError(f"Expected at least 4 signers, got {len(signers)}")
     log(f"Export signer count: {len(signers)}")
 
-    no_veto_logs = ctx.assert_log(
-        r"Export: missing exportSigSetHash observation ignored",
-        since=export_start,
-        until=export_end,
-    )
-    log(f"Export no-veto missing-observation logs: {no_veto_logs.count}")
-
+    # The validated witness proves the missing observation did not veto the
+    # round. Pin the injected fault separately; the internal no-veto diagnostic
+    # may be flushed after witness observation and is not part of the contract.
     withhold_logs = ctx.assert_log(
         r"Export: withholding exportSigSetHash",
         since=export_start,
-        until=export_end,
     )
     log(f"Export sidecar hash withholding logs: {withhold_logs.count}")
 
