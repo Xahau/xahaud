@@ -2269,9 +2269,9 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
-    testExportRejectsNoTicketSequence(FeatureBitset features)
+    testExportRejectsInvalidTicketSequence(FeatureBitset features)
     {
-        testcase("ttEXPORT rejects export without TicketSequence");
+        testcase("ttEXPORT requires a nonzero TicketSequence");
 
         using namespace jtx;
 
@@ -2298,6 +2298,10 @@ struct Export_test : public beast::unit_test::suite
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
         bindExportAuthority(env, jv);
 
+        env(jv, fee(XRP(1)), ter(temMALFORMED));
+
+        innerObj.setFieldU32(sfTicketSequence, 0);
+        jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
         env(jv, fee(XRP(1)), ter(temMALFORMED));
         env.close();
     }
@@ -2624,7 +2628,7 @@ struct Export_test : public beast::unit_test::suite
         testExportLatchLimit(allWithExport);
         testExportLatchLifecycle(allWithExport);
         testControlExportLatchViaTxn(allWithExport);
-        testExportRejectsNoTicketSequence(allWithExport);
+        testExportRejectsInvalidTicketSequence(allWithExport);
         testExportRejectsMissingLastLedgerSequence(allWithExport);
         testExportRejectsSignedInnerTransaction(allWithExport);
         testExportRejectsLongRetryWindow(allWithExport);

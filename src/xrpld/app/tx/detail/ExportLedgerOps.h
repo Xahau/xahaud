@@ -847,10 +847,11 @@ validateExportSigningFields(STTx const& stx, beast::Journal j)
 inline TER
 validateTicketSequence(STTx const& stx, beast::Journal j)
 {
-    if (!stx.isFieldPresent(sfTicketSequence))
+    if (!stx.isFieldPresent(sfTicketSequence) ||
+        stx.getFieldU32(sfTicketSequence) == 0)
     {
-        JLOG(j.warn())
-            << "ExportLedgerOps: exported tx must have sfTicketSequence";
+        JLOG(j.warn()) << "ExportLedgerOps: exported tx must have a nonzero "
+                          "sfTicketSequence";
         return temMALFORMED;
     }
 
