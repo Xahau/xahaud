@@ -4204,8 +4204,12 @@ DEFINE_HOOK_FUNCTION(int64_t, dice, uint32_t sides, uint32_t min_tier)
         for (std::size_t i = 0; i + sizeof(std::uint32_t) <= bytes.size();
              i += sizeof(std::uint32_t))
         {
-            std::uint32_t value;
-            std::memcpy(&value, bytes.data() + i, sizeof(std::uint32_t));
+            auto const* candidate = bytes.data() + i;
+            std::uint32_t const value =
+                (std::uint32_t{candidate[0]} << 24U) |
+                (std::uint32_t{candidate[1]} << 16U) |
+                (std::uint32_t{candidate[2]} << 8U) |
+                std::uint32_t{candidate[3]};
             if (value < acceptLimit)
                 return value % sides;
         }

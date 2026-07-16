@@ -230,7 +230,8 @@ entropyDigest, i)`. The counter is local to one Hook execution role and is
 post-incremented once when a draw stream passes snapshot admission; rejected
 arguments or entropy do not consume it. Further blocks are
 `sha512Half(previousBlock)`. `dice` rejects zero sides and uses deterministic
-32-bit rejection sampling rather than biased modulo reduction. `random` accepts
+unsigned big-endian 32-bit rejection sampling rather than biased modulo
+reduction. `random` accepts
 one through 512 requested bytes, rounds its internal generation length to a
 32-byte boundary, and writes only the requested prefix. Missing, malformed,
 future, older-than-one-ledger, or below-tier entropy makes either draw return

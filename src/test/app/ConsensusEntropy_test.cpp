@@ -30,6 +30,7 @@
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
 #include <algorithm>
+#include <limits>
 
 namespace ripple {
 namespace test {
@@ -55,6 +56,30 @@ standaloneContributorMask(std::uint16_t denominator, std::uint16_t count)
     for (std::uint16_t i = 0; i < std::min(denominator, count); ++i)
         mask[i / 8] |= static_cast<std::uint8_t>(1u << (i % 8));
     return mask;
+}
+
+std::uint32_t
+expectedDice(uint256 block, std::uint32_t sides)
+{
+    auto const sampleRange =
+        std::uint64_t{std::numeric_limits<std::uint32_t>::max()} + 1;
+    auto const acceptLimit = sampleRange - (sampleRange % sides);
+
+    for (;;)
+    {
+        for (std::size_t i = 0; i < block.size(); i += sizeof(std::uint32_t))
+        {
+            auto const* candidate = block.data() + i;
+            std::uint32_t const value =
+                (std::uint32_t{candidate[0]} << 24U) |
+                (std::uint32_t{candidate[1]} << 16U) |
+                (std::uint32_t{candidate[2]} << 8U) |
+                std::uint32_t{candidate[3]};
+            if (value < acceptLimit)
+                return value % sides;
+        }
+        block = sha512Half(Slice{block.data(), block.size()});
+    }
 }
 
 }  // namespace
@@ -208,6 +233,11 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             HSFEE);
         env.close();
 
+        auto const entropy = env.le(keylet::consensusEntropy());
+        BEAST_REQUIRE(entropy);
+        auto const entropyDigest = entropy->getFieldH256(sfDigest);
+        auto const drawLedgerSeq = env.current()->info().seq;
+
         // Invoke the hook
         Json::Value invoke;
         invoke[jss::TransactionType] = "Invoke";
@@ -222,10 +252,21 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         BEAST_REQUIRE(hookExecutions.size() == 1);
 
         auto const returnCode = hookExecutions[0].getFieldU64(sfHookReturnCode);
+        auto const firstBlock = sha512Half(
+            drawLedgerSeq,
+            env.tx()->getTransactionID(),
+            alice.id(),
+            hookExecutions[0].getFieldH256(sfHookHash),
+            alice.id(),
+            std::uint8_t{0},
+            std::string{"strong"},
+            std::string{"direct"},
+            entropyDigest,
+            std::uint64_t{0});
+        auto const expected = expectedDice(firstBlock, 6);
         std::cerr << "  dice(6) returnCode = " << returnCode << " (hex 0x"
                   << std::hex << returnCode << std::dec << ")\n";
-        // dice(6) returns 0..5
-        BEAST_EXPECT(returnCode <= 5);
+        BEAST_EXPECT(returnCode == expected);
 
         // Result should be 3 (accept)
         BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
