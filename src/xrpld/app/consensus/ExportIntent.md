@@ -22,6 +22,11 @@ account, destination TicketSequence, reserved origin Memo, and bounded timing
 fields. Successful apply creates a durable origin-keyed latch. It does not
 claim that signatures or a witness already exist.
 
+The target must be foreign. An explicit target `sfNetworkID` equal to the
+source network is rejected. When the source network itself uses transaction
+encoding without `sfNetworkID`, an absent target `sfNetworkID` is also rejected
+because it is ambiguous with self-targeting.
+
 The outer transaction's mandatory `sfLastLedgerSequence` bounds only intent
 admission. Successful admission starts a separate publication lifetime on the
 new latch; queue delay before admission never consumes that publication window.
@@ -92,9 +97,12 @@ duplicate, misplaced, unsupported, or oversized reserved Memos fail before
 signing.
 
 **INV-5 - Live manifests bind committee masters to signing keys.**
-The immutable roster names validator master identities. Live share production
-and admission use the manifest cache to map a concrete signing key to the
-master at its committee position. Missing or ambiguous attribution contributes
+The immutable roster names validator master identities. A local producer finds
+its position using its configured validator master key and signs with its
+configured current validation signing key. Every locally produced or remotely
+received share then passes the same admission path, where the live manifest
+cache must map that concrete signing key to the roster master at the claimed
+committee position. Missing, ambiguous, or mismatched attribution contributes
 no share. Manifests do not redefine the stored committee and are never read by
 accepted witness apply or historical replay.
 
@@ -244,6 +252,13 @@ witness. After it, no new witness material is eligible. Later paid Export work
 deterministically but lazily removes the expired pending-work link. Expiry does
 not revoke released signatures or erase the latch: owner reserve and callback
 readiness remain until symmetric completion or explicit erase.
+
+Hook emission is a first-class but separately bounded intent source. One Hook
+execution may reserve at most `maxExportsPerHook` exports (currently two), and
+those wrappers also consume the normal emitted-transaction allowance. An
+emitted `ttEXPORT` must carry an intent and reference a pre-existing committee
+digest; it cannot inline-create a committee roster. The protocol constant and
+the Hook ABI's `max_export` constant must remain equal.
 
 **INV-13 - Return callbacks remain owner-authorized Imports.**
 An XPOP whose proven target transaction carries `sfTicketSequence` takes the
