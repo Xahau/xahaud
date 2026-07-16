@@ -536,6 +536,16 @@ HookAPI::emit(Slice const& txBlob) const
 
     ripple::TxType txType = stpTrans->getTxnType();
 
+    // Export wrappers must flow through xport(), which applies the dedicated
+    // per-Hook cap and verifies the referenced account-owned committee before
+    // queueing the emitted transaction.
+    if (txType == ttEXPORT)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: Export wrappers require xport().";
+        return Unexpected(EMISSION_FAILURE);
+    }
+
     ripple::uint256 const& hookCanEmit = hookCtx.result.hookCanEmit;
     if (!hook::canEmit(txType, hookCanEmit))
     {

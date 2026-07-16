@@ -340,6 +340,25 @@ public:
             BEAST_EXPECT(result.error() == EMISSION_FAILURE);
         }
         {
+            // Export wrappers require xport() so they cannot bypass its
+            // committee check or per-Hook Export reservation.
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {
+                    .expected_etxn_count = 1,
+                    .nonce_used = {{uint256(0), true}},
+                });
+            auto& api = hookCtx.api();
+            auto const inner = makeExportedPayment(alice.id(), bob.id());
+            auto const wrapper = makeExportWrapper(alice.id(), inner);
+            auto const result = api.emit(wrapper.getSerializer().slice());
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            BEAST_EXPECT(hookCtx.result.emittedTxn.empty());
+            BEAST_EXPECT(hookCtx.export_count == 0);
+        }
+        {
             // HookCanEmit (non-SetHook)
             auto hookCtx = makeStubHookContext(
                 applyCtx,

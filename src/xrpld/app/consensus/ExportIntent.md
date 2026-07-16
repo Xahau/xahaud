@@ -263,7 +263,9 @@ execution may reserve at most `maxExportsPerHook` exports (currently two), and
 those wrappers also consume the normal emitted-transaction allowance. An
 emitted `ttEXPORT` must carry an intent and reference a pre-existing committee
 digest; it cannot inline-create a committee roster. The protocol constant and
-the Hook ABI's `max_export` constant must remain equal.
+the Hook ABI's `max_export` constant must remain equal. Generic `emit()` rejects
+`ttEXPORT`; Hook-created Export wrappers must use `xport()` so those accounting
+and committee-admission rules cannot be bypassed.
 
 **INV-13 - Return callbacks remain owner-authorized Imports.**
 An XPOP whose proven target transaction carries `sfTicketSequence` takes the
