@@ -118,7 +118,13 @@ def export_authority(
     if not active:
         if require_unl_report:
             raise AssertionError(f"UNLReport active universe unavailable: {report}")
-        active = [{}]
+        # The negative no-UNLReport scenario still needs a structurally valid
+        # explicit authority so consensus, rather than this helper, rejects
+        # the unavailable parent-ledger universe.
+        return {
+            "ExportUniverseHash": universe_hash,
+            "ExportCommittee": "01",
+        }
 
     active_keys = set()
     for entry in active:
