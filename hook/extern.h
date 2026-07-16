@@ -380,7 +380,7 @@ extern int64_t
 random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
 
 extern int64_t
-entropy_status();
+entropy_status(void);
 
 #ifdef __cplusplus
 }

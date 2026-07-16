@@ -221,7 +221,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_status();
+            extern int64_t entropy_status(void);
             #define ENTROPY_TIER(x) (((uint64_t)(x) >> 32U) & 0xFFU)
             #define ENTROPY_COUNT(x) (((uint64_t)(x) >> 16U) & 0xFFFFU)
             #define ENTROPY_DENOMINATOR(x) ((uint64_t)(x) & 0xFFFFU)
@@ -233,20 +233,25 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
                 if (status < 0)
                     return accept(0, 0, 13);
 
+                uint64_t expected =
+                    ((uint64_t)3 << 32U) | ((uint64_t)19 << 16U) | 20U;
+                if ((uint64_t)status != expected)
+                    return accept(0, 0, 14);
+
                 uint32_t tier = ENTROPY_TIER(status);
                 uint32_t count = ENTROPY_COUNT(status);
                 uint32_t denominator = ENTROPY_DENOMINATOR(status);
                 if (tier != 3 || count != 19 || denominator != 20)
-                    return accept(0, 0, 14);
+                    return accept(0, 0, 15);
 
                 // Common caller-side policies: tolerate one absent, require
                 // 4/5 participation, and require an absolute floor of 19.
                 if (tier < 2 || denominator - count > 1)
-                    return accept(0, 0, 15);
-                if ((uint64_t)5 * count < (uint64_t)4 * denominator)
                     return accept(0, 0, 16);
-                if (count < 19)
+                if ((uint64_t)5 * count < (uint64_t)4 * denominator)
                     return accept(0, 0, 17);
+                if (count < 19)
+                    return accept(0, 0, 18);
 
                 return accept(0, 0, 0);
             }
@@ -263,12 +268,11 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x63U, 0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x02U, 0x03U, 0x02U,
              0x01U, 0x03U, 0x05U, 0x03U, 0x01U, 0x00U, 0x01U, 0x07U, 0x08U,
              0x01U, 0x04U, 0x68U, 0x6FU, 0x6FU, 0x6BU, 0x00U, 0x03U, 0x0AU,
-             0x33U, 0x01U, 0x31U, 0x01U, 0x01U, 0x7EU, 0x41U, 0x01U, 0x41U,
+             0x2BU, 0x01U, 0x29U, 0x01U, 0x01U, 0x7EU, 0x41U, 0x01U, 0x41U,
              0x01U, 0x10U, 0x00U, 0x1AU, 0x41U, 0x00U, 0x41U, 0x00U, 0x42U,
              0x0DU, 0x42U, 0x0EU, 0x42U, 0x00U, 0x10U, 0x01U, 0x22U, 0x01U,
-             0x42U, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0x1FU, 0x83U, 0x42U,
-             0x94U, 0x80U, 0xCCU, 0x80U, 0x30U, 0x52U, 0x1BU, 0x20U, 0x01U,
-             0x42U, 0x00U, 0x53U, 0x1BU, 0x10U, 0x02U, 0x0BU,
+             0x42U, 0x94U, 0x80U, 0xCCU, 0x80U, 0x30U, 0x52U, 0x1BU, 0x20U,
+             0x01U, 0x42U, 0x00U, 0x53U, 0x1BU, 0x10U, 0x02U, 0x0BU,
          }},
 
         /* ==== WASM: 5 ==== */
@@ -277,7 +281,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t dice(uint32_t sides, uint32_t min_tier);
-            extern int64_t entropy_status();
+            extern int64_t entropy_status(void);
             #define ENTROPY_TIER(x) (((uint64_t)(x) >> 32U) & 0xFFU)
             #define ENTROPY_COUNT(x) (((uint64_t)(x) >> 16U) & 0xFFFFU)
             #define ENTROPY_DENOMINATOR(x) ((uint64_t)(x) & 0xFFFFU)
@@ -426,7 +430,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_status();
+            extern int64_t entropy_status(void);
 
             int64_t hook(uint32_t r)
             {
