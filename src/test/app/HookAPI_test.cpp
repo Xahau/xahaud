@@ -361,9 +361,8 @@ public:
                 BEAST_EXPECT(prepared.has_value());
                 if (!prepared)
                     continue;
-                auto const result = api.emit(Slice{
-                    prepared->data(),
-                    prepared->size()});
+                auto const result =
+                    api.emit(Slice{prepared->data(), prepared->size()});
                 BEAST_EXPECT(result.error() == EMISSION_FAILURE);
             }
             BEAST_EXPECT(hookCtx.result.emittedTxn.empty());

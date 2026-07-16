@@ -77,8 +77,8 @@ struct ExportLimits
     // them does not change the canonical per-share format.
     // version + AccountID + 2 hashes + ledger sequence + committee position +
     // compressed public key + one-byte VL prefix + maximum signature.
-    static constexpr std::size_t maxSerializedExportShareBytes = 1 + 20 + 32 +
-        4 + 32 + 2 + 33 + 1 + maxCanonicalExportSignatureBytes;
+    static constexpr std::size_t maxSerializedExportShareBytes =
+        1 + 20 + 32 + 4 + 32 + 2 + 33 + 1 + maxCanonicalExportSignatureBytes;
     static constexpr std::size_t maxExportSharesPerRelay = 32;
     static constexpr std::size_t maxExportShareRelayPayloadBytes =
         maxSerializedExportShareBytes * maxExportSharesPerRelay;

@@ -4205,8 +4205,7 @@ DEFINE_HOOK_FUNCTION(int64_t, dice, uint32_t sides, uint32_t min_tier)
              i += sizeof(std::uint32_t))
         {
             auto const* candidate = bytes.data() + i;
-            std::uint32_t const value =
-                (std::uint32_t{candidate[0]} << 24U) |
+            std::uint32_t const value = (std::uint32_t{candidate[0]} << 24U) |
                 (std::uint32_t{candidate[1]} << 16U) |
                 (std::uint32_t{candidate[2]} << 8U) |
                 std::uint32_t{candidate[3]};
