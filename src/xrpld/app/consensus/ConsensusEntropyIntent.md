@@ -268,16 +268,18 @@ version/capability negotiation before attempting a heterogeneous rollout.
 
 **INV-8 — No unbounded liveness dependency.**
 CE may deliberately hold accept while its bounded sub-state is open, but no
-sidecar wait is unbounded. Commit collection waits at most
-`rngPIPELINE_TIMEOUT`; on expiry it advances with a proofed cohort that meets the
-entropy gate or degrades toward fallback. An observed commit-root conflict gets
-at most `rngREVEAL_TIMEOUT` before reveal publication proceeds. Reveal
-collection gets at most `rngREVEAL_TIMEOUT` from entry into the reveal phase.
-After publishing a reveal root, the first tick is always an observation window;
-unresolved root conflict or insufficient positive alignment then gets at most
-`2 * rngREVEAL_TIMEOUT` before the accepted root is cleared and selection falls
-back. These deadlines may add bounded close latency, but CE must not convert any
-of them into an indefinite wait or a dependency on unanimity.
+sidecar wait is unbounded. Deadline predicates remain open through exact
+equality and transition on the first later tick. Commit collection compares
+total round time with `rngPIPELINE_TIMEOUT`; after that boundary it advances
+with a proofed cohort that meets the entropy gate or degrades toward fallback.
+An observed commit-root conflict uses its own timestamp and
+`rngREVEAL_TIMEOUT` before reveal publication proceeds. Reveal collection uses
+`rngREVEAL_TIMEOUT` from entry into the reveal phase. After publishing a reveal
+root, the first tick is always an observation window; unresolved root conflict
+or insufficient positive alignment then has a `2 * rngREVEAL_TIMEOUT` window
+before the accepted root is cleared and selection falls back. These deadlines
+may add bounded close latency, but CE must not convert any of them into an
+indefinite wait or a dependency on unanimity.
 *Enforced:* the fixed deadlines and fallback transitions in `extensionsTick`.
 
 **INV-9 — Live construction owns cardinality and first application.**
@@ -299,10 +301,12 @@ continues ordinary execution; the Hook freshness policy may then expose the
 previous-ledger snapshot. This degradation is explicit and must not silently
 become either fail-closed ledger construction or an unordered ordinary apply.
 
-Replay does not select entropy, recompute its salt, sanitize the persisted set,
-inject a replacement, or impose live first-application ordering. It applies the
-recorded transaction-index order so the closed ledger's bytes and state are
-reproduced exactly.
+The generic replay adaptor may execute entropy selection or salt calculation
+while reconstructing its consensus inputs, but those calculations do not
+rewrite replay authority. Replay does not sanitize the persisted set, inject a
+replacement, or impose live first-application ordering. It applies the recorded
+transaction-index order so the closed ledger's bytes and state are reproduced
+exactly.
 
 ## Known residuals (by design — not bugs)
 
