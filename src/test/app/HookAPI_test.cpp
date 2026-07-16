@@ -348,9 +348,6 @@ public:
                 alice.id(),
                 {
                     .expected_etxn_count = 1,
-                    .result = {
-                        .hookCanEmit = UINT256_BIT[ttEXPORT],
-                    },
                 });
             auto& api = hookCtx.api();
             auto const inner = makeExportedPayment(alice.id(), bob.id());
