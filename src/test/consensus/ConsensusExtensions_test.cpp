@@ -300,21 +300,11 @@ singleCanonicalTx(CanonicalTXSet const& txs)
 }
 
 uint256
-expectedEntropy(std::vector<std::pair<PublicKey, uint256>> contributions)
+expectedEntropy(
+    std::vector<std::pair<PublicKey, uint256>> const& orderedContributions)
 {
-    std::sort(
-        contributions.begin(),
-        contributions.end(),
-        [](auto const& a, auto const& b) {
-            if (a.first.slice() < b.first.slice())
-                return true;
-            if (b.first.slice() < a.first.slice())
-                return false;
-            return a.second < b.second;
-        });
-
     Serializer s;
-    for (auto const& [key, reveal] : contributions)
+    for (auto const& [key, reveal] : orderedContributions)
     {
         s.addVL(key.slice());
         s.addBitString(reveal);
@@ -1654,6 +1644,12 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         std::vector<std::pair<PublicKey, SecretKey>> validators;
         validators.push_back(randomKeyPair(KeyType::secp256k1));
         validators.push_back(randomKeyPair(KeyType::secp256k1));
+        std::sort(
+            validators.begin(),
+            validators.end(),
+            [](auto const& a, auto const& b) {
+                return a.first.slice() < b.first.slice();
+            });
         std::vector<PublicKey> activeKeys{
             validators[0].first, validators[1].first};
         auto const viewLedger = makeUNLReportLedger(env, activeKeys);
