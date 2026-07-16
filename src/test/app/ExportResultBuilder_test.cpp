@@ -355,7 +355,7 @@ public:
         BEAST_EXPECT(witness.getTxnType() == ttEXPORT_SIGNATURES);
         BEAST_EXPECT(witness.getFieldU32(sfLedgerSequence) == 654);
         BEAST_EXPECT(witness.getFieldH256(sfTransactionHash) == exportTxHash);
-        BEAST_EXPECT(witness.getFieldVL(sfEntropyContributors) == contributors);
+        BEAST_EXPECT(witness.getFieldVL(sfExportContributors) == contributors);
         BEAST_EXPECT(!witness.isFieldPresent(sfSigners));
 
         auto const& exported =
@@ -414,7 +414,7 @@ public:
             makeHash("d-attrib-export"), innerTx, signatures, 10, 654);
         Blob const expectedContributors{0x81, 0x02};
         BEAST_EXPECT(
-            witness.getFieldVL(sfEntropyContributors) == expectedContributors);
+            witness.getFieldVL(sfExportContributors) == expectedContributors);
 
         auto const serialized = witness.getSerializer();
         BEAST_EXPECT(
@@ -441,7 +441,7 @@ public:
         SerialIter iter{serialized.slice()};
         STTx roundTripped{std::ref(iter)};
         BEAST_EXPECT(
-            roundTripped.getFieldVL(sfEntropyContributors) ==
+            roundTripped.getFieldVL(sfExportContributors) ==
             expectedContributors);
         BEAST_EXPECT(
             roundTripped.getTransactionID() == witness.getTransactionID());
@@ -625,7 +625,7 @@ public:
 
         auto malformedBitmap = ExportResultBuilder::buildSignatureWitness(
             exportTxHash, innerTx, signatures, 2, 654);
-        malformedBitmap.setFieldVL(sfEntropyContributors, Blob{0x00});
+        malformedBitmap.setFieldVL(sfExportContributors, Blob{0x00});
         BEAST_EXPECT(
             !ExportResultBuilder::signaturesFromWitness(malformedBitmap));
 
@@ -725,7 +725,7 @@ public:
             STTx::maxMultiSigners());
         Blob const contributors(
             STTx::maxMultiSigners() / 8, std::uint8_t{0xFF});
-        BEAST_EXPECT(witness.getFieldVL(sfEntropyContributors) == contributors);
+        BEAST_EXPECT(witness.getFieldVL(sfExportContributors) == contributors);
         BEAST_EXPECT(innerBytes == 163);
         BEAST_EXPECT(multiSignedBytes == 4453);
         BEAST_EXPECT(selfContainedWitnessBytes == 3839);

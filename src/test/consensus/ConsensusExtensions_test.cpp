@@ -2651,7 +2651,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 origin, releaseTarget, material->signatures, committeeSize, 20);
             BEAST_EXPECT(!witness.isFieldPresent(sfSigners));
             BEAST_EXPECT(
-                witness.getFieldVL(sfEntropyContributors) == contributors);
+                witness.getFieldVL(sfExportContributors) == contributors);
             auto const& assembled =
                 witness.peekAtField(sfExportedTxn).downcast<STObject>();
             BEAST_EXPECT(!assembled.isFieldPresent(sfSigners));
@@ -2664,7 +2664,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             return MaterializedWitness{
                 acceptedHash,
                 material->signatures,
-                witness.getFieldVL(sfEntropyContributors),
+                witness.getFieldVL(sfExportContributors),
                 serialized.peekData(),
                 witness.getTransactionID()};
         };

@@ -184,8 +184,8 @@ Change::preflight(PreflightContext const& ctx)
         }
 
         if (!ctx.tx.isFieldPresent(sfExportedTxn) ||
-            !ctx.tx.isFieldPresent(sfEntropyContributors) ||
-            ctx.tx.getFieldVL(sfEntropyContributors).empty())
+            !ctx.tx.isFieldPresent(sfExportContributors) ||
+            ctx.tx.getFieldVL(sfExportContributors).empty())
         {
             JLOG(ctx.j.warn())
                 << "Change: ExportSignatures missing assembled witness";
@@ -416,7 +416,7 @@ Change::applyExportSignatures()
     if (!committee)
         return tefFAILURE;
 
-    auto const& contributors = ctx_.tx.getFieldVL(sfEntropyContributors);
+    auto const& contributors = ctx_.tx.getFieldVL(sfExportContributors);
     auto const contributorSet = validateValidatorBitset(
         makeSlice(contributors), committee->members.size());
     if (!contributorSet)

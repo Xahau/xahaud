@@ -170,7 +170,7 @@ buildSignatureWitness(
         obj.setFieldAmount(sfFee, STAmount{});
         obj.setFieldH256(sfTransactionHash, exportTxHash);
         obj.set(std::make_unique<STObject>(target));
-        obj.setFieldVL(sfEntropyContributors, witnessSignatures.contributors);
+        obj.setFieldVL(sfExportContributors, witnessSignatures.contributors);
         obj.setFieldArray(
             sfExportSigners, std::move(witnessSignatures.entries));
     });
@@ -181,7 +181,7 @@ signaturesFromWitness(STTx const& witness)
 {
     if (witness.getTxnType() != ttEXPORT_SIGNATURES ||
         !witness.isFieldPresent(sfExportedTxn) ||
-        !witness.isFieldPresent(sfEntropyContributors) ||
+        !witness.isFieldPresent(sfExportContributors) ||
         !witness.isFieldPresent(sfExportSigners))
         return std::nullopt;
 
@@ -194,7 +194,7 @@ signaturesFromWitness(STTx const& witness)
         !exported.getFieldVL(sfSigningPubKey).empty())
         return std::nullopt;
 
-    auto const& contributors = witness.getFieldVL(sfEntropyContributors);
+    auto const& contributors = witness.getFieldVL(sfExportContributors);
     auto const& entries = witness.getFieldArray(sfExportSigners);
     if (contributors.empty() ||
         contributors.size() > ExportLimits::maxCommitteeContributorBytes ||

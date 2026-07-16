@@ -232,6 +232,7 @@
 #define sfCredentialType ((7U << 16U) + 32U)
 #define sfEntropyContributors ((7U << 16U) + 33U)
 #define sfExportCommittee ((7U << 16U) + 34U)
+#define sfExportContributors ((7U << 16U) + 35U)
 #define sfHookName ((7U << 16U) + 97U)
 #define sfRemarkValue ((7U << 16U) + 98U)
 #define sfRemarkName ((7U << 16U) + 99U)

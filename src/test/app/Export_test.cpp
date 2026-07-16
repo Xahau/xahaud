@@ -159,7 +159,7 @@ struct Export_test : public beast::unit_test::suite
 
             BEAST_EXPECT(!witnessTx->isFieldPresent(sfSigners));
             BEAST_EXPECT(
-                witnessTx->getFieldVL(sfEntropyContributors) == Blob{0x01});
+                witnessTx->getFieldVL(sfExportContributors) == Blob{0x01});
             auto const& base =
                 witnessTx->peekAtField(sfExportedTxn).downcast<STObject>();
             auto const positioned =
@@ -899,7 +899,7 @@ struct Export_test : public beast::unit_test::suite
         if (!witness)
             return;
         BEAST_EXPECT(!witness->isFieldPresent(sfSigners));
-        BEAST_EXPECT(witness->getFieldVL(sfEntropyContributors) == Blob{0x01});
+        BEAST_EXPECT(witness->getFieldVL(sfExportContributors) == Blob{0x01});
         auto const& assembled =
             witness->peekAtField(sfExportedTxn).downcast<STObject>();
         BEAST_EXPECT(!assembled.isFieldPresent(sfSigners));
@@ -1542,7 +1542,7 @@ struct Export_test : public beast::unit_test::suite
 
         BEAST_EXPECT(!validWitness.isFieldPresent(sfSigners));
         BEAST_EXPECT(
-            validWitness.getFieldVL(sfEntropyContributors) == Blob{0x07});
+            validWitness.getFieldVL(sfExportContributors) == Blob{0x07});
         auto const& assembled =
             validWitness.peekAtField(sfExportedTxn).downcast<STObject>();
         BEAST_EXPECT(!assembled.isFieldPresent(sfSigners));
@@ -1597,7 +1597,7 @@ struct Export_test : public beast::unit_test::suite
                     witnessSeq);
 
             auto witness = validWitness;
-            auto contributors = witness.getFieldVL(sfEntropyContributors);
+            auto contributors = witness.getFieldVL(sfExportContributors);
             auto const removed = committeePositions.back();
             auto const removedBit =
                 static_cast<std::uint8_t>(1u << (removed % 8));
@@ -1621,7 +1621,7 @@ struct Export_test : public beast::unit_test::suite
                 case WitnessFault::wrongSignature:
                     Throw<std::logic_error>("handled Export witness fault");
             }
-            witness.setFieldVL(sfEntropyContributors, contributors);
+            witness.setFieldVL(sfExportContributors, contributors);
             return makeSTTx(witness);
         };
 
