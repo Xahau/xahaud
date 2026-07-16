@@ -546,6 +546,13 @@ read current manifests. Historical replay consumes the same witness bytes and
 committee SLE and never regenerates shares. An explicitly erased latch makes a
 concurrently ordered witness an evidence-only no-op.
 
+The witness is quorum-attested evidence, not a self-verifying archive of
+historical manifest bindings. Live admission proves each signing-key-to-master
+attribution before collector entry; validated witness inclusion records that
+the materializing validators performed that check. Replay can recheck the
+stored signatures, bitmap, qC, and immutable committee, but cannot reconstruct
+the historical manifest cache from witness bytes alone.
+
 The full release-stamped payload and signatures are stored once in the witness.
 The latch stores only `sfExportSignatureHash`. Read-time assembly uses the
 witness's target and signatures, empty `SigningPubKey`, canonical AccountID

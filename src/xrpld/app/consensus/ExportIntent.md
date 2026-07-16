@@ -110,6 +110,10 @@ derives size and qC, validates the contributor positions and every target
 signature, records the witness transaction ID on the latch, and removes the
 pending-work link. It does not consult mutable manifest state. Historical
 replay consumes the same bytes and parent state and never regenerates shares.
+The witness bytes therefore do not independently prove the historical
+master-to-signing-key bindings. Validated witness inclusion attests that live
+materializing validators checked those bindings before the witness entered the
+ledger; replay rechecks the durable signatures and committee-relative shape.
 
 **INV-8 - Store the signature evidence once.**
 The full release-stamped payload and signatures live in the witness transaction.
@@ -173,7 +177,9 @@ committee-relative sufficient signature set. The accepted sidecar root selects
 the material before injection; closed-ledger apply sees only transaction bytes
 and parent ledger state.
 
-The witness is not an XPOP-style proof that unmodified XRPL can interpret.
-Validated inclusion is the source-chain attestation. XPOP remains the reverse
-proof: it demonstrates that one assembled target transaction reached target
-finality and drives the Hook callback against the matching origin latch.
+The witness is not an XPOP-style proof that unmodified XRPL can interpret, nor
+is it a self-verifying archive of historical manifest state. Validated
+inclusion is the source-chain attestation that live membership attribution was
+checked. XPOP remains the reverse proof: it demonstrates that one assembled
+target transaction reached target finality and drives the Hook callback against
+the matching origin latch.
