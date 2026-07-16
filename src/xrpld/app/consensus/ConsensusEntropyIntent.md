@@ -131,6 +131,14 @@ transactions; legacy protocol pseudos remain included.
 *Enforced:* `makeLiveBuildTxSet` before ordering and `selectEntropy` fallback;
 the original consensus-set hash remains separate bookkeeping.
 
+Live transaction-set membership grants no authority to write extension state.
+Live-set preparation removes every supplied `ttCONSENSUS_ENTROPY` and
+`ttEXPORT_SIGNATURES` before computing the build-set hash or ordering salt, and
+`onPreBuild` removes them again before local derivation. Only accepted extension
+evidence may synthesize the live extension stream. Historical replay follows
+the opposite rule: it consumes persisted ordered bytes and never sanitizes or
+re-derives them.
+
 **INV-6 — Bounded, opt-in entropy quality.**
 Hooks state `min_tier` explicitly on every draw (no hidden network default).
 Entropy is served iff it is **fresh** (current or previous ledger) **and** meets
@@ -168,6 +176,30 @@ version/capability negotiation before attempting a heterogeneous rollout.
 Every sub-state has a bounded timeout with a deterministic downgrade. CE must
 never be the reason a round stalls once base consensus is itself making progress.
 *Enforced:* bounded reveal/entropy deadlines → fallback.
+
+**INV-9 — Live construction owns cardinality and first application.**
+When the parent-rule latch enables CE, live construction contains exactly one
+locally derived `ttCONSENSUS_ENTROPY`; when disabled it contains none. The
+selector always yields a digest, using `consensus_fallback` when necessary, so
+an enabled live build never skips injection. Re-derivation is reconstructive,
+not additive: supplied or previously derived extension pseudos are removed
+before the one canonical transaction is inserted with zero Account, Sequence,
+and Fee and `sfLedgerSequence` equal to the ledger being built. `BuildLedger`
+and `applyConsensusEntropy` are not duplicate detectors; the exactly-one
+guarantee belongs to live construction.
+
+In a live build, that sole pseudo is attempted once through the evolving view
+before every ordinary transaction. On success it writes the singleton with the
+current ledger sequence, and later Hook execution in that build observes the
+new value. If the first application fails, the builder records the failure and
+continues ordinary execution; the Hook freshness policy may then expose the
+previous-ledger snapshot. This degradation is explicit and must not silently
+become either fail-closed ledger construction or an unordered ordinary apply.
+
+Replay does not select entropy, recompute its salt, sanitize the persisted set,
+inject a replacement, or impose live first-application ordering. It applies the
+recorded transaction-index order so the closed ledger's bytes and state are
+reproduced exactly.
 
 ## Known residuals (by design — not bugs)
 
