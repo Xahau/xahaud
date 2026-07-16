@@ -2513,6 +2513,19 @@ struct Export_test : public beast::unit_test::suite
         // ── Back to Xahau: import the XPOP ────────────────────────────
         auto const feeDrops = xahau.current()->fees().base;
 
+        // A valid XPOP is not a permissionless callback capability. The
+        // normally authorized outer Import account must still match the
+        // target transaction account and latch owner.
+        xahau(
+            import::import(carol, callback.xpopJson),
+            fee(feeDrops * 10),
+            ter(temMALFORMED));
+        BEAST_EXPECT(xahau.current()->exists(
+            keylet::exportLatch(alice.id(), callback.originTxn)));
+        if (callback.vlInfo)
+            BEAST_EXPECT(
+                importVLSequence(xahau, callback.vlInfo->second) == 0);
+
         xahau(
             import::import(alice, callback.xpopJson),
             fee(feeDrops * 10),

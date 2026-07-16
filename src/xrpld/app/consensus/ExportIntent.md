@@ -185,6 +185,32 @@ window after ordinary transaction-set convergence, but timeout always permits
 base consensus to continue. Below-qC or unaligned work remains pending until
 witness, cancellation, explicit erase, or publication expiry.
 
+**INV-13 - Return callbacks remain owner-authorized Imports.**
+An XPOP whose proven target transaction carries `sfTicketSequence` takes the
+Export callback path only while both Import and Export are enabled. The outer
+Import is authorized normally, and its `sfAccount` must equal the proven target
+transaction's `sfAccount`, which Export admission already bound to the exporter
+and latch owner. Possession of an XPOP alone never authorizes another account's
+callback.
+
+The callback may omit the burn-to-mint `sfOperationLimit` and outer/inner
+signing-key-equality checks because the validator-multisigned target and Export
+latch replace those bindings. It still requires a fully canonical target
+signature and the ordinary Import proof: a recognized, currently valid
+validator list, its quorum validations, and the publisher-sequence
+anti-downgrade rule. A proved target `tes` or `tec` result may drive the
+callback; this reports final target execution, not only target success.
+
+The canonical reserved Memo must name this source domain, the target
+transaction's encoded domain, exact origin `W`, and an anchor sequence earlier
+than the callback ledger. The owner-keyed `(owner, W)` latch must exist and its
+stored origin sequence and normalized target digest must match. A future anchor
+or not-yet-visible latch returns retryable `telEXPORT_LATCH_REQUIRED`; malformed
+or mismatched identity is permanently malformed; a latch that already records
+XPOP returns `tecDUPLICATE`. Apply ratchets the accepted validator-list sequence
+before recording XPOP on the latch. It performs no burn-to-mint credit or
+account creation; the existing owner account's Hook observes the proved result.
+
 ## Replay Witness Shape
 
 `ttEXPORT_SIGNATURES` is a later-ledger protocol pseudo transaction. It is a
