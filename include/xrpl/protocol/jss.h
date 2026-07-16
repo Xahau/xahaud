@@ -311,7 +311,6 @@ JSS(expected_date_UTC);     // out: any (warnings)
 JSS(expected_ledger_size);  // out: TxQ
 JSS(expiration);            // out: AccountOffers, AccountChannels,
                             //      ValidatorList, amm_info
-JSS(export_signatures);     // in/out: Subscribe, NetworkOPs
 JSS(fail_hard);             // in: Sign, Submit
 JSS(failed);                // out: InboundLedger
 JSS(failed_ledgers);        // out: catalogue
