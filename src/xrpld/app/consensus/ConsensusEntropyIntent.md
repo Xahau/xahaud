@@ -39,9 +39,11 @@ the contributor bitmap. This is semantic separation, not a downgrade in
 consensus risk: once the bitmap is written into the pseudo-transaction, any
 disagreement on it is already a ledger-byte disagreement. The salt uses the
 entropy value and quality labels; the bitmap remains the accountability label.
-Local timeout or diagnostic state such as `entropyFailed_` must not override an
-accepted root at injection time; a node that never accepts a root falls back
-through the normal missing-accepted-root path.
+Root acceptance is provisional deliberation state until live injection. A
+bounded post-accept deadline may withdraw that root before selection; after
+selection receives a still-accepted matching root, local timeout or diagnostic
+state such as `entropyFailed_` must not override it. A node with no accepted
+root at injection falls back through the normal missing-accepted-root path.
 
 Non-fallback selection consumes the exact locally held SIDECAR map whose root
 equals `acceptedEntropySetHash_`. Every leaf must be content-addressed under
@@ -79,13 +81,14 @@ Local signals such as previous proposers, currently visible peer positions, or
 "quorum seems impossible from here" may influence logging, diagnostics, and
 bounded waits, but they must not short-circuit the gate while enough proofed
 sidecar material exists to continue toward non-fallback entropy.
-A node that cannot accept the entropy root by the bounded deadline may inject
+A node that cannot retain the entropy root through the bounded gate may inject
 `consensus_fallback` while the aligned quorum injects validator entropy. This is
 an accepted, validation-resolved lagging-node close result, not a selector
-determinism defect: an accepted root must win, and absence of an accepted root
-falls back. This residual can occur even when the node otherwise agreed on the
-pre-injection transaction set: CE is appended after base transaction-set
-consensus, so missing CE proposal material is its own close-time boundary.
+determinism defect: a root still accepted at injection must win, while a root
+withdrawn before injection is absent and falls back. This residual can occur
+even when the node otherwise agreed on the pre-injection transaction set: CE is
+appended after base transaction-set consensus, so missing CE proposal material
+is its own close-time boundary.
 This is a theoretical/reproduced-in-lab boundary, not a behavior observed on
 healthy testnets. CE reveal material rides the same proposal messages as the
 base transaction-set positions, so a node healthy enough to align on the tx set
@@ -142,20 +145,26 @@ resolves the bounded deadline edge.
 bounded deadline. *Anti-pattern:* requiring `fullObservation()` before ignoring a
 below-quorum conflict, which lets a minority equivocation recreate a veto.
 
-**INV-4A — Every counted reveal has an authenticated, frozen commitment.**
-Proposal sidecars are validator statements, so the proposal signature is
-verified before any commitment, reveal, or advertised sidecar root is harvested.
-Cluster-peer transport trust never substitutes for that signature check. Ingress
-also resolves the proposal signing key to the claimed active-view master
-`NodeID`; once a validator has a proofed commitment, that signing key is pinned
-against substitution for the remainder of the round. Every later contribution
-still passes the live manifest mapping first. A mid-round rotation may therefore
-make the old key's otherwise matching reveal inadmissible, while the new key
-cannot replace the proofed commitment; that contributor is omitted and the
-round may downgrade or fall back rather than retarget authority.
+**INV-4A — Every counted position is authenticated; every reveal is proofed.**
+Proposal sidecars are validator statements. Before a proposal position may enter
+the peer-position store, count toward root alignment, or contribute a commitment
+or reveal, its signature must verify and its signing key must resolve to the
+claimed active-view master `NodeID`. Cluster-peer transport trust never
+substitutes for either check. This authenticated active-view cohort is the only
+universe alignment and contribution counts may observe.
 
-A commitment qualifies only when it came from proposal sequence zero and has a
-self-contained proof of the signed `ExtendedPosition`. Its value is
+In this document, a *proofed commitment* is a commitment from proposal sequence
+zero accompanied by a self-contained serialized `ExtendedPosition` whose
+proposal signature and master/signing-key attribution have both verified. A bare
+commitment digest is not proofed. Once a validator has such a commitment, that
+signing key is pinned against substitution for the remainder of the round. Every
+later contribution still passes the live manifest mapping first. A mid-round
+rotation may therefore make the old key's otherwise matching reveal
+inadmissible, while the new key cannot replace the proofed commitment; that
+contributor is omitted and the round may downgrade or fall back rather than
+retarget authority.
+
+A proofed commitment's value is
 `sha512Half(reveal, proposalSigningKey, buildLedgerSequence)`. The commit
 snapshot contains only active validators with such a proof, and each leaf
 records master `NodeID`, signing key, commitment, build sequence, and serialized

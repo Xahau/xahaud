@@ -257,6 +257,14 @@ commit transport path.
 Commit quorum counts only proofed commits from active validators. A commit that
 cannot be emitted as a verifiable sidecar leaf does not count.
 
+Every proposal position used for commitment/reveal harvest or sidecar-root
+alignment has already passed proposal-signature verification and active-view
+master/signing-key attribution before entering consensus peer-position state.
+Cluster transport trust does not bypass that boundary. Here, *proofed* means a
+sequence-zero commitment accompanied by a self-contained serialized signed
+`ExtendedPosition` whose signature and attribution both verify; a bare digest is
+not a proofed commitment.
+
 Reveal collection targets all known committers, because the commit sidecar set
 defines who is expected to reveal. The reveal wait is still bounded. A node
 that crashes, withholds, or partitions after committing must not stop the
@@ -265,11 +273,12 @@ ledger forever.
 Final entropy is computed from the agreed entropy sidecar SHAMap, not from a
 node's opportunistic local `pendingReveals_` map. This prevents different
 local reveal subsets at timeout boundaries from producing different entropy.
-The accepted-hash latch is the ledger-material boundary: a node that misses the
-bounded observation window falls back instead of injecting from a local candidate
-map. That does not make accept-vs-timeout decisions global; it makes any
-non-fallback injection depend only on the sidecar root that this node accepted,
-with ordinary validation quorum resolving boundary timing.
+The accepted-hash latch is provisional until live injection: a later bounded
+gate deadline may clear it, after which selection falls back instead of reading
+a local candidate map. That does not make accept-vs-timeout decisions global;
+it makes any non-fallback injection depend only on a matching root that remains
+accepted at injection, with ordinary validation quorum resolving boundary
+timing.
 
 ## Entropy Alignment Rules
 
@@ -501,6 +510,15 @@ version/capability negotiation before activation.
 
 When `featureExport` is disabled, the export sidecar gate is disabled too. Stale
 collector entries must not keep a stopped amendment active.
+
+Hook-originated Export uses the same `ttEXPORT` admission path through a
+separately bounded lane. `xport_reserve()` consumes both the Hook Export budget
+and ordinary emission slots; `xport()` may reference only an already existing
+committee and generic `emit()` cannot emit `ttEXPORT`. Deferred emitted Export
+wrappers are capped in the emitted directory before the creating transaction
+commits. Owner-scoped `xport_cancel()` may control other latches, but refuses the
+exact latch being created by its enclosing Export or consumed after Hooks by its
+enclosing Import callback.
 
 Intent admission creates an origin-keyed `ltEXPORT_LATCH` immediately. The latch
 records the normalized identity digest, origin `W` and source sequence,

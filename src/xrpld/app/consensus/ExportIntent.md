@@ -265,7 +265,15 @@ emitted `ttEXPORT` must carry an intent and reference a pre-existing committee
 digest; it cannot inline-create a committee roster. The protocol constant and
 the Hook ABI's `max_export` constant must remain equal. Generic `emit()` rejects
 `ttEXPORT`; Hook-created Export wrappers must use `xport()` so those accounting
-and committee-admission rules cannot be bypassed.
+and committee-admission rules cannot be bypassed. Deferred emitted Export
+wrappers are also checked against the independent `maxPendingExports` emitted-
+directory cap before their creating transaction commits.
+
+Hook lifecycle control is owner-scoped. `xport_cancel()` refuses to control the
+exact latch being created by the current `ttEXPORT` or consumed after Hooks by
+the current `ttIMPORT` callback; those enclosing transactions own that latch
+transition. It may control a different latch owned by the Hook account under the
+ordinary retain-or-explicit-erase rules in INV-9.
 
 **INV-13 - Return callbacks remain owner-authorized Imports.**
 An XPOP whose proven target transaction carries `sfTicketSequence` takes the
