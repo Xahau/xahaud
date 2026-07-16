@@ -19,7 +19,6 @@
 
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/Ledger.h>
-#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
@@ -379,10 +378,7 @@ Change::applyExportSignatures()
 
     auto const account = signingPayload->getAccountID(sfAccount);
     auto const latchKey = keylet::exportLatch(account, origin);
-    auto parent = ctx_.replayParentLedger();
-    if (!parent)
-        parent = ctx_.app.getLedgerMaster().getLedgerByHash(
-            view().info().parentHash);
+    auto const parent = ctx_.replayParentLedger();
     if (!parent || parent->info().hash != view().info().parentHash)
         return tefBAD_LEDGER;
 

@@ -100,6 +100,7 @@ buildLedgerImpl(
 std::size_t
 applyTransactions(
     Application& app,
+    std::shared_ptr<Ledger const> const& parent,
     std::shared_ptr<Ledger const> const& built,
     CanonicalTXSet& txns,
     std::set<TxID>& failed,
@@ -109,7 +110,7 @@ applyTransactions(
     bool certainRetry = true;
     std::size_t count = 0;
 
-    ApplyOptions const applyOptions{};
+    ApplyOptions const applyOptions{parent};
 
     //@@start rng-entropy-first-application
     // CRITICAL: Apply consensus entropy pseudo-tx FIRST before any other
@@ -257,8 +258,8 @@ buildLedger(
             JLOG(j.debug())
                 << "Attempting to apply " << txns.size() << " transactions";
 
-            auto const applied =
-                applyTransactions(app, built, txns, failedTxns, accum, j);
+            auto const applied = applyTransactions(
+                app, parent, built, txns, failedTxns, accum, j);
 
             if (!txns.empty() || !failedTxns.empty())
                 JLOG(j.debug()) << "Applied " << applied << " transactions; "
