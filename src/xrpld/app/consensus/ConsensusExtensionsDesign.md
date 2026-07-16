@@ -257,13 +257,14 @@ commit transport path.
 Commit quorum counts only proofed commits from active validators. A commit that
 cannot be emitted as a verifiable sidecar leaf does not count.
 
-Every proposal position used for commitment/reveal harvest or sidecar-root
-alignment has already passed proposal-signature verification and active-view
-master/signing-key attribution before entering consensus peer-position state.
-Cluster transport trust does not bypass that boundary. Here, *proofed* means a
-sequence-zero commitment accompanied by a self-contained serialized signed
-`ExtendedPosition` whose signature and attribution both verify; a bare digest is
-not a proofed commitment.
+Every proposal signature is verified before its position enters consensus
+peer-position state; cluster transport trust does not bypass that boundary.
+Sidecar-root alignment then counts only stored positions whose captured master
+belongs to the active view, while commitment/reveal harvest additionally verifies
+the live signing-key-to-master attribution. Here, *proofed* means a sequence-zero
+commitment accompanied by a self-contained serialized signed `ExtendedPosition`
+whose signature and attribution both verify; a bare digest is not a proofed
+commitment.
 
 Reveal collection targets all known committers, because the commit sidecar set
 defines who is expected to reveal. The reveal wait is still bounded. A node

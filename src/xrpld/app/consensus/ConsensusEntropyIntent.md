@@ -150,12 +150,14 @@ bounded deadline. *Anti-pattern:* requiring `fullObservation()` before ignoring 
 below-quorum conflict, which lets a minority equivocation recreate a veto.
 
 **INV-4A — Every counted position is authenticated; every reveal is proofed.**
-Proposal sidecars are validator statements. Before a proposal position may enter
-the peer-position store, count toward root alignment, or contribute a commitment
-or reveal, its signature must verify and its signing key must resolve to the
-claimed active-view master `NodeID`. Cluster-peer transport trust never
-substitutes for either check. This authenticated active-view cohort is the only
-universe alignment and contribution counts may observe.
+Proposal sidecars are validator statements. A proposal signature must verify
+before its position enters the peer-position store; cluster-peer transport trust
+never substitutes for that check. Before a stored position may count toward root
+alignment, its captured master `NodeID` must belong to the active view. Before it
+may contribute a commitment or reveal, ingress additionally verifies that its
+signing key resolves to that active-view master. These authenticated,
+active-view-filtered cohorts are the only universes alignment and contribution
+counts may observe.
 
 In this document, a *proofed commitment* is a commitment from proposal sequence
 zero accompanied by a self-contained serialized `ExtendedPosition` whose
