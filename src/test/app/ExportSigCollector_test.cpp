@@ -199,7 +199,7 @@ public:
             ExportSigCollector::BeginResult::malformed);
 
         std::vector<std::uint8_t> oversized(
-            ExportSigCollector::maxSignatureBytes + 1, 0xAB);
+            ExportLimits::maxCanonicalExportSignatureBytes + 1, 0xAB);
         good.signature = Buffer{oversized.data(), oversized.size()};
         BEAST_EXPECT(
             collector.beginAttributedAdmission(w, good, 1).result ==

@@ -2061,7 +2061,8 @@ ConsensusExtensions::agreedExportWitness(
                 auto const data =
                     buildMultiSigningData(exportSigningPayload, signer);
                 if (signature.empty() ||
-                    signature.size() > ExportSigCollector::maxSignatureBytes ||
+                    signature.size() >
+                        ExportLimits::maxCanonicalExportSignatureBytes ||
                     !verify(key, data.slice(), makeSlice(signature)))
                 {
                     invalid = true;

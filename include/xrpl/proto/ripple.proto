@@ -184,12 +184,12 @@ message TMProposeSet
     optional uint32 hops                = 12    [deprecated=true];
 
     //@@start proposal-export-share-container-binding
-    // Export signatures for pending exports seen in the proposal set. The
-    // proposal's ExtendedPosition includes a digest of this repeated field, so
-    // these side-channel blobs are covered by the proposal signature.
-    // Each entry is: txnHash (32 bytes) + validator pubkey (33 bytes)
-    // + multisign signature (variable length). Validators attach these
-    // so export quorum can be reached within the same consensus round.
+    // Canonical post-validation ExportShare frames re-advertised for
+    // anti-entropy. The proposal's ExtendedPosition includes a digest of this
+    // repeated field, so the exact frames are covered by the proposal
+    // signature. Each frame carries its version, owner, origin transaction,
+    // origin ledger sequence and hash, committee position, signing key, and
+    // multisign signature.
     repeated bytes exportSignatures     = 13;
     //@@end proposal-export-share-container-binding
 }

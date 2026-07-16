@@ -63,24 +63,18 @@ struct ExportLimits
     // consuming the publication window.
     static constexpr std::uint32_t maxPublicationLedgers = 5;
 
-    // Maximum byte length of a single export-signature wire blob:
-    //   txHash(32) + validator pubkey(33) + multisign signature(<= 72).
-    // A fully-canonical secp256k1 signature is at most 72 bytes (ed25519 is
-    // 64), so 137 is the true upper bound for a well-formed entry. The proposal
-    // ingress path hashes these blobs BEFORE the proposal signature is
-    // verified, so bounding the per-blob size caps pre-auth hashing/copy work
-    // (DoS).
-    static constexpr std::size_t maxExportSignatureBytes = 32 + 33 + 72;
+    // A fully-canonical secp256k1 signature is at most 72 bytes; Ed25519 is 64.
+    static constexpr std::size_t maxCanonicalExportSignatureBytes = 72;
 
-    // Export-signature sidecar leaves wrap one export-signature blob in an
-    // STObject envelope. Keep this comfortably above the canonical encoding
-    // while bounding fetched, peer-supplied leaf bytes before parse/hash work.
+    // Export-signature sidecar leaves encode an origin, committee position,
+    // signing key, and signature in an STObject envelope. Keep this comfortably
+    // above the canonical encoding while bounding peer-supplied leaf bytes
+    // before parse/hash work.
     static constexpr std::size_t maxExportSignatureSidecarBytes = 256;
 
     // Post-validation relay framing. Values are deliberately conservative
     // local tuning knobs and require measurement before activation; changing
     // them does not change the canonical per-share format.
-    static constexpr std::size_t maxCanonicalExportSignatureBytes = 72;
     // version + AccountID + 2 hashes + ledger sequence + committee position +
     // compressed public key + one-byte VL prefix + maximum signature.
     static constexpr std::size_t maxSerializedExportShareBytes = 1 + 20 + 32 +

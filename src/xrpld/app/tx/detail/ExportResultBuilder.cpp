@@ -18,9 +18,6 @@ namespace ripple {
 namespace ExportResultBuilder {
 namespace {
 
-constexpr std::size_t maxTxnSignatureBytes =
-    ExportLimits::maxExportSignatureBytes - 32 - 33;
-
 struct BuiltWitnessSignatures
 {
     STArray entries;
@@ -46,7 +43,8 @@ buildWitnessSignatures(
     for (auto const& [position, witness] : signatures)
     {
         if (position >= committeeSize || witness.signature.empty() ||
-            witness.signature.size() > maxTxnSignatureBytes ||
+            witness.signature.size() >
+                ExportLimits::maxCanonicalExportSignatureBytes ||
             !signingKeys.insert(witness.signingKey).second ||
             !signerAccounts.insert(calcAccountID(witness.signingKey)).second)
             Throw<std::invalid_argument>("invalid Export witness signer");
@@ -235,7 +233,8 @@ signaturesFromWitness(STTx const& witness)
             return std::nullopt;
 
         auto const sigBlob = entry.getFieldVL(sfTxnSignature);
-        if (sigBlob.empty() || sigBlob.size() > maxTxnSignatureBytes)
+        if (sigBlob.empty() ||
+            sigBlob.size() > ExportLimits::maxCanonicalExportSignatureBytes)
             return std::nullopt;
 
         auto const [_, inserted] = signatures.emplace(

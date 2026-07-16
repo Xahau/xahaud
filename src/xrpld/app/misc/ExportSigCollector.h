@@ -108,7 +108,6 @@ public:
     static constexpr std::size_t maxTrackedOrigins = 4096;
     static constexpr std::uint32_t maxStaleLedgers = 256;
     static constexpr std::uint32_t maxReservationLedgers = 1;
-    static constexpr std::size_t maxSignatureBytes = 72;
 
 private:
     struct Reservation
@@ -220,7 +219,8 @@ public:
         if (origin.isZero() || currentSeq == 0 ||
             contribution.position >= ExportLimits::maxCommitteeMembers ||
             contribution.signature.empty() ||
-            contribution.signature.size() > maxSignatureBytes)
+            contribution.signature.size() >
+                ExportLimits::maxCanonicalExportSignatureBytes)
             return {BeginResult::malformed, std::nullopt};
 
         std::lock_guard lock(mutex_);
