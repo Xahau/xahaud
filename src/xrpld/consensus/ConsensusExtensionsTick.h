@@ -108,6 +108,7 @@ inspectTxConvergedSidecarPeers(
     PeerPositions const& peerPositions,
     Position const& pos,
     bool localIsMember,
+    bool localPublished,
     GetHash getHash,
     IsMember isMember,
     OnMismatch onMismatch)
@@ -125,8 +126,9 @@ inspectTxConvergedSidecarPeers(
     // universe N above originalViewSize and erodes the Tier-2 intersection
     // margin (2t - N) below the Byzantine floor f, breaking equivocation
     // uniqueness. Mirror buildEntropySet/hasQuorumOfCommits' containsNode
-    // filter, and only count our own +1 when this node is itself active.
-    state.localCounts = localIsMember;
+    // filter, and only count our own +1 when this node is active and actually
+    // published the root in a signed proposal.
+    state.localCounts = localIsMember && localPublished;
     for (auto const& [nodeId, peerPos] : peerPositions)
     {
         if (!isMember(nodeId))
@@ -552,27 +554,19 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         return {};
                     }
 
-                    // If conflict persists past a bounded wait, stop waiting
-                    // in the commit sub-state. The reveal gate still decides
-                    // the accepted root; selection falls back only if no
-                    // accepted root materializes.
-                    ext.setEntropyFailed();
-                    ext.freezeRngCommitSet();
-                    ext.estState_ = EstablishState::ConvergingReveal;
-                    // Backdate ext.revealPhaseStart_ so the ConvergingReveal
-                    // timeout path fires immediately next tick.
-                    ext.revealPhaseStart_ = nowSteady -
-                        ctx.parms.rngREVEAL_TIMEOUT -
-                        std::chrono::milliseconds{1};
-                    ext.commitHashConflictStart_ = {};
+                    // If conflict persists past the bounded grace period,
+                    // publish our reveal through the normal transition below.
+                    // A minority commit-root advertisement is not an entropy
+                    // veto: the fixed-view entropy-root gate decides whether a
+                    // qV-aligned reveal set exists and otherwise retains its
+                    // own bounded fallback deadline.
                     JLOG(ext.j_.warn())
                         << "RNG: commitSetHash conflict timeout"
                         << " buildSeq=" << buildSeq
                         << " elapsedMs=" << toMs(conflictElapsed)
                         << " deadlineMs=" << toMs(ctx.parms.rngREVEAL_TIMEOUT)
-                        << " action=advance-to-reveal-gate";
-                    logRngDiag("rng-commit-conflict-timeout-advance");
-                    return {};
+                        << " action=publish-reveal-defer-to-entropy-qv";
+                    logRngDiag("rng-commit-conflict-timeout-publish-reveal");
                 }
             }
 
@@ -725,6 +719,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             ctx.peerPositions,
                             pos,
                             ext.localIsActiveValidator(),
+                            ctx.mode == ConsensusMode::proposing,
                             [](auto const& position) {
                                 return position.entropySetHash;
                             },
@@ -1102,6 +1097,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         ctx.peerPositions,
                         pos,
                         ext.localIsActiveValidator(),
+                        ctx.mode == ConsensusMode::proposing,
                         [](auto const& position) {
                             return position.exportSigSetHash;
                         },

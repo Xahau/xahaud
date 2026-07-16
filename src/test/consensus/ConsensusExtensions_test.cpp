@@ -839,6 +839,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(detail::sidecarLocalContribution(true) == 1);
         BEAST_EXPECT(detail::sidecarLocalContribution(false) == 0);
         BEAST_EXPECT(detail::sidecarLocalContribution(true, true) == 1);
+        BEAST_EXPECT(detail::sidecarLocalContribution(true, false) == 0);
         BEAST_EXPECT(detail::sidecarLocalContribution(false, true) == 0);
         BEAST_EXPECT(detail::sidecarAlignedParticipants(2, true) == 3);
         BEAST_EXPECT(detail::sidecarAlignedParticipants(2, false) == 2);
@@ -866,6 +867,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             harness.peers,
             harness.position,
             true,
+            true,
             exportHashOf,
             allMembers,
             [&](auto const& hash) {
@@ -891,6 +893,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             harness.peers,
             harness.position,
             true,
+            false,
             exportHashOf,
             allMembers,
             [](auto const&) {});
@@ -915,6 +918,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             harness.peers,
             harness.position,
             true,
+            true,
             exportHashOf,
             allMembers,
             [](auto const&) {});
@@ -923,6 +927,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const filtered = detail::inspectTxConvergedSidecarPeers(
             harness.peers,
             harness.position,
+            true,
             true,
             exportHashOf,
             activeOnly,
@@ -936,6 +941,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             harness.peers,
             harness.position,
             false,
+            true,
             exportHashOf,
             activeOnly,
             [](auto const&) {});
@@ -974,6 +980,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             return detail::inspectTxConvergedSidecarPeers(
                 harness.peers,
                 harness.position,
+                true,
                 true,
                 exportHashOf,
                 allMembers,
@@ -3072,6 +3079,31 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testRngEntropyGateDoesNotCountUnpublishedObserverRoot()
+    {
+        testcase("RNG entropy gate excludes unpublished observer root");
+
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.exportOn = false;
+        ext.estState_ = EstablishState::ConvergingReveal;
+
+        ExtensionTickHarness harness;
+        harness.mode = ConsensusMode::observing;
+
+        auto result = harness.tick(ext);
+        BEAST_EXPECT(!result.readyForAccept);
+        BEAST_EXPECT(harness.position.entropySetHash == ext.entropyHash);
+        BEAST_EXPECT(harness.proposes == 0);
+
+        harness.addEntropyPeer(1, ext.entropyHash);
+        harness.addEntropyPeer(2, ext.entropyHash);
+        harness.addEntropyPeer(3, ext.entropyHash);
+        result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(!result.readyForAccept);
+    }
+
+    void
     testRngEntropyConflictAllowsQuorumDespiteMissingObservation()
     {
         testcase(
@@ -3308,15 +3340,16 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testRngCommitHashConflictTimeoutFallsBack()
+    testRngCommitHashConflictTimeoutPublishesReveal()
     {
-        testcase("RNG commit hash conflict timeout falls back");
+        testcase("RNG commit hash conflict timeout publishes reveal");
 
         FakeExtensions ext;
         ext.rngOn = true;
         ext.exportOn = false;
         ext.estState_ = EstablishState::ConvergingCommit;
         ext.commitHash = makeHash("commit-local");
+        ext.minimumReveals = false;
 
         ExtensionTickHarness harness;
         harness.start =
@@ -3334,9 +3367,19 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             ext,
             harness.parms.rngREVEAL_TIMEOUT + std::chrono::milliseconds{1});
         BEAST_EXPECT(!result.readyForAccept);
-        BEAST_EXPECT(ext.entropyFailed);
+        BEAST_EXPECT(!ext.entropyFailed);
         BEAST_EXPECT(ext.estState_ == EstablishState::ConvergingReveal);
         BEAST_EXPECT(ext.commitFrozen);
+        BEAST_EXPECT(ext.selfSeeds == 1);
+        BEAST_EXPECT(harness.position.myReveal == ext.getEntropySecret());
+        BEAST_EXPECT(!harness.position.entropySetHash);
+        BEAST_EXPECT(ext.entropyBuilds == 0);
+        BEAST_EXPECT(harness.updates == 1);
+        BEAST_EXPECT(harness.proposes == 1);
+        BEAST_EXPECT(
+            ext.revealPhaseStart_ ==
+            harness.start + harness.parms.rngREVEAL_TIMEOUT +
+                std::chrono::milliseconds{1});
         BEAST_EXPECT(
             ext.commitHashConflictStart_ ==
             std::chrono::steady_clock::time_point{});
@@ -3611,6 +3654,12 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(harness.position.exportSigSetHash == ext.exportHash);
         BEAST_EXPECT(harness.updates == 1);
         BEAST_EXPECT(harness.proposes == 0);
+
+        harness.addPeer(1, ext.exportHash);
+        harness.addPeer(2, ext.exportHash);
+        harness.addPeer(3, ext.exportHash);
+        result = harness.tick(ext, std::chrono::milliseconds{100});
+        BEAST_EXPECT(!result.readyForAccept);
     }
 
     void
@@ -4449,6 +4498,7 @@ public:
         testDecoratePositionSkipsWhenDisabled();
         testExportSigGateRequiresQuorumAlignment();
         testRngEntropyGateAllowsQuorumDespiteMissingObservation();
+        testRngEntropyGateDoesNotCountUnpublishedObserverRoot();
         testRngEntropyConflictAllowsQuorumDespiteMissingObservation();
         testRngFastPathWaitsAfterEntropyPublish();
         testRngPrevProposerUnderObservationDoesNotSuppressCommitQuorum();
@@ -4458,7 +4508,7 @@ public:
         testRngCommitTimeoutRejectsUnproofedCommits();
         testRngCommitQuorumInObservingModeDoesNotPropose();
         testRngCommitConflictRefreshesHashBeforeWaiting();
-        testRngCommitHashConflictTimeoutFallsBack();
+        testRngCommitHashConflictTimeoutPublishesReveal();
         testRngRevealTransitionWaitsWhenRevealsIncomplete();
         testRngRevealTimeoutWithoutRevealsFallsBack();
         testRngEntropyPublishIsIdempotent();

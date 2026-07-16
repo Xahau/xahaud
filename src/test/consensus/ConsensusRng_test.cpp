@@ -328,12 +328,12 @@ public:
     }
 
     void
-    testRngCommitSetConflictForcesFallback()
+    testRngCommitSetMinorityConflictCannotForceFallback()
     {
         using namespace csf;
         using namespace std::chrono;
 
-        testcase("RNG commitSet conflict forces fallback");
+        testcase("RNG commitSet minority conflict cannot force fallback");
 
         ConsensusParms const parms{};
         Sim sim;
@@ -345,8 +345,9 @@ public:
         peers.trustAndConnect(
             peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
 
-        // Keep tx-set convergence intact but force one peer to advertise a
-        // different commitSetHash so we exercise the conflict-only guard.
+        // Keep tx-set convergence and commit/reveal material intact, but force
+        // one peer to advertise a different commitSetHash. After bounded grace,
+        // honest peers must reveal and let the entropy-root qV resolve.
         peers[0]->ce().forcedCommitSetHash_ =
             sha512Half(std::string("forced-csf"));
 
@@ -356,8 +357,9 @@ public:
         {
             for (Peer const* peer : peers)
             {
-                BEAST_EXPECT(peer->ce().lastEntropyWasFallback_);
+                BEAST_EXPECT(!peer->ce().lastEntropyWasFallback_);
                 BEAST_EXPECT(peer->ce().lastEntropyDigest_ != uint256{});
+                BEAST_EXPECT(peer->ce().lastEntropyCount_ >= 4);
                 BEAST_EXPECT(
                     peer->ce().lastEntropyDigest_ ==
                     peers[0]->ce().lastEntropyDigest_);
@@ -1195,7 +1197,7 @@ public:
         RUN(testRngPersistentLossDoesNotShrinkQuorum);
         RUN(testRngTier2MintByBandCohort);
         RUN(testRngTimeoutWithPartialQuorum);
-        RUN(testRngCommitSetConflictForcesFallback);
+        RUN(testRngCommitSetMinorityConflictCannotForceFallback);
         RUN(testRngObserverDoesNotExpectSelfCommit);
         RUN(testRngIgnoresNonUNLData);
         RUN(testRngRejectsRevealWithoutCommit);
