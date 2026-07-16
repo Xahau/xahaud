@@ -2856,7 +2856,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         using namespace jtx;
         Env env{
-            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
         auto const seq = env.closed()->seq() + 1;
         auto const validatorKey = makeValidatorKeys().front();
 
@@ -2901,6 +2904,47 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(build.txns.id() == expected.id());
         BEAST_EXPECT(agreed.exists(suppliedEntropy->getTransactionID()));
         BEAST_EXPECT(agreed.exists(suppliedWitness->getTransactionID()));
+
+        auto const alternateAgreed = makeRCLTxSet(
+            env.app(),
+            {fee,
+             amendment,
+             negativeUNL,
+             makeConsensusEntropyTx(
+                 seq, makeHash("alternate-supplied-digest"), 3),
+             makeExportSignaturesTx(
+                 seq, makeHash("alternate-supplied-export-origin"))});
+        auto const alternateBuild = ce.makeLiveBuildTxSet(alternateAgreed);
+        BEAST_EXPECT(alternateAgreed.id() != agreed.id());
+        BEAST_EXPECT(alternateBuild.txns.id() == build.txns.id());
+
+        forceNonStandalone(env.app());
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        ConsensusExtensions derivation{env.app(), activeNoopJournal()};
+        ConsensusExtensions alternateDerivation{env.app(), activeNoopJournal()};
+        derivation.onRoundStart(RCLCxLedger{ledger}, {});
+        alternateDerivation.onRoundStart(RCLCxLedger{ledger}, {});
+        derivation.setRngEnabledThisRound(true);
+        alternateDerivation.setRngEnabledThisRound(true);
+
+        auto const salt = derivation.txnOrderingSalt(build.txns.id(), seq);
+        auto const alternateSalt =
+            alternateDerivation.txnOrderingSalt(alternateBuild.txns.id(), seq);
+        BEAST_EXPECT(alternateSalt == salt);
+
+        CanonicalTXSet derived{salt};
+        CanonicalTXSet alternateDerived{alternateSalt};
+        derivation.onPreBuild(derived, seq, build.txns.id());
+        alternateDerivation.onPreBuild(
+            alternateDerived, seq, alternateBuild.txns.id());
+        auto const derivedEntropy = singleCanonicalTx(derived);
+        auto const alternateEntropy = singleCanonicalTx(alternateDerived);
+        BEAST_EXPECT(derivedEntropy);
+        BEAST_EXPECT(alternateEntropy);
+        if (derivedEntropy && alternateEntropy)
+            BEAST_EXPECT(
+                derivedEntropy->getFieldH256(sfDigest) ==
+                alternateEntropy->getFieldH256(sfDigest));
     }
 
     void
