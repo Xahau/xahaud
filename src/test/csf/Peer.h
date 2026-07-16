@@ -433,6 +433,14 @@ struct Peer
         }
 
         bool
+        exportFinalizationViewAnchored() const
+        {
+            // CSF does not model ledger-backed UNLReport state. Its configured
+            // trust universe is the authoritative view for the simulation.
+            return true;
+        }
+
+        bool
         testSuppressExportSigSetHash() const
         {
             return false;
