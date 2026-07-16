@@ -58,6 +58,7 @@
 #include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/digest.h>
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <deque>
 #include <future>
@@ -1641,17 +1642,18 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             nullptr};
         forceNonStandalone(env.app());
 
-        std::vector<std::pair<PublicKey, SecretKey>> validators;
-        validators.push_back(randomKeyPair(KeyType::secp256k1));
-        validators.push_back(randomKeyPair(KeyType::secp256k1));
-        std::sort(
-            validators.begin(),
-            validators.end(),
-            [](auto const& a, auto const& b) {
-                return a.first.slice() < b.first.slice();
-            });
-        std::vector<PublicKey> activeKeys{
-            validators[0].first, validators[1].first};
+        std::array<std::uint8_t, 32> firstSecretBytes{};
+        std::array<std::uint8_t, 32> secondSecretBytes{};
+        firstSecretBytes.back() = 1;
+        secondSecretBytes.back() = 2;
+        SecretKey const firstSecret{firstSecretBytes};
+        SecretKey const secondSecret{secondSecretBytes};
+        auto const firstKey = derivePublicKey(KeyType::secp256k1, firstSecret);
+        auto const secondKey =
+            derivePublicKey(KeyType::secp256k1, secondSecret);
+        BEAST_EXPECT(firstKey.slice() < secondKey.slice());
+
+        std::vector<PublicKey> const activeKeys{firstKey, secondKey};
         auto const viewLedger = makeUNLReportLedger(env, activeKeys);
         auto const anchor = env.app().getLedgerMaster().getClosedLedger();
         auto const seq = anchor->info().seq + 1;
@@ -1665,27 +1667,48 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ce.onRoundStart(RCLCxLedger{anchor}, {});
         ce.cacheUNLReport(viewLedger);
         ce.setRngEnabledThisRound(true);
-
-        // Deliberately harvest in reverse signing-key order. The accepted
-        // entropy bytes must depend on canonical key/reveal order, not packet
-        // arrival or SHAMap traversal order.
-        for (std::size_t i : {std::size_t{1}, std::size_t{0}})
-        {
-            harvestCommitReveal(
-                ce,
-                calcNodeID(validators[i].first),
-                validators[i].first,
-                validators[i].second,
-                txSetHash,
-                seq,
-                closeTime,
-                anchor->info().hash,
-                reveals[i]);
-        }
+        harvestCommitReveal(
+            ce,
+            calcNodeID(firstKey),
+            firstKey,
+            firstSecret,
+            txSetHash,
+            seq,
+            closeTime,
+            anchor->info().hash,
+            reveals[0]);
+        harvestCommitReveal(
+            ce,
+            calcNodeID(secondKey),
+            secondKey,
+            secondSecret,
+            txSetHash,
+            seq,
+            closeTime,
+            anchor->info().hash,
+            reveals[1]);
         BEAST_EXPECT(ce.hasQuorumOfCommits());
         BEAST_EXPECT(ce.hasMinimumReveals());
 
         auto const entropySetHash = ce.buildEntropySet(seq);
+        BEAST_EXPECT(ce.entropySetMap_);
+        if (!ce.entropySetMap_)
+            return;
+
+        std::vector<PublicKey> traversal;
+        ce.entropySetMap_->visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                SerialIter sit{item->slice()};
+                STObject const sidecar{sit, sfGeneric};
+                traversal.emplace_back(
+                    makeSlice(sidecar.getFieldVL(sfSigningPubKey)));
+            });
+        BEAST_EXPECT(traversal.size() == 2);
+        if (traversal.size() != 2)
+            return;
+        BEAST_EXPECT(traversal[0] == secondKey);
+        BEAST_EXPECT(traversal[1] == firstKey);
+
         ce.acceptEntropySet(entropySetHash);
         CanonicalTXSet txs{makeHash("multi-contributor-entropy-salt")};
         ce.onPreBuild(txs, seq, txSetHash);
@@ -1695,12 +1718,12 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         if (!tx)
             return;
 
-        BEAST_EXPECT(tx->getTxnType() == ttCONSENSUS_ENTROPY);
+        uint256 canonicalDigest;
         BEAST_EXPECT(
-            tx->getFieldH256(sfDigest) ==
-            expectedEntropy(
-                {{validators[0].first, reveals[0]},
-                 {validators[1].first, reveals[1]}}));
+            canonicalDigest.parseHex("9C919A4A003154100E550CFC86FCF0731E7E95F43"
+                                     "C3F680E4FE2B16AD8D5AF84"));
+        BEAST_EXPECT(tx->getTxnType() == ttCONSENSUS_ENTROPY);
+        BEAST_EXPECT(tx->getFieldH256(sfDigest) == canonicalDigest);
         BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 2);
         BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 2);
         BEAST_EXPECT(tx->getFieldVL(sfEntropyContributors) == Blob{0x03});
@@ -2572,6 +2595,34 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app().validatorManifests().applyManifest(
                 makeValidatorManifest(masterSecret, signingSecret2, 2)) ==
             ManifestDisposition::accepted);
+
+        auto const pinnedProof = ce.commitProofs_.at(nodeId);
+        auto const retargetCommitSig = signPosition(
+            signingKey2,
+            signingSecret2,
+            commitPos,
+            1,
+            closeTime,
+            anchor->info().hash);
+        ce.harvestRngData(
+            nodeId,
+            signingKey2,
+            commitPos,
+            1,
+            closeTime,
+            anchor->info().hash,
+            Slice(retargetCommitSig.data(), retargetCommitSig.size()));
+
+        BEAST_EXPECT(ce.pendingCommits_.at(nodeId) == commitment);
+        BEAST_EXPECT(ce.nodeIdToKey_.at(nodeId) == signingKey1);
+        BEAST_EXPECT(ce.commitProofs_.at(nodeId).proposeSeq == 0);
+        BEAST_EXPECT(
+            ce.commitProofs_.at(nodeId).positionData ==
+            pinnedProof.positionData);
+        BEAST_EXPECT(
+            ce.commitProofs_.at(nodeId).signature == pinnedProof.signature);
+        BEAST_EXPECT(ce.proofedCommitCount() == 1);
+        BEAST_EXPECT(ce.hasQuorumOfCommits());
 
         ExtendedPosition revealPos{txSetHash};
         revealPos.myReveal = reveal;
