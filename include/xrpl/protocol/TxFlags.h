@@ -285,12 +285,6 @@ enum ExportFlags : uint32_t {
 constexpr std::uint32_t tfExportMask =
     ~(tfUniversal | tfExportEraseLatch | tfExportEraseCommittee);
 
-// ConsensusEntropy flags (used on ttCONSENSUS_ENTROPY SHAMap entries):
-enum ConsensusEntropyFlags : uint32_t {
-    tfEntropyCommit = 0x00000001,  // entry is a commitment in commitSet
-    tfEntropyReveal = 0x00000002,  // entry is a reveal in entropySet
-};
-// flag=0 (no tfEntropyCommit/tfEntropyReveal) = final injected pseudo-tx
 // clang-format on
 
 }  // namespace ripple
