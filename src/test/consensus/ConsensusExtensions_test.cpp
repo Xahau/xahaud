@@ -395,6 +395,7 @@ struct FakeExtensions
     bool localExportSigs{true};
     bool livePendingExportLatches{false};
     bool exportOn{true};
+    bool exportViewAnchored{true};
     bool entropyFailed{false};
     bool commitFrozen{false};
     std::size_t sidecarQuorum{4};
@@ -412,6 +413,7 @@ struct FakeExtensions
     std::deque<uint256> entropyHashSequence;
     int commitBuilds = 0;
     int exportBuilds = 0;
+    int acceptedExportClears = 0;
     int entropyBuilds = 0;
     int participantDiagnostics = 0;
     int selfSeeds = 0;
@@ -426,6 +428,12 @@ struct FakeExtensions
     exportEnabled() const
     {
         return exportOn;
+    }
+
+    bool
+    exportFinalizationViewAnchored() const
+    {
+        return exportViewAnchored;
     }
 
     bool
@@ -611,6 +619,7 @@ struct FakeExtensions
     void
     clearAcceptedExportSigSet()
     {
+        ++acceptedExportClears;
     }
 
     template <class PeerPositions>
@@ -4097,6 +4106,25 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExportSigGateSkipsWithoutAnchoredView()
+    {
+        testcase("Export sig gate skips without ledger-anchored view");
+
+        FakeExtensions ext;
+        ext.exportViewAnchored = false;
+        ExtensionTickHarness harness;
+
+        harness.addPeer(1, ext.exportHash);
+
+        auto const result = harness.tick(ext);
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(!ext.exportSigGateStarted_);
+        BEAST_EXPECT(!harness.position.exportSigSetHash);
+        BEAST_EXPECT(ext.exportBuilds == 0);
+        BEAST_EXPECT(ext.acceptedExportClears == 1);
+    }
+
+    void
     testParticipantDiagnosticsOnlyWhenExtensionEnabled()
     {
         testcase("Participant diagnostics only when extension enabled");
@@ -4886,6 +4914,7 @@ public:
         testExportSigGateRefreshesHashBeforeWaiting();
         testExportSigGateBoundsCandidateObservationWindow();
         testExportSigGateSkipsWhenExportDisabled();
+        testExportSigGateSkipsWithoutAnchoredView();
         testParticipantDiagnosticsOnlyWhenExtensionEnabled();
         testExportDisabledRoundClearsCollector();
         testValidatorKeylessAuthoringNoops();

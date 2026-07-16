@@ -388,6 +388,12 @@ public:
     bool
     exportEnabled() const;
 
+    /// Whether Export may use the current round's validator view to align and
+    /// materialize a witness. Standalone is deterministic locally; networked
+    /// operation requires the view to come from the parent UNLReport.
+    bool
+    exportFinalizationViewAnchored() const;
+
     bool
     testSuppressExportSigSetHash() const;
 

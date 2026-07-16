@@ -939,6 +939,21 @@ extensionsTick(Ext& ext, Ctx const& ctx)
         if (!ext.exportEnabled())
             return {.readyForAccept = true};
 
+        // Export admission already requires a nonempty parent UNLReport, and
+        // current ledger rules never erase or empty that report afterward, so
+        // this should be unreachable while an admitted latch is live. Keep the
+        // finalization boundary fail-closed in case report expiry or clearing
+        // semantics are introduced later: a config-derived view is node-local
+        // and cannot safely align a ledger-defining Export witness.
+        if (!ext.exportFinalizationViewAnchored())
+        {
+            ext.clearAcceptedExportSigSet();
+            JLOG(ext.j_.warn()) << "Export: skipping signature-set alignment"
+                                << " reason=no-unl-report"
+                                << " buildSeq=" << ctx.buildSeq;
+            return {.readyForAccept = true};
+        }
+
         auto startExportSigGate = [&]() -> bool {
             if (ext.exportSigGateStarted_)
                 return false;

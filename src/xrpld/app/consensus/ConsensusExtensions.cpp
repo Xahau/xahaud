@@ -1714,6 +1714,12 @@ ConsensusExtensions::exportEnabled() const
 }
 
 bool
+ConsensusExtensions::exportFinalizationViewAnchored() const
+{
+    return app_.config().standalone() || activeValidatorView()->fromUNLReport;
+}
+
+bool
 ConsensusExtensions::testSuppressExportSigSetHash() const
 {
     auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();
@@ -2544,7 +2550,7 @@ ConsensusExtensions::onPreBuild(
         //@@end rng-inject-pseudotx
     }
 
-    if (exportEnabled())
+    if (exportEnabled() && exportFinalizationViewAnchored())
     {
         //@@start export-later-ledger-witness-materialization
         // Standalone has no peer-position gate to build and accept a sidecar
@@ -2655,6 +2661,16 @@ ConsensusExtensions::onPreBuild(
             }
         }
         //@@end export-later-ledger-witness-materialization
+    }
+    else if (exportEnabled())
+    {
+        // Admission currently makes this unreachable for a live latch because
+        // UNLReport state persists in descendants. Retain the materialization
+        // guard so a future report-expiry or clearing rule cannot silently
+        // turn node-local configured trust into ledger-defining authority.
+        JLOG(j_.warn()) << "Export: skipping witness materialization"
+                        << " reason=no-unl-report"
+                        << " buildSeq=" << seq;
     }
 
     //@@start accept-time-cleanup-success
