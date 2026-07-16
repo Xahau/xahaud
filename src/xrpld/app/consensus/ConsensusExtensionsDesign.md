@@ -383,9 +383,10 @@ fallback-grade randomness must do so explicitly at the call site. Valid
 `INVALID_ARGUMENT`, while valid-but-unmet requirements return
 `TOO_LITTLE_ENTROPY`.
 
-`entropy_status(write_ptr, write_len)` writes the fixed five-byte big-endian
-tuple `(tier:u8, count:u16, denominator:u16)` and returns the metadata's ledger
-age. This lets Hook code implement policies such as one-absent tolerance,
+`entropy_status()` returns a packed non-negative scalar with tier in bits
+32..39, contributor count in bits 16..31, and denominator in bits 0..15.
+Negative values remain Hook API errors. This lets Hook code implement policies
+such as one-absent tolerance,
 proportional participation, or an absolute floor without widening the frozen
 draw API. It exposes no digest. Callers must classify tier before count or
 denominator arithmetic because fallback deliberately reports tier 1 and
@@ -393,9 +394,9 @@ denominator arithmetic because fallback deliberately reports tier 1 and
 
 Open-ledger hook execution is provisional. During speculative open-ledger
 execution, `dice()`/`random()` and `entropy_status()` can only use the previous
-ledger's finalized entropy (status age 1); final buildLCL execution sees the
-current ledger's entropy pseudo-tx after it updates the SLE (status age 0).
-Hooks that need final entropy must treat open-ledger RNG results as previews.
+ledger's finalized entropy; final buildLCL execution sees the current ledger's
+entropy pseudo-tx after it updates the SLE. Hooks that need final entropy must
+treat open-ledger RNG results as previews.
 
 The fallback digest derives from the agreed pre-injection tx set hash to avoid
 circularity, and entropy pseudo-tx deduplication is value-based: if the agreed

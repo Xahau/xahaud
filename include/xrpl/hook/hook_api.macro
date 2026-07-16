@@ -398,7 +398,7 @@ HOOK_API_DEFINITION(
   int64_t, random, (uint32_t, uint32_t, uint32_t),
   featureConsensusEntropy)
 
-// int64_t entropy_status(uint32_t write_ptr, uint32_t write_len);
+// int64_t entropy_status();
 HOOK_API_DEFINITION(
-  int64_t, entropy_status, (uint32_t, uint32_t),
+  int64_t, entropy_status, (),
   featureConsensusEntropy)

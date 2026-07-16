@@ -4266,38 +4266,17 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(
-    int64_t,
-    entropy_status,
-    uint32_t write_ptr,
-    uint32_t write_len)
+DEFINE_HOOK_FUNCTION(int64_t, entropy_status)
 {
     HOOK_SETUP();
-
-    constexpr std::size_t statusSize = 5;
-    if (write_len < statusSize)
-        return TOO_SMALL;
-
-    if (NOT_IN_BOUNDS(write_ptr, statusSize, memory_length))
-        return OUT_OF_BOUNDS;
 
     auto snapshot = readEntropySnapshot(view);
     if (std::holds_alternative<hook_api::hook_return_code>(snapshot))
         return std::get<hook_api::hook_return_code>(snapshot);
 
     auto const& entropy = std::get<EntropySnapshot>(snapshot);
-    std::array<std::uint8_t, statusSize> const status{
-        entropy.tier,
-        static_cast<std::uint8_t>(entropy.count >> 8),
-        static_cast<std::uint8_t>(entropy.count),
-        static_cast<std::uint8_t>(entropy.denominator >> 8),
-        static_cast<std::uint8_t>(entropy.denominator)};
-
-    if (!WasmEdge_ResultOK(WasmEdge_MemoryInstanceSetData(
-            memoryCtx, status.data(), write_ptr, status.size())))
-        return INTERNAL_ERROR;
-
-    return entropy.age;
+    return (std::uint64_t{entropy.tier} << 32U) |
+        (std::uint64_t{entropy.count} << 16U) | entropy.denominator;
 
     HOOK_TEARDOWN();
 }

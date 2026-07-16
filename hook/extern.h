@@ -361,9 +361,9 @@ xport_cancel(uint32_t read_ptr, uint32_t read_len, uint32_t flags);
       1 = consensus_fallback, 2 = participant_aligned,
       3 = validator_quorum, 4 = validator_full.
 
-    entropy_status writes five big-endian bytes:
-      tier:u8, count:u16, denominator:u16
-    and returns ledger age (0 current, 1 previous, >1 stale).
+    entropy_status returns a packed non-negative value:
+      bits 32..39 tier, 16..31 count, 0..15 denominator.
+    Check for a negative error before using the ENTROPY_* macros.
 
     Classify tier before count/denominator arithmetic: fallback is tier 1
     with count=denominator=0. Common policies are denominator-count <= 1,
@@ -380,7 +380,7 @@ extern int64_t
 random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
 
 extern int64_t
-entropy_status(uint32_t write_ptr, uint32_t write_len);
+entropy_status();
 
 #ifdef __cplusplus
 }

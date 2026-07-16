@@ -131,8 +131,8 @@ Hooks state `min_tier` explicitly on every draw (no hidden network default).
 Entropy is served iff it is **fresh** (current or previous ledger) **and** meets
 that class floor; otherwise the call **fails closed**
 (`TOO_LITTLE_ENTROPY`). `entropy_status()` separately exposes the stored tier,
-contributor count, denominator, and ledger age so hooks can impose proportional
-or absolute policies without freezing those policies into the host ABI.
+contributor count, and denominator so hooks can impose proportional or absolute
+policies without freezing those policies into the host ABI.
 Fallback is tier 1 with count/denominator `0/0`, so callers must classify tier
 before arithmetic. Draws are also domain-separated by the hook execution role
 that can share a transaction and hook hash: strong vs weak, callback vs direct

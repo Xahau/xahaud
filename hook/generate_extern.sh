@@ -50,9 +50,9 @@ APPLY_HOOK="$SCRIPT_DIR/../include/xrpl/hook/hook_api.macro"
                     print "      1 = consensus_fallback, 2 = participant_aligned,";
                     print "      3 = validator_quorum, 4 = validator_full.";
                     print "";
-                    print "    entropy_status writes five big-endian bytes:";
-                    print "      tier:u8, count:u16, denominator:u16";
-                    print "    and returns ledger age (0 current, 1 previous, >1 stale).";
+                    print "    entropy_status returns a packed non-negative value:";
+                    print "      bits 32..39 tier, 16..31 count, 0..15 denominator.";
+                    print "    Check for a negative error before using the ENTROPY_* macros.";
                     print "";
                     print "    Classify tier before count/denominator arithmetic: fallback is tier 1";
                     print "    with count=denominator=0. Common policies are denominator-count <= 1,";
