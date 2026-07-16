@@ -1032,16 +1032,6 @@ ConsensusExtensions::exportWitnessThreshold(
     return safeQuorumThreshold(validatorView.size());
 }
 
-bool
-ConsensusExtensions::exportAuthorityFitsTargetSignerCap(
-    ActiveValidatorView const& validatorView,
-    std::size_t targetSignerCap)
-{
-    // NegativeUNL is temporary. The destination signer policy must be able to
-    // represent every validator that can return to the effective source view.
-    return validatorView.originalViewSize <= targetSignerCap;
-}
-
 std::size_t
 ConsensusExtensions::tier2Threshold() const
 {

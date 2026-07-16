@@ -1198,32 +1198,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testExportAuthorityCapUsesOriginalView()
-    {
-        testcase("Export authority cap uses original validator view");
-
-        auto const targetCap = STTx::maxMultiSigners();
-        std::vector<PublicKey> activeKeys;
-        activeKeys.reserve(targetCap + 1);
-        while (activeKeys.size() <= targetCap)
-            activeKeys.push_back(randomKeyPair(KeyType::secp256k1).first);
-
-        ActiveValidatorViewSource source;
-        source.sourceLedgerHash = makeHash("export-authority-cap");
-        source.unlReportMasterKeys.emplace(
-            activeKeys.begin(), activeKeys.end());
-        source.negativeUNLEnabled = true;
-        source.negativeUNL.insert(activeKeys.front());
-
-        auto const view =
-            buildActiveValidatorView(source, ActiveValidatorViewFallback{});
-        BEAST_EXPECT(view.originalViewSize == targetCap + 1);
-        BEAST_EXPECT(view.size() == targetCap);
-        BEAST_EXPECT(!ConsensusExtensions::exportAuthorityFitsTargetSignerCap(
-            view, targetCap));
-    }
-
-    void
     testActiveValidatorViewNullSourceAndExpectedProposers()
     {
         testcase("Active validator view null source and expected proposers");
@@ -4359,7 +4333,6 @@ public:
         testActiveValidatorViewBuilderFallback();
         testActiveValidatorViewAppliesNegativeUNL();
         testActiveValidatorViewCapsNegativeUNL();
-        testExportAuthorityCapUsesOriginalView();
         testActiveValidatorViewNullSourceAndExpectedProposers();
         testParticipantThreshold();
         testThresholdPolicyHelpers();
