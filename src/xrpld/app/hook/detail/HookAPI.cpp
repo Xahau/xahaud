@@ -552,7 +552,7 @@ HookAPI::emit(Slice const& txBlob) const
      * 3. sfEmitDetails present and valid
      * 4. No sfTxnSignature
      * 5. LastLedgerSeq > current ledger, > firstledgerseq & bounded by the
-     *    export retry window.
+     *    export admission window.
      * 6. FirstLedgerSeq > current ledger
      * 7. Fee must be correctly high
      * 8. The generation cannot be higher than 10

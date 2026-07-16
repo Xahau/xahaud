@@ -42,6 +42,9 @@ entropy value and quality labels; the bitmap remains the accountability label.
 Local timeout or diagnostic state such as `entropyFailed_` must not override an
 accepted root at injection time; a node that never accepts a root falls back
 through the normal missing-accepted-root path.
+Apply rejects a `ttCONSENSUS_ENTROPY` whose `sfLedgerSequence` does not equal
+the ledger being built; persisted metadata therefore cannot claim a different
+source ledger than the transaction that wrote it.
 *Enforced:* `selectEntropy`, the `acceptedEntropySetHash_` gate, and the
 accepted-root authority test. *Anti-pattern:* reading live
 `pendingReveals_`/collector state at injection time, re-evaluating contributor
@@ -136,25 +139,30 @@ that class floor; otherwise the call **fails closed**
 contributor count, and denominator so hooks can impose proportional or absolute
 policies without freezing those policies into the host ABI.
 Fallback is tier 1 with count/denominator `0/0`, so callers must classify tier
-before arithmetic. Draws are also domain-separated by the hook execution role
-that can share a transaction and hook hash: strong vs weak, callback vs direct
-dispatch, and hook chain position.
+before arithmetic. The `validator_full` label is structurally valid only when
+`EntropyCount == EntropyDenominator`; the contributor bitmap independently must
+have exactly that population over the denominator-sized view. Draws are also
+domain-separated by the hook execution role that can share a transaction and
+hook hash: strong vs weak, callback vs direct dispatch, and hook chain position.
 *Enforced:* `fairRng` tier/freshness gate and metadata-only `entropy_status`.
 
 **INV-7 — Inert when un-amended.**
 With `featureConsensusEntropy` off, no RNG sidecar state is consensus-visible and
-proposal bytes remain byte-identical to base XRPL.
-*Enforced:* per-round enable latch snapshotted from the *parent ledger's* rules;
-`ExtendedPosition` serializes to exactly the legacy 32-byte tx-set hash when no
-sidecar fields are set.
+CE itself adds no proposal bytes. Export may independently use the same extended
+proposal envelope when `featureExport` is active.
+*Enforced:* the CE per-round enable latch is snapshotted from the *parent
+ledger's* rules; `ExtendedPosition` serializes to exactly the legacy 32-byte
+tx-set hash only when neither feature has populated a sidecar field.
 
-**Rollout note:** after `featureConsensusEntropy` is enabled, live proposals may
-carry a serialized `ExtendedPosition` in the legacy `currenttxhash` protobuf
-field. That is a proposal wire-format dependency, not a sidecar-fetch
-dependency. Older binaries that only accept a 32-byte `currenttxhash` are not
-compatible proposal participants after activation; operators must upgrade the
-proposal-processing network first, or add explicit version/capability
-negotiation before attempting a heterogeneous rollout.
+**Rollout note:** enabling `featureConsensusEntropy` or `featureExport` switches
+the network to extension-aware proposal semantics. An individual proposal with
+no populated sidecar fields still serializes to the legacy 32-byte tx-set hash,
+but live proposals may instead carry a serialized `ExtendedPosition` in the
+legacy `currenttxhash` protobuf field. This is a proposal wire-format dependency,
+not a sidecar-fetch dependency. Older binaries that only accept a 32-byte
+`currenttxhash` are not compatible proposal participants after activation;
+operators must upgrade the proposal-processing network first, or add explicit
+version/capability negotiation before attempting a heterogeneous rollout.
 
 **INV-8 — No unbounded liveness dependency.**
 Every sub-state has a bounded timeout with a deterministic downgrade. CE must
@@ -166,12 +174,16 @@ never be the reason a round stalls once base consensus is itself making progress
 These are deliberate properties, documented so a future reader doesn't "fix" them
 into an INV violation:
 
-- **Commit/reveal withholding bias** of up to one bit per withholder exists on
-  **all** tiers, not just fallback; colluding withholders near a threshold can
-  force a downgrade. It is **bounded and labeled, not eliminated.** True
-  unbiasability would require a VRF / threshold-BLS construction (out of scope).
-  The accountability lever for *persistent* withholding is validator scoring /
-  NegativeUNL, **not** weakening any gate above (that would violate INV-2..INV-4).
+- **Commit/reveal withholding bias** of up to one bit per withholder applies to
+  accepted non-full reveal sets: a withholder can choose whether its contribution
+  is included, and colluding withholders near a threshold can force a downgrade
+  or fallback. `validator_full` removes that in-vs-out slack within a successful
+  tier-4 result: every active validator contributed, although a withholder can
+  still force downgrade or make a tier-4-requiring hook fail. The behavior is
+  **bounded and labeled, not eliminated.** True unbiasability would require a VRF
+  / threshold-BLS construction (out of scope). The accountability lever for
+  *persistent* withholding is validator scoring / NegativeUNL, **not** weakening
+  any gate above (that would violate INV-2..INV-4).
 - **Fallback (tier 1) is user-influenceable** (a quiet-ledger submitter can grind
   the tx set). That is why it is a distinct labeled tier hooks must opt into, and
   never suitable for value-bearing outcomes.

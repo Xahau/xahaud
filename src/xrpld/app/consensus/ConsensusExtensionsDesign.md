@@ -25,10 +25,10 @@ the same safe fallback. RNG closes with a deterministic consensus-bound fallback
 digest (Tier 1) in either of two cases: (1) when peers cannot establish an
 accepted participant_aligned or validator_quorum entropy set in time, or (2)
 whenever the round's active validator view is not UNLReport-backed — no on-ledger
-`UNLReport`, e.g. early ledgers or config-trusted dev/test networks — regardless
-of how well peers aligned, because a config-derived view can differ between nodes
-and yield divergent tier labels for the same entropy set (see Entropy Alignment
-Rules). Either way every input to the fallback
+`UNLReport`, e.g. early ledgers or config-trusted non-standalone test networks —
+regardless of how well peers aligned, because a config-derived view can differ
+between nodes and yield divergent tier labels for the same entropy set (see
+Entropy Alignment Rules). Either way every input to the fallback
 (`HashPrefix::entropyFallback`, parent ledger hash, base tx set hash,
 sequence) is already consensus-agreed at injection time, so no second
 agreement is needed. The result is explicitly labeled
@@ -277,8 +277,9 @@ Non-fallback entropy tiers require a UNLReport-anchored active view. A
 non-standalone node mints only `consensus_fallback` (Tier 1) when the round's
 active view is not built from an on-ledger `UNLReport` (`!fromUNLReport`),
 regardless of how well peers aligned, because a config-derived view can differ
-between nodes and yield divergent tier labels for the same set. (Standalone/dev
-nodes are a separate exception that synthesize validator_quorum entropy.)
+between nodes and yield divergent tier labels for the same set. (Standalone
+nodes are a test-harness exception with configurable synthetic metadata,
+defaulting to `validator_full` with count/denominator `20/20`.)
 Everything below assumes a UNLReport-anchored view.
 
 Two distinct counts are involved; keep them separate.
@@ -406,7 +407,7 @@ hash to avoid circularity and synthetic-input authority. Sanitization removes
 only supplied `ttCONSENSUS_ENTROPY` and `ttEXPORT_SIGNATURES` transactions;
 legacy fee, amendment, NegativeUNL, and other protocol pseudos remain ordinary
 members of the agreed set. Supplied extension pseudos are discarded and logged
-as an invariant violation before they can influence fallback entropy,
+as errors before they can influence fallback entropy,
 transaction ordering, or ledger state, then the canonical synthetic stream is
 derived from accepted extension evidence. The original agreed-set hash remains
 the consensus-bookkeeping value carried by validations. Historical replay is
@@ -417,7 +418,10 @@ order, including its recorded synthetic transactions, without regeneration.
 
 Sidecar SHAMaps are local immutable snapshots:
 
-- Every entry must have been harvested from a trusted signed proposal path.
+- RNG entries and proposal-carried Export entries must have been harvested from
+  trusted signed proposals. Direct Export relay entries instead pass the same
+  validated-origin, manifest-attribution, and target-signature admission checks
+  before entering the collector.
 - Snapshot roots may be signed into `ExtendedPosition` for peer observation.
 - Peer-advertised roots are alignment evidence, not payload availability.
 - Nodes never fetch, advertise, serve, or merge sidecar maps from peers.
@@ -483,15 +487,17 @@ The extended proposal machinery is enabled when either feature needs signed
 sidecar fields. Do not make Export depend on RNG availability just because RNG
 was the first consumer of `ExtendedPosition`.
 
-Rollout invariant: once a network enables `featureConsensusEntropy`, proposal
-messages may use the legacy `currenttxhash` protobuf field to carry a serialized
-`ExtendedPosition`, not just a raw 32-byte transaction-set hash. This is a
-proposal wire-format change, not a sidecar-reconciliation detail. Disabling
+Rollout invariant: enabling `featureConsensusEntropy` or `featureExport`
+switches the network to extension-aware proposal semantics. An individual
+proposal with no populated sidecar fields still serializes to the legacy
+32-byte tx-set hash, but live proposal messages may instead use the legacy
+`currenttxhash` protobuf field to carry a serialized `ExtendedPosition`. This is
+a proposal wire-format change, not a sidecar-reconciliation detail. Disabling
 sidecar fetch/reconciliation does not restore compatibility with older binaries
-that require `currenttxhash` to be exactly 32 bytes. A network that activates CE
-therefore needs every binary expected to process live proposals to understand
-the extended position format, or it needs explicit version/capability
-negotiation before activation.
+that require `currenttxhash` to be exactly 32 bytes. A network that activates
+either extension therefore needs every binary expected to process live
+proposals to understand the extended position format, or it needs explicit
+version/capability negotiation before activation.
 
 When `featureExport` is disabled, the export sidecar gate is disabled too. Stale
 collector entries must not keep a stopped amendment active.
@@ -527,9 +533,10 @@ missing binding is deferred or rejected; it never silently selects another
 member.
 
 The dedicated `mtEXPORT_SHARES` relay is the immediate post-validation flood and
-subscription path. Proposal carriage republishes locally retained shares as a
-bounded authenticated backup. Both feed the same collector and verification
-logic. Proposal-carried material is still untrusted until the proposal and share
+subscription path. Proposal carriage republishes each validator's own retained
+shares as a bounded authenticated backup; it does not carry that node's full
+collector union. Both feed the same collector and verification logic.
+Proposal-carried material is still untrusted until the proposal and share
 semantics verify.
 
 The collector forms one complete bounded unique-share union over all live
@@ -547,6 +554,9 @@ root and independently verifies. The bounded gate is a short chance for
 already-in-flight material to align after ordinary transaction-set convergence,
 not a wait for any particular Export to reach qC. Timeout always closes the
 ledger and injects no Export witness from an unavailable or unaligned root.
+Standalone test execution has no peer qV gate and substitutes exact possession
+of its locally verified sidecar map; intent admission still requires the
+UNLReport-backed parent state.
 
 For each still-pending origin that reaches qC in the accepted root, pre-build
 materializes at most one canonical later-ledger `ttEXPORT_SIGNATURES`. The

@@ -2378,9 +2378,9 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
-    testExportRejectsLongRetryWindow(FeatureBitset features)
+    testExportRejectsLongAdmissionWindow(FeatureBitset features)
     {
-        testcase("ttEXPORT rejects LastLedgerSequence beyond retry cap");
+        testcase("ttEXPORT rejects LastLedgerSequence beyond admission cap");
 
         using namespace jtx;
 
@@ -2639,7 +2639,7 @@ struct Export_test : public beast::unit_test::suite
         testExportRejectsInvalidTicketSequence(allWithExport);
         testExportRejectsMissingLastLedgerSequence(allWithExport);
         testExportRejectsSignedInnerTransaction(allWithExport);
-        testExportRejectsLongRetryWindow(allWithExport);
+        testExportRejectsLongAdmissionWindow(allWithExport);
         testExportRejectsMalformed(allWithExport);
 
         // Round-trip test

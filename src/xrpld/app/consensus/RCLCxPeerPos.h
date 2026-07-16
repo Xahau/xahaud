@@ -113,11 +113,11 @@ struct ExtendedPosition
     //
     // Compatibility note:
     // - New code accepts both legacy 32-byte tx-set hashes and the extended
-    //   payload with RNG sidecars.
+    //   payload with consensus-extension sidecars.
     // - Older binaries that only understand a raw uint256 proposal position
     //   will reject extended payloads as malformed.
-    // - Therefore ConsensusEntropy requires an all-upgraded validator set
-    //   before activation; this format is backward-compatible, not
+    // - Therefore enabling ConsensusEntropy or Export requires an all-upgraded
+    //   validator set; this format is backward-compatible, not
     //   forward-compatible.
     //@@start rng-extended-position-serialize
     void

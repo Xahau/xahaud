@@ -91,9 +91,12 @@ second distinct valid contribution at one position is conflicting and that
 position contributes nothing to qC.
 
 The complete bounded admitted-share union is content-addressed and its root is
-advertised in signed extended positions. Witness materialization uses only an
-exact qV-aligned root that the local node possesses and independently verifies.
-Late collector arrivals cannot mutate the accepted root.
+advertised in signed extended positions. In network mode, witness
+materialization uses only an exact qV-aligned root that the local node possesses
+and independently verifies. Standalone test execution substitutes exact
+possession of its locally verified map; intent admission still requires the
+UNLReport-backed parent state. Late collector arrivals cannot mutate the
+accepted root.
 
 *Anti-pattern:* assembling from the current collector at apply time or treating
 peer root support as remote payload availability.
@@ -158,6 +161,11 @@ An operator signer may be required by a destination SignerList for assembly
 control or defense in depth, but it is not a protocol prerequisite and cannot
 replace qC. Reserving such an entry reduces the validator committee that fits
 the target's 32-signer limit.
+
+Activating `featureExport` or `featureConsensusEntropy` switches proposal
+participants to extension-aware semantics. A proposal with no populated
+sidecar fields may still use the legacy 32-byte serialization, but that compact
+message does not restore legacy network semantics.
 
 **INV-11 - The destination trust claim is configuration-specific.**
 XRPL verifies ordinary keys and signatures, not Xahau finality, committee

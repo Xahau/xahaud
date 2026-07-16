@@ -1464,7 +1464,7 @@ ConsensusExtensions::selectEntropy(
     };
     //@@end entropy-selector-fallback
 
-    // Standalone/dev: synthetic deterministic entropy so hook dice/random work.
+    // Standalone: synthetic deterministic entropy so hook dice/random work.
     //@@start entropy-selector-standalone
     if (app_.config().standalone())
     {

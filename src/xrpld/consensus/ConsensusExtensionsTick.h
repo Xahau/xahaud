@@ -1007,10 +1007,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             }
             else
             {
-                // A candidate ttEXPORT with no local sig material gets one
+                // A pending Export latch with no local sig material gets one
                 // short observation window so proposal-carried signatures can
-                // arrive before apply. If nothing appears in time, apply takes
-                // the retry/expire path.
+                // arrive. If nothing appears in time, this ledger injects no
+                // witness and the latch remains pending.
                 startExportSigGate();
                 auto const elapsed = ctx.nowSteady - ext.exportSigGateStart_;
                 auto const deadline =
@@ -1151,7 +1151,8 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     // whenever featureExport is active. A quorum-aligned hash
                     // is therefore enough to proceed; requiring every
                     // tx-converged active peer to publish an exportSigSetHash
-                    // would let a missing minority sidecar force retry/expiry.
+                    // would let a missing minority sidecar suppress witness
+                    // injection despite an aligned quorum.
                     JLOG(ext.j_.info())
                         << "Export: exportSigSetHash conflict ignored"
                         << " reason=quorum-aligned"

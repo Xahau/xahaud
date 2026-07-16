@@ -597,7 +597,7 @@ public:
             }
             {
                 // Invalid sfLastLedgerSequence
-                // (greater than the export retry window)
+                // (greater than the export admission window)
                 auto tx = emitInvokeTx;
                 auto const currentSeq = applyCtx.view().info().seq;
                 tx.setFieldU32(
