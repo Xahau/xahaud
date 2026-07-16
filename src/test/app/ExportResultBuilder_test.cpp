@@ -117,16 +117,14 @@ class ExportResultBuilder_test : public beast::unit_test::suite
 {
 public:
     void
-    testAssemblesSignedMetadata()
+    testAssemblesMultiSignedTransaction()
     {
-        testcase("assembles signed metadata");
+        testcase("assembles multisigned transaction");
 
         auto const signerA = randomKeyPair(KeyType::secp256k1);
         auto const signerB = randomKeyPair(KeyType::secp256k1);
         auto const innerTx = makeExportedPayment(
             calcAccountID(signerA.first), calcAccountID(signerB.first));
-        auto const exportTxHash = makeHash("outer-export-tx");
-
         ExportResultBuilder::SignatureSnapshot signatures;
         signatures.emplace(
             signerA.first,
@@ -137,16 +135,9 @@ public:
             ExportResultBuilder::signExportedTxn(
                 innerTx, signerB.first, signerB.second));
 
-        auto assembled = ExportResultBuilder::assembleDirect(
-            innerTx, signatures, 123, exportTxHash);
-
-        BEAST_EXPECT(assembled.signerCount == 2);
-        BEAST_EXPECT(assembled.metadata.getFieldU32(sfLedgerSequence) == 123);
-        BEAST_EXPECT(
-            assembled.metadata.getFieldH256(sfTransactionHash) == exportTxHash);
-
-        auto const& multiSigned =
-            assembled.metadata.peekAtField(sfExportedTxn).downcast<STObject>();
+        auto const multiSigned =
+            ExportResultBuilder::buildMultiSignedExportedTxn(
+                innerTx, signatures);
         BEAST_EXPECT(multiSigned.getFieldVL(sfSigningPubKey).empty());
         BEAST_EXPECT(multiSigned.isFieldPresent(sfSigners));
 
@@ -169,42 +160,14 @@ public:
             BEAST_EXPECT(verify(pk, sigData.slice(), makeSlice(sigVL)));
         }
 
-        BEAST_EXPECT(
-            assembled.signedTxHash ==
-            multiSigned.getHash(HashPrefix::transactionID));
+        auto const signedTxHash =
+            multiSigned.getHash(HashPrefix::transactionID);
 
         Serializer serialized;
         multiSigned.add(serialized);
         SerialIter sit(serialized.slice());
         STTx signedTx{std::ref(sit)};
-        BEAST_EXPECT(signedTx.getTransactionID() == assembled.signedTxHash);
-    }
-
-    void
-    testSkipsEmptySignatures()
-    {
-        testcase("skips empty signatures");
-
-        auto const signer = randomKeyPair(KeyType::secp256k1);
-        auto const dst = randomKeyPair(KeyType::secp256k1);
-        auto const innerTx = makeExportedPayment(
-            calcAccountID(signer.first), calcAccountID(dst.first));
-
-        ExportResultBuilder::SignatureSnapshot signatures;
-        signatures.emplace(signer.first, Buffer{});
-
-        auto assembled = ExportResultBuilder::assembleDirect(
-            innerTx, signatures, 456, makeHash("empty-sig-export"));
-
-        BEAST_EXPECT(assembled.signerCount == 0);
-
-        auto const& multiSigned =
-            assembled.metadata.peekAtField(sfExportedTxn).downcast<STObject>();
-        BEAST_EXPECT(multiSigned.getFieldVL(sfSigningPubKey).empty());
-        BEAST_EXPECT(!multiSigned.isFieldPresent(sfSigners));
-        BEAST_EXPECT(
-            assembled.signedTxHash ==
-            multiSigned.getHash(HashPrefix::transactionID));
+        BEAST_EXPECT(signedTx.getTransactionID() == signedTxHash);
     }
 
     void
@@ -336,7 +299,7 @@ public:
             calcAccountID(src.first), calcAccountID(dst.first));
 
         ExportResultBuilder::SignatureSnapshot signatures;
-        while (signatures.size() < STTx::maxMultiSigners())
+        while (signatures.size() < STTx::maxMultiSigners() + 4)
         {
             auto const signer = randomKeyPair(KeyType::secp256k1);
             signatures.emplace(
@@ -345,13 +308,9 @@ public:
                     innerTx, signer.first, signer.second));
         }
 
-        auto assembled = ExportResultBuilder::assembleDirect(
-            innerTx, signatures, 789, makeHash("many-sig-export"));
-
-        BEAST_EXPECT(assembled.signerCount == STTx::maxMultiSigners());
-
-        auto const& multiSigned =
-            assembled.metadata.peekAtField(sfExportedTxn).downcast<STObject>();
+        auto const multiSigned =
+            ExportResultBuilder::buildMultiSignedExportedTxn(
+                innerTx, signatures);
         BEAST_EXPECT(multiSigned.isFieldPresent(sfSigners));
 
         if (multiSigned.isFieldPresent(sfSigners))
@@ -365,41 +324,6 @@ public:
                     signers[i].getAccountID(sfAccount));
             }
         }
-
-        BEAST_EXPECT(
-            assembled.signedTxHash ==
-            multiSigned.getHash(HashPrefix::transactionID));
-    }
-
-    void
-    testAssemblesWitnessReferenceMetadata()
-    {
-        testcase("assembles witness-reference metadata");
-
-        auto const signer = randomKeyPair(KeyType::secp256k1);
-        auto const dst = randomKeyPair(KeyType::secp256k1);
-        auto const innerTx = makeExportedPayment(
-            calcAccountID(signer.first), calcAccountID(dst.first));
-        auto const exportTxHash = makeHash("outer-export-reference");
-        auto const witnessHash = makeHash("export-signature-witness");
-
-        ExportResultBuilder::SignatureSnapshot signatures;
-        signatures.emplace(
-            signer.first,
-            ExportResultBuilder::signExportedTxn(
-                innerTx, signer.first, signer.second));
-
-        auto assembled = ExportResultBuilder::assembleClosedLedger(
-            innerTx, signatures, 321, exportTxHash, witnessHash);
-
-        BEAST_EXPECT(assembled.signerCount == 1);
-        BEAST_EXPECT(assembled.metadata.getFieldU32(sfLedgerSequence) == 321);
-        BEAST_EXPECT(
-            assembled.metadata.getFieldH256(sfTransactionHash) == exportTxHash);
-        BEAST_EXPECT(
-            assembled.metadata.getFieldH256(sfExportSignatureHash) ==
-            witnessHash);
-        BEAST_EXPECT(!assembled.metadata.isFieldPresent(sfExportedTxn));
     }
 
     void
@@ -812,12 +736,10 @@ public:
     void
     run() override
     {
-        testAssemblesSignedMetadata();
-        testSkipsEmptySignatures();
+        testAssemblesMultiSignedTransaction();
         testBuildMultiSignedExportedTxnDirect();
         testExportIntentHashIgnoresSignerSubset();
         testCapsSignerArray();
-        testAssemblesWitnessReferenceMetadata();
         testSignatureWitnessRoundTrip();
         testSparseSignatureWitnessRoundTrip();
         testDestinationSignerOrderIsIndependent();

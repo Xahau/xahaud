@@ -79,6 +79,7 @@ MAGIC_ENUM_FLAG(ripple::PaymentChannelClaimFlags);
 MAGIC_ENUM_FLAG(ripple::NFTokenMintFlags);
 MAGIC_ENUM_FLAG(ripple::NFTokenCreateOfferFlags);
 MAGIC_ENUM_FLAG(ripple::ClaimRewardFlags);
+MAGIC_ENUM_FLAG(ripple::ExportFlags);
 MAGIC_ENUM_16(ripple::AccountFlags);
 
 namespace ripple {
@@ -418,6 +419,7 @@ private:
         addFlagsToJson<MPTokenAuthorizeFlags>(ret, "MPTokenAuthorize");
         addFlagsToJson<MPTokenIssuanceSetFlags>(ret, "MPTokenIssuanceSet");
         addFlagsToJson<AMMClawbackFlags>(ret, "AMMClawback");
+        addFlagsToJson<ExportFlags>(ret, "Export");
         struct FlagData
         {
             std::string name;

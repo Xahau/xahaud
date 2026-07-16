@@ -15,6 +15,7 @@ from export_helpers import (
     dst_param,
     assert_hook_accepted,
     assert_export_latch,
+    create_export_committee,
     wait_for_export_signature_witness,
 )
 
@@ -25,7 +26,7 @@ XPORT_HOOK_C = r"""
 extern int32_t _g(uint32_t id, uint32_t maxiter);
 extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
 extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-extern int64_t xport(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+extern int64_t xport(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len, uint32_t committee_hash_ptr, uint32_t committee_hash_len);
 extern int64_t xport_reserve(uint32_t count);
 extern int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
 extern int64_t otxn_param(uint32_t write_ptr, uint32_t write_len, uint32_t name_ptr, uint32_t name_len);
@@ -118,7 +119,9 @@ int64_t hook(uint32_t reserved) {
     ENCODE_ACCOUNT(buf, dst, atDESTINATION);
 
     uint8_t hash[32];
-    int64_t xport_result = xport(SBUF(hash), (uint32_t)tx, buf - tx);
+    static const uint8_t committee_hash[32] = { COMMITTEE_HASH_BYTES };
+    int64_t xport_result = xport(
+        SBUF(hash), (uint32_t)tx, buf - tx, SBUF(committee_hash));
     ASSERT(xport_result == 32);
 
     return accept(0, 0, 0);
@@ -137,8 +140,13 @@ async def scenario(ctx, log):
     alice = ctx.account("alice")
     carol = ctx.account("carol")
 
+    authority = await create_export_committee(ctx, log, alice.wallet)
+    committee_bytes = bytes.fromhex(authority["ExportCommitteeHash"])
+    committee_initializer = ", ".join(f"0x{byte:02X}" for byte in committee_bytes)
+    hook_source = XPORT_HOOK_C.replace("COMMITTEE_HASH_BYTES", committee_initializer)
+
     # Compile and install xport hook on alice
-    wasm = ctx.compile_hook(XPORT_HOOK_C, label="xport")
+    wasm = ctx.compile_hook(hook_source, label="xport")
     await ctx.submit_and_wait(
         {
             "TransactionType": "SetHook",

@@ -1,200 +1,176 @@
-# Export — Design Intent (canonical spine)
+# Export - Design Intent (canonical spine)
 
-This is the **normative** intent for `featureExport`: the invariants that must
-hold regardless of how the implementation is refactored. The verbose mechanics
-live in `ConsensusExtensionsDesign.md`; the reviewer-facing walkthrough lives in
-the PR description. **Both defer to this file.**
+This is the normative intent for `featureExport`: the invariants that must hold
+regardless of implementation refactoring. Detailed mechanics live in
+`ConsensusExtensionsDesign.md`; both documents must change with any deliberate
+protocol change.
 
-How to use it: if code contradicts an invariant below, the *code* is wrong — or
-the invariant is being changed and **this file must be consciously edited in the
-same change, with the rationale**. In particular, Export is not replay-clean
-unless every closed-ledger effect can be rebuilt from the parent ledger and the
-closed transaction set alone.
+Export is not replay-clean unless every closed-ledger effect can be rebuilt
+from the parent ledger and ordered closed transaction set alone.
 
-## Purpose (one line)
+## Purpose
 
-Export lets a quorum of active validators produce a foreign-chain-submittable
-transaction from an agreed `ttEXPORT`, without letting local sidecar timing,
-collector state, or validator silence change the bytes of a successful closed
-ledger result.
+Export lets an account choose a bounded validator committee whose members sign
+an ordinary target-chain transaction only after the exact source intent has
+validated. A later source-ledger witness records the sufficient signatures.
 
 ## Invariants
 
-**INV-1 — Quorum, not unanimity.**
-Export success is gated by active-validator quorum alignment on the export
-signature set. A missing, delayed, or silent minority must not veto an otherwise
-quorum-aligned export.
-*Anti-pattern:* requiring full observation of every tx-converged validator before
-success.
+**INV-1 - Source intent precedes authority release.**
+`ttEXPORT` first validates its target payload, committee reference, source
+account, destination TicketSequence, reserved origin Memo, and bounded timing
+fields. Successful apply creates a durable origin-keyed latch. It does not
+claim that signatures or a witness already exist.
 
-**INV-2 — Fixed active-view denominator.**
-Export thresholds are computed over the parent-ledger active validator view. The
-denominator must never be derived from locally observed peers, locally available
-signatures, or the subset that happened to advertise sidecar hashes.
-On networks that use NegativeUNL, `featureNegativeUNLActiveViewCap` should be
-active before or with Export so producer-side nUNL voting caps against the same
-UNLReport active-source universe that bounds NegativeUNL shrink. Export quorum
-itself is computed over the effective post-NegativeUNL active view. Direct
-Export apply still rebuilds and defensively caps the parent active view before
-checking the witness threshold.
-*Anti-pattern:* letting silence shrink the quorum threshold.
+*Anti-pattern:* treating provisional open-ledger execution or source
+transaction-set agreement as authorization to release destination signatures.
 
-**INV-3 — Accepted sidecar root, not live collector.**
-Any successful Export apply path must use the signature set rooted at the
-`exportSigSetHash` accepted by the tick gate. Late local collector arrivals,
-timeout flags, or unverified proposal-carried signatures must not change the
-signer set selected for the ledger.
-*Anti-pattern:* assembling from `ExportSigCollector` at apply time.
+**INV-2 - Committee selection is explicit and account-owned.**
+An Export committee is an immutable canonical roster of at most 32 validator
+master keys stored in an account-owned `ltEXPORT_COMMITTEE`. Its identity is a
+network-neutral content digest over that roster. A latch stores only the
+digest; committee size and qC are derived from the referenced object.
 
-**INV-4 — Replay witness in the transaction stream.**
-If export sidecar material changes closed-ledger output, that material must be
-represented by canonical ledger input before apply. The closed ledger must be
-replayable from `(parent ledger, ordered closed transaction set)` without live
-consensus sidecar memory. Export signatures are such a witness: they determine
-source quorum success and exported-result metadata, so they must be carried by
-a replayable companion pseudo transaction or equivalent transaction-stream
-artifact. The Export-latch intent hash is signature-independent.
-*Anti-pattern:* using ephemeral accepted sidecar state to create an Export latch
-or result that cannot be reconstructed by ledger delta replay.
+There is no protocol-default committee. A bare setup transaction may pre-stage
+a structurally valid future roster without creating a latch or checking current
+membership. Every actual Export intent, including inline create-and-use,
+requires every roster master to appear in the exact admitting parent ledger's
+pre-NegativeUNL `UNLReport`; otherwise it returns
+`tecEXPORT_COMMITTEE_UNAVAILABLE`. A client may offer "copy current UNLReport"
+as an explicit template, but the protocol never silently selects it.
 
-Current shape: `ttEXPORT_SIGNATURES` is the signature witness interface. It
-carries the full source-validator signature witness and binds it to the matching
-`ttEXPORT` via `sfTransactionHash`. Network consensus produces it from the
-accepted sidecar set; standalone/dev helpers may produce the same witness from
-the local validator key. Ledger build pre-scans the ordered transaction stream
-into a build-local index, and `ttEXPORT` apply consumes that pre-scanned witness.
-The index is not an extra consensus input; it is only an efficient lookup over
-the canonical transaction set. In live consensus builds, `onPreBuild` first
-removes any pre-existing export witness and re-materializes the witness from the
-accepted sidecar root. That witness is the signer-membership source for apply;
-current manifest-cache state must not re-decide which accepted signing keys
-count. Historical `LedgerReplay` uses the same membership rule because current
-manifests may no longer map old rotated signing keys. Both paths still verify
-each signature against the inner transaction and require the parent-view
-threshold. Direct apply paths that did not run `onPreBuild` remain conservative
-and filter witness signers through the live active-validator view.
+Committee deletion is rejected while the owner has any live Export latch. This
+coarse rule keeps every accepted witness replayable without storing the roster
+again in every latch or maintaining a metadata-expensive reference count.
 
-**INV-5 — Store the witness once.**
-The signature witness is canonical input; metadata is output. Metadata may carry
-hashes and references for client discovery, but it should not duplicate the full
-signature payload merely to avoid a client dereference. A convenience RPC may
-expand `ttEXPORT + witness` into the foreign-chain-submittable blob on read.
-*Anti-pattern:* storing the same validator signatures once as replay input and
-again as a full metadata blob without a separate consensus reason.
+**INV-3 - qC and qV answer different questions.**
+qC is the content threshold for one account-selected committee:
+`ceil(0.8 * committeeSize)`. The intent cannot lower it. Committee positions
+are indexes into the immutable canonical roster.
 
-**INV-6 — Bounded retry window.**
-An Export that cannot obtain quorum-aligned signatures within its bounded ledger
-window retries or expires through normal transaction semantics. It must not wait
-unboundedly, pick the largest sub-quorum set, or finalize against local trusted
-configuration as a fallback.
+qV is the root-alignment threshold over the source consensus active-validator
+view. It coordinates which complete bounded sidecar union may materialize
+witnesses. qV does not decide committee membership, prove target authorization,
+or replace local possession and verification of qC signatures.
 
-The success-vs-retry decision remains a bounded timing edge, like ordinary
-consensus convergence: one node may observe the quorum-aligned witness before
-its deadline while another retries. Validation resolves that ledger disagreement.
-What must never happen is a "successful" export whose signature bytes come from
-live collector state, late proposal arrivals, or a node-local sub-quorum set
-instead of the accepted witness in the transaction stream.
+Neither denominator is derived from locally observed peers or signatures, and
+silence never lowers either threshold.
 
-**INV-7 — Export latches are issuance latches, not global tombstones.**
-The latch binds the canonical target signing intent and is keyed by `(owner,
-origin transaction ID W)`, not by one authorization-envelope-dependent target
-transaction ID or by destination TicketSequence alone. The signed release Memo
-carries `W`; a fresh Export has a fresh `W`, so erasing one latch cannot re-arm
-an old stamped XPOP against a later issuance. The obsolete memo-less callback
-and ticket-keyed latch helper are not supported v1 compatibility paths.
+**INV-4 - Honest shares are post-validation attestations.**
+A validator signs only after its node accepts the exact source ledger containing
+the intent as validated. Closing/building that ledger, emitting the node's own
+validation, or advancing the build cursor does not unlock signing. Ledger
+building may run ahead of the validated cursor; Export waits without holding
+base consensus open.
+
+The release-stamped target binds source domain, target domain, origin
+transaction ID `W`, origin ledger sequence, and origin ledger hash in a reserved
+final `xahau/export` Memo covered by each ordinary target multisignature. Existing
+user Memos remain byte-identical and in their original order. Malformed,
+duplicate, misplaced, unsupported, or oversized reserved Memos fail before
+signing.
+
+**INV-5 - Live manifests bind committee masters to signing keys.**
+The immutable roster names validator master identities. Live share production
+and admission use the manifest cache to map a concrete signing key to the
+master at its committee position. Missing or ambiguous attribution contributes
+no share. Manifests do not redefine the stored committee and are never read by
+accepted witness apply or historical replay.
+
+Target SignerList compatibility with current validator signing-key AccountIDs
+is an operator/client responsibility. Source consensus cannot inspect or prove
+that remote configuration.
+
+**INV-6 - Align the accepted sidecar root, not the live collector.**
+Valid shares from the direct post-validation relay and signed proposal carriage
+join one bounded, commutative collector keyed by `(W, committeePosition)`. A
+second distinct valid contribution at one position is conflicting and that
+position contributes nothing to qC.
+
+The complete bounded admitted-share union is content-addressed and its root is
+advertised in signed extended positions. Witness materialization uses only an
+exact qV-aligned root that the local node possesses and independently verifies.
+Late collector arrivals cannot mutate the accepted root.
+
+*Anti-pattern:* assembling from the current collector at apply time or treating
+peer root support as remote payload availability.
+
+**INV-7 - Ledger-defining signatures enter the transaction stream.**
+Sidecar memory is deliberation state, not replay input. For each eligible latch
+that reaches qC under the accepted root, build injects at most one canonical
+later-ledger `ttEXPORT_SIGNATURES` pseudo transaction. It contains the exact
+release-stamped target, committee-relative contributor bitmap, and signature
+entries, bound to `W`.
+
+Witness apply resolves the immutable committee SLE from the parent state,
+derives size and qC, validates the contributor positions and every target
+signature, records the witness transaction ID on the latch, and removes the
+pending-work link. It does not consult mutable manifest state. Historical
+replay consumes the same bytes and parent state and never regenerates shares.
+
+**INV-8 - Store the signature evidence once.**
+The full release-stamped payload and signatures live in the witness transaction.
+The latch stores only the witness transaction reference. Read-time tooling may
+expand that canonical witness into the ordinary foreign-chain transaction, but
+state and metadata must not duplicate its signature payload merely for client
+convenience.
+
+Assembly follows ordinary multisign rules: empty `SigningPubKey`, canonical
+signer AccountID ordering, no duplicate signer accounts, and at most
+`STTx::maxMultiSigners()` entries.
+
+**INV-9 - Export latches name issuance, not one assembled target hash.**
+The latch key is `(owner, origin transaction ID W)`. Its `sfDigest` commits to
+the normalized identity-form target, not a signer-subset-dependent final target
+transaction ID. Any valid qC subset for the exact stamped intent may therefore
+execute and return without orphaning source state.
 
 Witness and XPOP are independent monotonic facts. Whichever arrives second
-symmetrically erases the latch and releases reserve. Cancellation while
-publication is pending is non-revoking: a lifecycle-control `ttEXPORT` names
-the exact source issuance `W` in `sfTransactionHash`, unlinks work, and retains
-callback readiness because already-public signatures cannot be withdrawn. The
-same bytes retain the latch in every state. `tfExportEraseLatch` is a separate,
-explicit election that erases that exact latch in any state, releases reserve,
-and knowingly forfeits a later callback. Publication expiry follows the
-non-revoking retain path. The undeployed Hook API uses the same W-plus-flags
-contract. v1 has neither an automatic terminal-retirement clock nor a permanent
-tombstone graveyard.
+symmetrically erases the latch and releases reserve. Flagless lifecycle control
+names exact `W`, unlinks pending work, and retains callback readiness because
+published signatures cannot be revoked. `tfExportEraseLatch` explicitly erases
+that latch and knowingly forfeits a later callback. Publication expiry follows
+the non-revoking retain path. v1 has no permanent tombstones or paid bump.
 
-Implementation status: origin-keyed creation, W-only lifecycle control,
-expiry-unlink, and symmetric witness/XPOP recording are present.
+**INV-10 - Released signatures are public capabilities.**
+After exact source validation, each admitted share is immediately available on
+the `export_signatures` subscription and may also ride proposals. Anyone may
+assemble and submit a target transaction once the destination SignerList's
+actual threshold is met. The source witness is durable evidence, not a secrecy
+or submission gate.
 
-**INV-8 — Export signatures are public capabilities.**
-Proposal-carried signature shares may be observed, assembled, and submitted as
-soon as destination quorum exists. Source-side witness agreement governs what
-Xahau records; it is not a confidentiality or destination-execution gate.
-Import therefore waits outside consensus when its Export latch does not yet
-exist and matches a later XPOP against the signature-independent intent.
-The main defense for exposing shares before source finality is authority
-equivalence: destination execution must require the same validator-derived
-authority that Xahau requires to validate and materialize the Export.
-*Anti-pattern:* relying on proposal timing or canonical signer selection to
-hide or delay an otherwise valid destination transaction.
+An operator signer may be required by a destination SignerList for assembly
+control or defense in depth, but it is not a protocol prerequisite and cannot
+replace qC. Reserving such an entry reduces the validator committee that fits
+the target's 32-signer limit.
 
-**INV-9 — The active source authority must fit the destination protocol.**
-Export does not publish shares without a ledger-anchored `UNLReport`, and does
-not publish shares or materialize a result when the source validator population
-before NegativeUNL filtering exceeds `STTx::maxMultiSigners()`. Silently
-selecting a capped subset would replace source-view authority with an implicit
-bridge committee. Any future bounded committee must be an explicit, separately
-reviewed policy.
+**INV-11 - The destination trust claim is configuration-specific.**
+XRPL verifies ordinary keys and signatures, not Xahau finality, committee
+eligibility, or qV. The account operator must configure its SignerList so the
+chosen committee identities and weight threshold match the intended custody
+claim. A lower remote threshold weakens that claim; a higher threshold can
+strand an otherwise sufficient source witness.
 
-The current source implementation enforces the 32-signer bound. The bounded MVP
-deployment additionally requires one destination submitter co-signer, so its
-practical full-view limit is 31 source validator identities. Source code cannot
-inspect that remote configuration; activation tooling and monitoring must.
+The target network's ledger-validation quorum is separate. It validates the
+containing target ledger, and XPOP proves that target finality on return.
 
-**INV-10 — Source and destination authorization must be equivalent.**
-The bounded deployment contract uses the same validator-derived key universe
-and equivalent weighted threshold for Xahau Export/validation and the target
-account's SignerList. A lower destination threshold defeats the pre-finality
-share-exposure defense. A higher threshold is safety-conservative but can leave
-a successful source latch without enough witness authority to execute.
-
-The target network's ledger-validation quorum is independent: the SignerList
-authorizes the account transaction, target consensus validates the containing
-ledger, and XPOP later proves that finality. Because an ordinary target
-SignerList is static, configure it against the original pre-NegativeUNL source
-universe and accept reduced Export liveness during NegativeUNL periods rather
-than lowering destination authority.
-
-The bounded MVP requires a submitter co-signer held by the target-submission
-process. If validator weights total `V`, validator threshold is `q`, submitter
-weight is `C`, and target quorum is `C + q > V`, validator shares alone cannot
-execute and the submitter still needs validator weight `q`. It signs only after
-observing the validated source latch, turning the submitter into a
-liveness/censorship dependency rather than a sole safety authority.
-
-A future committee may decouple total UNL size from the destination cap, but it
-must be explicit ledger-anchored source state with versioned membership and
-rotation. Full source consensus validates the intent; at most 31 committee keys
-supply shares; the submitter releases after validation. The target trust claim
-then becomes committee quorum plus submitter, not full-UNL destination authority.
+**INV-12 - Work, storage, and waiting are bounded.**
+Committee size, account latches, global pending work, per-round lanes, relay
+entries, message bytes, sidecar leaves, publication windows, and witness
+signatures all have hard caps. Export may use one fixed sidecar alignment
+window after ordinary transaction-set convergence, but timeout always permits
+base consensus to continue. Below-qC or unaligned work remains pending until
+witness, cancellation, explicit erase, or publication expiry.
 
 ## Replay Witness Shape
 
-The accepted local export sidecar snapshot is not consumed directly by
-`Export::doApply`.
-Before ledger build, a producer injects one `ttEXPORT_SIGNATURES` pseudo for
-each export that has usable signatures. In network mode that producer is the
-consensus extension accept path; in standalone/dev mode it can be a local helper. The
-pseudo has no ledger-state effect by itself; it is the ledger's replay witness
-for the validator signatures.
+`ttEXPORT_SIGNATURES` is a later-ledger protocol pseudo transaction. It is a
+self-contained source-history record of the exact target bytes signed and the
+committee-relative sufficient signature set. The accepted sidecar root selects
+the material before injection; closed-ledger apply sees only transaction bytes
+and parent ledger state.
 
-Metadata stores `sfExportSignatureHash`, a direct reference to the witness
-pseudo, rather than duplicating the signature payload as an assembled
-`sfExportedTxn` blob. Clients assemble the final foreign-chain transaction from
-the original `ttEXPORT` inner transaction plus the witness signatures. Assembly
-must follow the same deterministic contract as `ExportResultBuilder`: sort
-signers canonically by AccountID, use an empty `SigningPubKey`, and cap the
-target-chain `Signers` array at `STTx::maxMultiSigners()` before computing or
-submitting the blob. The witness may contain extra source-side signatures that
-are valid replay input but are not part of the target-chain blob. Source-chain
-export does not prove the destination account's SignerList or quorum policy;
-that compatibility is an operator/client contract for the chosen target chain.
-
-This is not an XPOP-style self-contained proof. XPOP embeds its UNL and manifest
-bundle because it is imported as external proof material. Export witnesses are
-validated-history replay inputs. If we later want trustless historical
-re-verification without relying on validated inclusion, the larger design is to
-ledger-anchor validator signing-key history (for example via `UNLReport`) or to
-embed manifest proof material; that is intentionally out of scope here.
+The witness is not an XPOP-style proof that unmodified XRPL can interpret.
+Validated inclusion is the source-chain attestation. XPOP remains the reverse
+proof: it demonstrates that one assembled target transaction reached target
+finality and drives the Hook callback against the matching origin latch.

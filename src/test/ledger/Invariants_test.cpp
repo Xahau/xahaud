@@ -24,6 +24,7 @@
 #include <xrpld/app/tx/detail/ApplyContext.h>
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/InnerObjectFormats.h>
 #include <xrpl/protocol/STLedgerEntry.h>
 
@@ -1235,6 +1236,29 @@ class Invariants_test : public beast::unit_test::suite
     }
 
     void
+    testValidExportCommittee()
+    {
+        using namespace test::jtx;
+
+        testcase << "ValidExportCommittee";
+
+        doInvariantCheck(
+            {{"Invariant failed: malformed or mutated Export committee"}},
+            [](Account const& A1, Account const& A2, ApplyContext& ac) {
+                auto const roster = serializeExportCommittee({A2.pk()});
+                auto const digest = exportCommitteeHash(makeSlice(roster));
+                auto sle = std::make_shared<SLE>(
+                    keylet::exportCommittee(A1.id(), digest));
+                sle->setAccountID(sfAccount, A1.id());
+                sle->setFieldH256(sfExportCommitteeHash, uint256{});
+                sle->setFieldVL(sfExportCommittee, roster);
+                sle->setFieldU64(sfOwnerNode, 0);
+                ac.view().insert(sle);
+                return true;
+            });
+    }
+
+    void
     testLockedBalance()
     {
         using namespace test::jtx;
@@ -1288,6 +1312,7 @@ public:
         testValidNewAccountRoot();
         testNFTokenPageInvariants();
         testPermissionedDomainInvariants();
+        testValidExportCommittee();
         testLockedBalance();
     }
 };

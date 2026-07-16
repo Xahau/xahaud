@@ -5,7 +5,7 @@ ConsensusEntropy/RNG, proposal sidecars, and export signature convergence.
 Read this before changing `ConsensusExtensions`, `ConsensusExtensionsTick`,
 `ExtendedPosition`, sidecar SHAMap handling, or the related CSF tests.
 
-The short version: extension data may coordinate extra same-ledger features,
+The short version: extension data may coordinate extra ledger-visible features,
 but it must not redefine ordinary transaction-set consensus. When extension
 state cannot be made safe in time, the extension degrades deterministically
 and the ledger still closes.
@@ -16,7 +16,7 @@ coordination step can avoid it. Fast means those coordination steps stay short
 and conditional, never becoming an open-ended wait for an extension feature to
 succeed. Works means missed or late extension material follows that feature's
 deterministic fallback, such as Tier 1 consensus_fallback entropy for RNG or normal
-Export retry/expiry, rather than blocking core consensus.
+Export pending/expiry behavior, rather than blocking core consensus.
 
 ## Fallback Semantics
 
@@ -70,8 +70,8 @@ sidecar gate has had its bounded chance to use proofed/quorum material.
    they must not block ledger close indefinitely. If RNG cannot establish
    an accepted entropy set, it injects the deterministic Tier 1
    consensus_fallback digest (labeled `consensus_fallback`, count 0). If export
-   signatures cannot converge, export retries or expires according to
-   transaction rules.
+   signatures cannot converge, the Export remains pending or its publication
+   window expires without blocking ledger close.
 
    The bounded fallback rule is not permission for local shortcuts to decide
    ledger output. "Cannot establish" means the accepted-hash gate did not
@@ -140,7 +140,8 @@ sidecar gate has had its bounded chance to use proofed/quorum material.
 
 ## Validator Set And Quorum
 
-The active validator view is the shared denominator for RNG and export:
+The active validator view is the shared source-alignment denominator for RNG
+and Export qV. Export qC has a separate account-owned committee denominator:
 
 - Prefer `UNLReport.sfActiveValidators` from the consensus parent ledger.
 - If no report is available, fall back to configured trusted validators so
@@ -214,7 +215,8 @@ served, fetched, or merged from peers, and generic transaction-set acquisition
 must reject them. A node that missed proposal-carried material may therefore be
 unable to materialize the quorum root this round. For RNG it falls back to the
 explicit Tier 1 consensus digest or accepts a lower locally materialized tier; for
-Export the transaction retries or expires. If a quorum of validators did
+Export the latch remains pending or its publication window expires. If a quorum
+of validators did
 materialize and validate a richer synthetic ledger, a missing-material validator
 follows that ledger through the normal validation/LCL path after the round, just
 as it would after failing to build any other majority ledger.
@@ -403,7 +405,7 @@ Sidecar SHAMaps are local immutable snapshots:
 - Peer-advertised roots are alignment evidence, not payload availability.
 - Nodes never fetch, advertise, serve, or merge sidecar maps from peers.
 - If a quorum root cannot be materialized locally before the bounded deadline,
-  RNG degrades/falls back and Export retries/expires.
+  RNG degrades/falls back and Export injects no witness in that ledger.
 
 Do not use avalanche-style transaction inclusion logic for sidecar inputs.
 For RNG and export sidecars, the disagreement to resolve is usually timing or
@@ -426,50 +428,37 @@ sidecar memory.
 `featureExport` and `featureConsensusEntropy` are independently amendment
 gated.
 
-Export can run without ConsensusEntropy and still uses the active validator
-view's 80% quorum threshold. Verified export signature sidecars converge
-through `ExtendedPosition`, and the `exportSigSetHash` is signed by proposals
-whether or not RNG is enabled. Do not make Export liveness depend on unanimity:
-one active validator with a missing, delayed, or conflicting sidecar must not
-veto an otherwise quorum-aligned export round.
+Export can run without ConsensusEntropy. Two thresholds remain deliberately
+separate:
 
-Non-standalone Export completion requires a UNLReport-backed active validator
-view. If the parent ledger has no `UNLReport`, Export has no safe deterministic
-fallback result, so validators do not publish target-chain signature shares and
-the export retries or expires rather than finalizing against local
-trusted-configuration thresholds.
+- qC is `ceil(0.8 * C)` over one explicit account-owned committee of at most 32
+  validator master keys. It decides whether one Export has enough target
+  signatures.
+- qV is the source active-validator threshold used to align one exact
+  `exportSigSetHash`. It decides whether the sidecar snapshot is coordinated
+  enough to materialize witnesses.
 
-Export's original pre-NegativeUNL validator population must also fit the
-32-member target serialization bound. Validators publish no target-chain shares
-and Export cannot materialize while it exceeds that bound; temporary NegativeUNL
-filtering must not select an implicit bridge committee.
+One missing sidecar advertiser must not veto a qV-aligned root, and one missing
+committee signer must not lower qC. Neither threshold is unanimity or a count of
+locally visible peers.
 
-The bounded deployment contract then mirrors the source validator-derived key
-universe, weights, and Export/validation threshold in the destination account's
-SignerList. A lower destination threshold permits target execution before the
-authority needed for source materialization exists. A higher threshold preserves
-that safety direction but can strand a successful source latch. The destination
-network's ledger-validation quorum is separate: it validates the authorized
-transaction's containing ledger, and XPOP proves that finality on return. A
-static destination SignerList should remain anchored to the original source
-universe during NegativeUNL periods, trading Export liveness for unchanged
-destination authority.
+The committee is an immutable `ltEXPORT_COMMITTEE` owned by the exporting
+account. It stores one canonical sorted master-key roster and is named by a
+network-neutral content digest. Latches store only the digest. There is no
+default committee and no implicit capped subset of the full UNL. Bare setup may
+pre-stage a roster, but every actual intent checks every roster master against
+the exact admitting parent ledger's pre-NegativeUNL `UNLReport`. Inline roster
+creation and intent admission perform that check atomically. Committee deletion
+is blocked while the owner has any live Export latch.
 
-The bounded MVP deployment requires a submitter co-signer in the destination
-SignerList, held by the target-submission process. Choose weights so destination
-quorum requires both the source-validator threshold and that key; for validator
-weight total `V` and required validator weight `q`, submitter weight `V` with
-target quorum `V + q` is the simple construction. Proposal-carried validator
-shares then remain inert until the submitter observes a validated source latch
-and signs. The key cannot authorize alone but becomes a liveness and censorship
-dependency. It consumes one destination SignerList entry, so this deployment
-supports at most 31 source validator identities under a 32-entry limit.
-
-The current code has no committee selector. A future committee must be explicit,
-ledger-anchored, and versioned; a locally configured or sorted UNL subset would
-reintroduce nondeterministic or unnamed authority. Full source consensus would
-still validate the Export, while committee quorum plus the submitter would be
-the honestly stated destination authority.
+The destination account's SignerList remains the actual remote authority. Its
+keys, weights, optional operator signer, and rotation policy are client/operator
+configuration that source consensus cannot verify. The committee cap matches
+`STTx::maxMultiSigners()`; reserving a separate operator entry reduces the
+maximum validator roster usable by that destination account. A lower remote
+threshold weakens the claimed custody policy, while a higher threshold may
+strand an otherwise sufficient source witness. Target ledger validation and the
+returning XPOP are separate from this authorization decision.
 
 The extended proposal machinery is enabled when either feature needs signed
 sidecar fields. Do not make Export depend on RNG availability just because RNG
@@ -488,110 +477,88 @@ negotiation before activation.
 When `featureExport` is disabled, the export sidecar gate is disabled too. Stale
 collector entries must not keep a stopped amendment active.
 
-Only verified export signatures count toward quorum or enter export sidecar
-SHAMaps. Proposal-ingress signatures are sender-bound to the trusted proposal
-validator and may be stored as unverified until the matching export transaction
-is available for cryptographic verification.
+Intent admission creates an origin-keyed `ltEXPORT_LATCH` immediately. The latch
+records the normalized identity digest, origin `W` and source sequence,
+publication end, destination TicketSequence, committee digest, owner-directory
+link, and pending-work link. Lack of signatures does not make the source
+transaction retry. The pending directory is durable scheduling state across
+rounds and restarts.
 
-The consensus candidate transaction set is the authority for export signature
-verification. The open ledger may be used for early proposal ingestion, but
-once a candidate tx set exists, only signatures verified against the `ttEXPORT`
-in that candidate set may become quorum material or enter `exportSigSetHash`.
+Honest signature release is keyed to fully validated history, not to the open
+ledger or current transaction candidate set. When an exact origin ledger becomes
+validated, eligible committee members reconstruct the target payload, append
+the canonical release anchor `(source domain, target domain, W, origin sequence,
+origin hash)`, and sign that target with their current manifest signing key.
+Ledger building and validation are asynchronous; a later build may already be
+in progress. Export waits for finality without waiting or rewinding base
+consensus.
 
-Export sidecar publication is local-material only. A node may publish only the
-verified export signatures it actually has locally, and only for `ttEXPORT`
-transactions in the consensus candidate set. Peer-advertised export roots are
-used for quorum alignment; they do not reconstruct missing signature material.
-The accepted local snapshot root, once quorum-aligned, is the source for the
-ledger witness. A node that cannot materialize the accepted quorum witness
-locally retries or expires the export and follows the quorum ledger later through
-normal validation if other validators built the witness.
-`ttEXPORT_SIGNATURES` is the export signature witness interface. Network mode
-derives it from the accepted `exportSigSetHash` sidecar snapshot; standalone/dev
-helpers may synthesize the same witness from the local validator key. The pseudo
-carries the full source-side validator signature witness and binds it to the
-matching `ttEXPORT` via `sfTransactionHash`. It has no ledger-state effect by
-itself; it exists so apply/replay sees the same signature material through the
-transaction stream regardless of which producer supplied it.
+Only structurally valid, attributable, cryptographically verified shares enter
+the collector. A share identifies the owner, `W`, exact origin ledger, committee
+position, signing key, and ordinary XRPL multisignature. Live admission resolves
+the immutable committee master at that position through the manifest cache. A
+missing binding is deferred or rejected; it never silently selects another
+member.
 
-If the consensus candidate contains a `ttEXPORT` but the node has no eligible
-local export signatures yet, the export sidecar gate opens only a bounded
-safety window for tx-converged peers to advertise `exportSigSetHash`. This is
-not a wait-for-Export-success mechanism; it is a short opportunity to avoid
-closing a minority ledger while sidecar convergence is already reachable. If no
-advertised sidecar appears by the deadline, the gate stops waiting and the
-export retries or expires through normal transaction rules.
+The dedicated `mtEXPORT_SHARES` relay is the immediate post-validation flood and
+subscription path. Proposal carriage republishes locally retained shares as a
+bounded authenticated backup. Both feed the same collector and verification
+logic. Proposal-carried material is still untrusted until the proposal and share
+semantics verify.
 
-Export success requires quorum alignment on `exportSigSetHash`, not merely a
-local collector quorum. Since `featureExport` enables signed extended proposal
-fields, a quorum-aligned `exportSigSetHash` is enough to proceed even if a
-tx-converged minority peer has not advertised an export sidecar hash. Do not let
-one active validator with a missing sidecar force an otherwise quorum-aligned
-export round to retry or expire. Full observation remains useful diagnostics; it
-is not an Export success precondition. If no export signature hash reaches quorum
-alignment by the bounded deadline, do not choose the largest non-quorum set; the
-export retries or expires according to normal transaction rules.
-Closed-ledger apply consumes the pre-scanned `ttEXPORT_SIGNATURES` witness, not
-the live collector and not ephemeral sidecar state. `Export::doApply` rebuilds
-the active validator view from the parent ledger, verifies each witness
-signature against the `ttEXPORT` inner transaction, requires source-view quorum,
-then canonically assembles the target-chain multisigned transaction. In live
-consensus builds, `onPreBuild` first removes any pre-existing export witness and
-re-materializes the witness from the accepted `exportSigSetHash` root. That
-accepted transaction-stream witness supplies signer membership; apply must not
-re-resolve those signing keys through the current manifest cache, because
-manifest gossip can differ while the parent-ledger active view is the same.
-Historical `LedgerReplay` consumes the same persisted witness after manifests
-may have rotated. In both modes, apply still checks signatures and threshold. A
-node that times out before accepting a root has no witness and retries/expires;
-a node that proceeds uses the same transaction-stream witness during live build
-and historical replay. The build-scoped witness map is only an index over that
-ordered transaction stream, not hidden consensus state. This avoids
-successful-but-different export blobs while preserving the bounded wait model.
+The collector forms one complete bounded unique-share union over all live
+origins, keyed by `(W, committeePosition)`. A second distinct valid contribution
+at one position is conflicting and contributes zero for that origin. The union
+is projected into an ephemeral sidecar map; its root is advertised in signed
+`ExtendedPosition` traffic. qC is not a root filter: below-qC partial material
+still participates in the common union, while qC is checked only when deciding
+which witnesses can be materialized.
 
-`sfExportResult` metadata stores `sfExportSignatureHash`, a direct reference to
-the witness pseudo, rather than duplicating the full signature payload. Clients
-assemble the final foreign-chain blob from `ttEXPORT` plus the witness
-signatures, or can use a convenience RPC/helper that performs that pure
-read-time assembly. That expansion must match `ExportResultBuilder`: canonical
-AccountID signer ordering, empty `SigningPubKey`, and the target-chain signer
-cap (`STTx::maxMultiSigners()`) before hashing or submitting. The witness can
-carry more source-side signatures than the destination transaction may include.
-Export currently refuses to sign or materialize when the original UNLReport
-validator population exceeds that cap, even if NegativeUNL temporarily shrinks
-the effective view below it. The assembly cap remains a defensive serialization
-bound, not an implicit committee-selection policy.
+Export sidecar publication is local-material only. Peer-advertised roots are qV
+alignment evidence; they do not reconstruct missing signatures. A node injects
+from an accepted root only when its exact local sidecar snapshot matches that
+root and independently verifies. The bounded gate is a short chance for
+already-in-flight material to align after ordinary transaction-set convergence,
+not a wait for any particular Export to reach qC. Timeout always closes the
+ledger and injects no Export witness from an unavailable or unaligned root.
 
-The resulting Export latch stores the normalized target transaction's canonical
-signing hash in `sfDigest`, not one assembled multisigned transaction ID. Import
-therefore accepts any destination-valid signer subset for that exact signing
-intent. A missing latch returns `telEXPORT_LATCH_REQUIRED` before consensus or
-Hook execution, so an XPOP that races source materialization can be relayed
-later.
+For each still-pending origin that reaches qC in the accepted root, pre-build
+materializes at most one canonical later-ledger `ttEXPORT_SIGNATURES`. The
+pseudo carries `W`, the release-stamped target transaction, a committee-relative
+contributor bitmap, and the selected signatures. It is the replay witness for
+the accepted sidecar evidence.
 
-Export-latch cancellation is non-revoking. While publication is pending it
-unlinks signing work and retains callback readiness because shares already
-published to peers cannot be withdrawn. Lifecycle control names the exact
-source issuance `W`: no flag always unlinks and retains in every state, while
-`tfExportEraseLatch` explicitly erases that exact latch in any state, releases
-reserve, and knowingly accepts later target execution without callback
-readiness. Publication expiry follows the retain path. Symmetric witness+XPOP
-completion also erases. v1 has no automatic terminal-retirement clock,
-permanent tombstone, or paid-bump transition.
+`Change::applyExportSignatures` reads the referenced immutable committee from
+parent ledger state, derives its size and qC, validates the contributor bitmap,
+normalization and release anchor, checks every target signature, records the
+witness transaction ID on the latch, and removes the pending link. It does not
+read current manifests. Historical replay consumes the same witness bytes and
+committee SLE and never regenerates shares. An explicitly erased latch makes a
+concurrently ordered witness an evidence-only no-op.
 
-Implementation status: origin-keyed creation, W-only lifecycle control,
-expiry-unlink, and symmetric witness/XPOP recording are present.
+The full release-stamped payload and signatures are stored once in the witness.
+The latch stores only `sfExportSignatureHash`. Read-time assembly uses the
+witness's target and signatures, empty `SigningPubKey`, canonical AccountID
+ordering, and the target's 32-signer cap. The normalized latch digest is
+signature-subset-independent, so a different sufficient signer subset does not
+orphan the source callback.
 
-This is intentionally leaner than XPOP. XPOP carries its own UNL and manifest
-bundle so it can be independently verified as an external proof. Export witnesses
-are not external proof bundles; they are inputs that made it into validated
-ledger history. Making them self-contained would require embedding manifest
-material or equivalent signing-key history in every witness, which is a separate
-protocol/storage design.
+Import/XPOP and witness arrival are independent monotonic facts. Whichever
+arrives second erases the latch and releases reserve. Flagless W-only lifecycle
+control unlinks publication but retains callback readiness; `tfExportEraseLatch`
+irreversibly erases the exact issuance. Publication expiry follows the retain
+path. Committee deletion remains blocked while any owner latch exists. v1 has
+no permanent tombstone or paid-bump transition.
 
-Closed-ledger apply must not promote unverified proposal-carried signatures into
-current-round quorum material. It may verify and retain them for a future retry,
-where they can be published in a sidecar set and converged before use.
+The `export_signatures` subscription projects each admitted post-validation
+share immediately and republishes retained live shares once per validated
+cursor. Clients deduplicate by origin and committee position. Slow subscribers
+must not hold collector or consensus locks, and silence after an origin leaves
+the pending set is not a durable terminal event.
+
+This remains intentionally leaner than XPOP. XRPL sees ordinary multisignatures,
+not a proof of Xahau finality. XPOP carries the reverse-chain proof material and
+drives the matching callback after target finality.
 
 Export sig convergence runs in parallel with RNG. An export-side convergence
 failure must not change RNG semantics; an RNG fallback must not make export
@@ -602,9 +569,10 @@ Accept-time cleanup must preserve Export state through `onPreBuild` whenever
 After the ordered transaction set contains that witness, replay must not need
 the round's export sidecar convergence state.
 
-CSF consensus tests model the export sidecar gate directly. Testnet scenarios
-under `.testnet/scenarios/export/` cover live-node Export+CE behavior and
-Export-only quorum behavior.
+CSF consensus tests model the Export sidecar gate directly. Unit and testnet
+coverage must additionally exercise committee setup/use/deletion, post-validation
+relay and subscription, restart recovery, below-qC persistence, and later
+witness/XPOP ordering.
 
 ## Review Checklist
 
@@ -627,11 +595,18 @@ When changing consensus extension code, check these questions:
 - Are sidecar entries typed as sidecars, not pseudo-transactions?
 - Are proposal-visible or validation-visible sidecar fields covered by the
   relevant signature and duplicate/replay identity?
-- Are export signatures verified before they count?
-- Does export success require `exportSigSetHash` alignment, not just local
-  collector quorum?
-- Does every ledger-defining export signature enter replay as a
-  `ttEXPORT_SIGNATURES` witness before `ttEXPORT` applies?
-- Can one bad validator deny Export to an honest quorum? It must not.
-- Can timeout select a largest-but-below-quorum export sidecar set? It must not.
+- Can an Export share be produced before the exact origin ledger validates? It
+  must not.
+- Does every intent name an immutable account-owned committee whose complete
+  roster is checked against the exact admitting parent's pre-NegativeUNL
+  `UNLReport`?
+- Are qC (committee sufficiency) and qV (source root alignment) kept separate?
+- Are Export signatures attributable and verified before collector admission?
+- Does witness materialization require local possession of the exact
+  qV-aligned `exportSigSetHash`, not merely a local qC?
+- Does every ledger-defining Export signature enter replay through a later
+  self-contained `ttEXPORT_SIGNATURES` witness?
+- Does accepted witness apply derive qC from the immutable committee SLE without
+  consulting mutable manifests?
+- Can timeout select a largest-but-below-qC signature set? It must not.
 - Are CE and Export still independently gated and independently stoppable?

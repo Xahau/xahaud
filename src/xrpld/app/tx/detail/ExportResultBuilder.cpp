@@ -252,57 +252,5 @@ signaturesFromWitness(STTx const& witness)
     return signatures;
 }
 
-namespace {
-
-AssembledExportResult
-assembleImpl(
-    STTx const& innerTx,
-    SignatureSnapshot const& signatures,
-    LedgerIndex currentSeq,
-    uint256 const& exportTxHash,
-    std::optional<uint256> const& exportSignatureHash)
-{
-    auto multiSigned = buildMultiSignedExportedTxn(innerTx, signatures);
-    auto const signerCount = multiSigned.isFieldPresent(sfSigners)
-        ? multiSigned.getFieldArray(sfSigners).size()
-        : 0;
-    auto const signedTxHash = multiSigned.getHash(HashPrefix::transactionID);
-
-    STObject exportResult(sfExportResult);
-    exportResult.setFieldU32(sfLedgerSequence, currentSeq);
-    exportResult.setFieldH256(sfTransactionHash, exportTxHash);
-    if (exportSignatureHash)
-        exportResult.setFieldH256(sfExportSignatureHash, *exportSignatureHash);
-    else
-        exportResult.set(std::move(multiSigned));
-
-    return {std::move(exportResult), signedTxHash, signerCount};
-}
-
-}  // namespace
-
-AssembledExportResult
-assembleDirect(
-    STTx const& innerTx,
-    SignatureSnapshot const& signatures,
-    LedgerIndex currentSeq,
-    uint256 const& exportTxHash)
-{
-    return assembleImpl(
-        innerTx, signatures, currentSeq, exportTxHash, std::nullopt);
-}
-
-AssembledExportResult
-assembleClosedLedger(
-    STTx const& innerTx,
-    SignatureSnapshot const& signatures,
-    LedgerIndex currentSeq,
-    uint256 const& exportTxHash,
-    uint256 const& exportSignatureHash)
-{
-    return assembleImpl(
-        innerTx, signatures, currentSeq, exportTxHash, exportSignatureHash);
-}
-
 }  // namespace ExportResultBuilder
 }  // namespace ripple

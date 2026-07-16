@@ -1,5 +1,4 @@
 #include <xrpld/app/consensus/ConsensusExtensions.h>
-#include <xrpld/app/consensus/ExportSignatureHarvester.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>

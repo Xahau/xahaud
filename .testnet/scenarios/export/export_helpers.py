@@ -111,22 +111,22 @@ def export_authority(ctx, *, require_unl_report=True, committee_node_ids=None):
     """Build an account-owned committee declaration for a direct Export."""
     ledger_result = ctx.ledger("validated") or {}
     ledger = ledger_result.get("ledger", {})
-    universe_hash = ledger_result.get("ledger_hash") or ledger.get("hash")
-    if not universe_hash:
+    ledger_hash = ledger_result.get("ledger_hash") or ledger.get("hash")
+    if not ledger_hash:
         raise AssertionError(f"Validated ledger hash unavailable: {ledger_result}")
 
     report = (
         ctx.rpc.request(
             0,
             "ledger_entry",
-            {"index": _unl_report_index(), "ledger_hash": universe_hash},
+            {"index": _unl_report_index(), "ledger_hash": ledger_hash},
         )
         or {}
     )
     active = report.get("node", {}).get("ActiveValidators", [])
     if not active:
         if require_unl_report:
-            raise AssertionError(f"UNLReport active universe unavailable: {report}")
+            raise AssertionError(f"UNLReport active validators unavailable: {report}")
         # The negative scenario still submits a structurally valid roster so
         # source eligibility, rather than client construction, rejects it.
         masters = _validator_master_keys_by_node(ctx)
@@ -161,6 +161,26 @@ def export_authority(ctx, *, require_unl_report=True, committee_node_ids=None):
             raise AssertionError("Export committee must select at least one validator")
 
     return _export_committee_fields(selected_keys)
+
+
+async def create_export_committee(
+    ctx, log, wallet, *, committee_node_ids=None
+):
+    """Create one immutable account-owned committee and return its fields."""
+    authority = export_authority(ctx, committee_node_ids=committee_node_ids)
+    result = await ctx.submit_and_wait(
+        {
+            "TransactionType": "Export",
+            "ExportCommittee": authority["ExportCommittee"],
+            "Fee": "1000000",
+        },
+        wallet,
+    )
+    meta = result.get("meta", result.get("metaData", {}))
+    if meta.get("TransactionResult") != "tesSUCCESS":
+        raise AssertionError(f"Export committee setup failed: {result}")
+    log(f"Export committee created: {authority['ExportCommitteeHash']}")
+    return authority
 
 
 def find_export_signature_witness(ctx, seq, origin_hash):
@@ -261,7 +281,7 @@ async def submit_direct_export(
 
         tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
         if not tx_hash:
-            raise AssertionError(f"Universe mismatch missing tx hash: {result}")
+            raise AssertionError(f"Committee eligibility failure missing tx hash: {result}")
         validated = result
         if not result.get("validated"):
             validated = await wait_for_validated_transaction(

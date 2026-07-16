@@ -28,13 +28,6 @@ struct PositionedSignature
 using PositionedSignatureSnapshot =
     std::map<std::uint16_t, PositionedSignature>;
 
-struct AssembledExportResult
-{
-    STObject metadata;
-    uint256 signedTxHash;
-    std::size_t signerCount = 0;
-};
-
 Buffer
 signExportedTxn(
     STTx const& innerTx,
@@ -59,21 +52,6 @@ buildSignatureWitness(
 
 std::optional<PositionedSignatureSnapshot>
 signaturesFromWitness(STTx const& witness);
-
-AssembledExportResult
-assembleDirect(
-    STTx const& innerTx,
-    SignatureSnapshot const& signatures,
-    LedgerIndex currentSeq,
-    uint256 const& exportTxHash);
-
-AssembledExportResult
-assembleClosedLedger(
-    STTx const& innerTx,
-    SignatureSnapshot const& signatures,
-    LedgerIndex currentSeq,
-    uint256 const& exportTxHash,
-    uint256 const& exportSignatureHash);
 
 }  // namespace ExportResultBuilder
 }  // namespace ripple

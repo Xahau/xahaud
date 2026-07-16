@@ -128,7 +128,6 @@ public:
 
     using ActiveValidatorView = ripple::ActiveValidatorView;
     using ActiveValidatorViewPtr = std::shared_ptr<ActiveValidatorView const>;
-    using ExportSignatureSnapshot = std::map<PublicKey, Buffer>;
     struct ExportWitnessMaterial
     {
         ExportResultBuilder::PositionedSignatureSnapshot signatures;
@@ -425,12 +424,6 @@ public:
 
     void
     clearAcceptedExportSigSet();
-
-    std::optional<ExportSignatureSnapshot>
-    agreedExportSignatures(
-        STTx const& exportTx,
-        uint256 const& txHash,
-        std::size_t threshold) const;
 
     std::optional<ExportWitnessMaterial>
     agreedExportWitness(
