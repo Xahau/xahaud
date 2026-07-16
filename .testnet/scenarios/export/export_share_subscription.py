@@ -127,29 +127,35 @@ async def scenario(ctx, log):
                 ctx, log, origin, after_ledger=origin_seq
             )
             expected_records = _witness_records(witness)
+            if len(expected_records) < quorum:
+                raise AssertionError(
+                    f"Witness contains only {len(expected_records)} distinct records; "
+                    f"need quorum {quorum}"
+                )
 
             deadline = asyncio.get_running_loop().time() + 10
             while asyncio.get_running_loop().time() < deadline:
                 matching = [event for event in events if event.get("origin_txid") == origin]
-                observed_records = {
-                    (
+                events_by_record = {}
+                for event in matching:
+                    record = (
                         int(event["universe_position"]),
                         _decode_node_public_key(event["signing_key"]),
                         event["signature"].upper(),
                     )
-                    for event in matching
-                }
-                if expected_records <= observed_records:
+                    events_by_record.setdefault(record, []).append(event)
+                if expected_records <= events_by_record.keys():
                     break
                 await asyncio.sleep(0.1)
             else:
                 raise AssertionError(
                     "WebSocket stream did not publish every signature used by "
                     f"the witness: expected={expected_records}, "
-                    f"observed={observed_records}"
+                    f"observed={set(events_by_record)}"
                 )
 
             unique_positions = set()
+            validated_hashes = {}
             for event in matching:
                 if event.get("type") != "exportSignatureReceived":
                     raise AssertionError(f"Unexpected Export stream event: {event}")
@@ -168,19 +174,39 @@ async def scenario(ctx, log):
                     raise AssertionError(f"Unselected validator streamed a share: {event}")
                 unique_positions.add(position)
 
-            if len(unique_positions) < quorum:
-                raise AssertionError(
-                    f"Stream exposed only {len(unique_positions)} selected positions; "
-                    f"need quorum {quorum}"
-                )
             witness_seq = int(witness["LedgerSequence"])
-            if not any(
-                int(event.get("ledger_index", 0)) < witness_seq
-                for event in matching
-            ):
-                raise AssertionError(
-                    "No Export share stream event preceded the ledger witness"
-                )
+            for event in matching:
+                ledger_index = event.get("ledger_index")
+                ledger_hash = event.get("ledger_hash")
+                if isinstance(ledger_index, bool) or not isinstance(ledger_index, int):
+                    raise AssertionError(
+                        f"Export stream event missing numeric ledger_index: {event}"
+                    )
+                if not isinstance(ledger_hash, str) or not ledger_hash:
+                    raise AssertionError(
+                        f"Export stream event missing ledger_hash: {event}"
+                    )
+                if ledger_index not in validated_hashes:
+                    observed_ledger = ctx.ledger(ledger_index) or {}
+                    validated_hashes[ledger_index] = observed_ledger.get(
+                        "ledger_hash"
+                    ) or observed_ledger.get("ledger", {}).get("hash")
+                if ledger_hash != validated_hashes[ledger_index]:
+                    raise AssertionError(
+                        "Export stream cursor does not name the validated ledger: "
+                        f"event={event}, expected_hash={validated_hashes[ledger_index]}"
+                    )
+
+            for record in expected_records:
+                if not any(
+                    origin_seq <= event["ledger_index"] < witness_seq
+                    for event in events_by_record[record]
+                ):
+                    raise AssertionError(
+                        "Witness signature lacked a pre-witness stream event with a "
+                        f"validated cursor: record={record}, "
+                        f"events={events_by_record[record]}"
+                    )
             log(
                 f"WebSocket exposed {len(unique_positions)} selected shares; "
                 f"witness used {len(expected_records)}"
