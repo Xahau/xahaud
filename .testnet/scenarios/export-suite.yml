@@ -53,6 +53,12 @@ tests:
         - rng_poll_ms=333
         - n4:no_export_sig_hash=true
 
+  - name: export_share_subscription
+    script: .testnet/scenarios/export/export_share_subscription.py
+
+  - name: export_two_member_committee_recovery
+    script: .testnet/scenarios/export/export_committee_recovery.py
+
   # CE + Export: 1 node suppressed, 4/5 = 80% quorum, should succeed
   - name: export_ce_one_node_down
     script: .testnet/scenarios/export/export_quorum.py

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from xahaud_scripts.testnet.config import _unl_report_index, feature_name_to_hash
+import json
+
+from xahaud_scripts.testnet.config import (
+    _decode_node_public_key,
+    _unl_report_index,
+    feature_name_to_hash,
+)
 
 EXPORT_RETRY_LEDGER_WINDOW = 5
 EXPORT_PUBLICATION_LEDGER_WINDOW = 5
@@ -65,7 +71,29 @@ def find_export_txns(ctx, seq):
     return [tx for tx in txns if tx.get("TransactionType") == "Export"]
 
 
-def export_authority(ctx, *, require_unl_report=True):
+def _validator_master_keys_by_node(ctx):
+    """Return generated validator master keys keyed by testnet node id."""
+    network = json.loads((ctx.base_dir / "network.json").read_text())
+    return {
+        int(node["id"]): _decode_node_public_key(node["public_key"])
+        for node in network["nodes"]
+    }
+
+
+def bitmap_positions(bitmap):
+    """Return the selected bit positions from a hex bitmap or bytes."""
+    raw = bytes.fromhex(bitmap) if isinstance(bitmap, str) else bytes(bitmap)
+    return {
+        byte_index * 8 + bit_index
+        for byte_index, byte in enumerate(raw)
+        for bit_index in range(8)
+        if byte & (1 << bit_index)
+    }
+
+
+def export_authority(
+    ctx, *, require_unl_report=True, committee_node_ids=None
+):
     """Build the explicit authority declaration for a direct Export.
 
     Direct clients pin the validated parent ledger and select members from its
@@ -92,8 +120,34 @@ def export_authority(ctx, *, require_unl_report=True):
             raise AssertionError(f"UNLReport active universe unavailable: {report}")
         active = [{}]
 
-    committee = bytearray((len(active) + 7) // 8)
-    for index in range(len(active)):
+    active_keys = set()
+    for entry in active:
+        validator = entry.get("ActiveValidator", entry)
+        key = validator.get("PublicKey")
+        if not key:
+            raise AssertionError(f"Malformed UNLReport validator entry: {entry}")
+        active_keys.add(key.upper())
+    active_keys = sorted(active_keys, key=bytes.fromhex)
+
+    if committee_node_ids is None:
+        selected_positions = range(len(active_keys))
+    else:
+        masters = _validator_master_keys_by_node(ctx)
+        selected_positions = []
+        for node_id in committee_node_ids:
+            if node_id not in masters:
+                raise AssertionError(f"Unknown testnet validator node n{node_id}")
+            try:
+                selected_positions.append(active_keys.index(masters[node_id]))
+            except ValueError as exc:
+                raise AssertionError(
+                    f"Validator n{node_id} is absent from the active UNLReport"
+                ) from exc
+        if not selected_positions:
+            raise AssertionError("Export committee must select at least one validator")
+
+    committee = bytearray((len(active_keys) + 7) // 8)
+    for index in selected_positions:
         committee[index // 8] |= 1 << (index % 8)
 
     return {
@@ -175,7 +229,16 @@ async def wait_for_validated_transaction(
     raise AssertionError(f"Transaction {tx_hash} did not validate by ledger {target}")
 
 
-async def submit_direct_export(ctx, log, tx, wallet, *, timeout=60, max_rebases=2):
+async def submit_direct_export(
+    ctx,
+    log,
+    tx,
+    wallet,
+    *,
+    timeout=60,
+    max_rebases=2,
+    committee_node_ids=None,
+):
     """Submit a direct Export, rebasing after a validated parent mismatch."""
     for attempt in range(max_rebases + 1):
         current = ctx.validated_ledger_index(0)
@@ -183,7 +246,9 @@ async def submit_direct_export(ctx, log, tx, wallet, *, timeout=60, max_rebases=
             raise AssertionError("Validated ledger unavailable before Export")
 
         candidate = dict(tx)
-        candidate.update(export_authority(ctx))
+        candidate.update(
+            export_authority(ctx, committee_node_ids=committee_node_ids)
+        )
         candidate["LastLedgerSequence"] = current + EXPORT_RETRY_LEDGER_WINDOW
         result = await ctx.submit_and_wait(candidate, wallet, timeout=timeout)
         if result.get("engine_result") != "tecEXPORT_UNIVERSE_MISMATCH":
