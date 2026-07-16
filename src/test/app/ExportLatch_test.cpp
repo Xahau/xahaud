@@ -35,7 +35,7 @@ struct ExportLatch_test : beast::unit_test::suite
     {
         uint256 const origin{ordinal + 1};
         auto latch =
-            std::make_shared<SLE>(keylet::shadowTicket(account, origin));
+            std::make_shared<SLE>(keylet::exportLatch(account, origin));
         latch->setAccountID(sfAccount, account);
         latch->setFieldU32(sfTicketSequence, 50'000 + ordinal);
         latch->setFieldH256(sfTransactionHash, origin);
@@ -127,37 +127,6 @@ struct ExportLatch_test : beast::unit_test::suite
         for (std::size_t i = 2; i + 1 < latches.size(); ++i)
             expected.insert(latches[i].key);
         BEAST_EXPECT(recovered == expected);
-
-        // A legacy ticket-keyed latch must not alter enhanced-latch counts.
-        auto const legacyKey = keylet::shadowTicket(alice.id(), 77u);
-        auto legacy = std::make_shared<SLE>(legacyKey);
-        legacy->setAccountID(sfAccount, alice.id());
-        legacy->setFieldU32(sfTicketSequence, 77);
-        legacy->setFieldH256(sfDigest, uint256{77});
-        legacy->setFieldU32(sfLedgerSequence, 4'000'077);
-        auto const legacyPage = sb.dirInsert(
-            keylet::ownerDir(alice.id()),
-            legacyKey.key,
-            describeOwnerDir(alice.id()));
-        if (!BEAST_EXPECT(legacyPage.has_value()))
-            return;
-        legacy->setFieldU64(sfOwnerNode, *legacyPage);
-        sb.insert(legacy);
-
-        BEAST_EXPECT(
-            ExportLedgerOps::eraseExportLatch(sb, sb, legacyKey, j) ==
-            tefBAD_LEDGER);
-        BEAST_EXPECT(sb.exists(legacyKey));
-        BEAST_EXPECT(
-            sb.read(keylet::account(alice.id()))->getFieldU16(sfExportCount) ==
-            31);
-        BEAST_EXPECT(
-            sb.read(keylet::pendingExports())->getFieldU16(sfExportCount) ==
-            30);
-
-        BEAST_EXPECT(sb.dirRemove(
-            keylet::ownerDir(alice.id()), *legacyPage, legacyKey.key, false));
-        sb.erase(legacy);
 
         for (std::size_t i = 2; i < latches.size(); ++i)
             BEAST_EXPECT(isTesSuccess(
@@ -292,7 +261,7 @@ struct ExportLatch_test : beast::unit_test::suite
         auto const xpopFirstKey = keylet::unchecked(xpopFirst->key());
         BEAST_EXPECT(isTesSuccess(
             ExportLedgerOps::insertPendingExportLatch(sb, sb, xpopFirst, j)));
-        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::cancelShadowTicket(
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::cancelExportLatch(
             sb, sb, alice.id(), xpopFirst->getFieldU32(sfTicketSequence), j)));
 
         auto const canceled = sb.read(xpopFirstKey);
@@ -339,7 +308,7 @@ struct ExportLatch_test : beast::unit_test::suite
         auto const witnessFirstKey = keylet::unchecked(witnessFirst->key());
         BEAST_EXPECT(isTesSuccess(ExportLedgerOps::insertPendingExportLatch(
             sb, sb, witnessFirst, j)));
-        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::cancelShadowTicket(
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::cancelExportLatch(
             sb,
             sb,
             alice.id(),

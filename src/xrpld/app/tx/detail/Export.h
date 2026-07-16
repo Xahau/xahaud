@@ -5,7 +5,7 @@
 
 namespace ripple {
 
-/// Admit an export intent or cancel a shadow ticket.
+/// Admit an Export intent or cancel an Export latch.
 ///
 /// A successful intent creates an origin-keyed pending latch. Validators sign
 /// only after its ledger validates; a later ttEXPORT_SIGNATURES pseudo records

@@ -305,7 +305,7 @@ def assert_export_witness(witness, origin_hash, ledger_seq, log):
     return witness
 
 
-def assert_shadow_ticket(
+def assert_export_latch(
     ctx,
     account_address,
     log,
@@ -315,7 +315,7 @@ def assert_shadow_ticket(
     expect_witness=None,
     ledger_hash=None,
 ):
-    """Assert shadow ticket exists (or doesn't) for the account."""
+    """Assert Export latch exists (or doesn't) for the account."""
     params = {"account": account_address, "ledger_index": "validated"}
     if ledger_hash is not None:
         del params["ledger_index"]
@@ -332,35 +332,35 @@ def assert_shadow_ticket(
         )
 
     all_objects = obj_result.get("account_objects", [])
-    shadow_tickets = [
-        obj for obj in all_objects if obj.get("LedgerEntryType") == "ShadowTicket"
+    export_latches = [
+        obj for obj in all_objects if obj.get("LedgerEntryType") == "ExportLatch"
     ]
-    log(f"  Shadow tickets: {len(shadow_tickets)}")
+    log(f"  Export latches: {len(export_latches)}")
 
     if origin_hash is not None:
-        shadow_tickets = [
-            ticket
-            for ticket in shadow_tickets
-            if ticket.get("TransactionHash") == origin_hash
+        export_latches = [
+            latch
+            for latch in export_latches
+            if latch.get("TransactionHash") == origin_hash
         ]
 
-    if expect_exists and not shadow_tickets:
-        raise AssertionError("Expected shadow ticket but none found")
-    if not expect_exists and shadow_tickets:
+    if expect_exists and not export_latches:
+        raise AssertionError("Expected Export latch but none found")
+    if not expect_exists and export_latches:
         raise AssertionError(
-            f"Expected no shadow tickets but found {len(shadow_tickets)}"
+            f"Expected no Export latches but found {len(export_latches)}"
         )
 
-    for ticket in shadow_tickets:
-        if "Digest" not in ticket:
+    for latch in export_latches:
+        if "Digest" not in latch:
             raise AssertionError(
-                "ShadowTicket missing signature-independent intent Digest"
+                "ExportLatch missing signature-independent intent Digest"
             )
-        if "TransactionHash" not in ticket:
-            raise AssertionError("ShadowTicket missing Export origin TransactionHash")
-        if expect_witness is True and "ExportSignatureHash" not in ticket:
-            raise AssertionError("ShadowTicket missing ExportSignatureHash")
-        if expect_witness is False and "ExportSignatureHash" in ticket:
-            raise AssertionError("Pending ShadowTicket unexpectedly witnessed")
+        if "TransactionHash" not in latch:
+            raise AssertionError("ExportLatch missing Export origin TransactionHash")
+        if expect_witness is True and "ExportSignatureHash" not in latch:
+            raise AssertionError("ExportLatch missing ExportSignatureHash")
+        if expect_witness is False and "ExportSignatureHash" in latch:
+            raise AssertionError("Pending ExportLatch unexpectedly witnessed")
 
-    return shadow_tickets
+    return export_latches

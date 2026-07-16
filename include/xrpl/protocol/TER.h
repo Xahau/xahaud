@@ -71,7 +71,7 @@ enum TELcodes : TERUnderlyingType {
     // Keep test-only sentinels before appended branch-local TEL codes so their
     // numeric values do not move.
     telENV_RPC_FAILED,
-    telSHADOW_TICKET_REQUIRED,
+    telEXPORT_LATCH_REQUIRED,
 };
 
 //------------------------------------------------------------------------------

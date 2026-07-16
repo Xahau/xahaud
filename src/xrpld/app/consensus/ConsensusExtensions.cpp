@@ -104,8 +104,8 @@ isPendingExportShare(
         return false;
 
     auto const latch =
-        view.read(keylet::shadowTicket(share.owner, share.originTxn));
-    return latch && latch->getType() == ltSHADOW_TICKET &&
+        view.read(keylet::exportLatch(share.owner, share.originTxn));
+    return latch && latch->getType() == ltEXPORT_LATCH &&
         latch->isFieldPresent(sfTransactionHash) &&
         latch->isFieldPresent(sfExportUniverseHash) &&
         latch->isFieldPresent(sfExportCommittee) &&
@@ -143,11 +143,11 @@ resolveExportShare(
     if (*canonicalOriginHash != share.originLedgerHash)
         return {ExportShareResolutionStatus::invalid, std::nullopt};
 
-    auto const latchKey = keylet::shadowTicket(share.owner, share.originTxn);
+    auto const latchKey = keylet::exportLatch(share.owner, share.originTxn);
     auto const latch = validated->read(latchKey);
     if (!latch)
         return {ExportShareResolutionStatus::invalid, std::nullopt};
-    if (latch->getType() != ltSHADOW_TICKET ||
+    if (latch->getType() != ltEXPORT_LATCH ||
         !latch->isFieldPresent(sfTransactionHash) ||
         !latch->isFieldPresent(sfExportUniverseHash) ||
         !latch->isFieldPresent(sfExportCommittee) ||
@@ -279,7 +279,7 @@ pendingExportLatches(ReadView const& view, LedgerIndex eligibleSeq)
         view,
         keylet::pendingExports(),
         [&](std::shared_ptr<SLE const> const& latch) {
-            if (!latch || latch->getType() != ltSHADOW_TICKET ||
+            if (!latch || latch->getType() != ltEXPORT_LATCH ||
                 !latch->isFieldPresent(sfTransactionHash) ||
                 !latch->isFieldPresent(sfLedgerSequence) ||
                 !latch->isFieldPresent(sfAccount) ||
@@ -655,7 +655,7 @@ ConsensusExtensions::onValidatedLedger(
                         if (!latch ||
                             shares.size() >=
                                 ExportLimits::maxLiveExportLatches ||
-                            latch->getType() != ltSHADOW_TICKET ||
+                            latch->getType() != ltEXPORT_LATCH ||
                             !latch->isFieldPresent(sfTransactionHash) ||
                             !latch->isFieldPresent(sfExportUniverseHash) ||
                             !latch->isFieldPresent(sfExportCommittee) ||

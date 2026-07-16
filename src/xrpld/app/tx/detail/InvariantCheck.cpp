@@ -602,7 +602,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltIMPORT_VLSEQ:
             case ltUNL_REPORT:
             case ltCONSENSUS_ENTROPY:
-            case ltSHADOW_TICKET:
+            case ltEXPORT_LATCH:
             case ltAMM:
             case ltBRIDGE:
             case ltXCHAIN_OWNED_CLAIM_ID:

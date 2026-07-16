@@ -562,20 +562,24 @@ validator population exceeds that cap, even if NegativeUNL temporarily shrinks
 the effective view below it. The assembly cap remains a defensive serialization
 bound, not an implicit committee-selection policy.
 
-The resulting shadow ticket stores the normalized target transaction's canonical
+The resulting Export latch stores the normalized target transaction's canonical
 signing hash in `sfDigest`, not one assembled multisigned transaction ID. Import
 therefore accepts any destination-valid signer subset for that exact signing
-intent. A missing latch returns `telSHADOW_TICKET_REQUIRED` before consensus or
+intent. A missing latch returns `telEXPORT_LATCH_REQUIRED` before consensus or
 Hook execution, so an XPOP that races source materialization can be relayed
 later.
 
-Shadow-ticket cancellation is non-revoking. While publication is pending it
+Export-latch cancellation is non-revoking. While publication is pending it
 unlinks signing work and retains callback readiness because shares already
 published to peers cannot be withdrawn. Once the latch is non-pending, an
 explicit owner cleanup may erase it, release reserve, and knowingly accept
 later target execution without callback readiness. Symmetric witness+XPOP
 completion also erases. v1 has no automatic terminal-retirement clock,
 permanent tombstone, or paid-bump transition.
+
+Implementation status: origin-keyed latch creation and symmetric witness/XPOP
+recording are present. Explicit terminal cleanup and expiry-unlink behavior are
+ratified policy still tracked for implementation.
 
 This is intentionally leaner than XPOP. XPOP carries its own UNL and manifest
 bundle so it can be independently verified as an external proof. Export witnesses

@@ -14,7 +14,7 @@ from export_helpers import (
     find_export_txns,
     dst_param,
     assert_hook_accepted,
-    assert_shadow_ticket,
+    assert_export_latch,
     wait_for_export_signature_witness,
 )
 
@@ -204,7 +204,7 @@ async def scenario(ctx, log):
                 ctx, log, origin_hash, after_ledger=seq
             )
 
-            assert_shadow_ticket(
+            assert_export_latch(
                 ctx,
                 alice.address,
                 log,

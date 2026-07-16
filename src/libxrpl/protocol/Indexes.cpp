@@ -74,7 +74,7 @@ enum class LedgerNameSpace : std::uint16_t {
     HOOK_DEFINITION = 'D',
     EMITTED_TXN = 'E',
     EMITTED_DIR = 'F',
-    SHADOW_TICKET = 0x5374,       // St
+    EXPORT_LATCH = 0x5374,        // St
     EXPORT_PENDING_DIR = 0x4570,  // Ep
     NFTOKEN_OFFER = 'q',
     NFTOKEN_BUY_OFFERS = 'h',
@@ -191,22 +191,13 @@ emittedTxn(uint256 const& id) noexcept
     return {ltEMITTED_TXN, indexHash(LedgerNameSpace::EMITTED_TXN, id)};
 }
 
-Keylet
-shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept
-{
-    return {
-        ltSHADOW_TICKET,
-        indexHash(
-            LedgerNameSpace::SHADOW_TICKET, account, std::uint32_t(ticketSeq))};
-}
-
 //@@start export-origin-keylet
 Keylet
-shadowTicket(AccountID const& account, uint256 const& originTxnHash) noexcept
+exportLatch(AccountID const& account, uint256 const& originTxnHash) noexcept
 {
     return {
-        ltSHADOW_TICKET,
-        indexHash(LedgerNameSpace::SHADOW_TICKET, account, originTxnHash)};
+        ltEXPORT_LATCH,
+        indexHash(LedgerNameSpace::EXPORT_LATCH, account, originTxnHash)};
 }
 //@@end export-origin-keylet
 

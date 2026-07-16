@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from export_helpers import (
     EXPORT_RETRY_LEDGER_WINDOW,
-    assert_shadow_ticket,
+    assert_export_latch,
     require_export,
     submit_direct_export,
     wait_for_export_signature_witness,
@@ -74,7 +74,7 @@ async def scenario(ctx, log):
         ctx, log, origin_hash, after_ledger=export_seq
     )
 
-    assert_shadow_ticket(
+    assert_export_latch(
         ctx,
         alice.address,
         log,

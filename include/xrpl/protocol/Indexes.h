@@ -62,18 +62,13 @@ emittedDir() noexcept;
 Keylet
 emittedTxn(uint256 const& id) noexcept;
 
-Keylet
-shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept;
-
 /** Locate an Export latch by its permanent source issuance identity.
 
     The source Export transaction ID is content-addressed and cannot be reused,
-    including after AccountDelete. This overload is reserved for the
-    post-validation Export pipeline; the ticket-sequence overload remains the
-    active legacy keylet until the semantic flip.
+    including after AccountDelete.
 */
 Keylet
-shadowTicket(AccountID const& account, uint256 const& originTxnHash) noexcept;
+exportLatch(AccountID const& account, uint256 const& originTxnHash) noexcept;
 
 /** The fixed global directory of Export latches awaiting witness work. */
 Keylet const&

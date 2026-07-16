@@ -326,7 +326,7 @@ Import::preflight(PreflightContext const& ctx)
 
     // B2M imports use OperationLimit to target this network and therefore
     // reject inner NetworkID. Export callbacks may carry a target NetworkID;
-    // the shadow ticket binds the canonical target signing intent.
+    // the Export latch binds the canonical target signing intent.
     if (!hasTicket && stpTrans->isFieldPresent(sfNetworkID))
     {
         JLOG(ctx.j.warn()) << "Import: attempted to import xpop containing a "
@@ -337,7 +337,7 @@ Import::preflight(PreflightContext const& ctx)
 
     // For the B2M (burn-to-mint) path, OperationLimit proves the inner
     // tx was destined for this network.  For the export callback path
-    // (sfTicketSequence present), the shadow ticket already establishes
+    // (sfTicketSequence present), the Export latch already establishes
     // the relationship, so OperationLimit is not required.
     if (!hasTicket)
     {
@@ -365,7 +365,7 @@ Import::preflight(PreflightContext const& ctx)
     // outer txn.
     // Exception: when the inner tx has sfTicketSequence, it came through the
     // export callback path and is validator-multisigned (not alice-signed).
-    // The shadow ticket already proves the relationship, so skip the
+    // The Export latch already proves the relationship, so skip the
     // signing key match check.
     if (!hasTicket)
     {
@@ -1017,94 +1017,74 @@ Import::preclaim(PreclaimContext const& ctx)
 
     if (hasTicket)
     {
-        //@@start current-import-shadow-ticket-preclaim
+        //@@start current-import-export-latch-preclaim
         if (!ctx.view.rules().enabled(featureExport))
             return tefINTERNAL;
+        if (!ExportOriginMemo::hasReservedMemo(*stpTrans))
+            return temMALFORMED;
 
         auto const acc = stpTrans->getAccountID(sfAccount);
-        auto const ticketSeq = stpTrans->getFieldU32(sfTicketSequence);
+        auto const exportStamp = ExportOriginMemo::parse(*stpTrans);
+        auto const identityProjection =
+            ExportOriginMemo::projectIdentity(*stpTrans);
+        if (!exportStamp || !exportStamp.value().anchor || !identityProjection)
+            return temMALFORMED;
 
-        std::optional<ExportOriginMemo::Stamp> exportStamp;
-        std::optional<STTx> identityProjection;
-        auto stKey = keylet::shadowTicket(acc, ticketSeq);
-        if (ExportOriginMemo::hasReservedMemo(*stpTrans))
-        {
-            auto parsed = ExportOriginMemo::parse(*stpTrans);
-            auto projected = ExportOriginMemo::projectIdentity(*stpTrans);
-            if (!parsed || !parsed.value().anchor || !projected)
-                return temMALFORMED;
+        auto const expectedTarget = stpTrans->isFieldPresent(sfNetworkID)
+            ? stpTrans->getFieldU32(sfNetworkID)
+            : std::uint32_t{0};
+        if (exportStamp.value().origin.sourceDomain !=
+                ctx.app.config().NETWORK_ID ||
+            exportStamp.value().origin.targetDomain != expectedTarget)
+            return temMALFORMED;
 
-            auto const expectedTarget = stpTrans->isFieldPresent(sfNetworkID)
-                ? stpTrans->getFieldU32(sfNetworkID)
-                : std::uint32_t{0};
-            if (parsed.value().origin.sourceDomain !=
-                    ctx.app.config().NETWORK_ID ||
-                parsed.value().origin.targetDomain != expectedTarget)
-                return temMALFORMED;
+        if (exportStamp.value().anchor->ledgerSequence >= ctx.view.info().seq)
+            return telEXPORT_LATCH_REQUIRED;
 
-            if (parsed.value().anchor->ledgerSequence >= ctx.view.info().seq)
-                return telSHADOW_TICKET_REQUIRED;
-
-            // The origin-keyed latch below is the deterministic ancestry
-            // proof. The anchor hash was authenticated by qC and executed on
-            // the target; no node-local history lookup belongs in preclaim.
-
-            stKey = keylet::shadowTicket(
-                acc, parsed.value().origin.transactionHash);
-            exportStamp = std::move(parsed.value());
-            identityProjection.emplace(std::move(projected.value()));
-        }
-
-        // check if there is a shadow ticket, and if not we won't allow
-        // the txn to pass into consensus
+        // The origin-keyed latch is the deterministic ancestry proof. The
+        // anchor hash was authenticated by qC and executed on the target; no
+        // node-local history lookup belongs in preclaim.
+        auto const stKey = keylet::exportLatch(
+            acc, exportStamp.value().origin.transactionHash);
         auto const stSle = ctx.view.read(stKey);
         if (!stSle)
         {
             JLOG(ctx.j.warn())
-                << "Import: attempted to import a txn without shadow ticket.";
-            return telSHADOW_TICKET_REQUIRED;
+                << "Import: attempted Export callback without a latch.";
+            return telEXPORT_LATCH_REQUIRED;
         }
-        if (stSle->isFieldPresent(sfTransactionHash))
-        {
-            if (!exportStamp ||
-                stSle->getFieldH256(sfTransactionHash) !=
-                    exportStamp->origin.transactionHash ||
-                stSle->getFieldU32(sfLedgerSequence) !=
-                    exportStamp->anchor->ledgerSequence)
-                return temMALFORMED;
+        if (stSle->getType() != ltEXPORT_LATCH ||
+            !stSle->isFieldPresent(sfTransactionHash) ||
+            stSle->getFieldH256(sfTransactionHash) !=
+                exportStamp.value().origin.transactionHash ||
+            stSle->getFieldU32(sfLedgerSequence) !=
+                exportStamp.value().anchor->ledgerSequence)
+            return temMALFORMED;
 
-            auto const flags = stSle->isFieldPresent(sfFlags)
-                ? stSle->getFieldU32(sfFlags)
-                : std::uint32_t{0};
-            if ((flags & lsfExportXpopSeen) != 0)
-                return tecDUPLICATE;
-        }
+        auto const flags = stSle->isFieldPresent(sfFlags)
+            ? stSle->getFieldU32(sfFlags)
+            : std::uint32_t{0};
+        if ((flags & lsfExportXpopSeen) != 0)
+            return tecDUPLICATE;
 
-        // Verify the imported XPOP matches the export that created this shadow
-        // ticket. The identity excludes signer-dependent fields so any target-
+        // Verify the imported XPOP matches the Export that created this latch.
+        // The identity excludes signer-dependent fields so any target-
         // valid signer subset for the exact intent can complete the callback.
-        //
-        // This guards only a different intent against a live latch. It does NOT
-        // prevent re-importing the SAME XPOP after the latch is consumed and
-        // recreated (see ExportLedgerOps::createShadowTicket): the ticket path
-        // deliberately skips the monotonic sfImportSequence guard used by the
-        // Burn-to-Mint path, so a value-bearing callback hook must itself dedup
-        // on the XPOP target transaction hash or a hook-defined business key.
         auto const expectedHash = stSle->getFieldH256(sfDigest);
-        auto const actualHash = ExportResultBuilder::exportIntentHash(
-            identityProjection ? *identityProjection : *stpTrans);
+        auto const actualHash =
+            ExportResultBuilder::exportIntentHash(identityProjection.value());
         JLOG(ctx.j.trace())
-            << "Import preclaim: shadowTicket intent=" << expectedHash
+            << "Import preclaim: exportLatch intent=" << expectedHash
             << " xpopIntent=" << actualHash
             << " xpopTxHash=" << stpTrans->getTransactionID()
             << " match=" << (expectedHash == actualHash);
         if (expectedHash != actualHash)
         {
             JLOG(ctx.j.warn())
-                << "Import: XPOP intent does not match shadow ticket.";
+                << "Import: XPOP intent does not match Export latch.";
             return temMALFORMED;
         }
-        //@@end current-import-shadow-ticket-preclaim
+        //@@end current-import-export-latch-preclaim
     }
 
     auto const& sle = ctx.view.read(keylet::account(ctx.tx[sfAccount]));
@@ -1203,7 +1183,7 @@ Import::preclaim(PreclaimContext const& ctx)
     }
 
     // Shared XPOP verification includes the source VL anti-downgrade ratchet.
-    // A shadow ticket is the callback replay latch; it does not replace the
+    // An Export latch is the callback replay latch; it does not replace the
     // requirement that imports use the newest validator list this chain has
     // already accepted from the publisher.
     auto const& sleVL = ctx.view.read(keylet::import_vlseq(vlInfo->second));
@@ -1455,7 +1435,7 @@ Import::doApply()
     // ---------------------------------------------------------------
     if (path == ImportPath::exportCallback)
     {
-        //@@start current-import-shadow-ticket-consume
+        //@@start current-import-export-latch-consume
         if (!sle)
         {
             JLOG(ctx_.journal.warn())
@@ -1463,29 +1443,18 @@ Import::doApply()
             return tefINTERNAL;
         }
 
-        auto const ticketSeq = stpTrans->getFieldU32(sfTicketSequence);
-        TER ter;
-        if (ExportOriginMemo::hasReservedMemo(*stpTrans))
-        {
-            auto const stamp = ExportOriginMemo::parse(*stpTrans);
-            if (!stamp || !stamp.value().anchor)
-                return tefINTERNAL;
-            ter = ExportLedgerOps::recordExportXpop(
-                view(),
-                ctx_.rawView(),
-                keylet::shadowTicket(
-                    id, stamp.value().origin.transactionHash),
-                ctx_.journal);
-        }
-        else
-        {
-            ter = ExportLedgerOps::cancelShadowTicket(
-                view(), ctx_.rawView(), id, ticketSeq, ctx_.journal);
-        }
+        auto const stamp = ExportOriginMemo::parse(*stpTrans);
+        if (!stamp || !stamp.value().anchor)
+            return tefINTERNAL;
+        auto const ter = ExportLedgerOps::recordExportXpop(
+            view(),
+            ctx_.rawView(),
+            keylet::exportLatch(id, stamp.value().origin.transactionHash),
+            ctx_.journal);
         if (!isTesSuccess(ter))
             return ter;
 
-        //@@end current-import-shadow-ticket-consume
+        //@@end current-import-export-latch-consume
         return tesSUCCESS;
     }
 

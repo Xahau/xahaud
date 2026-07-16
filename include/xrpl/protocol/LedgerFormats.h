@@ -186,7 +186,7 @@ enum LedgerSpecificFlags {
     // remarks
     lsfImmutable = 1,
 
-    // ltSHADOW_TICKET
+    // ltEXPORT_LATCH
     lsfExportXpopSeen = 0x00000001,
     lsfExportCanceled = 0x00000002,
 

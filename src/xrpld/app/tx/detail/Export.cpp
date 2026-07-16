@@ -127,11 +127,11 @@ Export::doApply()
 {
     auto const account = ctx_.tx.getAccountID(sfAccount);
 
-    // --- Shadow ticket cancel path (mutually exclusive with export) ---
+    // --- Export latch cancel path (mutually exclusive with export) ---
     if (ctx_.tx.isFieldPresent(sfCancelTicketSequence))
     {
         auto const ticketSeq = ctx_.tx.getFieldU32(sfCancelTicketSequence);
-        return ExportLedgerOps::cancelShadowTicket(
+        return ExportLedgerOps::cancelExportLatch(
             view(), ctx_.rawView(), account, ticketSeq, j_);
     }
 
@@ -207,8 +207,7 @@ Export::doApply()
     JLOG(j_.info()) << "Export: admitted post-validation intent"
                     << " txHash=" << txId << " ledgerSeq=" << currentSeq
                     << " committee=" << committee->members.selected()
-                    << " quorum=" << committee->quorum
-                    << " result=tesSUCCESS";
+                    << " quorum=" << committee->quorum << " result=tesSUCCESS";
     return tesSUCCESS;
 }
 

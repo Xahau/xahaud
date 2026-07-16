@@ -144,7 +144,7 @@ struct Export_test : public beast::unit_test::suite
         auto const origin = xahau.tx()->getTransactionID();
         xahau.close();
 
-        auto const latchKey = keylet::shadowTicket(alice.id(), origin);
+        auto const latchKey = keylet::exportLatch(alice.id(), origin);
         BEAST_EXPECT(xahau.current()->exists(latchKey));
 
         Blob multisignedBlob;
@@ -816,7 +816,7 @@ struct Export_test : public beast::unit_test::suite
         if (!origin)
             return;
 
-        auto const latchKey = keylet::shadowTicket(alice.id(), *origin);
+        auto const latchKey = keylet::exportLatch(alice.id(), *origin);
         auto const pendingLatch = env.closed()->read(latchKey);
         BEAST_EXPECT(pendingLatch);
         if (pendingLatch)
@@ -1168,16 +1168,16 @@ struct Export_test : public beast::unit_test::suite
         }
 
         BEAST_EXPECT(closedResult == tesSUCCESS);
-        auto const latch = env.le(keylet::shadowTicket(alice.id(), origin));
+        auto const latch = env.le(keylet::exportLatch(alice.id(), origin));
         BEAST_EXPECT(latch);
         if (latch)
             BEAST_EXPECT(!latch->isFieldPresent(sfExportSignatureHash));
     }
 
     void
-    testExportShadowTicketInsufficientReserve(FeatureBitset features)
+    testExportLatchInsufficientReserve(FeatureBitset features)
     {
-        testcase("ttEXPORT shadow ticket requires owner reserve");
+        testcase("ttEXPORT Export latch requires owner reserve");
 
         using namespace jtx;
 
@@ -1233,7 +1233,7 @@ struct Export_test : public beast::unit_test::suite
             ripple::apply(env.app(), accum, *exportTx, tapNONE, env.journal);
         BEAST_EXPECT(result.ter == tecINSUFFICIENT_RESERVE);
 
-        BEAST_EXPECT(!accum.read(keylet::shadowTicket(alice.id(), txHash)));
+        BEAST_EXPECT(!accum.read(keylet::exportLatch(alice.id(), txHash)));
     }
 
     void
@@ -1396,7 +1396,7 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(originTxs.empty());
         BEAST_EXPECT(originFailed.empty());
 
-        auto const latchKey = keylet::shadowTicket(alice.id(), origin);
+        auto const latchKey = keylet::exportLatch(alice.id(), origin);
         auto const pendingLatch = originLedger->read(latchKey);
         BEAST_EXPECT(pendingLatch);
         if (!pendingLatch)
@@ -1712,7 +1712,7 @@ struct Export_test : public beast::unit_test::suite
 
         BEAST_EXPECT(result.ter == tecEXPORT_UNIVERSE_MISMATCH);
         BEAST_EXPECT(result.applied);
-        BEAST_EXPECT(!next->read(keylet::shadowTicket(alice.id(), txHash)));
+        BEAST_EXPECT(!next->read(keylet::exportLatch(alice.id(), txHash)));
     }
 
     void
@@ -1754,7 +1754,7 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(result.applied);
         accum.apply(*next);
         BEAST_EXPECT(next->read(
-            keylet::shadowTicket(alice.id(), exportTx->getTransactionID())));
+            keylet::exportLatch(alice.id(), exportTx->getTransactionID())));
     }
 
     void
@@ -1804,9 +1804,9 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
-    testShadowTicketLimit(FeatureBitset features)
+    testExportLatchLimit(FeatureBitset features)
     {
-        testcase("shadow ticket pending export limit");
+        testcase("Export latch pending export limit");
 
         using namespace jtx;
 
@@ -1828,7 +1828,7 @@ struct Export_test : public beast::unit_test::suite
 
         auto submitClosedExport = [&](std::uint32_t ticketSeq,
                                       TER expected,
-                                      bool expectShadow) {
+                                      bool expectLatch) {
             auto const seq = env.current()->seq();
             auto innerObj = buildExportedPayment(
                 alice.id(),
@@ -1855,10 +1855,10 @@ struct Export_test : public beast::unit_test::suite
             if (expected == tesSUCCESS)
                 origins.emplace(ticketSeq, submittedOrigin);
             auto const found = origins.find(ticketSeq);
-            auto const shadow = found == origins.end()
+            auto const latch = found == origins.end()
                 ? nullptr
-                : env.le(keylet::shadowTicket(alice.id(), found->second));
-            BEAST_EXPECT(expectShadow == static_cast<bool>(shadow));
+                : env.le(keylet::exportLatch(alice.id(), found->second));
+            BEAST_EXPECT(expectLatch == static_cast<bool>(latch));
             env.close();
         };
 
@@ -1871,9 +1871,9 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
-    testShadowTicketLifecycle(FeatureBitset features)
+    testExportLatchLifecycle(FeatureBitset features)
     {
-        testcase("Shadow ticket lifecycle");
+        testcase("Export latch lifecycle");
 
         using namespace jtx;
 
@@ -1916,17 +1916,17 @@ struct Export_test : public beast::unit_test::suite
             (*meta)[sfTransactionResult] ==
             static_cast<std::uint8_t>(TERtoInt(tesSUCCESS)));
 
-        auto const shadow = env.le(keylet::shadowTicket(alice.id(), origin));
-        BEAST_EXPECT(shadow);
-        if (shadow)
+        auto const latch = env.le(keylet::exportLatch(alice.id(), origin));
+        BEAST_EXPECT(latch);
+        if (latch)
         {
-            BEAST_EXPECT(shadow->getAccountID(sfAccount) == alice.id());
-            BEAST_EXPECT(shadow->getFieldU32(sfTicketSequence) == ticketSeq);
-            BEAST_EXPECT(shadow->getFieldH256(sfTransactionHash) == origin);
-            BEAST_EXPECT(shadow->isFieldPresent(sfDigest));
-            BEAST_EXPECT(shadow->isFieldPresent(sfExportNode));
-            BEAST_EXPECT(!shadow->isFieldPresent(sfExportSignatureHash));
-            BEAST_EXPECT(shadow->getFieldH256(sfDigest) == [&] {
+            BEAST_EXPECT(latch->getAccountID(sfAccount) == alice.id());
+            BEAST_EXPECT(latch->getFieldU32(sfTicketSequence) == ticketSeq);
+            BEAST_EXPECT(latch->getFieldH256(sfTransactionHash) == origin);
+            BEAST_EXPECT(latch->isFieldPresent(sfDigest));
+            BEAST_EXPECT(latch->isFieldPresent(sfExportNode));
+            BEAST_EXPECT(!latch->isFieldPresent(sfExportSignatureHash));
+            BEAST_EXPECT(latch->getFieldH256(sfDigest) == [&] {
                 auto const identity = ExportOriginMemo::identityForm(
                     makeSTTx(innerObj),
                     ExportOriginMemo::Origin{
@@ -1942,9 +1942,9 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
-    testCancelShadowTicketViaTxn(FeatureBitset features)
+    testCancelExportLatchViaTxn(FeatureBitset features)
     {
-        testcase("ttEXPORT cancels shadow ticket via sfCancelTicketSequence");
+        testcase("ttEXPORT cancels Export latch via sfCancelTicketSequence");
 
         using namespace jtx;
 
@@ -1993,7 +1993,7 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(
             (*exportMeta)[sfTransactionResult] ==
             static_cast<std::uint8_t>(TERtoInt(tesSUCCESS)));
-        auto const latchKey = keylet::shadowTicket(alice.id(), origin);
+        auto const latchKey = keylet::exportLatch(alice.id(), origin);
         auto const latchBeforeCancel = env.le(latchKey);
         auto const accountBeforeCancel = env.le(keylet::account(alice.id()));
         auto const pendingBeforeCancel = env.le(keylet::pendingExports());
@@ -2210,11 +2210,11 @@ struct Export_test : public beast::unit_test::suite
 
         // The export round-trip is a 3-way handshake:
         //   1. Xahau: ttEXPORT → validators sign the inner tx →
-        //      shadow ticket + metadata pointing to the signature witness
+        //      Export latch + metadata pointing to the signature witness
         //   2. XRPL:  submit the multisigned blob raw (alice's
         //      SignerList on XRPL contains the Xahau validator keys)
         //   3. Xahau: build XPOP from execution, import it back →
-        //      shadow ticket consumed
+        //      Export latch consumed
         //
         // In standalone mode, the same ttEXPORT_SIGNATURES witness is
         // synthesized locally from the node's validator key — no consensus
@@ -2256,9 +2256,9 @@ struct Export_test : public beast::unit_test::suite
             ter(tesSUCCESS));
         xahau.close();
 
-        // Shadow ticket should be consumed after import.
+        // Export latch should be consumed after import.
         BEAST_EXPECT(!xahau.current()->exists(
-            keylet::shadowTicket(alice.id(), callback.originTxn)));
+            keylet::exportLatch(alice.id(), callback.originTxn)));
         if (callback.vlInfo)
         {
             BEAST_EXPECT(
@@ -2295,7 +2295,7 @@ struct Export_test : public beast::unit_test::suite
         xahau.close();
 
         auto const latchKey =
-            keylet::shadowTicket(alice.id(), callback.originTxn);
+            keylet::exportLatch(alice.id(), callback.originTxn);
         auto const canceledLatch = xahau.current()->read(latchKey);
         BEAST_EXPECT(canceledLatch);
         if (!canceledLatch)
@@ -2362,7 +2362,7 @@ struct Export_test : public beast::unit_test::suite
         xahau.close();
 
         BEAST_EXPECT(xahau.current()->exists(
-            keylet::shadowTicket(alice.id(), callback.originTxn)));
+            keylet::exportLatch(alice.id(), callback.originTxn)));
         BEAST_EXPECT(
             importVLSequence(xahau, callback.vlInfo->second) == freshSeq);
     }
@@ -2399,14 +2399,14 @@ struct Export_test : public beast::unit_test::suite
         // ttEXPORT transactor tests
         testExportTxnOpenLedger(allWithExport);
         testExportNetworkAdmitsIntentWithoutQuorum(allWithExport);
-        testExportShadowTicketInsufficientReserve(allWithExport);
+        testExportLatchInsufficientReserve(allWithExport);
         testLaterLedgerWitnessTransitionAndReplay(allWithExport);
         testExportNetworkRejectsWithoutUNLReport(allWithExport);
         testExportNetworkLastLedgerSequenceBoundary(allWithExport);
         testOpenLedgerExportLimit(allWithExport);
-        testShadowTicketLimit(allWithExport);
-        testShadowTicketLifecycle(allWithExport);
-        testCancelShadowTicketViaTxn(allWithExport);
+        testExportLatchLimit(allWithExport);
+        testExportLatchLifecycle(allWithExport);
+        testCancelExportLatchViaTxn(allWithExport);
         testExportRejectsNoTicketSequence(allWithExport);
         testExportRejectsMissingLastLedgerSequence(allWithExport);
         testExportRejectsSignedInnerTransaction(allWithExport);

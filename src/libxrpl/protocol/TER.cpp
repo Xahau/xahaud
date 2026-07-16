@@ -174,7 +174,7 @@ transResults()
         MAKE_ERROR(telIMPORT_VL_KEY_NOT_RECOGNISED, "Import vl key was not recognized."),
         MAKE_ERROR(telCAN_NOT_QUEUE_IMPORT,   "Import transaction was not able to be directly applied and cannot be queued."),
         MAKE_ERROR(telENV_RPC_FAILED,         "Unit test RPC failure."),
-        MAKE_ERROR(telSHADOW_TICKET_REQUIRED, "The imported transaction uses a TicketSequence but no shadow ticket exists."),
+        MAKE_ERROR(telEXPORT_LATCH_REQUIRED, "The imported Export callback has no matching Export latch."),
 
         MAKE_ERROR(temMALFORMED,                 "Malformed transaction."),
         MAKE_ERROR(temBAD_AMM_TOKENS,            "Malformed: Invalid LPTokens."),

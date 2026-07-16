@@ -615,18 +615,17 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
-//@@start shadow-ticket-ledger-entry
-/** A live callback latch for an exported ticket transaction.
+//@@start export-latch-ledger-entry
+/** A live lifecycle latch for an Export intent.
 
-    Created when a transaction is exported. Consumed when
-    proof-of-execution is imported back. Account-owned (pays reserve).
+    Created when an Export intent is admitted. It records witness and
+    proof-of-execution arrival in either order and is erased once both facts
+    exist. Account-owned (pays reserve).
     sfDigest stores the canonical target signing-intent hash.
-    This is not a permanent replay tombstone; hook callbacks that move
-    value must still deduplicate their business action.
 
-    \sa keylet::shadowTicket
+    \sa keylet::exportLatch
  */
-LEDGER_ENTRY(ltSHADOW_TICKET, 0x5374, ShadowTicket, shadow_ticket, ({
+LEDGER_ENTRY(ltEXPORT_LATCH, 0x5374, ExportLatch, export_latch, ({
     {sfAccount,              soeREQUIRED},
     {sfTicketSequence,       soeREQUIRED},
     {sfTransactionHash,      soeOPTIONAL},
@@ -639,7 +638,7 @@ LEDGER_ENTRY(ltSHADOW_TICKET, 0x5374, ShadowTicket, shadow_ticket, ({
     {sfOwnerNode,            soeREQUIRED},
     {sfExportNode,           soeOPTIONAL},
 }))
-//@@end shadow-ticket-ledger-entry
+//@@end export-latch-ledger-entry
 
 #undef EXPAND
 #undef LEDGER_ENTRY_DUPLICATE

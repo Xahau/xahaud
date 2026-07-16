@@ -2,14 +2,14 @@
 
 Network-mode Export must not derive authority from a node-local trusted-config
 view. An explicit parent binding still fails if that parent has no UNLReport,
-and no shadow ticket is created.
+and no Export latch is created.
 """
 
 from __future__ import annotations
 
 from export_helpers import (
     EXPORT_RETRY_LEDGER_WINDOW,
-    assert_shadow_ticket,
+    assert_export_latch,
     export_authority,
     require_export,
     wait_for_validated_transaction,
@@ -86,7 +86,7 @@ async def scenario(ctx, log):
         raise AssertionError(f"Validated failure ledger unavailable: {final_ledger}")
     log(f"Export failure validated in ledger {final_seq}")
 
-    assert_shadow_ticket(
+    assert_export_latch(
         ctx,
         alice.address,
         log,

@@ -57,8 +57,7 @@ public:
             "04FEBC83B833D1A2EBFD1605BA3A0574F"
             "F0B0B8C9690ADBE35CD2F258984EB56"};
         BEAST_EXPECT(
-            keylet::shadowTicket(fixtureAccount, fixtureOrigin).key ==
-            expected);
+            keylet::exportLatch(fixtureAccount, fixtureOrigin).key == expected);
 
         auto const firstAccount =
             calcAccountID(randomKeyPair(KeyType::secp256k1).first);
@@ -67,28 +66,14 @@ public:
         auto const firstOrigin = makeOrigin("first-export-origin");
         auto const secondOrigin = makeOrigin("second-export-origin");
 
-        auto const key = keylet::shadowTicket(firstAccount, firstOrigin);
-        BEAST_EXPECT(key.type == ltSHADOW_TICKET);
+        auto const key = keylet::exportLatch(firstAccount, firstOrigin);
+        BEAST_EXPECT(key.type == ltEXPORT_LATCH);
         BEAST_EXPECT(
-            key.key == keylet::shadowTicket(firstAccount, firstOrigin).key);
+            key.key == keylet::exportLatch(firstAccount, firstOrigin).key);
         BEAST_EXPECT(
-            key.key != keylet::shadowTicket(firstAccount, secondOrigin).key);
+            key.key != keylet::exportLatch(firstAccount, secondOrigin).key);
         BEAST_EXPECT(
-            key.key != keylet::shadowTicket(secondAccount, firstOrigin).key);
-    }
-
-    void
-    testLegacyKeySeparation()
-    {
-        testcase("legacy ticket sequence separation");
-
-        auto const account =
-            calcAccountID(randomKeyPair(KeyType::secp256k1).first);
-        auto const origin = makeOrigin("export-origin");
-
-        BEAST_EXPECT(
-            keylet::shadowTicket(account, origin).key !=
-            keylet::shadowTicket(account, std::uint32_t{1}).key);
+            key.key != keylet::exportLatch(secondAccount, firstOrigin).key);
     }
 
     void
@@ -161,9 +146,9 @@ public:
     }
 
     void
-    testEnhancedLatchFormat()
+    testExportLatchFormat()
     {
-        testcase("enhanced Export latch format");
+        testcase("Export latch format");
 
         BEAST_EXPECT(sfExportCount.fieldCode == field_code(STI_UINT16, 101));
         BEAST_EXPECT(sfExportNode.fieldCode == field_code(STI_UINT64, 29));
@@ -179,7 +164,7 @@ public:
         Blob committee(ExportLimits::maxCommitteeMaskBytes, 0);
         committee.front() = 0x03;
 
-        SLE latch{keylet::shadowTicket(account, origin)};
+        SLE latch{keylet::exportLatch(account, origin)};
         latch.setAccountID(sfAccount, account);
         latch.setFieldU32(sfTicketSequence, 55'001);
         latch.setFieldH256(sfTransactionHash, origin);
@@ -211,7 +196,7 @@ public:
 
         SerialIter sit{serialized.slice()};
         SLE const parsed{sit, latch.key()};
-        BEAST_EXPECT(parsed.getType() == ltSHADOW_TICKET);
+        BEAST_EXPECT(parsed.getType() == ltEXPORT_LATCH);
         BEAST_EXPECT(parsed.getAccountID(sfAccount) == account);
         BEAST_EXPECT(parsed.getFieldU32(sfTicketSequence) == 55'001);
         BEAST_EXPECT(parsed.getFieldH256(sfTransactionHash) == origin);
@@ -238,11 +223,10 @@ public:
     run() override
     {
         testOriginIdentity();
-        testLegacyKeySeparation();
         testPendingDirectory();
         testStructuralLimits();
         testCommitteeProfile();
-        testEnhancedLatchFormat();
+        testExportLatchFormat();
     }
 };
 

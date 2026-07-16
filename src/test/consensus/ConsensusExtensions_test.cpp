@@ -2417,7 +2417,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const deadline = validated->info().seq;
         auto const origin = makeHash("export-sidecar-deadline-origin");
         auto latch =
-            std::make_shared<SLE>(keylet::shadowTicket(alice.id(), origin));
+            std::make_shared<SLE>(keylet::exportLatch(alice.id(), origin));
         latch->setAccountID(sfAccount, alice.id());
         latch->setFieldU32(sfTicketSequence, 1);
         latch->setFieldH256(sfTransactionHash, origin);
@@ -3821,7 +3821,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(originTxs.empty());
         BEAST_EXPECT(failed.empty());
         auto const origin = exportTx->getTransactionID();
-        auto const latchKey = keylet::shadowTicket(alice.id(), origin);
+        auto const latchKey = keylet::exportLatch(alice.id(), origin);
         auto const pendingLatch = originLedger->read(latchKey);
         if (!BEAST_EXPECT(
                 pendingLatch && pendingLatch->isFieldPresent(sfExportNode) &&

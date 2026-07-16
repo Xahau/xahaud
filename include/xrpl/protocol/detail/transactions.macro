@@ -503,7 +503,7 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
 //@@start export-transaction-types
 /* User-submittable export: creates a cross-chain transaction for
    post-validation committee signing and a durable callback latch.
-   Also supports shadow ticket cancellation via sfCancelTicketSequence.
+   Also supports Export latch cancellation via sfCancelTicketSequence.
    At least one of sfExportedTxn or sfCancelTicketSequence must be present. */
 TRANSACTION(ttEXPORT, 91, Export, ({
     {sfExportedTxn, soeOPTIONAL},

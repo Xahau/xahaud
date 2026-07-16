@@ -1100,7 +1100,7 @@ HookAPI::xport_cancel(uint32_t ticketSeq) const
         }
     }
 
-    TER const ter = ExportLedgerOps::cancelShadowTicket(
+    TER const ter = ExportLedgerOps::cancelExportLatch(
         hookCtx.applyCtx.view(),
         hookCtx.applyCtx.rawView(),
         account,

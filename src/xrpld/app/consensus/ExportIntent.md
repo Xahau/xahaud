@@ -53,8 +53,8 @@ replayable from `(parent ledger, ordered closed transaction set)` without live
 consensus sidecar memory. Export signatures are such a witness: they determine
 source quorum success and exported-result metadata, so they must be carried by
 a replayable companion pseudo transaction or equivalent transaction-stream
-artifact. The shadow-ticket intent hash is signature-independent.
-*Anti-pattern:* using ephemeral accepted sidecar state to create a shadow ticket
+artifact. The Export-latch intent hash is signature-independent.
+*Anti-pattern:* using ephemeral accepted sidecar state to create an Export latch
 or result that cannot be reconstructed by ledger delta replay.
 
 Current shape: `ttEXPORT_SIGNATURES` is the signature witness interface. It
@@ -95,8 +95,7 @@ What must never happen is a "successful" export whose signature bytes come from
 live collector state, late proposal arrivals, or a node-local sub-quorum set
 instead of the accepted witness in the transaction stream.
 
-**INV-7 — Enhanced shadow tickets are issuance latches, not global
-tombstones.**
+**INV-7 — Export latches are issuance latches, not global tombstones.**
 The latch binds the canonical target signing intent and is keyed by `(owner,
 origin transaction ID W)`, not by one authorization-envelope-dependent target
 transaction ID or by destination TicketSequence alone. The signed release Memo
@@ -112,11 +111,15 @@ is non-pending, an explicit owner cleanup may erase it and knowingly forfeit a
 later callback. v1 has neither an automatic terminal-retirement clock nor a
 permanent tombstone graveyard.
 
+Implementation status: origin-keyed latch creation and symmetric witness/XPOP
+recording are present. Explicit terminal cleanup and expiry-unlink behavior are
+ratified policy still tracked for implementation.
+
 **INV-8 — Export signatures are public capabilities.**
 Proposal-carried signature shares may be observed, assembled, and submitted as
 soon as destination quorum exists. Source-side witness agreement governs what
 Xahau records; it is not a confidentiality or destination-execution gate.
-Import therefore waits outside consensus when its shadow ticket does not yet
+Import therefore waits outside consensus when its Export latch does not yet
 exist and matches a later XPOP against the signature-independent intent.
 The main defense for exposing shares before source finality is authority
 equivalence: destination execution must require the same validator-derived

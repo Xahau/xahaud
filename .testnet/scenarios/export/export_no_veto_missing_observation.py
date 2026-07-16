@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from export_helpers import (
     EXPORT_RETRY_LEDGER_WINDOW,
-    assert_shadow_ticket,
+    assert_export_latch,
     require_export,
     submit_direct_export,
     wait_for_export_signature_witness,
@@ -90,7 +90,7 @@ async def scenario(ctx, log):
     )
     log(f"Export sidecar hash withholding logs: {withhold_logs.count}")
 
-    assert_shadow_ticket(
+    assert_export_latch(
         ctx,
         alice.address,
         log,

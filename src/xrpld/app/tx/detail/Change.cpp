@@ -374,14 +374,14 @@ Change::applyExportSignatures()
         return tefFAILURE;
 
     auto const account = target->getAccountID(sfAccount);
-    auto const latchKey = keylet::shadowTicket(account, origin);
+    auto const latchKey = keylet::exportLatch(account, origin);
     auto const latch = view().read(latchKey);
     // A concurrently ordered cancel/expiry may remove the latch after the
     // accepted sidecar selected this witness. The historical evidence remains
     // valid, but there is no state transition left to perform.
     if (!latch)
         return tesSUCCESS;
-    if (latch->getType() != ltSHADOW_TICKET ||
+    if (latch->getType() != ltEXPORT_LATCH ||
         !latch->isFieldPresent(sfExportCommittee) ||
         !latch->isFieldPresent(sfLastLedgerSequence) ||
         latch->getAccountID(sfAccount) != account ||
