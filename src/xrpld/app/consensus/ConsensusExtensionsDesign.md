@@ -449,7 +449,9 @@ default committee and no implicit capped subset of the full UNL. Bare setup may
 pre-stage a roster, but every actual intent checks every roster master against
 the exact admitting parent ledger's pre-NegativeUNL `UNLReport`. Inline roster
 creation and intent admission perform that check atomically. Committee deletion
-is blocked while the owner has any live Export latch.
+is blocked while the owner has any live Export latch. That guard is coupled to
+witness apply's parent-state committee lookup: weakening it to pending-only
+would make a retained latch's accepted witness unreplayable.
 
 The destination account's SignerList remains the actual remote authority. Its
 keys, weights, optional operator signer, and rotation policy are client/operator

@@ -911,6 +911,17 @@ struct Export_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 releasedLatch->getFieldH256(sfExportSignatureHash) ==
                 witness->getTransactionID());
+
+        // Witnessed latches still resolve their immutable committee during
+        // replay. The committee therefore remains undeletable until the latch
+        // itself reaches terminal cleanup.
+        Json::Value eraseCommittee;
+        eraseCommittee[jss::TransactionType] = jss::Export;
+        eraseCommittee[jss::Account] = alice.human();
+        eraseCommittee[jss::Flags] = tfExportEraseCommittee;
+        eraseCommittee[sfExportCommitteeHash.jsonName] =
+            to_string(committeeHash);
+        env(eraseCommittee, fee(XRP(1)), ter(tecHAS_OBLIGATIONS));
     }
 
     void

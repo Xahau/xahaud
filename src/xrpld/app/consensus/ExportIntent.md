@@ -41,7 +41,10 @@ as an explicit template, but the protocol never silently selects it.
 
 Committee deletion is rejected while the owner has any live Export latch. This
 coarse rule keeps every accepted witness replayable without storing the roster
-again in every latch or maintaining a metadata-expensive reference count.
+again in every latch or maintaining a metadata-expensive reference count. The
+deletion guard and witness apply's committee lookup are one load-bearing
+invariant: do not weaken the guard to pending-only while latches retain only a
+committee digest.
 
 **INV-3 - qC and qV answer different questions.**
 qC is the content threshold for one account-selected committee:
