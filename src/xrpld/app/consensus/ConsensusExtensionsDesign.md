@@ -517,8 +517,8 @@ and ordinary emission slots; `xport()` may reference only an already existing
 committee and generic `emit()` cannot emit `ttEXPORT`. Deferred emitted Export
 wrappers are capped in the emitted directory before the creating transaction
 commits. Owner-scoped `xport_cancel()` may control other latches, but refuses the
-exact latch being created by its enclosing Export or consumed after Hooks by its
-enclosing Import callback.
+exact latch being created by its enclosing Export or whose XPOP transition is
+owned by its enclosing Import callback path.
 
 Intent admission creates an origin-keyed `ltEXPORT_LATCH` immediately. The latch
 records the normalized identity digest, origin `W` and source sequence,

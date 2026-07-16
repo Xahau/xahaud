@@ -270,10 +270,10 @@ wrappers are also checked against the independent `maxPendingExports` emitted-
 directory cap before their creating transaction commits.
 
 Hook lifecycle control is owner-scoped. `xport_cancel()` refuses to control the
-exact latch being created by the current `ttEXPORT` or consumed after Hooks by
-the current `ttIMPORT` callback; those enclosing transactions own that latch
-transition. It may control a different latch owned by the Hook account under the
-ordinary retain-or-explicit-erase rules in INV-9.
+exact latch being created by the current `ttEXPORT` or whose XPOP transition is
+owned by the current `ttIMPORT` callback path; those enclosing transactions own
+that latch transition. It may control a different latch owned by the Hook account
+under the ordinary retain-or-explicit-erase rules in INV-9.
 
 **INV-13 - Return callbacks remain owner-authorized Imports.**
 An XPOP whose proven target transaction carries `sfTicketSequence` takes the
