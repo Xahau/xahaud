@@ -2523,8 +2523,7 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(xahau.current()->exists(
             keylet::exportLatch(alice.id(), callback.originTxn)));
         if (callback.vlInfo)
-            BEAST_EXPECT(
-                importVLSequence(xahau, callback.vlInfo->second) == 0);
+            BEAST_EXPECT(importVLSequence(xahau, callback.vlInfo->second) == 0);
 
         xahau(
             import::import(alice, callback.xpopJson),
