@@ -310,7 +310,6 @@
 #define sfRemark ((14U << 16U) + 97U)
 #define sfHighReward ((14U << 16U) + 98U)
 #define sfLowReward ((14U << 16U) + 99U)
-#define sfExportResult ((14U << 16U) + 100U)
 #define sfSigners ((15U << 16U) + 3U)
 #define sfSignerEntries ((15U << 16U) + 4U)
 #define sfTemplate ((15U << 16U) + 5U)

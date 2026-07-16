@@ -140,12 +140,6 @@ public:
         mHookEmissions = hookEmissions;
     }
 
-    void
-    setExportResult(STObject const& exportResult)
-    {
-        mExportResult = exportResult;
-    }
-
     bool
     hasHookExecutions() const
     {
@@ -156,12 +150,6 @@ public:
     hasHookEmissions() const
     {
         return static_cast<bool>(mHookEmissions);
-    }
-
-    bool
-    hasExportResult() const
-    {
-        return static_cast<bool>(mExportResult);
     }
 
     STAmount
@@ -188,8 +176,6 @@ private:
     std::optional<STAmount> mDelivered;
     std::optional<STArray> mHookExecutions;
     std::optional<STArray> mHookEmissions;
-    std::optional<STObject> mExportResult;
-
     STArray mNodes;
 };
 

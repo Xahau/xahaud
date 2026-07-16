@@ -99,18 +99,6 @@ public:
     }
 
     void
-    setExportResultMetaData(STObject&& exportResult)
-    {
-        exportResult_ = std::move(exportResult);
-    }
-
-    std::optional<STObject> const&
-    exportResult() const
-    {
-        return exportResult_;
-    }
-
-    void
     setHookMetaData(
         std::vector<STObject>&& executions,
         std::vector<STObject>&& emissions)
@@ -160,7 +148,6 @@ private:
     std::optional<STAmount> deliver_;
     std::vector<STObject> hookExecution_;
     std::vector<STObject> hookEmission_;
-    std::optional<STObject> exportResult_;
 };
 
 }  // namespace ripple
