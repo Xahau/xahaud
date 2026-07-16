@@ -30,6 +30,8 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 
+#include <algorithm>
+
 namespace ripple {
 
 class Invariants_test : public beast::unit_test::suite
@@ -1242,6 +1244,7 @@ class Invariants_test : public beast::unit_test::suite
 
         testcase << "ValidExportCommittee";
 
+        // A zero digest is never a valid content-addressed committee.
         doInvariantCheck(
             {{"Invariant failed: malformed or mutated Export committee"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
@@ -1254,6 +1257,75 @@ class Invariants_test : public beast::unit_test::suite
                 sle->setFieldVL(sfExportCommittee, roster);
                 sle->setFieldU64(sfOwnerNode, 0);
                 ac.view().insert(sle);
+                return true;
+            });
+
+        // The SLE key must be derived from its account and roster digest.
+        doInvariantCheck(
+            {{"Invariant failed: malformed or mutated Export committee"}},
+            [](Account const& A1, Account const& A2, ApplyContext& ac) {
+                auto const roster = serializeExportCommittee({A2.pk()});
+                auto const digest = exportCommitteeHash(makeSlice(roster));
+                auto const otherRoster = serializeExportCommittee({A1.pk()});
+                auto const otherDigest =
+                    exportCommitteeHash(makeSlice(otherRoster));
+                auto sle = std::make_shared<SLE>(
+                    keylet::exportCommittee(A1.id(), otherDigest));
+                sle->setAccountID(sfAccount, A1.id());
+                sle->setFieldH256(sfExportCommitteeHash, digest);
+                sle->setFieldVL(sfExportCommittee, roster);
+                sle->setFieldU64(sfOwnerNode, 0);
+                ac.view().insert(sle);
+                return true;
+            });
+
+        // Valid keys in noncanonical roster order must not gain a second
+        // content identity.
+        doInvariantCheck(
+            {{"Invariant failed: malformed or mutated Export committee"}},
+            [](Account const& A1, Account const& A2, ApplyContext& ac) {
+                auto roster = serializeExportCommittee({A1.pk(), A2.pk()});
+                std::rotate(
+                    roster.begin(),
+                    roster.begin() + A1.pk().size(),
+                    roster.end());
+                auto const digest = exportCommitteeHash(makeSlice(roster));
+                auto sle = std::make_shared<SLE>(
+                    keylet::exportCommittee(A1.id(), digest));
+                sle->setAccountID(sfAccount, A1.id());
+                sle->setFieldH256(sfExportCommitteeHash, digest);
+                sle->setFieldVL(sfExportCommittee, roster);
+                sle->setFieldU64(sfOwnerNode, 0);
+                ac.view().insert(sle);
+                return true;
+            });
+
+        // Once created, even a structurally valid roster replacement is an
+        // invariant violation.
+        doInvariantCheck(
+            {{"Invariant failed: malformed or mutated Export committee"}},
+            [](Account const& A1, Account const& A2, ApplyContext& ac) {
+                auto const roster = serializeExportCommittee({A2.pk()});
+                auto const digest = exportCommitteeHash(makeSlice(roster));
+                auto sle =
+                    ac.view().peek(keylet::exportCommittee(A1.id(), digest));
+                if (!sle)
+                    return false;
+                sle->setFieldVL(
+                    sfExportCommittee, serializeExportCommittee({A1.pk()}));
+                ac.view().update(sle);
+                return true;
+            },
+            XRPAmount{},
+            STTx{ttACCOUNT_SET, [](STObject&) {}},
+            {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
+            [](Account const& A1, Account const& A2, Env& env) {
+                Json::Value setup;
+                setup[jss::TransactionType] = jss::Export;
+                setup[jss::Account] = A1.human();
+                setup[sfExportCommittee.jsonName] =
+                    strHex(serializeExportCommittee({A2.pk()}));
+                env(setup);
                 return true;
             });
     }
