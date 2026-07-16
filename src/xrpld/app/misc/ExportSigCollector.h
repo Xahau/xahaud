@@ -9,7 +9,6 @@
 #include <map>
 #include <mutex>
 #include <optional>
-#include <set>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -19,8 +18,9 @@ namespace ripple {
 /** Post-validation Export contribution collector.
 
     Contribution identity is the immutable Export origin plus the position in
-    that origin's immutable validator committee. Publication attempts may
-    reopen, but never reset admitted contributions or conflict state.
+    that origin's immutable validator committee. Callers register an origin
+    only after resolving it against validated state; registration enables
+    attributed admission without resetting contributions or conflict state.
 */
 class ExportSigCollector
 {
@@ -93,19 +93,6 @@ public:
         std::optional<AdmissionTicket> ticket;
     };
 
-    class PublicationToken
-    {
-        friend class ExportSigCollector;
-
-        uint256 origin_;
-        std::uint64_t generation_;
-
-        PublicationToken(uint256 const& origin, std::uint64_t generation)
-            : origin_(origin), generation_(generation)
-        {
-        }
-    };
-
     struct AdmitOutcome
     {
         AdmitResult result;
@@ -121,7 +108,6 @@ public:
     static constexpr std::size_t maxTrackedOrigins = 4096;
     static constexpr std::uint32_t maxStaleLedgers = 256;
     static constexpr std::uint32_t maxReservationLedgers = 1;
-    static constexpr std::size_t maxPublicationTriggers = 64;
     static constexpr std::size_t maxSignatureBytes = 72;
 
 private:
@@ -141,17 +127,12 @@ private:
     struct OriginEntry
     {
         std::map<Position, PositionEntry> positions;
-        std::set<Position> published;
-        std::set<uint256> publicationTriggers;
-        uint256 publicationTrigger;
-        std::uint64_t publicationGeneration{0};
         std::uint32_t lastTouchedSeq{0};
     };
 
     mutable std::mutex mutex_;
     std::unordered_map<uint256, OriginEntry> origins_;
     std::uint64_t nextReservation_{1};
-    std::uint64_t nextPublicationGeneration_{1};
 
     static bool
     sameEncoding(Contribution const& lhs, Contribution const& rhs)
@@ -200,16 +181,26 @@ private:
         return result;
     }
 
-    std::uint64_t
-    nextPublicationGeneration()
+public:
+    /** Register an origin after resolving it against validated state. */
+    bool
+    registerOrigin(uint256 const& origin, std::uint32_t currentSeq)
     {
-        auto const result = nextPublicationGeneration_++;
-        if (nextPublicationGeneration_ == 0)
-            nextPublicationGeneration_ = 1;
-        return result;
+        if (origin.isZero() || currentSeq == 0)
+            return false;
+
+        std::lock_guard lock(mutex_);
+        auto it = origins_.find(origin);
+        if (it == origins_.end())
+        {
+            if (origins_.size() >= maxTrackedOrigins)
+                return false;
+            it = origins_.emplace(origin, OriginEntry{}).first;
+        }
+        touch(it->second, currentSeq);
+        return true;
     }
 
-public:
     /** Reserve one contribution encoding for verification.
 
         The caller must first attribute the signing key to this exact selected
@@ -337,64 +328,6 @@ public:
             AdmitResult::conflicted, std::move(prior), std::move(conflicting)};
     }
 
-    /** Reopen per-attempt publication without changing contribution state. */
-    std::optional<PublicationToken>
-    reopenPublication(
-        uint256 const& origin,
-        uint256 const& trigger,
-        std::uint32_t currentSeq)
-    {
-        if (origin.isZero() || trigger.isZero() || currentSeq == 0)
-            return std::nullopt;
-
-        std::lock_guard lock(mutex_);
-        auto it = origins_.find(origin);
-        if (it == origins_.end())
-        {
-            if (origins_.size() >= maxTrackedOrigins)
-                return std::nullopt;
-            it = origins_.emplace(origin, OriginEntry{}).first;
-        }
-
-        auto& entry = it->second;
-        if (entry.publicationGeneration != 0 &&
-            entry.publicationTrigger == trigger)
-            return PublicationToken{origin, entry.publicationGeneration};
-        if (entry.publicationTriggers.count(trigger) != 0 ||
-            entry.publicationTriggers.size() >= maxPublicationTriggers)
-            return std::nullopt;
-
-        entry.published.clear();
-        entry.publicationTrigger = trigger;
-        entry.publicationTriggers.insert(trigger);
-        entry.publicationGeneration = nextPublicationGeneration();
-        touch(entry, currentSeq);
-        return PublicationToken{origin, entry.publicationGeneration};
-    }
-
-    /** Claim one position's publication slot in the current attempt. */
-    bool
-    claimPublication(
-        PublicationToken const& token,
-        Position position,
-        std::size_t maxDistinct)
-    {
-        std::lock_guard lock(mutex_);
-        auto it = origins_.find(token.origin_);
-        if (it == origins_.end() ||
-            it->second.publicationGeneration != token.generation_)
-            return false;
-        auto const positionIt = it->second.positions.find(position);
-        if (positionIt == it->second.positions.end() ||
-            !positionIt->second.unique || positionIt->second.conflicted)
-            return false;
-        if (it->second.published.count(position) != 0 ||
-            it->second.published.size() >= maxDistinct)
-            return false;
-        it->second.published.insert(position);
-        return true;
-    }
-
     PositionStatus
     positionStatus(uint256 const& origin, Position position) const
     {
@@ -409,14 +342,6 @@ public:
             return PositionStatus::conflicted;
         return positionIt->second.unique ? PositionStatus::unique
                                          : PositionStatus::empty;
-    }
-
-    std::uint64_t
-    publicationGeneration(uint256 const& origin) const
-    {
-        std::lock_guard lock(mutex_);
-        auto const it = origins_.find(origin);
-        return it == origins_.end() ? 0 : it->second.publicationGeneration;
     }
 
     /** Deterministic full union of every unique, verified contribution. */

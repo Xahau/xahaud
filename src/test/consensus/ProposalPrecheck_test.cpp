@@ -287,7 +287,6 @@ public:
                     makeHash("export-origin"),
                     42,
                     makeHash("export-ledger"),
-                    makeHash("export-trigger"),
                     3,
                     key,
                     signature}

@@ -174,8 +174,6 @@ async def scenario(ctx, log):
                     )
                 if event.get("origin_ledger_hash") != origin_hash:
                     raise AssertionError(f"Export stream origin hash mismatch: {event}")
-                if event.get("trigger_txid") != origin:
-                    raise AssertionError(f"Export stream trigger mismatch: {event}")
                 position = int(event.get("committee_position", -1))
                 if position not in selected:
                     raise AssertionError(

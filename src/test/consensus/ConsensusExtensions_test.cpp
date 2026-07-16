@@ -1390,7 +1390,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         ConsensusExtensions ce{enabledEnv.app(), activeNoopJournal()};
         auto const origin = makeHash("on-round-start-export-latch");
-        auto const trigger = makeHash("on-round-start-export-trigger");
         auto const pk = makeValidatorKeys().front();
         std::uint8_t const sigBytes[] = {1, 2, 3};
         Buffer const sig{sigBytes, sizeof(sigBytes)};
@@ -1401,8 +1400,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(ce.rngEnabled());
         BEAST_EXPECT(ce.exportEnabled());
 
-        BEAST_EXPECT(ce.postValidationExportSigCollector().reopenPublication(
-            origin, trigger, 10));
+        BEAST_EXPECT(
+            ce.postValidationExportSigCollector().registerOrigin(origin, 10));
         auto admission =
             ce.postValidationExportSigCollector().beginAttributedAdmission(
                 origin, ExportSigCollector::Contribution{0, pk, sig}, 10);
@@ -2149,7 +2148,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             makeHash("precheck-export-origin"),
             10,
             makeHash("precheck-export-origin-ledger"),
-            makeHash("precheck-export-trigger"),
             3,
             signer.first,
             std::move(signature)};
@@ -2324,7 +2322,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
         auto& collector = ce.postValidationExportSigCollector();
         auto const origin = makeHash("attributed-origin");
-        auto const trigger = makeHash("attributed-trigger");
         auto const signerA = randomKeyPair(KeyType::secp256k1).first;
         auto const signerB = randomKeyPair(KeyType::secp256k1).first;
         std::uint8_t const signatureABytes[] = {1, 2};
@@ -2332,7 +2329,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         Buffer const signatureA{signatureABytes, sizeof(signatureABytes)};
         Buffer const signatureB{signatureBBytes, sizeof(signatureBBytes)};
 
-        BEAST_EXPECT(collector.reopenPublication(origin, trigger, 10));
+        BEAST_EXPECT(collector.registerOrigin(origin, 10));
         auto admit = [&](ExportSigCollector::Position position,
                          PublicKey const& key,
                          Buffer const& signature) {
@@ -2424,7 +2421,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const signer = randomKeyPair(KeyType::secp256k1).first;
         std::uint8_t const signatureBytes[] = {1, 2, 3};
         Buffer const signature{signatureBytes, sizeof(signatureBytes)};
-        BEAST_EXPECT(collector.reopenPublication(origin, origin, deadline));
+        BEAST_EXPECT(collector.registerOrigin(origin, deadline));
         auto admission = collector.beginAttributedAdmission(
             origin,
             ExportSigCollector::Contribution{0, signer, signature},
@@ -3628,14 +3625,13 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         Env env{*this, envconfig(), supported_amendments(), nullptr};
         ConsensusExtensions ce{env.app(), env.journal};
         auto const origin = makeHash("export-disabled-clears-collector");
-        auto const trigger = makeHash("export-disabled-trigger");
         auto const pk = makeValidatorKeys().front();
         std::uint8_t const sigBytes[] = {1, 2, 3};
         Buffer const sig{sigBytes, sizeof(sigBytes)};
 
         ce.setExportEnabledThisRound(true);
-        BEAST_EXPECT(ce.postValidationExportSigCollector().reopenPublication(
-            origin, trigger, 10));
+        BEAST_EXPECT(
+            ce.postValidationExportSigCollector().registerOrigin(origin, 10));
         auto admission =
             ce.postValidationExportSigCollector().beginAttributedAdmission(
                 origin, ExportSigCollector::Contribution{0, pk, sig}, 10);
@@ -3822,7 +3818,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             origin,
             originLedger->info().seq,
             originLedger->info().hash,
-            origin,
             0,
             valKeys.keys->publicKey,
             signature};

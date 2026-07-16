@@ -450,7 +450,6 @@ public:
             uint256{1},
             4'200'000,
             uint256{2},
-            uint256{3},
             17,
             key,
             signature};
@@ -471,7 +470,6 @@ public:
                 share.originLedgerSeq &&
                 event[jss::origin_ledger_hash] ==
                 to_string(share.originLedgerHash) &&
-                event[jss::trigger_txid] == to_string(share.triggerTxn) &&
                 event[jss::committee_position].asUInt() ==
                 share.committeePosition &&
                 event[jss::signing_key] ==

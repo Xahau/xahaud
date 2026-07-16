@@ -682,7 +682,6 @@ JSS(track);                   // out: PeerImp
 JSS(traffic);                 // out: Overlay
 JSS(trim);                    // in: get_aggregate_price
 JSS(trimmed_set);             // out: get_aggregate_price
-JSS(trigger_txid);            // out: NetworkOPs
 JSS(total);                   // out: counters
 JSS(total_bytes_recv);        // out: Peers
 JSS(total_bytes_sent);        // out: Peers

@@ -76,8 +76,7 @@ public:
 
         ExportSigCollector collector;
         auto const w = origin(1);
-        auto const publication = collector.reopenPublication(w, w, 9);
-        BEAST_EXPECT(publication.has_value());
+        BEAST_EXPECT(collector.registerOrigin(w, 9));
         auto first = collector.beginAttributedAdmission(
             w, contribution(7, keyA_, 1), 10);
         BEAST_EXPECT(first.result == ExportSigCollector::BeginResult::verify);
@@ -124,14 +123,13 @@ public:
     }
 
     void
-    testReservationAndPublicationLifecycle()
+    testReservationAndOriginLifecycle()
     {
-        testcase("verification reservations and publication reopening");
+        testcase("verification reservations and origin registration");
 
         ExportSigCollector collector;
         auto const w = origin(2);
-        auto publication = collector.reopenPublication(w, w, 19);
-        BEAST_EXPECT(publication.has_value());
+        BEAST_EXPECT(collector.registerOrigin(w, 19));
         auto invalid = collector.beginAttributedAdmission(
             w, contribution(3, keyA_, 10), 20);
         BEAST_EXPECT(invalid.ticket.has_value());
@@ -159,38 +157,16 @@ public:
             collector.admitContribution(std::move(*other.ticket), true, 20)
                 .result == ExportSigCollector::AdmitResult::accepted);
 
-        BEAST_EXPECT(publication.has_value());
-        if (!publication)
-            return;
-        BEAST_EXPECT(collector.claimPublication(*publication, 3, 2));
-        BEAST_EXPECT(collector.publicationGeneration(w) == 1);
-        BEAST_EXPECT(!collector.claimPublication(*publication, 3, 2));
-
-        // Reopening the same trigger is idempotent and does not reset slots.
-        auto samePublication = collector.reopenPublication(w, w, 21);
-        BEAST_EXPECT(samePublication.has_value());
-        if (!samePublication)
-            return;
-        BEAST_EXPECT(collector.publicationGeneration(w) == 1);
-        BEAST_EXPECT(!collector.claimPublication(*samePublication, 3, 2));
-
-        auto const nextTrigger = origin(22);
-        auto nextPublication = collector.reopenPublication(w, nextTrigger, 22);
-        BEAST_EXPECT(nextPublication.has_value());
-        if (!nextPublication)
-            return;
-        BEAST_EXPECT(collector.publicationGeneration(w) == 2);
-        BEAST_EXPECT(!collector.claimPublication(*publication, 4, 2));
-        BEAST_EXPECT(collector.claimPublication(*nextPublication, 4, 1));
-        BEAST_EXPECT(!collector.reopenPublication(w, w, 23));
+        BEAST_EXPECT(collector.registerOrigin(w, 21));
         BEAST_EXPECT(
             collector.positionStatus(w, 3) ==
             ExportSigCollector::PositionStatus::unique);
         BEAST_EXPECT(collector.fullUnionSnapshot().at(w).size() == 2);
 
-        collector.cleanupStale(278);
+        // Idempotent registration refreshes the stale-cleanup cursor.
+        collector.cleanupStale(277);
         BEAST_EXPECT(!collector.fullUnionSnapshot().empty());
-        collector.cleanupStale(279);
+        collector.cleanupStale(278);
         BEAST_EXPECT(collector.fullUnionSnapshot().empty());
     }
 
@@ -209,7 +185,7 @@ public:
         BEAST_EXPECT(
             collector.beginAttributedAdmission(w, good, 1).result ==
             ExportSigCollector::BeginResult::unknownOrigin);
-        BEAST_EXPECT(collector.reopenPublication(w, w, 1).has_value());
+        BEAST_EXPECT(collector.registerOrigin(w, 1));
 
         good.position = ExportLimits::maxCommitteeMembers;
         BEAST_EXPECT(
@@ -246,21 +222,40 @@ public:
             collector.beginAttributedAdmission(w, contribution(6, keyB_, 7), 5)
                 .result == ExportSigCollector::BeginResult::verify);
 
-        auto oldToken = collector.reopenPublication(w, origin(30), 6);
-        BEAST_EXPECT(oldToken.has_value());
         collector.clear(w);
-        auto newToken = collector.reopenPublication(w, origin(31), 7);
-        BEAST_EXPECT(newToken.has_value());
-        if (oldToken)
-            BEAST_EXPECT(!collector.claimPublication(*oldToken, 0, 1));
+        BEAST_EXPECT(
+            collector.beginAttributedAdmission(w, good, 7).result ==
+            ExportSigCollector::BeginResult::unknownOrigin);
+        BEAST_EXPECT(collector.registerOrigin(w, 7));
+    }
+
+    void
+    testOriginRegistrationBounds()
+    {
+        testcase("origin registration bounds");
+
+        ExportSigCollector collector;
+        BEAST_EXPECT(!collector.registerOrigin(uint256{}, 1));
+        BEAST_EXPECT(!collector.registerOrigin(origin(100), 0));
+
+        bool registeredAll = true;
+        for (std::size_t i = 0; i < ExportSigCollector::maxTrackedOrigins; ++i)
+            registeredAll =
+                collector.registerOrigin(
+                    origin(static_cast<std::uint32_t>(i + 1'000)), 1) &&
+                registeredAll;
+        BEAST_EXPECT(registeredAll);
+        BEAST_EXPECT(!collector.registerOrigin(origin(99'999), 1));
+        BEAST_EXPECT(collector.registerOrigin(origin(1'000), 2));
     }
 
     void
     run() override
     {
         testAdmissionAndConflict();
-        testReservationAndPublicationLifecycle();
+        testReservationAndOriginLifecycle();
         testMalformedBoundaries();
+        testOriginRegistrationBounds();
     }
 };
 

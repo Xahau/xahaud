@@ -37,7 +37,6 @@ class ExportShare_test : public beast::unit_test::suite
             uint256{1},
             4'200'000,
             uint256{2},
-            uint256{3},
             17,
             key,
             signature};
@@ -63,7 +62,6 @@ public:
         BEAST_EXPECT(parsed->originTxn == share.originTxn);
         BEAST_EXPECT(parsed->originLedgerSeq == share.originLedgerSeq);
         BEAST_EXPECT(parsed->originLedgerHash == share.originLedgerHash);
-        BEAST_EXPECT(parsed->triggerTxn == share.triggerTxn);
         BEAST_EXPECT(parsed->committeePosition == share.committeePosition);
         BEAST_EXPECT(parsed->signingKey == share.signingKey);
         BEAST_EXPECT(parsed->signature == share.signature);

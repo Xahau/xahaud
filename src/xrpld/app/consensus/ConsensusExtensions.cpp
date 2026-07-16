@@ -125,8 +125,7 @@ resolveExportShare(
 {
     if (!validated)
         return {ExportShareResolutionStatus::deferred, std::nullopt};
-    if (!validated->rules().enabled(featureExport) ||
-        share.triggerTxn != share.originTxn)
+    if (!validated->rules().enabled(featureExport))
         return {ExportShareResolutionStatus::invalid, std::nullopt};
     if (share.originLedgerSeq > validated->info().seq)
         return {ExportShareResolutionStatus::deferred, std::nullopt};
@@ -245,7 +244,6 @@ withContribution(
         context.originTxn,
         context.originLedgerSeq,
         context.originLedgerHash,
-        context.triggerTxn,
         contribution.position,
         contribution.signingKey,
         contribution.signature};
@@ -465,8 +463,8 @@ ConsensusExtensions::admitExportShare(
         return {
             ExportShareDisposition::invalid, ExportShareCharge::invalidData};
 
-    if (!postValidationExportSigCollector_.reopenPublication(
-            share.originTxn, share.triggerTxn, validated->info().seq))
+    if (!postValidationExportSigCollector_.registerOrigin(
+            share.originTxn, validated->info().seq))
         return {ExportShareDisposition::deferred, ExportShareCharge::none};
 
     ExportSigCollector::Contribution contribution{
@@ -605,7 +603,6 @@ ConsensusExtensions::onValidatedLedger(
                                 origin,
                                 originSeq,
                                 *originHash,
-                                origin,
                                 contribution.position,
                                 contribution.signingKey,
                                 contribution.signature},
@@ -722,7 +719,6 @@ ConsensusExtensions::onValidatedLedger(
                             origin,
                             originSeq,
                             *originHash,
-                            origin,
                             *position,
                             keys.keys->publicKey,
                             signature};
@@ -3247,7 +3243,6 @@ ConsensusExtensions::attachExportSignatures(
                 origin,
                 originSeq,
                 *originHash,
-                origin,
                 contribution.position,
                 contribution.signingKey,
                 contribution.signature};

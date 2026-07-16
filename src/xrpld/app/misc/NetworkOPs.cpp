@@ -2407,7 +2407,6 @@ NetworkOPsImp::pubExportSignature(
     event[jss::origin_txid] = to_string(share.originTxn);
     event[jss::origin_ledger_seq] = Json::UInt(share.originLedgerSeq);
     event[jss::origin_ledger_hash] = to_string(share.originLedgerHash);
-    event[jss::trigger_txid] = to_string(share.triggerTxn);
     event[jss::committee_position] = Json::UInt(share.committeePosition);
     event[jss::signing_key] = toBase58(TokenType::NodePublic, share.signingKey);
     event[jss::signature] =
