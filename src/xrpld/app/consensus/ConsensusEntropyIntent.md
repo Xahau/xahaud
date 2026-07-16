@@ -42,6 +42,26 @@ entropy value and quality labels; the bitmap remains the accountability label.
 Local timeout or diagnostic state such as `entropyFailed_` must not override an
 accepted root at injection time; a node that never accepts a root falls back
 through the normal missing-accepted-root path.
+
+Non-fallback selection consumes the exact locally held SIDECAR map whose root
+equals `acceptedEntropySetHash_`. Every leaf must be content-addressed under
+`HashPrefix::sidecar`, have type `sidecarRngReveal`, name an active-view master
+`NodeID` in `sfAccount`, carry a syntactically valid `sfSigningPubKey`, and be
+unique by both master identity and signing key. An empty map, a wrong leaf type,
+an inactive or duplicate identity, a duplicate signing key, or any malformed
+leaf rejects the whole non-fallback candidate; selection does not skip bad
+leaves and count the remainder.
+
+The accepted contributions are sorted lexicographically by signing-key bytes,
+then by reveal digest. The entropy preimage is the concatenation, in that
+order, of each canonically VL-encoded signing key followed by its 256-bit reveal;
+the result is `sha512Half(preimage)`. `EntropyCount` is the number of accepted
+leaves, `EntropyDenominator` is the effective post-NegativeUNL active-view size,
+and `EntropyContributors` is a bitset over the same view's canonically ordered
+master keys. The digest therefore commits to signing-key/reveal pairs while the
+bitmap preserves master-key accountability established at authenticated
+ingress.
+
 Apply rejects a `ttCONSENSUS_ENTROPY` whose `sfLedgerSequence` does not equal
 the ledger being built; persisted metadata therefore cannot claim a different
 source ledger than the transaction that wrote it.
@@ -152,6 +172,18 @@ before arithmetic. The `validator_full` label is structurally valid only when
 have exactly that population over the denominator-sized view. Draws are also
 domain-separated by the hook execution role that can share a transaction and
 hook hash: strong vs weak, callback vs direct dispatch, and hook chain position.
+
+The live proceed gate and the stored tier label are separate calculations. The
+pipeline may proceed once the accepted reveal set reaches
+`min(ceil(0.8 * effectiveViewSize), participantThreshold(originalViewSize))`.
+The selector then labels the agreed count, in strict order: `validator_full`
+when it equals the non-empty effective view; otherwise `validator_quorum` when
+it reaches the 80% effective-view threshold; otherwise `participant_aligned`
+when it reaches the intersection-safe threshold over the original pre-nUNL
+view; otherwise `consensus_fallback`. A non-standalone node without a
+parent-ledger UNLReport always falls back even if its locally configured trust
+set and reveal count would otherwise qualify. Below-threshold accepted material
+also falls back as a whole, with count/denominator `0/0` and an empty bitmap.
 *Enforced:* `fairRng` tier/freshness gate and metadata-only `entropy_status`.
 
 **INV-7 — Inert when un-amended.**
