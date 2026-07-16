@@ -1442,20 +1442,20 @@ ConsensusExtensions::clearAcceptedEntropySet()
 
 ConsensusExtensions::EntropySelection
 ConsensusExtensions::selectEntropy(
-    uint256 const& agreedTxSetHash,
+    uint256 const& buildTxSetHash,
     LedgerIndex seq) const
 {
     //@@start entropy-selector-fallback
     // Tier 1 fallback: consensus-bound deterministic digest over already-agreed
-    // round inputs. agreedTxSetHash is the pre-injection consensus tx set hash:
-    // the digest must never depend on a set that could contain the pseudo-tx
-    // carrying it (circular).
+    // round inputs. buildTxSetHash is the sanitized pre-injection live-build
+    // set hash: the digest must never depend on a set that could contain a
+    // supplied or derived extension pseudo-tx.
     auto const fallback = [&]() -> EntropySelection {
         return {
             sha512Half(
                 HashPrefix::entropyFallback,
                 roundPrevLedgerHash_,
-                agreedTxSetHash,
+                buildTxSetHash,
                 seq),
             entropyTierConsensusFallback,
             0,
@@ -1675,16 +1675,16 @@ ConsensusExtensions::rngEnabled() const
 
 uint256
 ConsensusExtensions::txnOrderingSalt(
-    uint256 const& agreedTxSetHash,
+    uint256 const& buildTxSetHash,
     LedgerIndex seq) const
 {
     if (!rngEnabled())
-        return agreedTxSetHash;
+        return buildTxSetHash;
 
-    auto const selection = selectEntropy(agreedTxSetHash, seq);
+    auto const selection = selectEntropy(buildTxSetHash, seq);
     return sha512Half(
         HashPrefix::entropyTxnOrder,
-        agreedTxSetHash,
+        buildTxSetHash,
         selection.digest,
         selection.tier,
         selection.count,
@@ -2379,11 +2379,46 @@ ConsensusExtensions::observedParticipantsBitmapBin() const
     return observedParticipantsBitmapBin_;
 }
 
+ConsensusExtensions::LiveBuildTxSet
+ConsensusExtensions::makeLiveBuildTxSet(RCLTxSet const& agreedTxs) const
+{
+    RCLTxSet::MutableTxSet mutableSet{agreedTxs};
+    std::vector<uint256> suppliedEntropy;
+    std::vector<uint256> suppliedExportWitnesses;
+
+    for (auto const& item : *agreedTxs.map_)
+    {
+        try
+        {
+            STTx const tx{SerialIter{item.slice()}};
+            if (tx.getTxnType() == ttCONSENSUS_ENTROPY)
+                suppliedEntropy.push_back(item.key());
+            else if (tx.getTxnType() == ttEXPORT_SIGNATURES)
+                suppliedExportWitnesses.push_back(item.key());
+        }
+        catch (std::exception const&)
+        {
+            // Preserve malformed entries here. The existing canonical-set
+            // construction path records their parse failure separately.
+        }
+    }
+
+    for (auto const& id : suppliedEntropy)
+        mutableSet.erase(id);
+    for (auto const& id : suppliedExportWitnesses)
+        mutableSet.erase(id);
+
+    return LiveBuildTxSet{
+        RCLTxSet{mutableSet},
+        suppliedEntropy.size(),
+        suppliedExportWitnesses.size()};
+}
+
 void
 ConsensusExtensions::onPreBuild(
     CanonicalTXSet& retriableTxs,
     LedgerIndex seq,
-    uint256 const& txSetHash)
+    uint256 const& buildTxSetHash)
 {
     //@@start extension-live-pseudo-authority
     // The agreed user transaction set never authorizes synthetic extension
@@ -2435,9 +2470,9 @@ ConsensusExtensions::onPreBuild(
         //@@start rng-inject-entropy-selection
         // One deterministic selector over the AGREED entropySetMap_ chooses the
         // digest and its tier/count/denominator labels. Every node derives the
-        // same entropy for the same agreed round inputs. txSetHash is the
-        // agreed pre-injection consensus tx set hash.
-        auto const selection = selectEntropy(txSetHash, seq);
+        // same entropy for the same accepted round inputs. buildTxSetHash is
+        // the sanitized pre-injection live-build set hash.
+        auto const selection = selectEntropy(buildTxSetHash, seq);
         uint256 const finalEntropy = selection.digest;
         std::uint8_t const entropyTier = selection.tier;
         std::uint16_t const entropyCount = selection.count;

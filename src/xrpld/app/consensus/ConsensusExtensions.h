@@ -112,6 +112,13 @@ class ConsensusExtensions
     clearDeferredExportShares();
 
 public:
+    struct LiveBuildTxSet
+    {
+        RCLTxSet txns;
+        std::size_t suppliedEntropy;
+        std::size_t suppliedExportWitnesses;
+    };
+
     beast::Journal j_;  // public: accessed by extensionsTick template
 
     /** Proof data from a proposal signature, for embedding in SHAMap
@@ -365,15 +372,15 @@ public:
     /// quorumThreshold), participant_aligned (>= tier2Threshold) or
     /// consensus_fallback. In non-standalone mode, non-fallback labels require
     /// an UNLReport-backed active view; the trusted-fallback view is local
-    /// config and mints Tier 1. agreedTxSetHash is the pre-injection consensus
-    /// tx set hash used for the fallback digest.
+    /// config and mints Tier 1. buildTxSetHash is the sanitized pre-injection
+    /// live-build set hash used for the fallback digest.
     EntropySelection
-    selectEntropy(uint256 const& agreedTxSetHash, LedgerIndex seq) const;
+    selectEntropy(uint256 const& buildTxSetHash, LedgerIndex seq) const;
 
     /// Extend the legacy closed-ledger transaction-order salt with the same
     /// consensus entropy selected for the ledger's entropy pseudo-tx.
     uint256
-    txnOrderingSalt(uint256 const& agreedTxSetHash, LedgerIndex seq) const;
+    txnOrderingSalt(uint256 const& buildTxSetHash, LedgerIndex seq) const;
 
     bool
     rngEnabled() const;
@@ -509,9 +516,15 @@ public:
     void
     onReplayBuild();
 
-    /// txSetHash is the agreed pre-injection consensus tx set hash — an input
+    /// Return the agreed transaction set with only consensus-extension
+    /// synthetic transactions removed. Legacy fee, amendment, nUNL, and other
+    /// protocol pseudos remain ordinary members of the consensus set.
+    LiveBuildTxSet
+    makeLiveBuildTxSet(RCLTxSet const& agreedTxs) const;
+
+    /// txSetHash is the sanitized pre-injection live-build set hash — an input
     /// to the Tier 1 consensus_fallback digest. It must never be the hash of a
-    /// set that could contain the entropy pseudo-tx itself.
+    /// set that could contain an extension pseudo-tx itself.
     void
     onPreBuild(
         CanonicalTXSet& retriableTxs,

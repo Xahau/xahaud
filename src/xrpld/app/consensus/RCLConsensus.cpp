@@ -581,20 +581,45 @@ RCLConsensus::Adaptor::doAccept(
     //--------------------------------------------------------------------------
     std::set<TxID> failed;
 
+    // Select replay before choosing the transaction stream used to derive the
+    // ledger. Replay consumes the persisted ordered stream. A live build uses
+    // a sanitized view of the agreed set so supplied extension pseudos cannot
+    // influence fallback entropy, transaction ordering, or ledger state.
+    auto replayData = ledgerMaster_.releaseReplay();
+    auto const consensusTxSetHash = result.txns.id();
+    auto const liveBuild = replayData
+        ? std::optional<ConsensusExtensions::LiveBuildTxSet>{}
+        : std::optional<ConsensusExtensions::LiveBuildTxSet>{
+              ce().makeLiveBuildTxSet(result.txns)};
+    auto const& buildTxs = liveBuild ? liveBuild->txns : result.txns;
+    auto const buildTxSetHash = buildTxs.id();
+
+    if (liveBuild &&
+        (liveBuild->suppliedEntropy != 0 ||
+         liveBuild->suppliedExportWitnesses != 0))
+    {
+        JLOG(j_.error())
+            << "ConsensusExtensions: excluded supplied synthetic txs from "
+               "live build"
+            << " seq=" << (prevLedger.seq() + 1)
+            << " consensusSet=" << consensusTxSetHash
+            << " buildSet=" << buildTxSetHash
+            << " entropy=" << liveBuild->suppliedEntropy
+            << " exportWitnesses=" << liveBuild->suppliedExportWitnesses;
+    }
+
     // We want to put transactions in an unpredictable but deterministic order.
-    // ConsensusEntropy extends the agreed tx-set salt with the selected
-    // ledger entropy; when disabled this remains the legacy tx-set hash salt.
+    // ConsensusEntropy extends the sanitized live-build salt with the selected
+    // ledger entropy; when disabled this remains that sanitized set hash.
     //
     // FIXME: Use a std::vector and a custom sorter instead of CanonicalTXSet?
     //@@start txn-ordering-salt-build-inputs
-    auto const agreedTxSetHash = result.txns.map_->getHash().as_uint256();
     auto const buildSeq = prevLedger.seq() + 1;
-    CanonicalTXSet retriableTxs{
-        ce().txnOrderingSalt(agreedTxSetHash, buildSeq)};
+    CanonicalTXSet retriableTxs{ce().txnOrderingSalt(buildTxSetHash, buildSeq)};
 
     JLOG(j_.debug()) << "Building canonical tx set: " << retriableTxs.key();
 
-    for (auto const& item : *result.txns.map_)
+    for (auto const& item : *buildTxs.map_)
     {
         try
         {
@@ -611,11 +636,6 @@ RCLConsensus::Adaptor::doAccept(
     }
     //@@end txn-ordering-salt-build-inputs
 
-    // Select replay before live materialization. Replay consumes the persisted
-    // ordered transaction stream, including its recorded extension pseudos;
-    // live builds derive extension pseudos from accepted extension evidence.
-    auto replayData = ledgerMaster_.releaseReplay();
-
     //@@start auxiliary-pre-build-injection
     // Inject extension pseudo-transactions only for a live build. Entropy and
     // Export witness injection are independently gated inside onPreBuild;
@@ -627,7 +647,7 @@ RCLConsensus::Adaptor::doAccept(
     }
     else if (ce().rngEnabled() || ce().exportEnabled())
     {
-        ce().onPreBuild(retriableTxs, buildSeq, agreedTxSetHash);
+        ce().onPreBuild(retriableTxs, buildSeq, buildTxSetHash);
     }
     else
     {

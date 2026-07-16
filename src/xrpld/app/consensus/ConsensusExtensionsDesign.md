@@ -361,8 +361,10 @@ non-UNLReport (config-fallback) view, every case below instead mints
 - No peer entropy hash is observed in time: fall back to the Tier 1 digest.
 
 The fallback pseudo-transaction is deterministic — every node derives the same
-digest from `(HashPrefix::entropyFallback, parentLedgerHash, agreedTxSetHash,
-seq)` — and labeled with `EntropyTier = consensus_fallback`,
+digest from `(HashPrefix::entropyFallback, parentLedgerHash, buildTxSetHash,
+seq)`, where `buildTxSetHash` is the agreed set after removing only supplied
+ConsensusEntropy and Export synthetic transactions — and labels it with
+`EntropyTier = consensus_fallback`,
 `EntropyCount = 0`, `EntropyDenominator = 0`, and an empty
 `EntropyContributors` bitmap. Non-fallback entropy records both the contributor
 count and the active-validator denominator used for the validator-quorum
@@ -398,14 +400,17 @@ ledger's finalized entropy; final buildLCL execution sees the current ledger's
 entropy pseudo-tx after it updates the SLE. Hooks that need final entropy must
 treat open-ledger RNG results as previews.
 
-The fallback digest derives from the agreed pre-injection tx set hash to avoid
-circularity. The agreed user transaction set is not authority for synthetic
-extension state: during a live build, every supplied `ttCONSENSUS_ENTROPY` or
-`ttEXPORT_SIGNATURES` transaction is discarded and logged as an invariant
-violation, then the canonical synthetic stream is derived from accepted
-extension evidence. Historical replay is selected before live materialization
-and consumes the persisted transaction order, including its recorded synthetic
-transactions, without regeneration.
+The fallback digest derives from the sanitized pre-injection live-build set
+hash to avoid circularity and synthetic-input authority. Sanitization removes
+only supplied `ttCONSENSUS_ENTROPY` and `ttEXPORT_SIGNATURES` transactions;
+legacy fee, amendment, NegativeUNL, and other protocol pseudos remain ordinary
+members of the agreed set. Supplied extension pseudos are discarded and logged
+as an invariant violation before they can influence fallback entropy,
+transaction ordering, or ledger state, then the canonical synthetic stream is
+derived from accepted extension evidence. The original agreed-set hash remains
+the consensus-bookkeeping value carried by validations. Historical replay is
+selected before live materialization and consumes the persisted transaction
+order, including its recorded synthetic transactions, without regeneration.
 
 ## Local Snapshot Alignment Rules
 

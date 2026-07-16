@@ -2850,6 +2850,60 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testLiveBuildSetStripsOnlyExtensionPseudos()
+    {
+        testcase("live build set strips only extension pseudo-txs");
+
+        using namespace jtx;
+        Env env{
+            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+        auto const seq = env.closed()->seq() + 1;
+        auto const validatorKey = makeValidatorKeys().front();
+
+        auto const fee = std::make_shared<STTx const>(ttFEE, [&](auto& obj) {
+            obj.setAccountID(sfAccount, AccountID{});
+            obj.setFieldU32(sfLedgerSequence, seq);
+        });
+        auto const amendment =
+            std::make_shared<STTx const>(ttAMENDMENT, [&](auto& obj) {
+                obj.setAccountID(sfAccount, AccountID{});
+                obj.setFieldU32(sfLedgerSequence, seq);
+                obj.setFieldH256(sfAmendment, makeHash("legacy-amendment"));
+            });
+        auto const negativeUNL =
+            std::make_shared<STTx const>(ttUNL_MODIFY, [&](auto& obj) {
+                obj.setAccountID(sfAccount, AccountID{});
+                obj.setFieldU8(sfUNLModifyDisabling, 1);
+                obj.setFieldU32(sfLedgerSequence, seq);
+                obj.setFieldVL(sfUNLModifyValidator, validatorKey);
+            });
+        auto const suppliedEntropy =
+            makeConsensusEntropyTx(seq, makeHash("supplied-digest"), 7);
+        auto const suppliedWitness =
+            makeExportSignaturesTx(seq, makeHash("supplied-export-origin"));
+
+        auto const agreed = makeRCLTxSet(
+            env.app(),
+            {fee, amendment, negativeUNL, suppliedEntropy, suppliedWitness});
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        auto const build = ce.makeLiveBuildTxSet(agreed);
+
+        BEAST_EXPECT(build.suppliedEntropy == 1);
+        BEAST_EXPECT(build.suppliedExportWitnesses == 1);
+        BEAST_EXPECT(build.txns.exists(fee->getTransactionID()));
+        BEAST_EXPECT(build.txns.exists(amendment->getTransactionID()));
+        BEAST_EXPECT(build.txns.exists(negativeUNL->getTransactionID()));
+        BEAST_EXPECT(!build.txns.exists(suppliedEntropy->getTransactionID()));
+        BEAST_EXPECT(!build.txns.exists(suppliedWitness->getTransactionID()));
+
+        auto const expected =
+            makeRCLTxSet(env.app(), {fee, amendment, negativeUNL});
+        BEAST_EXPECT(build.txns.id() == expected.id());
+        BEAST_EXPECT(agreed.exists(suppliedEntropy->getTransactionID()));
+        BEAST_EXPECT(agreed.exists(suppliedWitness->getTransactionID()));
+    }
+
+    void
     testDiagnosticsJsonAndPositionLogging()
     {
         testcase("diagnostics JSON and position logging");
@@ -4346,6 +4400,7 @@ public:
         testRngSidecarBuildsLocalSnapshots();
         testOnPreBuildInjectsStandaloneEntropy();
         testOnPreBuildStripsSuppliedExtensionPseudos();
+        testLiveBuildSetStripsOnlyExtensionPseudos();
         testDiagnosticsJsonAndPositionLogging();
         testDecoratePositionSkipsWhenDisabled();
         testExportSigGateRequiresQuorumAlignment();

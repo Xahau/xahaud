@@ -120,11 +120,13 @@ below-quorum conflict, which lets a minority equivocation recreate a veto.
 Under no-UNLReport / lost reveals / failed alignment / timeout / impossible
 quorum, the round mints an **explicitly labeled lower tier**, never an unlabeled
 or non-deterministic value. The tier-1 fallback is a pure function of
-*already-agreed* inputs: `H(entropyFallback, parentLedgerHash, agreedTxSetHash,
+*already-agreed* inputs: `H(entropyFallback, parentLedgerHash, buildTxSetHash,
 seq)` — and must **never** depend on the post-injection tx set (no circular
-dependency on the set that carries the pseudo-tx).
-*Enforced:* `selectEntropy` fallback path; `agreedTxSetHash` is the
-pre-injection set hash.
+dependency on the set that carries the pseudo-tx). `buildTxSetHash` is the raw
+agreed set after removing only supplied ConsensusEntropy and Export synthetic
+transactions; legacy protocol pseudos remain included.
+*Enforced:* `makeLiveBuildTxSet` before ordering and `selectEntropy` fallback;
+the original consensus-set hash remains separate bookkeeping.
 
 **INV-6 — Bounded, opt-in entropy quality.**
 Hooks state `min_tier` explicitly on every draw (no hidden network default).
