@@ -1193,8 +1193,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             entropyTierConsensusFallback);
         BEAST_EXPECT(
             ConsensusExtensions::exportRootAlignmentThreshold(cappedView) == 6);
-        BEAST_EXPECT(
-            ConsensusExtensions::exportWitnessThreshold(cappedView) == 6);
     }
 
     void
@@ -4174,7 +4172,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const ledger = env.app().getLedgerMaster().getClosedLedger();
         ce.cacheUNLReport(ledger);
         BEAST_EXPECT(ce.exportRootAlignmentThreshold() == 1);
-        BEAST_EXPECT(ce.exportWitnessThreshold() == 1);
 
         ce.setExportSigConvergenceFailed();
         BEAST_EXPECT(ce.exportSigConvergenceFailed());

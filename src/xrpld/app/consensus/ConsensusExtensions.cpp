@@ -1013,22 +1013,6 @@ ConsensusExtensions::exportRootAlignmentThreshold(
 }
 
 std::size_t
-ConsensusExtensions::exportWitnessThreshold() const
-{
-    return exportWitnessThreshold(*activeValidatorView());
-}
-
-std::size_t
-ConsensusExtensions::exportWitnessThreshold(
-    ActiveValidatorView const& validatorView)
-{
-    // The full active view is also the witness authority today. Keep this
-    // authorization threshold separate from root alignment so a bounded
-    // committee can replace the witness authority without weakening qV.
-    return safeQuorumThreshold(validatorView.size());
-}
-
-std::size_t
 ConsensusExtensions::tier2Threshold() const
 {
     // Tier 2 (participant_aligned) lowers the alignment bar from the 80%

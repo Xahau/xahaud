@@ -32,6 +32,7 @@
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/utility/WrappedSink.h>
 #include <xrpl/protocol/EntropyTier.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <boost/container/flat_map.hpp>
 #include <algorithm>
@@ -482,13 +483,16 @@ struct Peer
         }
 
         std::size_t
-        exportWitnessThreshold() const
+        exportCommitteeThreshold() const
         {
             if (!enableExportConsensus_)
                 return (std::numeric_limits<std::size_t>::max)() / 4;
+            // CSF models the full simulated UNL as the configured Export
+            // committee. Production reads this threshold from each intent's
+            // ledger-anchored committee instead of the active validation view.
             auto const base =
                 unlNodes_.empty() ? std::size_t{1} : unlNodes_.size();
-            return calculateQuorumThreshold(base);
+            return ExportLimits::committeeQuorumThreshold(base);
         }
 
         std::size_t
@@ -1023,7 +1027,7 @@ struct Peer
                     });
             }
 
-            lastExportSucceeded_ = activeSigCount >= exportWitnessThreshold();
+            lastExportSucceeded_ = activeSigCount >= exportCommitteeThreshold();
             lastExportRetried_ = !lastExportSucceeded_;
             if (lastExportSucceeded_ && acceptedExportSigSetHash_)
                 lastExportWitnessEffect_ = *acceptedExportSigSetHash_;
