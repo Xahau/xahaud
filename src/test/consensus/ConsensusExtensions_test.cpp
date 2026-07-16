@@ -2323,33 +2323,33 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         testcase("RNG manifest arrival does not retarget proofed commit");
 
         using namespace jtx;
+        auto const masterSeed = randomSeed();
         Env env{
-            *this, envconfig(validator, ""), supported_amendments(), nullptr};
+            *this,
+            envconfig(validator, toBase58(masterSeed)),
+            supported_amendments(),
+            nullptr};
         auto const ledger = env.app().getLedgerMaster().getClosedLedger();
         auto const masterSecret =
-            generateSecretKey(KeyType::secp256k1, randomSeed());
-        auto const signingSecret1 =
-            generateSecretKey(KeyType::secp256k1, randomSeed());
+            generateSecretKey(KeyType::secp256k1, masterSeed);
         auto const signingSecret2 =
             generateSecretKey(KeyType::secp256k1, randomSeed());
-        auto const masterKey =
-            derivePublicKey(KeyType::secp256k1, masterSecret);
-        auto const signingKey1 =
-            derivePublicKey(KeyType::secp256k1, signingSecret1);
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+        auto const& masterKey = valKeys.keys->masterPublicKey;
+        auto const& signingKey1 = valKeys.keys->publicKey;
+        auto const& signingSecret1 = valKeys.keys->secretKey;
         auto const signingKey2 =
             derivePublicKey(KeyType::secp256k1, signingSecret2);
-        auto const nodeId = calcNodeID(masterKey);
-
-        BEAST_EXPECT(
-            env.app().validatorManifests().applyManifest(
-                makeValidatorManifest(masterSecret, signingSecret1)) ==
-            ManifestDisposition::accepted);
+        auto const nodeId = valKeys.nodeID;
+        BEAST_EXPECT(masterKey == signingKey1);
 
         ConsensusExtensions manifestFirst{env.app(), activeNoopJournal()};
         ConsensusExtensions proposalFirst{env.app(), activeNoopJournal()};
-        auto const universe = makeUNLReportLedger(env, {masterKey});
-        manifestFirst.cacheUNLReport(universe);
-        proposalFirst.cacheUNLReport(universe);
+        manifestFirst.cacheUNLReport(ledger);
+        proposalFirst.cacheUNLReport(ledger);
 
         auto const seq = ledger->seq() + 1;
         auto const closeTime = NetClock::time_point{NetClock::duration{655}};
