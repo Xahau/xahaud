@@ -16,6 +16,7 @@
 #include <xrpl/protocol/st.h>
 #include <xrpl/protocol/tokens.h>
 #include <boost/multiprecision/cpp_dec_float.hpp>
+#include <array>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -4059,24 +4060,59 @@ DEFINE_HOOK_FUNCTION(
 //@@end xport-impl
 
 inline bool
-invalidEntropyRequirement(uint32_t minTier, uint32_t minCount)
+invalidEntropyRequirement(uint32_t minTier)
 {
     return minTier < entropyTierConsensusFallback ||
-        minTier > entropyTierValidatorFull ||
-        minCount > std::numeric_limits<std::uint16_t>::max();
+        minTier > entropyTierValidatorFull;
+}
+
+struct EntropySnapshot
+{
+    std::shared_ptr<SLE> sle;
+    std::uint32_t age;
+    std::uint8_t tier;
+    std::uint16_t count;
+    std::uint16_t denominator;
+};
+
+inline std::variant<EntropySnapshot, hook_api::hook_return_code>
+readEntropySnapshot(ApplyView& view)
+{
+    auto sle = view.peek(ripple::keylet::consensusEntropy());
+    if (!sle)
+        return hook_api::hook_return_code::DOESNT_EXIST;
+
+    if (!sle->isFieldPresent(sfDigest) ||
+        !sle->isFieldPresent(sfLedgerSequence) ||
+        !sle->isFieldPresent(sfEntropyTier) ||
+        !sle->isFieldPresent(sfEntropyCount) ||
+        !sle->isFieldPresent(sfEntropyDenominator) ||
+        !sle->isFieldPresent(sfEntropyContributors))
+        return hook_api::hook_return_code::INTERNAL_ERROR;
+
+    auto const seq = view.info().seq;
+    auto const entropySeq = sle->getFieldU32(sfLedgerSequence);
+    if (entropySeq > seq)
+        return hook_api::hook_return_code::INTERNAL_ERROR;
+
+    return EntropySnapshot{
+        sle,
+        seq - entropySeq,
+        sle->getFieldU8(sfEntropyTier),
+        sle->getFieldU16(sfEntropyCount),
+        sle->getFieldU16(sfEntropyDenominator)};
 }
 
 // byteCount must be a multiple of 32.
-// minTier/minCount are the CALLER'S stated requirements (required hook API
-// arguments — there is deliberately no network-wide default): entropy is
-// usable iff tier >= minTier && count >= minCount, in addition to freshness.
+// minTier is the CALLER'S stated class requirement (a required hook API
+// argument — there is deliberately no network-wide default). Count and
+// denominator policy is available separately through entropy_status().
 inline std::vector<uint8_t>
 fairRng(
     ApplyContext& applyCtx,
     hook::HookResult& hr,
     uint32_t byteCount,
-    uint32_t minTier,
-    uint32_t minCount)
+    uint32_t minTier)
 {
     if (byteCount > 512)
         byteCount = 512;
@@ -4088,28 +4124,17 @@ fairRng(
         return {};
 
     auto& view = applyCtx.view();
-
-    auto const sleEntropy = view.peek(ripple::keylet::consensusEntropy());
-    auto const seq = view.info().seq;
-
-    auto const entropySeq =
-        sleEntropy ? sleEntropy->getFieldU32(sfLedgerSequence) : 0u;
+    auto snapshot = readEntropySnapshot(view);
+    if (!std::holds_alternative<EntropySnapshot>(snapshot))
+        return {};
+    auto const& entropy = std::get<EntropySnapshot>(snapshot);
 
     // Open-ledger hook execution is provisional and can only see the previous
     // ledger's finalized entropy. Final buildLCL execution sees the current
     // ledger's entropy pseudo-tx after it updates this SLE. That open-vs-final
     // skew is inherent to speculative execution; callers that need final
     // entropy must treat open-ledger dice/random results as previews.
-    // Defensive: sfEntropyTier is soeREQUIRED, so any entry this code wrote
-    // carries it. A missing field can only come from a pre-tier-3 persisted
-    // entry; treat that as tier 0 (none) so the requirement check fails closed.
-    auto const entropyTier =
-        sleEntropy && sleEntropy->isFieldPresent(sfEntropyTier)
-        ? sleEntropy->getFieldU8(sfEntropyTier)
-        : std::uint8_t{0};
-    if (!sleEntropy || entropySeq > seq || (seq - entropySeq) > 1 ||
-        entropyTier < minTier ||
-        sleEntropy->getFieldU16(sfEntropyCount) < minCount)
+    if (entropy.age > 1 || entropy.tier < minTier)
         return {};
 
     // we'll generate bytes in lots of 32
@@ -4130,7 +4155,7 @@ fairRng(
         hr.hookChainPosition,
         hr.isStrong ? std::string("strong") : std::string("weak"),
         hr.isCallback ? std::string("callback") : std::string("direct"),
-        sleEntropy->getFieldH256(sfDigest),
+        entropy.sle->getFieldH256(sfDigest),
         hr.rngCallCounter++);
 
     std::vector<uint8_t> bytesOut;
@@ -4151,22 +4176,17 @@ fairRng(
     return bytesOut;
 }
 
-DEFINE_HOOK_FUNCTION(
-    int64_t,
-    dice,
-    uint32_t sides,
-    uint32_t min_tier,
-    uint32_t min_count)
+DEFINE_HOOK_FUNCTION(int64_t, dice, uint32_t sides, uint32_t min_tier)
 {
     HOOK_SETUP();
 
     if (sides == 0)
         return INVALID_ARGUMENT;
 
-    if (invalidEntropyRequirement(min_tier, min_count))
+    if (invalidEntropyRequirement(min_tier))
         return INVALID_ARGUMENT;
 
-    auto vec = fairRng(applyCtx, hookCtx.result, 32, min_tier, min_count);
+    auto vec = fairRng(applyCtx, hookCtx.result, 32, min_tier);
 
     if (vec.empty())
         return TOO_LITTLE_ENTROPY;
@@ -4206,8 +4226,7 @@ DEFINE_HOOK_FUNCTION(
     random,
     uint32_t write_ptr,
     uint32_t write_len,
-    uint32_t min_tier,
-    uint32_t min_count)
+    uint32_t min_tier)
 {
     HOOK_SETUP();
 
@@ -4233,16 +4252,52 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (invalidEntropyRequirement(min_tier, min_count))
+    if (invalidEntropyRequirement(min_tier))
         return INVALID_ARGUMENT;
 
-    auto vec = fairRng(applyCtx, hookCtx.result, required, min_tier, min_count);
+    auto vec = fairRng(applyCtx, hookCtx.result, required, min_tier);
 
     if (vec.empty())
         return TOO_LITTLE_ENTROPY;
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr, write_len, vec.data(), vec.size(), memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    entropy_status,
+    uint32_t write_ptr,
+    uint32_t write_len)
+{
+    HOOK_SETUP();
+
+    constexpr std::size_t statusSize = 5;
+    if (write_len < statusSize)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, statusSize, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto snapshot = readEntropySnapshot(view);
+    if (std::holds_alternative<hook_api::hook_return_code>(snapshot))
+        return std::get<hook_api::hook_return_code>(snapshot);
+
+    auto const& entropy = std::get<EntropySnapshot>(snapshot);
+    std::array<std::uint8_t, statusSize> const status{
+        entropy.tier,
+        static_cast<std::uint8_t>(entropy.count >> 8),
+        static_cast<std::uint8_t>(entropy.count),
+        static_cast<std::uint8_t>(entropy.denominator >> 8),
+        static_cast<std::uint8_t>(entropy.denominator)};
+
+    if (!WasmEdge_ResultOK(WasmEdge_MemoryInstanceSetData(
+            memoryCtx, status.data(), write_ptr, status.size())))
+        return INTERNAL_ERROR;
+
+    return entropy.age;
 
     HOOK_TEARDOWN();
 }

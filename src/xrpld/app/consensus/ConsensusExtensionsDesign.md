@@ -375,20 +375,27 @@ digest/tier/count/denominator tuple. This does not make the bitmap
 non-critical: any disagreement in a ledger-written field is a ledger
 disagreement. It only keeps transaction ordering semantically tied to the
 entropy value and quality labels rather than to the accountability label. Hooks
-state their own requirements via the required
-`min_tier`/`min_count` arguments to `dice()`/`random()`: a hook that demands
-validator-tier entropy fails closed with `TOO_LITTLE_ENTROPY` on fallback
-ledgers, while a hook that opts into fallback-grade randomness must do so
-explicitly at the call site. Valid `min_tier` values are the stored entropy
-tiers 1..4; `min_count` must fit the on-ledger `EntropyCount` UINT16 field.
-Invalid requirements return `INVALID_ARGUMENT`, while valid-but-unmet
-requirements return `TOO_LITTLE_ENTROPY`.
+state their class requirement through the mandatory `min_tier` argument to
+`dice()`/`random()`: a hook that demands validator-tier entropy fails closed
+with `TOO_LITTLE_ENTROPY` on fallback ledgers, while a hook that opts into
+fallback-grade randomness must do so explicitly at the call site. Valid
+`min_tier` values are the stored entropy tiers 1..4; invalid requirements return
+`INVALID_ARGUMENT`, while valid-but-unmet requirements return
+`TOO_LITTLE_ENTROPY`.
+
+`entropy_status(write_ptr, write_len)` writes the fixed five-byte big-endian
+tuple `(tier:u8, count:u16, denominator:u16)` and returns the metadata's ledger
+age. This lets Hook code implement policies such as one-absent tolerance,
+proportional participation, or an absolute floor without widening the frozen
+draw API. It exposes no digest. Callers must classify tier before count or
+denominator arithmetic because fallback deliberately reports tier 1 and
+`0/0`.
 
 Open-ledger hook execution is provisional. During speculative open-ledger
-execution, `dice()`/`random()` can only use the previous ledger's finalized
-entropy; final buildLCL execution sees the current ledger's entropy pseudo-tx
-after it updates the SLE. Hooks that need final entropy must treat open-ledger
-RNG results as previews.
+execution, `dice()`/`random()` and `entropy_status()` can only use the previous
+ledger's finalized entropy (status age 1); final buildLCL execution sees the
+current ledger's entropy pseudo-tx after it updates the SLE (status age 0).
+Hooks that need final entropy must treat open-ledger RNG results as previews.
 
 The fallback digest derives from the agreed pre-injection tx set hash to avoid
 circularity, and entropy pseudo-tx deduplication is value-based: if the agreed

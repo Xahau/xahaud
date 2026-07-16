@@ -127,14 +127,17 @@ dependency on the set that carries the pseudo-tx).
 pre-injection set hash.
 
 **INV-6 — Bounded, opt-in entropy quality.**
-Hooks state `min_tier` / `min_count` explicitly (no hidden network default).
+Hooks state `min_tier` explicitly on every draw (no hidden network default).
 Entropy is served iff it is **fresh** (current or previous ledger) **and** meets
-the requirement; otherwise the call **fails closed** (`TOO_LITTLE_ENTROPY`). A
-hook never silently receives weaker-than-requested entropy. Draws are also
-domain-separated by the hook execution role that can share a transaction and
-hook hash: strong vs weak, callback vs direct dispatch, and hook chain
-position.
-*Enforced:* `fairRng` gate.
+that class floor; otherwise the call **fails closed**
+(`TOO_LITTLE_ENTROPY`). `entropy_status()` separately exposes the stored tier,
+contributor count, denominator, and ledger age so hooks can impose proportional
+or absolute policies without freezing those policies into the host ABI.
+Fallback is tier 1 with count/denominator `0/0`, so callers must classify tier
+before arithmetic. Draws are also domain-separated by the hook execution role
+that can share a transaction and hook hash: strong vs weak, callback vs direct
+dispatch, and hook chain position.
+*Enforced:* `fairRng` tier/freshness gate and metadata-only `entropy_status`.
 
 **INV-7 — Inert when un-amended.**
 With `featureConsensusEntropy` off, no RNG sidecar state is consensus-visible and

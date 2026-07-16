@@ -357,24 +357,30 @@ xport_cancel(uint32_t read_ptr, uint32_t read_len, uint32_t flags);
 /*
     Consensus entropy APIs.
 
-    min_tier is a fail-closed floor:
-      1 = consensus_fallback, 2 = participant_aligned, 3 = validator_quorum.
-    min_count is the minimum validator/reveal count the caller accepts.
+    min_tier is a required fail-closed floor:
+      1 = consensus_fallback, 2 = participant_aligned,
+      3 = validator_quorum, 4 = validator_full.
 
-    If the most recent finalized entropy object does not satisfy both floors,
-    these APIs return TOO_LITTLE_ENTROPY. Open-ledger and simulate execution
-    are provisional previews over the entropy currently visible to the node;
-    final ordered ledger execution may see a different entropy object.
+    entropy_status writes five big-endian bytes:
+      tier:u8, count:u16, denominator:u16
+    and returns ledger age (0 current, 1 previous, >1 stale).
+
+    Classify tier before count/denominator arithmetic: fallback is tier 1
+    with count=denominator=0. Common policies are denominator-count <= 1,
+    5*count >= 4*denominator (use widened arithmetic), or count >= floor.
+
+    dice/random return TOO_LITTLE_ENTROPY if fresh visible entropy is below
+    min_tier. Open-ledger and simulate execution are provisional previews;
+    final ordered execution may see a different entropy object.
 */
 extern int64_t
-dice(uint32_t sides, uint32_t min_tier, uint32_t min_count);
+dice(uint32_t sides, uint32_t min_tier);
 
 extern int64_t
-random(
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t min_tier,
-    uint32_t min_count);
+random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+
+extern int64_t
+entropy_status(uint32_t write_ptr, uint32_t write_len);
 
 #ifdef __cplusplus
 }

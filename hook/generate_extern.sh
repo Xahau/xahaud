@@ -46,14 +46,21 @@ APPLY_HOOK="$SCRIPT_DIR/../include/xrpl/hook/hook_api.macro"
                     print "/*";
                     print "    Consensus entropy APIs.";
                     print "";
-                    print "    min_tier is a fail-closed floor:";
-                    print "      1 = consensus_fallback, 2 = participant_aligned, 3 = validator_quorum.";
-                    print "    min_count is the minimum validator/reveal count the caller accepts.";
+                    print "    min_tier is a required fail-closed floor:";
+                    print "      1 = consensus_fallback, 2 = participant_aligned,";
+                    print "      3 = validator_quorum, 4 = validator_full.";
                     print "";
-                    print "    If the most recent finalized entropy object does not satisfy both floors,";
-                    print "    these APIs return TOO_LITTLE_ENTROPY. Open-ledger and simulate execution";
-                    print "    are provisional previews over the entropy currently visible to the node;";
-                    print "    final ordered ledger execution may see a different entropy object.";
+                    print "    entropy_status writes five big-endian bytes:";
+                    print "      tier:u8, count:u16, denominator:u16";
+                    print "    and returns ledger age (0 current, 1 previous, >1 stale).";
+                    print "";
+                    print "    Classify tier before count/denominator arithmetic: fallback is tier 1";
+                    print "    with count=denominator=0. Common policies are denominator-count <= 1,";
+                    print "    5*count >= 4*denominator (use widened arithmetic), or count >= floor.";
+                    print "";
+                    print "    dice/random return TOO_LITTLE_ENTROPY if fresh visible entropy is below";
+                    print "    min_tier. Open-ledger and simulate execution are provisional previews;";
+                    print "    final ordered execution may see a different entropy object.";
                     print "*/";
                 }
                 
