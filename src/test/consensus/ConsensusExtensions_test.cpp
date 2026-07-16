@@ -3964,6 +3964,15 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         harness.addPeer(3, ext.exportHash);
         result = harness.tick(ext, std::chrono::milliseconds{100});
         BEAST_EXPECT(!result.readyForAccept);
+
+        // An observer's unpublished local root does not count, but a complete
+        // peer-only qV can still authorize materialization of its matching
+        // locally held candidate.
+        harness.addPeer(4, ext.exportHash);
+        result = harness.tick(ext, std::chrono::milliseconds{200});
+        BEAST_EXPECT(result.readyForAccept);
+        BEAST_EXPECT(!ext.exportSigConvergenceFailed_);
+        BEAST_EXPECT(harness.proposes == 0);
     }
 
     void
