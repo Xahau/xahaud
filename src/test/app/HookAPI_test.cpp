@@ -347,23 +347,27 @@ public:
                 alice.id(),
                 alice.id(),
                 {
-                    .expected_etxn_count = 1,
+                    .expected_etxn_count = 3,
                 });
             auto& api = hookCtx.api();
             auto const inner = makeExportedPayment(alice.id(), bob.id());
             auto wrapper = makeExportWrapper(alice.id(), inner);
+            // No account-owned committee exists for this digest.
             wrapper.setFieldH256(sfExportCommitteeHash, uint256{1});
-            auto const prepared = api.prepare(wrapper.getSerializer().slice());
-            BEAST_EXPECT(prepared.has_value());
-            if (prepared)
+            for (int attempt = 0; attempt < 3; ++attempt)
             {
+                auto const prepared =
+                    api.prepare(wrapper.getSerializer().slice());
+                BEAST_EXPECT(prepared.has_value());
+                if (!prepared)
+                    continue;
                 auto const result = api.emit(Slice{
                     prepared->data(),
                     prepared->size()});
                 BEAST_EXPECT(result.error() == EMISSION_FAILURE);
-                BEAST_EXPECT(hookCtx.result.emittedTxn.empty());
-                BEAST_EXPECT(hookCtx.export_count == 0);
             }
+            BEAST_EXPECT(hookCtx.result.emittedTxn.empty());
+            BEAST_EXPECT(hookCtx.export_count == 0);
         }
         {
             // HookCanEmit (non-SetHook)
