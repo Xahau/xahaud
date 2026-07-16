@@ -334,7 +334,6 @@ LedgerMaster::setValidLedger(std::shared_ptr<Ledger const> const& l)
                 app_.getOPs().clearAmendmentWarned();
         }
     }
-
 }
 
 void

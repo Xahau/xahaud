@@ -26,11 +26,11 @@ struct ExportCommitteeProfile
     std::optional<std::uint16_t>
     position(PublicKey const& master) const
     {
-        auto const it = std::lower_bound(members.begin(), members.end(), master);
+        auto const it =
+            std::lower_bound(members.begin(), members.end(), master);
         if (it == members.end() || *it != master)
             return std::nullopt;
-        return static_cast<std::uint16_t>(
-            std::distance(members.begin(), it));
+        return static_cast<std::uint16_t>(std::distance(members.begin(), it));
     }
 };
 
@@ -62,15 +62,13 @@ resolveExportCommittee(Slice roster)
     }
 
     return ExportCommitteeProfile{
-        std::move(members),
-        ExportLimits::committeeQuorumThreshold(count)};
+        std::move(members), ExportLimits::committeeQuorumThreshold(count)};
 }
 
 inline Blob
 serializeExportCommittee(std::vector<PublicKey> members)
 {
-    if (members.empty() ||
-        members.size() > ExportLimits::maxCommitteeMembers)
+    if (members.empty() || members.size() > ExportLimits::maxCommitteeMembers)
         return {};
 
     std::sort(members.begin(), members.end());

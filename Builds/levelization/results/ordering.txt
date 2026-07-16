@@ -38,6 +38,7 @@ test.beast > xrpl.basics
 test.conditions > xrpl.basics
 test.conditions > xrpld.conditions
 test.consensus > test.csf
+test.consensus > test.jtx
 test.consensus > test.toplevel
 test.consensus > test.unit_test
 test.consensus > xrpl.basics

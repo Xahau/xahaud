@@ -1401,8 +1401,7 @@ public:
         // Four witness-ledger validations make that branch preferred. Peer 0
         // must never fully validate its local witness-less build and must
         // promote the acquired witness ledger before subsequent recovery.
-        BEAST_EXPECT(
-            peers[0]->fullyValidatedLedger.id() == witnessLedger.id());
+        BEAST_EXPECT(peers[0]->fullyValidatedLedger.id() == witnessLedger.id());
         BEAST_EXPECT(
             peers[0]->fullyValidatedLedger.id() != witnesslessLedger.id());
         for (Peer* peer : peers)
