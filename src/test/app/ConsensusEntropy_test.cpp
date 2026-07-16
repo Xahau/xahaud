@@ -701,7 +701,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
 
                 int64_t dice_result = dice(6, 1);
                 if (dice_result != TOO_LITTLE_ENTROPY)
-                    return accept(0, 0, 100 + dice_result);
+                    return accept(0, 0, 41);
 
                 uint8_t buf[32];
                 for (int i = 0; GUARD(32), i < 32; ++i)
