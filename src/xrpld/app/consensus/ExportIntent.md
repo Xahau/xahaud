@@ -22,6 +22,10 @@ account, destination TicketSequence, reserved origin Memo, and bounded timing
 fields. Successful apply creates a durable origin-keyed latch. It does not
 claim that signatures or a witness already exist.
 
+The outer transaction's mandatory `sfLastLedgerSequence` bounds only intent
+admission. Successful admission starts a separate publication lifetime on the
+new latch; queue delay before admission never consumes that publication window.
+
 *Anti-pattern:* treating provisional open-ledger execution or source
 transaction-set agreement as authorization to release destination signatures.
 
@@ -45,6 +49,12 @@ again in every latch or maintaining a metadata-expensive reference count. The
 deletion guard and witness apply's committee lookup are one load-bearing
 invariant: do not weaken the guard to pending-only while latches retain only a
 committee digest.
+
+A live Export latch is itself a non-deletable account obligation: an account
+owning any latch cannot be deleted. The committee SLE is otherwise a deletable
+owned entry. Its required survival while latches exist comes from the explicit
+committee-deletion guard together with the account-level latch obligation, not
+from making the committee intrinsically non-deletable.
 
 **INV-3 - qC and qV answer different questions.**
 qC is the content threshold for one account-selected committee:
@@ -207,6 +217,17 @@ signatures all have hard caps. Export may use one fixed sidecar alignment
 window after ordinary transaction-set convergence, but timeout always permits
 base consensus to continue. Below-qC or unaligned work remains pending until
 witness, cancellation, explicit erase, or publication expiry.
+
+The admission and publication clocks are distinct. The outer
+`sfLastLedgerSequence` follows ordinary inclusive transaction admission and may
+be at most `maxAdmissionWindowLedgers` beyond the ledger evaluating the intent.
+On successful apply, the latch stores an independent inclusive publication
+deadline of `admittingLedger + maxPublicationLedgers`; it never copies the
+outer deadline. That final candidate ledger may still publish and materialize a
+witness. After it, no new witness material is eligible. Later paid Export work
+deterministically but lazily removes the expired pending-work link. Expiry does
+not revoke released signatures or erase the latch: owner reserve and callback
+readiness remain until symmetric completion or explicit erase.
 
 **INV-13 - Return callbacks remain owner-authorized Imports.**
 An XPOP whose proven target transaction carries `sfTicketSequence` takes the
