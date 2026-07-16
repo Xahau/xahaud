@@ -2,428 +2,470 @@
 #define RIPPLE_APP_MISC_EXPORTSIGCOLLECTOR_H_INCLUDED
 
 #include <xrpl/basics/Buffer.h>
-#include <xrpl/basics/contract.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/PublicKey.h>
-#include <algorithm>
+
+#include <cstdint>
 #include <map>
 #include <mutex>
 #include <optional>
 #include <set>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace ripple {
 
-/// Export signature collector for the retriable export approach.
-///
-/// Stores multisign signatures from validators for pending ttEXPORT
-/// transactions. Signatures arrive via proposal ingestion
-/// (onTrustedPeerMessage) after proposal signature verification; they are
-/// sender-bound and, when possible, multisign-verified.
-///
-/// Signatures are either **verified** (cryptographically checked against
-/// buildMultiSigningData) or **unverified** (stored on proposal-level
-/// trust alone, e.g. when the ttEXPORT tx isn't in the open ledger yet
-/// due to relay ordering).
-///
-/// Only verified signatures count toward quorum, appear in the local export
-/// signature snapshot, and are assembled into the final export blob.
-/// Unverified sigs are a local cache that can be upgraded to verified
-/// via `upgradeSignature()` when the tx becomes available (e.g. in
-/// Export::doApply which always has the tx).
-///
-//@@start export-sig-collector-mutex
-/// Thread-safe.
+/** Post-validation Export contribution collector.
+
+    Contribution identity is the immutable Export origin plus the position in
+    that origin's immutable validator committee. Publication attempts may
+    reopen, but never reset admitted contributions or conflict state.
+*/
 class ExportSigCollector
 {
-    mutable std::mutex mutex_;
-    //@@end export-sig-collector-mutex
+public:
+    using Position = std::uint16_t;
 
-    struct SigEntry
+    struct Contribution
     {
-        /// All validators that have contributed (verified or unverified).
-        std::set<PublicKey> validators;
-        /// Actual multisign signature bytes keyed by validator pubkey.
-        /// Empty buffers mean pubkey-only (standalone mode).
-        std::map<PublicKey, Buffer> signatures;
-        /// Validators whose sigs have been cryptographically verified.
-        /// Only these count toward quorum and appear in SHAMap/snapshot.
-        std::set<PublicKey> verified;
-        std::uint32_t firstSeenSeq{0};
+        Position position;
+        PublicKey signingKey;
+        Buffer signature;
+
+        friend bool
+        operator==(Contribution const& lhs, Contribution const& rhs)
+        {
+            return lhs.position == rhs.position &&
+                lhs.signingKey == rhs.signingKey &&
+                lhs.signature == rhs.signature;
+        }
     };
 
-    std::unordered_map<uint256, SigEntry> sigs_;
-    std::set<uint256> sentThisRound_;
+    enum class BeginResult {
+        verify,
+        duplicate,
+        conflicted,
+        unknownOrigin,
+        capacity,
+        malformed
+    };
 
-    static constexpr std::uint32_t maxStaleLedgers = 256;
+    enum class AdmitResult { accepted, duplicate, conflicted, invalid, stale };
 
-    // Cap on distinct tracked export txns. Bounds the unverified cache: a
-    // malicious trusted validator can advertise proposal sigs with arbitrary
-    // txHashes for txns not in our open ledger (stored unverified, only TTL-
-    // evicted). Verified entries (real in-ledger exports) are never gated by
-    // this cap, so legitimate quorum collection is unaffected.
-    static constexpr std::size_t maxTrackedTxns = 4096;
+    enum class PositionStatus { empty, unique, conflicted };
 
-    void
-    touchSeq(SigEntry& entry, std::uint32_t seq)
+    class AdmissionTicket
     {
-        if (entry.firstSeenSeq == 0 && seq > 0)
-            entry.firstSeenSeq = seq;
+        friend class ExportSigCollector;
+
+        uint256 origin_;
+        std::uint64_t reservation_;
+        Contribution contribution_;
+
+        AdmissionTicket(
+            uint256 const& origin,
+            std::uint64_t reservation,
+            Contribution contribution)
+            : origin_(origin)
+            , reservation_(reservation)
+            , contribution_(std::move(contribution))
+        {
+        }
+
+    public:
+        uint256 const&
+        origin() const
+        {
+            return origin_;
+        }
+
+        Contribution const&
+        contribution() const
+        {
+            return contribution_;
+        }
+    };
+
+    struct Admission
+    {
+        BeginResult result;
+        std::optional<AdmissionTicket> ticket;
+    };
+
+    class PublicationToken
+    {
+        friend class ExportSigCollector;
+
+        uint256 origin_;
+        std::uint64_t generation_;
+
+        PublicationToken(uint256 const& origin, std::uint64_t generation)
+            : origin_(origin), generation_(generation)
+        {
+        }
+    };
+
+    struct AdmitOutcome
+    {
+        AdmitResult result;
+        // Present when this admission observed the second valid encoding.
+        std::optional<Contribution> priorContribution;
+        std::optional<Contribution> conflictingContribution;
+    };
+
+    using UnionSnapshot = std::map<uint256, std::vector<Contribution>>;
+
+    // Conservative local bounds. These are tuning values, not wire-format
+    // dimensions, and must be reviewed before feature activation.
+    static constexpr std::size_t maxTrackedOrigins = 4096;
+    static constexpr std::uint32_t maxStaleLedgers = 256;
+    static constexpr std::uint32_t maxReservationLedgers = 1;
+    static constexpr std::size_t maxPublicationTriggers = 64;
+    static constexpr std::size_t maxSignatureBytes = 72;
+
+private:
+    struct Reservation
+    {
+        Contribution contribution;
+        std::uint32_t reservedAtSeq;
+    };
+
+    struct PositionEntry
+    {
+        std::optional<Contribution> unique;
+        bool conflicted{false};
+        std::map<std::uint64_t, Reservation> reservations;
+    };
+
+    struct OriginEntry
+    {
+        std::map<Position, PositionEntry> positions;
+        std::set<Position> published;
+        std::set<uint256> publicationTriggers;
+        uint256 publicationTrigger;
+        std::uint64_t publicationGeneration{0};
+        std::uint32_t lastTouchedSeq{0};
+    };
+
+    mutable std::mutex mutex_;
+    std::unordered_map<uint256, OriginEntry> origins_;
+    std::uint64_t nextReservation_{1};
+    std::uint64_t nextPublicationGeneration_{1};
+
+    static bool
+    sameEncoding(Contribution const& lhs, Contribution const& rhs)
+    {
+        return lhs.signingKey == rhs.signingKey &&
+            lhs.signature == rhs.signature;
+    }
+
+    static void
+    touch(OriginEntry& entry, std::uint32_t currentSeq)
+    {
+        if (currentSeq > entry.lastTouchedSeq)
+            entry.lastTouchedSeq = currentSeq;
+    }
+
+    static void
+    pruneReservations(PositionEntry& position, std::uint32_t currentSeq)
+    {
+        for (auto it = position.reservations.begin();
+             it != position.reservations.end();)
+        {
+            auto const reserved = it->second.reservedAtSeq;
+            if (currentSeq > reserved &&
+                currentSeq - reserved > maxReservationLedgers)
+                it = position.reservations.erase(it);
+            else
+                ++it;
+        }
+    }
+
+    static void
+    eraseEmptyPosition(OriginEntry& origin, Position position)
+    {
+        auto const it = origin.positions.find(position);
+        if (it != origin.positions.end() && !it->second.unique &&
+            !it->second.conflicted && it->second.reservations.empty())
+            origin.positions.erase(it);
+    }
+
+    std::uint64_t
+    nextReservation()
+    {
+        auto const result = nextReservation_++;
+        if (nextReservation_ == 0)
+            nextReservation_ = 1;
+        return result;
+    }
+
+    std::uint64_t
+    nextPublicationGeneration()
+    {
+        auto const result = nextPublicationGeneration_++;
+        if (nextPublicationGeneration_ == 0)
+            nextPublicationGeneration_ = 1;
+        return result;
     }
 
 public:
-    /// Store a signature that has been cryptographically verified
-    /// against buildMultiSigningData + verify().
-    void
-    addVerifiedSignature(
-        uint256 const& txnHash,
-        PublicKey const& validator,
-        Buffer const& signature,
+    /** Reserve one contribution encoding for verification.
+
+        The caller must first attribute the signing key to this exact selected
+        committee position using the validated latch and current manifest. The
+        reservation is then the cryptographic pre-verification DoS boundary.
+        At most two
+        distinct encodings can be in-flight or admitted at a position. The
+        caller performs cryptographic verification only for `verify`, then
+        returns the ticket through `admitContribution`.
+    */
+    Admission
+    beginAttributedAdmission(
+        uint256 const& origin,
+        Contribution contribution,
         std::uint32_t currentSeq = 0)
     {
-        XRPL_ASSERT(
-            signature.size() > 0,
-            "ripple::ExportSigCollector::addVerifiedSignature : "
-            "non-empty signature");
+        if (origin.isZero() || currentSeq == 0 ||
+            contribution.position >= ExportLimits::maxCommitteeMembers ||
+            contribution.signature.empty() ||
+            contribution.signature.size() > maxSignatureBytes)
+            return {BeginResult::malformed, std::nullopt};
+
         std::lock_guard lock(mutex_);
-        auto& entry = sigs_[txnHash];
-        entry.validators.insert(validator);
-        entry.signatures[validator] = signature;
-        entry.verified.insert(validator);
-        touchSeq(entry, currentSeq);
+        auto originIt = origins_.find(origin);
+        if (originIt == origins_.end())
+            return {BeginResult::unknownOrigin, std::nullopt};
+
+        auto& originEntry = originIt->second;
+        auto& position = originEntry.positions[contribution.position];
+        pruneReservations(position, currentSeq);
+        if (position.conflicted)
+            return {BeginResult::conflicted, std::nullopt};
+        if (position.unique && sameEncoding(*position.unique, contribution))
+            return {BeginResult::duplicate, std::nullopt};
+
+        for (auto const& [_, pending] : position.reservations)
+        {
+            if (sameEncoding(pending.contribution, contribution))
+                return {BeginResult::duplicate, std::nullopt};
+        }
+
+        auto const distinct = position.reservations.size() +
+            static_cast<std::size_t>(position.unique.has_value());
+        if (distinct >= 2)
+            return {BeginResult::capacity, std::nullopt};
+
+        auto const reservation = nextReservation();
+        position.reservations.emplace(
+            reservation, Reservation{contribution, currentSeq});
+        return {
+            BeginResult::verify,
+            AdmissionTicket{origin, reservation, std::move(contribution)}};
     }
 
-    /// Store a signature from a trusted source (checkSign + sender
-    /// binding passed) but without multisign content verification.
-    /// Used when the ttEXPORT tx isn't in the open ledger yet due
-    /// to relay ordering.  Will be upgraded to verified via
-    /// upgradeSignature() when the tx becomes available.
-    ///
-    /// Does NOT count toward quorum or appear in SHAMap/snapshot.
-    void
-    addUnverifiedSignature(
-        uint256 const& txnHash,
-        PublicKey const& validator,
-        Buffer const& signature,
-        std::uint32_t currentSeq = 0)
-    {
-        XRPL_ASSERT(
-            signature.size() > 0,
-            "ripple::ExportSigCollector::addUnverifiedSignature : "
-            "non-empty signature");
-        std::lock_guard lock(mutex_);
-        // Bound the unverified cache (see maxTrackedTxns). Only gate NEW
-        // txHashes; existing entries and the verified path are never blocked,
-        // so real exports still reach quorum.
-        if (sigs_.find(txnHash) == sigs_.end() &&
-            sigs_.size() >= maxTrackedTxns)
-            return;
-        auto& entry = sigs_[txnHash];
-        entry.validators.insert(validator);
-        // Don't overwrite a verified sig with an unverified one.
-        if (entry.verified.find(validator) == entry.verified.end())
-            entry.signatures[validator] = signature;
-        touchSeq(entry, currentSeq);
-    }
-
-    /// Upgrade a previously unverified sig to verified.
-    /// Called from Export::doApply after verifying against the inner tx.
-    /// The caller passes the exact buffer it verified; we only promote
-    /// if the stored buffer still matches (guards against concurrent
-    /// overwrites between unverifiedSignatures() and this call).
-    void
-    upgradeSignature(
-        uint256 const& txnHash,
-        PublicKey const& validator,
-        Buffer const& verifiedBuf,
-        std::uint32_t currentSeq = 0)
-    {
-        std::lock_guard lock(mutex_);
-        auto it = sigs_.find(txnHash);
-        if (it == sigs_.end())
-            return;
-        auto sit = it->second.signatures.find(validator);
-        if (sit == it->second.signatures.end() || sit->second.size() == 0)
-            return;
-        // Only promote if the stored buffer is the same one we verified.
-        if (!(sit->second == verifiedBuf))
-            return;
-        it->second.verified.insert(validator);
-        touchSeq(it->second, currentSeq);
-    }
-
-    /// Remove a signature if the stored buffer still matches the caller's
-    /// verified-invalid buffer. This keeps stale unverified data from being
-    /// retried forever while avoiding races with a newer replacement.
+    /** Cancel a reservation when verification cannot be completed. */
     bool
-    removeSignature(
-        uint256 const& txnHash,
-        PublicKey const& validator,
-        Buffer const& expectedBuf)
+    cancelAdmission(AdmissionTicket ticket)
     {
         std::lock_guard lock(mutex_);
-        auto it = sigs_.find(txnHash);
-        if (it == sigs_.end())
+        auto originIt = origins_.find(ticket.origin_);
+        if (originIt == origins_.end())
             return false;
-
-        auto& entry = it->second;
-        auto sit = entry.signatures.find(validator);
-        if (sit == entry.signatures.end() || !(sit->second == expectedBuf))
+        auto positionIt =
+            originIt->second.positions.find(ticket.contribution_.position);
+        if (positionIt == originIt->second.positions.end())
             return false;
-
-        entry.signatures.erase(sit);
-        entry.validators.erase(validator);
-        entry.verified.erase(validator);
-
-        if (entry.signatures.empty() && entry.validators.empty() &&
-            entry.verified.empty())
-            sigs_.erase(it);
-
+        auto reservationIt =
+            positionIt->second.reservations.find(ticket.reservation_);
+        if (reservationIt == positionIt->second.reservations.end() ||
+            !(reservationIt->second.contribution == ticket.contribution_))
+            return false;
+        positionIt->second.reservations.erase(reservationIt);
+        eraseEmptyPosition(originIt->second, ticket.contribution_.position);
         return true;
     }
 
-    /// Store a pubkey-only entry (no real signature).  Used in
-    /// standalone mode where quorum counting is sufficient.
-    /// Treated as verified (standalone has no consensus to verify against).
-    void
-    addStandaloneSignature(
-        uint256 const& txnHash,
-        PublicKey const& validator,
+    /** Complete a reserved admission after signature verification. */
+    AdmitOutcome
+    admitContribution(
+        AdmissionTicket ticket,
+        bool signatureVerified,
         std::uint32_t currentSeq = 0)
     {
         std::lock_guard lock(mutex_);
-        auto& entry = sigs_[txnHash];
-        entry.validators.insert(validator);
-        if (entry.signatures.find(validator) == entry.signatures.end())
-            entry.signatures[validator] = Buffer{};
-        entry.verified.insert(validator);
-        touchSeq(entry, currentSeq);
-    }
+        auto originIt = origins_.find(ticket.origin_);
+        if (originIt == origins_.end())
+            return {AdmitResult::stale, std::nullopt, std::nullopt};
 
-    /// Check if a cryptographically verified signature exists.
-    /// Used to skip redundant verify() calls when the same sig
-    /// arrives more than once through proposal relay.
-    bool
-    hasVerifiedSignature(uint256 const& txnHash, PublicKey const& validator)
-        const
-    {
-        std::lock_guard lock(mutex_);
-        auto it = sigs_.find(txnHash);
-        if (it == sigs_.end())
-            return false;
-        return it->second.verified.count(validator) > 0;
-    }
+        auto& originEntry = originIt->second;
+        auto positionIt =
+            originEntry.positions.find(ticket.contribution_.position);
+        if (positionIt == originEntry.positions.end())
+            return {AdmitResult::stale, std::nullopt, std::nullopt};
 
-    /// Return unverified validators for a given txHash.
-    /// Used by Export::doApply to find sigs that need verification.
-    std::map<PublicKey, Buffer>
-    unverifiedSignatures(uint256 const& txnHash) const
-    {
-        std::lock_guard lock(mutex_);
-        std::map<PublicKey, Buffer> result;
-        auto it = sigs_.find(txnHash);
-        if (it == sigs_.end())
-            return result;
-        for (auto const& [pk, buf] : it->second.signatures)
+        auto& position = positionIt->second;
+        auto reservationIt = position.reservations.find(ticket.reservation_);
+        if (reservationIt == position.reservations.end() ||
+            !(reservationIt->second.contribution == ticket.contribution_))
+            return {AdmitResult::stale, std::nullopt, std::nullopt};
+        position.reservations.erase(reservationIt);
+
+        if (!signatureVerified)
         {
-            if (buf.size() > 0 && it->second.verified.count(pk) == 0)
-                result[pk] = buf;
+            eraseEmptyPosition(originEntry, ticket.contribution_.position);
+            return {AdmitResult::invalid, std::nullopt, std::nullopt};
+        }
+        if (position.conflicted)
+            return {AdmitResult::stale, std::nullopt, std::nullopt};
+        if (!position.unique)
+        {
+            position.unique = std::move(ticket.contribution_);
+            touch(originEntry, currentSeq);
+            return {AdmitResult::accepted, std::nullopt, std::nullopt};
+        }
+        if (sameEncoding(*position.unique, ticket.contribution_))
+            return {AdmitResult::duplicate, std::nullopt, std::nullopt};
+
+        auto prior = std::move(position.unique);
+        auto conflicting = std::move(ticket.contribution_);
+        position.unique.reset();
+        position.conflicted = true;
+        position.reservations.clear();
+        touch(originEntry, currentSeq);
+        return {
+            AdmitResult::conflicted, std::move(prior), std::move(conflicting)};
+    }
+
+    /** Reopen per-attempt publication without changing contribution state. */
+    std::optional<PublicationToken>
+    reopenPublication(
+        uint256 const& origin,
+        uint256 const& trigger,
+        std::uint32_t currentSeq)
+    {
+        if (origin.isZero() || trigger.isZero() || currentSeq == 0)
+            return std::nullopt;
+
+        std::lock_guard lock(mutex_);
+        auto it = origins_.find(origin);
+        if (it == origins_.end())
+        {
+            if (origins_.size() >= maxTrackedOrigins)
+                return std::nullopt;
+            it = origins_.emplace(origin, OriginEntry{}).first;
+        }
+
+        auto& entry = it->second;
+        if (entry.publicationGeneration != 0 &&
+            entry.publicationTrigger == trigger)
+            return PublicationToken{origin, entry.publicationGeneration};
+        if (entry.publicationTriggers.count(trigger) != 0 ||
+            entry.publicationTriggers.size() >= maxPublicationTriggers)
+            return std::nullopt;
+
+        entry.published.clear();
+        entry.publicationTrigger = trigger;
+        entry.publicationTriggers.insert(trigger);
+        entry.publicationGeneration = nextPublicationGeneration();
+        touch(entry, currentSeq);
+        return PublicationToken{origin, entry.publicationGeneration};
+    }
+
+    /** Claim one position's publication slot in the current attempt. */
+    bool
+    claimPublication(
+        PublicationToken const& token,
+        Position position,
+        std::size_t maxDistinct)
+    {
+        std::lock_guard lock(mutex_);
+        auto it = origins_.find(token.origin_);
+        if (it == origins_.end() ||
+            it->second.publicationGeneration != token.generation_)
+            return false;
+        auto const positionIt = it->second.positions.find(position);
+        if (positionIt == it->second.positions.end() ||
+            !positionIt->second.unique || positionIt->second.conflicted)
+            return false;
+        if (it->second.published.count(position) != 0 ||
+            it->second.published.size() >= maxDistinct)
+            return false;
+        it->second.published.insert(position);
+        return true;
+    }
+
+    PositionStatus
+    positionStatus(uint256 const& origin, Position position) const
+    {
+        std::lock_guard lock(mutex_);
+        auto const originIt = origins_.find(origin);
+        if (originIt == origins_.end())
+            return PositionStatus::empty;
+        auto const positionIt = originIt->second.positions.find(position);
+        if (positionIt == originIt->second.positions.end())
+            return PositionStatus::empty;
+        if (positionIt->second.conflicted)
+            return PositionStatus::conflicted;
+        return positionIt->second.unique ? PositionStatus::unique
+                                         : PositionStatus::empty;
+    }
+
+    std::uint64_t
+    publicationGeneration(uint256 const& origin) const
+    {
+        std::lock_guard lock(mutex_);
+        auto const it = origins_.find(origin);
+        return it == origins_.end() ? 0 : it->second.publicationGeneration;
+    }
+
+    /** Deterministic full union of every unique, verified contribution. */
+    UnionSnapshot
+    fullUnionSnapshot() const
+    {
+        std::lock_guard lock(mutex_);
+        UnionSnapshot result;
+        for (auto const& [origin, entry] : origins_)
+        {
+            std::vector<Contribution> contributions;
+            for (auto const& [_, position] : entry.positions)
+            {
+                if (!position.conflicted && position.unique)
+                    contributions.push_back(*position.unique);
+            }
+            if (!contributions.empty())
+                result.emplace(origin, std::move(contributions));
         }
         return result;
     }
 
-    bool
-    hasUnverifiedSignatures() const
-    {
-        std::lock_guard lock(mutex_);
-        for (auto const& [_, entry] : sigs_)
-        {
-            for (auto const& [pk, buf] : entry.signatures)
-            {
-                if (buf.size() > 0 && entry.verified.count(pk) == 0)
-                    return true;
-            }
-        }
-        return false;
-    }
-
-    /// Count of VERIFIED signatures only.
-    template <class IncludeValidator>
-    std::size_t
-    signatureCount(uint256 const& txnHash, IncludeValidator includeValidator)
-        const
-    {
-        std::lock_guard lock(mutex_);
-        auto it = sigs_.find(txnHash);
-        if (it == sigs_.end())
-            return 0;
-
-        return std::count_if(
-            it->second.verified.begin(),
-            it->second.verified.end(),
-            includeValidator);
-    }
-
-    /// Count of VERIFIED signatures only.
-    std::size_t
-    signatureCount(uint256 const& txnHash) const
-    {
-        return signatureCount(txnHash, [](PublicKey const&) { return true; });
-    }
-
     void
-    clear(uint256 const& txnHash)
+    clear(uint256 const& origin)
     {
         std::lock_guard lock(mutex_);
-        sigs_.erase(txnHash);
+        origins_.erase(origin);
     }
 
     void
     clearAll()
     {
         std::lock_guard lock(mutex_);
-        sigs_.clear();
-        sentThisRound_.clear();
+        origins_.clear();
     }
 
-    /// Get a snapshot of VERIFIED sigs (pubkeys only) for building
-    /// the SHAMap.  Only verified sigs appear in convergence.
-    std::unordered_map<uint256, std::set<PublicKey>>
-    snapshot() const
-    {
-        std::lock_guard lock(mutex_);
-        std::unordered_map<uint256, std::set<PublicKey>> result;
-        for (auto const& [hash, entry] : sigs_)
-        {
-            if (!entry.verified.empty())
-                result[hash] = entry.verified;
-        }
-        return result;
-    }
-
-    /// Get a snapshot of VERIFIED signatures including sig buffers.
-    template <class IncludeValidator>
-    std::unordered_map<uint256, std::map<PublicKey, Buffer>>
-    snapshotWithSigs(IncludeValidator includeValidator) const
-    {
-        std::lock_guard lock(mutex_);
-        std::unordered_map<uint256, std::map<PublicKey, Buffer>> result;
-        for (auto const& [hash, entry] : sigs_)
-        {
-            std::map<PublicKey, Buffer> verifiedSigs;
-            for (auto const& pk : entry.verified)
-            {
-                if (!includeValidator(pk))
-                    continue;
-
-                auto sit = entry.signatures.find(pk);
-                if (sit != entry.signatures.end())
-                    verifiedSigs[pk] = sit->second;
-            }
-            if (!verifiedSigs.empty())
-                result[hash] = std::move(verifiedSigs);
-        }
-        return result;
-    }
-
-    /// Get a snapshot of VERIFIED signatures including sig buffers.
-    std::unordered_map<uint256, std::map<PublicKey, Buffer>>
-    snapshotWithSigs() const
-    {
-        return snapshotWithSigs([](PublicKey const&) { return true; });
-    }
-
-    /// Atomic quorum check + snapshot for a single txHash.
-    /// Returns VERIFIED signatures if quorum is met, nullopt otherwise.
-    template <class IncludeValidator>
-    std::optional<std::map<PublicKey, Buffer>>
-    checkQuorumAndSnapshot(
-        uint256 const& txnHash,
-        std::size_t threshold,
-        IncludeValidator includeValidator) const
-    {
-        std::lock_guard lock(mutex_);
-        auto it = sigs_.find(txnHash);
-        if (it == sigs_.end())
-            return std::nullopt;
-
-        std::map<PublicKey, Buffer> result;
-        for (auto const& pk : it->second.verified)
-        {
-            if (!includeValidator(pk))
-                continue;
-
-            auto sit = it->second.signatures.find(pk);
-            XRPL_ASSERT(
-                sit != it->second.signatures.end(),
-                "ripple::ExportSigCollector::checkQuorumAndSnapshot : "
-                "verified key must exist in signatures map");
-            XRPL_ASSERT(
-                sit->second.size() > 0,
-                "ripple::ExportSigCollector::checkQuorumAndSnapshot : "
-                "verified signature must be non-empty");
-            if (sit != it->second.signatures.end())
-                result[pk] = sit->second;
-        }
-
-        if (result.size() < threshold)
-            return std::nullopt;
-
-        return result;
-    }
-
-    /// Atomic quorum check + snapshot for a single txHash.
-    /// Returns VERIFIED signatures if quorum is met, nullopt otherwise.
-    std::optional<std::map<PublicKey, Buffer>>
-    checkQuorumAndSnapshot(uint256 const& txnHash, std::size_t threshold) const
-    {
-        return checkQuorumAndSnapshot(
-            txnHash, threshold, [](PublicKey const&) { return true; });
-    }
-
-    /// Remove entries older than maxStaleLedgers.
     void
     cleanupStale(std::uint32_t currentSeq)
     {
         std::lock_guard lock(mutex_);
-        for (auto it = sigs_.begin(); it != sigs_.end();)
+        for (auto it = origins_.begin(); it != origins_.end();)
         {
-            if (it->second.firstSeenSeq > 0 &&
-                currentSeq > it->second.firstSeenSeq + maxStaleLedgers)
-                it = sigs_.erase(it);
+            auto const last = it->second.lastTouchedSeq;
+            if (last > 0 && currentSeq > last &&
+                currentSeq - last > maxStaleLedgers)
+                it = origins_.erase(it);
             else
                 ++it;
         }
-    }
-
-    /// Returns true if we haven't sent our sig for this tx yet this round.
-    /// Marks it as sent on first call.
-    bool
-    markSent(uint256 const& txnHash)
-    {
-        std::lock_guard lock(mutex_);
-        return sentThisRound_.insert(txnHash).second;
-    }
-
-    /// Returns true if this is a new tx for the round and the distinct sent
-    /// count remains below the caller's per-round publication cap.
-    bool
-    markSent(uint256 const& txnHash, std::size_t maxDistinct)
-    {
-        std::lock_guard lock(mutex_);
-        if (sentThisRound_.find(txnHash) != sentThisRound_.end())
-            return false;
-        if (sentThisRound_.size() >= maxDistinct)
-            return false;
-        sentThisRound_.insert(txnHash);
-        return true;
-    }
-
-    /// Clear per-round state. Call at the start of each consensus round.
-    void
-    clearRound()
-    {
-        std::lock_guard lock(mutex_);
-        sentThisRound_.clear();
     }
 };
 

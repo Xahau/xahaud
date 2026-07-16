@@ -1431,15 +1431,15 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             origin, trigger, 10));
         auto admission =
             ce.postValidationExportSigCollector().beginAttributedAdmission(
-                origin, ExportSigCollectorV2::Contribution{0, pk, sig}, 10);
+                origin, ExportSigCollector::Contribution{0, pk, sig}, 10);
         BEAST_EXPECT(
-            admission.result == ExportSigCollectorV2::BeginResult::verify);
+            admission.result == ExportSigCollector::BeginResult::verify);
         BEAST_EXPECT(admission.ticket);
         if (admission.ticket)
             BEAST_EXPECT(
                 ce.postValidationExportSigCollector()
                     .admitContribution(std::move(*admission.ticket), true, 10)
-                    .result == ExportSigCollectorV2::AdmitResult::accepted);
+                    .result == ExportSigCollector::AdmitResult::accepted);
         BEAST_EXPECT(
             ce.postValidationExportSigCollector().fullUnionSnapshot().size() ==
             1);
@@ -2340,17 +2340,17 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testExportV2CollectorBuildsAttributedUnion()
+    testExportCollectorBuildsAttributedUnion()
     {
-        testcase("Export V2 collector builds attributed union");
+        testcase("Export collector builds attributed union");
 
         using namespace jtx;
         Env env{
             *this, envconfig(validator, ""), supported_amendments(), nullptr};
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
         auto& collector = ce.postValidationExportSigCollector();
-        auto const origin = makeHash("v2-attributed-origin");
-        auto const trigger = makeHash("v2-attributed-trigger");
+        auto const origin = makeHash("attributed-origin");
+        auto const trigger = makeHash("attributed-trigger");
         auto const signerA = randomKeyPair(KeyType::secp256k1).first;
         auto const signerB = randomKeyPair(KeyType::secp256k1).first;
         std::uint8_t const signatureABytes[] = {1, 2};
@@ -2359,22 +2359,22 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         Buffer const signatureB{signatureBBytes, sizeof(signatureBBytes)};
 
         BEAST_EXPECT(collector.reopenPublication(origin, trigger, 10));
-        auto admit = [&](ExportSigCollectorV2::Position position,
+        auto admit = [&](ExportSigCollector::Position position,
                          PublicKey const& key,
                          Buffer const& signature) {
             auto admission = collector.beginAttributedAdmission(
                 origin,
-                ExportSigCollectorV2::Contribution{position, key, signature},
+                ExportSigCollector::Contribution{position, key, signature},
                 10);
             BEAST_EXPECT(
-                admission.result == ExportSigCollectorV2::BeginResult::verify);
+                admission.result == ExportSigCollector::BeginResult::verify);
             BEAST_EXPECT(admission.ticket);
             if (!admission.ticket)
                 return;
             BEAST_EXPECT(
                 collector
                     .admitContribution(std::move(*admission.ticket), true, 10)
-                    .result == ExportSigCollectorV2::AdmitResult::accepted);
+                    .result == ExportSigCollector::AdmitResult::accepted);
         };
         admit(0, signerA, signatureA);
         admit(2, signerB, signatureB);
@@ -2453,7 +2453,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(collector.reopenPublication(origin, origin, deadline));
         auto admission = collector.beginAttributedAdmission(
             origin,
-            ExportSigCollectorV2::Contribution{0, signer, signature},
+            ExportSigCollector::Contribution{0, signer, signature},
             deadline);
         BEAST_EXPECT(admission.ticket);
         if (!admission.ticket)
@@ -2461,7 +2461,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(
             collector
                 .admitContribution(std::move(*admission.ticket), true, deadline)
-                .result == ExportSigCollectorV2::AdmitResult::accepted);
+                .result == ExportSigCollector::AdmitResult::accepted);
 
         auto const leafCount = [&](uint256 const& hash) {
             auto const map =
@@ -2587,7 +2587,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const dst = calcAccountID(randomKeyPair(KeyType::secp256k1).first);
         auto const releaseTarget =
             makeSTTx(makeExportedPayment(calcAccountID(signerA.first), dst));
-        auto const origin = makeHash("agreed-export-v2-origin");
+        auto const origin = makeHash("agreed-export-origin");
         Blob const contributors{0x07};
         constexpr std::size_t committeeSize = 3;
         auto const threshold = ExportLimits::committeeQuorumThreshold(3);
@@ -3664,7 +3664,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             origin, trigger, 10));
         auto admission =
             ce.postValidationExportSigCollector().beginAttributedAdmission(
-                origin, ExportSigCollectorV2::Contribution{0, pk, sig}, 10);
+                origin, ExportSigCollector::Contribution{0, pk, sig}, 10);
         BEAST_EXPECT(admission.ticket);
         if (admission.ticket)
             ce.postValidationExportSigCollector().admitContribution(
@@ -4377,7 +4377,7 @@ public:
         testProposalProofRoundTrip();
         testProposalPrecheckUsesExportShareRelayLimits();
         testHarvestRngDataReplacementAndRejection();
-        testExportV2CollectorBuildsAttributedUnion();
+        testExportCollectorBuildsAttributedUnion();
         testExportSidecarCandidateDeadline();
         testTransactionAcquireRejectsSidecarWireNodes();
         testAcquiredSetsRejectConsensusExtensionPseudos();

@@ -3,16 +3,16 @@
     This file is part of rippled: https://github.com/ripple/rippled
 
     Permission to use, copy, modify, and/or distribute this software for any
-    purpose  with  or without fee is hereby granted, provided that the above
+    purpose with or without fee is hereby granted, provided that the above
     copyright notice and this permission notice appear in all copies.
 
-    THE  SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-    WITH  REGARD  TO  THIS  SOFTWARE  INCLUDING  ALL  IMPLIED WARRANTIES OF
+    THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+    WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
     MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-    ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-    WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-    ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+    ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES WHATSOEVER
+    RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF
+    CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+    CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 //==============================================================================
 
@@ -22,7 +22,6 @@
 #include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/digest.h>
-#include <cstring>
 
 namespace ripple {
 namespace test {
@@ -30,444 +29,238 @@ namespace test {
 namespace {
 
 uint256
-makeHash(char const* label)
-{
-    return sha512Half(Slice(label, std::strlen(label)));
-}
-
-uint256
-makeHashFromSeed(std::uint32_t seed)
+origin(std::uint32_t value)
 {
     Serializer s;
-    s.add32(seed);
+    s.add32(value);
     return sha512Half(s.slice());
 }
 
 PublicKey
-makePublicKey(char const* hex)
+publicKey(char const* hex)
 {
     auto const raw = strUnHex(hex);
     return PublicKey{makeSlice(*raw)};
 }
 
 Buffer
-makeSignature(std::uint8_t seed)
+signature(std::uint8_t value)
 {
-    std::uint8_t bytes[] = {
-        seed,
-        static_cast<std::uint8_t>(seed + 1),
-        static_cast<std::uint8_t>(seed + 2)};
-    return Buffer(bytes, sizeof(bytes));
+    std::uint8_t bytes[] = {value, std::uint8_t(value + 1)};
+    return Buffer{bytes, sizeof(bytes)};
 }
 
 }  // namespace
 
 class ExportSigCollector_test : public beast::unit_test::suite
 {
-    PublicKey const validator_ = makePublicKey(
+    PublicKey const keyA_ = publicKey(
         "0388935426E0D08083314842EDFBB2D517BD47699F9A4527318A8E10468C97C05"
         "2");
+    PublicKey const keyB_ = randomKeyPair(KeyType::secp256k1).first;
+
+    static ExportSigCollector::Contribution
+    contribution(
+        ExportSigCollector::Position position,
+        PublicKey const& key,
+        std::uint8_t sig)
+    {
+        return {position, key, signature(sig)};
+    }
 
 public:
     void
-    testCleanupUsesFirstSeenSeq()
+    testAdmissionAndConflict()
     {
-        testcase("cleanup uses first seen sequence");
+        testcase("admission and absorbing conflict");
 
         ExportSigCollector collector;
-        auto const tx = makeHash("cleanup-verified");
-        auto const sig = makeSignature(1);
+        auto const w = origin(1);
+        auto const publication = collector.reopenPublication(w, w, 9);
+        BEAST_EXPECT(publication.has_value());
+        auto first = collector.beginAttributedAdmission(
+            w, contribution(7, keyA_, 1), 10);
+        BEAST_EXPECT(first.result == ExportSigCollector::BeginResult::verify);
+        BEAST_EXPECT(first.ticket.has_value());
+        BEAST_EXPECT(collector.fullUnionSnapshot().empty());
+        if (!first.ticket)
+            return;
 
-        collector.addVerifiedSignature(tx, validator_, sig, 10);
-        BEAST_EXPECT(collector.signatureCount(tx) == 1);
+        auto accepted =
+            collector.admitContribution(std::move(*first.ticket), true, 10);
+        BEAST_EXPECT(
+            accepted.result == ExportSigCollector::AdmitResult::accepted);
+        auto snapshot = collector.fullUnionSnapshot();
+        BEAST_EXPECT(snapshot.at(w).size() == 1);
+        BEAST_EXPECT(snapshot.at(w).front().position == 7);
 
-        collector.cleanupStale(266);
-        BEAST_EXPECT(collector.signatureCount(tx) == 1);
+        auto duplicate = collector.beginAttributedAdmission(
+            w, contribution(7, keyA_, 1), 11);
+        BEAST_EXPECT(
+            duplicate.result == ExportSigCollector::BeginResult::duplicate);
 
-        collector.cleanupStale(267);
-        BEAST_EXPECT(collector.signatureCount(tx) == 0);
+        auto second = collector.beginAttributedAdmission(
+            w, contribution(7, keyB_, 2), 11);
+        auto third = collector.beginAttributedAdmission(
+            w, contribution(7, keyA_, 3), 11);
+        BEAST_EXPECT(second.ticket.has_value());
+        BEAST_EXPECT(third.result == ExportSigCollector::BeginResult::capacity);
+        if (!second.ticket)
+            return;
+
+        auto conflicted =
+            collector.admitContribution(std::move(*second.ticket), true, 11);
+        BEAST_EXPECT(
+            conflicted.result == ExportSigCollector::AdmitResult::conflicted);
+        BEAST_EXPECT(conflicted.priorContribution.has_value());
+        BEAST_EXPECT(conflicted.conflictingContribution.has_value());
+        BEAST_EXPECT(
+            collector.positionStatus(w, 7) ==
+            ExportSigCollector::PositionStatus::conflicted);
+        BEAST_EXPECT(collector.fullUnionSnapshot().empty());
+        BEAST_EXPECT(
+            collector.beginAttributedAdmission(w, contribution(7, keyA_, 4), 12)
+                .result == ExportSigCollector::BeginResult::conflicted);
     }
 
     void
-    testUpgradeSetsFirstSeenSeq()
+    testReservationAndPublicationLifecycle()
     {
-        testcase("upgrade sets first seen sequence");
+        testcase("verification reservations and publication reopening");
 
         ExportSigCollector collector;
-        auto const tx = makeHash("cleanup-upgraded");
-        auto const sig = makeSignature(5);
+        auto const w = origin(2);
+        auto publication = collector.reopenPublication(w, w, 19);
+        BEAST_EXPECT(publication.has_value());
+        auto invalid = collector.beginAttributedAdmission(
+            w, contribution(3, keyA_, 10), 20);
+        BEAST_EXPECT(invalid.ticket.has_value());
+        if (!invalid.ticket)
+            return;
+        BEAST_EXPECT(
+            collector.admitContribution(std::move(*invalid.ticket), false, 20)
+                .result == ExportSigCollector::AdmitResult::invalid);
 
-        collector.addUnverifiedSignature(tx, validator_, sig);
-        BEAST_EXPECT(collector.hasUnverifiedSignatures());
+        auto valid = collector.beginAttributedAdmission(
+            w, contribution(3, keyA_, 11), 20);
+        BEAST_EXPECT(valid.ticket.has_value());
+        if (!valid.ticket)
+            return;
+        BEAST_EXPECT(
+            collector.admitContribution(std::move(*valid.ticket), true, 20)
+                .result == ExportSigCollector::AdmitResult::accepted);
 
-        collector.upgradeSignature(tx, validator_, sig, 10);
-        BEAST_EXPECT(!collector.hasUnverifiedSignatures());
-        BEAST_EXPECT(collector.signatureCount(tx) == 1);
+        auto other = collector.beginAttributedAdmission(
+            w, contribution(4, keyB_, 12), 20);
+        BEAST_EXPECT(other.ticket.has_value());
+        if (!other.ticket)
+            return;
+        BEAST_EXPECT(
+            collector.admitContribution(std::move(*other.ticket), true, 20)
+                .result == ExportSigCollector::AdmitResult::accepted);
 
-        collector.cleanupStale(266);
-        BEAST_EXPECT(collector.signatureCount(tx) == 1);
+        BEAST_EXPECT(publication.has_value());
+        if (!publication)
+            return;
+        BEAST_EXPECT(collector.claimPublication(*publication, 3, 2));
+        BEAST_EXPECT(collector.publicationGeneration(w) == 1);
+        BEAST_EXPECT(!collector.claimPublication(*publication, 3, 2));
 
-        collector.cleanupStale(267);
-        BEAST_EXPECT(collector.signatureCount(tx) == 0);
+        // Reopening the same trigger is idempotent and does not reset slots.
+        auto samePublication = collector.reopenPublication(w, w, 21);
+        BEAST_EXPECT(samePublication.has_value());
+        if (!samePublication)
+            return;
+        BEAST_EXPECT(collector.publicationGeneration(w) == 1);
+        BEAST_EXPECT(!collector.claimPublication(*samePublication, 3, 2));
+
+        auto const nextTrigger = origin(22);
+        auto nextPublication = collector.reopenPublication(w, nextTrigger, 22);
+        BEAST_EXPECT(nextPublication.has_value());
+        if (!nextPublication)
+            return;
+        BEAST_EXPECT(collector.publicationGeneration(w) == 2);
+        BEAST_EXPECT(!collector.claimPublication(*publication, 4, 2));
+        BEAST_EXPECT(collector.claimPublication(*nextPublication, 4, 1));
+        BEAST_EXPECT(!collector.reopenPublication(w, w, 23));
+        BEAST_EXPECT(
+            collector.positionStatus(w, 3) ==
+            ExportSigCollector::PositionStatus::unique);
+        BEAST_EXPECT(collector.fullUnionSnapshot().at(w).size() == 2);
+
+        collector.cleanupStale(278);
+        BEAST_EXPECT(!collector.fullUnionSnapshot().empty());
+        collector.cleanupStale(279);
+        BEAST_EXPECT(collector.fullUnionSnapshot().empty());
     }
 
     void
-    testRemoveInvalidUnverifiedSignature()
+    testMalformedBoundaries()
     {
-        testcase("remove invalid unverified signature");
+        testcase("malformed contribution boundaries");
 
         ExportSigCollector collector;
-        auto const tx = makeHash("remove-invalid");
-        auto const sig = makeSignature(9);
-        auto const otherSig = makeSignature(10);
+        auto good = contribution(0, keyA_, 1);
+        BEAST_EXPECT(
+            collector.beginAttributedAdmission(uint256{}, good).result ==
+            ExportSigCollector::BeginResult::malformed);
 
-        collector.addUnverifiedSignature(tx, validator_, sig, 10);
-        BEAST_EXPECT(collector.hasUnverifiedSignatures());
+        auto const w = origin(3);
+        BEAST_EXPECT(
+            collector.beginAttributedAdmission(w, good, 1).result ==
+            ExportSigCollector::BeginResult::unknownOrigin);
+        BEAST_EXPECT(collector.reopenPublication(w, w, 1).has_value());
 
-        BEAST_EXPECT(!collector.removeSignature(tx, validator_, otherSig));
-        BEAST_EXPECT(collector.hasUnverifiedSignatures());
+        good.position = ExportLimits::maxCommitteeMembers;
+        BEAST_EXPECT(
+            collector.beginAttributedAdmission(w, good, 1).result ==
+            ExportSigCollector::BeginResult::malformed);
 
-        BEAST_EXPECT(collector.removeSignature(tx, validator_, sig));
-        BEAST_EXPECT(!collector.hasUnverifiedSignatures());
-        BEAST_EXPECT(collector.signatureCount(tx) == 0);
-    }
+        good.position = 0;
+        good.signature = Buffer{};
+        BEAST_EXPECT(
+            collector.beginAttributedAdmission(w, good, 1).result ==
+            ExportSigCollector::BeginResult::malformed);
 
-    void
-    testSnapshotsAndFilteredCounts()
-    {
-        testcase("snapshots and filtered counts use verified signatures only");
+        std::vector<std::uint8_t> oversized(
+            ExportSigCollector::maxSignatureBytes + 1, 0xAB);
+        good.signature = Buffer{oversized.data(), oversized.size()};
+        BEAST_EXPECT(
+            collector.beginAttributedAdmission(w, good, 1).result ==
+            ExportSigCollector::BeginResult::malformed);
 
-        auto const other = randomKeyPair(KeyType::secp256k1).first;
-        ExportSigCollector collector;
-        auto const tx = makeHash("snapshot-filtered");
-        auto const verifiedSig = makeSignature(20);
-        auto const unverifiedSig = makeSignature(30);
+        good = contribution(5, keyA_, 5);
+        auto abandoned = collector.beginAttributedAdmission(w, good, 2);
+        BEAST_EXPECT(abandoned.ticket.has_value());
+        if (!abandoned.ticket)
+            return;
+        BEAST_EXPECT(collector.cancelAdmission(std::move(*abandoned.ticket)));
+        BEAST_EXPECT(
+            collector.beginAttributedAdmission(w, good, 2).result ==
+            ExportSigCollector::BeginResult::verify);
 
-        BEAST_EXPECT(!collector.hasVerifiedSignature(tx, validator_));
-        BEAST_EXPECT(collector.unverifiedSignatures(tx).empty());
-        BEAST_EXPECT(!collector.checkQuorumAndSnapshot(tx, 1));
+        auto expired =
+            collector.beginAttributedAdmission(w, contribution(6, keyA_, 6), 3);
+        BEAST_EXPECT(expired.ticket.has_value());
+        BEAST_EXPECT(
+            collector.beginAttributedAdmission(w, contribution(6, keyB_, 7), 5)
+                .result == ExportSigCollector::BeginResult::verify);
 
-        collector.addVerifiedSignature(tx, validator_, verifiedSig, 10);
-        collector.addUnverifiedSignature(tx, other, unverifiedSig, 11);
-
-        BEAST_EXPECT(collector.hasVerifiedSignature(tx, validator_));
-        BEAST_EXPECT(!collector.hasVerifiedSignature(tx, other));
-        BEAST_EXPECT(collector.signatureCount(tx) == 1);
-        BEAST_EXPECT(collector.signatureCount(tx, [&](PublicKey const& pk) {
-            return pk == validator_;
-        }) == 1);
-        BEAST_EXPECT(collector.signatureCount(tx, [&](PublicKey const& pk) {
-            return pk == other;
-        }) == 0);
-
-        auto unverified = collector.unverifiedSignatures(tx);
-        BEAST_EXPECT(unverified.size() == 1);
-        BEAST_EXPECT(unverified.count(other) == 1);
-
-        auto snapshot = collector.snapshot();
-        BEAST_EXPECT(snapshot.size() == 1);
-        BEAST_EXPECT(snapshot[tx].count(validator_) == 1);
-        BEAST_EXPECT(snapshot[tx].count(other) == 0);
-
-        auto sigSnapshot = collector.snapshotWithSigs();
-        BEAST_EXPECT(sigSnapshot[tx].size() == 1);
-        BEAST_EXPECT(sigSnapshot[tx][validator_] == verifiedSig);
-
-        auto filteredSnapshot = collector.snapshotWithSigs(
-            [&](PublicKey const& pk) { return pk == other; });
-        BEAST_EXPECT(filteredSnapshot.empty());
-
-        BEAST_EXPECT(!collector.checkQuorumAndSnapshot(tx, 2));
-        auto quorum = collector.checkQuorumAndSnapshot(tx, 1);
-        BEAST_EXPECT(quorum.has_value());
-        if (quorum)
-        {
-            BEAST_EXPECT(quorum->size() == 1);
-            BEAST_EXPECT((*quorum)[validator_] == verifiedSig);
-        }
-
-        collector.upgradeSignature(tx, other, makeSignature(31), 12);
-        BEAST_EXPECT(collector.signatureCount(tx) == 1);
-
-        collector.upgradeSignature(tx, other, unverifiedSig, 12);
-        BEAST_EXPECT(!collector.hasUnverifiedSignatures());
-        BEAST_EXPECT(collector.signatureCount(tx) == 2);
-
-        auto filteredQuorum = collector.checkQuorumAndSnapshot(
-            tx, 1, [&](PublicKey const& pk) { return pk == other; });
-        BEAST_EXPECT(filteredQuorum.has_value());
-        if (filteredQuorum)
-            BEAST_EXPECT((*filteredQuorum)[other] == unverifiedSig);
-
-        collector.clear(tx);
-        BEAST_EXPECT(collector.signatureCount(tx) == 0);
-        BEAST_EXPECT(collector.snapshot().empty());
-    }
-
-    void
-    testLegacyReplacementSemantics()
-    {
-        testcase("legacy replacement semantics");
-
-        auto const sigA = makeSignature(60);
-        auto const sigB = makeSignature(70);
-
-        {
-            ExportSigCollector collector;
-            auto const tx = makeHash("unverified-replacement");
-            collector.addUnverifiedSignature(tx, validator_, sigA, 10);
-            collector.addUnverifiedSignature(tx, validator_, sigB, 20);
-            BEAST_EXPECT(
-                collector.unverifiedSignatures(tx).at(validator_) == sigB);
-
-            // Replacement does not refresh firstSeenSeq.
-            collector.cleanupStale(266);
-            BEAST_EXPECT(collector.hasUnverifiedSignatures());
-            collector.cleanupStale(267);
-            BEAST_EXPECT(!collector.hasUnverifiedSignatures());
-        }
-
-        {
-            ExportSigCollector collector;
-            auto const tx = makeHash("verified-replacement");
-            collector.addVerifiedSignature(tx, validator_, sigA, 10);
-            collector.addVerifiedSignature(tx, validator_, sigB, 20);
-            BEAST_EXPECT(
-                collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
-
-            // Unverified input never overwrites an already verified value.
-            collector.addUnverifiedSignature(tx, validator_, sigA, 30);
-            BEAST_EXPECT(!collector.hasUnverifiedSignatures());
-            BEAST_EXPECT(
-                collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
-
-            collector.cleanupStale(266);
-            BEAST_EXPECT(collector.signatureCount(tx) == 1);
-            collector.cleanupStale(267);
-            BEAST_EXPECT(collector.signatureCount(tx) == 0);
-        }
-
-        {
-            ExportSigCollector collector;
-            auto const tx = makeHash("unverified-to-verified");
-            collector.addUnverifiedSignature(tx, validator_, sigA, 10);
-            collector.addVerifiedSignature(tx, validator_, sigB, 20);
-            BEAST_EXPECT(!collector.hasUnverifiedSignatures());
-            BEAST_EXPECT(
-                collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
-            collector.cleanupStale(266);
-            BEAST_EXPECT(collector.signatureCount(tx) == 1);
-            collector.cleanupStale(267);
-            BEAST_EXPECT(collector.signatureCount(tx) == 0);
-        }
-
-        {
-            ExportSigCollector collector;
-            auto const tx = makeHash("unverified-to-standalone");
-            collector.addUnverifiedSignature(tx, validator_, sigA, 10);
-            collector.addStandaloneSignature(tx, validator_, 20);
-            BEAST_EXPECT(!collector.hasUnverifiedSignatures());
-            BEAST_EXPECT(
-                collector.snapshotWithSigs().at(tx).at(validator_) == sigA);
-            collector.cleanupStale(266);
-            BEAST_EXPECT(collector.signatureCount(tx) == 1);
-            collector.cleanupStale(267);
-            BEAST_EXPECT(collector.signatureCount(tx) == 0);
-        }
-
-        {
-            ExportSigCollector collector;
-            auto const tx = makeHash("standalone-preserves-buffer");
-            collector.addVerifiedSignature(tx, validator_, sigB, 10);
-            collector.addStandaloneSignature(tx, validator_, 20);
-            BEAST_EXPECT(
-                collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
-        }
-
-        {
-            ExportSigCollector collector;
-            auto const tx = makeHash("standalone-empty-transitions");
-            collector.addStandaloneSignature(tx, validator_, 10);
-            collector.addUnverifiedSignature(tx, validator_, sigA, 20);
-            BEAST_EXPECT(!collector.hasUnverifiedSignatures());
-            BEAST_EXPECT(
-                collector.snapshotWithSigs().at(tx).at(validator_).empty());
-
-            collector.addVerifiedSignature(tx, validator_, sigB, 30);
-            BEAST_EXPECT(
-                collector.snapshotWithSigs().at(tx).at(validator_) == sigB);
-        }
-
-        {
-            ExportSigCollector collector;
-            auto const tx = makeHash("upgrade-preserves-age");
-            collector.addUnverifiedSignature(tx, validator_, sigA, 10);
-            collector.upgradeSignature(tx, validator_, sigA, 20);
-            BEAST_EXPECT(collector.signatureCount(tx) == 1);
-            collector.cleanupStale(266);
-            BEAST_EXPECT(collector.signatureCount(tx) == 1);
-            collector.cleanupStale(267);
-            BEAST_EXPECT(collector.signatureCount(tx) == 0);
-        }
-
-        {
-            ExportSigCollector collector;
-            auto const tx = makeHash("ignored-unverified-initializes-age");
-            collector.addVerifiedSignature(tx, validator_, sigA);
-            collector.addUnverifiedSignature(tx, validator_, sigB, 10);
-            BEAST_EXPECT(
-                collector.snapshotWithSigs().at(tx).at(validator_) == sigA);
-            collector.cleanupStale(266);
-            BEAST_EXPECT(collector.signatureCount(tx) == 1);
-            collector.cleanupStale(267);
-            BEAST_EXPECT(collector.signatureCount(tx) == 0);
-        }
-    }
-
-    void
-    testStandaloneAndRoundState()
-    {
-        testcase("standalone signatures and round state");
-
-        ExportSigCollector collector;
-        auto const tx = makeHash("standalone-round");
-
-        collector.addStandaloneSignature(tx, validator_, 10);
-        BEAST_EXPECT(collector.hasVerifiedSignature(tx, validator_));
-        BEAST_EXPECT(collector.signatureCount(tx) == 1);
-        BEAST_EXPECT(!collector.hasUnverifiedSignatures());
-
-        auto snapshot = collector.snapshot();
-        BEAST_EXPECT(snapshot.size() == 1);
-        BEAST_EXPECT(snapshot[tx].count(validator_) == 1);
-
-        auto sigSnapshot = collector.snapshotWithSigs();
-        BEAST_EXPECT(sigSnapshot.size() == 1);
-        BEAST_EXPECT(sigSnapshot[tx].count(validator_) == 1);
-        BEAST_EXPECT(sigSnapshot[tx][validator_].empty());
-
-        BEAST_EXPECT(collector.markSent(tx));
-        BEAST_EXPECT(!collector.markSent(tx));
-        collector.clearRound();
-        BEAST_EXPECT(collector.markSent(tx));
-
-        auto const tx2 = makeHash("standalone-round-2");
-        auto const tx3 = makeHash("standalone-round-3");
-        BEAST_EXPECT(collector.markSent(tx2, 2));
-        BEAST_EXPECT(!collector.markSent(tx3, 2));
-        BEAST_EXPECT(!collector.markSent(tx2, 2));
-        collector.clearRound();
-        BEAST_EXPECT(collector.markSent(tx3, 2));
-    }
-
-    void
-    testClearAll()
-    {
-        testcase("clear all signatures and round state");
-
-        ExportSigCollector collector;
-        auto const verifiedTx = makeHash("clear-all-verified");
-        auto const unverifiedTx = makeHash("clear-all-unverified");
-        auto const sig = makeSignature(12);
-
-        collector.addVerifiedSignature(verifiedTx, validator_, sig, 10);
-        collector.addUnverifiedSignature(unverifiedTx, validator_, sig, 10);
-        BEAST_EXPECT(collector.signatureCount(verifiedTx) == 1);
-        BEAST_EXPECT(collector.hasUnverifiedSignatures());
-        BEAST_EXPECT(collector.markSent(verifiedTx));
-        BEAST_EXPECT(!collector.markSent(verifiedTx));
-
-        collector.clearAll();
-
-        BEAST_EXPECT(collector.signatureCount(verifiedTx) == 0);
-        BEAST_EXPECT(!collector.hasUnverifiedSignatures());
-        BEAST_EXPECT(collector.markSent(verifiedTx));
-    }
-
-    void
-    testUnverifiedCacheCap()
-    {
-        testcase("unverified cache cap");
-
-        constexpr std::size_t maxTrackedTxns = 4096;
-        ExportSigCollector collector;
-        auto const sig = makeSignature(50);
-
-        for (std::uint32_t i = 0; i < maxTrackedTxns; ++i)
-            collector.addUnverifiedSignature(
-                makeHashFromSeed(i), validator_, sig, 10);
-
-        auto const firstTx = makeHashFromSeed(0);
-        auto const lastTrackedTx =
-            makeHashFromSeed(static_cast<std::uint32_t>(maxTrackedTxns - 1));
-        auto const rejectedTx =
-            makeHashFromSeed(static_cast<std::uint32_t>(maxTrackedTxns));
-        auto const verifiedTx =
-            makeHashFromSeed(static_cast<std::uint32_t>(maxTrackedTxns + 1));
-        auto const other = randomKeyPair(KeyType::secp256k1).first;
-
-        BEAST_EXPECT(collector.hasUnverifiedSignatures());
-        BEAST_EXPECT(collector.unverifiedSignatures(firstTx).size() == 1);
-        BEAST_EXPECT(collector.unverifiedSignatures(lastTrackedTx).size() == 1);
-
-        collector.addUnverifiedSignature(rejectedTx, validator_, sig, 10);
-        BEAST_EXPECT(collector.unverifiedSignatures(rejectedTx).empty());
-
-        // Existing entries remain updateable at the cap.
-        collector.addUnverifiedSignature(firstTx, other, sig, 10);
-        BEAST_EXPECT(collector.unverifiedSignatures(firstTx).size() == 2);
-
-        // Verified entries are real in-ledger exports and are not gated by the
-        // unverified relay-ordering cache cap.
-        collector.addVerifiedSignature(verifiedTx, validator_, sig, 10);
-        BEAST_EXPECT(collector.signatureCount(verifiedTx) == 1);
-    }
-
-    void
-    testDefensiveNoOps()
-    {
-        testcase("defensive no-op paths");
-
-        ExportSigCollector collector;
-        auto const missingTx = makeHash("missing-defensive");
-        auto const standaloneTx = makeHash("standalone-defensive");
-        auto const sig = makeSignature(40);
-
-        collector.upgradeSignature(missingTx, validator_, sig, 10);
-        BEAST_EXPECT(collector.signatureCount(missingTx) == 0);
-        BEAST_EXPECT(!collector.removeSignature(missingTx, validator_, sig));
-        BEAST_EXPECT(!collector.checkQuorumAndSnapshot(missingTx, 1));
-        BEAST_EXPECT(collector.signatureCount(missingTx, [](PublicKey const&) {
-            return true;
-        }) == 0);
-
-        collector.addStandaloneSignature(standaloneTx, validator_, 10);
-        collector.upgradeSignature(standaloneTx, validator_, Buffer{}, 11);
-        BEAST_EXPECT(collector.signatureCount(standaloneTx) == 1);
-        BEAST_EXPECT(collector.snapshotWithSigs()
-                         .at(standaloneTx)
-                         .at(validator_)
-                         .empty());
-
-        auto filtered =
-            collector.snapshotWithSigs([](PublicKey const&) { return false; });
-        BEAST_EXPECT(filtered.empty());
-        BEAST_EXPECT(!collector.checkQuorumAndSnapshot(
-            standaloneTx, 1, [](PublicKey const&) { return false; }));
+        auto oldToken = collector.reopenPublication(w, origin(30), 6);
+        BEAST_EXPECT(oldToken.has_value());
+        collector.clear(w);
+        auto newToken = collector.reopenPublication(w, origin(31), 7);
+        BEAST_EXPECT(newToken.has_value());
+        if (oldToken)
+            BEAST_EXPECT(!collector.claimPublication(*oldToken, 0, 1));
     }
 
     void
     run() override
     {
-        testCleanupUsesFirstSeenSeq();
-        testUpgradeSetsFirstSeenSeq();
-        testRemoveInvalidUnverifiedSignature();
-        testSnapshotsAndFilteredCounts();
-        testLegacyReplacementSemantics();
-        testStandaloneAndRoundState();
-        testClearAll();
-        testUnverifiedCacheCap();
-        testDefensiveNoOps();
+        testAdmissionAndConflict();
+        testReservationAndPublicationLifecycle();
+        testMalformedBoundaries();
     }
 };
 

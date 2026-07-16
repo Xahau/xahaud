@@ -18,7 +18,6 @@
 //==============================================================================
 
 #include <xrpld/app/consensus/ConsensusExtensions.h>
-#include <xrpld/app/consensus/ExportSignatureHarvester.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
@@ -238,7 +237,7 @@ resolveExportShare(
 ExportShare
 withContribution(
     ExportShare const& context,
-    ExportSigCollectorV2::Contribution const& contribution)
+    ExportSigCollector::Contribution const& contribution)
 {
     return ExportShare{
         context.version,
@@ -470,28 +469,28 @@ ConsensusExtensions::admitExportShare(
             share.originTxn, share.triggerTxn, validated->info().seq))
         return {ExportShareDisposition::deferred, ExportShareCharge::none};
 
-    ExportSigCollectorV2::Contribution contribution{
+    ExportSigCollector::Contribution contribution{
         share.committeePosition, share.signingKey, share.signature};
     auto admission = postValidationExportSigCollector_.beginAttributedAdmission(
         share.originTxn, std::move(contribution), validated->info().seq);
-    if (admission.result != ExportSigCollectorV2::BeginResult::verify ||
+    if (admission.result != ExportSigCollector::BeginResult::verify ||
         !admission.ticket)
     {
         switch (admission.result)
         {
-            case ExportSigCollectorV2::BeginResult::duplicate:
-            case ExportSigCollectorV2::BeginResult::conflicted:
+            case ExportSigCollector::BeginResult::duplicate:
+            case ExportSigCollector::BeginResult::conflicted:
                 return {
                     ExportShareDisposition::duplicate, ExportShareCharge::none};
-            case ExportSigCollectorV2::BeginResult::unknownOrigin:
-            case ExportSigCollectorV2::BeginResult::capacity:
+            case ExportSigCollector::BeginResult::unknownOrigin:
+            case ExportSigCollector::BeginResult::capacity:
                 return {
                     ExportShareDisposition::deferred, ExportShareCharge::none};
-            case ExportSigCollectorV2::BeginResult::malformed:
+            case ExportSigCollector::BeginResult::malformed:
                 return {
                     ExportShareDisposition::invalid,
                     ExportShareCharge::invalidData};
-            case ExportSigCollectorV2::BeginResult::verify:
+            case ExportSigCollector::BeginResult::verify:
                 break;
         }
         return {
@@ -507,7 +506,7 @@ ConsensusExtensions::admitExportShare(
         Slice{share.signature.data(), share.signature.size()});
     auto outcome = postValidationExportSigCollector_.admitContribution(
         std::move(*admission.ticket), signatureVerified, validated->info().seq);
-    if (outcome.result == ExportSigCollectorV2::AdmitResult::accepted)
+    if (outcome.result == ExportSigCollector::AdmitResult::accepted)
     {
         std::lock_guard streamLock(exportStreamMutex_);
         if (!exportShareServiceStarted_.load(std::memory_order_acquire))
@@ -519,11 +518,11 @@ ConsensusExtensions::admitExportShare(
             share, latest->info().seq, latest->info().hash);
         return {ExportShareDisposition::accepted, ExportShareCharge::none};
     }
-    if (outcome.result == ExportSigCollectorV2::AdmitResult::invalid)
+    if (outcome.result == ExportSigCollector::AdmitResult::invalid)
         return {
             ExportShareDisposition::invalid,
             ExportShareCharge::invalidSignature};
-    if (outcome.result != ExportSigCollectorV2::AdmitResult::conflicted ||
+    if (outcome.result != ExportSigCollector::AdmitResult::conflicted ||
         !outcome.priorContribution || !outcome.conflictingContribution)
         return {ExportShareDisposition::duplicate, ExportShareCharge::none};
 
@@ -681,7 +680,7 @@ ConsensusExtensions::onValidatedLedger(
                             return;
                         if (postValidationExportSigCollector_.positionStatus(
                                 origin, *position) !=
-                            ExportSigCollectorV2::PositionStatus::empty)
+                            ExportSigCollector::PositionStatus::empty)
                             return;
 
                         auto const originLedger =
@@ -2092,8 +2091,7 @@ ConsensusExtensions::agreedExportWitness(
                 auto const data =
                     buildMultiSigningData(exportSigningPayload, signer);
                 if (signature.empty() ||
-                    signature.size() >
-                        ExportSigCollectorV2::maxSignatureBytes ||
+                    signature.size() > ExportSigCollector::maxSignatureBytes ||
                     !verify(key, data.slice(), makeSlice(signature)))
                 {
                     invalid = true;
@@ -3248,7 +3246,7 @@ ConsensusExtensions::attachExportSignatures(
             if (contribution.signingKey != keys.keys->publicKey)
                 continue;
             auto const identity =
-                std::pair<uint256, ExportSigCollectorV2::Position>{
+                std::pair<uint256, ExportSigCollector::Position>{
                     origin, contribution.position};
             if (proposalPublishedExportShares_.count(identity) != 0)
                 continue;

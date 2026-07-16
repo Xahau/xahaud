@@ -5,7 +5,7 @@
 #include <xrpld/app/consensus/RCLCxLedger.h>
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpld/app/consensus/RCLCxTx.h>
-#include <xrpld/app/misc/ExportSigCollectorV2.h>
+#include <xrpld/app/misc/ExportSigCollector.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/consensus/ConsensusTypes.h>
@@ -54,12 +54,12 @@ class ConsensusExtensions
     friend class test::ConsensusExtensions_test;
 
     Application& app_;
-    ExportSigCollectorV2 postValidationExportSigCollector_;
+    ExportSigCollector postValidationExportSigCollector_;
     std::mutex exportStreamMutex_;
     LedgerIndex exportStreamEmissionSeq_{0};
-    std::set<std::pair<uint256, ExportSigCollectorV2::Position>>
+    std::set<std::pair<uint256, ExportSigCollector::Position>>
         exportStreamEmittedShares_;
-    std::set<std::pair<uint256, ExportSigCollectorV2::Position>>
+    std::set<std::pair<uint256, ExportSigCollector::Position>>
         proposalPublishedExportShares_;
     std::atomic<bool> exportShareServiceStarted_{false};
     std::atomic<LedgerIndex> lastExportReplaySeq_{0};
@@ -223,13 +223,13 @@ private:
 public:
     ConsensusExtensions(Application& app, beast::Journal j);
 
-    ExportSigCollectorV2&
+    ExportSigCollector&
     postValidationExportSigCollector()
     {
         return postValidationExportSigCollector_;
     }
 
-    ExportSigCollectorV2 const&
+    ExportSigCollector const&
     postValidationExportSigCollector() const
     {
         return postValidationExportSigCollector_;
