@@ -35,8 +35,9 @@ agreement is needed. The result is explicitly labeled
 (`EntropyTier = consensus_fallback`, `EntropyCount = 0`) — it is
 user-influenceable via transaction submission and must never be presented
 under validator-entropy semantics. Export has no equivalent fallback value:
-without quorum-aligned verified export signatures, the export must not be
-treated as complete and must retry or expire under transaction rules.
+without quorum-aligned verified export signatures, the admitted latch remains
+pending until a later witness or publication expiry. The source transaction
+does not retry.
 
 The fallback/non-fallback decision is itself ledger-defining. A local node may
 diagnose that progress looks unlikely from its current peer view, but it must
@@ -501,6 +502,13 @@ publication end, destination TicketSequence, committee digest, owner-directory
 link, and pending-work link. Lack of signatures does not make the source
 transaction retry. The pending directory is durable scheduling state across
 rounds and restarts.
+
+An owner may have at most one live latch for a destination TicketSequence,
+regardless of `W`. Flagless control and publication expiry retain the latch, so
+they also retain that one-shot destination-authority slot. Reissuing the same
+normalized target after terminal erasure creates a new outer transaction and a
+new `W`; it does not recreate the old latch. Clients must not reissue a target
+TicketSequence that the destination chain has already consumed.
 
 Honest signature release is keyed to fully validated history, not to the open
 ledger or current transaction candidate set. When an exact origin ledger becomes

@@ -54,7 +54,7 @@ struct ExportLimits
     // Maximum admission window requested through the mandatory outer
     // LastLedgerSequence. This bounds how long an Export may remain queued
     // before entering a ledger; it does not bound post-validation release.
-    static constexpr std::uint32_t maxRetryLedgers = 5;
+    static constexpr std::uint32_t maxAdmissionWindowLedgers = 5;
 
     // Fixed source-ledger window for post-validation share publication and
     // witness materialization, measured from the ledger that admits the

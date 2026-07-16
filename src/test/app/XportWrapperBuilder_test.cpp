@@ -169,7 +169,7 @@ public:
         BEAST_EXPECT(wrapper.getFieldU32(sfFirstLedgerSequence) == 11);
         BEAST_EXPECT(
             wrapper.getFieldU32(sfLastLedgerSequence) ==
-            10 + ExportLimits::maxRetryLedgers);
+            10 + ExportLimits::maxAdmissionWindowLedgers);
         BEAST_EXPECT(wrapper.getFieldAmount(sfFee) == STAmount{12345});
         BEAST_EXPECT(wrapper.getFieldVL(sfSigningPubKey).empty());
         BEAST_EXPECT(

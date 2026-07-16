@@ -212,7 +212,7 @@ public:
             BEAST_EXPECT(st.getFieldU32(sfFirstLedgerSequence) == seq + 1);
             BEAST_EXPECT(
                 st.getFieldU32(sfLastLedgerSequence) ==
-                seq + ExportLimits::maxRetryLedgers);
+                seq + ExportLimits::maxAdmissionWindowLedgers);
             BEAST_EXPECT(st.isFieldPresent(sfEmitDetails));
 
             auto const result2 =
@@ -243,7 +243,7 @@ public:
             obj[sfSigningPubKey] = Slice{};
             obj[sfFirstLedgerSequence] = env.closed()->seq() + 1;
             obj[sfLastLedgerSequence] =
-                env.closed()->seq() + ExportLimits::maxRetryLedgers;
+                env.closed()->seq() + ExportLimits::maxAdmissionWindowLedgers;
             obj[sfFee] = env.closed()->fees().base;
 
             auto& emitDetails = obj.peekFieldObject(sfEmitDetails);
@@ -260,7 +260,7 @@ public:
             obj[sfSigningPubKey] = Slice{};
             obj[sfFirstLedgerSequence] = env.closed()->seq() + 1;
             obj[sfLastLedgerSequence] =
-                env.closed()->seq() + ExportLimits::maxRetryLedgers;
+                env.closed()->seq() + ExportLimits::maxAdmissionWindowLedgers;
             obj[sfFee] = env.closed()->fees().base;
             STObject hookobj(sfHook);
             auto& hooks = obj.peekFieldArray(sfHooks);
@@ -602,7 +602,7 @@ public:
                 auto const currentSeq = applyCtx.view().info().seq;
                 tx.setFieldU32(
                     sfLastLedgerSequence,
-                    currentSeq + ExportLimits::maxRetryLedgers + 1);
+                    currentSeq + ExportLimits::maxAdmissionWindowLedgers + 1);
                 auto const result = api.emit(tx.getSerializer().slice());
                 BEAST_EXPECT(result.error() == EMISSION_FAILURE);
             }

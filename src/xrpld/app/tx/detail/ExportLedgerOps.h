@@ -720,7 +720,10 @@ checkExportTxnLimit(ReadView const& view, beast::Journal j)
 }
 
 inline TER
-validateRetryWindow(STTx const& stx, LedgerIndex ledgerSeq, beast::Journal j)
+validateAdmissionWindow(
+    STTx const& stx,
+    LedgerIndex ledgerSeq,
+    beast::Journal j)
 {
     if (!stx.isFieldPresent(sfLastLedgerSequence))
     {
@@ -730,14 +733,15 @@ validateRetryWindow(STTx const& stx, LedgerIndex ledgerSeq, beast::Journal j)
     }
 
     auto const lls = stx.getFieldU32(sfLastLedgerSequence);
-    auto const maxLLS =
-        static_cast<std::uint64_t>(ledgerSeq) + ExportLimits::maxRetryLedgers;
+    auto const maxLLS = static_cast<std::uint64_t>(ledgerSeq) +
+        ExportLimits::maxAdmissionWindowLedgers;
     if (lls > maxLLS)
     {
         JLOG(j.warn()) << "ExportLedgerOps: export LastLedgerSequence too far "
                           "ahead ledgerSeq="
                        << ledgerSeq << " lastLedgerSequence=" << lls
-                       << " maxRetryLedgers=" << ExportLimits::maxRetryLedgers;
+                       << " maxAdmissionWindowLedgers="
+                       << ExportLimits::maxAdmissionWindowLedgers;
         return temMALFORMED;
     }
 

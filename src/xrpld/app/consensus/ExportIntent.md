@@ -132,6 +132,14 @@ the normalized identity-form target, not a signer-subset-dependent final target
 transaction ID. Any valid qC subset for the exact stamped intent may therefore
 execute and return without orphaning source state.
 
+At most one live latch may name a given `(owner, destination TicketSequence)`,
+even when distinct outer transactions would produce distinct `W` values. A
+retained canceled or publication-expired latch therefore blocks another
+issuance for that TicketSequence until terminal erasure. Reissuing the same
+normalized intent after erasure creates a new outer transaction and new `W`;
+it never recreates the old latch. A client must not reissue a destination Ticket
+that has already been consumed.
+
 Witness and XPOP are independent monotonic facts. Whichever arrives second
 symmetrically erases the latch and releases reserve. Flagless lifecycle control
 names exact `W`, unlinks pending work, and retains callback readiness because

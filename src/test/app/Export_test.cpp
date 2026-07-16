@@ -132,7 +132,7 @@ struct Export_test : public beast::unit_test::suite
         jvExport[jss::TransactionType] = jss::Export;
         jvExport[jss::Account] = alice.human();
         jvExport[jss::LastLedgerSequence] =
-            xahau.current()->seq() + ExportLimits::maxRetryLedgers;
+            xahau.current()->seq() + ExportLimits::maxAdmissionWindowLedgers;
         jvExport[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
 
         auto const& valKeys = xahau.app().getValidatorKeys();
@@ -884,7 +884,7 @@ struct Export_test : public beast::unit_test::suite
             BEAST_EXPECT(it->second.size() == 1);
         std::shared_ptr<STTx const> witness;
         for (std::size_t attempt = 0;
-             attempt < ExportLimits::maxRetryLedgers && !witness;
+             attempt < ExportLimits::maxAdmissionWindowLedgers && !witness;
              ++attempt)
         {
             env.close();
@@ -1160,12 +1160,13 @@ struct Export_test : public beast::unit_test::suite
             alice.id(),
             carol.id(),
             seq + 1,
-            seq + ExportLimits::maxRetryLedgers);
+            seq + ExportLimits::maxAdmissionWindowLedgers);
 
         Json::Value jv;
         jv[jss::TransactionType] = jss::Export;
         jv[jss::Account] = alice.human();
-        jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+        jv[jss::LastLedgerSequence] =
+            seq + ExportLimits::maxAdmissionWindowLedgers;
         bindExportAuthority(env, jv);
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
 
@@ -1200,7 +1201,7 @@ struct Export_test : public beast::unit_test::suite
 
         auto const seq = env.current()->seq();
         auto const ticketSeq = std::uint32_t{1};
-        auto const lls = seq + ExportLimits::maxRetryLedgers;
+        auto const lls = seq + ExportLimits::maxAdmissionWindowLedgers;
         auto innerObj = buildExportedPayment(
             alice.id(), carol.id(), seq + 1, lls, ticketSeq);
 
@@ -1817,11 +1818,12 @@ struct Export_test : public beast::unit_test::suite
             alice.id(),
             carol.id(),
             seq + 1,
-            seq + ExportLimits::maxRetryLedgers);
+            seq + ExportLimits::maxAdmissionWindowLedgers);
         Json::Value intent;
         intent[jss::TransactionType] = jss::Export;
         intent[jss::Account] = alice.human();
-        intent[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+        intent[jss::LastLedgerSequence] =
+            seq + ExportLimits::maxAdmissionWindowLedgers;
         intent[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
         intent[sfExportCommitteeHash.jsonName] = to_string(digest);
         env(intent, fee(XRP(1)), ter(tecEXPORT_COMMITTEE_UNAVAILABLE));
@@ -1847,7 +1849,7 @@ struct Export_test : public beast::unit_test::suite
 
         auto const seq = env.current()->seq();
         auto const ticketSeq = std::uint32_t{1};
-        auto const lls = seq + ExportLimits::maxRetryLedgers;
+        auto const lls = seq + ExportLimits::maxAdmissionWindowLedgers;
         auto innerObj = buildExportedPayment(
             alice.id(), carol.id(), seq + 1, lls, ticketSeq);
         auto jt = makeExportJTx(env, alice, innerObj, lls);
@@ -1944,13 +1946,14 @@ struct Export_test : public beast::unit_test::suite
                 alice.id(),
                 carol.id(),
                 seq + 1,
-                seq + ExportLimits::maxRetryLedgers,
+                seq + ExportLimits::maxAdmissionWindowLedgers,
                 ticketSeq);
 
             Json::Value jv;
             jv[jss::TransactionType] = jss::Export;
             jv[jss::Account] = alice.human();
-            jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+            jv[jss::LastLedgerSequence] =
+                seq + ExportLimits::maxAdmissionWindowLedgers;
             jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
             bindExportAuthority(env, jv);
 
@@ -1994,13 +1997,14 @@ struct Export_test : public beast::unit_test::suite
                 alice.id(),
                 carol.id(),
                 seq + 1,
-                seq + ExportLimits::maxRetryLedgers,
+                seq + ExportLimits::maxAdmissionWindowLedgers,
                 ticketSeq);
 
             Json::Value jv;
             jv[jss::TransactionType] = jss::Export;
             jv[jss::Account] = alice.human();
-            jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+            jv[jss::LastLedgerSequence] =
+                seq + ExportLimits::maxAdmissionWindowLedgers;
             jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
             bindExportAuthority(env, jv);
 
@@ -2058,13 +2062,14 @@ struct Export_test : public beast::unit_test::suite
             alice.id(),
             carol.id(),
             seq + 1,
-            seq + ExportLimits::maxRetryLedgers,
+            seq + ExportLimits::maxAdmissionWindowLedgers,
             ticketSeq);
 
         Json::Value jv;
         jv[jss::TransactionType] = jss::Export;
         jv[jss::Account] = alice.human();
-        jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+        jv[jss::LastLedgerSequence] =
+            seq + ExportLimits::maxAdmissionWindowLedgers;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
         bindExportAuthority(env, jv);
 
@@ -2145,13 +2150,14 @@ struct Export_test : public beast::unit_test::suite
             alice.id(),
             carol.id(),
             seq + 1,
-            seq + ExportLimits::maxRetryLedgers,
+            seq + ExportLimits::maxAdmissionWindowLedgers,
             ticketSeq);
 
         Json::Value jvExport;
         jvExport[jss::TransactionType] = jss::Export;
         jvExport[jss::Account] = alice.human();
-        jvExport[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+        jvExport[jss::LastLedgerSequence] =
+            seq + ExportLimits::maxAdmissionWindowLedgers;
         jvExport[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
         auto const committeeRoster = defaultExportCommittee(env);
         auto const committeeDigest =
@@ -2288,13 +2294,14 @@ struct Export_test : public beast::unit_test::suite
             alice.id(),
             carol.id(),
             seq + 1,
-            seq + ExportLimits::maxRetryLedgers,
+            seq + ExportLimits::maxAdmissionWindowLedgers,
             std::nullopt);
 
         Json::Value jv;
         jv[jss::TransactionType] = jss::Export;
         jv[jss::Account] = alice.human();
-        jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+        jv[jss::LastLedgerSequence] =
+            seq + ExportLimits::maxAdmissionWindowLedgers;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
         bindExportAuthority(env, jv);
 
@@ -2326,7 +2333,7 @@ struct Export_test : public beast::unit_test::suite
             alice.id(),
             carol.id(),
             seq + 1,
-            seq + ExportLimits::maxRetryLedgers);
+            seq + ExportLimits::maxAdmissionWindowLedgers);
 
         Json::Value jv;
         jv[jss::TransactionType] = jss::Export;
@@ -2356,13 +2363,14 @@ struct Export_test : public beast::unit_test::suite
             alice.id(),
             carol.id(),
             seq + 1,
-            seq + ExportLimits::maxRetryLedgers);
+            seq + ExportLimits::maxAdmissionWindowLedgers);
         innerObj.setFieldVL(sfSigningPubKey, alice.pk().slice());
 
         Json::Value jv;
         jv[jss::TransactionType] = jss::Export;
         jv[jss::Account] = alice.human();
-        jv[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+        jv[jss::LastLedgerSequence] =
+            seq + ExportLimits::maxAdmissionWindowLedgers;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
         bindExportAuthority(env, jv);
 
@@ -2385,7 +2393,7 @@ struct Export_test : public beast::unit_test::suite
         env.close();
 
         auto const seq = env.current()->seq();
-        auto const lls = seq + ExportLimits::maxRetryLedgers + 1;
+        auto const lls = seq + ExportLimits::maxAdmissionWindowLedgers + 1;
         auto innerObj =
             buildExportedPayment(alice.id(), carol.id(), seq + 1, lls);
 

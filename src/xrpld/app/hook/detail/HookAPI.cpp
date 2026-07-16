@@ -431,7 +431,7 @@ HookAPI::prepare(Slice const& txBlob) const
 
     if (!json.isMember(jss::LastLedgerSequence))
         json[jss::LastLedgerSequence] =
-            Json::Value(seq + ExportLimits::maxRetryLedgers);
+            Json::Value(seq + ExportLimits::maxAdmissionWindowLedgers);
 
     uint8_t details[512];
     if (!json.isMember(jss::EmitDetails))
@@ -745,12 +745,12 @@ HookAPI::emit(Slice const& txBlob) const
         return Unexpected(EMISSION_FAILURE);
     }
 
-    if (tx_lls > ledgerSeq + ExportLimits::maxRetryLedgers)
+    if (tx_lls > ledgerSeq + ExportLimits::maxAdmissionWindowLedgers)
     {
         JLOG(j.trace())
             << "HookEmit[" << HC_ACC()
             << "]: sfLastLedgerSequence cannot be greater than current seq + "
-            << ExportLimits::maxRetryLedgers;
+            << ExportLimits::maxAdmissionWindowLedgers;
         return Unexpected(EMISSION_FAILURE);
     }
 

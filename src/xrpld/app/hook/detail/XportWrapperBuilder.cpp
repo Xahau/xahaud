@@ -78,7 +78,7 @@ build(Input const& input)
     exportObj.setFieldVL(sfSigningPubKey, Blob{});
     exportObj[sfFirstLedgerSequence] = input.ledgerSeq + 1;
     exportObj[sfLastLedgerSequence] =
-        input.ledgerSeq + ExportLimits::maxRetryLedgers;
+        input.ledgerSeq + ExportLimits::maxAdmissionWindowLedgers;
     exportObj[sfFee] = STAmount{0};
     exportObj.setFieldH256(sfExportCommitteeHash, input.committeeHash);
 
