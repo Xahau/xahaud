@@ -1429,8 +1429,8 @@ Import::doApply()
         return ter;
 
     // ---------------------------------------------------------------
-    // Export callback path: ticket-based import consumes the shadow
-    // ticket and fires hooks — no B2M crediting, no account creation.
+    // Export callback path: ticket-based target execution records the Export
+    // latch fact and fires hooks — no B2M crediting, no account creation.
     // The hook inspects the result via xpop_slot().
     // ---------------------------------------------------------------
     if (path == ImportPath::exportCallback)

@@ -275,6 +275,14 @@ enum BridgeModifyFlags : uint32_t {
 };
 constexpr std::uint32_t tfBridgeModifyMask = ~(tfUniversal | tfClearAccountCreateAmount);
 
+// Export flags:
+enum ExportFlags : uint32_t {
+    // Lifecycle control: erase the named latch and forfeit any later callback.
+    tfExportEraseLatch = 0x00010000,
+};
+constexpr std::uint32_t tfExportMask =
+    ~(tfUniversal | tfExportEraseLatch);
+
 // ConsensusEntropy flags (used on ttCONSENSUS_ENTROPY SHAMap entries):
 enum ConsensusEntropyFlags : uint32_t {
     tfEntropyCommit = 0x00000001,  // entry is a commitment in commitSet

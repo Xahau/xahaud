@@ -1942,9 +1942,9 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
-    testCancelExportLatchViaTxn(FeatureBitset features)
+    testControlExportLatchViaTxn(FeatureBitset features)
     {
-        testcase("ttEXPORT cancels Export latch via sfCancelTicketSequence");
+        testcase("ttEXPORT controls Export latch via origin W");
 
         using namespace jtx;
 
@@ -1961,13 +1961,22 @@ struct Export_test : public beast::unit_test::suite
             return;
         seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
 
-        // Cancel non-existent ticket → tecNO_ENTRY
-        Json::Value jvCancel;
-        jvCancel[jss::TransactionType] = jss::Export;
-        jvCancel[jss::Account] = alice.human();
-        jvCancel[sfCancelTicketSequence.jsonName] = 42;
+        // Control of a non-existent W returns tecNO_ENTRY.
+        Json::Value jvControl;
+        jvControl[jss::TransactionType] = jss::Export;
+        jvControl[jss::Account] = alice.human();
+        jvControl[sfTransactionHash.jsonName] = to_string(uint256{42});
 
-        env(jvCancel, fee(XRP(1)), ter(tecNO_ENTRY));
+        env(jvControl, fee(XRP(1)), ter(tecNO_ENTRY));
+
+        auto zeroControl = jvControl;
+        zeroControl[sfTransactionHash.jsonName] = to_string(uint256{});
+        env(zeroControl, fee(XRP(1)), ter(temMALFORMED));
+
+        Json::Value emptyControl;
+        emptyControl[jss::TransactionType] = jss::Export;
+        emptyControl[jss::Account] = alice.human();
+        env(emptyControl, fee(XRP(1)), ter(temMALFORMED));
         env.close();
 
         std::uint32_t constexpr ticketSeq = 42;
@@ -1985,6 +1994,18 @@ struct Export_test : public beast::unit_test::suite
         jvExport[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
         jvExport[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
         bindExportAuthority(env, jvExport);
+
+        auto mixed = jvExport;
+        mixed[sfTransactionHash.jsonName] = to_string(uint256{42});
+        env(mixed, fee(XRP(1)), ter(temMALFORMED));
+
+        auto eraseCreation = jvExport;
+        eraseCreation[jss::Flags] = tfExportEraseLatch;
+        env(eraseCreation, fee(XRP(1)), ter(temMALFORMED));
+
+        auto unknownFlag = jvControl;
+        unknownFlag[jss::Flags] = 0x00020000;
+        env(unknownFlag, fee(XRP(1)), ter(temINVALID_FLAG));
 
         env(jvExport, fee(XRP(1)), ter(tesSUCCESS));
         auto const origin = env.tx()->getTransactionID();
@@ -2011,12 +2032,12 @@ struct Export_test : public beast::unit_test::suite
             pendingBeforeCancel->getFieldU16(sfExportCount);
         BEAST_EXPECT(pendingExportCount > 0);
 
-        Json::Value jvCancelExisting;
-        jvCancelExisting[jss::TransactionType] = jss::Export;
-        jvCancelExisting[jss::Account] = alice.human();
-        jvCancelExisting[sfCancelTicketSequence.jsonName] = ticketSeq;
+        Json::Value jvRetain;
+        jvRetain[jss::TransactionType] = jss::Export;
+        jvRetain[jss::Account] = alice.human();
+        jvRetain[sfTransactionHash.jsonName] = to_string(origin);
 
-        env(jvCancelExisting, fee(XRP(1)), ter(tesSUCCESS));
+        env(jvRetain, fee(XRP(1)), ter(tesSUCCESS));
         auto const cancelMeta = env.meta();
         BEAST_EXPECT(cancelMeta);
         BEAST_EXPECT(
@@ -2047,6 +2068,26 @@ struct Export_test : public beast::unit_test::suite
             reserveBeforeCancel);
         BEAST_EXPECT(
             pendingAfterCancel->getFieldU16(sfExportCount) ==
+            pendingExportCount - 1);
+
+        auto jvErase = jvRetain;
+        jvErase[jss::Flags] = tfExportEraseLatch;
+        env(jvErase, fee(XRP(1)), ter(tesSUCCESS));
+
+        auto const accountAfterErase = env.le(keylet::account(alice.id()));
+        auto const pendingAfterErase = env.le(keylet::pendingExports());
+        BEAST_EXPECT(!env.le(latchKey));
+        BEAST_EXPECT(accountAfterErase);
+        BEAST_EXPECT(pendingAfterErase);
+        if (!accountAfterErase || !pendingAfterErase)
+            return;
+        BEAST_EXPECT(
+            accountAfterErase->getFieldU16(sfExportCount) ==
+            accountExportCount - 1);
+        BEAST_EXPECT(
+            accountAfterErase->getFieldU32(sfOwnerCount) == ownerCount - 1);
+        BEAST_EXPECT(
+            pendingAfterErase->getFieldU16(sfExportCount) ==
             pendingExportCount - 1);
 
         env.close();
@@ -2290,7 +2331,7 @@ struct Export_test : public beast::unit_test::suite
         Json::Value cancel;
         cancel[jss::TransactionType] = jss::Export;
         cancel[jss::Account] = alice.human();
-        cancel[sfCancelTicketSequence.jsonName] = callback.ticketSeq;
+        cancel[sfTransactionHash.jsonName] = to_string(callback.originTxn);
         xahau(cancel, fee(XRP(1)), ter(tesSUCCESS));
         xahau.close();
 
@@ -2406,7 +2447,7 @@ struct Export_test : public beast::unit_test::suite
         testOpenLedgerExportLimit(allWithExport);
         testExportLatchLimit(allWithExport);
         testExportLatchLifecycle(allWithExport);
-        testCancelExportLatchViaTxn(allWithExport);
+        testControlExportLatchViaTxn(allWithExport);
         testExportRejectsNoTicketSequence(allWithExport);
         testExportRejectsMissingLastLedgerSequence(allWithExport);
         testExportRejectsSignedInnerTransaction(allWithExport);

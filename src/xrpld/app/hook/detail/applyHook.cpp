@@ -2912,11 +2912,22 @@ DEFINE_HOOK_FUNCTION(int64_t, xport_reserve, uint32_t count)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, xport_cancel, uint32_t ticket_seq)
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    xport_cancel,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t flags)
 {
     HOOK_SETUP();
 
-    auto const result = api.xport_cancel(ticket_seq);
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+    if (read_len != uint256::bytes)
+        return INVALID_ARGUMENT;
+
+    auto const result =
+        api.xport_cancel(uint256::fromVoid(memory + read_ptr), flags);
     if (!result)
         return result.error();
     return result.value();

@@ -105,15 +105,18 @@ and ticket-keyed latch helper are not supported v1 compatibility paths.
 
 Witness and XPOP are independent monotonic facts. Whichever arrives second
 symmetrically erases the latch and releases reserve. Cancellation while
-publication is pending is non-revoking: it unlinks work and retains callback
-readiness because already-public signatures cannot be withdrawn. Once a latch
-is non-pending, an explicit owner cleanup may erase it and knowingly forfeit a
-later callback. v1 has neither an automatic terminal-retirement clock nor a
-permanent tombstone graveyard.
+publication is pending is non-revoking: a lifecycle-control `ttEXPORT` names
+the exact source issuance `W` in `sfTransactionHash`, unlinks work, and retains
+callback readiness because already-public signatures cannot be withdrawn. The
+same bytes retain the latch in every state. `tfExportEraseLatch` is a separate,
+explicit election that erases that exact latch in any state, releases reserve,
+and knowingly forfeits a later callback. Publication expiry follows the
+non-revoking retain path. The undeployed Hook API uses the same W-plus-flags
+contract. v1 has neither an automatic terminal-retirement clock nor a permanent
+tombstone graveyard.
 
-Implementation status: origin-keyed latch creation and symmetric witness/XPOP
-recording are present. Explicit terminal cleanup and expiry-unlink behavior are
-ratified policy still tracked for implementation.
+Implementation status: origin-keyed creation, W-only lifecycle control,
+expiry-unlink, and symmetric witness/XPOP recording are present.
 
 **INV-8 — Export signatures are public capabilities.**
 Proposal-carried signature shares may be observed, assembled, and submitted as

@@ -571,15 +571,16 @@ later.
 
 Export-latch cancellation is non-revoking. While publication is pending it
 unlinks signing work and retains callback readiness because shares already
-published to peers cannot be withdrawn. Once the latch is non-pending, an
-explicit owner cleanup may erase it, release reserve, and knowingly accept
-later target execution without callback readiness. Symmetric witness+XPOP
+published to peers cannot be withdrawn. Lifecycle control names the exact
+source issuance `W`: no flag always unlinks and retains in every state, while
+`tfExportEraseLatch` explicitly erases that exact latch in any state, releases
+reserve, and knowingly accepts later target execution without callback
+readiness. Publication expiry follows the retain path. Symmetric witness+XPOP
 completion also erases. v1 has no automatic terminal-retirement clock,
 permanent tombstone, or paid-bump transition.
 
-Implementation status: origin-keyed latch creation and symmetric witness/XPOP
-recording are present. Explicit terminal cleanup and expiry-unlink behavior are
-ratified policy still tracked for implementation.
+Implementation status: origin-keyed creation, W-only lifecycle control,
+expiry-unlink, and symmetric witness/XPOP recording are present.
 
 This is intentionally leaner than XPOP. XPOP carries its own UNL and manifest
 bundle so it can be independently verified as an external proof. Export witnesses

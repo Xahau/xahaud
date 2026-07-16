@@ -234,9 +234,9 @@ struct ExportLatch_test : beast::unit_test::suite
     }
 
     void
-    testCanceledLatchAcceptsBothFactOrders()
+    testRetainedLatchAcceptsBothFactOrders()
     {
-        testcase("canceled latch accepts XPOP and witness in either order");
+        testcase("retained latch accepts XPOP and witness in either order");
 
         using namespace jtx;
         Account const alice{"alice"};
@@ -261,8 +261,13 @@ struct ExportLatch_test : beast::unit_test::suite
         auto const xpopFirstKey = keylet::unchecked(xpopFirst->key());
         BEAST_EXPECT(isTesSuccess(
             ExportLedgerOps::insertPendingExportLatch(sb, sb, xpopFirst, j)));
-        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::cancelExportLatch(
-            sb, sb, alice.id(), xpopFirst->getFieldU32(sfTicketSequence), j)));
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::controlExportLatch(
+            sb,
+            sb,
+            alice.id(),
+            xpopFirst->getFieldH256(sfTransactionHash),
+            false,
+            j)));
 
         auto const canceled = sb.read(xpopFirstKey);
         BEAST_EXPECT(canceled);
@@ -308,11 +313,12 @@ struct ExportLatch_test : beast::unit_test::suite
         auto const witnessFirstKey = keylet::unchecked(witnessFirst->key());
         BEAST_EXPECT(isTesSuccess(ExportLedgerOps::insertPendingExportLatch(
             sb, sb, witnessFirst, j)));
-        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::cancelExportLatch(
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::controlExportLatch(
             sb,
             sb,
             alice.id(),
-            witnessFirst->getFieldU32(sfTicketSequence),
+            witnessFirst->getFieldH256(sfTransactionHash),
+            false,
             j)));
 
         // The accepted witness may already have been materialized before
@@ -351,11 +357,96 @@ struct ExportLatch_test : beast::unit_test::suite
     }
 
     void
+    testExplicitEraseAndExpiryRetention()
+    {
+        testcase("explicit erase and expiry retention");
+
+        using namespace jtx;
+        Account const alice{"alice"};
+        Env env{*this};
+        env.fund(XRP(10'000), alice);
+        env.close();
+
+        beast::Journal j{beast::Journal::getNullSink()};
+        Sandbox sb{env.closed().get(), tapNONE};
+        auto const baselineAccount = sb.read(keylet::account(alice.id()));
+        auto const baselinePending = sb.read(keylet::pendingExports());
+        BEAST_EXPECT(baselineAccount);
+        if (!baselineAccount)
+            return;
+        auto const baselineExportCount =
+            ExportLedgerOps::exportLatchCount(*baselineAccount);
+        auto const baselineOwnerCount =
+            baselineAccount->getFieldU32(sfOwnerCount);
+        auto const baselinePendingCount = baselinePending
+            ? ExportLedgerOps::exportLatchCount(*baselinePending)
+            : std::uint16_t{0};
+
+        auto erased = makeLatch(alice.id(), 0);
+        auto const erasedOrigin = erased->getFieldH256(sfTransactionHash);
+        auto const erasedKey = keylet::exportLatch(alice.id(), erasedOrigin);
+        BEAST_EXPECT(isTesSuccess(
+            ExportLedgerOps::insertPendingExportLatch(sb, sb, erased, j)));
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::controlExportLatch(
+            sb, sb, alice.id(), erasedOrigin, true, j)));
+        BEAST_EXPECT(!sb.exists(erasedKey));
+
+        auto const afterEraseAccount = sb.read(keylet::account(alice.id()));
+        auto const afterErasePending = sb.read(keylet::pendingExports());
+        BEAST_EXPECT(afterEraseAccount);
+        BEAST_EXPECT(afterErasePending);
+        if (!afterEraseAccount || !afterErasePending)
+            return;
+        BEAST_EXPECT(
+            ExportLedgerOps::exportLatchCount(*afterEraseAccount) ==
+            baselineExportCount);
+        BEAST_EXPECT(
+            afterEraseAccount->getFieldU32(sfOwnerCount) == baselineOwnerCount);
+        BEAST_EXPECT(
+            ExportLedgerOps::exportLatchCount(*afterErasePending) ==
+            baselinePendingCount);
+
+        auto expired = makeLatch(alice.id(), 1);
+        expired->setFieldU32(sfLastLedgerSequence, 100);
+        auto const expiredOrigin = expired->getFieldH256(sfTransactionHash);
+        auto const expiredKey = keylet::exportLatch(alice.id(), expiredOrigin);
+        BEAST_EXPECT(isTesSuccess(
+            ExportLedgerOps::insertPendingExportLatch(sb, sb, expired, j)));
+        BEAST_EXPECT(isTesSuccess(
+            ExportLedgerOps::pruneExpiredExportLatches(sb, sb, 101, j)));
+
+        auto const retained = sb.read(expiredKey);
+        auto const afterExpiryAccount = sb.read(keylet::account(alice.id()));
+        auto const afterExpiryPending = sb.read(keylet::pendingExports());
+        BEAST_EXPECT(retained);
+        BEAST_EXPECT(afterExpiryAccount);
+        BEAST_EXPECT(afterExpiryPending);
+        if (!retained || !afterExpiryAccount || !afterExpiryPending)
+            return;
+        BEAST_EXPECT(!retained->isFieldPresent(sfExportNode));
+        BEAST_EXPECT((retained->getFieldU32(sfFlags) & lsfExportCanceled) != 0);
+        BEAST_EXPECT(
+            ExportLedgerOps::exportLatchCount(*afterExpiryAccount) ==
+            baselineExportCount + 1);
+        BEAST_EXPECT(
+            afterExpiryAccount->getFieldU32(sfOwnerCount) ==
+            baselineOwnerCount + 1);
+        BEAST_EXPECT(
+            ExportLedgerOps::exportLatchCount(*afterExpiryPending) ==
+            baselinePendingCount);
+
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::controlExportLatch(
+            sb, sb, alice.id(), expiredOrigin, true, j)));
+        BEAST_EXPECT(!sb.exists(expiredKey));
+    }
+
+    void
     run() override
     {
         testDirectoryLifecycle();
         testWitnessedLatchReleasesGlobalPendingCap();
-        testCanceledLatchAcceptsBothFactOrders();
+        testRetainedLatchAcceptsBothFactOrders();
+        testExplicitEraseAndExpiryRetention();
     }
 };
 

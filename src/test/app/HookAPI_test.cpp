@@ -24,6 +24,7 @@
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/TxFlags.h>
@@ -1201,12 +1202,22 @@ public:
 
         std::uint32_t const importingTicket = 7;
         std::uint32_t const otherTicket = 8;
+        uint256 const importingOrigin{1};
+        uint256 const otherOrigin{2};
         auto importingTx =
             makeExportedPayment(alice.id(), bob.id(), importingTicket);
         auto otherTx = makeExportedPayment(alice.id(), bob.id(), otherTicket);
+        auto const importingRelease = ExportOriginMemo::releaseForm(
+            importingTx,
+            ExportOriginMemo::Origin{21337, 0, importingOrigin},
+            ExportOriginMemo::Anchor{1, uint256{99}});
+        BEAST_EXPECT(importingRelease);
+        if (!importingRelease)
+            return;
 
         auto xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
-        xpopJson[jss::transaction][jss::blob] = strHex(serialize(importingTx));
+        xpopJson[jss::transaction][jss::blob] =
+            strHex(serialize(importingRelease.value()));
         std::string const xpopStr = Json::FastWriter().write(xpopJson);
         STTx importTx = STTx(ttIMPORT, [&](STObject& obj) {
             obj.setAccountID(sfAccount, alice.id());
@@ -1232,8 +1243,6 @@ public:
             return ExportLedgerOps::insertPendingExportLatch(
                 ctx.view(), ctx.rawView(), latch, env.journal);
         };
-        uint256 const importingOrigin{1};
-        uint256 const otherOrigin{2};
         BEAST_EXPECT(
             isTesSuccess(insertLatch(applyCtx, importingTx, importingOrigin)));
         BEAST_EXPECT(isTesSuccess(insertLatch(applyCtx, otherTx, otherOrigin)));
@@ -1242,13 +1251,17 @@ public:
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
         auto& api = hookCtx.api();
 
-        auto const blocked = api.xport_cancel(importingTicket);
+        auto const blocked = api.xport_cancel(importingOrigin, 0);
         BEAST_EXPECT(!blocked.has_value());
         BEAST_EXPECT(blocked.error() == PREREQUISITE_NOT_MET);
         BEAST_EXPECT(hookCtx.applyCtx.view().exists(
             keylet::exportLatch(alice.id(), importingOrigin)));
 
-        auto const cancelled = api.xport_cancel(otherTicket);
+        auto const invalidFlags = api.xport_cancel(otherOrigin, 0x00020000);
+        BEAST_EXPECT(!invalidFlags.has_value());
+        BEAST_EXPECT(invalidFlags.error() == INVALID_ARGUMENT);
+
+        auto const cancelled = api.xport_cancel(otherOrigin, 0);
         BEAST_EXPECT(cancelled.has_value());
         auto const canceledLatch = hookCtx.applyCtx.view().read(
             keylet::exportLatch(alice.id(), otherOrigin));
@@ -1259,6 +1272,11 @@ public:
         BEAST_EXPECT(
             canceledLatch && !canceledLatch->isFieldPresent(sfExportNode));
 
+        auto const erased = api.xport_cancel(otherOrigin, tfExportEraseLatch);
+        BEAST_EXPECT(erased.has_value());
+        BEAST_EXPECT(!hookCtx.applyCtx.view().exists(
+            keylet::exportLatch(alice.id(), otherOrigin)));
+
         auto exportTx = makeExportWrapper(alice.id(), importingTx);
         OpenView exportOv{*env.current()};
         ApplyContext exportApplyCtx =
@@ -1266,7 +1284,7 @@ public:
         std::uint32_t const exportOtherTicket = 9;
         auto exportOtherTx =
             makeExportedPayment(alice.id(), bob.id(), exportOtherTicket);
-        uint256 const exportImportingOrigin{3};
+        auto const exportImportingOrigin = exportTx.getTransactionID();
         uint256 const exportOtherOrigin{4};
         BEAST_EXPECT(isTesSuccess(
             insertLatch(exportApplyCtx, importingTx, exportImportingOrigin)));
@@ -1276,13 +1294,15 @@ public:
             makeStubHookContext(exportApplyCtx, alice.id(), alice.id(), {});
         auto& exportApi = exportHookCtx.api();
 
-        auto const exportBlocked = exportApi.xport_cancel(importingTicket);
+        auto const exportBlocked =
+            exportApi.xport_cancel(exportImportingOrigin, 0);
         BEAST_EXPECT(!exportBlocked.has_value());
         BEAST_EXPECT(exportBlocked.error() == PREREQUISITE_NOT_MET);
         BEAST_EXPECT(exportHookCtx.applyCtx.view().exists(
             keylet::exportLatch(alice.id(), exportImportingOrigin)));
 
-        auto const exportCancelled = exportApi.xport_cancel(exportOtherTicket);
+        auto const exportCancelled =
+            exportApi.xport_cancel(exportOtherOrigin, 0);
         BEAST_EXPECT(exportCancelled.has_value());
         auto const canceledExportLatch = exportHookCtx.applyCtx.view().read(
             keylet::exportLatch(alice.id(), exportOtherOrigin));

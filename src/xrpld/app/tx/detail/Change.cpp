@@ -376,7 +376,7 @@ Change::applyExportSignatures()
     auto const account = target->getAccountID(sfAccount);
     auto const latchKey = keylet::exportLatch(account, origin);
     auto const latch = view().read(latchKey);
-    // A concurrently ordered cancel/expiry may remove the latch after the
+    // A concurrently ordered explicit erase may remove the latch after the
     // accepted sidecar selected this witness. The historical evidence remains
     // valid, but there is no state transition left to perform.
     if (!latch)

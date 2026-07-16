@@ -383,9 +383,9 @@ HOOK_API_DEFINITION(
   int64_t, xport, (uint32_t, uint32_t, uint32_t, uint32_t),
   featureExport)
 
-// int64_t xport_cancel(uint32_t ticket_seq);
+// int64_t xport_cancel(uint32_t read_ptr, uint32_t read_len, uint32_t flags);
 HOOK_API_DEFINITION(
-  int64_t, xport_cancel, (uint32_t),
+  int64_t, xport_cancel, (uint32_t, uint32_t, uint32_t),
   featureExport)
 
 // int64_t dice(uint32_t sides, uint32_t min_tier, uint32_t min_count);

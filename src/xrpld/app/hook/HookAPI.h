@@ -377,7 +377,7 @@ public:
     xport(Slice const& txBlob) const;
 
     Expected<uint64_t, HookReturnCode>
-    xport_cancel(uint32_t ticketSeq) const;
+    xport_cancel(uint256 const& origin, uint32_t flags) const;
 
     /// float APIs
     Expected<uint64_t, HookReturnCode>

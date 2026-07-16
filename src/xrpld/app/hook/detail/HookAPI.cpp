@@ -7,7 +7,9 @@
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/STParsedJSON.h>
+#include <xrpl/protocol/TxFlags.h>
 
 namespace hook {
 
@@ -1065,52 +1067,53 @@ HookAPI::xport(Slice const& txBlob) const
 }
 
 Expected<uint64_t, HookReturnCode>
-HookAPI::xport_cancel(uint32_t ticketSeq) const
+HookAPI::xport_cancel(uint256 const& origin, uint32_t flags) const
 {
+    if (origin.isZero() || (flags != 0 && flags != tfExportEraseLatch))
+        return Unexpected(INVALID_ARGUMENT);
+
     auto& app = hookCtx.applyCtx.app;
     auto j = app.journal("View");
     auto const& currentTx = hookCtx.applyCtx.tx;
     auto const& account = hookCtx.result.account;
 
-    auto matchesTicket = [&](STTx const& innerTx) {
-        return innerTx.isFieldPresent(sfTicketSequence) &&
-            innerTx.getAccountID(sfAccount) == account &&
-            innerTx.getFieldU32(sfTicketSequence) == ticketSeq;
-    };
-
     if (currentTx.getTxnType() == ttIMPORT)
     {
         auto const [innerTx, meta] = Import::getInnerTxn(currentTx, j);
-        if (innerTx && matchesTicket(*innerTx))
+        if (innerTx && innerTx->isFieldPresent(sfAccount) &&
+            innerTx->getAccountID(sfAccount) == account)
         {
-            // Import consumes this callback latch after strong hooks finish.
-            // Letting the hook pre-cancel it would make the Import fail after
-            // hook state already finalized.
-            return Unexpected(PREREQUISITE_NOT_MET);
+            auto const stamp = ExportOriginMemo::parse(*innerTx);
+            if (stamp && stamp.value().origin.transactionHash == origin)
+            {
+                // Import consumes this latch after strong hooks finish.
+                return Unexpected(PREREQUISITE_NOT_MET);
+            }
         }
     }
     else if (currentTx.getTxnType() == ttEXPORT)
     {
-        if (auto const innerTx = ExportLedgerOps::innerExportedTx(currentTx);
-            innerTx && matchesTicket(*innerTx))
+        if (currentTx.isFieldPresent(sfAccount) &&
+            currentTx.getAccountID(sfAccount) == account &&
+            currentTx.getTransactionID() == origin)
         {
-            // Export creates this callback latch before post-apply hooks run.
-            // Letting the callback cancel it would make the later Import fail.
+            // Export creates this latch before post-apply hooks run.
             return Unexpected(PREREQUISITE_NOT_MET);
         }
     }
 
-    TER const ter = ExportLedgerOps::cancelExportLatch(
+    TER const ter = ExportLedgerOps::controlExportLatch(
         hookCtx.applyCtx.view(),
         hookCtx.applyCtx.rawView(),
         account,
-        ticketSeq,
+        origin,
+        flags == tfExportEraseLatch,
         j);
 
     if (!isTesSuccess(ter))
         return Unexpected(DOESNT_EXIST);
 
-    return ticketSeq;
+    return 1;
 }
 
 uint32_t

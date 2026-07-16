@@ -31,11 +31,18 @@ Export::preflight(PreflightContext const& ctx)
     if (!isTesSuccess(ret))
         return ret;
 
-    // Exactly one operation: export OR cancel, not both.
-    bool const hasExport = ctx.tx.isFieldPresent(sfExportedTxn);
-    bool const hasCancel = ctx.tx.isFieldPresent(sfCancelTicketSequence);
+    if (ctx.tx.getFlags() & tfExportMask)
+        return temINVALID_FLAG;
 
-    if (hasExport == hasCancel)  // neither or both
+    // Exactly one operation: create an Export OR control an existing W.
+    bool const hasExport = ctx.tx.isFieldPresent(sfExportedTxn);
+    bool const hasControl = ctx.tx.isFieldPresent(sfTransactionHash);
+
+    if (hasExport == hasControl)  // neither or both
+        return temMALFORMED;
+    if (hasExport && (ctx.tx.getFlags() & tfExportEraseLatch) != 0)
+        return temMALFORMED;
+    if (hasControl && ctx.tx.getFieldH256(sfTransactionHash).isZero())
         return temMALFORMED;
 
     if (hasExport)
@@ -64,8 +71,7 @@ Export::preflight(PreflightContext const& ctx)
     }
 
     // Exported transactions can retry across consensus rounds; every retrying
-    // export needs an explicit outer expiry.  Cancel-only exports are
-    // immediate.
+    // export needs an explicit outer expiry. Lifecycle controls are immediate.
     if (hasExport && !ctx.tx.isFieldPresent(sfLastLedgerSequence))
         return temMALFORMED;
 
@@ -127,12 +133,13 @@ Export::doApply()
 {
     auto const account = ctx_.tx.getAccountID(sfAccount);
 
-    // --- Export latch cancel path (mutually exclusive with export) ---
-    if (ctx_.tx.isFieldPresent(sfCancelTicketSequence))
+    // --- Export latch control path (mutually exclusive with export) ---
+    if (ctx_.tx.isFieldPresent(sfTransactionHash))
     {
-        auto const ticketSeq = ctx_.tx.getFieldU32(sfCancelTicketSequence);
-        return ExportLedgerOps::cancelExportLatch(
-            view(), ctx_.rawView(), account, ticketSeq, j_);
+        auto const origin = ctx_.tx.getFieldH256(sfTransactionHash);
+        bool const erase = (ctx_.tx.getFlags() & tfExportEraseLatch) != 0;
+        return ExportLedgerOps::controlExportLatch(
+            view(), ctx_.rawView(), account, origin, erase, j_);
     }
 
     // --- Export intent path ---

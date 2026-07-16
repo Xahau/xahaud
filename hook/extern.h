@@ -350,7 +350,7 @@ xport(
     uint32_t read_len);
 
 extern int64_t
-xport_cancel(uint32_t ticket_seq);
+xport_cancel(uint32_t read_ptr, uint32_t read_len, uint32_t flags);
 
 /*
     Consensus entropy APIs.

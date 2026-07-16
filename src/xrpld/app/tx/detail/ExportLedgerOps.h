@@ -390,7 +390,86 @@ eraseExportLatch(
     return tesSUCCESS;
 }
 
-/** Deterministically reclaim expired pending latches during paid Export work.
+/// Stop publication while retaining callback readiness and owner reserve.
+inline TER
+stopExportPublication(
+    ApplyView& view,
+    RawView& rawView,
+    Keylet const& latchKey,
+    beast::Journal j)
+{
+    Sandbox sb{&view};
+    auto latch = sb.peek(latchKey);
+    if (!latch || latch->getType() != ltEXPORT_LATCH ||
+        !latch->isFieldPresent(sfAccount) ||
+        !latch->isFieldPresent(sfTransactionHash))
+        return tecNO_ENTRY;
+
+    auto const account = latch->getAccountID(sfAccount);
+    auto const origin = latch->getFieldH256(sfTransactionHash);
+    if (keylet::exportLatch(account, origin).key != latchKey.key)
+        return tefBAD_LEDGER;
+
+    if (auto const ter = removePendingExportLink(sb, latchKey, j);
+        !isTesSuccess(ter))
+        return ter;
+
+    latch = sb.peek(latchKey);
+    if (!latch)
+        return tefBAD_LEDGER;
+    auto const flags = latch->isFieldPresent(sfFlags)
+        ? latch->getFieldU32(sfFlags)
+        : std::uint32_t{0};
+    latch->setFieldU32(sfFlags, flags | lsfExportCanceled);
+    sb.update(latch);
+    sb.apply(rawView);
+    return tesSUCCESS;
+}
+
+/** Apply an owner-authorized lifecycle operation to one exact Export W.
+
+    Retain mode stops publication but preserves callback readiness. Erase mode
+    removes the latch and knowingly forfeits any later callback.
+ */
+inline TER
+controlExportLatch(
+    ApplyView& view,
+    RawView& rawView,
+    AccountID const& account,
+    uint256 const& origin,
+    bool erase,
+    beast::Journal j)
+{
+    auto const key = keylet::exportLatch(account, origin);
+    auto const latch = view.read(key);
+    if (!latch)
+    {
+        JLOG(j.warn()) << "ExportLedgerOps: no Export latch for " << account
+                       << " origin=" << origin;
+        return tecNO_ENTRY;
+    }
+    if (latch->getType() != ltEXPORT_LATCH ||
+        !latch->isFieldPresent(sfAccount) ||
+        !latch->isFieldPresent(sfTransactionHash) ||
+        latch->getAccountID(sfAccount) != account ||
+        latch->getFieldH256(sfTransactionHash) != origin)
+        return tefBAD_LEDGER;
+
+    auto const ter = erase ? eraseExportLatch(view, rawView, key, j)
+                           : stopExportPublication(view, rawView, key, j);
+    if (isTesSuccess(ter))
+    {
+        JLOG(j.debug()) << "ExportLedgerOps: " << (erase ? "erased" : "stopped")
+                        << " Export latch for " << account
+                        << " origin=" << origin;
+    }
+    return ter;
+}
+
+/** Deterministically stop expired publication work during paid Export work.
+
+    Expiry releases the global signing-work slot, but the latch and owner
+    reserve remain until symmetric completion or an explicit erase election.
  */
 inline TER
 pruneExpiredExportLatches(
@@ -416,7 +495,7 @@ pruneExpiredExportLatches(
 
     for (auto const& key : expired)
     {
-        auto const ter = eraseExportLatch(view, rawView, key, j);
+        auto const ter = stopExportPublication(view, rawView, key, j);
         if (!isTesSuccess(ter) && ter != tecNO_ENTRY)
             return ter;
     }
@@ -643,80 +722,6 @@ validateTicketSequence(STTx const& stx, beast::Journal j)
         return temMALFORMED;
     }
 
-    return tesSUCCESS;
-}
-
-/// Cancel publication work for an account-owned Export latch.
-/// The latch retains its owner link and reserve so an already-executed target
-/// transaction may still complete its callback.
-///
-/// @param view       The apply view to modify
-/// @param account    The owning account
-/// @param ticketSeq  The ticket sequence to cancel
-/// @param j          Journal for logging
-/// @return tesSUCCESS or tecNO_ENTRY
-inline TER
-cancelExportLatch(
-    ApplyView& view,
-    RawView& rawView,
-    AccountID const& account,
-    std::uint32_t ticketSeq,
-    beast::Journal j)
-{
-    //@@start current-export-latch-cancel
-    std::optional<Keylet> found;
-    bool ambiguous = false;
-    forEachItem(view, account, [&](std::shared_ptr<SLE const> const& item) {
-        if (!item || item->getType() != ltEXPORT_LATCH ||
-            !item->isFieldPresent(sfTransactionHash) ||
-            item->getFieldU32(sfTicketSequence) != ticketSeq)
-            return;
-        if (found)
-            ambiguous = true;
-        found =
-            keylet::exportLatch(account, item->getFieldH256(sfTransactionHash));
-    });
-    if (ambiguous)
-        return tefBAD_LEDGER;
-
-    if (!found)
-    {
-        JLOG(j.warn()) << "ExportLedgerOps: no Export latch to cancel for "
-                       << account << " seq=" << ticketSeq;
-        return tecNO_ENTRY;
-    }
-
-    auto const key = *found;
-    auto const sle = view.read(key);
-    if (!sle || !sle->isFieldPresent(sfAccount) ||
-        sle->getAccountID(sfAccount) != account)
-    {
-        JLOG(j.warn()) << "ExportLedgerOps: Export latch ownership mismatch";
-        return tecNO_PERMISSION;
-    }
-    if (keylet::exportLatch(account, sle->getFieldH256(sfTransactionHash))
-            .key != key.key)
-        return tefBAD_LEDGER;
-
-    Sandbox sb{&view};
-    if (auto const ter = removePendingExportLink(sb, key, j);
-        !isTesSuccess(ter))
-        return ter;
-
-    auto latch = sb.peek(key);
-    if (!latch)
-        return tefBAD_LEDGER;
-    auto const flags = latch->isFieldPresent(sfFlags)
-        ? latch->getFieldU32(sfFlags)
-        : std::uint32_t{0};
-    latch->setFieldU32(sfFlags, flags | lsfExportCanceled);
-    sb.update(latch);
-    sb.apply(rawView);
-
-    JLOG(j.debug()) << "ExportLedgerOps: canceled Export latch for " << account
-                    << " seq=" << ticketSeq;
-
-    //@@end current-export-latch-cancel
     return tesSUCCESS;
 }
 

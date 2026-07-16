@@ -129,7 +129,6 @@ TYPED_SFIELD(sfImportSequence,           UINT32,    97)
 TYPED_SFIELD(sfRewardTime,               UINT32,    98)
 TYPED_SFIELD(sfRewardLgrFirst,           UINT32,    99)
 TYPED_SFIELD(sfRewardLgrLast,            UINT32,   100)
-TYPED_SFIELD(sfCancelTicketSequence,     UINT32,   101)
 
 // 64-bit integers (common)
 TYPED_SFIELD(sfIndexNext,                UINT64,     1)
