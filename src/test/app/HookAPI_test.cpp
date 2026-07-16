@@ -348,15 +348,25 @@ public:
                 alice.id(),
                 {
                     .expected_etxn_count = 1,
-                    .nonce_used = {{uint256(0), true}},
+                    .result = {
+                        .hookCanEmit = UINT256_BIT[ttEXPORT],
+                    },
                 });
             auto& api = hookCtx.api();
             auto const inner = makeExportedPayment(alice.id(), bob.id());
-            auto const wrapper = makeExportWrapper(alice.id(), inner);
-            auto const result = api.emit(wrapper.getSerializer().slice());
-            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
-            BEAST_EXPECT(hookCtx.result.emittedTxn.empty());
-            BEAST_EXPECT(hookCtx.export_count == 0);
+            auto wrapper = makeExportWrapper(alice.id(), inner);
+            wrapper.setFieldH256(sfExportCommitteeHash, uint256{1});
+            auto const prepared = api.prepare(wrapper.getSerializer().slice());
+            BEAST_EXPECT(prepared.has_value());
+            if (prepared)
+            {
+                auto const result = api.emit(Slice{
+                    prepared->data(),
+                    prepared->size()});
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+                BEAST_EXPECT(hookCtx.result.emittedTxn.empty());
+                BEAST_EXPECT(hookCtx.export_count == 0);
+            }
         }
         {
             // HookCanEmit (non-SetHook)
