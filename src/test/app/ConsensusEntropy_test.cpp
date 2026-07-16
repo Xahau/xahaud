@@ -20,6 +20,7 @@
 #include <test/app/ConsensusEntropy_test_hooks.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
+#include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/hook/Enum.h>
@@ -70,8 +71,7 @@ expectedDice(uint256 block, std::uint32_t sides)
         for (std::size_t i = 0; i < block.size(); i += sizeof(std::uint32_t))
         {
             auto const* candidate = block.data() + i;
-            std::uint32_t const value =
-                (std::uint32_t{candidate[0]} << 24U) |
+            std::uint32_t const value = (std::uint32_t{candidate[0]} << 24U) |
                 (std::uint32_t{candidate[1]} << 16U) |
                 (std::uint32_t{candidate[2]} << 8U) |
                 std::uint32_t{candidate[3]};
@@ -213,14 +213,14 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             {
                 _g(1,1);
 
-                // dice(6) should return 0..5
-                int64_t result = dice(6, 3);
+                // A wide range makes this a useful byte-order known answer.
+                int64_t result = dice(1000000, 3);
 
                 // negative means error
                 if (result < 0)
                     rollback(0, 0, result);
 
-                if (result >= 6)
+                if (result >= 1000000)
                     rollback(0, 0, -1);
 
                 // return the dice result as the accept code
@@ -232,11 +232,6 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             M("set dice hook"),
             HSFEE);
         env.close();
-
-        auto const entropy = env.le(keylet::consensusEntropy());
-        BEAST_REQUIRE(entropy);
-        auto const entropyDigest = entropy->getFieldH256(sfDigest);
-        auto const drawLedgerSeq = env.current()->info().seq;
 
         // Invoke the hook
         Json::Value invoke;
@@ -251,6 +246,10 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
         BEAST_REQUIRE(hookExecutions.size() == 1);
 
+        auto const entropy = env.le(keylet::consensusEntropy());
+        BEAST_REQUIRE(entropy);
+        auto const entropyDigest = entropy->getFieldH256(sfDigest);
+        auto const drawLedgerSeq = entropy->getFieldU32(sfLedgerSequence);
         auto const returnCode = hookExecutions[0].getFieldU64(sfHookReturnCode);
         auto const firstBlock = sha512Half(
             drawLedgerSeq,
@@ -263,8 +262,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             std::string{"direct"},
             entropyDigest,
             std::uint64_t{0});
-        auto const expected = expectedDice(firstBlock, 6);
-        std::cerr << "  dice(6) returnCode = " << returnCode << " (hex 0x"
+        auto const expected = expectedDice(firstBlock, 1000000);
+        std::cerr << "  dice(1000000) returnCode = " << returnCode << " (hex 0x"
                   << std::hex << returnCode << std::dec << ")\n";
         BEAST_EXPECT(returnCode == expected);
 
@@ -660,6 +659,130 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
+    testStaleEntropyStatus()
+    {
+        testcase(
+            "Hook entropy_status() observes stale metadata while draws fail");
+        using namespace jtx;
+
+        Env env{
+            *this,
+            envconfig(),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+
+        ConsensusTestConfig cfg;
+        cfg.standaloneEntropyTier = entropyTierValidatorQuorum;
+        cfg.standaloneEntropyCount = 19;
+        cfg.standaloneEntropyDenominator = 20;
+        env.app().getRuntimeConfig().setGlobalConfig(cfg);
+
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        TestHook hook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+            extern int64_t entropy_status(void);
+            #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
+            #define TOO_LITTLE_ENTROPY (-48)
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                uint64_t expected =
+                    ((uint64_t)3 << 32U) | ((uint64_t)19 << 16U) | 20U;
+                if ((uint64_t)entropy_status() != expected)
+                    return accept(0, 0, 40);
+
+                int64_t dice_result = dice(6, 1);
+                if (dice_result != TOO_LITTLE_ENTROPY)
+                    return accept(0, 0, 100 + dice_result);
+
+                uint8_t buf[32];
+                for (int i = 0; GUARD(32), i < 32; ++i)
+                    buf[i] = 0xA5;
+                if (random((uint32_t)buf, 32, 1) != TOO_LITTLE_ENTROPY)
+                    return accept(0, 0, 42);
+                for (int i = 0; GUARD(32), i < 32; ++i)
+                    if (buf[i] != 0xA5)
+                        return accept(0, 0, 43);
+
+                return accept(0, 0, 0);
+            }
+        )[test.hook]"];
+
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set stale entropy hook"),
+            HSFEE);
+        env.close();
+
+        OpenView view{*env.current()};
+        auto const openSeq = view.info().seq;
+        BEAST_REQUIRE(openSeq > 2);
+        auto const entropy = view.read(keylet::consensusEntropy());
+        BEAST_REQUIRE(entropy);
+        auto replacement = std::make_shared<SLE>(*entropy, entropy->key());
+        replacement->setFieldU32(sfLedgerSequence, openSeq - 2);
+        view.rawReplace(replacement);
+
+        auto const hookArray = view.read(keylet::hook(alice.id()));
+        BEAST_REQUIRE(hookArray);
+        auto const& hooks = hookArray->getFieldArray(sfHooks);
+        BEAST_REQUIRE(hooks.size() == 1);
+        auto const& hookObj = hooks[0];
+        auto const hookHash = hookObj.getFieldH256(sfHookHash);
+        auto const hookDefView = view.read(keylet::hookDefinition(hookHash));
+        BEAST_REQUIRE(hookDefView);
+        auto const hookDef =
+            std::make_shared<SLE>(*hookDefView, hookDefView->key());
+
+        STTx const invokeTx = STTx(ttINVOKE, [&](STObject& obj) {
+            obj.setAccountID(sfAccount, alice.id());
+        });
+        ApplyContext applyCtx{
+            env.app(),
+            view,
+            invokeTx,
+            tesSUCCESS,
+            env.current()->fees().base,
+            tapNONE,
+            env.journal};
+        hook::HookStateMap stateMap;
+        std::map<std::vector<uint8_t>, std::vector<uint8_t>> parameters;
+        BEAST_REQUIRE(!hook::gatherHookParameters(
+            hookDef, hookObj, parameters, env.journal));
+        auto const hookNamespace = hookObj.isFieldPresent(sfHookNamespace)
+            ? hookObj.getFieldH256(sfHookNamespace)
+            : hookDef->getFieldH256(sfHookNamespace);
+        auto result = hook::apply(
+            hookDef->getFieldH256(sfHookSetTxnID),
+            hookHash,
+            hook::getHookCanEmit(hookObj, hookDef),
+            hookNamespace,
+            hookDef->getFieldVL(sfCreateCode),
+            parameters,
+            {},
+            stateMap,
+            applyCtx,
+            alice.id(),
+            hookDef->isFieldPresent(sfHookCallbackFee),
+            false,
+            true,
+            0,
+            0,
+            {});
+
+        BEAST_EXPECT(result.exitType == hook_api::ExitType::ACCEPT);
+        BEAST_EXPECT(result.exitCode == 0);
+        BEAST_EXPECT(result.rngCallCounter == 0);
+    }
+
+    void
     testDiceTierRequirementNotMet()
     {
         testcase("Hook dice() fails closed below min_tier");
@@ -895,28 +1018,23 @@ class ConsensusEntropy_test : public beast::unit_test::suite
 
                 int64_t bad_min_tier = dice(6, 0);
                 if (bad_min_tier != INVALID_ARGUMENT)
-                    return accept(0, 0, bad_min_tier);
-
-                int64_t ok_full_tier = dice(6, 4);
-                if (ok_full_tier < 0 || ok_full_tier > 5)
-                    return accept(0, 0, ok_full_tier);
+                    return accept(0, 0, 100);
 
                 int64_t bad_high_tier = dice(6, 5);
                 if (bad_high_tier != INVALID_ARGUMENT)
-                    return accept(0, 0, bad_high_tier);
+                    return accept(0, 0, 101);
 
                 int64_t bad_random_low = random((uint32_t)buf, 32, 0);
                 if (bad_random_low != INVALID_ARGUMENT)
-                    return accept(0, 0, bad_random_low);
+                    return accept(0, 0, 102);
 
                 int64_t bad_random_high = random((uint32_t)buf, 32, 5);
                 if (bad_random_high != INVALID_ARGUMENT)
-                    return accept(0, 0, bad_random_high);
+                    return accept(0, 0, 103);
 
-                // Sentinel distinct from any dice (0..5) / random result and
-                // from INVALID_ARGUMENT, so a regression that lets a bad
-                // requirement through returns its own code, not this one.
-                return accept(0, 0, 42);
+                // Failed calls must not consume the shared RNG call counter.
+                // The test pins the first valid draw as a known-answer vector.
+                return accept(0, 0, dice(1000000, 4));
             }
         )[test.hook]"];
 
@@ -937,9 +1055,21 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
         BEAST_REQUIRE(hookExecutions.size() == 1);
 
-        // 42 only if all invalid requirements were rejected; any bad
-        // requirement leaking through returns its own (non-42) code.
-        BEAST_EXPECT(hookReturnCode(hookExecutions[0]) == 42);
+        auto const entropy = env.le(keylet::consensusEntropy());
+        BEAST_REQUIRE(entropy);
+        auto const firstBlock = sha512Half(
+            entropy->getFieldU32(sfLedgerSequence),
+            env.tx()->getTransactionID(),
+            alice.id(),
+            hookExecutions[0].getFieldH256(sfHookHash),
+            alice.id(),
+            std::uint8_t{0},
+            std::string{"strong"},
+            std::string{"direct"},
+            entropy->getFieldH256(sfDigest),
+            std::uint64_t{0});
+        auto const actual = hookReturnCode(hookExecutions[0]);
+        BEAST_EXPECT(actual == expectedDice(firstBlock, 1000000));
         BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
     }
 
@@ -953,6 +1083,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         testDiceZeroSides();
         testEntropyStatus();
         testEntropyStatusFallback();
+        testStaleEntropyStatus();
         testDiceTierRequirementNotMet();
         testDiceWithoutAmendment();
         testRandomTierRequirementNotMet();
