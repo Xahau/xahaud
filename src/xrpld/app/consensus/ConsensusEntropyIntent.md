@@ -42,8 +42,10 @@ entropy value and quality labels; the bitmap remains the accountability label.
 Root acceptance is provisional deliberation state until live injection. A
 bounded post-accept deadline may withdraw that root before selection; after
 selection receives a still-accepted matching root, local timeout or diagnostic
-state such as `entropyFailed_` must not override it. A node with no accepted
-root at injection falls back through the normal missing-accepted-root path.
+state such as `entropyFailed_` must not override it. The deterministic selector
+may still reject an empty, malformed, or below-tier accepted map. A node with no
+accepted root at injection falls back through the normal missing-accepted-root
+path.
 
 Non-fallback selection consumes the exact locally held SIDECAR map whose root
 equals `acceptedEntropySetHash_`. Every leaf must be content-addressed under
@@ -84,11 +86,13 @@ sidecar material exists to continue toward non-fallback entropy.
 A node that cannot retain the entropy root through the bounded gate may inject
 `consensus_fallback` while the aligned quorum injects validator entropy. This is
 an accepted, validation-resolved lagging-node close result, not a selector
-determinism defect: a root still accepted at injection must win, while a root
-withdrawn before injection is absent and falls back. This residual can occur
-even when the node otherwise agreed on the pre-injection transaction set: CE is
-appended after base transaction-set consensus, so missing CE proposal material
-is its own close-time boundary.
+determinism defect: a matching root still accepted at injection is the sole
+non-fallback candidate, while a root withdrawn before injection is absent. The
+selector may still fall back deterministically when that candidate fails its
+map-shape or tier checks. This residual can occur even when the node otherwise
+agreed on the pre-injection transaction set: CE is appended after base
+transaction-set consensus, so missing CE proposal material is its own close-time
+boundary.
 This is a theoretical/reproduced-in-lab boundary, not a behavior observed on
 healthy testnets. CE reveal material rides the same proposal messages as the
 base transaction-set positions, so a node healthy enough to align on the tx set
