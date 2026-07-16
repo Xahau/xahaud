@@ -72,7 +72,7 @@ namespace {
 struct ResolvedExportShare
 {
     std::shared_ptr<SLE const> latch;
-    STTx releaseTarget;
+    STTx exportSigningPayload;
 };
 
 enum class ExportShareResolutionStatus {
@@ -230,28 +230,28 @@ resolveExportShare(
         return {ExportShareResolutionStatus::duplicate, std::nullopt};
     }
 
-    auto const inner = ExportLedgerOps::innerExportedTx(*outer);
-    if (!inner)
+    auto const baseTarget = ExportLedgerOps::exportIntentTarget(*outer);
+    if (!baseTarget)
         return {ExportShareResolutionStatus::invalid, std::nullopt};
-    auto const targetNetworkID = inner->isFieldPresent(sfNetworkID)
-        ? inner->getFieldU32(sfNetworkID)
+    auto const targetNetworkID = baseTarget->isFieldPresent(sfNetworkID)
+        ? baseTarget->getFieldU32(sfNetworkID)
         : std::uint32_t{0};
     ExportOriginMemo::Origin const origin{
         app.config().NETWORK_ID, targetNetworkID, share.originTxn};
-    auto const identity = ExportOriginMemo::identityForm(*inner, origin);
-    auto release = ExportOriginMemo::releaseForm(
-        *inner,
+    auto const identity = ExportOriginMemo::identityForm(*baseTarget, origin);
+    auto signingPayload = ExportOriginMemo::releaseForm(
+        *baseTarget,
         origin,
         ExportOriginMemo::Anchor{
             share.originLedgerSeq, share.originLedgerHash});
-    if (!identity || !release ||
+    if (!identity || !signingPayload ||
         ExportResultBuilder::exportIntentHash(identity.value()) !=
             latch->getFieldH256(sfDigest))
         return {ExportShareResolutionStatus::invalid, std::nullopt};
 
     return {
         ExportShareResolutionStatus::resolved,
-        ResolvedExportShare{latch, std::move(release.value())}};
+        ResolvedExportShare{latch, std::move(signingPayload.value())}};
 }
 
 ExportShare
@@ -519,7 +519,7 @@ ConsensusExtensions::admitExportShare(
 
     auto const signer = calcAccountID(share.signingKey);
     auto const data =
-        buildMultiSigningData(resolved.value->releaseTarget, signer);
+        buildMultiSigningData(resolved.value->exportSigningPayload, signer);
     auto const signatureVerified = verify(
         share.signingKey,
         data.slice(),
@@ -719,28 +719,28 @@ ConsensusExtensions::onValidatedLedger(
                         auto const [outer, _] = originLedger->txRead(origin);
                         if (!outer)
                             return;
-                        auto const inner =
-                            ExportLedgerOps::innerExportedTx(*outer);
-                        if (!inner)
+                        auto const baseTarget =
+                            ExportLedgerOps::exportIntentTarget(*outer);
+                        if (!baseTarget)
                             return;
 
                         auto const targetNetworkID =
-                            inner->isFieldPresent(sfNetworkID)
-                            ? inner->getFieldU32(sfNetworkID)
+                            baseTarget->isFieldPresent(sfNetworkID)
+                            ? baseTarget->getFieldU32(sfNetworkID)
                             : std::uint32_t{0};
-                        auto release = ExportOriginMemo::releaseForm(
-                            *inner,
+                        auto signingPayload = ExportOriginMemo::releaseForm(
+                            *baseTarget,
                             ExportOriginMemo::Origin{
                                 app_.config().NETWORK_ID,
                                 targetNetworkID,
                                 origin},
                             ExportOriginMemo::Anchor{originSeq, *originHash});
-                        if (!release)
+                        if (!signingPayload)
                             return;
 
                         auto const signer = calcAccountID(keys.keys->publicKey);
-                        auto const data =
-                            buildMultiSigningData(release.value(), signer);
+                        auto const data = buildMultiSigningData(
+                            signingPayload.value(), signer);
                         auto const signature = sign(
                             keys.keys->publicKey,
                             keys.keys->secretKey,
@@ -2175,7 +2175,7 @@ ConsensusExtensions::agreedExportSignatures(
 
 std::optional<ConsensusExtensions::ExportWitnessMaterial>
 ConsensusExtensions::agreedExportWitness(
-    STTx const& releaseTarget,
+    STTx const& exportSigningPayload,
     uint256 const& origin,
     Blob const& committeeBitmap,
     std::size_t universeSize,
@@ -2266,7 +2266,8 @@ ConsensusExtensions::agreedExportWitness(
                 }
 
                 auto const signature = sidecar.getFieldVL(sfTxnSignature);
-                auto const data = buildMultiSigningData(releaseTarget, signer);
+                auto const data =
+                    buildMultiSigningData(exportSigningPayload, signer);
                 if (signature.empty() ||
                     signature.size() >
                         ExportSigCollectorV2::maxSignatureBytes ||
@@ -2804,8 +2805,9 @@ ConsensusExtensions::onPreBuild(
                 auto const [outer, _] = originLedger->txRead(origin);
                 if (!outer || outer->getTxnType() != ttEXPORT)
                     continue;
-                auto const inner = ExportLedgerOps::innerExportedTx(*outer);
-                if (!inner)
+                auto const baseTarget =
+                    ExportLedgerOps::exportIntentTarget(*outer);
+                if (!baseTarget)
                     continue;
 
                 auto const universeHash =
@@ -2831,19 +2833,20 @@ ConsensusExtensions::onPreBuild(
                 if (!committee)
                     continue;
 
-                auto const targetNetworkID = inner->isFieldPresent(sfNetworkID)
-                    ? inner->getFieldU32(sfNetworkID)
+                auto const targetNetworkID =
+                    baseTarget->isFieldPresent(sfNetworkID)
+                    ? baseTarget->getFieldU32(sfNetworkID)
                     : std::uint32_t{0};
-                auto const release = ExportOriginMemo::releaseForm(
-                    *inner,
+                auto const signingPayload = ExportOriginMemo::releaseForm(
+                    *baseTarget,
                     ExportOriginMemo::Origin{
                         app_.config().NETWORK_ID, targetNetworkID, origin},
                     ExportOriginMemo::Anchor{originSeq, *originHash});
-                if (!release)
+                if (!signingPayload)
                     continue;
 
                 auto material = agreedExportWitness(
-                    release.value(),
+                    signingPayload.value(),
                     origin,
                     committeeBitmap,
                     validatorView->orderedOriginalMasterKeys.size(),
@@ -2853,7 +2856,7 @@ ConsensusExtensions::onPreBuild(
 
                 auto witness = ExportResultBuilder::buildSignatureWitness(
                     origin,
-                    release.value(),
+                    signingPayload.value(),
                     material->signatures,
                     validatorView->orderedOriginalMasterKeys.size(),
                     seq);

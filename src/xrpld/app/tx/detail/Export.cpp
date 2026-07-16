@@ -88,31 +88,31 @@ Export::preclaim(PreclaimContext const& ctx)
         ctx.tx.getFieldH256(sfExportUniverseHash) != ctx.view.info().parentHash)
         return tecEXPORT_UNIVERSE_MISMATCH;
 
-    auto innerTx = ExportLedgerOps::innerExportedTx(ctx.tx);
-    if (!innerTx)
+    auto baseTarget = ExportLedgerOps::exportIntentTarget(ctx.tx);
+    if (!baseTarget)
         return temMALFORMED;
 
     if (auto ter =
-            ExportLedgerOps::validateExportSigningFields(*innerTx, ctx.j);
+            ExportLedgerOps::validateExportSigningFields(*baseTarget, ctx.j);
         !isTesSuccess(ter))
         return ter;
 
     if (auto ter = ExportLedgerOps::validateExportAccount(
-            *innerTx, ctx.tx.getAccountID(sfAccount), ctx.j);
+            *baseTarget, ctx.tx.getAccountID(sfAccount), ctx.j);
         !isTesSuccess(ter))
         return ter;
 
     if (auto ter = ExportLedgerOps::validateNetworkID(
-            *innerTx, ctx.app.config().NETWORK_ID, ctx.j);
+            *baseTarget, ctx.app.config().NETWORK_ID, ctx.j);
         !isTesSuccess(ter))
         return ter;
 
     if (auto ter = ExportLedgerOps::validateOriginMemoProjection(
-            *innerTx, ctx.app.config().NETWORK_ID, ctx.j);
+            *baseTarget, ctx.app.config().NETWORK_ID, ctx.j);
         !isTesSuccess(ter))
         return ter;
 
-    if (auto ter = ExportLedgerOps::validateTicketSequence(*innerTx, ctx.j);
+    if (auto ter = ExportLedgerOps::validateTicketSequence(*baseTarget, ctx.j);
         !isTesSuccess(ter))
         return ter;
 
@@ -145,8 +145,8 @@ Export::doApply()
     // --- Export intent path ---
     auto const txId = ctx_.tx.getTransactionID();
     auto const currentSeq = view().info().seq;
-    auto innerTx = ExportLedgerOps::innerExportedTx(ctx_.tx);
-    if (!innerTx)
+    auto baseTarget = ExportLedgerOps::exportIntentTarget(ctx_.tx);
+    if (!baseTarget)
         return temMALFORMED;
 
     auto parentLedger = ctx_.replayParentLedger();
@@ -183,11 +183,11 @@ Export::doApply()
     if (!committee)
         return tecEXPORT_UNIVERSE_MISMATCH;
 
-    auto const targetNetworkID = innerTx->isFieldPresent(sfNetworkID)
-        ? innerTx->getFieldU32(sfNetworkID)
+    auto const targetNetworkID = baseTarget->isFieldPresent(sfNetworkID)
+        ? baseTarget->getFieldU32(sfNetworkID)
         : std::uint32_t{0};
     auto identity = ExportOriginMemo::identityForm(
-        *innerTx,
+        *baseTarget,
         ExportOriginMemo::Origin{
             ctx_.app.config().NETWORK_ID, targetNetworkID, txId});
     if (!identity)

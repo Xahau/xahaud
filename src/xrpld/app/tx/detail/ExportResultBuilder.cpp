@@ -156,13 +156,13 @@ buildMultiSignedExportedTxn(
 STTx
 buildSignatureWitness(
     uint256 const& exportTxHash,
-    STTx const& releaseTarget,
+    STTx const& exportSigningPayload,
     PositionedSignatureSnapshot const& signatures,
     std::size_t const universeSize,
     LedgerIndex currentSeq)
 {
     auto witnessSignatures = buildWitnessSignatures(signatures, universeSize);
-    auto const target = normalizeAuthorizationEnvelope(releaseTarget);
+    auto const target = normalizeAuthorizationEnvelope(exportSigningPayload);
     return STTx(ttEXPORT_SIGNATURES, [&](auto& obj) {
         obj.setFieldU32(sfLedgerSequence, currentSeq);
         obj.setAccountID(sfAccount, AccountID{});

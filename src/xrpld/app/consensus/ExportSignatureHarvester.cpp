@@ -48,8 +48,8 @@ verifyExportSignatureAgainstTx(
         return false;
     }
 
-    auto innerTx = ExportLedgerOps::innerExportedTx(exportTx);
-    if (!innerTx)
+    auto embeddedTarget = ExportLedgerOps::embeddedExportedTxn(exportTx);
+    if (!embeddedTarget)
     {
         JLOG(j.warn()) << "Export: failed to verify sig"
                        << " txHash=" << txHash << " source=" << source
@@ -61,7 +61,8 @@ verifyExportSignatureAgainstTx(
     try
     {
         auto const signerAcctID = calcAccountID(validator);
-        auto const sigData = buildMultiSigningData(*innerTx, signerAcctID);
+        auto const sigData =
+            buildMultiSigningData(*embeddedTarget, signerAcctID);
         if (!verify(validator, sigData.slice(), sigSlice))
         {
             JLOG(j.warn()) << "Export: invalid multisign sig"

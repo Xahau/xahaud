@@ -82,7 +82,7 @@ isPendingExportWorkTxn(STTx const& stx)
 }
 
 inline std::optional<STTx>
-innerExportedTx(STTx const& stx)
+embeddedExportedTxn(STTx const& stx)
 {
     if (!stx.isFieldPresent(sfExportedTxn))
         return std::nullopt;
@@ -101,6 +101,22 @@ innerExportedTx(STTx const& stx)
     {
         return std::nullopt;
     }
+}
+
+inline std::optional<STTx>
+exportIntentTarget(STTx const& stx)
+{
+    if (stx.getTxnType() != ttEXPORT)
+        return std::nullopt;
+    return embeddedExportedTxn(stx);
+}
+
+inline std::optional<STTx>
+exportWitnessSigningPayload(STTx const& stx)
+{
+    if (stx.getTxnType() != ttEXPORT_SIGNATURES)
+        return std::nullopt;
+    return embeddedExportedTxn(stx);
 }
 
 inline std::size_t

@@ -355,25 +355,25 @@ Change::applyExportSignatures()
         return tefFAILURE;
 
     auto const origin = ctx_.tx.getFieldH256(sfTransactionHash);
-    auto target = ExportLedgerOps::innerExportedTx(ctx_.tx);
+    auto signingPayload = ExportLedgerOps::exportWitnessSigningPayload(ctx_.tx);
     auto signatures = ExportResultBuilder::signaturesFromWitness(ctx_.tx);
-    if (!target || !signatures || signatures->empty())
+    if (!signingPayload || !signatures || signatures->empty())
         return tefFAILURE;
 
-    auto const stamp = ExportOriginMemo::parse(*target);
+    auto const stamp = ExportOriginMemo::parse(*signingPayload);
     if (!stamp || !stamp.value().anchor ||
         stamp.value().origin.sourceDomain != ctx_.app.config().NETWORK_ID ||
         stamp.value().origin.transactionHash != origin)
         return tefFAILURE;
 
-    auto const targetDomain = target->isFieldPresent(sfNetworkID)
-        ? target->getFieldU32(sfNetworkID)
+    auto const targetDomain = signingPayload->isFieldPresent(sfNetworkID)
+        ? signingPayload->getFieldU32(sfNetworkID)
         : std::uint32_t{0};
     if (stamp.value().origin.targetDomain != targetDomain ||
-        !target->isFieldPresent(sfTicketSequence))
+        !signingPayload->isFieldPresent(sfTicketSequence))
         return tefFAILURE;
 
-    auto const account = target->getAccountID(sfAccount);
+    auto const account = signingPayload->getAccountID(sfAccount);
     auto const latchKey = keylet::exportLatch(account, origin);
     auto const latch = view().read(latchKey);
     // A concurrently ordered explicit erase may remove the latch after the
@@ -387,7 +387,7 @@ Change::applyExportSignatures()
         latch->getAccountID(sfAccount) != account ||
         latch->getFieldH256(sfTransactionHash) != origin ||
         latch->getFieldU32(sfTicketSequence) !=
-            target->getFieldU32(sfTicketSequence) ||
+            signingPayload->getFieldU32(sfTicketSequence) ||
         stamp.value().anchor->ledgerSequence !=
             latch->getFieldU32(sfLedgerSequence))
         return tefFAILURE;
@@ -397,7 +397,7 @@ Change::applyExportSignatures()
     // The origin-keyed latch can only exist on descendants of the ledger that
     // created it. Do not query mutable local history here: qC authenticated the
     // anchor bytes, while replay must depend only on transaction and state.
-    auto const identity = ExportOriginMemo::projectIdentity(*target);
+    auto const identity = ExportOriginMemo::projectIdentity(*signingPayload);
     if (!identity ||
         ExportResultBuilder::exportIntentHash(identity.value()) !=
             latch->getFieldH256(sfDigest))
@@ -435,7 +435,7 @@ Change::applyExportSignatures()
         auto const signer = calcAccountID(witness.signingKey);
         if (!signerAccounts.insert(signer).second)
             return tefFAILURE;
-        auto const data = buildMultiSigningData(*target, signer);
+        auto const data = buildMultiSigningData(*signingPayload, signer);
         if (!verify(
                 witness.signingKey,
                 data.slice(),

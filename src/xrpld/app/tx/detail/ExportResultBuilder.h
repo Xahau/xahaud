@@ -61,7 +61,7 @@ buildMultiSignedExportedTxn(
 STTx
 buildSignatureWitness(
     uint256 const& exportTxHash,
-    STTx const& releaseTarget,
+    STTx const& exportSigningPayload,
     PositionedSignatureSnapshot const& signatures,
     std::size_t universeSize,
     LedgerIndex currentSeq);

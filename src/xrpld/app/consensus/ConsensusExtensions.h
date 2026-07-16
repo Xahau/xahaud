@@ -434,7 +434,7 @@ public:
 
     std::optional<ExportWitnessMaterial>
     agreedExportWitness(
-        STTx const& releaseTarget,
+        STTx const& exportSigningPayload,
         uint256 const& origin,
         Blob const& committee,
         std::size_t universeSize,
