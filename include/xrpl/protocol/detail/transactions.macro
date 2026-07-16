@@ -501,14 +501,12 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
 }))
 
 //@@start export-transaction-types
-/* User-submittable export: creates a cross-chain transaction for
-   post-validation committee signing and a durable callback latch.
-   A lifecycle-control form names an existing Export by its source transaction
-   hash. Exactly one of sfExportedTxn or sfTransactionHash must be present. */
+/* User-submittable Export. Its mutually exclusive forms create an intent,
+   control an existing latch, or manage an immutable committee object. */
 TRANSACTION(ttEXPORT, 91, Export, ({
     {sfExportedTxn, soeOPTIONAL},
     {sfTransactionHash, soeOPTIONAL},
-    {sfExportUniverseHash, soeOPTIONAL},
+    {sfExportCommitteeHash, soeOPTIONAL},
     {sfExportCommittee, soeOPTIONAL},
 }))
 //@@end export-transaction-types

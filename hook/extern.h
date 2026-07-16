@@ -347,7 +347,9 @@ xport(
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t read_ptr,
-    uint32_t read_len);
+    uint32_t read_len,
+    uint32_t committee_hash_ptr,
+    uint32_t committee_hash_len);
 
 extern int64_t
 xport_cancel(uint32_t read_ptr, uint32_t read_len, uint32_t flags);

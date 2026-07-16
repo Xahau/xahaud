@@ -212,7 +212,7 @@ public:
             ExportSigCollectorV2::BeginResult::unknownOrigin);
         BEAST_EXPECT(collector.reopenPublication(w, w, 1).has_value());
 
-        good.position = ExportLimits::maxValidatorUniverseMembers;
+        good.position = ExportLimits::maxCommitteeMembers;
         BEAST_EXPECT(
             collector.beginAttributedAdmission(w, good, 1).result ==
             ExportSigCollectorV2::BeginResult::malformed);

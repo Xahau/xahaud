@@ -1030,6 +1030,16 @@ public:
         STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
         OpenView ov{*env.current()};
         ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto const roster =
+            serializeExportCommittee({randomKeyPair(KeyType::secp256k1).first});
+        auto const committeeHash = exportCommitteeHash(makeSlice(roster));
+        auto committee = std::make_shared<SLE>(
+            keylet::exportCommittee(alice.id(), committeeHash));
+        committee->setAccountID(sfAccount, alice.id());
+        committee->setFieldH256(sfExportCommitteeHash, committeeHash);
+        committee->setFieldVL(sfExportCommittee, roster);
+        committee->setFieldU64(sfOwnerNode, 0);
+        applyCtx.view().insert(committee);
 
         {
             // ALREADY_SET
@@ -1140,7 +1150,7 @@ public:
                     .result = {.emittedTxn = emittedTxn},
                 });
             auto& api = hookCtx.api();
-            auto const result = api.xport(Slice{});
+            auto const result = api.xport(Slice{}, committeeHash);
             BEAST_EXPECT(result.error() == TOO_MANY_EMITTED_TXN);
         }
 
@@ -1160,8 +1170,8 @@ public:
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
             auto& api = hookCtx.api();
-            auto const result =
-                api.xport(Slice(serialized.data(), serialized.size()));
+            auto const result = api.xport(
+                Slice(serialized.data(), serialized.size()), committeeHash);
             BEAST_EXPECT(result.error() == EXPORT_FAILURE);
         }
 
@@ -1180,8 +1190,8 @@ public:
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
             auto& api = hookCtx.api();
-            auto const result =
-                api.xport(Slice(serialized.data(), serialized.size()));
+            auto const result = api.xport(
+                Slice(serialized.data(), serialized.size()), committeeHash);
             BEAST_EXPECT(result.error() == FEE_TOO_LARGE);
         }
     }
@@ -1238,8 +1248,7 @@ public:
             latch->setFieldH256(
                 sfDigest, ExportResultBuilder::exportIntentHash(target));
             latch->setFieldU32(sfLedgerSequence, ctx.view().info().seq);
-            latch->setFieldH256(sfExportUniverseHash, uint256{100});
-            latch->setFieldVL(sfExportCommittee, Blob{0x01});
+            latch->setFieldH256(sfExportCommitteeHash, uint256{100});
             return ExportLedgerOps::insertPendingExportLatch(
                 ctx.view(), ctx.rawView(), latch, env.journal);
         };

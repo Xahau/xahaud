@@ -30,22 +30,22 @@ struct BuiltWitnessSignatures
 BuiltWitnessSignatures
 buildWitnessSignatures(
     PositionedSignatureSnapshot const& signatures,
-    std::size_t const universeSize)
+    std::size_t const committeeSize)
 {
-    if (universeSize == 0 ||
-        universeSize > ExportLimits::maxValidatorUniverseMembers ||
+    if (committeeSize == 0 ||
+        committeeSize > ExportLimits::maxCommitteeMembers ||
         signatures.empty() ||
         signatures.size() > ExportLimits::maxCommitteeMembers)
         Throw<std::invalid_argument>("invalid Export witness dimensions");
 
     STArray entries(sfExportSigners);
-    Blob contributors(validatorBitsetBytes(universeSize), 0);
+    Blob contributors(validatorBitsetBytes(committeeSize), 0);
     std::set<PublicKey> signingKeys;
     hash_set<AccountID> signerAccounts;
 
     for (auto const& [position, witness] : signatures)
     {
-        if (position >= universeSize || witness.signature.empty() ||
+        if (position >= committeeSize || witness.signature.empty() ||
             witness.signature.size() > maxTxnSignatureBytes ||
             !signingKeys.insert(witness.signingKey).second ||
             !signerAccounts.insert(calcAccountID(witness.signingKey)).second)
@@ -158,10 +158,10 @@ buildSignatureWitness(
     uint256 const& exportTxHash,
     STTx const& exportSigningPayload,
     PositionedSignatureSnapshot const& signatures,
-    std::size_t const universeSize,
+    std::size_t const committeeSize,
     LedgerIndex currentSeq)
 {
-    auto witnessSignatures = buildWitnessSignatures(signatures, universeSize);
+    auto witnessSignatures = buildWitnessSignatures(signatures, committeeSize);
     auto const target = normalizeAuthorizationEnvelope(exportSigningPayload);
     return STTx(ttEXPORT_SIGNATURES, [&](auto& obj) {
         obj.setFieldU32(sfLedgerSequence, currentSeq);
@@ -197,7 +197,7 @@ signaturesFromWitness(STTx const& witness)
     auto const& contributors = witness.getFieldVL(sfEntropyContributors);
     auto const& entries = witness.getFieldArray(sfExportSigners);
     if (contributors.empty() ||
-        contributors.size() > ExportLimits::maxCommitteeMaskBytes ||
+        contributors.size() > ExportLimits::maxCommitteeContributorBytes ||
         entries.empty() || entries.size() > ExportLimits::maxCommitteeMembers)
         return std::nullopt;
 

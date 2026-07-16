@@ -61,9 +61,9 @@ async def scenario(ctx, log):
             "Export should not succeed without a ledger-anchored UNLReport view"
         )
 
-    if engine_result != "tecEXPORT_UNIVERSE_MISMATCH":
+    if engine_result != "tecEXPORT_COMMITTEE_UNAVAILABLE":
         raise AssertionError(
-            "Expected tecEXPORT_UNIVERSE_MISMATCH without UNLReport view, "
+            "Expected tecEXPORT_COMMITTEE_UNAVAILABLE without UNLReport view, "
             f"got {engine_result}"
         )
 
@@ -74,7 +74,7 @@ async def scenario(ctx, log):
         ctx, tx_hash, after_ledger=current_seq
     )
     meta = validated.get("meta", validated.get("metaData", {}))
-    if meta.get("TransactionResult") != "tecEXPORT_UNIVERSE_MISMATCH":
+    if meta.get("TransactionResult") != "tecEXPORT_COMMITTEE_UNAVAILABLE":
         raise AssertionError(f"Unexpected validated result: {validated}")
 
     final_seq = validated.get("ledger_index")

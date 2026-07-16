@@ -985,7 +985,7 @@ HookAPI::xport_reserve(uint64_t count) const
 }
 
 Expected<uint256, HookReturnCode>
-HookAPI::xport(Slice const& txBlob) const
+HookAPI::xport(Slice const& txBlob, uint256 const& committeeHash) const
 {
     auto& applyCtx = hookCtx.applyCtx;
     auto& app = applyCtx.app;
@@ -1001,6 +1001,18 @@ HookAPI::xport(Slice const& txBlob) const
     if (hookCtx.export_count >= hookCtx.expected_export_count)
         return Unexpected(TOO_MANY_EXPORTED_TXN);
 
+    auto const committee = view.read(
+        keylet::exportCommittee(hookCtx.result.account, committeeHash));
+    if (!committee)
+        return Unexpected(DOESNT_EXIST);
+    if (!committee->isFieldPresent(sfExportCommittee) ||
+        !ExportLedgerOps::isMatchingExportCommittee(
+            *committee,
+            hookCtx.result.account,
+            committeeHash,
+            makeSlice(committee->getFieldVL(sfExportCommittee))))
+        return Unexpected(EXPORT_FAILURE);
+
     auto const generation = static_cast<uint32_t>(etxn_generation());
     if (generation >= 10)
         return Unexpected(EXPORT_FAILURE);
@@ -1011,6 +1023,7 @@ HookAPI::xport(Slice const& txBlob) const
 
     auto built = XportWrapperBuilder::build(XportWrapperBuilder::Input{
         txBlob,
+        committeeHash,
         hookCtx.result.account,
         app.config().NETWORK_ID,
         view.info().seq,

@@ -472,8 +472,8 @@ public:
                 event[jss::origin_ledger_hash] ==
                 to_string(share.originLedgerHash) &&
                 event[jss::trigger_txid] == to_string(share.triggerTxn) &&
-                event[jss::universe_position].asUInt() ==
-                share.universePosition &&
+                event[jss::committee_position].asUInt() ==
+                share.committeePosition &&
                 event[jss::signing_key] ==
                 toBase58(TokenType::NodePublic, share.signingKey) &&
                 event[jss::signature] ==
@@ -490,8 +490,8 @@ public:
                 event[jss::ledger_index].asUInt() == observedLedgerSeq &&
                 event[jss::ledger_hash] == to_string(observedLedgerHash) &&
                 event[jss::origin_txid] == to_string(share.originTxn) &&
-                event[jss::universe_position].asUInt() ==
-                share.universePosition &&
+                event[jss::committee_position].asUInt() ==
+                share.committeePosition &&
                 event[jss::signing_key] ==
                 toBase58(TokenType::NodePublic, share.signingKey) &&
                 event[jss::signature] ==

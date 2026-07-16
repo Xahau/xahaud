@@ -25,11 +25,12 @@
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/Serializer.h>
-#include <xrpl/protocol/ValidatorBitset.h>
 #include <xrpl/protocol/digest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
+#include <vector>
 
 namespace ripple {
 namespace test {
@@ -96,11 +97,9 @@ public:
     {
         testcase("structural Export limits");
 
-        BEAST_EXPECT(ExportLimits::maxValidatorUniverseMembers == 256);
-        BEAST_EXPECT(
-            ExportLimits::maxCommitteeMaskBytes ==
-            validatorBitsetBytes(ExportLimits::maxValidatorUniverseMembers));
-        BEAST_EXPECT(ExportLimits::maxCommitteeMaskBytes == 32);
+        BEAST_EXPECT(ExportLimits::maxCommitteeMembers == 32);
+        BEAST_EXPECT(ExportLimits::maxCommitteeRosterBytes == 1056);
+        BEAST_EXPECT(ExportLimits::maxCommitteeContributorBytes == 4);
         BEAST_EXPECT(
             ExportLimits::maxCommitteeMembers == STTx::maxMultiSigners());
 
@@ -119,30 +118,67 @@ public:
     {
         testcase("Export committee profile");
 
-        Blob mask(validatorBitsetBytes(28), 0);
+        std::vector<PublicKey> masters;
+        masters.reserve(28);
         for (std::size_t i = 0; i < 28; ++i)
-            mask[i / 8] |= static_cast<std::uint8_t>(1u << (i % 8));
+            masters.push_back(randomKeyPair(KeyType::secp256k1).first);
+        auto const roster = serializeExportCommittee(masters);
 
-        auto profile = resolveExportCommittee(makeSlice(mask), 28);
+        auto profile = resolveExportCommittee(makeSlice(roster));
         BEAST_EXPECT(profile.has_value());
         if (profile)
         {
-            BEAST_EXPECT(profile->members.selected() == 28);
+            BEAST_EXPECT(profile->members.size() == 28);
             BEAST_EXPECT(profile->quorum == 23);
-            BEAST_EXPECT(profile->members.contains(0));
-            BEAST_EXPECT(profile->members.contains(27));
-            BEAST_EXPECT(!profile->members.contains(28));
+            BEAST_EXPECT(profile->position(profile->members.front()) == 0);
+            BEAST_EXPECT(profile->position(profile->members.back()) == 27);
+        }
+        BEAST_EXPECT(!exportCommitteeHash(makeSlice(roster)).isZero());
+
+        Blob unordered;
+        for (auto it = masters.rbegin(); it != masters.rend(); ++it)
+            unordered.insert(unordered.end(), it->begin(), it->end());
+        BEAST_EXPECT(!resolveExportCommittee(makeSlice(unordered)));
+        auto const canonical =
+            canonicalizeExportCommittee(makeSlice(unordered));
+        BEAST_EXPECT(canonical.has_value());
+        if (canonical)
+        {
+            BEAST_EXPECT(*canonical == roster);
+            auto const unorderedProfile =
+                resolveExportCommittee(makeSlice(*canonical));
+            BEAST_EXPECT(unorderedProfile.has_value());
+            if (unorderedProfile)
+                BEAST_EXPECT(unorderedProfile->members == profile->members);
+            BEAST_EXPECT(
+                exportCommitteeHash(makeSlice(*canonical)) ==
+                exportCommitteeHash(makeSlice(roster)));
         }
 
-        BEAST_EXPECT(!resolveExportCommittee(Slice{}, 0));
-        BEAST_EXPECT(!resolveExportCommittee(makeSlice(mask), 27));
+        Serializer expectedDigest;
+        expectedDigest.add32(HashPrefix::exportCommittee);
+        expectedDigest.add32(static_cast<std::uint32_t>(masters.size()));
+        expectedDigest.addRaw(makeSlice(roster));
+        BEAST_EXPECT(
+            exportCommitteeHash(makeSlice(roster)) ==
+            expectedDigest.getSHA512Half());
 
-        Blob empty(validatorBitsetBytes(28), 0);
-        BEAST_EXPECT(!resolveExportCommittee(makeSlice(empty), 28));
+        BEAST_EXPECT(!resolveExportCommittee(Slice{}));
 
-        Blob tooMany(validatorBitsetBytes(33), 0xFF);
-        tooMany.back() = 0x01;
-        BEAST_EXPECT(!resolveExportCommittee(makeSlice(tooMany), 33));
+        Blob malformed(34, 0);
+        BEAST_EXPECT(!resolveExportCommittee(makeSlice(malformed)));
+
+        Blob duplicate;
+        duplicate.insert(
+            duplicate.end(), masters.front().begin(), masters.front().end());
+        duplicate.insert(
+            duplicate.end(), masters.front().begin(), masters.front().end());
+        BEAST_EXPECT(!resolveExportCommittee(makeSlice(duplicate)));
+
+        std::vector<PublicKey> tooMany;
+        for (std::size_t i = 0; i <= ExportLimits::maxCommitteeMembers; ++i)
+            tooMany.push_back(randomKeyPair(KeyType::secp256k1).first);
+        BEAST_EXPECT(serializeExportCommittee(std::move(tooMany)).empty());
     }
 
     void
@@ -153,16 +189,14 @@ public:
         BEAST_EXPECT(sfExportCount.fieldCode == field_code(STI_UINT16, 101));
         BEAST_EXPECT(sfExportNode.fieldCode == field_code(STI_UINT64, 29));
         BEAST_EXPECT(
-            sfExportUniverseHash.fieldCode == field_code(STI_UINT256, 39));
+            sfExportCommitteeHash.fieldCode == field_code(STI_UINT256, 39));
         BEAST_EXPECT(sfExportCommittee.fieldCode == field_code(STI_VL, 34));
 
         AccountID const account{1};
         uint256 const origin{2};
         uint256 const intentDigest{3};
-        uint256 const universeDigest{4};
+        uint256 const committeeDigest{4};
         uint256 const witnessHash{5};
-        Blob committee(ExportLimits::maxCommitteeMaskBytes, 0);
-        committee.front() = 0x03;
 
         SLE latch{keylet::exportLatch(account, origin)};
         latch.setAccountID(sfAccount, account);
@@ -170,29 +204,13 @@ public:
         latch.setFieldH256(sfTransactionHash, origin);
         latch.setFieldH256(sfDigest, intentDigest);
         latch.setFieldU32(sfLedgerSequence, 4'123'200);
-        latch.setFieldH256(sfExportUniverseHash, universeDigest);
-        latch.setFieldVL(sfExportCommittee, committee);
+        latch.setFieldH256(sfExportCommitteeHash, committeeDigest);
         latch.setFieldU32(sfFlags, 1);
         latch.setFieldH256(sfExportSignatureHash, witnessHash);
         latch.setFieldU64(sfOwnerNode, 7);
         latch.setFieldU64(sfExportNode, 8);
 
         auto const serialized = latch.getSerializer();
-        BEAST_EXPECT(serialized.size() == 230);
-        BEAST_EXPECT(
-            strHex(serialized.slice()) ==
-            "115374220000000126003EEA4020290000D6D9"
-            "340000000000000007301D0000000000000008"
-            "530000000000000000000000000000000000000000000000000000000000000002"
-            "501500000000000000000000000000000000000000000000000000000000000000"
-            "03"
-            "502600000000000000000000000000000000000000000000000000000000000000"
-            "05"
-            "502700000000000000000000000000000000000000000000000000000000000000"
-            "04"
-            "702220030000000000000000000000000000000000000000000000000000000000"
-            "0000"
-            "81140000000000000000000000000000000000000001");
 
         SerialIter sit{serialized.slice()};
         SLE const parsed{sit, latch.key()};
@@ -203,8 +221,7 @@ public:
         BEAST_EXPECT(parsed.getFieldH256(sfDigest) == intentDigest);
         BEAST_EXPECT(parsed.getFieldU32(sfLedgerSequence) == 4'123'200);
         BEAST_EXPECT(
-            parsed.getFieldH256(sfExportUniverseHash) == universeDigest);
-        BEAST_EXPECT(parsed.getFieldVL(sfExportCommittee) == committee);
+            parsed.getFieldH256(sfExportCommitteeHash) == committeeDigest);
         BEAST_EXPECT(parsed.getFieldU32(sfFlags) == 1);
         BEAST_EXPECT(parsed.getFieldH256(sfExportSignatureHash) == witnessHash);
         BEAST_EXPECT(parsed.getFieldU64(sfOwnerNode) == 7);
@@ -217,6 +234,23 @@ public:
         SLE pendingRoot{keylet::pendingExports()};
         pendingRoot.setFieldU16(sfExportCount, 10);
         BEAST_EXPECT(pendingRoot.getFieldU16(sfExportCount) == 10);
+
+        auto const master = randomKeyPair(KeyType::secp256k1).first;
+        auto const roster = serializeExportCommittee({master});
+        auto const digest = exportCommitteeHash(makeSlice(roster));
+        auto const committeeKey = keylet::exportCommittee(account, digest);
+        BEAST_EXPECT(committeeKey.type == ltEXPORT_COMMITTEE);
+
+        SLE committee{committeeKey};
+        committee.setAccountID(sfAccount, account);
+        committee.setFieldH256(sfExportCommitteeHash, digest);
+        committee.setFieldVL(sfExportCommittee, roster);
+        committee.setFieldU64(sfOwnerNode, 11);
+        auto const committeeBytes = committee.getSerializer();
+        SerialIter committeeIter{committeeBytes.slice()};
+        SLE const parsedCommittee{committeeIter, committeeKey.key};
+        BEAST_EXPECT(parsedCommittee.getType() == ltEXPORT_COMMITTEE);
+        BEAST_EXPECT(parsedCommittee.getFieldVL(sfExportCommittee) == roster);
     }
 
     void

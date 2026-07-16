@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 from xahaud_scripts.testnet.config import (
@@ -80,8 +81,23 @@ def _validator_master_keys_by_node(ctx):
     }
 
 
+def _export_committee_fields(master_keys):
+    """Return the canonical roster and its protocol content digest."""
+    encoded = [bytes.fromhex(key) for key in master_keys]
+    if not encoded or len(encoded) > 32 or len(set(encoded)) != len(encoded):
+        raise AssertionError("Export committee requires 1..32 unique masters")
+    encoded.sort()
+    roster = b"".join(encoded)
+    preimage = b"ECM\0" + len(encoded).to_bytes(4, "big") + roster
+    digest = hashlib.sha512(preimage).digest()[:32]
+    return {
+        "ExportCommitteeHash": digest.hex().upper(),
+        "ExportCommittee": roster.hex().upper(),
+    }
+
+
 def bitmap_positions(bitmap):
-    """Return the selected bit positions from a hex bitmap or bytes."""
+    """Return set positions from a witness contributor bitmap."""
     raw = bytes.fromhex(bitmap) if isinstance(bitmap, str) else bytes(bitmap)
     return {
         byte_index * 8 + bit_index
@@ -91,15 +107,8 @@ def bitmap_positions(bitmap):
     }
 
 
-def export_authority(
-    ctx, *, require_unl_report=True, committee_node_ids=None
-):
-    """Build the explicit authority declaration for a direct Export.
-
-    Direct clients pin the validated parent ledger and select members from its
-    canonical UNLReport ordering. Hook-created exports derive the same tuple at
-    admission and do not use this helper.
-    """
+def export_authority(ctx, *, require_unl_report=True, committee_node_ids=None):
+    """Build an account-owned committee declaration for a direct Export."""
     ledger_result = ctx.ledger("validated") or {}
     ledger = ledger_result.get("ledger", {})
     universe_hash = ledger_result.get("ledger_hash") or ledger.get("hash")
@@ -118,13 +127,13 @@ def export_authority(
     if not active:
         if require_unl_report:
             raise AssertionError(f"UNLReport active universe unavailable: {report}")
-        # The negative no-UNLReport scenario still needs a structurally valid
-        # explicit authority so consensus, rather than this helper, rejects
-        # the unavailable parent-ledger universe.
-        return {
-            "ExportUniverseHash": universe_hash,
-            "ExportCommittee": "01",
-        }
+        # The negative scenario still submits a structurally valid roster so
+        # source eligibility, rather than client construction, rejects it.
+        masters = _validator_master_keys_by_node(ctx)
+        selected_ids = (
+            sorted(masters) if committee_node_ids is None else committee_node_ids
+        )
+        return _export_committee_fields([masters[node_id] for node_id in selected_ids])
 
     active_keys = set()
     for entry in active:
@@ -136,30 +145,22 @@ def export_authority(
     active_keys = sorted(active_keys, key=bytes.fromhex)
 
     if committee_node_ids is None:
-        selected_positions = range(len(active_keys))
+        selected_keys = active_keys
     else:
         masters = _validator_master_keys_by_node(ctx)
-        selected_positions = []
+        selected_keys = []
         for node_id in committee_node_ids:
             if node_id not in masters:
                 raise AssertionError(f"Unknown testnet validator node n{node_id}")
-            try:
-                selected_positions.append(active_keys.index(masters[node_id]))
-            except ValueError as exc:
+            if masters[node_id] not in active_keys:
                 raise AssertionError(
                     f"Validator n{node_id} is absent from the active UNLReport"
-                ) from exc
-        if not selected_positions:
+                )
+            selected_keys.append(masters[node_id])
+        if not selected_keys:
             raise AssertionError("Export committee must select at least one validator")
 
-    committee = bytearray((len(active_keys) + 7) // 8)
-    for index in selected_positions:
-        committee[index // 8] |= 1 << (index % 8)
-
-    return {
-        "ExportUniverseHash": universe_hash,
-        "ExportCommittee": committee.hex().upper(),
-    }
+    return _export_committee_fields(selected_keys)
 
 
 def find_export_signature_witness(ctx, seq, origin_hash):
@@ -252,12 +253,10 @@ async def submit_direct_export(
             raise AssertionError("Validated ledger unavailable before Export")
 
         candidate = dict(tx)
-        candidate.update(
-            export_authority(ctx, committee_node_ids=committee_node_ids)
-        )
+        candidate.update(export_authority(ctx, committee_node_ids=committee_node_ids))
         candidate["LastLedgerSequence"] = current + EXPORT_RETRY_LEDGER_WINDOW
         result = await ctx.submit_and_wait(candidate, wallet, timeout=timeout)
-        if result.get("engine_result") != "tecEXPORT_UNIVERSE_MISMATCH":
+        if result.get("engine_result") != "tecEXPORT_COMMITTEE_UNAVAILABLE":
             return result
 
         tx_hash = result.get("hash") or result.get("tx_json", {}).get("hash")
@@ -269,7 +268,7 @@ async def submit_direct_export(
                 ctx, tx_hash, after_ledger=current
             )
         meta = validated.get("meta", {})
-        if meta.get("TransactionResult") != "tecEXPORT_UNIVERSE_MISMATCH":
+        if meta.get("TransactionResult") != "tecEXPORT_COMMITTEE_UNAVAILABLE":
             raise AssertionError(
                 f"Unexpected validated rebase result for {tx_hash}: {validated}"
             )
@@ -429,6 +428,8 @@ def assert_export_latch(
             )
         if "TransactionHash" not in latch:
             raise AssertionError("ExportLatch missing Export origin TransactionHash")
+        if "ExportCommitteeHash" not in latch:
+            raise AssertionError("ExportLatch missing ExportCommitteeHash")
         if expect_witness is True and "ExportSignatureHash" not in latch:
             raise AssertionError("ExportLatch missing ExportSignatureHash")
         if expect_witness is False and "ExportSignatureHash" in latch:

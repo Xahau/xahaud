@@ -109,11 +109,7 @@ applyTransactions(
     bool certainRetry = true;
     std::size_t count = 0;
 
-    ApplyOptions const applyOptions{
-        nullptr,
-        ApplyOptions::ExportWitnessMembership::TrustConsensusMaterialized,
-        false,
-        nullptr};
+    ApplyOptions const applyOptions{};
 
     //@@start rng-entropy-first-application
     // CRITICAL: Apply consensus entropy pseudo-tx FIRST before any other
@@ -293,11 +289,7 @@ buildLedger(
         app,
         j,
         [&](OpenView& accum, std::shared_ptr<Ledger> const& built) {
-            ApplyOptions const applyOptions{
-                nullptr,
-                ApplyOptions::ExportWitnessMembership::TrustHistoricalReplay,
-                true,
-                replayData.parent()};
+            ApplyOptions const applyOptions{replayData.parent()};
 
             for (auto& tx : replayData.orderedTxns())
                 applyTransaction(

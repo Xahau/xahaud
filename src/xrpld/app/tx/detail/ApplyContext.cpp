@@ -37,9 +37,6 @@ ApplyContext::ApplyContext(
     XRPAmount baseFee_,
     ApplyFlags flags,
     beast::Journal journal_,
-    ExportResultBuilder::SignatureWitnesses const* exportSignatureWitnesses,
-    ApplyOptions::ExportWitnessMembership exportWitnessMembership,
-    bool historicalLedgerReplay,
     std::shared_ptr<Ledger const> replayParentLedger)
     : app(app_)
     , tx(tx_)
@@ -48,9 +45,6 @@ ApplyContext::ApplyContext(
     , journal(journal_)
     , base_(base)
     , flags_(flags)
-    , exportSignatureWitnesses_(exportSignatureWitnesses)
-    , exportWitnessMembership_(exportWitnessMembership)
-    , historicalLedgerReplay_(historicalLedgerReplay)
     , replayParentLedger_(std::move(replayParentLedger))
 {
     view_.emplace(&base_, flags_);

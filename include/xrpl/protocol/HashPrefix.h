@@ -111,6 +111,9 @@ enum class HashPrefix : std::uint32_t {
 
     /** consensus entropy transaction-ordering salt */
     entropyTxnOrder = detail::make_hash_prefix('E', 'T', 'O'),
+
+    /** immutable Export committee roster */
+    exportCommittee = detail::make_hash_prefix('E', 'C', 'M'),
 };
 
 template <class Hasher>

@@ -41,8 +41,7 @@ struct ExportLatch_test : beast::unit_test::suite
         latch->setFieldH256(sfTransactionHash, origin);
         latch->setFieldH256(sfDigest, uint256{10'000 + ordinal});
         latch->setFieldU32(sfLedgerSequence, 4'000'000 + ordinal);
-        latch->setFieldH256(sfExportUniverseHash, uint256{20'000 + ordinal});
-        latch->setFieldVL(sfExportCommittee, Blob{0x01});
+        latch->setFieldH256(sfExportCommitteeHash, uint256{20'000 + ordinal});
         return latch;
     }
 

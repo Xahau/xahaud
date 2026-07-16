@@ -213,6 +213,10 @@ private:
             int32_t type_value = static_cast<int32_t>(entry.first);
             ret[jss::LEDGER_ENTRY_TYPES][type_name] = type_value;
         }
+        // The committee keylet uses a protocol-defined value above the
+        // bounded reflection range used for the legacy ledger types.
+        ret[jss::LEDGER_ENTRY_TYPES]["ExportCommittee"] =
+            static_cast<int32_t>(ltEXPORT_COMMITTEE);
 
         ret[jss::FIELDS] = Json::arrayValue;
 

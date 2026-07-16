@@ -18,6 +18,9 @@ using namespace ripple;
 Expected<Result, HookReturnCode>
 build(Input const& input)
 {
+    if (input.committeeHash.isZero())
+        return Unexpected(::hook_api::hook_return_code::INVALID_ARGUMENT);
+
     std::shared_ptr<STTx const> innerTx;
     try
     {
@@ -77,6 +80,7 @@ build(Input const& input)
     exportObj[sfLastLedgerSequence] =
         input.ledgerSeq + ExportLimits::maxRetryLedgers;
     exportObj[sfFee] = STAmount{0};
+    exportObj.setFieldH256(sfExportCommitteeHash, input.committeeHash);
 
     SerialIter sit(innerSer.slice());
     exportObj.set(std::make_unique<STObject>(sit, sfExportedTxn));

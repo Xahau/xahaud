@@ -32,7 +32,7 @@ struct ExportShare
     LedgerIndex originLedgerSeq{0};
     uint256 originLedgerHash;
     uint256 triggerTxn;
-    std::uint16_t universePosition{0};
+    std::uint16_t committeePosition{0};
     PublicKey signingKey;
     Buffer signature;
 
@@ -62,7 +62,7 @@ struct ExportShare
         return version == currentVersion && owner != beast::zero &&
             !originTxn.isZero() && originLedgerSeq != 0 &&
             !originLedgerHash.isZero() && !triggerTxn.isZero() &&
-            universePosition < ExportLimits::maxValidatorUniverseMembers &&
+            committeePosition < ExportLimits::maxCommitteeMembers &&
             hasCanonicalSignature();
     }
 
@@ -79,7 +79,7 @@ struct ExportShare
         result.add32(originLedgerSeq);
         result.addBitString(originLedgerHash);
         result.addBitString(triggerTxn);
-        result.add16(universePosition);
+        result.add16(committeePosition);
         result.addRaw(signingKey.slice());
         result.addVL(signature);
         return result;
@@ -89,7 +89,7 @@ struct ExportShare
     wireHash() const
     {
         // Raw-wire suppression only. Routing context such as triggerTxn and
-        // universePosition is checked against validated state before relay and
+        // committeePosition is checked against validated state before relay and
         // is not authenticated by the destination multisignature.
         auto const bytes = serialize();
         return sha512Half(bytes.slice());
@@ -111,7 +111,7 @@ struct ExportShare
             auto const originLedgerSeq = sit.get32();
             auto const originLedgerHash = sit.get256();
             auto const triggerTxn = sit.get256();
-            auto const universePosition = sit.get16();
+            auto const committeePosition = sit.get16();
             auto const keySlice = sit.getSlice(33);
             if (!publicKeyType(keySlice))
                 return std::nullopt;
@@ -127,7 +127,7 @@ struct ExportShare
                 originLedgerSeq,
                 originLedgerHash,
                 triggerTxn,
-                universePosition,
+                committeePosition,
                 signingKey,
                 std::move(signature)};
             if (!result.validShape())

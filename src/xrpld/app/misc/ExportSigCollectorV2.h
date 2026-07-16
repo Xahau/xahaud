@@ -20,8 +20,8 @@ namespace ripple {
 
     This class is intentionally separate from the live legacy collector. Its
     contribution identity is the immutable Export origin plus the position in
-    that origin's pinned validator universe. Publication attempts may reopen,
-    but never reset admitted contributions or conflict state.
+    that origin's immutable validator committee. Publication attempts may
+   reopen, but never reset admitted contributions or conflict state.
 */
 class ExportSigCollectorV2
 {
@@ -214,7 +214,7 @@ public:
     /** Reserve one contribution encoding for verification.
 
         The caller must first attribute the signing key to this exact selected
-        universe position using the validated latch and current manifest. The
+        committee position using the validated latch and current manifest. The
         reservation is then the cryptographic pre-verification DoS boundary.
         At most two
         distinct encodings can be in-flight or admitted at a position. The
@@ -228,8 +228,7 @@ public:
         std::uint32_t currentSeq = 0)
     {
         if (origin.isZero() || currentSeq == 0 ||
-            contribution.position >=
-                ExportLimits::maxValidatorUniverseMembers ||
+            contribution.position >= ExportLimits::maxCommitteeMembers ||
             contribution.signature.empty() ||
             contribution.signature.size() > maxSignatureBytes)
             return {BeginResult::malformed, std::nullopt};

@@ -75,6 +75,7 @@ enum class LedgerNameSpace : std::uint16_t {
     EMITTED_TXN = 'E',
     EMITTED_DIR = 'F',
     EXPORT_LATCH = 0x5374,        // St
+    EXPORT_COMMITTEE = 0x4563,    // Ec
     EXPORT_PENDING_DIR = 0x4570,  // Ep
     NFTOKEN_OFFER = 'q',
     NFTOKEN_BUY_OFFERS = 'h',
@@ -200,6 +201,14 @@ exportLatch(AccountID const& account, uint256 const& originTxnHash) noexcept
         indexHash(LedgerNameSpace::EXPORT_LATCH, account, originTxnHash)};
 }
 //@@end export-origin-keylet
+
+Keylet
+exportCommittee(AccountID const& account, uint256 const& digest) noexcept
+{
+    return {
+        ltEXPORT_COMMITTEE,
+        indexHash(LedgerNameSpace::EXPORT_COMMITTEE, account, digest)};
+}
 
 //@@start export-pending-directory-keylet
 Keylet const&

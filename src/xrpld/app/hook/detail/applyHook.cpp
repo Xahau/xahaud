@@ -4009,7 +4009,9 @@ DEFINE_HOOK_FUNCTION(
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t read_ptr,
-    uint32_t read_len)
+    uint32_t read_len,
+    uint32_t committee_hash_ptr,
+    uint32_t committee_hash_len)
 {
     HOOK_SETUP();
 
@@ -4019,14 +4021,20 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
         return OUT_OF_BOUNDS;
 
+    if (NOT_IN_BOUNDS(committee_hash_ptr, committee_hash_len, memory_length))
+        return OUT_OF_BOUNDS;
+
     if (write_len < 32)
         return TOO_SMALL;
+    if (committee_hash_len != uint256::bytes)
+        return INVALID_ARGUMENT;
 
     // Delegate to decoupled HookAPI for xport logic
     ripple::Slice txBlob{
         reinterpret_cast<const void*>(memory + read_ptr), read_len};
 
-    auto const res = api.xport(txBlob);
+    auto const res =
+        api.xport(txBlob, uint256::fromVoid(memory + committee_hash_ptr));
 
     if (!res)
         return res.error();

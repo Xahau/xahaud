@@ -18,6 +18,7 @@ from export_helpers import (
     EXPORT_RETRY_LEDGER_WINDOW,
     assert_export_latch,
     bitmap_positions,
+    export_authority,
     require_export,
     submit_direct_export,
     wait_for_export_signature_witness,
@@ -74,6 +75,9 @@ async def scenario(ctx, log):
         reader = asyncio.create_task(receive_events())
         try:
             current = ctx.validated_ledger_index(0)
+            committee_size = (
+                len(bytes.fromhex(export_authority(ctx)["ExportCommittee"])) // 33
+            )
             result = await submit_direct_export(
                 ctx,
                 log,
@@ -89,8 +93,7 @@ async def scenario(ctx, log):
                         "Sequence": 0,
                         "TicketSequence": 1,
                         "FirstLedgerSequence": current + 1,
-                        "LastLedgerSequence": current
-                        + EXPORT_RETRY_LEDGER_WINDOW,
+                        "LastLedgerSequence": current + EXPORT_RETRY_LEDGER_WINDOW,
                         "Flags": 2147483648,
                         "SigningPubKey": "",
                     },
@@ -113,15 +116,15 @@ async def scenario(ctx, log):
                     f"Validated origin ledger {origin_seq} missing hash"
                 )
 
-            latches = assert_export_latch(
+            assert_export_latch(
                 ctx,
                 alice.address,
                 log,
                 origin_hash=origin,
                 expect_witness=False,
             )
-            selected = bitmap_positions(latches[0]["ExportCommittee"])
-            quorum = (4 * len(selected) + 4) // 5
+            selected = set(range(committee_size))
+            quorum = (4 * committee_size + 4) // 5
 
             witness = await wait_for_export_signature_witness(
                 ctx, log, origin, after_ledger=origin_seq
@@ -135,11 +138,13 @@ async def scenario(ctx, log):
 
             deadline = asyncio.get_running_loop().time() + 10
             while asyncio.get_running_loop().time() < deadline:
-                matching = [event for event in events if event.get("origin_txid") == origin]
+                matching = [
+                    event for event in events if event.get("origin_txid") == origin
+                ]
                 events_by_record = {}
                 for event in matching:
                     record = (
-                        int(event["universe_position"]),
+                        int(event["committee_position"]),
                         _decode_node_public_key(event["signing_key"]),
                         event["signature"].upper(),
                     )
@@ -164,14 +169,18 @@ async def scenario(ctx, log):
                 if event.get("owner") != alice.address:
                     raise AssertionError(f"Export stream owner mismatch: {event}")
                 if int(event.get("origin_ledger_seq", 0)) != origin_seq:
-                    raise AssertionError(f"Export stream origin sequence mismatch: {event}")
+                    raise AssertionError(
+                        f"Export stream origin sequence mismatch: {event}"
+                    )
                 if event.get("origin_ledger_hash") != origin_hash:
                     raise AssertionError(f"Export stream origin hash mismatch: {event}")
                 if event.get("trigger_txid") != origin:
                     raise AssertionError(f"Export stream trigger mismatch: {event}")
-                position = int(event.get("universe_position", -1))
+                position = int(event.get("committee_position", -1))
                 if position not in selected:
-                    raise AssertionError(f"Unselected validator streamed a share: {event}")
+                    raise AssertionError(
+                        f"Unselected validator streamed a share: {event}"
+                    )
                 unique_positions.add(position)
 
             witness_seq = int(witness["LedgerSequence"])

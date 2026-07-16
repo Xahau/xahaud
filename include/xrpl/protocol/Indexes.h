@@ -70,6 +70,10 @@ emittedTxn(uint256 const& id) noexcept;
 Keylet
 exportLatch(AccountID const& account, uint256 const& originTxnHash) noexcept;
 
+/** Locate an immutable Export committee owned by an account. */
+Keylet
+exportCommittee(AccountID const& account, uint256 const& digest) noexcept;
+
 /** The fixed global directory of Export latches awaiting witness work. */
 Keylet const&
 pendingExports() noexcept;

@@ -39,6 +39,7 @@
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/Feature.h>
@@ -49,6 +50,7 @@
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/jss.h>
 
+#include <algorithm>
 #include <map>
 #include <set>
 
@@ -386,26 +388,54 @@ struct Export_test : public beast::unit_test::suite
         jtx::Account const& account,
         STObject const& innerObj,
         LedgerIndex lls,
-        Blob const& committee = Blob{0x01})
+        Blob committee = {})
     {
         Json::Value jv;
         jv[jss::TransactionType] = jss::Export;
         jv[jss::Account] = account.human();
         jv[jss::LastLedgerSequence] = lls;
         jv[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
-        bindExportAuthority(env, jv, committee);
+        bindExportAuthority(env, jv, std::move(committee));
         return env.jt(jv, jtx::fee(jtx::XRP(1)), jtx::ter(tesSUCCESS));
     }
 
-    static void
-    bindExportAuthority(
-        jtx::Env& env,
-        Json::Value& jv,
-        Blob const& committee = Blob{0x01})
+    static Blob
+    defaultExportCommittee(jtx::Env& env)
     {
-        jv[sfExportUniverseHash.jsonName] =
-            to_string(env.closed()->info().hash);
+        auto const& valKeys = env.app().getValidatorKeys();
+        if (!valKeys.keys)
+            return {};
+        return serializeExportCommittee({valKeys.keys->masterPublicKey});
+    }
+
+    static void
+    bindExportAuthority(jtx::Env& env, Json::Value& jv, Blob committee = {})
+    {
+        if (committee.empty())
+            committee = defaultExportCommittee(env);
+        auto const canonical =
+            canonicalizeExportCommittee(makeSlice(committee));
+        jv[sfExportCommitteeHash.jsonName] = to_string(
+            canonical ? exportCommitteeHash(makeSlice(*canonical)) : uint256{});
         jv[sfExportCommittee.jsonName] = strHex(committee);
+    }
+
+    static uint256
+    createExportCommittee(
+        jtx::Env& env,
+        jtx::Account const& account,
+        Blob committee = {})
+    {
+        if (committee.empty())
+            committee = defaultExportCommittee(env);
+
+        Json::Value setup;
+        setup[jss::TransactionType] = jss::Export;
+        setup[jss::Account] = account.human();
+        setup[sfExportCommittee.jsonName] = strHex(committee);
+        env(setup, jtx::fee(jtx::XRP(1)), jtx::ter(tesSUCCESS));
+        env.close();
+        return exportCommitteeHash(makeSlice(committee));
     }
 
     // Build a minimal unsigned Payment STObject suitable for sfExportedTxn.
@@ -439,7 +469,7 @@ struct Export_test : public beast::unit_test::suite
         extern int32_t _g(uint32_t id, uint32_t maxiter);
         extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
         extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-        extern int64_t xport(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+        extern int64_t xport(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len, uint32_t committee_hash_ptr, uint32_t committee_hash_len);
         extern int64_t xport_reserve(uint32_t count);
         extern int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
         extern int64_t otxn_param(uint32_t write_ptr, uint32_t write_len, uint32_t name_ptr, uint32_t name_len);
@@ -537,6 +567,9 @@ struct Export_test : public beast::unit_test::suite
             uint8_t acc[20];
             ASSERT(hook_account(SBUF(acc)) == 20);
 
+            uint8_t committee[32];
+            ASSERT(otxn_param(SBUF(committee), "COMMITTEE", 9) == 32);
+
             uint32_t cls = (uint32_t)ledger_seq();
 
             uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
@@ -561,7 +594,8 @@ struct Export_test : public beast::unit_test::suite
             ENCODE_ACCOUNT(buf, dst, atDESTINATION);
 
             uint8_t hash[32];
-            int64_t xport_result = xport(SBUF(hash), (uint32_t)tx, buf - tx);
+            int64_t xport_result = xport(
+                SBUF(hash), (uint32_t)tx, buf - tx, SBUF(committee));
             ASSERT(xport_result == 32);
 
             return accept(0, 0, 0);
@@ -575,7 +609,7 @@ struct Export_test : public beast::unit_test::suite
         extern int32_t _g(uint32_t id, uint32_t maxiter);
         extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
         extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-        extern int64_t xport(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+        extern int64_t xport(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len, uint32_t committee_hash_ptr, uint32_t committee_hash_len);
         extern int64_t xport_reserve(uint32_t count);
         extern int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
         extern int64_t otxn_param(uint32_t write_ptr, uint32_t write_len, uint32_t name_ptr, uint32_t name_len);
@@ -682,6 +716,9 @@ struct Export_test : public beast::unit_test::suite
             uint8_t acc[20];
             ASSERT(hook_account(SBUF(acc)) == 20);
 
+            uint8_t committee[32];
+            ASSERT(otxn_param(SBUF(committee), "COMMITTEE", 9) == 32);
+
             uint32_t cls = (uint32_t)ledger_seq();
 
             uint8_t tx[PREPARE_PAYMENT_SIMPLE_SIZE];
@@ -703,7 +740,8 @@ struct Export_test : public beast::unit_test::suite
             ENCODE_ACCOUNT(buf, dst, atDESTINATION);
 
             uint8_t hash[32];
-            int64_t xport_result = xport(SBUF(hash), (uint32_t)tx, buf - tx);
+            int64_t xport_result = xport(
+                SBUF(hash), (uint32_t)tx, buf - tx, SBUF(committee));
             // xport should return EXPORT_FAILURE (-46), ASSERT will rollback
             ASSERT(xport_result == 32);
 
@@ -713,7 +751,7 @@ struct Export_test : public beast::unit_test::suite
 
     // Helper to build hook params with DST
     static Json::Value
-    makeDstParams(AccountID const& dst)
+    makeDstParams(AccountID const& dst, uint256 const& committeeHash = {})
     {
         Json::Value params(Json::arrayValue);
         Json::Value param;
@@ -722,6 +760,16 @@ struct Export_test : public beast::unit_test::suite
             strHex(std::string("DST"));
         param[jss::HookParameter][jss::HookParameterValue] = strHex(dst);
         params.append(param);
+        if (!committeeHash.isZero())
+        {
+            Json::Value committeeParam;
+            committeeParam[jss::HookParameter] = Json::Value(Json::objectValue);
+            committeeParam[jss::HookParameter][jss::HookParameterName] =
+                strHex(std::string("COMMITTEE"));
+            committeeParam[jss::HookParameter][jss::HookParameterValue] =
+                strHex(committeeHash);
+            params.append(committeeParam);
+        }
         return params;
     }
 
@@ -745,6 +793,7 @@ struct Export_test : public beast::unit_test::suite
         if (!valKeys.keys)
             return;
         seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
+        auto const committeeHash = createExportCommittee(env, alice);
 
         // Install xport hook on alice
         env(ripple::test::jtx::hook(alice, {{hso(xport_wasm)}}, 0),
@@ -753,7 +802,7 @@ struct Export_test : public beast::unit_test::suite
         env.close();
 
         // Trigger hook with payment containing DST parameter
-        auto params = makeDstParams(carol.id());
+        auto params = makeDstParams(carol.id(), committeeHash);
 
         env(pay(bob, alice, XRP(100)),
             fee(XRP(1)),
@@ -888,7 +937,7 @@ struct Export_test : public beast::unit_test::suite
 
         // Trigger: xport() should reject because exported tx's NetworkID
         // matches the local network → EXPORT_FAILURE → hook rollback
-        auto params = makeDstParams(carol.id());
+        auto params = makeDstParams(carol.id(), uint256{1});
 
         env(pay(bob, alice, XRP(100)),
             fee(XRP(1)),
@@ -926,7 +975,7 @@ struct Export_test : public beast::unit_test::suite
 
         // Trigger: xport() should reject because NETWORK_ID=0 and the
         // exported tx has no sfNetworkID → can't verify it's cross-chain
-        auto params = makeDstParams(carol.id());
+        auto params = makeDstParams(carol.id(), uint256{1});
 
         env(pay(bob, alice, XRP(100)),
             fee(XRP(1)),
@@ -1026,12 +1075,19 @@ struct Export_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, bob, carol);
         env.close();
 
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+        seedUNLReportLedger(env, {valKeys.keys->masterPublicKey});
+        auto const committeeHash = createExportCommittee(env, alice);
+
         env(ripple::test::jtx::hook(alice, {{hso(xport_wasm)}}, 0),
             HSFEE,
             ter(tesSUCCESS));
         env.close();
 
-        auto params = makeDstParams(carol.id());
+        auto params = makeDstParams(carol.id(), committeeHash);
         for (std::uint32_t i = 0; i <= ExportLimits::maxPendingExports; ++i)
         {
             env(pay(bob, alice, XRP(1)),
@@ -1305,51 +1361,48 @@ struct Export_test : public beast::unit_test::suite
                 validatorMasters.size())
             return;
 
-        std::optional<std::uint16_t> rotatedPosition;
+        std::optional<std::uint16_t> localPosition;
         for (std::size_t i = 0;
              i < validatorView->orderedOriginalMasterKeys.size();
              ++i)
         {
             if (validatorView->orderedOriginalMasterKeys[i] ==
                 valKeys.keys->masterPublicKey)
-                rotatedPosition = static_cast<std::uint16_t>(i);
+                localPosition = static_cast<std::uint16_t>(i);
         }
-        BEAST_EXPECT(rotatedPosition);
-        if (!rotatedPosition)
+        BEAST_EXPECT(localPosition);
+        if (!localPosition)
             return;
 
-        std::vector<std::uint16_t> committeePositions{*rotatedPosition};
+        std::vector<std::uint16_t> selectedPositions{*localPosition};
         for (std::uint16_t i = 0;
              i < validatorView->orderedOriginalMasterKeys.size() &&
-             committeePositions.size() < 3;
+             selectedPositions.size() < 3;
              ++i)
         {
-            if (i != *rotatedPosition)
-                committeePositions.push_back(i);
+            if (i != *localPosition)
+                selectedPositions.push_back(i);
         }
-        auto const isCommitteePosition = [&](std::uint16_t position) {
-            for (auto const selected : committeePositions)
-                if (selected == position)
-                    return true;
-            return false;
-        };
-        std::optional<std::uint16_t> nonCommitteePosition;
-        for (std::uint16_t i = 0;
-             i < validatorView->orderedOriginalMasterKeys.size();
-             ++i)
-        {
-            if (!isCommitteePosition(i))
-                nonCommitteePosition = i;
-        }
-        BEAST_EXPECT(nonCommitteePosition);
-        if (!nonCommitteePosition)
+        std::vector<PublicKey> committeeMasters;
+        for (auto const position : selectedPositions)
+            committeeMasters.push_back(
+                validatorView->orderedOriginalMasterKeys[position]);
+        auto const canonicalRoster = serializeExportCommittee(committeeMasters);
+        Blob committeeRoster;
+        for (auto it = committeeMasters.rbegin(); it != committeeMasters.rend();
+             ++it)
+            committeeRoster.insert(
+                committeeRoster.end(), it->begin(), it->end());
+        auto const committee =
+            resolveExportCommittee(makeSlice(canonicalRoster));
+        BEAST_EXPECT(committee);
+        if (!committee)
             return;
-
-        auto const committeeBitmap = makeValidatorBitset(
-            validatorView->orderedOriginalMasterKeys.size(),
-            isCommitteePosition);
-        BEAST_EXPECT(committeeBitmap.size() == 1);
-        BEAST_EXPECT((committeeBitmap[0] & 0xf0u) == 0);
+        std::vector<std::uint16_t> committeePositions;
+        for (auto const& master : committee->members)
+            committeePositions.push_back(*committee->position(master));
+        std::vector<std::uint16_t> const expectedPositions{0, 1, 2};
+        BEAST_EXPECT(committeePositions == expectedPositions);
         BEAST_EXPECT(ExportLimits::committeeQuorumThreshold(3) == 3);
 
         auto const countExportWork = [](std::shared_ptr<SLE const> const& sle) {
@@ -1374,7 +1427,7 @@ struct Export_test : public beast::unit_test::suite
         // publication window starts from the ledger that actually admits the
         // intent and therefore extends independently beyond that outer bound.
         auto jt =
-            makeExportJTx(env, alice, innerObj, originSeq, committeeBitmap);
+            makeExportJTx(env, alice, innerObj, originSeq, committeeRoster);
         auto const exportTx = jt.stx;
         BEAST_EXPECT(exportTx);
         if (!exportTx)
@@ -1403,8 +1456,13 @@ struct Export_test : public beast::unit_test::suite
             return;
         BEAST_EXPECT(!pendingLatch->isFieldPresent(sfExportSignatureHash));
         BEAST_EXPECT(pendingLatch->isFieldPresent(sfExportNode));
-        BEAST_EXPECT(
-            pendingLatch->getFieldVL(sfExportCommittee) == committeeBitmap);
+        BEAST_EXPECT(!pendingLatch->isFieldPresent(sfExportCommittee));
+        auto const committeeSLE = originLedger->read(keylet::exportCommittee(
+            alice.id(), exportCommitteeHash(makeSlice(canonicalRoster))));
+        BEAST_EXPECT(committeeSLE);
+        if (committeeSLE)
+            BEAST_EXPECT(
+                committeeSLE->getFieldVL(sfExportCommittee) == canonicalRoster);
         BEAST_EXPECT(
             pendingLatch->getFieldU32(sfLastLedgerSequence) ==
             originLedger->seq() + ExportLimits::maxPublicationLedgers);
@@ -1421,7 +1479,7 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(
             countExportWork(originAccount) == parentAccountExportCount + 1);
         BEAST_EXPECT(
-            originAccount->getFieldU32(sfOwnerCount) == parentOwnerCount + 1);
+            originAccount->getFieldU32(sfOwnerCount) == parentOwnerCount + 2);
 
         auto release = ExportOriginMemo::releaseForm(
             innerTx,
@@ -1434,10 +1492,9 @@ struct Export_test : public beast::unit_test::suite
 
         auto signerAt = [&](std::uint16_t position)
             -> std::pair<PublicKey, SecretKey> const& {
-            if (position == *rotatedPosition)
+            auto const& master = committee->members[position];
+            if (master == valKeys.keys->masterPublicKey)
                 return oldSigningKey;
-            auto const& master =
-                validatorView->orderedOriginalMasterKeys[position];
             for (auto const& validator : validatorMasters)
                 if (validator.first == master)
                     return validator;
@@ -1469,12 +1526,12 @@ struct Export_test : public beast::unit_test::suite
             origin,
             release.value(),
             signatures,
-            validatorView->orderedOriginalMasterKeys.size(),
+            committee->members.size(),
             witnessSeq);
 
         BEAST_EXPECT(!validWitness.isFieldPresent(sfSigners));
         BEAST_EXPECT(
-            validWitness.getFieldVL(sfEntropyContributors) == committeeBitmap);
+            validWitness.getFieldVL(sfEntropyContributors) == Blob{0x07});
         auto const& assembled =
             validWitness.peekAtField(sfExportedTxn).downcast<STObject>();
         BEAST_EXPECT(!assembled.isFieldPresent(sfSigners));
@@ -1517,7 +1574,7 @@ struct Export_test : public beast::unit_test::suite
                     origin,
                     release.value(),
                     makeSignatures(subQuorum),
-                    validatorView->orderedOriginalMasterKeys.size(),
+                    committee->members.size(),
                     witnessSeq);
             }
             if (fault == WitnessFault::wrongSignature)
@@ -1525,7 +1582,7 @@ struct Export_test : public beast::unit_test::suite
                     origin,
                     release.value(),
                     makeSignatures(committeePositions, true),
-                    validatorView->orderedOriginalMasterKeys.size(),
+                    committee->members.size(),
                     witnessSeq);
 
             auto witness = validWitness;
@@ -1544,9 +1601,7 @@ struct Export_test : public beast::unit_test::suite
                     break;
                 case WitnessFault::committeeSubset:
                     contributors[0] &= static_cast<std::uint8_t>(~removedBit);
-                    contributors[*nonCommitteePosition / 8] |=
-                        static_cast<std::uint8_t>(
-                            1u << (*nonCommitteePosition % 8));
+                    contributors[0] |= 0x08u;
                     break;
                 case WitnessFault::popcount:
                     contributors[0] &= static_cast<std::uint8_t>(~removedBit);
@@ -1626,7 +1681,7 @@ struct Export_test : public beast::unit_test::suite
                 parentAccountExportCount + 1);
             BEAST_EXPECT(
                 releasedAccount->getFieldU32(sfOwnerCount) ==
-                parentOwnerCount + 1);
+                parentOwnerCount + 2);
         }
 
         auto const persisted = built->txRead(witnessTx->getTransactionID());
@@ -1669,9 +1724,103 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportCommitteeSetupWithoutUNLReport(FeatureBitset features)
+    {
+        testcase("Export committee setup and use-time membership");
+
+        using namespace jtx;
+
+        Env env{*this, exportTestConfig(), features};
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+
+        auto const roster = defaultExportCommittee(env);
+        auto const digest = exportCommitteeHash(makeSlice(roster));
+        Json::Value setup;
+        setup[jss::TransactionType] = jss::Export;
+        setup[jss::Account] = alice.human();
+        setup[sfExportCommittee.jsonName] = strHex(roster);
+        env(setup, fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+        BEAST_EXPECT(
+            env.current()->read(keylet::exportCommittee(alice.id(), digest)));
+
+        auto const accountAfterCreate = env.le(keylet::account(alice.id()));
+        BEAST_EXPECT(accountAfterCreate);
+        if (!accountAfterCreate)
+            return;
+        auto const ownerCountAfterCreate =
+            accountAfterCreate->getFieldU32(sfOwnerCount);
+
+        // Repeating the same setup is idempotent and does not charge reserve.
+        env(setup, fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+        auto const accountAfterRepeat = env.le(keylet::account(alice.id()));
+        BEAST_EXPECT(accountAfterRepeat);
+        if (!accountAfterRepeat)
+            return;
+        BEAST_EXPECT(
+            accountAfterRepeat->getFieldU32(sfOwnerCount) ==
+            ownerCountAfterCreate);
+
+        // An account may provision more than one immutable committee.
+        auto const otherKey = randomKeyPair(KeyType::secp256k1).first;
+        auto const otherRoster =
+            serializeExportCommittee({valKeys.keys->masterPublicKey, otherKey});
+        auto const otherDigest = exportCommitteeHash(makeSlice(otherRoster));
+        auto otherSetup = setup;
+        otherSetup[sfExportCommittee.jsonName] = strHex(otherRoster);
+        env(otherSetup, fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+        BEAST_EXPECT(env.current()->read(
+            keylet::exportCommittee(alice.id(), otherDigest)));
+
+        Json::Value eraseOther;
+        eraseOther[jss::TransactionType] = jss::Export;
+        eraseOther[jss::Account] = alice.human();
+        eraseOther[jss::Flags] = tfExportEraseCommittee;
+        eraseOther[sfExportCommitteeHash.jsonName] = to_string(otherDigest);
+        env(eraseOther, fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+        BEAST_EXPECT(!env.current()->read(
+            keylet::exportCommittee(alice.id(), otherDigest)));
+        auto const accountAfterDelete = env.le(keylet::account(alice.id()));
+        BEAST_EXPECT(accountAfterDelete);
+        if (!accountAfterDelete)
+            return;
+        BEAST_EXPECT(
+            accountAfterDelete->getFieldU32(sfOwnerCount) ==
+            ownerCountAfterCreate);
+
+        // Setup is independent of the live view. Actual use is not.
+        seedUNLReportLedger(env, {otherKey});
+        auto const seq = env.current()->seq();
+        auto const innerObj = buildExportedPayment(
+            alice.id(),
+            carol.id(),
+            seq + 1,
+            seq + ExportLimits::maxRetryLedgers);
+        Json::Value intent;
+        intent[jss::TransactionType] = jss::Export;
+        intent[jss::Account] = alice.human();
+        intent[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
+        intent[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+        intent[sfExportCommitteeHash.jsonName] = to_string(digest);
+        env(intent, fee(XRP(1)), ter(tecEXPORT_COMMITTEE_UNAVAILABLE));
+        env.close();
+    }
+
+    void
     testExportNetworkRejectsWithoutUNLReport(FeatureBitset features)
     {
-        testcase("ttEXPORT rejects without pinned UNLReport universe");
+        testcase("ttEXPORT rejects without source UNLReport committee");
 
         using namespace jtx;
 
@@ -1710,7 +1859,7 @@ struct Export_test : public beast::unit_test::suite
         auto const result =
             ripple::apply(env.app(), accum, *exportTx, tapNONE, env.journal);
 
-        BEAST_EXPECT(result.ter == tecEXPORT_UNIVERSE_MISMATCH);
+        BEAST_EXPECT(result.ter == tecEXPORT_COMMITTEE_UNAVAILABLE);
         BEAST_EXPECT(result.applied);
         BEAST_EXPECT(!next->read(keylet::exportLatch(alice.id(), txHash)));
     }
@@ -1993,7 +2142,10 @@ struct Export_test : public beast::unit_test::suite
         jvExport[jss::Account] = alice.human();
         jvExport[jss::LastLedgerSequence] = seq + ExportLimits::maxRetryLedgers;
         jvExport[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
-        bindExportAuthority(env, jvExport);
+        auto const committeeRoster = defaultExportCommittee(env);
+        auto const committeeDigest =
+            exportCommitteeHash(makeSlice(committeeRoster));
+        bindExportAuthority(env, jvExport, committeeRoster);
 
         auto mixed = jvExport;
         mixed[sfTransactionHash.jsonName] = to_string(uint256{42});
@@ -2004,7 +2156,7 @@ struct Export_test : public beast::unit_test::suite
         env(eraseCreation, fee(XRP(1)), ter(temMALFORMED));
 
         auto unknownFlag = jvControl;
-        unknownFlag[jss::Flags] = 0x00020000;
+        unknownFlag[jss::Flags] = 0x00040000;
         env(unknownFlag, fee(XRP(1)), ter(temINVALID_FLAG));
 
         env(jvExport, fee(XRP(1)), ter(tesSUCCESS));
@@ -2031,6 +2183,14 @@ struct Export_test : public beast::unit_test::suite
         auto const pendingExportCount =
             pendingBeforeCancel->getFieldU16(sfExportCount);
         BEAST_EXPECT(pendingExportCount > 0);
+
+        Json::Value eraseCommittee;
+        eraseCommittee[jss::TransactionType] = jss::Export;
+        eraseCommittee[jss::Account] = alice.human();
+        eraseCommittee[jss::Flags] = tfExportEraseCommittee;
+        eraseCommittee[sfExportCommitteeHash.jsonName] =
+            to_string(committeeDigest);
+        env(eraseCommittee, fee(XRP(1)), ter(tecHAS_OBLIGATIONS));
 
         Json::Value jvRetain;
         jvRetain[jss::TransactionType] = jss::Export;
@@ -2089,6 +2249,10 @@ struct Export_test : public beast::unit_test::suite
         BEAST_EXPECT(
             pendingAfterErase->getFieldU16(sfExportCount) ==
             pendingExportCount - 1);
+
+        env(eraseCommittee, fee(XRP(1)), ter(tesSUCCESS));
+        BEAST_EXPECT(
+            !env.le(keylet::exportCommittee(alice.id(), committeeDigest)));
 
         env.close();
     }
@@ -2442,6 +2606,7 @@ struct Export_test : public beast::unit_test::suite
         testExportNetworkAdmitsIntentWithoutQuorum(allWithExport);
         testExportLatchInsufficientReserve(allWithExport);
         testLaterLedgerWitnessTransitionAndReplay(allWithExport);
+        testExportCommitteeSetupWithoutUNLReport(allWithExport);
         testExportNetworkRejectsWithoutUNLReport(allWithExport);
         testExportNetworkLastLedgerSequenceBoundary(allWithExport);
         testOpenLedgerExportLimit(allWithExport);

@@ -382,7 +382,7 @@ Change::applyExportSignatures()
     if (!latch)
         return tesSUCCESS;
     if (latch->getType() != ltEXPORT_LATCH ||
-        !latch->isFieldPresent(sfExportCommittee) ||
+        !latch->isFieldPresent(sfExportCommitteeHash) ||
         !latch->isFieldPresent(sfLastLedgerSequence) ||
         latch->getAccountID(sfAccount) != account ||
         latch->getFieldH256(sfTransactionHash) != origin ||
@@ -403,31 +403,33 @@ Change::applyExportSignatures()
             latch->getFieldH256(sfDigest))
         return tefFAILURE;
 
-    auto const& committee = latch->getFieldVL(sfExportCommittee);
-    auto const& contributors = ctx_.tx.getFieldVL(sfEntropyContributors);
-    if (contributors.size() != committee.size())
+    auto const committeeHash = latch->getFieldH256(sfExportCommitteeHash);
+    auto const committeeSLE =
+        view().read(keylet::exportCommittee(account, committeeHash));
+    if (!committeeSLE || !committeeSLE->isFieldPresent(sfExportCommittee))
+        return tefFAILURE;
+    auto const& roster = committeeSLE->getFieldVL(sfExportCommittee);
+    if (!ExportLedgerOps::isMatchingExportCommittee(
+            *committeeSLE, account, committeeHash, makeSlice(roster)))
+        return tefFAILURE;
+    auto const committee = resolveExportCommittee(makeSlice(roster));
+    if (!committee)
         return tefFAILURE;
 
-    std::size_t committeeCount = 0;
-    std::size_t contributorCount = 0;
-    for (std::size_t i = 0; i < committee.size(); ++i)
-    {
-        if ((contributors[i] & static_cast<std::uint8_t>(~committee[i])) != 0)
-            return tefFAILURE;
-        committeeCount += std::popcount(committee[i]);
-        contributorCount += std::popcount(contributors[i]);
-    }
-    if (committeeCount == 0 ||
-        committeeCount > ExportLimits::maxCommitteeMembers ||
-        contributorCount <
-            ExportLimits::committeeQuorumThreshold(committeeCount) ||
-        contributorCount != signatures->size())
+    auto const& contributors = ctx_.tx.getFieldVL(sfEntropyContributors);
+    auto const contributorSet = validateValidatorBitset(
+        makeSlice(contributors), committee->members.size());
+    if (!contributorSet)
+        return tefFAILURE;
+
+    if (contributorSet->selected() < committee->quorum ||
+        contributorSet->selected() != signatures->size())
         return tefFAILURE;
 
     hash_set<AccountID> signerAccounts;
     for (auto const& [position, witness] : *signatures)
     {
-        if (position >= committee.size() * 8 ||
+        if (position >= committee->members.size() ||
             (contributors[position / 8] &
              static_cast<std::uint8_t>(1u << (position % 8))) == 0)
             return tefFAILURE;

@@ -20,7 +20,6 @@
 #ifndef RIPPLE_TX_APPLYSTEPS_H_INCLUDED
 #define RIPPLE_TX_APPLYSTEPS_H_INCLUDED
 
-#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/beast/utility/Journal.h>
 
@@ -47,36 +46,6 @@ struct ApplyResult
 
 struct ApplyOptions
 {
-    enum class ExportWitnessMembership {
-        // Direct apply/test callers that did not run consensus onPreBuild must
-        // keep filtering witness signers through the live active-validator
-        // view.
-        FilterLiveManifest,
-        // Live consensus builds have already scrubbed and re-materialized
-        // ttEXPORT_SIGNATURES from the accepted export sidecar root.
-        TrustConsensusMaterialized,
-        // LedgerReplay rebuilds already-validated ledgers from persisted
-        // inputs.
-        TrustHistoricalReplay
-    };
-
-    // Build-scoped export signature witnesses. These are transaction-stream
-    // inputs collected before apply, so concurrent ledger builds must not share
-    // them through process-global consensus state. Keep this export-specific
-    // until another feature needs the same sibling-pseudo lookup.
-    ExportResultBuilder::SignatureWitnesses const* exportSignatureWitnesses =
-        nullptr;
-
-    // Controls whether witness membership is re-filtered through the current
-    // ManifestCache. Crypto verification and quorum counting still happen in
-    // Export::doApply for every mode.
-    ExportWitnessMembership exportWitnessMembership =
-        ExportWitnessMembership::FilterLiveManifest;
-
-    // LedgerReplay rebuilds already-validated ledgers from persisted inputs;
-    // keep this boolean for existing replay-specific bookkeeping decisions.
-    bool historicalLedgerReplay = false;
-
     // LedgerReplay can build consecutive ledgers before the rebuilt parent is
     // visible through LedgerMaster. Export apply needs the exact replay parent
     // to rebuild the historical validator view.

@@ -17,16 +17,13 @@ namespace ripple {
 // - Durable and per-message caps bound scans, crypto, and sidecar leaves
 struct ExportLimits
 {
-    // V1 bitmaps are defined over at most 256 canonical pre-NegativeUNL
-    // members. Raising this changes transaction/latch shape and requires a
-    // protocol upgrade, not a local configuration change.
-    static constexpr std::size_t maxValidatorUniverseMembers = 256;
-    static constexpr std::size_t maxCommitteeMaskBytes =
-        validatorBitsetBytes(maxValidatorUniverseMembers);
-
     // Ordinary XRPL multisigning accepts at most 32 signers. An account that
     // reserves a separate operator signer must select fewer validators.
     static constexpr std::size_t maxCommitteeMembers = 32;
+    static constexpr std::size_t maxCommitteeRosterBytes =
+        maxCommitteeMembers * 33;
+    static constexpr std::size_t maxCommitteeContributorBytes =
+        validatorBitsetBytes(maxCommitteeMembers);
 
     // V1 witnesses require the standard 80% quorum of the intent-selected
     // committee, rounded up. The intent selects members but cannot lower this
@@ -84,7 +81,7 @@ struct ExportLimits
     // local tuning knobs and require measurement before activation; changing
     // them does not change the canonical per-share format.
     static constexpr std::size_t maxCanonicalExportSignatureBytes = 72;
-    // version + AccountID + 3 hashes + ledger sequence + universe position +
+    // version + AccountID + 3 hashes + ledger sequence + committee position +
     // compressed public key + one-byte VL prefix + maximum signature.
     static constexpr std::size_t maxSerializedExportShareBytes = 1 + 20 + 32 +
         4 + 32 + 32 + 2 + 33 + 1 + maxCanonicalExportSignatureBytes;

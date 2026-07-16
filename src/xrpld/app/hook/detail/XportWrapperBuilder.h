@@ -26,6 +26,7 @@ using NonceGenerator =
 struct Input
 {
     ripple::Slice innerTxBlob;
+    ripple::uint256 committeeHash;
     ripple::AccountID exporter;
     std::uint32_t networkID = 0;
     ripple::LedgerIndex ledgerSeq = 0;

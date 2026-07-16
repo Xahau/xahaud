@@ -374,7 +374,7 @@ public:
     xport_reserve(uint64_t count) const;
 
     Expected<uint256, HookReturnCode>
-    xport(Slice const& txBlob) const;
+    xport(Slice const& txBlob, uint256 const& committeeHash) const;
 
     Expected<uint64_t, HookReturnCode>
     xport_cancel(uint256 const& origin, uint32_t flags) const;

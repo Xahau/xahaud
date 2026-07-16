@@ -107,8 +107,7 @@ isPendingExportShare(
         view.read(keylet::exportLatch(share.owner, share.originTxn));
     return latch && latch->getType() == ltEXPORT_LATCH &&
         latch->isFieldPresent(sfTransactionHash) &&
-        latch->isFieldPresent(sfExportUniverseHash) &&
-        latch->isFieldPresent(sfExportCommittee) &&
+        latch->isFieldPresent(sfExportCommitteeHash) &&
         latch->isFieldPresent(sfLastLedgerSequence) &&
         latch->isFieldPresent(sfExportNode) &&
         !latch->isFieldPresent(sfExportSignatureHash) &&
@@ -121,7 +120,6 @@ isPendingExportShare(
 ExportShareResolution
 resolveExportShare(
     Application& app,
-    ConsensusExtensions const& extensions,
     ExportShare const& share,
     std::shared_ptr<Ledger const> const& validated,
     beast::Journal j)
@@ -149,8 +147,7 @@ resolveExportShare(
         return {ExportShareResolutionStatus::invalid, std::nullopt};
     if (latch->getType() != ltEXPORT_LATCH ||
         !latch->isFieldPresent(sfTransactionHash) ||
-        !latch->isFieldPresent(sfExportUniverseHash) ||
-        !latch->isFieldPresent(sfExportCommittee) ||
+        !latch->isFieldPresent(sfExportCommitteeHash) ||
         !latch->isFieldPresent(sfLastLedgerSequence) ||
         !latch->isFieldPresent(sfAccount) ||
         !latch->isFieldPresent(sfLedgerSequence) ||
@@ -176,56 +173,40 @@ resolveExportShare(
         outer->getAccountID(sfAccount) != share.owner)
         return {ExportShareResolutionStatus::invalid, std::nullopt};
 
-    bool const hasUniverse = outer->isFieldPresent(sfExportUniverseHash);
-    bool const hasCommittee = outer->isFieldPresent(sfExportCommittee);
-    if (hasUniverse != hasCommittee ||
-        (!hasUniverse && !outer->isFieldPresent(sfEmitDetails)) ||
-        (hasUniverse &&
-         (outer->getFieldH256(sfExportUniverseHash) !=
-              latch->getFieldH256(sfExportUniverseHash) ||
-          outer->getFieldVL(sfExportCommittee) !=
-              latch->getFieldVL(sfExportCommittee))))
+    if (!outer->isFieldPresent(sfExportCommitteeHash) ||
+        outer->getFieldH256(sfExportCommitteeHash) !=
+            latch->getFieldH256(sfExportCommitteeHash))
         return {ExportShareResolutionStatus::invalid, std::nullopt};
 
-    auto const universeHash = latch->getFieldH256(sfExportUniverseHash);
-    if (originLedger->info().parentHash != universeHash)
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
-    auto const universeLedger =
-        app.getLedgerMaster().getLedgerByHash(universeHash);
-    if (!universeLedger)
-        return {ExportShareResolutionStatus::deferred, std::nullopt};
-
-    auto const validatorView =
-        extensions.makeActiveValidatorView(universeLedger);
-    if (!validatorView->fromUNLReport || !validatorView->sourceLedgerHash ||
-        *validatorView->sourceLedgerHash != universeHash ||
-        share.universePosition >=
-            validatorView->orderedOriginalMasterKeys.size())
+    auto const committeeHash = latch->getFieldH256(sfExportCommitteeHash);
+    auto const committeeSLE =
+        validated->read(keylet::exportCommittee(share.owner, committeeHash));
+    if (!committeeSLE || !committeeSLE->isFieldPresent(sfExportCommittee))
         return {ExportShareResolutionStatus::invalid, std::nullopt};
 
-    auto const committee = resolveExportCommittee(
-        makeSlice(latch->getFieldVL(sfExportCommittee)),
-        validatorView->orderedOriginalMasterKeys.size());
-    if (!committee || !committee->members.contains(share.universePosition))
+    auto const& roster = committeeSLE->getFieldVL(sfExportCommittee);
+    if (!ExportLedgerOps::isMatchingExportCommittee(
+            *committeeSLE, share.owner, committeeHash, makeSlice(roster)))
+        return {ExportShareResolutionStatus::invalid, std::nullopt};
+    auto const committee = resolveExportCommittee(makeSlice(roster));
+    if (!committee || share.committeePosition >= committee->members.size())
         return {ExportShareResolutionStatus::invalid, std::nullopt};
 
-    auto const& expectedMaster =
-        validatorView->orderedOriginalMasterKeys[share.universePosition];
+    auto const& expectedMaster = committee->members[share.committeePosition];
     auto const resolvedMaster =
         app.validatorManifests().getMasterKey(share.signingKey);
     if (resolvedMaster != expectedMaster)
     {
-        // A known signing-to-master binding, or another universe master used
+        // A known signing-to-master binding, or another committee master used
         // at this position, or any other known manifest master is
         // definitively invalid. An otherwise unknown key may become
         // attributable after manifest propagation.
         if (resolvedMaster != share.signingKey ||
             app.validatorManifests().isKnownMasterKey(share.signingKey) ||
             std::find(
-                validatorView->orderedOriginalMasterKeys.begin(),
-                validatorView->orderedOriginalMasterKeys.end(),
-                share.signingKey) !=
-                validatorView->orderedOriginalMasterKeys.end())
+                committee->members.begin(),
+                committee->members.end(),
+                share.signingKey) != committee->members.end())
             return {ExportShareResolutionStatus::invalid, std::nullopt};
         return {ExportShareResolutionStatus::duplicate, std::nullopt};
     }
@@ -309,7 +290,7 @@ ConsensusExtensions::publishExportShareLocked(
         exportStreamEmittedShares_.clear();
     }
 
-    auto const identity = std::pair{share.originTxn, share.universePosition};
+    auto const identity = std::pair{share.originTxn, share.committeePosition};
     if (!exportStreamEmittedShares_.insert(identity).second)
         return false;
 
@@ -475,7 +456,7 @@ ConsensusExtensions::admitExportShare(
         return deferExportShare(
             share, std::move(deferredCharge), validated->info().seq);
 
-    auto resolved = resolveExportShare(app_, *this, share, validated, j_);
+    auto resolved = resolveExportShare(app_, share, validated, j_);
     if (resolved.status == ExportShareResolutionStatus::deferred)
         return {ExportShareDisposition::deferred, ExportShareCharge::none};
     if (resolved.status == ExportShareResolutionStatus::duplicate)
@@ -490,7 +471,7 @@ ConsensusExtensions::admitExportShare(
         return {ExportShareDisposition::deferred, ExportShareCharge::none};
 
     ExportSigCollectorV2::Contribution contribution{
-        share.universePosition, share.signingKey, share.signature};
+        share.committeePosition, share.signingKey, share.signature};
     auto admission = postValidationExportSigCollector_.beginAttributedAdmission(
         share.originTxn, std::move(contribution), validated->info().seq);
     if (admission.result != ExportSigCollectorV2::BeginResult::verify ||
@@ -657,8 +638,7 @@ ConsensusExtensions::onValidatedLedger(
                                 ExportLimits::maxLiveExportLatches ||
                             latch->getType() != ltEXPORT_LATCH ||
                             !latch->isFieldPresent(sfTransactionHash) ||
-                            !latch->isFieldPresent(sfExportUniverseHash) ||
-                            !latch->isFieldPresent(sfExportCommittee) ||
+                            !latch->isFieldPresent(sfExportCommitteeHash) ||
                             !latch->isFieldPresent(sfLastLedgerSequence) ||
                             validated->info().seq >
                                 latch->getFieldU32(sfLastLedgerSequence))
@@ -675,46 +655,38 @@ ConsensusExtensions::onValidatedLedger(
                         if (!originHash)
                             return;
 
-                        auto const universeHash =
-                            latch->getFieldH256(sfExportUniverseHash);
-                        auto const universeLedger =
-                            app_.getLedgerMaster().getLedgerByHash(
-                                universeHash);
-                        if (!universeLedger)
+                        auto const committeeHash =
+                            latch->getFieldH256(sfExportCommitteeHash);
+                        auto const committeeSLE =
+                            validated->read(keylet::exportCommittee(
+                                latch->getAccountID(sfAccount), committeeHash));
+                        if (!committeeSLE ||
+                            !committeeSLE->isFieldPresent(sfExportCommittee))
                             return;
-                        auto const validatorView =
-                            makeActiveValidatorView(universeLedger);
-                        if (!validatorView->fromUNLReport ||
-                            !validatorView->sourceLedgerHash ||
-                            *validatorView->sourceLedgerHash != universeHash)
+                        auto const& roster =
+                            committeeSLE->getFieldVL(sfExportCommittee);
+                        if (!ExportLedgerOps::isMatchingExportCommittee(
+                                *committeeSLE,
+                                latch->getAccountID(sfAccount),
+                                committeeHash,
+                                makeSlice(roster)))
                             return;
 
-                        auto const committee = resolveExportCommittee(
-                            makeSlice(latch->getFieldVL(sfExportCommittee)),
-                            validatorView->orderedOriginalMasterKeys.size());
-                        auto const position = std::find(
-                            validatorView->orderedOriginalMasterKeys.begin(),
-                            validatorView->orderedOriginalMasterKeys.end(),
-                            keys.keys->masterPublicKey);
-                        if (!committee ||
-                            position ==
-                                validatorView->orderedOriginalMasterKeys.end())
+                        auto const committee =
+                            resolveExportCommittee(makeSlice(roster));
+                        auto const position = committee
+                            ? committee->position(keys.keys->masterPublicKey)
+                            : std::nullopt;
+                        if (!committee || !position)
                             return;
-                        auto const index =
-                            static_cast<std::size_t>(std::distance(
-                                validatorView->orderedOriginalMasterKeys
-                                    .begin(),
-                                position));
-                        if (!committee->members.contains(index) ||
-                            postValidationExportSigCollector_.positionStatus(
-                                origin, static_cast<std::uint16_t>(index)) !=
-                                ExportSigCollectorV2::PositionStatus::empty)
+                        if (postValidationExportSigCollector_.positionStatus(
+                                origin, *position) !=
+                            ExportSigCollectorV2::PositionStatus::empty)
                             return;
 
                         auto const originLedger =
                             app_.getLedgerMaster().getLedgerByHash(*originHash);
-                        if (!originLedger ||
-                            originLedger->info().parentHash != universeHash)
+                        if (!originLedger)
                             return;
                         auto const [outer, _] = originLedger->txRead(origin);
                         if (!outer)
@@ -752,7 +724,7 @@ ConsensusExtensions::onValidatedLedger(
                             originSeq,
                             *originHash,
                             origin,
-                            static_cast<std::uint16_t>(index),
+                            *position,
                             keys.keys->publicKey,
                             signature};
                         if (onExportShare(share))
@@ -2177,13 +2149,12 @@ std::optional<ConsensusExtensions::ExportWitnessMaterial>
 ConsensusExtensions::agreedExportWitness(
     STTx const& exportSigningPayload,
     uint256 const& origin,
-    Blob const& committeeBitmap,
-    std::size_t universeSize,
+    std::size_t committeeSize,
     std::size_t threshold) const
 {
-    auto const committee =
-        resolveExportCommittee(makeSlice(committeeBitmap), universeSize);
-    if (!committee || committee->quorum != threshold)
+    if (committeeSize == 0 ||
+        committeeSize > ExportLimits::maxCommitteeMembers ||
+        ExportLimits::committeeQuorumThreshold(committeeSize) != threshold)
         return std::nullopt;
 
     auto const acceptedHash = acceptedExportSigSetHash_
@@ -2243,8 +2214,7 @@ ConsensusExtensions::agreedExportWitness(
                     return;
 
                 auto const position = sidecar.getFieldU32(sfTransactionIndex);
-                if (position >= universeSize ||
-                    !committee->members.contains(position) ||
+                if (position >= committeeSize ||
                     !positions.insert(position).second)
                 {
                     invalid = true;
@@ -2782,8 +2752,7 @@ ConsensusExtensions::onPreBuild(
             auto const pending = pendingExportLatches(*parent, seq);
             for (auto const& [origin, latch] : pending)
             {
-                if (!latch->isFieldPresent(sfExportUniverseHash) ||
-                    !latch->isFieldPresent(sfExportCommittee) ||
+                if (!latch->isFieldPresent(sfExportCommitteeHash) ||
                     !latch->isFieldPresent(sfLastLedgerSequence) ||
                     seq > latch->getFieldU32(sfLastLedgerSequence))
                     continue;
@@ -2810,26 +2779,24 @@ ConsensusExtensions::onPreBuild(
                 if (!baseTarget)
                     continue;
 
-                auto const universeHash =
-                    latch->getFieldH256(sfExportUniverseHash);
-                if (originLedger->info().parentHash != universeHash)
-                    continue;
-                auto const universeLedger =
-                    app_.getLedgerMaster().getLedgerByHash(universeHash);
-                if (!universeLedger)
-                    continue;
-                auto const validatorView =
-                    makeActiveValidatorView(universeLedger);
-                if (!validatorView->fromUNLReport ||
-                    !validatorView->sourceLedgerHash ||
-                    *validatorView->sourceLedgerHash != universeHash)
+                auto const committeeHash =
+                    latch->getFieldH256(sfExportCommitteeHash);
+                auto const committeeSLE = parent->read(keylet::exportCommittee(
+                    latch->getAccountID(sfAccount), committeeHash));
+                if (!committeeSLE ||
+                    !committeeSLE->isFieldPresent(sfExportCommittee))
                     continue;
 
-                auto const committeeBitmap =
-                    latch->getFieldVL(sfExportCommittee);
-                auto const committee = resolveExportCommittee(
-                    makeSlice(committeeBitmap),
-                    validatorView->orderedOriginalMasterKeys.size());
+                auto const& roster =
+                    committeeSLE->getFieldVL(sfExportCommittee);
+                if (!ExportLedgerOps::isMatchingExportCommittee(
+                        *committeeSLE,
+                        latch->getAccountID(sfAccount),
+                        committeeHash,
+                        makeSlice(roster)))
+                    continue;
+                auto const committee =
+                    resolveExportCommittee(makeSlice(roster));
                 if (!committee)
                     continue;
 
@@ -2848,8 +2815,7 @@ ConsensusExtensions::onPreBuild(
                 auto material = agreedExportWitness(
                     signingPayload.value(),
                     origin,
-                    committeeBitmap,
-                    validatorView->orderedOriginalMasterKeys.size(),
+                    committee->members.size(),
                     committee->quorum);
                 if (!material)
                     continue;
@@ -2858,7 +2824,7 @@ ConsensusExtensions::onPreBuild(
                     origin,
                     signingPayload.value(),
                     material->signatures,
-                    validatorView->orderedOriginalMasterKeys.size(),
+                    committee->members.size(),
                     seq);
                 retriableTxs.insert(std::make_shared<STTx>(std::move(witness)));
             }
@@ -3444,7 +3410,7 @@ ConsensusExtensions::attachExportSignatures(
                 contribution.position,
                 contribution.signingKey,
                 contribution.signature};
-            if (resolveExportShare(app_, *this, share, validated, j_).status !=
+            if (resolveExportShare(app_, share, validated, j_).status !=
                 ExportShareResolutionStatus::resolved)
                 continue;
 

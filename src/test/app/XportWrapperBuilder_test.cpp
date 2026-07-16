@@ -122,6 +122,7 @@ makeInput(
 {
     return hook::XportWrapperBuilder::Input{
         innerTxBlob,
+        makeHash("committee"),
         exporter,
         networkID,
         10,
@@ -171,6 +172,9 @@ public:
             10 + ExportLimits::maxRetryLedgers);
         BEAST_EXPECT(wrapper.getFieldAmount(sfFee) == STAmount{12345});
         BEAST_EXPECT(wrapper.getFieldVL(sfSigningPubKey).empty());
+        BEAST_EXPECT(
+            wrapper.getFieldH256(sfExportCommitteeHash) ==
+            makeHash("committee"));
 
         auto const& exported =
             wrapper.peekAtField(sfExportedTxn).downcast<STObject>();
@@ -264,6 +268,18 @@ public:
         auto const innerTx = makeExportedPayment(
             calcAccountID(exporter.first), calcAccountID(dst.first));
         auto const serialized = serialize(innerTx);
+
+        {
+            auto input = makeInput(
+                Slice(serialized.data(), serialized.size()),
+                calcAccountID(exporter.first));
+            input.committeeHash = {};
+            auto const result = hook::XportWrapperBuilder::build(input);
+            BEAST_EXPECT(!result);
+            BEAST_EXPECT(
+                result.error() ==
+                ::hook_api::hook_return_code::INVALID_ARGUMENT);
+        }
 
         {
             Blob malformed{1, 2, 3};

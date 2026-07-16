@@ -42,6 +42,7 @@
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/EntropyTier.h>
+#include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/ExportShare.h>
@@ -2423,8 +2424,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         latch->setFieldH256(sfTransactionHash, origin);
         latch->setFieldH256(sfDigest, makeHash("export-sidecar-intent"));
         latch->setFieldU32(sfLedgerSequence, deadline);
-        latch->setFieldH256(sfExportUniverseHash, validated->info().parentHash);
-        latch->setFieldVL(sfExportCommittee, Blob{0x01});
+        latch->setFieldH256(
+            sfExportCommitteeHash, validated->info().parentHash);
         latch->setFieldU32(sfLastLedgerSequence, deadline);
 
         Sandbox sandbox{validated.get(), tapNONE};
@@ -2587,8 +2588,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const releaseTarget =
             makeSTTx(makeExportedPayment(calcAccountID(signerA.first), dst));
         auto const origin = makeHash("agreed-export-v2-origin");
-        Blob const committee{0x25};
-        constexpr std::size_t universeSize = 6;
+        Blob const contributors{0x07};
+        constexpr std::size_t committeeSize = 3;
         auto const threshold = ExportLimits::committeeQuorumThreshold(3);
         BEAST_EXPECT(threshold == 3);
 
@@ -2604,11 +2605,11 @@ class ConsensusExtensions_test : public beast::unit_test::suite
              signerA.first,
              ExportResultBuilder::signExportedTxn(
                  releaseTarget, signerA.first, signerA.second)},
-            {2,
+            {1,
              signerB.first,
              ExportResultBuilder::signExportedTxn(
                  releaseTarget, signerB.first, signerB.second)},
-            {5,
+            {2,
              signerC.first,
              ExportResultBuilder::signExportedTxn(
                  releaseTarget, signerC.first, signerC.second)}};
@@ -2663,20 +2664,20 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app().getInboundTransactions().giveSet(
                 acceptedHash, map, false);
             BEAST_EXPECT(!ce.agreedExportWitness(
-                releaseTarget, origin, committee, universeSize, threshold));
+                releaseTarget, origin, committeeSize, threshold));
             ce.acceptExportSigSet(acceptedHash);
 
             auto const material = ce.agreedExportWitness(
-                releaseTarget, origin, committee, universeSize, threshold);
+                releaseTarget, origin, committeeSize, threshold);
             BEAST_EXPECT(material);
             if (!material)
                 return std::nullopt;
 
             auto const witness = ExportResultBuilder::buildSignatureWitness(
-                origin, releaseTarget, material->signatures, universeSize, 20);
+                origin, releaseTarget, material->signatures, committeeSize, 20);
             BEAST_EXPECT(!witness.isFieldPresent(sfSigners));
             BEAST_EXPECT(
-                witness.getFieldVL(sfEntropyContributors) == committee);
+                witness.getFieldVL(sfEntropyContributors) == contributors);
             auto const& assembled =
                 witness.peekAtField(sfExportedTxn).downcast<STObject>();
             BEAST_EXPECT(!assembled.isFieldPresent(sfSigners));
@@ -2721,8 +2722,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         expectMapping(reverse->signatures);
 
         BEAST_EXPECT(forward->root == reverse->root);
-        BEAST_EXPECT(forward->contributors == committee);
-        BEAST_EXPECT(reverse->contributors == committee);
+        BEAST_EXPECT(forward->contributors == contributors);
+        BEAST_EXPECT(reverse->contributors == contributors);
         BEAST_EXPECT(forward->serialized == reverse->serialized);
         BEAST_EXPECT(forward->txid == reverse->txid);
     }
@@ -3776,6 +3777,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const universe = ledgerMaster.getClosedLedger();
         if (!BEAST_EXPECT(universe && universe->read(keylet::UNLReport())))
             return;
+        auto const committeeRoster =
+            serializeExportCommittee({valKeys.keys->masterPublicKey});
+        auto const committeeDigest =
+            exportCommitteeHash(makeSlice(committeeRoster));
 
         auto installValidated = [&](std::shared_ptr<Ledger> const& ledger) {
             ledgerMaster.storeLedger(ledger);
@@ -3798,9 +3803,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         exportJson[jss::LastLedgerSequence] = originSeq;
         exportJson[sfExportedTxn.jsonName] =
             innerObj.getJson(JsonOptions::none);
-        exportJson[sfExportUniverseHash.jsonName] =
-            to_string(universe->info().hash);
-        exportJson[sfExportCommittee.jsonName] = strHex(Blob{0x01});
+        exportJson[sfExportCommitteeHash.jsonName] = to_string(committeeDigest);
+        exportJson[sfExportCommittee.jsonName] = strHex(committeeRoster);
         auto const exportTx =
             env.jt(exportJson, fee(XRP(1)), ter(tesSUCCESS)).stx;
         if (!BEAST_EXPECT(exportTx))
@@ -3825,7 +3829,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const pendingLatch = originLedger->read(latchKey);
         if (!BEAST_EXPECT(
                 pendingLatch && pendingLatch->isFieldPresent(sfExportNode) &&
-                !pendingLatch->isFieldPresent(sfExportSignatureHash)))
+                !pendingLatch->isFieldPresent(sfExportSignatureHash) &&
+                !pendingLatch->isFieldPresent(sfExportCommittee)))
             return;
 
         auto release = ExportOriginMemo::releaseForm(
@@ -3884,7 +3889,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 ce.postValidationExportSigCollector().fullUnionSnapshot();
             auto const found = snapshot.find(origin);
             return found != snapshot.end() && found->second.size() == 1 &&
-                found->second.front().position == share.universePosition &&
+                found->second.front().position == share.committeePosition &&
                 found->second.front().signingKey == share.signingKey &&
                 found->second.front().signature == share.signature;
         };
@@ -3909,8 +3914,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                     (*event)[jss::ledger_hash] ==
                     to_string(cursor.info().hash));
                 BEAST_EXPECT(
-                    (*event)[jss::universe_position].asUInt() ==
-                    share.universePosition);
+                    (*event)[jss::committee_position].asUInt() ==
+                    share.committeePosition);
             }
             expectNoShareEvent();
         };

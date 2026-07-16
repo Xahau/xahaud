@@ -436,8 +436,7 @@ public:
     agreedExportWitness(
         STTx const& exportSigningPayload,
         uint256 const& origin,
-        Blob const& committee,
-        std::size_t universeSize,
+        std::size_t committeeSize,
         std::size_t threshold) const;
 
     ActiveValidatorViewPtr

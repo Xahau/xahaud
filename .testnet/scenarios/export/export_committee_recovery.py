@@ -63,20 +63,20 @@ async def scenario(ctx, log):
     if not origin:
         raise AssertionError(f"Validated Export missing hash: {result}")
 
-    latches = assert_export_latch(
+    assert_export_latch(
         ctx,
         alice.address,
         log,
         origin_hash=origin,
         expect_witness=False,
     )
-    selected = bitmap_positions(latches[0]["ExportCommittee"])
-    if len(selected) != 2:
-        raise AssertionError(f"Expected a 2-member committee, got {selected}")
+    selected = {0, 1}
 
     await ctx.wait_for_ledger(origin_seq + 1, node_id=0, timeout=30)
     if find_export_signature_witness(ctx, origin_seq + 1, origin):
-        raise AssertionError("Witness formed while one of two selected signers was down")
+        raise AssertionError(
+            "Witness formed while one of two selected signers was down"
+        )
     assert_export_latch(
         ctx,
         alice.address,

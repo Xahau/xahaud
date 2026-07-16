@@ -64,7 +64,7 @@ public:
         BEAST_EXPECT(parsed->originLedgerSeq == share.originLedgerSeq);
         BEAST_EXPECT(parsed->originLedgerHash == share.originLedgerHash);
         BEAST_EXPECT(parsed->triggerTxn == share.triggerTxn);
-        BEAST_EXPECT(parsed->universePosition == share.universePosition);
+        BEAST_EXPECT(parsed->committeePosition == share.committeePosition);
         BEAST_EXPECT(parsed->signingKey == share.signingKey);
         BEAST_EXPECT(parsed->signature == share.signature);
         BEAST_EXPECT(parsed->wireHash() == share.wireHash());
@@ -99,7 +99,7 @@ public:
         BEAST_EXPECT(threw);
 
         share = makeShare();
-        share.universePosition = ExportLimits::maxValidatorUniverseMembers;
+        share.committeePosition = ExportLimits::maxCommitteeMembers;
         BEAST_EXPECT(!share.validShape());
 
         share = makeShare();

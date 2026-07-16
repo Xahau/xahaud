@@ -17,7 +17,8 @@
 #include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
-#include <xrpl/protocol/ValidatorBitset.h>
+
+#include <algorithm>
 
 namespace ripple {
 
@@ -34,45 +35,53 @@ Export::preflight(PreflightContext const& ctx)
     if (ctx.tx.getFlags() & tfExportMask)
         return temINVALID_FLAG;
 
-    // Exactly one operation: create an Export OR control an existing W.
     bool const hasExport = ctx.tx.isFieldPresent(sfExportedTxn);
     bool const hasControl = ctx.tx.isFieldPresent(sfTransactionHash);
+    bool const hasDigest = ctx.tx.isFieldPresent(sfExportCommitteeHash);
+    bool const hasRoster = ctx.tx.isFieldPresent(sfExportCommittee);
+    auto const flags = ctx.tx.getFlags() & ~tfUniversal;
 
-    if (hasExport == hasControl)  // neither or both
-        return temMALFORMED;
-    if (hasExport && (ctx.tx.getFlags() & tfExportEraseLatch) != 0)
-        return temMALFORMED;
-    if (hasControl && ctx.tx.getFieldH256(sfTransactionHash).isZero())
+    if (ctx.tx.isFieldPresent(sfEmitDetails) && (!hasExport || hasRoster))
         return temMALFORMED;
 
+    // Intent: target + digest, with optional matching creation roster.
     if (hasExport)
     {
-        bool const hasUniverse = ctx.tx.isFieldPresent(sfExportUniverseHash);
-        bool const hasCommittee = ctx.tx.isFieldPresent(sfExportCommittee);
-        if (hasUniverse != hasCommittee)
+        if (hasControl || !hasDigest || flags != 0)
             return temMALFORMED;
-        if (hasUniverse)
-        {
-            if (auto const ter =
-                    ExportLedgerOps::validateCommitteeShape(ctx.tx, ctx.j);
-                !isTesSuccess(ter))
-                return ter;
-        }
-        else if (!ctx.tx.isFieldPresent(sfEmitDetails))
-        {
+        if (auto const ter =
+                ExportLedgerOps::validateCommitteeBinding(ctx.tx, ctx.j);
+            !isTesSuccess(ter))
+            return ter;
+        if (!ctx.tx.isFieldPresent(sfLastLedgerSequence))
             return temMALFORMED;
-        }
     }
-    else if (
-        ctx.tx.isFieldPresent(sfExportUniverseHash) ||
-        ctx.tx.isFieldPresent(sfExportCommittee))
+    // Latch control: W, optionally with irreversible erase.
+    else if (hasControl)
     {
-        return temMALFORMED;
+        if (hasDigest || hasRoster ||
+            (flags != 0 && flags != tfExportEraseLatch) ||
+            ctx.tx.getFieldH256(sfTransactionHash).isZero())
+            return temMALFORMED;
     }
-
-    // Exported transactions can retry across consensus rounds; every retrying
-    // export needs an explicit outer expiry. Lifecycle controls are immediate.
-    if (hasExport && !ctx.tx.isFieldPresent(sfLastLedgerSequence))
+    // Committee setup: roster only. Its digest is derived canonically.
+    else if (hasRoster)
+    {
+        if (hasDigest || flags != 0)
+            return temMALFORMED;
+        if (auto const ter = ExportLedgerOps::validateCommitteeRoster(
+                makeSlice(ctx.tx.getFieldVL(sfExportCommittee)), ctx.j);
+            !isTesSuccess(ter))
+            return ter;
+    }
+    // Committee deletion: exact digest plus its dedicated flag.
+    else if (hasDigest)
+    {
+        if (flags != tfExportEraseCommittee ||
+            ctx.tx.getFieldH256(sfExportCommitteeHash).isZero())
+            return temMALFORMED;
+    }
+    else
         return temMALFORMED;
 
     return preflight2(ctx);
@@ -84,9 +93,23 @@ Export::preclaim(PreclaimContext const& ctx)
     if (!ctx.tx.isFieldPresent(sfExportedTxn))
         return tesSUCCESS;
 
-    if (ctx.tx.isFieldPresent(sfExportUniverseHash) &&
-        ctx.tx.getFieldH256(sfExportUniverseHash) != ctx.view.info().parentHash)
-        return tecEXPORT_UNIVERSE_MISMATCH;
+    auto const account = ctx.tx.getAccountID(sfAccount);
+    auto const digest = ctx.tx.getFieldH256(sfExportCommitteeHash);
+    if (!ctx.tx.isFieldPresent(sfExportCommittee))
+    {
+        auto const committee =
+            ctx.view.read(keylet::exportCommittee(account, digest));
+        if (!committee)
+            return tecNO_ENTRY;
+        if (committee->getType() != ltEXPORT_COMMITTEE ||
+            !committee->isFieldPresent(sfExportCommittee) ||
+            !ExportLedgerOps::isMatchingExportCommittee(
+                *committee,
+                account,
+                digest,
+                makeSlice(committee->getFieldVL(sfExportCommittee))))
+            return tefBAD_LEDGER;
+    }
 
     auto baseTarget = ExportLedgerOps::exportIntentTarget(ctx.tx);
     if (!baseTarget)
@@ -142,12 +165,63 @@ Export::doApply()
             view(), ctx_.rawView(), account, origin, erase, j_);
     }
 
-    // --- Export intent path ---
-    auto const txId = ctx_.tx.getTransactionID();
-    auto const currentSeq = view().info().seq;
-    auto baseTarget = ExportLedgerOps::exportIntentTarget(ctx_.tx);
-    if (!baseTarget)
+    bool const hasExport = ctx_.tx.isFieldPresent(sfExportedTxn);
+    bool const hasRoster = ctx_.tx.isFieldPresent(sfExportCommittee);
+    bool const hasDigest = ctx_.tx.isFieldPresent(sfExportCommitteeHash);
+
+    // --- Immutable committee deletion path ---
+    if (!hasExport && hasDigest)
+        return ExportLedgerOps::eraseExportCommittee(
+            view(),
+            ctx_.rawView(),
+            account,
+            ctx_.tx.getFieldH256(sfExportCommitteeHash),
+            j_);
+
+    Blob roster;
+    uint256 committeeDigest;
+    if (hasRoster)
+    {
+        auto const canonical = canonicalizeExportCommittee(
+            makeSlice(ctx_.tx.getFieldVL(sfExportCommittee)));
+        if (!canonical)
+            return temMALFORMED;
+        roster = std::move(*canonical);
+        committeeDigest = exportCommitteeHash(makeSlice(roster));
+        if (committeeDigest.isZero() ||
+            (hasDigest &&
+             committeeDigest != ctx_.tx.getFieldH256(sfExportCommitteeHash)))
+            return temMALFORMED;
+    }
+    else
+    {
+        if (!hasDigest)
+            return temMALFORMED;
+        committeeDigest = ctx_.tx.getFieldH256(sfExportCommitteeHash);
+        auto const committeeSLE =
+            view().read(keylet::exportCommittee(account, committeeDigest));
+        if (!committeeSLE || !committeeSLE->isFieldPresent(sfExportCommittee))
+            return tecNO_ENTRY;
+        roster = committeeSLE->getFieldVL(sfExportCommittee);
+        if (!ExportLedgerOps::isMatchingExportCommittee(
+                *committeeSLE, account, committeeDigest, makeSlice(roster)))
+            return tefBAD_LEDGER;
+    }
+
+    auto const committee = resolveExportCommittee(makeSlice(roster));
+    if (!committee)
         return temMALFORMED;
+
+    // Bare committee setup performs no signing or latch work. Eligibility is
+    // evaluated when an intent actually selects the committee.
+    if (!hasExport)
+        return ExportLedgerOps::createExportCommittee(
+            view(),
+            ctx_.rawView(),
+            account,
+            makeSlice(roster),
+            mPriorBalance,
+            j_);
 
     auto parentLedger = ctx_.replayParentLedger();
     if (!parentLedger)
@@ -158,30 +232,38 @@ Export::doApply()
 
     auto const validatorView =
         ctx_.app.getConsensusExtensions().makeActiveValidatorView(parentLedger);
-    auto const universeHash = view().info().parentHash;
     if (!validatorView->fromUNLReport || !validatorView->sourceLedgerHash ||
-        *validatorView->sourceLedgerHash != universeHash)
-        return tecEXPORT_UNIVERSE_MISMATCH;
+        *validatorView->sourceLedgerHash != view().info().parentHash)
+        return tecEXPORT_COMMITTEE_UNAVAILABLE;
 
-    Blob committeeBitmap;
-    if (ctx_.tx.isFieldPresent(sfExportCommittee))
-        committeeBitmap = ctx_.tx.getFieldVL(sfExportCommittee);
-    else
+    for (auto const& master : committee->members)
     {
-        if (validatorView->orderedOriginalMasterKeys.empty() ||
-            validatorView->orderedOriginalMasterKeys.size() >
-                ExportLimits::maxCommitteeMembers)
-            return tecEXPORT_UNIVERSE_MISMATCH;
-        committeeBitmap = makeValidatorBitset(
-            validatorView->orderedOriginalMasterKeys.size(),
-            [](std::size_t) { return true; });
+        if (!std::binary_search(
+                validatorView->orderedOriginalMasterKeys.begin(),
+                validatorView->orderedOriginalMasterKeys.end(),
+                master))
+            return tecEXPORT_COMMITTEE_UNAVAILABLE;
     }
 
-    auto const committee = resolveExportCommittee(
-        makeSlice(committeeBitmap),
-        validatorView->orderedOriginalMasterKeys.size());
-    if (!committee)
-        return tecEXPORT_UNIVERSE_MISMATCH;
+    if (hasRoster)
+    {
+        auto const ter = ExportLedgerOps::createExportCommittee(
+            view(),
+            ctx_.rawView(),
+            account,
+            makeSlice(roster),
+            mPriorBalance,
+            j_);
+        if (!isTesSuccess(ter))
+            return ter;
+    }
+
+    // --- Export intent path ---
+    auto const txId = ctx_.tx.getTransactionID();
+    auto const currentSeq = view().info().seq;
+    auto baseTarget = ExportLedgerOps::exportIntentTarget(ctx_.tx);
+    if (!baseTarget)
+        return temMALFORMED;
 
     auto const targetNetworkID = baseTarget->isFieldPresent(sfNetworkID)
         ? baseTarget->getFieldU32(sfNetworkID)
@@ -204,8 +286,7 @@ Export::doApply()
         account,
         ctx_.tx,
         identity.value(),
-        universeHash,
-        committeeBitmap,
+        committeeDigest,
         mPriorBalance,
         j_);
     if (!isTesSuccess(ter))
@@ -213,7 +294,7 @@ Export::doApply()
 
     JLOG(j_.info()) << "Export: admitted post-validation intent"
                     << " txHash=" << txId << " ledgerSeq=" << currentSeq
-                    << " committee=" << committee->members.selected()
+                    << " committee=" << committee->members.size()
                     << " quorum=" << committee->quorum << " result=tesSUCCESS";
     return tesSUCCESS;
 }

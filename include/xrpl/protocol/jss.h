@@ -740,7 +740,7 @@ JSS(TRANSACTION_FLAGS);     // out: RPC server_definitions
 JSS(TRANSACTION_FLAGS_INDICES);  // out: RPC server_definitions
 JSS(type_hex);                   // out: STPathSet
 JSS(unl);                        // out: UnlList
-JSS(universe_position);          // out: NetworkOPs
+JSS(committee_position);          // out: NetworkOPs
 JSS(unlimited);                  // out: Connection.h
 JSS(uptime);                     // out: GetCounts
 JSS(uri);                        // out: ValidatorSites

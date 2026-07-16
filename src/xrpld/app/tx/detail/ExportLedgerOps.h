@@ -18,7 +18,6 @@
 #include <xrpl/protocol/XRPAmount.h>
 
 #include <algorithm>
-#include <bit>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -30,33 +29,43 @@ namespace ripple {
 namespace ExportLedgerOps {
 
 inline NotTEC
-validateCommitteeShape(STTx const& stx, beast::Journal j)
+validateCommitteeRoster(Slice roster, beast::Journal j)
 {
-    if (!stx.isFieldPresent(sfExportUniverseHash) ||
-        stx.getFieldH256(sfExportUniverseHash).isZero() ||
-        !stx.isFieldPresent(sfExportCommittee))
+    if (roster.empty() ||
+        roster.size() > ExportLimits::maxCommitteeRosterBytes ||
+        !canonicalizeExportCommittee(roster))
     {
-        JLOG(j.warn()) << "ExportLedgerOps: missing Export committee binding";
+        JLOG(j.warn()) << "ExportLedgerOps: malformed committee roster bytes="
+                       << roster.size();
+        return temMALFORMED;
+    }
+    return tesSUCCESS;
+}
+
+inline NotTEC
+validateCommitteeBinding(STTx const& stx, beast::Journal j)
+{
+    if (!stx.isFieldPresent(sfExportCommitteeHash) ||
+        stx.getFieldH256(sfExportCommitteeHash).isZero())
+    {
+        JLOG(j.warn()) << "ExportLedgerOps: missing Export committee digest";
         return temMALFORMED;
     }
 
-    auto const& committee = stx.getFieldVL(sfExportCommittee);
-    if (committee.empty() ||
-        committee.size() > ExportLimits::maxCommitteeMaskBytes)
+    if (stx.isFieldPresent(sfExportCommittee))
     {
-        JLOG(j.warn()) << "ExportLedgerOps: malformed committee bitmap bytes="
-                       << committee.size();
-        return temMALFORMED;
-    }
-
-    std::size_t selected = 0;
-    for (auto const byte : committee)
-        selected += std::popcount(byte);
-    if (selected == 0 || selected > ExportLimits::maxCommitteeMembers)
-    {
-        JLOG(j.warn()) << "ExportLedgerOps: invalid committee population="
-                       << selected;
-        return temMALFORMED;
+        auto const& roster = stx.getFieldVL(sfExportCommittee);
+        if (auto const ter = validateCommitteeRoster(makeSlice(roster), j);
+            !isTesSuccess(ter))
+            return ter;
+        auto const canonical = canonicalizeExportCommittee(makeSlice(roster));
+        if (!canonical ||
+            exportCommitteeHash(makeSlice(*canonical)) !=
+                stx.getFieldH256(sfExportCommitteeHash))
+        {
+            JLOG(j.warn()) << "ExportLedgerOps: committee digest mismatch";
+            return temMALFORMED;
+        }
     }
     return tesSUCCESS;
 }
@@ -76,9 +85,7 @@ isPendingExportTxn(STTx const& stx)
 inline bool
 isPendingExportWorkTxn(STTx const& stx)
 {
-    return isExportTxn(stx) &&
-        (stx.isFieldPresent(sfExportedTxn) ||
-         stx.isFieldPresent(sfEmitDetails));
+    return isPendingExportTxn(stx);
 }
 
 inline std::optional<STTx>
@@ -162,6 +169,124 @@ exportLatchCount(SLE const& sle)
                                              : 0;
 }
 
+inline bool
+isMatchingExportCommittee(
+    SLE const& sle,
+    AccountID const& account,
+    uint256 const& digest,
+    Slice roster)
+{
+    return sle.getType() == ltEXPORT_COMMITTEE &&
+        sle.isFieldPresent(sfAccount) &&
+        sle.isFieldPresent(sfExportCommitteeHash) &&
+        sle.isFieldPresent(sfExportCommittee) &&
+        sle.isFieldPresent(sfOwnerNode) &&
+        sle.getAccountID(sfAccount) == account &&
+        sle.getFieldH256(sfExportCommitteeHash) == digest &&
+        makeSlice(sle.getFieldVL(sfExportCommittee)) == roster &&
+        exportCommitteeHash(roster) == digest;
+}
+
+/** Materialize one immutable committee, or verify its existing content. */
+inline TER
+createExportCommittee(
+    ApplyView& view,
+    RawView& rawView,
+    AccountID const& account,
+    Slice roster,
+    XRPAmount const& priorBalance,
+    beast::Journal j)
+{
+    auto const canonical = canonicalizeExportCommittee(roster);
+    if (!canonical)
+        return temMALFORMED;
+    auto const canonicalRoster = makeSlice(*canonical);
+    auto const profile = resolveExportCommittee(canonicalRoster);
+    auto const digest = exportCommitteeHash(canonicalRoster);
+    if (!profile || digest.isZero())
+        return temMALFORMED;
+
+    auto const key = keylet::exportCommittee(account, digest);
+    if (auto const existing = view.read(key))
+        return isMatchingExportCommittee(
+                   *existing, account, digest, canonicalRoster)
+            ? TER{tesSUCCESS}
+            : TER{tefBAD_LEDGER};
+
+    Sandbox sb{&view};
+    auto sleAccount = sb.peek(keylet::account(account));
+    if (!sleAccount)
+        return tefINTERNAL;
+
+    auto const requiredReserve =
+        view.fees().accountReserve(sleAccount->getFieldU32(sfOwnerCount) + 1);
+    if (priorBalance < requiredReserve)
+        return tecINSUFFICIENT_RESERVE;
+
+    auto committee = std::make_shared<SLE>(key);
+    committee->setAccountID(sfAccount, account);
+    committee->setFieldH256(sfExportCommitteeHash, digest);
+    committee->setFieldVL(sfExportCommittee, *canonical);
+
+    auto const ownerPage = sb.dirInsert(
+        keylet::ownerDir(account), committee->key(), describeOwnerDir(account));
+    if (!ownerPage)
+        return tecDIR_FULL;
+    committee->setFieldU64(sfOwnerNode, *ownerPage);
+    sb.insert(committee);
+
+    adjustOwnerCount(sb, sleAccount, 1, j);
+    sb.apply(rawView);
+    return tesSUCCESS;
+}
+
+/** Delete one immutable committee when the account has no live Export latch. */
+inline TER
+eraseExportCommittee(
+    ApplyView& view,
+    RawView& rawView,
+    AccountID const& account,
+    uint256 const& digest,
+    beast::Journal j)
+{
+    if (digest.isZero())
+        return temMALFORMED;
+
+    Sandbox sb{&view};
+    auto sleAccount = sb.peek(keylet::account(account));
+    auto committee = sb.peek(keylet::exportCommittee(account, digest));
+    if (!sleAccount)
+        return tefINTERNAL;
+    if (!committee)
+        return tecNO_ENTRY;
+    if (committee->getType() != ltEXPORT_COMMITTEE ||
+        !committee->isFieldPresent(sfOwnerNode) ||
+        !committee->isFieldPresent(sfExportCommitteeHash) ||
+        !committee->isFieldPresent(sfExportCommittee) ||
+        committee->getAccountID(sfAccount) != account ||
+        committee->getFieldH256(sfExportCommitteeHash) != digest ||
+        !isMatchingExportCommittee(
+            *committee,
+            account,
+            digest,
+            makeSlice(committee->getFieldVL(sfExportCommittee))))
+        return tefBAD_LEDGER;
+    if (exportLatchCount(*sleAccount) != 0)
+        return tecHAS_OBLIGATIONS;
+
+    if (!sb.dirRemove(
+            keylet::ownerDir(account),
+            committee->getFieldU64(sfOwnerNode),
+            committee->key(),
+            false))
+        return tefBAD_LEDGER;
+
+    sb.erase(committee);
+    adjustOwnerCount(sb, sleAccount, -1, j);
+    sb.apply(rawView);
+    return tesSUCCESS;
+}
+
 /// Link a new-format Export latch into its owner's directory and the global
 /// pending-work directory. All mutations remain in the caller's apply sandbox
 /// and are behavior-neutral until the post-validation Export cutover calls it.
@@ -241,13 +366,12 @@ createPendingExportLatch(
     AccountID const& account,
     STTx const& exportTx,
     STTx const& identityTarget,
-    uint256 const& universeHash,
-    Blob const& committee,
+    uint256 const& committeeHash,
     XRPAmount const& priorBalance,
     beast::Journal j)
 {
     if (!identityTarget.isFieldPresent(sfTicketSequence) ||
-        universeHash.isZero() || committee.empty())
+        committeeHash.isZero())
         return temMALFORMED;
 
     auto const origin = exportTx.getTransactionID();
@@ -286,8 +410,7 @@ createPendingExportLatch(
     latch->setFieldH256(
         sfDigest, ExportResultBuilder::exportIntentHash(identityTarget));
     latch->setFieldU32(sfLedgerSequence, view.info().seq);
-    latch->setFieldH256(sfExportUniverseHash, universeHash);
-    latch->setFieldVL(sfExportCommittee, committee);
+    latch->setFieldH256(sfExportCommitteeHash, committeeHash);
 
     if (!exportTx.isFieldPresent(sfLastLedgerSequence))
         return temMALFORMED;

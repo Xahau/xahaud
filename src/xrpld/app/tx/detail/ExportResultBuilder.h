@@ -2,7 +2,6 @@
 #define RIPPLE_TX_EXPORTRESULTBUILDER_H_INCLUDED
 
 #include <xrpl/basics/Buffer.h>
-#include <xrpl/basics/UnorderedContainers.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/STObject.h>
@@ -28,14 +27,6 @@ struct PositionedSignature
 
 using PositionedSignatureSnapshot =
     std::map<std::uint16_t, PositionedSignature>;
-
-struct SignatureWitness
-{
-    uint256 witnessHash;
-    SignatureSnapshot signatures;
-};
-
-using SignatureWitnesses = hash_map<uint256, SignatureWitness>;
 
 struct AssembledExportResult
 {
@@ -63,7 +54,7 @@ buildSignatureWitness(
     uint256 const& exportTxHash,
     STTx const& exportSigningPayload,
     PositionedSignatureSnapshot const& signatures,
-    std::size_t universeSize,
+    std::size_t committeeSize,
     LedgerIndex currentSeq);
 
 std::optional<PositionedSignatureSnapshot>
