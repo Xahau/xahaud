@@ -139,6 +139,37 @@ resolves the bounded deadline edge.
 bounded deadline. *Anti-pattern:* requiring `fullObservation()` before ignoring a
 below-quorum conflict, which lets a minority equivocation recreate a veto.
 
+**INV-4A — Every counted reveal has an authenticated, frozen commitment.**
+Proposal sidecars are validator statements, so the proposal signature is
+verified before any commitment, reveal, or advertised sidecar root is harvested.
+Cluster-peer transport trust never substitutes for that signature check. Ingress
+also resolves the proposal signing key to the claimed active-view master
+`NodeID`; once a validator has a proofed commitment, that signing key is pinned
+for the remainder of the round even if the live manifest cache changes.
+
+A commitment qualifies only when it came from proposal sequence zero and has a
+self-contained proof of the signed `ExtendedPosition`. Its value is
+`sha512Half(reveal, proposalSigningKey, buildLedgerSequence)`. The commit
+snapshot contains only active validators with such a proof, and each leaf
+records master `NodeID`, signing key, commitment, build sequence, and serialized
+proposal proof. Before any reveal is published, commitment admission freezes:
+duplicates remain harmless, while new or changed commitments cannot enter the
+round.
+
+A reveal is admitted only for the same pinned signing key, an existing proofed
+commitment, and the build sequence derived from the proposal's available parent
+ledger; recomputing the commitment must match exactly. The reveal snapshot then
+contains only deterministic `(master NodeID, signing key, reveal, build
+sequence)` material from that proofed cohort. It deliberately omits a second
+serialized proposal proof: proposal sequence, close time, and signature bytes
+can differ while attesting the same reveal and would make the reveal root depend
+on message timing. Authentication happens at ingress; signed proposal positions
+then authenticate the deterministic reveal-root advertisement used by the
+alignment gate.
+*Enforced:* `PeerImp::checkPropose`, `onTrustedPeerProposal`,
+`ingestRngContribution`, `buildCommitSet`, `freezeRngCommitSet`, and
+`buildEntropySet`.
+
 **INV-5 — Graceful, labeled, deterministic degradation.**
 Under no-UNLReport / lost reveals / failed alignment / timeout / impossible
 quorum, the round mints an **explicitly labeled lower tier**, never an unlabeled
