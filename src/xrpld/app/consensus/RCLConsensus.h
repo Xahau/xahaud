@@ -50,6 +50,7 @@ namespace ripple {
 
 class CanonicalTXSet;
 class InboundTransactions;
+class LedgerReplay;
 class LocalTxs;
 class LedgerMaster;
 class ValidatorKeys;
@@ -415,6 +416,7 @@ class RCLConsensus
         buildLCL(
             RCLCxLedger const& previousLedger,
             CanonicalTXSet& retriableTxs,
+            std::unique_ptr<LedgerReplay> replayData,
             NetClock::time_point closeTime,
             bool closeTimeCorrect,
             NetClock::duration closeResolution,

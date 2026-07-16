@@ -2198,6 +2198,15 @@ ConsensusExtensions::clearRngState()
 
     clearRngStatePreservingExport();
 }
+
+void
+ConsensusExtensions::onReplayBuild()
+{
+    if (rngEnabled() || exportEnabled())
+        clearRngStatePreservingExport();
+    else
+        clearRngState();
+}
 //@@end clear-rng-state
 
 void
@@ -2393,6 +2402,40 @@ ConsensusExtensions::onPreBuild(
     LedgerIndex seq,
     uint256 const& txSetHash)
 {
+    //@@start extension-live-pseudo-authority
+    // The agreed user transaction set never authorizes synthetic extension
+    // state. In a live build, discard every supplied extension pseudo and
+    // derive the canonical synthetic stream from accepted extension evidence.
+    // Ledger replay bypasses onPreBuild and consumes its persisted order.
+    std::size_t suppliedEntropy = 0;
+    std::size_t suppliedExportWitnesses = 0;
+    for (auto it = retriableTxs.begin(); it != retriableTxs.end();)
+    {
+        auto const& tx = it->second;
+        if (tx && tx->getTxnType() == ttCONSENSUS_ENTROPY)
+        {
+            ++suppliedEntropy;
+            it = retriableTxs.erase(it);
+        }
+        else if (tx && tx->getTxnType() == ttEXPORT_SIGNATURES)
+        {
+            ++suppliedExportWitnesses;
+            it = retriableTxs.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+    if (suppliedEntropy != 0 || suppliedExportWitnesses != 0)
+    {
+        JLOG(j_.error())
+            << "ConsensusExtensions: discarded supplied synthetic txs"
+            << " seq=" << seq << " entropy=" << suppliedEntropy
+            << " exportWitnesses=" << suppliedExportWitnesses;
+    }
+    //@@end extension-live-pseudo-authority
+
     if (rngEnabled())
     {
         JLOG(j_.info()) << "RNG: injectEntropy"
@@ -2460,86 +2503,7 @@ ConsensusExtensions::onPreBuild(
                 obj.setFieldU8(sfEntropyTier, entropyTier);
             });
 
-            auto const txID = tx.getTransactionID();
-            // Value-based dedup. There must never be two entropy pseudo-txs,
-            // but when one is already present in the agreed set it must be
-            // VALIDATED as the exact pseudo-tx we would have produced — not
-            // merely "same type". Injection is deterministic, so every honest
-            // node derives the identical pseudo-tx (identical txID) for the
-            // same agreed inputs. A present-but-different entropy pseudo-tx is
-            // therefore a determinism violation (version skew or a
-            // divergent/malicious peer) and must be surfaced, not silently
-            // trusted.
-            auto const existing = std::find_if(
-                retriableTxs.begin(),
-                retriableTxs.end(),
-                [](auto const& entry) {
-                    return entry.second->getTxnType() == ttCONSENSUS_ENTROPY;
-                });
-            if (existing != retriableTxs.end())
-            {
-                auto const existingID = existing->second->getTransactionID();
-                if (existingID == txID)
-                {
-                    JLOG(j_.debug()) << "RNG: entropy pseudo-tx already present"
-                                     << " txHash=" << txID << " seq=" << seq
-                                     << " action=skip-duplicate-verified";
-                }
-                else
-                {
-                    // The agreed tx set's hash already commits to the existing
-                    // pseudo-tx, so we cannot replace it without forking off
-                    // the agreed ledger. This is detect-and-log only: the
-                    // existing pseudo-tx is KEPT and is still applied at ledger
-                    // build (BuildLedger applyTransactions). A hard-fail/reject
-                    // policy on mismatch is a deliberate future decision (it
-                    // trades a determinism violation for a halt risk under
-                    // benign skew).
-                    //
-                    // Read present fields defensively: the mismatching
-                    // pseudo-tx may be exactly the old/malformed (pre-tier)
-                    // entry we are guarding against, and getField...() on a
-                    // missing required field would throw here, inside
-                    // onPreBuild during build.
-                    auto const& pres = *existing->second;
-                    JLOG(j_.error())
-                        << "RNG: entropy pseudo-tx MISMATCH"
-                        << " seq=" << seq << " reason=determinism-violation"
-                        << " action=keep-agreed-and-flag"
-                        << " ourTxHash=" << txID
-                        << " ourDigest=" << finalEntropy
-                        << " ourTier=" << static_cast<int>(entropyTier)
-                        << " ourCount=" << entropyCount
-                        << " ourDenominator=" << entropyDenominator
-                        << " ourContributors=" << strHex(entropyContributors)
-                        << " presentTxHash=" << existingID << " presentDigest="
-                        << (pres.isFieldPresent(sfDigest)
-                                ? to_string(pres.getFieldH256(sfDigest))
-                                : std::string{"<missing>"})
-                        << " presentTier="
-                        << (pres.isFieldPresent(sfEntropyTier)
-                                ? std::to_string(pres.getFieldU8(sfEntropyTier))
-                                : std::string{"<missing>"})
-                        << " presentCount="
-                        << (pres.isFieldPresent(sfEntropyCount)
-                                ? std::to_string(
-                                      pres.getFieldU16(sfEntropyCount))
-                                : std::string{"<missing>"})
-                        << " presentDenominator="
-                        << (pres.isFieldPresent(sfEntropyDenominator)
-                                ? std::to_string(
-                                      pres.getFieldU16(sfEntropyDenominator))
-                                : std::string{"<missing>"})
-                        << " presentContributors="
-                        << (pres.isFieldPresent(sfEntropyContributors)
-                                ? strHex(pres.getFieldVL(sfEntropyContributors))
-                                : std::string{"<missing>"});
-                }
-            }
-            else
-            {
-                retriableTxs.insert(std::make_shared<STTx>(std::move(tx)));
-            }
+            retriableTxs.insert(std::make_shared<STTx>(std::move(tx)));
             //@@end rng-inject-pseudotx-core
         }
         //@@end rng-inject-pseudotx
@@ -2553,17 +2517,6 @@ ConsensusExtensions::onPreBuild(
         // agreedExportWitness() explicitly accepts in standalone mode.
         if (app_.config().standalone() && hasPendingExportSigs())
             buildExportSigSet(seq);
-
-        // Export witnesses are synthetic consequences of the accepted sidecar
-        // root. Never preserve a transaction-set supplied variant.
-        for (auto it = retriableTxs.begin(); it != retriableTxs.end();)
-        {
-            auto const& tx = it->second;
-            if (tx && tx->getTxnType() == ttEXPORT_SIGNATURES)
-                it = retriableTxs.erase(it);
-            else
-                ++it;
-        }
 
         auto const parent =
             app_.getLedgerMaster().getLedgerByHash(roundPrevLedgerHash_);

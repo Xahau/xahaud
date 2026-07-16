@@ -399,10 +399,13 @@ entropy pseudo-tx after it updates the SLE. Hooks that need final entropy must
 treat open-ledger RNG results as previews.
 
 The fallback digest derives from the agreed pre-injection tx set hash to avoid
-circularity, and entropy pseudo-tx deduplication is value-based: if the agreed
-set already contains the exact pseudo-tx, injection skips it; a
-present-but-different pseudo-tx is logged as a determinism violation and left in
-the agreed set.
+circularity. The agreed user transaction set is not authority for synthetic
+extension state: during a live build, every supplied `ttCONSENSUS_ENTROPY` or
+`ttEXPORT_SIGNATURES` transaction is discarded and logged as an invariant
+violation, then the canonical synthetic stream is derived from accepted
+extension evidence. Historical replay is selected before live materialization
+and consumes the persisted transaction order, including its recorded synthetic
+transactions, without regeneration.
 
 ## Local Snapshot Alignment Rules
 

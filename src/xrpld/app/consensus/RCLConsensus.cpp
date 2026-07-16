@@ -25,6 +25,7 @@
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/LedgerReplay.h>
 #include <xrpld/app/ledger/LocalTxs.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/AmendmentTable.h>
@@ -610,21 +611,35 @@ RCLConsensus::Adaptor::doAccept(
     }
     //@@end txn-ordering-salt-build-inputs
 
+    // Select replay before live materialization. Replay consumes the persisted
+    // ordered transaction stream, including its recorded extension pseudos;
+    // live builds derive extension pseudos from accepted extension evidence.
+    auto replayData = ledgerMaster_.releaseReplay();
+
     //@@start auxiliary-pre-build-injection
-    // Inject extension pseudo-transactions (if amendments are enabled).
-    // Entropy and Export witness injection are independently gated inside
-    // onPreBuild; export-only rounds still need this hook even when RNG is off.
+    // Inject extension pseudo-transactions only for a live build. Entropy and
+    // Export witness injection are independently gated inside onPreBuild;
+    // export-only rounds still need this hook even when RNG is off.
     //@@start accept-time-cleanup-disabled
-    if (ce().rngEnabled() || ce().exportEnabled())
+    if (replayData)
+    {
+        ce().onReplayBuild();
+    }
+    else if (ce().rngEnabled() || ce().exportEnabled())
+    {
         ce().onPreBuild(retriableTxs, buildSeq, agreedTxSetHash);
-    else if (!ce().exportEnabled())
+    }
+    else
+    {
         ce().clearRngState();
+    }
     //@@end accept-time-cleanup-disabled
 
     //@@start buildlcl-after-extension-state
     auto built = buildLCL(
         prevLedger,
         retriableTxs,
+        std::move(replayData),
         consensusCloseTime,
         closeTimeCorrect,
         closeResolution,
@@ -869,6 +884,7 @@ RCLCxLedger
 RCLConsensus::Adaptor::buildLCL(
     RCLCxLedger const& previousLedger,
     CanonicalTXSet& retriableTxs,
+    std::unique_ptr<LedgerReplay> replayData,
     NetClock::time_point closeTime,
     bool closeTimeCorrect,
     NetClock::duration closeResolution,
@@ -876,7 +892,7 @@ RCLConsensus::Adaptor::buildLCL(
     std::set<TxID>& failedTxs)
 {
     std::shared_ptr<Ledger> built = [&]() {
-        if (auto const replayData = ledgerMaster_.releaseReplay())
+        if (replayData)
         {
             XRPL_ASSERT(
                 replayData->parent()->info().hash == previousLedger.id(),

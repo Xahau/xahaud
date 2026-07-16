@@ -2806,53 +2806,49 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             standaloneContributorMask(20, 20));
         BEAST_EXPECT(tx->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
 
-        // Value-based dedup: re-injecting with identical inputs yields the
-        // identical pseudo-tx (same txID) -> verified skip, still one entry.
+        // Live materialization is reconstructive: a second call removes the
+        // prior synthetic entry and derives the same canonical entry again.
         ce.onPreBuild(retriableTxs, seq, makeHash("standalone-txset"));
         BEAST_EXPECT(
             std::distance(retriableTxs.begin(), retriableTxs.end()) == 1);
     }
 
     void
-    testOnPreBuildEntropyMismatchKeepsAgreed()
+    testOnPreBuildStripsSuppliedExtensionPseudos()
     {
-        testcase("onPreBuild keeps a present-but-different entropy pseudo-tx");
+        testcase("onPreBuild strips supplied extension pseudo-txs");
 
         using namespace jtx;
         Env env{
             *this, envconfig(validator, ""), supported_amendments(), nullptr};
         auto const seq = env.closed()->seq() + 1;
 
-        // (1) Well-formed but DIFFERENT digest already present: standalone
-        // injection would produce its own digest, so txIDs differ -> mismatch
-        // branch keeps the agreed one, does not insert ours, stays at one.
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.setRngEnabledThisRound(true);
+        CanonicalTXSet txs{makeHash("supplied-extension-pseudos-salt")};
+        auto const suppliedEntropy =
+            makeConsensusEntropyTx(seq, makeHash("supplied-digest"), 7);
+        auto const suppliedEntropyID = suppliedEntropy->getTransactionID();
+        auto const suppliedWitness =
+            makeExportSignaturesTx(seq, makeHash("supplied-export-origin"));
+        auto const suppliedWitnessID = suppliedWitness->getTransactionID();
+        txs.insert(suppliedEntropy);
+        txs.insert(suppliedWitness);
+
+        ce.onPreBuild(txs, seq, makeHash("supplied-extension-pseudos-txset"));
+
+        BEAST_EXPECT(std::distance(txs.begin(), txs.end()) == 1);
+        auto const derived = singleCanonicalTx(txs);
+        BEAST_EXPECT(derived);
+        if (derived)
         {
-            ConsensusExtensions ce{env.app(), activeNoopJournal()};
-            ce.setRngEnabledThisRound(true);
-            CanonicalTXSet txs{makeHash("mismatch-wellformed-salt")};
-            auto const present =
-                makeConsensusEntropyTx(seq, makeHash("a-different-digest"), 7);
-            auto const presentID = present->getTransactionID();
-            txs.insert(present);
-
-            ce.onPreBuild(txs, seq, makeHash("mismatch-txset"));
-
-            BEAST_EXPECT(std::distance(txs.begin(), txs.end()) == 1);
-            auto const kept = singleCanonicalTx(txs);
-            BEAST_EXPECT(kept);
-            if (kept)
-            {
-                BEAST_EXPECT(kept->getTransactionID() == presentID);
-                BEAST_EXPECT(
-                    kept->getFieldH256(sfDigest) ==
-                    makeHash("a-different-digest"));
-            }
+            BEAST_EXPECT(derived->getTxnType() == ttCONSENSUS_ENTROPY);
+            BEAST_EXPECT(derived->getTransactionID() != suppliedEntropyID);
+            BEAST_EXPECT(derived->getTransactionID() != suppliedWitnessID);
+            BEAST_EXPECT(
+                derived->getFieldH256(sfDigest) ==
+                sha512Half(std::string("standalone-entropy"), seq));
         }
-
-        // Note: a ttCONSENSUS_ENTROPY missing sfEntropyTier cannot be
-        // constructed (STTx deserialization enforces all soeREQUIRED fields),
-        // so the mismatch-branch's defensive isFieldPresent reads guard an
-        // unreachable-via-tx-path case — belt-and-suspenders, kept cheap.
     }
 
     void
@@ -4352,7 +4348,7 @@ public:
         testAgreedExportWitnessBuildsContributorBitmap();
         testRngSidecarBuildsLocalSnapshots();
         testOnPreBuildInjectsStandaloneEntropy();
-        testOnPreBuildEntropyMismatchKeepsAgreed();
+        testOnPreBuildStripsSuppliedExtensionPseudos();
         testDiagnosticsJsonAndPositionLogging();
         testDecoratePositionSkipsWhenDisabled();
         testExportSigGateRequiresQuorumAlignment();

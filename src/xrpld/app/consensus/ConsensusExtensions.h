@@ -510,6 +510,11 @@ public:
     void
     clearRngState();
 
+    /// Clear round-local state without deriving synthetic transactions.
+    /// Historical replay consumes the persisted transaction order directly.
+    void
+    onReplayBuild();
+
     /// txSetHash is the agreed pre-injection consensus tx set hash — an input
     /// to the Tier 1 consensus_fallback digest. It must never be the hash of a
     /// set that could contain the entropy pseudo-tx itself.
