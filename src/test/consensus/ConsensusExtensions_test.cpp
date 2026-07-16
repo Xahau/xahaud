@@ -300,12 +300,32 @@ singleCanonicalTx(CanonicalTXSet const& txs)
 }
 
 uint256
+expectedEntropy(std::vector<std::pair<PublicKey, uint256>> contributions)
+{
+    std::sort(
+        contributions.begin(),
+        contributions.end(),
+        [](auto const& a, auto const& b) {
+            if (a.first.slice() < b.first.slice())
+                return true;
+            if (b.first.slice() < a.first.slice())
+                return false;
+            return a.second < b.second;
+        });
+
+    Serializer s;
+    for (auto const& [key, reveal] : contributions)
+    {
+        s.addVL(key.slice());
+        s.addBitString(reveal);
+    }
+    return sha512Half(s.slice());
+}
+
+uint256
 expectedEntropy(PublicKey const& key, uint256 const& reveal)
 {
-    Serializer s;
-    s.addVL(key.slice());
-    s.addBitString(reveal);
-    return sha512Half(s.slice());
+    return expectedEntropy({{key, reveal}});
 }
 
 Buffer
@@ -1619,6 +1639,79 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testOnPreBuildCanonicalizesMultiContributorEntropy()
+    {
+        testcase("onPreBuild canonicalizes multi-contributor entropy");
+
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+        forceNonStandalone(env.app());
+
+        std::vector<std::pair<PublicKey, SecretKey>> validators;
+        validators.push_back(randomKeyPair(KeyType::secp256k1));
+        validators.push_back(randomKeyPair(KeyType::secp256k1));
+        std::vector<PublicKey> activeKeys{
+            validators[0].first, validators[1].first};
+        auto const viewLedger = makeUNLReportLedger(env, activeKeys);
+        auto const anchor = env.app().getLedgerMaster().getClosedLedger();
+        auto const seq = anchor->info().seq + 1;
+        auto const closeTime = NetClock::time_point{NetClock::duration{322}};
+        auto const txSetHash = makeHash("multi-contributor-entropy-txset");
+        std::vector<uint256> const reveals{
+            makeHash("multi-contributor-reveal-a"),
+            makeHash("multi-contributor-reveal-b")};
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.onRoundStart(RCLCxLedger{anchor}, {});
+        ce.cacheUNLReport(viewLedger);
+        ce.setRngEnabledThisRound(true);
+
+        // Deliberately harvest in reverse signing-key order. The accepted
+        // entropy bytes must depend on canonical key/reveal order, not packet
+        // arrival or SHAMap traversal order.
+        for (std::size_t i : {std::size_t{1}, std::size_t{0}})
+        {
+            harvestCommitReveal(
+                ce,
+                calcNodeID(validators[i].first),
+                validators[i].first,
+                validators[i].second,
+                txSetHash,
+                seq,
+                closeTime,
+                anchor->info().hash,
+                reveals[i]);
+        }
+        BEAST_EXPECT(ce.hasQuorumOfCommits());
+        BEAST_EXPECT(ce.hasMinimumReveals());
+
+        auto const entropySetHash = ce.buildEntropySet(seq);
+        ce.acceptEntropySet(entropySetHash);
+        CanonicalTXSet txs{makeHash("multi-contributor-entropy-salt")};
+        ce.onPreBuild(txs, seq, txSetHash);
+
+        auto const tx = singleCanonicalTx(txs);
+        BEAST_EXPECT(tx);
+        if (!tx)
+            return;
+
+        BEAST_EXPECT(tx->getTxnType() == ttCONSENSUS_ENTROPY);
+        BEAST_EXPECT(
+            tx->getFieldH256(sfDigest) ==
+            expectedEntropy(
+                {{validators[0].first, reveals[0]},
+                 {validators[1].first, reveals[1]}}));
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == 2);
+        BEAST_EXPECT(tx->getFieldU16(sfEntropyDenominator) == 2);
+        BEAST_EXPECT(tx->getFieldVL(sfEntropyContributors) == Blob{0x03});
+        BEAST_EXPECT(tx->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
+    }
+
+    void
     testOnPreBuildAcceptedEntropySetOverridesLocalFailureFlag()
     {
         testcase(
@@ -2414,6 +2507,117 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(
             manifestFirst.buildEntropySet(seq) ==
             proposalFirst.buildEntropySet(seq));
+    }
+
+    void
+    testRngManifestRotationDropsPinnedContributor()
+    {
+        testcase("RNG manifest rotation drops pinned contributor");
+
+        using namespace jtx;
+        auto const masterSeed = randomSeed();
+        Env env{
+            *this,
+            envconfig(validator, toBase58(masterSeed)),
+            supported_amendments(),
+            nullptr};
+        auto const anchor = env.app().getLedgerMaster().getClosedLedger();
+        auto const masterSecret =
+            generateSecretKey(KeyType::secp256k1, masterSeed);
+        auto const masterKey =
+            derivePublicKey(KeyType::secp256k1, masterSecret);
+        auto const signingSecret1 =
+            generateSecretKey(KeyType::secp256k1, randomSeed());
+        auto const signingSecret2 =
+            generateSecretKey(KeyType::secp256k1, randomSeed());
+        auto const signingKey1 =
+            derivePublicKey(KeyType::secp256k1, signingSecret1);
+        auto const signingKey2 =
+            derivePublicKey(KeyType::secp256k1, signingSecret2);
+        auto const nodeId = calcNodeID(masterKey);
+
+        BEAST_EXPECT(
+            env.app().validatorManifests().applyManifest(
+                makeValidatorManifest(masterSecret, signingSecret1, 1)) ==
+            ManifestDisposition::accepted);
+
+        auto const viewLedger =
+            makeUNLReportLedger(env, std::vector<PublicKey>{masterKey});
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.cacheUNLReport(viewLedger);
+
+        auto const seq = anchor->info().seq + 1;
+        auto const closeTime = NetClock::time_point{NetClock::duration{656}};
+        auto const txSetHash = makeHash("manifest-rotation-txset");
+        auto const reveal = makeHash("manifest-rotation-reveal");
+        auto const commitment = sha512Half(reveal, signingKey1, seq);
+
+        ExtendedPosition commitPos{txSetHash};
+        commitPos.myCommitment = commitment;
+        auto const commitSig = signPosition(
+            signingKey1,
+            signingSecret1,
+            commitPos,
+            0,
+            closeTime,
+            anchor->info().hash);
+        ce.harvestRngData(
+            nodeId,
+            signingKey1,
+            commitPos,
+            0,
+            closeTime,
+            anchor->info().hash,
+            Slice(commitSig.data(), commitSig.size()));
+        BEAST_EXPECT(ce.pendingCommitCount() == 1);
+        BEAST_EXPECT(ce.hasQuorumOfCommits());
+
+        BEAST_EXPECT(
+            env.app().validatorManifests().applyManifest(
+                makeValidatorManifest(masterSecret, signingSecret2, 2)) ==
+            ManifestDisposition::accepted);
+
+        ExtendedPosition revealPos{txSetHash};
+        revealPos.myReveal = reveal;
+        auto const retiredKeySig = signPosition(
+            signingKey1,
+            signingSecret1,
+            revealPos,
+            1,
+            closeTime,
+            anchor->info().hash);
+        ce.harvestRngData(
+            nodeId,
+            signingKey1,
+            revealPos,
+            1,
+            closeTime,
+            anchor->info().hash,
+            Slice(retiredKeySig.data(), retiredKeySig.size()));
+
+        auto const substitutedKeySig = signPosition(
+            signingKey2,
+            signingSecret2,
+            revealPos,
+            2,
+            closeTime,
+            anchor->info().hash);
+        ce.harvestRngData(
+            nodeId,
+            signingKey2,
+            revealPos,
+            2,
+            closeTime,
+            anchor->info().hash,
+            Slice(substitutedKeySig.data(), substitutedKeySig.size()));
+
+        BEAST_EXPECT(ce.pendingRevealCount() == 0);
+        BEAST_EXPECT(!ce.hasMinimumReveals());
+        auto const entropyHash = ce.buildEntropySet(seq);
+        auto const entropySet =
+            env.app().getInboundTransactions().getSet(entropyHash, false);
+        BEAST_EXPECT(entropySet);
+        BEAST_EXPECT(entropySet && entropySet->getHash().isZero());
     }
 
     void
@@ -4577,6 +4781,7 @@ public:
         testOnPreBuildInjectsZeroEntropyFallback();
         testTxnOrderingSaltExtendsLegacySalt();
         testOnPreBuildInjectsEntropySetEntropy();
+        testOnPreBuildCanonicalizesMultiContributorEntropy();
         testOnPreBuildAcceptedEntropySetOverridesLocalFailureFlag();
         testOnPreBuildRejectsForgedEntropyContributorAttribution();
         testOnPreBuildTier2ParticipantAligned();
@@ -4586,6 +4791,7 @@ public:
         testProposalPrecheckUsesExportShareRelayLimits();
         testHarvestRngDataReplacementAndRejection();
         testRngManifestArrivalDoesNotRetargetProofedCommit();
+        testRngManifestRotationDropsPinnedContributor();
         testExportCollectorBuildsAttributedUnion();
         testExportSidecarCandidateDeadline();
         testTransactionAcquireRejectsSidecarWireNodes();
