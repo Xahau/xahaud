@@ -63,6 +63,16 @@ public:
     {
         using enum detail::ProposalPrecheckResult;
 
+        //@@start test-peer-proposal-authentication
+        testcase("cluster transport does not bypass proposal authentication");
+        {
+            BEAST_EXPECT(detail::proposalSignatureAccepted(false, true));
+            BEAST_EXPECT(detail::proposalSignatureAccepted(true, true));
+            BEAST_EXPECT(!detail::proposalSignatureAccepted(false, false));
+            BEAST_EXPECT(!detail::proposalSignatureAccepted(true, false));
+        }
+        //@@end test-peer-proposal-authentication
+
         //@@start test-proposal-precheck-legacy-ok
         testcase("legacy and extended ok");
         {

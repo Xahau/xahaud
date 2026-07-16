@@ -38,6 +38,13 @@ struct ProposalPrecheckRejection
 };
 
 inline bool
+proposalSignatureAccepted(bool /* clusterPeer */, bool signatureValid)
+{
+    // Cluster trust affects relay and charging, never validator attribution.
+    return signatureValid;
+}
+
+inline bool
 proposalHasMalformedHashes(protocol::TMProposeSet const& set)
 {
     // `currenttxhash` is a legacy protobuf field that may now carry serialized

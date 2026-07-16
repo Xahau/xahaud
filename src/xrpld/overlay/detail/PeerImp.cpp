@@ -3120,19 +3120,19 @@ PeerImp::checkPropose(
 
     XRPL_ASSERT(packet, "ripple::PeerImp::checkPropose : non-null packet");
 
-    // Always verify the proposal signature before harvesting export
-    // sigs, even in cluster mode.  Cluster peers are trusted for relay
-    // and resource charging, but export sigs produce on-chain artifacts
-    // (multisigned blobs in metadata) so they require cryptographic
-    // proof of validator identity regardless.
+    // Always authenticate validator positions, including those relayed by a
+    // cluster peer. Sidecar alignment counts these positions as validator
+    // statements, so cluster transport trust cannot replace the signature.
+    //@@start peer-proposal-authentication
     bool const sigValid = peerPos.checkSign();
-    if (!cluster() && !sigValid)
+    if (!detail::proposalSignatureAccepted(cluster(), sigValid))
     {
         std::string desc{"Proposal fails sig check"};
         JLOG(p_journal_.warn()) << desc;
         charge(Resource::feeInvalidSignature, desc);
         return;
     }
+    //@@end peer-proposal-authentication
 
     //@@start peer-harvest-export-sigs
     // Harvest export sigs AFTER checkSign() so only cryptographically
