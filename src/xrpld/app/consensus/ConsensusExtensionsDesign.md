@@ -569,12 +569,13 @@ intent. A missing latch returns `telSHADOW_TICKET_REQUIRED` before consensus or
 Hook execution, so an XPOP that races source materialization can be relayed
 later.
 
-Shadow-ticket cancellation is source resource reclamation. It releases account
-reserve and an outstanding-ticket slot when a round trip is abandoned, but it
-cannot revoke shares already published to peers. Operators should delete a latch
-only with external evidence such as target expiry, destination Ticket
-consumption, or SignerList invalidation, or with an explicit policy that accepts
-later target execution without callback readiness.
+Shadow-ticket cancellation is non-revoking. While publication is pending it
+unlinks signing work and retains callback readiness because shares already
+published to peers cannot be withdrawn. Once the latch is non-pending, an
+explicit owner cleanup may erase it, release reserve, and knowingly accept
+later target execution without callback readiness. Symmetric witness+XPOP
+completion also erases. v1 has no automatic terminal-retirement clock,
+permanent tombstone, or paid-bump transition.
 
 This is intentionally leaner than XPOP. XPOP carries its own UNL and manifest
 bundle so it can be independently verified as an external proof. Export witnesses

@@ -95,21 +95,22 @@ What must never happen is a "successful" export whose signature bytes come from
 live collector state, late proposal arrivals, or a node-local sub-quorum set
 instead of the accepted witness in the transaction stream.
 
-**INV-7 — Shadow tickets are latches, not global tombstones.**
-The shadow-ticket object binds the canonical target signing intent,
-not one authorization-envelope-dependent target transaction ID. Any
-destination-valid execution of that exact intent may complete the callback.
-Deletion permits a later re-mint of the same `(account, ticketSequence)` latch,
-so replay protection beyond the live latch is a separate protocol decision, not
-an implicit property of shadow tickets.
+**INV-7 — Enhanced shadow tickets are issuance latches, not global
+tombstones.**
+The latch binds the canonical target signing intent and is keyed by `(owner,
+origin transaction ID W)`, not by one authorization-envelope-dependent target
+transaction ID or by destination TicketSequence alone. The signed release Memo
+carries `W`; a fresh Export has a fresh `W`, so erasing one latch cannot re-arm
+an old stamped XPOP against a later issuance. The obsolete memo-less callback
+and ticket-keyed latch helper are not supported v1 compatibility paths.
 
-Cancellation exists to reclaim the account reserve and bounded outstanding-
-ticket slot when a round trip will not complete. It deletes callback readiness;
-it does not revoke target-chain signatures already published in proposals. Safe
-cleanup therefore depends on external evidence that the capability is no longer
-executable or the callback is intentionally abandoned, such as target
-`LastLedgerSequence` expiry, destination Ticket consumption, or SignerList
-invalidation.
+Witness and XPOP are independent monotonic facts. Whichever arrives second
+symmetrically erases the latch and releases reserve. Cancellation while
+publication is pending is non-revoking: it unlinks work and retains callback
+readiness because already-public signatures cannot be withdrawn. Once a latch
+is non-pending, an explicit owner cleanup may erase it and knowingly forfeit a
+later callback. v1 has neither an automatic terminal-retirement clock nor a
+permanent tombstone graveyard.
 
 **INV-8 — Export signatures are public capabilities.**
 Proposal-carried signature shares may be observed, assembled, and submitted as
