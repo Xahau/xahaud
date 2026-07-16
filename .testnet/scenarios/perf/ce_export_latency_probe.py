@@ -109,7 +109,6 @@ def _summarize_logs(ctx, log, *, label, started, ended):
         "rng_fallback": r"tier=1",
         "rng_participant_aligned": r"tier=2",
         "rng_validator_quorum": r"tier=3",
-        "export_retry": r"terRETRY_EXPORT",
         "export_quorum_timeout": r"Export: exportSigSet quorum alignment timeout",
         "export_missing_observation_ignored": (
             r"Export: missing exportSigSetHash observation ignored"
