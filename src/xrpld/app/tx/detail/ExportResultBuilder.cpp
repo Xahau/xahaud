@@ -161,7 +161,7 @@ buildSignatureWitness(
 {
     auto witnessSignatures = buildWitnessSignatures(signatures, committeeSize);
     auto const target = normalizeAuthorizationEnvelope(exportSigningPayload);
-    return STTx(ttEXPORT_SIGNATURES, [&](auto& obj) {
+    STTx witness(ttEXPORT_SIGNATURES, [&](auto& obj) {
         obj.setFieldU32(sfLedgerSequence, currentSeq);
         obj.setAccountID(sfAccount, AccountID{});
         obj.setFieldU32(sfSequence, 0);
@@ -172,11 +172,22 @@ buildSignatureWitness(
         obj.setFieldArray(
             sfExportSigners, std::move(witnessSignatures.entries));
     });
+
+    Serializer serialized;
+    witness.add(serialized);
+    if (serialized.size() > ExportLimits::maxExportWitnessBytes)
+        Throw<std::invalid_argument>("Export witness exceeds serialized limit");
+    return witness;
 }
 
 std::optional<PositionedSignatureSnapshot>
 signaturesFromWitness(STTx const& witness)
 {
+    Serializer serialized;
+    witness.add(serialized);
+    if (serialized.size() > ExportLimits::maxExportWitnessBytes)
+        return std::nullopt;
+
     if (witness.getTxnType() != ttEXPORT_SIGNATURES ||
         !witness.isFieldPresent(sfExportedTxn) ||
         !witness.isFieldPresent(sfExportContributors) ||

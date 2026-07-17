@@ -861,10 +861,13 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
         // ledger being applied. app.openLedger().current() is process-local
         // mutable state, so using it here would make emit()/xport() wrapper
         // hashes depend on each node's live open ledger.
-        if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
+        if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128) &&
+            stpTrans->getTxnType() != ttEXPORT)
             return Transactor::calculateBaseFee(applyCtx.view(), *stpTrans)
                 .drops();
 
+        // Export's fee funds committee-wide publication and its permanent
+        // witness. Never let the legacy generic-fee path bypass that schedule.
         return invoke_calculateBaseFee(applyCtx.view(), *stpTrans).drops();
     }
     catch (std::exception const& e)

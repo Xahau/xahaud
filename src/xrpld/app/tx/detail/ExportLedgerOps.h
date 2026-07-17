@@ -800,7 +800,18 @@ validateOriginMemoProjection(
         ExportOriginMemo::Origin{sourceNetworkID, targetNetworkID, uint256{}},
         ExportOriginMemo::Anchor{0, uint256{}});
     if (projected)
-        return tesSUCCESS;
+    {
+        Serializer serialized;
+        projected.value().add(serialized);
+        if (serialized.size() <= ExportLimits::maxExportReleaseTargetBytes)
+            return tesSUCCESS;
+
+        JLOG(j.warn()) << "ExportLedgerOps: projected release target exceeds "
+                          "serialized size limit"
+                       << " bytes=" << serialized.size() << " limit="
+                       << ExportLimits::maxExportReleaseTargetBytes;
+        return temMALFORMED;
+    }
 
     JLOG(j.warn())
         << "ExportLedgerOps: exported tx cannot form canonical origin Memo"

@@ -19,6 +19,7 @@
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test/suite.h>
@@ -829,6 +830,32 @@ public:
                 BEAST_EXPECT(result.value() == baseFee + blobSize + memoSize);
             else
                 BEAST_EXPECT(result.value() == baseFee + memoSize);
+        }
+        {
+            // Export's distributed-work fee must not be bypassed by the
+            // pre-fixHookAPI20251128 generic fee path.
+            auto const bob = Account{"bob"};
+            auto const roster = serializeExportCommittee(
+                {randomKeyPair(KeyType::secp256k1).first});
+            auto const committeeHash = exportCommitteeHash(makeSlice(roster));
+            auto committee = std::make_shared<SLE>(
+                keylet::exportCommittee(alice.id(), committeeHash));
+            committee->setAccountID(sfAccount, alice.id());
+            committee->setFieldH256(sfExportCommitteeHash, committeeHash);
+            committee->setFieldVL(sfExportCommittee, roster);
+            committee->setFieldU64(sfOwnerNode, 0);
+            applyCtx.view().insert(committee);
+
+            auto exportTx = makeExportWrapper(
+                alice.id(), makeExportedPayment(alice.id(), bob.id()));
+            exportTx.setFieldH256(sfExportCommitteeHash, committeeHash);
+            auto const expected =
+                Export::calculateBaseFee(applyCtx.view(), exportTx).drops();
+            auto const result =
+                api.etxn_fee_base(exportTx.getSerializer().slice());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == expected);
+            BEAST_EXPECT(result.value() > env.closed()->fees().base.drops());
         }
     }
 

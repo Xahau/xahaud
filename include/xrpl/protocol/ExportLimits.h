@@ -25,6 +25,12 @@ struct ExportLimits
     static constexpr std::size_t maxCommitteeContributorBytes =
         validatorBitsetBytes(maxCommitteeMembers);
 
+    // Export-specific serialized payload bounds. The release target includes
+    // the canonical origin Memo appended after validation; the witness wraps
+    // that target plus the accepted committee signatures.
+    static constexpr std::size_t maxExportReleaseTargetBytes = 2'048;
+    static constexpr std::size_t maxExportWitnessBytes = 8'192;
+
     // V1 witnesses require the standard 80% quorum of the intent-selected
     // committee, rounded up. The intent selects members but cannot lower this
     // threshold. Split quotient/remainder arithmetic avoids overflow while
@@ -86,6 +92,26 @@ struct ExportLimits
     // length for every maximum-size frame. This excludes the overlay header.
     static constexpr std::size_t maxExportShareRelayMessageBytes =
         maxExportShareRelayPayloadBytes + 3 * maxExportSharesPerRelay;
+
+    // Provisional activation fee schedule. These values intentionally price
+    // Export intents above ordinary transactions until production measurements
+    // can replace the conservative work and storage estimates.
+    //
+    // Witness bytes are estimated from the exact serialized target size, a
+    // fixed allowance for the witness envelope/origin stamp/contributor mask,
+    // and one bounded signer entry for every selected member. The accepted
+    // sidecar witness retains every valid committee contribution, not merely
+    // the minimum quorum subset.
+    static constexpr std::uint64_t feeWitnessFixedAllowanceBytes = 384;
+    static constexpr std::uint64_t feeWitnessSignerAllowanceBytes = 128;
+    static constexpr std::uint64_t feeSharePublicationRounds =
+        maxPublicationLedgers + 1;
+    static constexpr std::uint64_t feeWorkUnitsPerSharePublication = 1;
+    static constexpr std::uint64_t feeWorkUnitsPerWitnessSignature = 2;
+    static constexpr std::uint64_t feeWitnessChunkBytes = 256;
+    static constexpr std::uint64_t feeWorkUnitsPerWitnessChunk = 1;
+    static constexpr std::uint64_t feePermanentWitnessByteDrops = 1;
+    static constexpr std::uint64_t feeSurchargeRoundDrops = 1'000;
 };
 
 }  // namespace ripple

@@ -26,6 +26,9 @@ public:
     static TER
     preclaim(PreclaimContext const& ctx);
 
+    static XRPAmount
+    calculateBaseFee(ReadView const& view, STTx const& tx);
+
     TER
     doApply() override;
 };

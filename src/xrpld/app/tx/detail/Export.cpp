@@ -15,11 +15,103 @@
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/Sign.h>
+#include <xrpl/protocol/SystemParameters.h>
 #include <xrpl/protocol/TxFlags.h>
 
 #include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <optional>
 
 namespace ripple {
+namespace {
+
+std::optional<std::size_t>
+exportCommitteeSize(ReadView const& view, STTx const& tx)
+{
+    if (tx.isFieldPresent(sfExportCommittee))
+    {
+        auto const committee =
+            resolveExportCommittee(makeSlice(tx.getFieldVL(sfExportCommittee)));
+        if (committee)
+            return committee->members.size();
+        return std::nullopt;
+    }
+
+    if (!tx.isFieldPresent(sfExportCommitteeHash))
+        return std::nullopt;
+
+    auto const account = tx.getAccountID(sfAccount);
+    auto const digest = tx.getFieldH256(sfExportCommitteeHash);
+    auto const committee = view.read(keylet::exportCommittee(account, digest));
+    if (!committee || committee->getType() != ltEXPORT_COMMITTEE ||
+        !committee->isFieldPresent(sfExportCommittee))
+        return std::nullopt;
+
+    auto const profile = resolveExportCommittee(
+        makeSlice(committee->getFieldVL(sfExportCommittee)));
+    if (!profile)
+        return std::nullopt;
+    return profile->members.size();
+}
+
+std::optional<std::uint64_t>
+exportIntentSurchargeDrops(
+    ReadView const& view,
+    STTx const& tx,
+    std::size_t const committeeSize)
+{
+    if (committeeSize == 0 || committeeSize > ExportLimits::maxCommitteeMembers)
+        return std::nullopt;
+
+    Serializer target;
+    tx.peekAtField(sfExportedTxn).downcast<STObject>().add(target);
+
+    auto const targetBytes = static_cast<std::uint64_t>(target.size());
+    auto const signerBytes = static_cast<std::uint64_t>(committeeSize) *
+        ExportLimits::feeWitnessSignerAllowanceBytes;
+    if (targetBytes > std::numeric_limits<std::uint64_t>::max() -
+            ExportLimits::feeWitnessFixedAllowanceBytes - signerBytes)
+        return std::nullopt;
+
+    auto const witnessBytes =
+        targetBytes + ExportLimits::feeWitnessFixedAllowanceBytes + signerBytes;
+    auto const witnessChunks =
+        (witnessBytes + ExportLimits::feeWitnessChunkBytes - 1) /
+        ExportLimits::feeWitnessChunkBytes;
+    auto const publicationUnits = static_cast<std::uint64_t>(committeeSize) *
+        ExportLimits::feeSharePublicationRounds *
+        ExportLimits::feeWorkUnitsPerSharePublication;
+    auto const witnessUnits = static_cast<std::uint64_t>(committeeSize) *
+        ExportLimits::feeWorkUnitsPerWitnessSignature;
+    auto const workUnits = publicationUnits + witnessUnits +
+        witnessChunks * ExportLimits::feeWorkUnitsPerWitnessChunk;
+
+    auto const referenceFee = view.fees().base.drops();
+    if (referenceFee < 0)
+        return std::nullopt;
+    auto const referenceFeeDrops = static_cast<std::uint64_t>(referenceFee);
+    if (workUnits != 0 &&
+        referenceFeeDrops >
+            std::numeric_limits<std::uint64_t>::max() / workUnits)
+        return std::nullopt;
+    auto const workDrops = referenceFeeDrops * workUnits;
+
+    if (witnessBytes > (std::numeric_limits<std::uint64_t>::max() - workDrops) /
+            ExportLimits::feePermanentWitnessByteDrops)
+        return std::nullopt;
+    auto const unrounded =
+        workDrops + witnessBytes * ExportLimits::feePermanentWitnessByteDrops;
+    if (unrounded > std::numeric_limits<std::uint64_t>::max() -
+            (ExportLimits::feeSurchargeRoundDrops - 1))
+        return std::nullopt;
+
+    return ((unrounded + ExportLimits::feeSurchargeRoundDrops - 1) /
+            ExportLimits::feeSurchargeRoundDrops) *
+        ExportLimits::feeSurchargeRoundDrops;
+}
+
+}  // namespace
 
 NotTEC
 Export::preflight(PreflightContext const& ctx)
@@ -84,6 +176,30 @@ Export::preflight(PreflightContext const& ctx)
         return temMALFORMED;
 
     return preflight2(ctx);
+}
+
+XRPAmount
+Export::calculateBaseFee(ReadView const& view, STTx const& tx)
+{
+    auto const baseFee = Transactor::calculateBaseFee(view, tx);
+
+    // Committee administration and latch control do not produce signatures or
+    // a permanent witness. Only an intent pays the distributed-work surcharge.
+    if (!tx.isFieldPresent(sfExportedTxn))
+        return baseFee;
+
+    auto const committeeSize = exportCommitteeSize(view, tx);
+    if (!committeeSize)
+        return baseFee;
+
+    auto const surcharge = exportIntentSurchargeDrops(view, tx, *committeeSize);
+    if (!surcharge ||
+        *surcharge > static_cast<std::uint64_t>(INITIAL_XRP.drops()) ||
+        baseFee.drops() >
+            INITIAL_XRP.drops() - static_cast<std::int64_t>(*surcharge))
+        return INITIAL_XRP;
+
+    return baseFee + XRPAmount{static_cast<std::int64_t>(*surcharge)};
 }
 
 TER

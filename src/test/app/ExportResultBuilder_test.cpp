@@ -19,6 +19,7 @@
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/STAmount.h>
 #include <xrpl/protocol/STArray.h>
@@ -700,10 +701,28 @@ public:
             positioned,
             STTx::maxMultiSigners(),
             654);
+        auto const release = ExportOriginMemo::releaseForm(
+            innerTx,
+            ExportOriginMemo::Origin{21337, 0, makeHash("size-origin")},
+            ExportOriginMemo::Anchor{653, makeHash("size-ledger")});
+        BEAST_EXPECT(release);
+        if (!release)
+            return;
+        auto const releaseWitness = ExportResultBuilder::buildSignatureWitness(
+            makeHash("size-inventory-export"),
+            release.value(),
+            positioned,
+            STTx::maxMultiSigners(),
+            654);
 
         auto const innerBytes = innerTx.getSerializer().size();
         auto const multiSignedBytes = multiSigned.getSerializer().size();
         auto const selfContainedWitnessBytes = witness.getSerializer().size();
+        auto const releaseWitnessBytes = releaseWitness.getSerializer().size();
+        auto const pricedWitnessBytes = innerBytes +
+            ExportLimits::feeWitnessFixedAllowanceBytes +
+            STTx::maxMultiSigners() *
+                ExportLimits::feeWitnessSignerAllowanceBytes;
         constexpr std::size_t legacyShareBytes = 32 + 33 + 72;
 
         log << "Export serialized-size inventory:\n"
@@ -711,6 +730,8 @@ public:
             << "  32-signer target: " << multiSignedBytes << "\n"
             << "  self-contained 32-signer witness: "
             << selfContainedWitnessBytes << "\n"
+            << "  stamped self-contained witness: " << releaseWitnessBytes
+            << "\n"
             << "  one legacy share blob: " << legacyShareBytes << "\n"
             << "  32 legacy share blobs: "
             << legacyShareBytes * STTx::maxMultiSigners() << std::endl;
@@ -729,7 +750,34 @@ public:
         BEAST_EXPECT(innerBytes == 163);
         BEAST_EXPECT(multiSignedBytes == 4453);
         BEAST_EXPECT(selfContainedWitnessBytes == 3839);
+        BEAST_EXPECT(pricedWitnessBytes == 4643);
+        BEAST_EXPECT(releaseWitnessBytes > selfContainedWitnessBytes);
+        BEAST_EXPECT(pricedWitnessBytes >= releaseWitnessBytes);
+        BEAST_EXPECT(pricedWitnessBytes <= ExportLimits::maxExportWitnessBytes);
         BEAST_EXPECT(legacyShareBytes * STTx::maxMultiSigners() == 4384);
+
+        STArray oversizedMemos(sfMemos);
+        STObject oversizedMemo(sfMemo);
+        oversizedMemo.setFieldVL(sfMemoData, Blob(6'000, 0xCC));
+        oversizedMemos.emplace_back(std::move(oversizedMemo));
+
+        auto oversizedTarget = innerTx;
+        oversizedTarget.setFieldArray(sfMemos, oversizedMemos);
+        except([&] {
+            ExportResultBuilder::buildSignatureWitness(
+                makeHash("oversized-witness"),
+                oversizedTarget,
+                positioned,
+                STTx::maxMultiSigners(),
+                654);
+        });
+
+        auto oversizedWitness = witness;
+        auto& oversizedExported = const_cast<STObject&>(
+            oversizedWitness.peekAtField(sfExportedTxn).downcast<STObject>());
+        oversizedExported.setFieldArray(sfMemos, std::move(oversizedMemos));
+        BEAST_EXPECT(
+            !ExportResultBuilder::signaturesFromWitness(oversizedWitness));
         //@@end export-serialized-size-inventory
     }
 
