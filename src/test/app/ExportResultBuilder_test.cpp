@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <optional>
 namespace ripple {
 namespace test {
 namespace {
@@ -70,6 +71,32 @@ makeExportedPayment(AccountID const& src, AccountID const& dst)
     obj.setAccountID(sfAccount, src);
     obj.setAccountID(sfDestination, dst);
     return makeSTTx(obj);
+}
+
+std::optional<STTx>
+makeExportedPaymentWithSize(
+    AccountID const& src,
+    AccountID const& dst,
+    std::size_t const serializedSize)
+{
+    auto const base = makeExportedPayment(src, dst);
+    for (std::size_t payloadBytes = 0; payloadBytes <= serializedSize;
+         ++payloadBytes)
+    {
+        auto candidate = base;
+        STArray memos(sfMemos);
+        STObject memo(sfMemo);
+        memo.setFieldVL(sfMemoData, Blob(payloadBytes, 0xCC));
+        memos.emplace_back(std::move(memo));
+        candidate.setFieldArray(sfMemos, std::move(memos));
+
+        auto const size = candidate.getSerializer().size();
+        if (size == serializedSize)
+            return candidate;
+        if (size > serializedSize)
+            return std::nullopt;
+    }
+    return std::nullopt;
 }
 
 STTx
@@ -782,6 +809,57 @@ public:
     }
 
     void
+    testReleaseTargetSizeBoundary()
+    {
+        testcase("release target serialized size boundary");
+
+        auto const src = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const signer = randomKeyPair(KeyType::secp256k1);
+        auto const atLimit = makeExportedPaymentWithSize(
+            calcAccountID(src.first),
+            calcAccountID(dst.first),
+            ExportLimits::maxExportReleaseTargetBytes);
+        auto const overLimit = makeExportedPaymentWithSize(
+            calcAccountID(src.first),
+            calcAccountID(dst.first),
+            ExportLimits::maxExportReleaseTargetBytes + 1);
+        BEAST_EXPECT(atLimit);
+        BEAST_EXPECT(overLimit);
+        if (!atLimit || !overLimit)
+            return;
+
+        ExportResultBuilder::PositionedSignatureSnapshot signatures;
+        signatures.emplace(
+            0,
+            ExportResultBuilder::PositionedSignature{
+                signer.first,
+                ExportResultBuilder::signExportedTxn(
+                    *atLimit, signer.first, signer.second)});
+
+        auto const witness = ExportResultBuilder::buildSignatureWitness(
+            makeHash("target-at-limit"), *atLimit, signatures, 1, 654);
+        BEAST_EXPECT(ExportResultBuilder::signaturesFromWitness(witness));
+
+        except([&] {
+            ExportResultBuilder::buildSignatureWitness(
+                makeHash("target-over-limit"), *overLimit, signatures, 1, 654);
+        });
+
+        auto oversizedWitness = witness;
+        auto& embedded = const_cast<STObject&>(
+            oversizedWitness.peekAtField(sfExportedTxn).downcast<STObject>());
+        embedded.setFieldArray(sfMemos, overLimit->getFieldArray(sfMemos));
+        Serializer embeddedBytes;
+        embedded.add(embeddedBytes);
+        BEAST_EXPECT(
+            embeddedBytes.size() ==
+            ExportLimits::maxExportReleaseTargetBytes + 1);
+        BEAST_EXPECT(
+            !ExportResultBuilder::signaturesFromWitness(oversizedWitness));
+    }
+
+    void
     run() override
     {
         testAssemblesMultiSignedTransaction();
@@ -793,6 +871,7 @@ public:
         testDestinationSignerOrderIsIndependent();
         testRejectsMalformedWitnessSigners();
         testSerializedSizeInventory();
+        testReleaseTargetSizeBoundary();
     }
 };
 

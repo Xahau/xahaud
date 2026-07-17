@@ -116,6 +116,14 @@ normalizeAuthorizationEnvelope(STTx const& innerTx)
     return normalized;
 }
 
+bool
+releaseTargetFits(STObject const& target)
+{
+    Serializer serialized;
+    target.add(serialized);
+    return serialized.size() <= ExportLimits::maxExportReleaseTargetBytes;
+}
+
 }  // namespace
 
 Buffer
@@ -161,6 +169,10 @@ buildSignatureWitness(
 {
     auto witnessSignatures = buildWitnessSignatures(signatures, committeeSize);
     auto const target = normalizeAuthorizationEnvelope(exportSigningPayload);
+    if (!releaseTargetFits(target))
+        Throw<std::invalid_argument>(
+            "Export release target exceeds serialized limit");
+
     STTx witness(ttEXPORT_SIGNATURES, [&](auto& obj) {
         obj.setFieldU32(sfLedgerSequence, currentSeq);
         obj.setAccountID(sfAccount, AccountID{});
@@ -197,7 +209,8 @@ signaturesFromWitness(STTx const& witness)
     auto const& exported = const_cast<STTx&>(witness)
                                .peekAtField(sfExportedTxn)
                                .downcast<STObject>();
-    if (exported.isFieldPresent(sfTxnSignature) ||
+    if (!releaseTargetFits(exported) ||
+        exported.isFieldPresent(sfTxnSignature) ||
         exported.isFieldPresent(sfSigners) ||
         !exported.isFieldPresent(sfSigningPubKey) ||
         !exported.getFieldVL(sfSigningPubKey).empty())
