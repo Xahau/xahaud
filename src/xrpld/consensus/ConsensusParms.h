@@ -104,13 +104,13 @@ struct ConsensusParms
      *  round (e.g. restarting after a crash) enters as proposing=false
      *  and cannot generate commitments until consensus promotes it to
      *  proposing — which takes at least one full round of observing.
-     *  Waiting the full 10s just delays the inevitable ZERO-entropy
+     *  Waiting the full 10s just delays the inevitable non-zero Tier-1
      *  fallback and slows recovery for the restarting node (it can't
      *  catch up until the survivors close a ledger).
      *
      *  3s is long enough for commits to propagate on any reasonable
      *  network, but short enough that a missing-node scenario recovers
-     *  quickly via the ZERO-entropy fallback path.
+     *  quickly via the Tier-1 fallback path.
      */
     std::chrono::milliseconds rngPIPELINE_TIMEOUT = std::chrono::seconds{3};
 

@@ -486,12 +486,15 @@ would make a retained latch's accepted witness unreplayable.
 
 The destination account's SignerList remains the actual remote authority. Its
 keys, weights, optional operator signer, and rotation policy are client/operator
-configuration that source consensus cannot verify. The committee cap matches
-`STTx::maxMultiSigners()`; reserving a separate operator entry reduces the
-maximum validator roster usable by that destination account. A lower remote
-threshold weakens the claimed custody policy, while a higher threshold may
-strand an otherwise sufficient source witness. Target ledger validation and the
-returning XPOP are separate from this authorization decision.
+configuration that source consensus cannot verify. Export's 32-member source
+cap matches the expanded `STTx::maxMultiSigners()` capacity used by network-0
+signing rules. A destination without `featureExpandedSignerList` supports only
+eight entries and must configure a smaller committee; reserving a separate
+operator entry likewise reduces the maximum validator roster usable by that
+destination account. A lower remote threshold weakens the claimed custody
+policy, while a higher threshold may strand an otherwise sufficient source
+witness. Target ledger validation and the returning XPOP are separate from
+this authorization decision.
 
 The extended proposal machinery is enabled when either feature needs signed
 sidecar fields. Do not make Export depend on RNG availability just because RNG

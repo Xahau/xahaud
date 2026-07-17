@@ -943,8 +943,8 @@ Import::preflight(PreflightContext const& ctx)
         };
     if (hasInsufficientQuorum(quorum, validationCount))
     {
-        JLOG(ctx.j.warn()) << "Import: xpop did not contain an 80% quorum for "
-                              "the txn it purports to prove. "
+        JLOG(ctx.j.warn()) << "Import: xpop did not contain the required "
+                              "quorum for the txn it purports to prove. "
                            << tx.getTransactionID();
         return temMALFORMED;
     }

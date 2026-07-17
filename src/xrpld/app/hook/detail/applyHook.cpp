@@ -4103,7 +4103,7 @@ readEntropySnapshot(ApplyView& view)
         sle->getFieldU16(sfEntropyDenominator)};
 }
 
-// byteCount must be a multiple of 32.
+// Callers normalize byteCount to a multiple of 32.
 // minTier is the CALLER'S stated class requirement (a required hook API
 // argument — there is deliberately no network-wide default). Count and
 // denominator policy is available separately through entropy_status().
@@ -4117,7 +4117,7 @@ fairRng(
     if (byteCount > 512)
         byteCount = 512;
 
-    // force the byte count to be a multiple of 32
+    // Preserve the caller's 32-byte block invariant defensively.
     byteCount &= ~0b11111;
 
     if (byteCount == 0)
