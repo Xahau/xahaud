@@ -58,6 +58,7 @@
 #include <iterator>
 #include <limits>
 #include <random>
+#include <stdexcept>
 
 namespace ripple {
 
@@ -2651,13 +2652,27 @@ ConsensusExtensions::onPreBuild(
                 if (!material)
                     continue;
 
-                auto witness = ExportResultBuilder::buildSignatureWitness(
-                    origin,
-                    signingPayload.value(),
-                    material->signatures,
-                    committee->members.size(),
-                    seq);
-                retriableTxs.insert(std::make_shared<STTx>(std::move(witness)));
+                try
+                {
+                    auto witness = ExportResultBuilder::buildSignatureWitness(
+                        origin,
+                        signingPayload.value(),
+                        material->signatures,
+                        committee->members.size(),
+                        seq);
+                    retriableTxs.insert(
+                        std::make_shared<STTx>(std::move(witness)));
+                }
+                catch (std::invalid_argument const& e)
+                {
+                    // Admission and the sidecar caps make this unreachable for
+                    // valid state. Keep one inconsistent Export from aborting
+                    // the entire ledger build if those bounds ever drift.
+                    JLOG(j_.error())
+                        << "Export: skipping invalid witness materialization"
+                        << " origin=" << origin << " buildSeq=" << seq
+                        << " reason=" << e.what();
+                }
             }
         }
         //@@end export-later-ledger-witness-materialization

@@ -186,7 +186,11 @@ struct ExportFee_test : public beast::unit_test::suite
         auto const expected = expectedFee(*env.current(), *prepared.stx, 1);
 
         BEAST_EXPECT(required == expected);
-        BEAST_EXPECT(required >= env.current()->fees().base + drops(1'000));
+        // Any positive surcharge rounds to at least one provisional fee unit.
+        BEAST_EXPECT(
+            required >= env.current()->fees().base +
+                XRPAmount{static_cast<std::int64_t>(
+                    ExportLimits::feeSurchargeRoundDrops)});
 
         env(intent, fee(required - drops(1)), ter(telINSUF_FEE_P));
         env(intent, fee(required), ter(tesSUCCESS));
