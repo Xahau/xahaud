@@ -20,7 +20,8 @@
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
 #include <xrpld/app/paths/AccountCurrencies.h>
-#include <xrpld/app/paths/Pathfinder.h>
+#include <xrpld/app/paths/GraphPathfinder.h>
+#include <xrpld/app/paths/PathRequests.h>
 #include <xrpld/app/paths/RippleLineCache.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/rpc/Context.h>
@@ -709,28 +710,32 @@ public:
 
         auto cache = std::make_shared<RippleLineCache>(
             env.current(), env.app().journal("RippleLineCache"));
-        Pathfinder pf(
+        // Deliver G2.HKD to A2 (A2 trusts G2).  Source issuer is G1 — A1 holds
+        // G1.HKD.  GraphPathfinder needs the real gateway issuer so order-book
+        // vertices and rippleCalc align with the payment.
+        //
+        // Legacy Pathfinder used BFS + a fullLiquidityPath append to force 6
+        // results.  GraphPathfinder discovers many concrete paths (offer +
+        // multi-hop trust lines) but ranks only those with confirmed liquidity;
+        // pathfind_paths_computed_never_exceeds_six covers the RPC size cap.
+        GraphPathfinder pf(
+            env.app().getPathRequests().getPayGraph(env.current()),
             cache,
             A1.id(),
             A2.id(),
             G1["HKD"].currency,
-            std::nullopt,
-            A2["HKD"](60),
+            G1.id(),
+            G2["HKD"](60),
             std::nullopt,
             env.app());
 
-        BEAST_EXPECT(pf.findPaths(7));
+        BEAST_EXPECT(pf.findPaths());
+        BEAST_EXPECT(pf.completePathCount() >= 5);
         pf.computePathRanks(5);
 
-        STPath fullLiquidityPath;
-        auto bestPaths =
-            pf.getBestPaths(5, fullLiquidityPath, STPathSet{}, A1.id());
-        BEAST_EXPECT(bestPaths.size() == 5);
-        BEAST_EXPECT(!fullLiquidityPath.empty());
-
-        if (!fullLiquidityPath.empty())
-            bestPaths.push_back(fullLiquidityPath);
-        BEAST_EXPECT(bestPaths.size() == 6);
+        auto bestPaths = pf.getBestPaths(5, STPathSet{}, A1.id());
+        BEAST_EXPECT(bestPaths.size() >= 1);
+        BEAST_EXPECT(bestPaths.size() <= 5);
     }
 
     void

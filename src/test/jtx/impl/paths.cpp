@@ -18,7 +18,8 @@
 //==============================================================================
 
 #include <test/jtx/paths.h>
-#include <xrpld/app/paths/Pathfinder.h>
+#include <xrpld/app/paths/GraphPathfinder.h>
+#include <xrpld/app/paths/PathRequests.h>
 #include <xrpl/protocol/jss.h>
 
 namespace ripple {
@@ -32,9 +33,11 @@ paths::operator()(Env& env, JTx& jt) const
     auto const from = env.lookup(jv[jss::Account].asString());
     auto const to = env.lookup(jv[jss::Destination].asString());
     auto const amount = amountFromJson(sfAmount, jv[jss::Amount]);
-    Pathfinder pf(
+    auto const ledger = env.current();
+    GraphPathfinder pf(
+        env.app().getPathRequests().getPayGraph(ledger),
         std::make_shared<RippleLineCache>(
-            env.current(), env.app().journal("RippleLineCache")),
+            ledger, env.app().journal("RippleLineCache")),
         from,
         to,
         in_.currency,
@@ -42,12 +45,11 @@ paths::operator()(Env& env, JTx& jt) const
         amount,
         std::nullopt,
         env.app());
-    if (!pf.findPaths(depth_))
+    if (!pf.findPaths())
         return;
 
-    STPath fp;
     pf.computePathRanks(limit_);
-    auto const found = pf.getBestPaths(limit_, fp, {}, in_.account);
+    auto const found = pf.getBestPaths(limit_, {}, in_.account);
 
     // VFALCO TODO API to allow caller to examine the STPathSet
     // VFALCO isDefault should be renamed to empty()

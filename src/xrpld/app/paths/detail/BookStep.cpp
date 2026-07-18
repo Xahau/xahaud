@@ -878,8 +878,10 @@ BookStep<TIn, TOut, TDerived>::consumeOffer(
     {
         // purposely written as separate if statements so we get logging even
         // when the amendment isn't active.
+        // One exception excludes only this AMM (not the CLOB on this book).
+        noteFailedAMM(book_, sb.seq());
         Throw<FlowException>(
-            tecINVARIANT_FAILED, "AMM pool product invariant failed.");
+            tecINVARIANT_FAILED, "AMM pool product invariant failed.", book_);
     }
 
     // The offer owner gets the ofrAmt. The difference between ofrAmt and
@@ -917,7 +919,9 @@ BookStep<TIn, TOut, TDerived>::getAMMOffer(
     ReadView const& view,
     std::optional<Quality> const& clobQuality) const
 {
-    if (ammLiquidity_)
+    // Skip AMMs that already failed an invariant this ledger.  CLOB offers
+    // on the same book are unaffected.
+    if (ammLiquidity_ && !isFailedAMM(book_, view.seq()))
         return ammLiquidity_->getOffer(view, clobQuality);
     return std::nullopt;
 }

@@ -464,11 +464,12 @@ PathRequest::doAborting() const
     JLOG(m_journal.info()) << iIdentifier << " aborting early";
 }
 
-std::unique_ptr<Pathfinder> const&
+std::unique_ptr<GraphPathfinder> const&
 PathRequest::getPathFinder(
     std::shared_ptr<RippleLineCache> const& cache,
-    hash_map<Currency, std::unique_ptr<Pathfinder>>& currency_map,
+    hash_map<Currency, std::unique_ptr<GraphPathfinder>>& currency_map,
     Currency const& currency,
+    std::optional<AccountID> const& srcIssuer,
     STAmount const& dst_amount,
     int const level,
     std::function<bool(void)> const& continueCallback)
@@ -476,16 +477,21 @@ PathRequest::getPathFinder(
     auto i = currency_map.find(currency);
     if (i != currency_map.end())
         return i->second;
-    auto pathfinder = std::make_unique<Pathfinder>(
+    // GraphPathfinder queries the pre-built PayGraph, so the legacy search
+    // "level" no longer drives a BFS depth; it is retained only for the
+    // doUpdate cadence.
+    (void)level;
+    auto pathfinder = std::make_unique<GraphPathfinder>(
+        mOwner.getPayGraph(cache->getLedger()),
         cache,
         *raSrcAccount,
         *raDstAccount,
         currency,
-        std::nullopt,
+        srcIssuer,
         dst_amount,
         saSendMax,
         app_);
-    if (pathfinder->findPaths(level, continueCallback))
+    if (pathfinder->findPaths(continueCallback))
         pathfinder->computePathRanks(max_paths_, continueCallback);
     else
         pathfinder.reset();  // It's a bad request - clear it.
@@ -521,7 +527,7 @@ PathRequest::findPaths(
     }
 
     auto const dst_amount = convertAmount(saDstAmount, convert_all_);
-    hash_map<Currency, std::unique_ptr<Pathfinder>> currency_map;
+    hash_map<Currency, std::unique_ptr<GraphPathfinder>> currency_map;
     for (auto const& issue : sourceCurrencies)
     {
         if (continueCallback && !continueCallback())
@@ -534,6 +540,8 @@ PathRequest::findPaths(
             cache,
             currency_map,
             issue.currency,
+            isXRP(issue.account) ? std::nullopt
+                                 : std::optional<AccountID>{issue.account},
             dst_amount,
             level,
             continueCallback);
@@ -546,7 +554,6 @@ PathRequest::findPaths(
         STPath fullLiquidityPath;
         auto ps = pathfinder->getBestPaths(
             max_paths_,
-            fullLiquidityPath,
             mContext[issue],
             issue.account,
             continueCallback);
@@ -568,6 +575,11 @@ PathRequest::findPaths(
         JLOG(m_journal.debug())
             << iIdentifier << " Paths found, calling rippleCalc";
 
+        // To better align with payment execution, test with a more realistic
+        // scenario: use the full destination amount even when partial payment
+        // is allowed. This helps identify paths that may dry up during execution.
+        STAmount const testDstAmount = convert_all_ ? dst_amount : saDstAmount;
+
         path::RippleCalc::Input rcInput;
         if (convert_all_)
             rcInput.partialPaymentAllowed = true;
@@ -577,7 +589,7 @@ PathRequest::findPaths(
             *sandbox,
             saMaxAmount,    // --> Amount to send is unlimited
                             //     to get an estimate.
-            dst_amount,     // --> Amount to deliver.
+            testDstAmount,  // --> Test with actual destination amount
             *raDstAccount,  // --> Account to deliver to.
             *raSrcAccount,  // --> Account sending from.
             ps,             // --> Path set.
@@ -597,7 +609,7 @@ PathRequest::findPaths(
                 *sandbox,
                 saMaxAmount,    // --> Amount to send is unlimited
                                 //     to get an estimate.
-                dst_amount,     // --> Amount to deliver.
+                testDstAmount,  // --> Test with actual destination amount
                 *raDstAccount,  // --> Account to deliver to.
                 *raSrcAccount,  // --> Account sending from.
                 ps,             // --> Path set.

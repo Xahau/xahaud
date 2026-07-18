@@ -22,9 +22,12 @@
 
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/paths/PathRequest.h>
+#include <xrpld/app/paths/PayGraph.h>
 #include <xrpld/app/paths/RippleLineCache.h>
 #include <xrpld/core/Job.h>
+
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -58,6 +61,27 @@ public:
     getLineCache(
         std::shared_ptr<ReadView const> const& ledger,
         bool authoritative);
+
+    /** Warm in-memory PayGraph for Dijkstra path_find (thread-safe).
+
+        Full rebuild only when missing or empty (built before OrderBookDB
+        finished scanning).  Per-ledger edge updates are applyLedgerDelta from
+        updateAll — not a full rebuild every ~3s.
+     */
+    std::shared_ptr<PayGraph>
+    ensurePayGraph(std::shared_ptr<ReadView const> const& inLedger);
+
+    /** Convenience: same as ensurePayGraph (keeps PathRequest call sites). */
+    std::shared_ptr<PayGraph>
+    getPayGraph(std::shared_ptr<ReadView const> const& ledger)
+    {
+        return ensurePayGraph(ledger);
+    }
+
+    /** OrderBookDB finished a full scan and swapped allBooks_ in.
+        Rebuild once from the scanned set so path_find is not stuck empty. */
+    void
+    signalOrderBookReady(std::shared_ptr<ReadView const> const& ledger);
 
     // Create a new-style path request that pushes
     // updates to a subscriber
@@ -113,6 +137,16 @@ private:
 
     // Use a RippleLineCache
     std::weak_ptr<RippleLineCache> lineCache_;
+
+    // Persistent asset-exchange graph.  Built once (after orderBookReady_ or
+    // standalone); mutated incrementally by applyLedgerDelta() each ledger.
+    std::shared_ptr<PayGraph> payGraph_;
+    std::uint32_t payGraphSeq_{0};
+
+    // Set by signalOrderBookReady() when OrderBookDB finishes its first full
+    // ledger scan.  Prevents building against an empty allBooks_ on networked
+    // nodes where the scan is async.
+    std::atomic<bool> orderBookReady_{false};
 
     std::atomic<int> mLastIdentifier;
 

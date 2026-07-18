@@ -47,6 +47,11 @@ public:
     std::vector<Book>
     getBooksByTakerPays(Issue const&);
 
+    /** @return every distinct "taker pays" asset known to the order book db.
+        Used by PayGraph to seed the asset-exchange graph. */
+    std::vector<Issue>
+    getAllTakerPaysAssets();
+
     /** @return a count of all orderbooks that want this issuerID and
         currencyID. */
     int

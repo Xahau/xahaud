@@ -1,0 +1,660 @@
+//------------------------------------------------------------------------------
+/*
+    This file is part of rippled: https://github.com/ripple/rippled
+
+    PayGraph implementation. Ported from rippled PR #7392 and adapted to
+    xahaud (Issue-based, namespace ripple, no MPT / permissioned domains).
+*/
+//------------------------------------------------------------------------------
+
+#include <xrpld/app/paths/PayGraph.h>
+
+#include <xrpl/basics/Log.h>
+#include <xrpl/basics/UnorderedContainers.h>
+#include <xrpl/basics/base_uint.h>
+#include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/Book.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/Issue.h>
+#include <xrpl/protocol/UintTypes.h>
+
+#include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <limits>
+#include <memory>
+#include <mutex>
+#include <queue>
+#include <utility>
+#include <vector>
+
+namespace ripple {
+
+namespace {
+
+// Apple libc++ has not yet shipped the C++20 std::atomic<std::shared_ptr<T>>
+// specialisation, so we fall back to the (deprecated since C++20) free-function
+// API.  Wrap the calls in small helpers so the deprecation warning can be
+// suppressed in exactly one place.
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
+template <class T>
+inline std::shared_ptr<T>
+atomicLoad(std::shared_ptr<T> const* p, std::memory_order order) noexcept
+{
+    return std::atomic_load_explicit(p, order);
+}
+
+template <class T>
+inline void
+atomicStore(
+    std::shared_ptr<T>* p,
+    std::shared_ptr<T> v,
+    std::memory_order order) noexcept
+{
+    std::atomic_store_explicit(p, std::move(v), order);
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+
+}  // namespace
+
+//==============================================================================
+// Internal helpers
+//==============================================================================
+
+namespace {
+
+/// Convert a raw Quality uint64 (from getQuality()) into our fixed-point edge
+/// weight.  Lower qualityFixed = better rate (taker pays less per unit
+/// received) — consistent with Dijkstra minimisation.
+std::uint32_t
+qualityToFixed(std::uint64_t rawQuality)
+{
+    if (rawQuality == 0)
+        return PayGraph::kNoLiquidity;
+
+    // Quality stores (out / in) as a fixed-mantissa, fixed-exponent value.
+    // Higher raw value = better quality for the taker (more out per in).
+    // We want: lower edge weight = better.  So we invert:
+    //   qualityFixed = round(kPar * kQualityMax / rawQuality)
+    // clamp to [1, kNoLiquidity-1].
+    static constexpr std::uint64_t kPar = 65536;
+    static constexpr std::uint64_t kQualityMax = 0xFFFF'FFFF'FFFF'FFFFull;
+
+    __uint128_t fixed128 =
+        static_cast<__uint128_t>(kPar) * (kQualityMax / rawQuality);
+    std::uint64_t fixed =
+        (fixed128 > static_cast<__uint128_t>(PayGraph::kNoLiquidity - 1))
+        ? static_cast<std::uint64_t>(PayGraph::kNoLiquidity - 1)
+        : static_cast<std::uint64_t>(fixed128);
+    if (fixed == 0)
+        fixed = 1;
+    return static_cast<std::uint32_t>(fixed);
+}
+
+}  // namespace
+
+//==============================================================================
+// PayGraph — Private constructor
+//==============================================================================
+
+PayGraph::PayGraph(beast::Journal j) : j_(j)
+{
+}
+
+//==============================================================================
+// PayGraph::snapshot()
+//==============================================================================
+
+std::shared_ptr<PayGraph::Snapshot const>
+PayGraph::snapshot() const
+{
+    return atomicLoad(&snap_, std::memory_order_acquire);
+}
+
+//==============================================================================
+// PayGraph::currentStats()
+//==============================================================================
+
+PayGraph::Stats
+PayGraph::currentStats() const
+{
+    auto s = snapshot();
+    return s ? s->stats : Stats{};
+}
+
+//==============================================================================
+// Static vertex / edge helpers
+//==============================================================================
+
+PayGraph::VID
+PayGraph::ensureVertex(Snapshot& snap, Issue const& asset)
+{
+    auto [it, inserted] =
+        snap.index.emplace(asset, static_cast<VID>(snap.assets.size()));
+    if (inserted)
+    {
+        snap.assets.push_back(asset);
+        snap.adj.emplace_back();  // empty edge list for new vertex
+        ++snap.stats.vertices;
+    }
+    return it->second;
+}
+
+PayGraph::Edge&
+PayGraph::ensureEdge(Snapshot& snap, VID from, VID to, EdgeKind kind)
+{
+    assert(from < snap.adj.size());
+    auto& list = snap.adj[from];
+    for (auto& e : list)
+    {
+        if (e.to == to && e.kind == kind)
+            return e;
+    }
+    list.push_back(Edge{.to = to, .qualityFixed = kNoLiquidity, .kind = kind});
+    ++snap.stats.edges;
+    return list.back();
+}
+
+//==============================================================================
+// Static: query the top-of-book quality for a book from the ledger.
+//
+// The order-book directory is keyed by quality, and the first (lowest key)
+// directory page is the best-quality (cheapest for the taker) entry.
+// ReadView::succ() walks the SHAMap in ascending key order, so we find
+// the smallest key >= bookBase and < qualityNext.  That page's key encodes
+// the quality directly via getQuality().
+//==============================================================================
+
+std::uint32_t
+PayGraph::topOfBookQuality(ReadView const& ledger, Book const& book)
+{
+    uint256 const base = getBookBase(book);
+    uint256 const end = getQualityNext(base);
+
+    auto const firstPage = ledger.succ(base, end);
+    if (!firstPage)
+        return kNoLiquidity;
+
+    std::uint64_t const rawQ = getQuality(*firstPage);
+    return qualityToFixed(rawQ);
+}
+
+//==============================================================================
+// Static: build a fresh Snapshot
+//==============================================================================
+
+std::shared_ptr<PayGraph::Snapshot>
+PayGraph::buildSnapshot(
+    OrderBookDB& bookDB,
+    ReadView const& ledger,
+    beast::Journal j)
+{
+    auto snap = std::make_shared<Snapshot>();
+
+    // --- XRP vertex always exists -----------------------------------------
+    ensureVertex(*snap, xrpIssue());
+
+    // --- Order books -------------------------------------------------------
+    // OrderBookDB tracks every known (takerPays, takerGets) book pair.
+    // We seed ALL known takerPays assets up-front via getAllTakerPaysAssets(),
+    // then BFS from each to collect edges via getBooksByTakerPays().
+    // XRP is always seeded first as the universal bridge asset.
+
+    std::vector<Issue> workQueue;
+    hash_set<Issue> visited;
+    workQueue.reserve(1024);  // avoid reallocation while iterating by index
+
+    auto enqueue = [&](Issue const& a) {
+        if (visited.insert(a).second)
+            workQueue.push_back(a);
+    };
+
+    enqueue(xrpIssue());  // seed
+
+    // Also seed from every known takerPays asset so that non-XRP-rooted
+    // assets are discovered even if they have no direct XRP book.
+    // Sort before enqueuing so VID assignment is deterministic across
+    // processes (hash iteration order is per-process random).
+    {
+        auto seeds = bookDB.getAllTakerPaysAssets();
+        std::sort(seeds.begin(), seeds.end());
+        for (Issue const& a : seeds)
+            enqueue(a);
+    }
+
+    for (std::size_t qi = 0; qi < workQueue.size(); ++qi)
+    {
+        // copy — enqueue() may realloc workQueue, invalidating refs
+        Issue const src = workQueue[qi];
+        auto books = bookDB.getBooksByTakerPays(src);
+        // Sort books so edge insertion order (and thus adj[] ordering) is
+        // deterministic across processes with different hash seeds.
+        std::sort(books.begin(), books.end(), [](Book const& a, Book const& b) {
+            return a.out < b.out;
+        });
+        for (Book const& book : books)
+        {
+            Issue const& dst = book.out;
+
+            std::uint32_t const q = topOfBookQuality(ledger, book);
+            // Add edge src -> dst even if no liquidity (structural presence).
+
+            VID const vSrc = ensureVertex(*snap, src);
+            VID const vDst = ensureVertex(*snap, dst);
+            Edge& e = ensureEdge(*snap, vSrc, vDst, EdgeKind::OrderBook);
+            e.qualityFixed = q;
+            ++snap->stats.orderBooks;
+
+            enqueue(dst);
+        }
+    }
+
+    JLOG(j.debug()) << "PayGraph::buildSnapshot: " << snap->stats.vertices
+                    << " vertices, " << snap->stats.edges << " edges, "
+                    << snap->stats.orderBooks << " order books";
+
+    return snap;
+}
+
+//==============================================================================
+// PayGraph::build() — factory, called once at startup
+//==============================================================================
+
+std::shared_ptr<PayGraph>
+PayGraph::build(OrderBookDB& bookDB, ReadView const& ledger, beast::Journal j)
+{
+    // Private constructor accessible through this factory only.
+    auto pg = std::shared_ptr<PayGraph>(new PayGraph(j));
+    auto snap = buildSnapshot(bookDB, ledger, j);
+    atomicStore(
+        &pg->snap_,
+        std::shared_ptr<Snapshot const>(std::move(snap)),
+        std::memory_order_release);
+    return pg;
+}
+
+//==============================================================================
+// PayGraph::rebuild() — full rebuild, replaces snapshot atomically
+//==============================================================================
+
+void
+PayGraph::rebuild(OrderBookDB& bookDB, ReadView const& ledger)
+{
+    auto snap = buildSnapshot(bookDB, ledger, j_);
+
+    std::scoped_lock const lk(writeMu_);
+    // Preserve cumulative counter from current snapshot.
+    if (auto cur = snapshot())
+        snap->stats.totalDeltasCalled = cur->stats.totalDeltasCalled;
+
+    atomicStore(
+        &snap_,
+        std::shared_ptr<Snapshot const>(std::move(snap)),
+        std::memory_order_release);
+}
+
+//==============================================================================
+// PayGraph::applyLedgerDelta()
+//
+// Called at each ledger close.  changedBooks contains only the books that had
+// offer activity in the just-closed ledger.  We make a copy of the current
+// snapshot (cheap: ~50 KB), patch each changed book's edge weight, then
+// atomically publish the new snapshot.
+//==============================================================================
+
+void
+PayGraph::applyLedgerDelta(
+    OrderBookDB& bookDB,
+    ReadView const& newLedger,
+    std::vector<Book> const& changedBooks)
+{
+    if (changedBooks.empty())
+        return;
+
+    // ---------- acquire write lock ----------------------------------------
+    std::scoped_lock const lk(writeMu_);
+
+    // Shallow-copy the current snapshot.  All vectors are value-copied.
+    auto cur = atomicLoad(&snap_, std::memory_order_acquire);
+    if (!cur)
+    {
+        // No snapshot yet — do a full build instead.
+        auto fresh = buildSnapshot(bookDB, newLedger, j_);
+        atomicStore(
+            &snap_,
+            std::shared_ptr<Snapshot const>(std::move(fresh)),
+            std::memory_order_release);
+        return;
+    }
+
+    auto next = std::make_shared<Snapshot>(*cur);  // value copy
+    next->stats.lastDeltaBooks = static_cast<std::uint32_t>(changedBooks.size());
+    next->stats.totalDeltasCalled = cur->stats.totalDeltasCalled + 1;
+
+    // ---------- patch changed edges ---------------------------------------
+    for (Book const& book : changedBooks)
+    {
+        std::uint32_t const newQ = topOfBookQuality(newLedger, book);
+
+        // Ensure both endpoints exist (a book might be new this ledger).
+        VID const vSrc = ensureVertex(*next, book.in);
+        VID const vDst = ensureVertex(*next, book.out);
+        Edge& e = ensureEdge(*next, vSrc, vDst, EdgeKind::OrderBook);
+        e.qualityFixed = newQ;
+    }
+
+    JLOG(j_.trace()) << "PayGraph::applyLedgerDelta: patched "
+                     << changedBooks.size() << " books, delta #"
+                     << next->stats.totalDeltasCalled;
+
+    // ---------- publish ---------------------------------------------------
+    atomicStore(
+        &snap_,
+        std::shared_ptr<Snapshot const>(std::move(next)),
+        std::memory_order_release);
+}
+
+//==============================================================================
+// Vertex helpers (operate on current snapshot)
+//==============================================================================
+
+PayGraph::VID
+PayGraph::vertexOf(Issue const& asset) const
+{
+    auto s = snapshot();
+    if (!s)
+        return kNull;
+    auto it = s->index.find(asset);
+    return (it != s->index.end()) ? it->second : kNull;
+}
+
+Issue const&
+PayGraph::assetOf(VID v) const
+{
+    static Issue const kEmpty;
+    auto s = snapshot();
+    if (!s || v >= s->assets.size())
+        return kEmpty;
+    return s->assets[v];
+}
+
+//==============================================================================
+// Dijkstra — single-source shortest paths on the asset graph.
+//==============================================================================
+
+PayGraph::DijkResult
+PayGraph::dijkstra(
+    Snapshot const& snap,
+    VID src,
+    std::vector<bool> const* blockedVerts,
+    BlockedEdges const* blockedEdges)
+{
+    std::uint32_t const n = static_cast<std::uint32_t>(snap.assets.size());
+
+    DijkResult res;
+    res.dist.assign(n, std::numeric_limits<std::uint64_t>::max());
+    res.prev.assign(n, kNull);
+
+    if (src >= n)
+        return res;
+    if ((blockedVerts != nullptr) && src < blockedVerts->size() &&
+        (*blockedVerts)[src])
+        return res;
+
+    res.dist[src] = 0;
+
+    // Min-heap: (cost, vertex)
+    using PQ = std::priority_queue<
+        std::pair<std::uint64_t, VID>,
+        std::vector<std::pair<std::uint64_t, VID>>,
+        std::greater<>>;
+
+    PQ pq;
+    pq.emplace(0ull, src);
+
+    while (!pq.empty())
+    {
+        auto [cost, u] = pq.top();
+        pq.pop();
+
+        if (cost > res.dist[u])
+            continue;  // stale entry
+
+        if (u >= snap.adj.size())
+            continue;
+
+        for (Edge const& e : snap.adj[u])
+        {
+            VID const v = e.to;
+            if (v >= n)
+                continue;
+            if ((blockedVerts != nullptr) && v < blockedVerts->size() &&
+                (*blockedVerts)[v])
+                continue;
+
+            // Check if this specific edge (u -> v) is blocked.
+            if (blockedEdges != nullptr)
+            {
+                bool edgeBlocked = false;
+                for (auto const& [bfrom, bto] : *blockedEdges)
+                {
+                    if (bfrom == u && bto == v)
+                    {
+                        edgeBlocked = true;
+                        break;
+                    }
+                }
+                if (edgeBlocked)
+                    continue;
+            }
+
+            // Edges with no current top-of-book offer are traversed with a
+            // very high cost so they rank last.  rippleCalculate is the
+            // authoritative liquidity check — we must not skip structural
+            // edges, as offers placed before the graph was built may still
+            // be present in the ledger.
+            std::uint64_t const edgeCost = (e.qualityFixed == kNoLiquidity)
+                ? static_cast<std::uint64_t>(kNoLiquidity - 1)
+                : e.qualityFixed;
+
+            std::uint64_t const newCost = cost + edgeCost;
+            if (newCost < res.dist[v])
+            {
+                res.dist[v] = newCost;
+                res.prev[v] = u;
+                pq.emplace(newCost, v);
+            }
+        }
+    }
+
+    return res;
+}
+
+std::vector<PayGraph::VID>
+PayGraph::reconstructPath(DijkResult const& res, VID src, VID dst)
+{
+    if (res.dist[dst] == std::numeric_limits<std::uint64_t>::max())
+        return {};  // unreachable
+
+    std::vector<VID> path;
+    for (VID v = dst; v != kNull; v = res.prev[v])
+    {
+        path.push_back(v);
+        if (v == src)
+            break;
+        if (path.size() > res.dist.size())
+            return {};  // cycle guard
+    }
+
+    std::reverse(path.begin(), path.end());
+    return path;
+}
+
+//==============================================================================
+// Yen's K-Shortest Paths algorithm
+//
+// Reference: Yen, J.Y. (1971). "Finding the K Shortest Loopless Paths in a
+//            Network". Management Science 17(11): 712–716.
+//==============================================================================
+
+std::vector<PayGraph::AssetPath>
+PayGraph::kShortestPaths(Snapshot const& snap, VID src, VID dst, int k)
+{
+    std::uint32_t const n = static_cast<std::uint32_t>(snap.assets.size());
+    if (src >= n || dst >= n || k <= 0)
+        return {};
+
+    std::vector<AssetPath> a;  // confirmed k-shortest paths
+    a.reserve(k);
+
+    // Candidate set: (cumQuality, path) ordered by quality ascending.
+    using Candidate = std::pair<std::uint64_t, std::vector<VID>>;
+    auto cmpCand = [](Candidate const& x, Candidate const& y) {
+        return x.first > y.first;  // min-heap
+    };
+    std::priority_queue<Candidate, std::vector<Candidate>, decltype(cmpCand)> b(
+        cmpCand);
+
+    // Find the first (shortest) path.
+    {
+        auto res = dijkstra(snap, src);
+        auto path = reconstructPath(res, src, dst);
+        if (path.empty())
+            return {};  // no path at all
+        b.emplace(res.dist[dst], std::move(path));
+    }
+
+    while (!b.empty() && static_cast<int>(a.size()) < k)
+    {
+        auto [cost, prev] = b.top();
+        b.pop();
+
+        // Deduplicate (same path may be inserted multiple times).
+        bool dup = false;
+        for (auto const& ap : a)
+        {
+            if (ap.vids == prev)
+            {
+                dup = true;
+                break;
+            }
+        }
+        if (dup)
+            continue;
+
+        a.push_back({prev, cost});
+
+        if (static_cast<int>(a.size()) == k)
+            break;
+
+        // For each spur node along the accepted path (except the last node):
+        for (std::size_t i = 0; i + 1 < prev.size(); ++i)
+        {
+            VID const spurNode = prev[i];
+            // Root path = prev[0..i]
+            std::vector<VID> const rootPath(
+                prev.begin(), prev.begin() + i + 1);
+
+            // Block vertices in the root path (except spurNode itself) to
+            // prevent spur paths from re-using the prefix (avoids cycles).
+            std::vector<bool> blockedVerts(n, false);
+            for (std::size_t j = 0; j < i; ++j)
+                blockedVerts[rootPath[j]] = true;
+
+            // Block forward edges from spurNode that are already used by
+            // accepted paths sharing the same root prefix.
+            BlockedEdges blockedEdges;
+            for (auto const& ap : a)
+            {
+                auto const& av = ap.vids;
+                if (av.size() > i + 1 &&
+                    std::equal(
+                        av.begin(),
+                        av.begin() + static_cast<std::ptrdiff_t>(i + 1),
+                        rootPath.begin()))
+                {
+                    blockedEdges.emplace_back(spurNode, av[i + 1]);
+                }
+            }
+
+            auto res = dijkstra(snap, spurNode, &blockedVerts, &blockedEdges);
+            auto spur = reconstructPath(res, spurNode, dst);
+            if (spur.empty())
+                continue;
+
+            // Full candidate path = rootPath + spur (excluding dup spurNode).
+            std::vector<VID> candidate = rootPath;
+            candidate.insert(candidate.end(), spur.begin() + 1, spur.end());
+
+            std::uint64_t candidateCost = 0;
+            bool valid = true;
+            for (std::size_t j = 0; j + 1 < candidate.size(); ++j)
+            {
+                VID const u = candidate[j];
+                VID const v = candidate[j + 1];
+                if (u >= snap.adj.size())
+                {
+                    valid = false;
+                    break;
+                }
+                std::uint32_t bestEdge = 0;
+                bool found = false;
+                for (auto const& e : snap.adj[u])
+                {
+                    if (e.to == v)
+                    {
+                        std::uint32_t const w = (e.qualityFixed == kNoLiquidity)
+                            ? (kNoLiquidity - 1)
+                            : e.qualityFixed;
+                        if (!found || w < bestEdge)
+                        {
+                            bestEdge = w;
+                            found = true;
+                        }
+                    }
+                }
+                if (!found)
+                {
+                    valid = false;
+                    break;
+                }
+                candidateCost += bestEdge;
+            }
+            if (valid)
+                b.emplace(candidateCost, std::move(candidate));
+        }
+    }
+
+    return a;
+}
+
+//==============================================================================
+// PayGraph::findPaths() — convenience wrapper
+//==============================================================================
+
+std::vector<PayGraph::AssetPath>
+PayGraph::findPaths(Issue const& src, Issue const& dst, int k) const
+{
+    auto s = snapshot();
+    if (!s)
+        return {};
+
+    auto itSrc = s->index.find(src);
+    auto itDst = s->index.find(dst);
+    if (itSrc == s->index.end() || itDst == s->index.end())
+        return {};
+
+    return kShortestPaths(*s, itSrc->second, itDst->second, k);
+}
+
+}  // namespace ripple

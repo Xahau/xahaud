@@ -18,15 +18,20 @@
 //==============================================================================
 
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/OrderBookDB.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/paths/PathRequests.h>
+#include <xrpld/app/paths/PayGraphDelta.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/RPCErr.h>
+#include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/resource/Fees.h>
+
 #include <algorithm>
+#include <vector>
 
 namespace ripple {
 
@@ -64,11 +69,98 @@ PathRequests::getLineCache(
     return lineCache;
 }
 
+std::shared_ptr<PayGraph>
+PathRequests::ensurePayGraph(std::shared_ptr<ReadView const> const& inLedger)
+{
+    std::lock_guard sl(mLock);
+    if (!inLedger || app_.config().PATH_SEARCH_MAX == 0)
+        return payGraph_;
+
+    // Full rebuild only when missing or empty (built before OB scan finished).
+    bool const empty = !payGraph_ || payGraph_->currentStats().orderBooks == 0;
+    if (empty)
+    {
+        payGraph_ =
+            PayGraph::build(app_.getOrderBookDB(), *inLedger, app_.journal("PayGraph"));
+        payGraphSeq_ = inLedger->seq();
+        JLOG(mJournal.info()) << "PayGraph full build seq=" << payGraphSeq_
+                              << " books=" << (payGraph_ ? payGraph_->currentStats().orderBooks : 0);
+    }
+    return payGraph_;
+}
+
+void
+PathRequests::signalOrderBookReady(std::shared_ptr<ReadView const> const& ledger)
+{
+    orderBookReady_.store(true, std::memory_order_release);
+    if (!ledger || app_.config().PATH_SEARCH_MAX == 0)
+        return;
+
+    std::lock_guard sl(mLock);
+    payGraph_ =
+        PayGraph::build(app_.getOrderBookDB(), *ledger, app_.journal("PayGraph"));
+    payGraphSeq_ = ledger->seq();
+    JLOG(mJournal.info()) << "PayGraph rebuild after OrderBookDB ready seq="
+                          << payGraphSeq_ << " books="
+                          << (payGraph_ ? payGraph_->currentStats().orderBooks : 0);
+}
+
 void
 PathRequests::updateAll(std::shared_ptr<ReadView const> const& inLedger)
 {
     auto event =
         app_.getJobQueue().makeLoadEvent(jtPATH_FIND, "PathRequest::updateAll");
+
+    // ------------------------------------------------------------------
+    // Update the PayGraph incrementally from this ledger's tx metadata.
+    // Build from scratch if it does not exist yet (startup / catchup).
+    // Skip entirely when path finding is disabled.
+    // ------------------------------------------------------------------
+    if (app_.config().PATH_SEARCH_MAX == 0)
+        return;
+
+    {
+        std::lock_guard sl(mLock);
+        // Prefer a graph built after OrderBookDB's first full scan.  On
+        // networked nodes the scan is async; signalOrderBookReady builds once
+        // allBooks_ is populated.  Standalone builds immediately.
+        bool const empty = !payGraph_ || payGraph_->currentStats().orderBooks == 0;
+        if (empty)
+        {
+            if (!orderBookReady_.load(std::memory_order_acquire) &&
+                !app_.config().standalone())
+                return;
+
+            payGraph_ = PayGraph::build(
+                app_.getOrderBookDB(), *inLedger, app_.journal("PayGraph"));
+            payGraphSeq_ = inLedger->seq();
+            JLOG(mJournal.info())
+                << "PayGraph initial build in updateAll seq=" << payGraphSeq_
+                << " books=" << payGraph_->currentStats().orderBooks;
+        }
+        else
+        {
+            // Warm graph: only patch books that had offer activity this ledger.
+            std::vector<Book> changedBooks;
+            for (auto const& [stTx, stMeta] : inLedger->txs)
+            {
+                (void)stTx;
+                if (!stMeta)
+                    continue;
+                if (stMeta->isFieldPresent(sfAffectedNodes))
+                {
+                    auto const& nodes = stMeta->getFieldArray(sfAffectedNodes);
+                    mergeBooks(changedBooks, extractChangedBooks(nodes));
+                }
+            }
+            if (!changedBooks.empty())
+            {
+                payGraph_->applyLedgerDelta(
+                    app_.getOrderBookDB(), *inLedger, changedBooks);
+            }
+            payGraphSeq_ = inLedger->seq();
+        }
+    }
 
     std::vector<PathRequest::wptr> requests;
     std::shared_ptr<RippleLineCache> cache;

@@ -22,6 +22,7 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AMMUtils.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/paths/PathRequests.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpl/basics/Log.h>
@@ -161,6 +162,18 @@ OrderBookDB::update(std::shared_ptr<ReadView const> const& ledger)
         xrpBooks_.swap(xrpBooks);
     }
 
+    // Must run after allBooks_ is swapped in.  Fixes empty PayGraph when
+    // path_find arrived before OrderBookDB finished its first full scan.
+    try
+    {
+        app_.getPathRequests().signalOrderBookReady(ledger);
+    }
+    catch (...)
+    {
+        // Pathfinding is best-effort; never fail the OB update.
+        JLOG(j_.warn()) << "signalOrderBookReady failed after OrderBookDB update";
+    }
+
     app_.getLedgerMaster().newOrderBookDB();
 }
 
@@ -193,6 +206,22 @@ OrderBookDB::getBooksByTakerPays(Issue const& issue)
             for (auto const& gets : it->second)
                 ret.push_back(Book(issue, gets));
         }
+    }
+
+    return ret;
+}
+
+std::vector<Issue>
+OrderBookDB::getAllTakerPaysAssets()
+{
+    std::vector<Issue> ret;
+
+    std::lock_guard sl(mLock);
+    ret.reserve(allBooks_.size());
+    for (auto const& [in, outs] : allBooks_)
+    {
+        (void)outs;
+        ret.push_back(in);
     }
 
     return ret;

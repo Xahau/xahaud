@@ -21,7 +21,7 @@
 #define RIPPLE_APP_PATHS_PATHREQUEST_H_INCLUDED
 
 #include <xrpld/app/ledger/Ledger.h>
-#include <xrpld/app/paths/Pathfinder.h>
+#include <xrpld/app/paths/GraphPathfinder.h>
 #include <xrpld/app/paths/RippleLineCache.h>
 #include <xrpld/net/InfoSub.h>
 #include <xrpl/json/json_value.h>
@@ -110,11 +110,12 @@ private:
     bool
     isValid(std::shared_ptr<RippleLineCache> const& crCache);
 
-    std::unique_ptr<Pathfinder> const&
+    std::unique_ptr<GraphPathfinder> const&
     getPathFinder(
         std::shared_ptr<RippleLineCache> const&,
-        hash_map<Currency, std::unique_ptr<Pathfinder>>&,
+        hash_map<Currency, std::unique_ptr<GraphPathfinder>>&,
         Currency const&,
+        std::optional<AccountID> const& srcIssuer,
         STAmount const&,
         int const,
         std::function<bool(void)> const&);

@@ -22,12 +22,17 @@
 
 #include <xrpld/app/paths/detail/AmountSpec.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/protocol/Book.h>
 #include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/QualityFunction.h>
 #include <xrpl/protocol/STLedgerEntry.h>
 #include <xrpl/protocol/TER.h>
 
+#include <xrpl/basics/UnorderedContainers.h>
+
 #include <boost/container/flat_set.hpp>
+#include <cstdint>
+#include <mutex>
 #include <optional>
 
 namespace ripple {
@@ -35,6 +40,52 @@ class PaymentSandbox;
 class ReadView;
 class ApplyView;
 class AMMContext;
+
+// Process-wide: AMMs that threw FlowException (broken pool invariant) during
+// flow.  One exception excludes only that AMM; CLOB offers on the same book
+// remain usable.  Cleared when the ledger sequence advances.
+struct FailedAMMBlacklist
+{
+    std::mutex mutex;
+    std::uint32_t ledgerSeq{0};
+    hash_set<Book> amms;
+};
+
+inline FailedAMMBlacklist&
+failedAMMBlacklist()
+{
+    static FailedAMMBlacklist store;
+    return store;
+}
+
+inline void
+noteFailedAMM(Book const& ammBook, std::uint32_t ledgerSeq)
+{
+    auto& store = failedAMMBlacklist();
+    std::lock_guard lock(store.mutex);
+    if (store.ledgerSeq != ledgerSeq)
+    {
+        store.amms.clear();
+        store.ledgerSeq = ledgerSeq;
+    }
+    store.amms.insert(ammBook);
+    store.amms.insert(reversed(ammBook));
+}
+
+inline bool
+isFailedAMM(Book const& ammBook, std::uint32_t ledgerSeq)
+{
+    auto& store = failedAMMBlacklist();
+    std::lock_guard lock(store.mutex);
+    if (store.ledgerSeq != ledgerSeq)
+    {
+        store.amms.clear();
+        store.ledgerSeq = ledgerSeq;
+        return false;
+    }
+    return store.amms.contains(ammBook) ||
+        store.amms.contains(reversed(ammBook));
+}
 
 enum class DebtDirection { issues, redeems };
 enum class QualityDirection { in, out };
@@ -499,9 +550,17 @@ class FlowException : public std::runtime_error
 {
 public:
     TER ter;
+    // When set, the AMM pool (book pair) that failed. One exception excludes
+    // only that AMM via noteFailedAMM / isFailedAMM — not the whole path.
+    std::optional<Book> ammBook;
 
     FlowException(TER t, std::string const& msg)
         : std::runtime_error(msg), ter(t)
+    {
+    }
+
+    FlowException(TER t, std::string const& msg, Book const& amm)
+        : std::runtime_error(msg), ter(t), ammBook(amm)
     {
     }
 

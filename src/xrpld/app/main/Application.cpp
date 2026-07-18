@@ -1274,8 +1274,6 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
             logs_->journal("Amendments"));
     }
 
-    Pathfinder::initPathTable();
-
     auto const startUp = config_->START_UP;
     JLOG(m_journal.debug()) << "startUp: " << startUp;
     if (startUp == Config::FRESH)

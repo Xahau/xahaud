@@ -23,7 +23,8 @@
 #include <xrpld/app/misc/DeliverMax.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
-#include <xrpld/app/paths/Pathfinder.h>
+#include <xrpld/app/paths/GraphPathfinder.h>
+#include <xrpld/app/paths/PathRequests.h>
 #include <xrpld/app/tx/apply.h>  // Validity::Valid
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpld/rpc/detail/LegacyPathFind.h>
@@ -252,9 +253,11 @@ checkPayment(
 
             if (auto ledger = app.openLedger().current())
             {
-                Pathfinder pf(
-                    std::make_shared<RippleLineCache>(
-                        ledger, app.journal("RippleLineCache")),
+                auto cache = std::make_shared<RippleLineCache>(
+                    ledger, app.journal("RippleLineCache"));
+                GraphPathfinder pf(
+                    app.getPathRequests().getPayGraph(ledger),
+                    cache,
                     srcAddressID,
                     *dstAccountID,
                     sendMax.issue().currency,
@@ -262,14 +265,13 @@ checkPayment(
                     amount,
                     std::nullopt,
                     app);
-                if (pf.findPaths(app.config().PATH_SEARCH_OLD))
+                if (pf.findPaths())
                 {
                     // 4 is the maxium paths
                     pf.computePathRanks(4);
-                    STPath fullLiquidityPath;
                     STPathSet paths;
                     result = pf.getBestPaths(
-                        4, fullLiquidityPath, paths, sendMax.issue().account);
+                        4, paths, sendMax.issue().account);
                 }
             }
 
