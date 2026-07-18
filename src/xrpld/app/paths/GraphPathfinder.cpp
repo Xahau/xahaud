@@ -104,9 +104,9 @@ GraphPathfinder::findPaths(std::function<bool()> const& continueCallback)
     }
 
     // Resolve source and destination assets.
-    // Prefer srcAmount_ (often saSendMax with the real issuer) over reconstructing
-    // from currency + srcAccount, which mis-attributes IOU issuers and misses
-    // order-book vertices (e.g. receive-max USD→XRP).
+    // Prefer srcAmount_ (often saSendMax with the real issuer) over
+    // reconstructing from currency + srcAccount, which mis-attributes IOU
+    // issuers and misses order-book vertices (e.g. receive-max USD→XRP).
     Issue const srcAsset = srcAmount_.issue();
     Issue const dstAsset = dstAmount_.issue();
 
@@ -140,8 +140,8 @@ GraphPathfinder::findPaths(std::function<bool()> const& continueCallback)
 
             // Collect issuers that srcAccount_ has trust lines for.
             hash_set<AccountID> validIssuers;
-            if (auto const lines =
-                    cache_->getRippleLines(srcAccount_, LineDirection::outgoing))
+            if (auto const lines = cache_->getRippleLines(
+                    srcAccount_, LineDirection::outgoing))
             {
                 for (auto const& line : *lines)
                 {
@@ -270,7 +270,8 @@ GraphPathfinder::findPaths(std::function<bool()> const& continueCallback)
 
         JLOG(j_.debug()) << "GraphPathfinder: " << candidates.size()
                          << " abstract paths considered, " << accepted
-                         << " concrete paths accepted (cap=" << acceptCap << ")";
+                         << " concrete paths accepted (cap=" << acceptCap
+                         << ")";
     }
 
     // Also try the direct (no-bridge) path: src -> dst over trust lines.
@@ -441,8 +442,7 @@ GraphPathfinder::findPaths(std::function<bool()> const& continueCallback)
     }
 
     JLOG(j_.debug()) << "GraphPathfinder: " << completePaths_.size()
-                     << " concrete paths"
-                     << " src=" << to_string(srcAsset)
+                     << " concrete paths" << " src=" << to_string(srcAsset)
                      << " dst=" << to_string(dstAsset);
     return true;
 }
@@ -483,10 +483,7 @@ GraphPathfinder::materialise(PayGraph::AssetPath const& assetPath)
             AccountID const expectedIssuer = srcIssuer_.value_or(srcAccount_);
             if (g != srcAccount_ && g != xrpAccount() && g != expectedIssuer)
                 path.emplace_back(
-                    STPathElement::typeAccount,
-                    g,
-                    xrpCurrency(),
-                    xrpAccount());
+                    STPathElement::typeAccount, g, xrpCurrency(), xrpAccount());
         }
     }
 
@@ -524,8 +521,8 @@ GraphPathfinder::materialise(PayGraph::AssetPath const& assetPath)
         return std::nullopt;
 
     JLOG(j_.trace()) << "GraphPathfinder::materialise src="
-                     << toBase58(srcAccount_) << " dst="
-                     << toBase58(dstAccount_)
+                     << toBase58(srcAccount_)
+                     << " dst=" << toBase58(dstAccount_)
                      << " srcAsset=" << to_string(snap_->assets[firstVID])
                      << " dstAsset=" << to_string(snap_->assets[lastVID])
                      << " path=" << path.getJson(JsonOptions::none);
@@ -543,17 +540,14 @@ GraphPathfinder::materialise(PayGraph::AssetPath const& assetPath)
                 Currency const& ccy = dstAsset.currency;
                 // First add G itself.
                 path.emplace_back(
-                    STPathElement::typeAccount,
-                    g,
-                    xrpCurrency(),
-                    xrpAccount());
+                    STPathElement::typeAccount, g, xrpCurrency(), xrpAccount());
                 // If dstAccount_ does not hold G's IOU directly, look for an
                 // intermediate account B that has trust lines with both G and
                 // dstAccount_.
                 if (!ledger_->read(keylet::line(g, dstAccount_, ccy)))
                 {
-                    auto const dstLines = ledger_->read(
-                                              keylet::account(dstAccount_))
+                    auto const dstLines =
+                        ledger_->read(keylet::account(dstAccount_))
                         ? cache_->getRippleLines(
                               dstAccount_, LineDirection::outgoing)
                         : nullptr;
@@ -630,11 +624,11 @@ GraphPathfinder::getPathLiquidity(
 
         if (!isTesSuccess(rc.result()))
         {
-            JLOG(j_.trace()) << "GraphPathfinder::getPathLiquidity failed: "
-                             << transHuman(rc.result())
-                             << " src=" << toBase58(srcAccount_)
-                             << " dst=" << toBase58(dstAccount_) << " path="
-                             << pathSet.getJson(JsonOptions::none);
+            JLOG(j_.trace())
+                << "GraphPathfinder::getPathLiquidity failed: "
+                << transHuman(rc.result()) << " src=" << toBase58(srcAccount_)
+                << " dst=" << toBase58(dstAccount_)
+                << " path=" << pathSet.getJson(JsonOptions::none);
             return rc.result();
         }
 
@@ -733,8 +727,8 @@ GraphPathfinder::rankPaths(
 
         STAmount liquidity;
         std::uint64_t quality = 0;
-        if (isTesSuccess(
-                getPathLiquidity(currentPath, saMinDstAmount, liquidity, quality)))
+        if (isTesSuccess(getPathLiquidity(
+                currentPath, saMinDstAmount, liquidity, quality)))
         {
             consecutiveFailures = 0;
             rankedPaths.push_back({quality, currentPath.size(), liquidity, i});

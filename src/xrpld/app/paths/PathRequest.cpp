@@ -553,10 +553,7 @@ PathRequest::findPaths(
 
         STPath fullLiquidityPath;
         auto ps = pathfinder->getBestPaths(
-            max_paths_,
-            mContext[issue],
-            issue.account,
-            continueCallback);
+            max_paths_, mContext[issue], issue.account, continueCallback);
         mContext[issue] = ps;
 
         auto const& sourceAccount = [&] {
@@ -577,7 +574,8 @@ PathRequest::findPaths(
 
         // To better align with payment execution, test with a more realistic
         // scenario: use the full destination amount even when partial payment
-        // is allowed. This helps identify paths that may dry up during execution.
+        // is allowed. This helps identify paths that may dry up during
+        // execution.
         STAmount const testDstAmount = convert_all_ ? dst_amount : saDstAmount;
 
         path::RippleCalc::Input rcInput;

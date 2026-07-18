@@ -80,29 +80,32 @@ PathRequests::ensurePayGraph(std::shared_ptr<ReadView const> const& inLedger)
     bool const empty = !payGraph_ || payGraph_->currentStats().orderBooks == 0;
     if (empty)
     {
-        payGraph_ =
-            PayGraph::build(app_.getOrderBookDB(), *inLedger, app_.journal("PayGraph"));
+        payGraph_ = PayGraph::build(
+            app_.getOrderBookDB(), *inLedger, app_.journal("PayGraph"));
         payGraphSeq_ = inLedger->seq();
-        JLOG(mJournal.info()) << "PayGraph full build seq=" << payGraphSeq_
-                              << " books=" << (payGraph_ ? payGraph_->currentStats().orderBooks : 0);
+        JLOG(mJournal.info())
+            << "PayGraph full build seq=" << payGraphSeq_ << " books="
+            << (payGraph_ ? payGraph_->currentStats().orderBooks : 0);
     }
     return payGraph_;
 }
 
 void
-PathRequests::signalOrderBookReady(std::shared_ptr<ReadView const> const& ledger)
+PathRequests::signalOrderBookReady(
+    std::shared_ptr<ReadView const> const& ledger)
 {
     orderBookReady_.store(true, std::memory_order_release);
     if (!ledger || app_.config().PATH_SEARCH_MAX == 0)
         return;
 
     std::lock_guard sl(mLock);
-    payGraph_ =
-        PayGraph::build(app_.getOrderBookDB(), *ledger, app_.journal("PayGraph"));
+    payGraph_ = PayGraph::build(
+        app_.getOrderBookDB(), *ledger, app_.journal("PayGraph"));
     payGraphSeq_ = ledger->seq();
     JLOG(mJournal.info()) << "PayGraph rebuild after OrderBookDB ready seq="
                           << payGraphSeq_ << " books="
-                          << (payGraph_ ? payGraph_->currentStats().orderBooks : 0);
+                          << (payGraph_ ? payGraph_->currentStats().orderBooks
+                                        : 0);
 }
 
 void
@@ -124,7 +127,8 @@ PathRequests::updateAll(std::shared_ptr<ReadView const> const& inLedger)
         // Prefer a graph built after OrderBookDB's first full scan.  On
         // networked nodes the scan is async; signalOrderBookReady builds once
         // allBooks_ is populated.  Standalone builds immediately.
-        bool const empty = !payGraph_ || payGraph_->currentStats().orderBooks == 0;
+        bool const empty =
+            !payGraph_ || payGraph_->currentStats().orderBooks == 0;
         if (empty)
         {
             if (!orderBookReady_.load(std::memory_order_acquire) &&

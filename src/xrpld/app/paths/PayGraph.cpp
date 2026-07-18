@@ -338,7 +338,8 @@ PayGraph::applyLedgerDelta(
     }
 
     auto next = std::make_shared<Snapshot>(*cur);  // value copy
-    next->stats.lastDeltaBooks = static_cast<std::uint32_t>(changedBooks.size());
+    next->stats.lastDeltaBooks =
+        static_cast<std::uint32_t>(changedBooks.size());
     next->stats.totalDeltasCalled = cur->stats.totalDeltasCalled + 1;
 
     // ---------- patch changed edges ---------------------------------------
@@ -562,8 +563,7 @@ PayGraph::kShortestPaths(Snapshot const& snap, VID src, VID dst, int k)
         {
             VID const spurNode = prev[i];
             // Root path = prev[0..i]
-            std::vector<VID> const rootPath(
-                prev.begin(), prev.begin() + i + 1);
+            std::vector<VID> const rootPath(prev.begin(), prev.begin() + i + 1);
 
             // Block vertices in the root path (except spurNode itself) to
             // prevent spur paths from re-using the prefix (avoids cycles).

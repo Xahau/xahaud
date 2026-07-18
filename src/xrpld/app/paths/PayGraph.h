@@ -209,7 +209,10 @@ private:
 
     /// Allocate a Snapshot populated from bookDB + ledger (no atomic store).
     static std::shared_ptr<Snapshot>
-    buildSnapshot(OrderBookDB& bookDB, ReadView const& ledger, beast::Journal j);
+    buildSnapshot(
+        OrderBookDB& bookDB,
+        ReadView const& ledger,
+        beast::Journal j);
 
     /// Ensure a vertex for 'asset' exists in snap.  Returns its VID.
     static VID

@@ -46,7 +46,8 @@ inline bool
 convertAllCheck(STAmount const& a)
 {
     // Path-find RPC uses destination_amount = -1 for convert-all / receive-max.
-    // PathRequest also normalises to largestAmount before GraphPathfinder; accept both.
+    // PathRequest also normalises to largestAmount before GraphPathfinder;
+    // accept both.
     if (a == STAmount(a.issue(), 1u, 0, true))
         return true;
     return a == largestAmount(a);

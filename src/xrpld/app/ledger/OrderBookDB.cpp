@@ -171,7 +171,8 @@ OrderBookDB::update(std::shared_ptr<ReadView const> const& ledger)
     catch (...)
     {
         // Pathfinding is best-effort; never fail the OB update.
-        JLOG(j_.warn()) << "signalOrderBookReady failed after OrderBookDB update";
+        JLOG(j_.warn())
+            << "signalOrderBookReady failed after OrderBookDB update";
     }
 
     app_.getLedgerMaster().newOrderBookDB();

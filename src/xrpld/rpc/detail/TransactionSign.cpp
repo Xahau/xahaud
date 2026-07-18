@@ -270,8 +270,7 @@ checkPayment(
                     // 4 is the maxium paths
                     pf.computePathRanks(4);
                     STPathSet paths;
-                    result = pf.getBestPaths(
-                        4, paths, sendMax.issue().account);
+                    result = pf.getBestPaths(4, paths, sendMax.issue().account);
                 }
             }
 

@@ -96,7 +96,8 @@ public:
         AccountID const& srcIssuer,
         std::function<bool()> const& continueCallback = {});
 
-    /** Number of concrete paths discovered by findPaths (for tests/diagnostics). */
+    /** Number of concrete paths discovered by findPaths (for
+     * tests/diagnostics). */
     std::size_t
     completePathCount() const
     {
