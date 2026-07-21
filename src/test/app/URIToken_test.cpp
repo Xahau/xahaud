@@ -18,8 +18,10 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/ledger/Dir.h>
+
 #include <xrpl/basics/chrono.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
@@ -1003,7 +1005,7 @@ struct URIToken_test : public beast::unit_test::suite
         // bob can buy with XRP
         {
             // alice mints
-            const auto delta = XRP(10);
+            auto const delta = XRP(10);
             auto preAlice = env.balance(alice);
             auto preBob = env.balance(bob);
             env(uritoken::mint(alice, uri));
@@ -1041,7 +1043,7 @@ struct URIToken_test : public beast::unit_test::suite
         // bob can buy with USD
         {
             // alice mints
-            const auto delta = USD(10);
+            auto const delta = USD(10);
             auto preAlice = env.balance(alice, USD.issue());
             auto preAliceXrp = env.balance(alice);
             auto preBob = env.balance(bob, USD.issue());
@@ -1113,7 +1115,7 @@ struct URIToken_test : public beast::unit_test::suite
         // alice can sell with XRP
         {
             // alice mints
-            const auto delta = XRP(10);
+            auto const delta = XRP(10);
             auto preAlice = env.balance(alice);
             auto preBob = env.balance(bob);
             env(uritoken::mint(alice, uri));
@@ -1159,7 +1161,7 @@ struct URIToken_test : public beast::unit_test::suite
         // alice can sell with XRP and dest
         {
             // alice mints
-            const auto delta = XRP(10);
+            auto const delta = XRP(10);
             auto preAlice = env.balance(alice);
             auto preBob = env.balance(bob);
             env(uritoken::mint(alice, uri));
@@ -1203,7 +1205,7 @@ struct URIToken_test : public beast::unit_test::suite
         // alice can sell with USD
         {
             // alice mints
-            const auto delta = USD(10);
+            auto const delta = USD(10);
             auto preAlice = env.balance(alice, USD.issue());
             auto preAliceXrp = env.balance(alice);
             auto preBob = env.balance(bob, USD.issue());
@@ -1253,7 +1255,7 @@ struct URIToken_test : public beast::unit_test::suite
         // alice can sell with USD and dest
         {
             // alice mints
-            const auto delta = USD(10);
+            auto const delta = USD(10);
             auto preAlice = env.balance(alice, USD.issue());
             auto preAliceXrp = env.balance(alice);
             auto preBob = env.balance(bob, USD.issue());
@@ -1331,7 +1333,7 @@ struct URIToken_test : public beast::unit_test::suite
         // alice can clear / reset XRP amount
         {
             // alice mints
-            const auto delta = XRP(10);
+            auto const delta = XRP(10);
             auto preAlice = env.balance(alice);
             env(uritoken::mint(alice, uri));
             env.close();
@@ -1365,7 +1367,7 @@ struct URIToken_test : public beast::unit_test::suite
         // alice can clear / reset USD amount
         {
             // alice mints
-            const auto delta = USD(10);
+            auto const delta = USD(10);
             env(uritoken::mint(alice, uri));
             env.close();
             BEAST_EXPECT(inOwnerDir(*env.current(), alice, tid));

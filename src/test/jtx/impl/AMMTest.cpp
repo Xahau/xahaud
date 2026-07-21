@@ -22,8 +22,10 @@
 #include <test/jtx/CaptureLogs.h>
 #include <test/jtx/Env.h>
 #include <test/jtx/pay.h>
+
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
+
 #include <xrpl/protocol/STParsedJSON.h>
 #include <xrpl/resource/Fees.h>
 
@@ -122,16 +124,10 @@ AMMTestBase::testAMM(
 
     for (auto const& features : arg.features)
     {
-        // Env env{
-        //     *this,
-        //     features,
-        //     arg.noLog ? std::make_unique<CaptureLogs>(&logs) : nullptr};
-        Env env(
+        Env env{
             *this,
-            envconfig(),
             features,
-            nullptr,
-            beast::severities::kDisabled);
+            arg.noLog ? std::make_unique<CaptureLogs>(&logs) : nullptr};
 
         auto const [asset1, asset2] =
             arg.pool ? *arg.pool : std::make_pair(XRP(10000), USD(10000));

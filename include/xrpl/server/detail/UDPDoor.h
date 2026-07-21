@@ -25,6 +25,7 @@
 #include <xrpl/server/detail/PlainHTTPPeer.h>
 #include <xrpl/server/detail/SSLHTTPPeer.h>
 #include <xrpl/server/detail/io_list.h>
+
 #include <boost/asio/basic_waitable_timer.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
@@ -34,6 +35,7 @@
 #include <boost/beast/core/multi_buffer.hpp>
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/container/flat_map.hpp>
+
 #include <chrono>
 #include <condition_variable>
 #include <functional>
@@ -185,10 +187,10 @@ private:
             return;
         }
 
-        const size_t HEADER_SIZE = 16;
-        const size_t MAX_DATAGRAM_SIZE =
+        size_t const HEADER_SIZE = 16;
+        size_t const MAX_DATAGRAM_SIZE =
             65487;  // Allow for ipv6 header 40 bytes + 8 bytes of udp header
-        const size_t MAX_PAYLOAD_SIZE = MAX_DATAGRAM_SIZE - HEADER_SIZE;
+        size_t const MAX_PAYLOAD_SIZE = MAX_DATAGRAM_SIZE - HEADER_SIZE;
 
         // Convert TCP endpoint back to UDP for sending
         boost::asio::ip::udp::endpoint udp_endpoint(
@@ -214,8 +216,8 @@ private:
         }
 
         // Calculate number of packets needed
-        const size_t payload_size = MAX_PAYLOAD_SIZE;
-        const uint16_t total_packets =
+        size_t const payload_size = MAX_PAYLOAD_SIZE;
+        uint16_t const total_packets =
             (response.length() + payload_size - 1) / payload_size;
 
         // Get current timestamp in microseconds

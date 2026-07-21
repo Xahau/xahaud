@@ -20,9 +20,9 @@
 #include <xrpld/app/misc/AMMHelpers.h>
 #include <xrpld/app/misc/AMMUtils.h>
 #include <xrpld/ledger/Sandbox.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/AMMCore.h>
-#include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/STObject.h>
 
 namespace ripple {
@@ -74,7 +74,7 @@ ammHolds(
         auto const singleIssue =
             [&issue1, &issue2, &j](
                 Issue checkIssue,
-                const char* label) -> std::optional<std::pair<Issue, Issue>> {
+                char const* label) -> std::optional<std::pair<Issue, Issue>> {
             if (checkIssue == issue1)
                 return std::make_optional(std::make_pair(issue1, issue2));
             else if (checkIssue == issue2)

@@ -23,6 +23,8 @@
 #include <test/jtx/Account.h>
 #include <test/jtx/Env.h>
 
+#include <xrpl/beast/unit_test/suite.h>
+
 namespace ripple {
 namespace test {
 namespace jtx {
@@ -31,6 +33,9 @@ namespace jtx {
 Json::Value
 acctdelete(Account const& account, Account const& dest);
 
+// Close the ledger until the ledger sequence is large enough to close
+// the account.  If margin is specified, close the ledger so `margin`
+// more closes are needed
 void
 incLgrSeqForAccDel(
     jtx::Env& env,

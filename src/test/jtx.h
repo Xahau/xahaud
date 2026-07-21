@@ -31,12 +31,15 @@
 #include <test/jtx/acctdelete.h>
 #include <test/jtx/amount.h>
 #include <test/jtx/balance.h>
+#include <test/jtx/batch.h>
 #include <test/jtx/check.h>
 #include <test/jtx/credentials.h>
 #include <test/jtx/cron.h>
+#include <test/jtx/delegate.h>
 #include <test/jtx/delivermin.h>
 #include <test/jtx/deposit.h>
 #include <test/jtx/did.h>
+#include <test/jtx/domain.h>
 #include <test/jtx/fee.h>
 #include <test/jtx/flags.h>
 #include <test/jtx/genesis.h>
@@ -57,6 +60,7 @@
 #include <test/jtx/paths.h>
 #include <test/jtx/pay.h>
 #include <test/jtx/paychan.h>
+#include <test/jtx/permissioned_dex.h>
 #include <test/jtx/permissioned_domains.h>
 #include <test/jtx/prop.h>
 #include <test/jtx/quality.h>
@@ -81,6 +85,7 @@
 #include <test/jtx/unl.h>
 #include <test/jtx/uritoken.h>
 #include <test/jtx/utility.h>
+
 #include <xrpl/json/to_string.h>
 
 #endif

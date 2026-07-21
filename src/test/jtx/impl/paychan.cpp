@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx/paychan.h>
+
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
 
@@ -40,7 +41,8 @@ create(
     using namespace jtx;
     Json::Value jv;
     jv[jss::TransactionType] = jss::PaymentChannelCreate;
-    jv[jss::Flags] = tfUniversal;
+    jv[jss::Flags] = tfUniversal - tfInnerBatchTxn;
+    ;
     jv[jss::Account] = account.human();
     jv[jss::Destination] = to.human();
     jv[jss::Amount] = amount.getJson(JsonOptions::none);
@@ -63,7 +65,7 @@ fund(
     using namespace jtx;
     Json::Value jv;
     jv[jss::TransactionType] = jss::PaymentChannelFund;
-    jv[jss::Flags] = tfUniversal;
+    jv[jss::Flags] = tfUniversal - tfInnerBatchTxn;
     jv[jss::Account] = account.human();
     jv["Channel"] = to_string(channel);
     jv[jss::Amount] = amount.getJson(JsonOptions::none);
@@ -84,7 +86,7 @@ claim(
     using namespace jtx;
     Json::Value jv;
     jv[jss::TransactionType] = jss::PaymentChannelClaim;
-    jv[jss::Flags] = tfUniversal;
+    jv[jss::Flags] = tfUniversal - tfInnerBatchTxn;
     jv[jss::Account] = account.human();
     jv["Channel"] = to_string(channel);
     if (amount)

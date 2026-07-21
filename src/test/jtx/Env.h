@@ -28,13 +28,16 @@
 #include <test/jtx/envconfig.h>
 #include <test/jtx/require.h>
 #include <test/jtx/tags.h>
+#include <test/jtx/vault.h>
 #include <test/unit_test/SuiteJournal.h>
+
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/paths/Pathfinder.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/beast/utility/Journal.h>
@@ -46,6 +49,7 @@
 #include <xrpl/protocol/STAmount.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
+
 #include <functional>
 #include <string>
 #include <tuple>
@@ -69,7 +73,7 @@ noripple(Account const& account, Args const&... args)
 inline FeatureBitset
 supported_amendments()
 {
-    static const FeatureBitset ids = [] {
+    static FeatureBitset const ids = [] {
         auto const& sa = ripple::detail::supportedAmendments();
         std::vector<uint256> feats;
         feats.reserve(sa.size());
@@ -207,8 +211,10 @@ public:
      * @param args collection of features
      *
      */
-    Env(beast::unit_test::suite& suite_, FeatureBitset features)
-        : Env(suite_, envconfig(), features)
+    Env(beast::unit_test::suite& suite_,
+        FeatureBitset features,
+        std::unique_ptr<Logs> logs = nullptr)
+        : Env(suite_, envconfig(), features, std::move(logs))
     {
     }
 
@@ -504,23 +510,11 @@ public:
     /** Create a JTx from parameters. */
     template <class JsonValue, class... FN>
     JTx
-    jt(JsonValue&& jv, Account account, FN const&... fN)
+    jtnofill(JsonValue&& jv, FN const&... fN)
     {
         JTx jt(std::forward<JsonValue>(jv));
         invoke(jt, fN...);
-        acct_autofill(jt, account);
-        jt.stx = st(jt);
-        return jt;
-    }
-
-    /** Create a JTx from parameters. */
-    template <class JsonValue, class Account, class... FN>
-    JTx
-    jtnofill(JsonValue&& jv, Account account, FN const&... fN)
-    {
-        JTx jt(std::forward<JsonValue>(jv));
-        invoke(jt, fN...);
-        autofill_sig(jt, account);
+        autofill_sig(jt);
         jt.stx = st(jt);
         return jt;
     }
@@ -616,13 +610,16 @@ public:
     }
 
     /** Return metadata for the last JTx.
-
-        Effects:
-
-            The open ledger is closed as if by a call
-            to close(). The metadata for the last
-            transaction ID, if any, is returned.
-    */
+     *
+     *  NOTE: this has a side effect of closing the open ledger.
+     *  The ledger will only be closed if it includes transactions.
+     *
+     *  Effects:
+     *
+     *      The open ledger is closed as if by a call
+     *      to close(). The metadata for the last
+     *      transaction ID, if any, is returned.
+     */
     std::shared_ptr<STObject const>
     meta();
 
@@ -766,10 +763,10 @@ protected:
         std::unordered_map<std::string, std::string> const& headers = {});
 
     void
-    autofill_sig(JTx& jt, Account const& account);
+    autofill_sig(JTx& jt);
 
     virtual void
-    acct_autofill(JTx& jt, Account const& account);
+    acct_autofill(JTx& jt);
 
     virtual void
     autofill(JTx& jt);

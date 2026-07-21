@@ -18,11 +18,12 @@
 //==============================================================================
 
 #include <test/jtx/hook.h>
-#include <xrpld/app/hook/applyHook.h>
+
 #include <xrpl/basics/contract.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/Keylet.h>
 #include <xrpl/protocol/jss.h>
+
 #include <stdexcept>
 
 namespace ripple {

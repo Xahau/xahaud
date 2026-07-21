@@ -18,9 +18,13 @@
 //==============================================================================
 
 #include <xrpl/beast/utility/instrumentation.h>
+#include <xrpl/json/json_value.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/jss.h>
+
 #include <array>
 #include <stdexcept>
+#include <string>
 
 namespace ripple {
 namespace RPC {
@@ -103,6 +107,7 @@ constexpr static ErrorInfo unorderedErrorInfos[]{
     {rpcSRC_ACT_MALFORMED,      "srcActMalformed",      "Source account is malformed.", 400},
     {rpcSRC_ACT_MISSING,        "srcActMissing",        "Source account not provided.", 400},
     {rpcSRC_ACT_NOT_FOUND,      "srcActNotFound",       "Source account not found.", 404},
+    {rpcDELEGATE_ACT_NOT_FOUND, "delegateActNotFound",  "Delegate account not found.", 404},
     {rpcSRC_CUR_MALFORMED,      "srcCurMalformed",      "Source currency is malformed.", 400},
     {rpcSRC_ISR_MALFORMED,      "srcIsrMalformed",      "Source issuer is malformed.", 400},
     {rpcSTREAM_MALFORMED,       "malformedStream",      "Stream malformed.", 400},
@@ -113,7 +118,8 @@ constexpr static ErrorInfo unorderedErrorInfos[]{
     {rpcLEDGER_MISSING,         "ledgerMissing",        "One or more ledgers in the specified range is missing", 406},
     {rpcORACLE_MALFORMED,       "oracleMalformed",      "Oracle request is malformed.", 400},
     {rpcBAD_CREDENTIALS,        "badCredentials",       "Credentials do not exist, are not accepted, or have expired.", 400},
-    {rpcTX_SIGNED,              "transactionSigned",    "Transaction should not be signed.", 400}};
+    {rpcTX_SIGNED,              "transactionSigned",    "Transaction should not be signed.", 400},
+    {rpcDOMAIN_MALFORMED,       "domainMalformed",      "Domain is malformed.", 400}};
 // clang-format on
 
 // Sort and validate unorderedErrorInfos at compile time.  Should be

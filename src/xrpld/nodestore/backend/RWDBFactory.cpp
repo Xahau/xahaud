@@ -3,10 +3,13 @@
 #include <xrpld/nodestore/detail/DecodedBlob.h>
 #include <xrpld/nodestore/detail/EncodedBlob.h>
 #include <xrpld/nodestore/detail/codec.h>
+
 #include <xrpl/basics/contract.h>
+
 #include <boost/beast/core/string.hpp>
 #include <boost/core/ignore_unused.hpp>
 #include <boost/unordered/concurrent_flat_map.hpp>
+
 #include <memory>
 #include <mutex>
 
@@ -140,8 +143,8 @@ public:
             nodeobject_compress(encoded.getData(), encoded.getSize(), bf);
 
         std::vector<std::uint8_t> compressed(
-            static_cast<const std::uint8_t*>(result.first),
-            static_cast<const std::uint8_t*>(result.first) + result.second);
+            static_cast<std::uint8_t const*>(result.first),
+            static_cast<std::uint8_t const*>(result.first) + result.second);
 
         std::lock_guard lock(mutex_);
         table_[object->getHash()] = std::move(compressed);
@@ -166,7 +169,7 @@ public:
             return;
 
         std::lock_guard lock(mutex_);
-        for (const auto& entry : table_)
+        for (auto const& entry : table_)
         {
             nudb::detail::buffer bf;
             auto const result = nodeobject_decompress(

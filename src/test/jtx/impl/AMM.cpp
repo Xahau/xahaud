@@ -23,6 +23,7 @@
 #include <xrpld/app/misc/AMMHelpers.h>
 #include <xrpld/app/misc/AMMUtils.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
+
 #include <xrpl/protocol/AMMCore.h>
 #include <xrpl/protocol/AmountConversions.h>
 #include <xrpl/protocol/jss.h>
@@ -819,7 +820,6 @@ pay(Account const& account, AccountID const& to, STAmount const& amount)
     jv[jss::Amount] = amount.getJson(JsonOptions::none);
     jv[jss::Destination] = to_string(to);
     jv[jss::TransactionType] = jss::Payment;
-    jv[jss::Flags] = tfUniversal;
     return jv;
 }
 

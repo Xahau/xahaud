@@ -121,7 +121,7 @@ enum error_code_i {
     rpcSRC_ACT_MALFORMED = 65,
     rpcSRC_ACT_MISSING = 66,
     rpcSRC_ACT_NOT_FOUND = 67,
-    // unused                  68,
+    rpcDELEGATE_ACT_NOT_FOUND = 68,
     rpcSRC_CUR_MALFORMED = 69,
     rpcSRC_ISR_MALFORMED = 70,
     rpcSTREAM_MALFORMED = 71,
@@ -157,7 +157,10 @@ enum error_code_i {
     // Simulate
     rpcTX_SIGNED = 97,
 
-    rpcLAST = rpcTX_SIGNED  // rpcLAST should always equal the last code.
+    // Pathfinding
+    rpcDOMAIN_MALFORMED = 98,
+
+    rpcLAST = rpcDOMAIN_MALFORMED  // rpcLAST should always equal the last code.
 };
 
 /** Codes returned in the `warnings` array of certain RPC commands.

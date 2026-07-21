@@ -19,8 +19,10 @@
 
 #include <test/jtx.h>
 #include <test/jtx/AMM.h>
+
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/ledger/Dir.h>
+
 #include <xrpl/basics/chrono.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
@@ -393,7 +395,7 @@ struct Remit_test : public beast::unit_test::suite
             env.memoize(carol);
             auto tx = remit::remit(carol, bob);
             tx[jss::Sequence] = 0;
-            env(tx, carol, ter(terNO_ACCOUNT));
+            env(tx, ter(terNO_ACCOUNT));
             env.close();
         }
 
@@ -407,7 +409,7 @@ struct Remit_test : public beast::unit_test::suite
             env.memoize(carol);
             auto tx = remit::remit(alice, bob);
             tx[sfInform.jsonName] = carol.human();
-            env(tx, alice, ter(tecNO_TARGET));
+            env(tx, ter(tecNO_TARGET));
             env.close();
         }
 
@@ -422,7 +424,7 @@ struct Remit_test : public beast::unit_test::suite
 
             auto tx = remit::remit(alice, bob);
             tx[sfInform.jsonName] = to_string(amm.ammAccount());
-            env(tx, alice, ter(tecNO_PERMISSION));
+            env(tx, ter(tecNO_PERMISSION));
             env.close();
         }
 

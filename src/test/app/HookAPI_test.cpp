@@ -18,12 +18,15 @@
 //==============================================================================
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
+
 #include <xrpld/app/hook/HookAPI.h>
+
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STAccount.h>
+
 #include <limits>
 #include <tuple>
 #include <vector>
@@ -3164,7 +3167,7 @@ public:
             StubHookContext stubCtx{};
             stubCtx.slot[3] = {
                 .storage =
-                    std::reinterpret_pointer_cast<const STObject>(storage),
+                    std::reinterpret_pointer_cast<STObject const>(storage),
                 .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
@@ -3318,7 +3321,7 @@ public:
             StubHookContext stubCtx{};
             stubCtx.slot[1] = {
                 .storage =
-                    std::reinterpret_pointer_cast<const STObject>(storage),
+                    std::reinterpret_pointer_cast<STObject const>(storage),
                 .entry = &(*storage)};
             auto hookCtx =
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);

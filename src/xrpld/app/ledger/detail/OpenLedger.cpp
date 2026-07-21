@@ -25,8 +25,9 @@
 #include <xrpld/ledger/CachedView.h>
 #include <xrpld/overlay/Message.h>
 #include <xrpld/overlay/Overlay.h>
-#include <xrpld/overlay/predicates.h>
-#include <xrpl/protocol/Feature.h>
+
+#include <xrpl/protocol/TxFlags.h>
+
 #include <boost/range/adaptor/transformed.hpp>
 
 namespace ripple {
@@ -131,6 +132,17 @@ OpenLedger::accept(
         // skip emitted txns
         if (tx->isFieldPresent(sfEmitDetails))
             continue;
+
+        // skip batch txns
+        // LCOV_EXCL_START
+        if (tx->isFlag(tfInnerBatchTxn) && rules.enabled(featureBatch))
+        {
+            XRPL_ASSERT(
+                txpair.second && txpair.second->isFieldPresent(sfParentBatchID),
+                "Inner Batch transaction missing sfParentBatchID");
+            continue;
+        }
+        // LCOV_EXCL_STOP
 
         if (auto const toSkip = app.getHashRouter().shouldRelay(txId))
         {

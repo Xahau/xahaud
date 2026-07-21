@@ -17,20 +17,22 @@
 */
 //==============================================================================
 
-#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/misc/ValidatorSite.h>
 #include <xrpld/app/rdb/RelationalDatabase.h>
 #include <xrpld/app/rdb/Wallet.h>
+#include <xrpld/core/ConfigSections.h>
 #include <xrpld/overlay/Cluster.h>
 #include <xrpld/overlay/detail/ConnectAttempt.h>
 #include <xrpld/overlay/detail/PeerImp.h>
+#include <xrpld/overlay/detail/Tuning.h>
 #include <xrpld/overlay/predicates.h>
 #include <xrpld/peerfinder/make_Manager.h>
 #include <xrpld/rpc/handlers/GetCounts.h>
 #include <xrpld/rpc/json_body.h>
+
 #include <xrpl/basics/base64.h>
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/basics/random.h>
@@ -38,8 +40,9 @@
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/server/SimpleWriter.h>
 
-#include <xrpld/core/ConfigSections.h>
 #include <boost/algorithm/string/predicate.hpp>
+
+#include "xrpld/overlay/detail/TrafficCount.h"
 
 namespace ripple {
 
@@ -144,18 +147,16 @@ OverlayImpl::OverlayImpl(
     , m_resolver(resolver)
     , next_id_(1)
     , timer_count_(0)
-    , slots_(app.logs(), *this)
+    , slots_(app.logs(), *this, app.config())
     , m_stats(
           std::bind(&OverlayImpl::collect_metrics, this),
           collector,
           [counts = m_traffic.getCounts(), collector]() {
-              std::vector<TrafficGauges> ret;
-              ret.reserve(counts.size());
+              std::unordered_map<TrafficCount::category, TrafficGauges> ret;
 
-              for (size_t i = 0; i < counts.size(); ++i)
-              {
-                  ret.push_back(TrafficGauges(counts[i].name, collector));
-              }
+              for (auto const& pair : counts)
+                  ret.emplace(
+                      pair.first, TrafficGauges(pair.second.name, collector));
 
               return ret;
           }())
@@ -575,17 +576,14 @@ OverlayImpl::onWrite(beast::PropertyStream::Map& stream)
 {
     beast::PropertyStream::Set set("traffic", stream);
     auto const stats = m_traffic.getCounts();
-    for (auto const& i : stats)
+    for (auto const& pair : stats)
     {
-        if (i)
-        {
-            beast::PropertyStream::Map item(set);
-            item["category"] = i.name;
-            item["bytes_in"] = std::to_string(i.bytesIn.load());
-            item["messages_in"] = std::to_string(i.messagesIn.load());
-            item["bytes_out"] = std::to_string(i.bytesOut.load());
-            item["messages_out"] = std::to_string(i.messagesOut.load());
-        }
+        beast::PropertyStream::Map item(set);
+        item["category"] = pair.second.name;
+        item["bytes_in"] = std::to_string(pair.second.bytesIn.load());
+        item["messages_in"] = std::to_string(pair.second.messagesIn.load());
+        item["bytes_out"] = std::to_string(pair.second.bytesOut.load());
+        item["messages_out"] = std::to_string(pair.second.messagesOut.load());
     }
 }
 
@@ -685,14 +683,16 @@ OverlayImpl::onManifests(
 }
 
 void
-OverlayImpl::reportTraffic(
-    TrafficCount::category cat,
-    bool isInbound,
-    int number)
+OverlayImpl::reportInboundTraffic(TrafficCount::category cat, int size)
 {
-    m_traffic.addCount(cat, isInbound, number);
+    m_traffic.addCount(cat, true, size);
 }
 
+void
+OverlayImpl::reportOutboundTraffic(TrafficCount::category cat, int size)
+{
+    m_traffic.addCount(cat, false, size);
+}
 /** The number of active peers on the network
     Active peers are only those peers that have completed the handshake
     and are running the Ripple protocol.
@@ -1388,8 +1388,7 @@ makeSquelchMessage(
 void
 OverlayImpl::unsquelch(PublicKey const& validator, Peer::id_t id) const
 {
-    if (auto peer = findPeerByShortID(id);
-        peer && app_.config().VP_REDUCE_RELAY_SQUELCH)
+    if (auto peer = findPeerByShortID(id); peer)
     {
         // optimize - multiple message with different
         // validator might be sent to the same peer
@@ -1403,8 +1402,7 @@ OverlayImpl::squelch(
     Peer::id_t id,
     uint32_t squelchDuration) const
 {
-    if (auto peer = findPeerByShortID(id);
-        peer && app_.config().VP_REDUCE_RELAY_SQUELCH)
+    if (auto peer = findPeerByShortID(id); peer)
     {
         peer->send(makeSquelchMessage(validator, true, squelchDuration));
     }
@@ -1417,6 +1415,9 @@ OverlayImpl::updateSlotAndSquelch(
     std::set<Peer::id_t>&& peers,
     protocol::MessageType type)
 {
+    if (!slots_.baseSquelchReady())
+        return;
+
     if (!strand_.running_in_this_thread())
         return post(
             strand_,
@@ -1425,7 +1426,9 @@ OverlayImpl::updateSlotAndSquelch(
             });
 
     for (auto id : peers)
-        slots_.updateSlotAndSquelch(key, validator, id, type);
+        slots_.updateSlotAndSquelch(key, validator, id, type, [&]() {
+            reportInboundTraffic(TrafficCount::squelch_ignored, 0);
+        });
 }
 
 void
@@ -1435,12 +1438,17 @@ OverlayImpl::updateSlotAndSquelch(
     Peer::id_t peer,
     protocol::MessageType type)
 {
+    if (!slots_.baseSquelchReady())
+        return;
+
     if (!strand_.running_in_this_thread())
         return post(strand_, [this, key, validator, peer, type]() {
             updateSlotAndSquelch(key, validator, peer, type);
         });
 
-    slots_.updateSlotAndSquelch(key, validator, peer, type);
+    slots_.updateSlotAndSquelch(key, validator, peer, type, [&]() {
+        reportInboundTraffic(TrafficCount::squelch_ignored, 0);
+    });
 }
 
 void

@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/tx/detail/CreateCheck.h>
+#include <xrpld/ledger/View.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
-#include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxFlags.h>
 
@@ -97,8 +97,11 @@ CreateCheck::preclaim(PreclaimContext const& ctx)
         (flags & lsfDisallowIncomingCheck))
         return tecNO_PERMISSION;
 
-    // AMM can not cash the check
-    if (sleDst->isFieldPresent(sfAMMID))
+    // Pseudo-accounts cannot cash checks. Note, this is not amendment-gated
+    // because all writes to pseudo-account discriminator fields **are**
+    // amendment gated, hence the behaviour of this check will always match the
+    // currently active amendments.
+    if (isPseudoAccount(sleDst))
         return tecNO_PERMISSION;
 
     if ((flags & lsfRequireDestTag) && !ctx.tx.isFieldPresent(sfDestinationTag))
@@ -184,10 +187,8 @@ CreateCheck::doApply()
 
     // Note that we use the value from the sequence or ticket as the
     // Check sequence.  For more explanation see comments in SeqProxy.h.
-    std::uint32_t const seq = ctx_.tx.getSeqProxy().value();
-
+    std::uint32_t const seq = ctx_.tx.getSeqValue();
     Keylet const checkKeylet = keylet::check(account_, seqID(ctx_));
-
     auto sleCheck = std::make_shared<SLE>(checkKeylet);
 
     sleCheck->setAccountID(sfAccount, account_);

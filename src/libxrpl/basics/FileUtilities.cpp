@@ -18,7 +18,21 @@
 //==============================================================================
 
 #include <xrpl/basics/FileUtilities.h>
+
+#include <boost/filesystem/fstream.hpp>
+#include <boost/filesystem/operations.hpp>
+#include <boost/filesystem/path.hpp>
+#include <boost/system/detail/errc.hpp>
+#include <boost/system/detail/error_code.hpp>
+#include <boost/system/errc.hpp>
+
+#include <cerrno>
+#include <cstddef>
 #include <fstream>
+#include <ios>
+#include <iterator>
+#include <optional>
+#include <string>
 
 namespace ripple {
 
@@ -50,7 +64,7 @@ getFileContents(
         return {};
     }
 
-    const std::string result{
+    std::string const result{
         std::istreambuf_iterator<char>{fileStream},
         std::istreambuf_iterator<char>{}};
 

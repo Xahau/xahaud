@@ -22,13 +22,12 @@
 
 #include <xrpld/ledger/View.h>
 
-#include <xrpl/basics/Log.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/Rules.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STLedgerEntry.h>
-#include <ostream>
+
 #include <stdexcept>
 
 namespace ripple {

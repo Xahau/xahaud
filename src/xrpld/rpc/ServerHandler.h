@@ -20,11 +20,12 @@
 #ifndef RIPPLE_RPC_SERVERHANDLER_H_INCLUDED
 #define RIPPLE_RPC_SERVERHANDLER_H_INCLUDED
 
+#include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/CollectorManager.h>
 #include <xrpld/core/JobQueue.h>
-#include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/detail/UDPInfoSub.h>
 #include <xrpld/rpc/detail/WSInfoSub.h>
+
 #include <xrpl/json/Output.h>
 #include <xrpl/server/Server.h>
 #include <xrpl/server/Session.h>

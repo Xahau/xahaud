@@ -20,14 +20,13 @@
 #include <xrpld/app/misc/AMMHelpers.h>
 #include <xrpld/app/misc/AMMUtils.h>
 #include <xrpld/app/misc/CredentialHelpers.h>
-#include <xrpld/app/tx/detail/InvariantCheck.h>
-
-#include <xrpld/app/misc/CredentialHelpers.h>
 #include <xrpld/app/tx/detail/Import.h>
+#include <xrpld/app/tx/detail/InvariantCheck.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/app/tx/detail/PermissionedDomainSet.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/ledger/View.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/FeeUnits.h>
@@ -445,7 +444,8 @@ AccountRootsNotDeleted::finalize(
     // A successful AccountDelete or AMMDelete MUST delete exactly
     // one account root.
     if ((tx.getTxnType() == ttACCOUNT_DELETE ||
-         tx.getTxnType() == ttAMM_DELETE) &&
+         tx.getTxnType() == ttAMM_DELETE ||
+         tx.getTxnType() == ttVAULT_DELETE) &&
         isTesSuccess(result))
     {
         if (accountsDeleted_ == 1)
@@ -503,6 +503,7 @@ AccountRootsDeletedClean::finalize(
         view.rules().enabled(featureInvariantsV1_1);
 
     auto const objectExists = [&view, enforce, &j](auto const& keylet) {
+        (void)enforce;
         if (auto const sle = view.read(keylet))
         {
             // Finding the object is bad
@@ -579,6 +580,7 @@ LedgerEntryTypesMatch::visitEntry(
         switch (after->getType())
         {
             case ltACCOUNT_ROOT:
+            case ltDELEGATE:
             case ltDIR_NODE:
             case ltRIPPLE_STATE:
             case ltTICKET:
@@ -612,6 +614,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltMPTOKEN:
             case ltCREDENTIAL:
             case ltPERMISSIONED_DOMAIN:
+            case ltVAULT:
                 break;
             default:
                 invalidTypeAdded_ = true;
@@ -1006,6 +1009,8 @@ ValidNewAccountRoot::visitEntry(
     {
         accountsCreated_++;
         accountSeq_ = (*after)[sfSequence];
+        pseudoAccount_ = isPseudoAccount(after);
+        flags_ = after->getFlags();
     }
 }
 
@@ -1035,13 +1040,24 @@ ValidNewAccountRoot::finalize(
 
     // From this point on we know exactly one account was created.
     if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT ||
-         tt == ttREMIT || tt == ttAMM_CREATE ||
+         tt == ttREMIT || tt == ttAMM_CREATE || tt == ttVAULT_CREATE ||
          tt == ttXCHAIN_ADD_CLAIM_ATTESTATION ||
          tt == ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION) &&
         isTesSuccess(result))
     {
+        bool const pseudoAccount =
+            (pseudoAccount_ && view.rules().enabled(featureSingleAssetVault));
+
+        if (pseudoAccount && tt != ttAMM_CREATE && tt != ttVAULT_CREATE)
+        {
+            JLOG(j.fatal()) << "Invariant failed: pseudo-account created by a "
+                               "wrong transaction type";
+            return false;
+        }
+
         std::uint32_t const startingSeq{
-            view.rules().enabled(featureXahauGenesis)
+            pseudoAccount ? 0
+                : view.rules().enabled(featureXahauGenesis)
                 ? view.info().parentCloseTime.time_since_epoch().count()
                 : view.rules().enabled(featureDeletableAccounts) ? view.seq()
                                                                  : 1};
@@ -1052,12 +1068,24 @@ ValidNewAccountRoot::finalize(
                                "wrong starting sequence number";
             return false;
         }
+
+        if (pseudoAccount)
+        {
+            std::uint32_t const expected =
+                (lsfDisableMaster | lsfDefaultRipple | lsfDepositAuth);
+            if (flags_ != expected)
+            {
+                JLOG(j.fatal())
+                    << "Invariant failed: pseudo-account created with "
+                       "wrong flags";
+                return false;
+            }
+        }
+
         return true;
     }
 
-    JLOG(j.fatal()) << "Invariant failed: account root created "
-                       "by a non-Payment, by an unsuccessful transaction, "
-                       "or by AMM";
+    JLOG(j.fatal()) << "Invariant failed: account root created illegally";
     return false;
 }
 
@@ -1445,28 +1473,30 @@ ValidMPTIssuance::finalize(
 {
     if (result == tesSUCCESS)
     {
-        if (tx.getTxnType() == ttMPTOKEN_ISSUANCE_CREATE)
+        if (tx.getTxnType() == ttMPTOKEN_ISSUANCE_CREATE ||
+            tx.getTxnType() == ttVAULT_CREATE)
         {
             if (mptIssuancesCreated_ == 0)
             {
-                JLOG(j.fatal()) << "Invariant failed: MPT issuance creation "
+                JLOG(j.fatal()) << "Invariant failed: transaction "
                                    "succeeded without creating a MPT issuance";
             }
             else if (mptIssuancesDeleted_ != 0)
             {
-                JLOG(j.fatal()) << "Invariant failed: MPT issuance creation "
+                JLOG(j.fatal()) << "Invariant failed: transaction "
                                    "succeeded while removing MPT issuances";
             }
             else if (mptIssuancesCreated_ > 1)
             {
-                JLOG(j.fatal()) << "Invariant failed: MPT issuance creation "
+                JLOG(j.fatal()) << "Invariant failed: transaction "
                                    "succeeded but created multiple issuances";
             }
 
             return mptIssuancesCreated_ == 1 && mptIssuancesDeleted_ == 0;
         }
 
-        if (tx.getTxnType() == ttMPTOKEN_ISSUANCE_DESTROY)
+        if (tx.getTxnType() == ttMPTOKEN_ISSUANCE_DESTROY ||
+            tx.getTxnType() == ttVAULT_DELETE)
         {
             if (mptIssuancesDeleted_ == 0)
             {
@@ -1487,7 +1517,8 @@ ValidMPTIssuance::finalize(
             return mptIssuancesCreated_ == 0 && mptIssuancesDeleted_ == 1;
         }
 
-        if (tx.getTxnType() == ttMPTOKEN_AUTHORIZE)
+        if (tx.getTxnType() == ttMPTOKEN_AUTHORIZE ||
+            tx.getTxnType() == ttVAULT_DEPOSIT)
         {
             bool const submittedByIssuer = tx.isFieldPresent(sfHolder);
 
@@ -1513,7 +1544,7 @@ ValidMPTIssuance::finalize(
                 return false;
             }
             else if (
-                !submittedByIssuer &&
+                !submittedByIssuer && (tx.getTxnType() != ttVAULT_DEPOSIT) &&
                 (mptokensCreated_ + mptokensDeleted_ != 1))
             {
                 // if the holder submitted this tx, then a mptoken must be
@@ -1675,6 +1706,89 @@ ValidPermissionedDomain::finalize(
 
     return (sleStatus_[0] ? check(*sleStatus_[0], j) : true) &&
         (sleStatus_[1] ? check(*sleStatus_[1], j) : true);
+}
+
+void
+ValidPermissionedDEX::visitEntry(
+    bool,
+    std::shared_ptr<SLE const> const& before,
+    std::shared_ptr<SLE const> const& after)
+{
+    if (after && after->getType() == ltDIR_NODE)
+    {
+        if (after->isFieldPresent(sfDomainID))
+            domains_.insert(after->getFieldH256(sfDomainID));
+    }
+
+    if (after && after->getType() == ltOFFER)
+    {
+        if (after->isFieldPresent(sfDomainID))
+            domains_.insert(after->getFieldH256(sfDomainID));
+        else
+            regularOffers_ = true;
+
+        // if a hybrid offer is missing domain or additional book, there's
+        // something wrong
+        if (after->isFlag(lsfHybrid) &&
+            (!after->isFieldPresent(sfDomainID) ||
+             !after->isFieldPresent(sfAdditionalBooks) ||
+             after->getFieldArray(sfAdditionalBooks).size() > 1))
+            badHybrids_ = true;
+    }
+}
+
+bool
+ValidPermissionedDEX::finalize(
+    STTx const& tx,
+    TER const result,
+    XRPAmount const,
+    ReadView const& view,
+    beast::Journal const& j)
+{
+    auto const txType = tx.getTxnType();
+    if ((txType != ttPAYMENT && txType != ttOFFER_CREATE) ||
+        result != tesSUCCESS)
+        return true;
+
+    // For each offercreate transaction, check if
+    // permissioned offers are valid
+    if (txType == ttOFFER_CREATE && badHybrids_)
+    {
+        JLOG(j.fatal()) << "Invariant failed: hybrid offer is malformed";
+        return false;
+    }
+
+    if (!tx.isFieldPresent(sfDomainID))
+        return true;
+
+    auto const domain = tx.getFieldH256(sfDomainID);
+
+    if (!view.exists(keylet::permissionedDomain(domain)))
+    {
+        JLOG(j.fatal()) << "Invariant failed: domain doesn't exist";
+        return false;
+    }
+
+    // for both payment and offercreate, there shouldn't be another domain
+    // that's different from the domain specified
+    for (auto const& d : domains_)
+    {
+        if (d != domain)
+        {
+            JLOG(j.fatal()) << "Invariant failed: transaction"
+                               " consumed wrong domains";
+            return false;
+        }
+    }
+
+    if (regularOffers_)
+    {
+        JLOG(j.fatal()) << "Invariant failed: domain transaction"
+                           " affected regular offers";
+        return false;
+    }
+
+    return true;
 }
 
 void

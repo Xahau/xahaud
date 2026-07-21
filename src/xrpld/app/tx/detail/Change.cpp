@@ -27,6 +27,7 @@
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/app/tx/detail/XahauGenesis.h>
 #include <xrpld/ledger/Sandbox.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Guard.h>
@@ -34,6 +35,7 @@
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
+
 #include <string_view>
 
 namespace ripple {
@@ -924,8 +926,8 @@ Change::applyAmendment()
 
     auto flags = ctx_.tx.getFlags();
 
-    const bool gotMajority = (flags & tfGotMajority) != 0;
-    const bool lostMajority = (flags & tfLostMajority) != 0;
+    bool const gotMajority = (flags & tfGotMajority) != 0;
+    bool const lostMajority = (flags & tfLostMajority) != 0;
 
     if (gotMajority && lostMajority)
         return temINVALID_FLAG;
@@ -935,7 +937,7 @@ Change::applyAmendment()
     bool found = false;
     if (amendmentObject->isFieldPresent(sfMajorities))
     {
-        const STArray& oldMajorities =
+        STArray const& oldMajorities =
             amendmentObject->getFieldArray(sfMajorities);
         for (auto const& majority : oldMajorities)
         {

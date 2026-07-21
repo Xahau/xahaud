@@ -29,13 +29,13 @@
 #include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpld/rpc/MPTokenIssuanceID.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
+
 #include <xrpl/basics/ToString.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/NFTSyntheticSerializer.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/jss.h>
 
-#include <charconv>
 #include <regex>
 
 namespace ripple {
@@ -181,7 +181,7 @@ doTxHelp(RPC::Context& context, TxArgs args)
 
             if (txnIdx <= 0xFFFFU && netID < 0xFFFFU && lgrSeq < 0x0FFF'FFFFUL)
                 result.ctid =
-                    RPC::encodeCTID(lgrSeq, (uint16_t)txnIdx, (uint16_t)netID);
+                    RPC::encodeCTID(lgrSeq, (uint32_t)txnIdx, (uint32_t)netID);
         }
     }
 

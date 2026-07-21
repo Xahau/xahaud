@@ -22,6 +22,7 @@
 #include <xrpld/rpc/Role.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/UDPInfoSub.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/RPCErr.h>
@@ -228,6 +229,20 @@ doUnsubscribe(RPC::JsonContext& context)
             {
                 JLOG(context.j.info()) << "taker_gets same as taker_pays.";
                 return rpcError(rpcBAD_MARKET);
+            }
+
+            if (jv.isMember(jss::domain))
+            {
+                uint256 domain;
+                if (!jv[jss::domain].isString() ||
+                    !domain.parseHex(jv[jss::domain].asString()))
+                {
+                    return rpcError(rpcDOMAIN_MALFORMED);
+                }
+                else
+                {
+                    book.domain = domain;
+                }
             }
 
             context.netOps.unsubBook(ispSub->getSeq(), book);

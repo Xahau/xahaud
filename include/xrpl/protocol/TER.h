@@ -41,8 +41,8 @@ using TERUnderlyingType = int;
 
 enum TELcodes : TERUnderlyingType {
     // Note: Range is stable.
-    // Exact numbers are used in ripple-binary-codec:
-    //     https://github.com/ripple/ripple-binary-codec/blob/master/src/enums/definitions.json
+    // Exact numbers are used in xahau-binary-codec:
+    //     https://github.com/Xahau/xahau.js/blob/main-xahau/packages/xahau-binary-codec/src/enums/definitions.json
     // Use tokens.
 
     // -399 .. -300: L Local error (transaction fee inadequate, exceeds local
@@ -75,8 +75,8 @@ enum TELcodes : TERUnderlyingType {
 
 enum TEMcodes : TERUnderlyingType {
     // Note: Range is stable.
-    // Exact numbers are used in ripple-binary-codec:
-    //     https://github.com/ripple/ripple-binary-codec/blob/master/src/enums/definitions.json
+    // Exact numbers are used in xahau-binary-codec:
+    //     https://github.com/Xahau/xahau.js/blob/main-xahau/packages/xahau-binary-codec/src/enums/definitions.json
     // Use tokens.
 
     // -299 .. -200: M Malformed (bad signature)
@@ -144,16 +144,16 @@ enum TEMcodes : TERUnderlyingType {
 
     temARRAY_EMPTY,
     temARRAY_TOO_LARGE,
-
     temBAD_TRANSFER_FEE,
+    temINVALID_INNER_BATCH,
 };
 
 //------------------------------------------------------------------------------
 
 enum TEFcodes : TERUnderlyingType {
     // Note: Range is stable.
-    // Exact numbers are used in ripple-binary-codec:
-    //     https://github.com/ripple/ripple-binary-codec/blob/master/src/enums/definitions.json
+    // Exact numbers are used in xahau-binary-codec:
+    //     https://github.com/Xahau/xahau.js/blob/main-xahau/packages/xahau-binary-codec/src/enums/definitions.json
     // Use tokens.
 
     // -199 .. -100: F
@@ -200,8 +200,8 @@ enum TEFcodes : TERUnderlyingType {
 
 enum TERcodes : TERUnderlyingType {
     // Note: Range is stable.
-    // Exact numbers are used in ripple-binary-codec:
-    //     https://github.com/ripple/ripple-binary-codec/blob/master/src/enums/definitions.json
+    // Exact numbers are used in xahau-binary-codec:
+    //     https://github.com/Xahau/xahau.js/blob/main-xahau/packages/xahau-binary-codec/src/enums/definitions.json
     // Use tokens.
 
     // -99 .. -1: R Retry
@@ -234,8 +234,10 @@ enum TERcodes : TERUnderlyingType {
     terQUEUED,       // Transaction is being held in TxQ until fee drops
     terPRE_TICKET,   // Ticket is not yet in ledger but might be on its way
     terNO_AMM,       // AMM doesn't exist for the asset pair
-    terNO_HOOK       // Transaction requires a non-existent hook definition
+    terNO_HOOK,      // Transaction requires a non-existent hook definition
                      // (referenced by sfHookHash)
+    terADDRESS_COLLISION,  // Failed to allocate AccountID when trying to
+                           // create a pseudo-account
 };
 
 //------------------------------------------------------------------------------
@@ -277,6 +279,17 @@ enum TECcodes : TERUnderlyingType {
     // Otherwise, treated as terRETRY.
     //
     // DO NOT CHANGE THESE NUMBERS: They appear in ledger meta data.
+    //
+    // Note:
+    //   tecNO_ENTRY is often used interchangeably with tecOBJECT_NOT_FOUND.
+    //   While there does not seem to be a clear rule which to use when, the
+    //   following guidance will help to keep errors consistent with the
+    //   majority of (but not all) transaction types:
+    // - tecNO_ENTRY : cannot find the primary ledger object on which the
+    //   transaction is being attempted
+    // - tecOBJECT_NOT_FOUND : cannot find the additional object(s) needed to
+    //   complete the transaction
+
     tecCLAIM = 100,
     tecPATH_PARTIAL = 101,
     tecUNFUNDED_ADD = 102,  // Unused legacy code
@@ -363,6 +376,10 @@ enum TECcodes : TERUnderlyingType {
     tecARRAY_TOO_LARGE = 197,
     tecLOCKED = 198,
     tecBAD_CREDENTIALS = 199,
+    tecWRONG_ASSET = 200,
+    tecLIMIT_EXCEEDED = 201,
+    tecPSEUDO_ACCOUNT = 202,
+    tecNO_DELEGATE_PERMISSION = 203,
     tecLAST_POSSIBLE_ENTRY = 255,
 };
 
@@ -649,27 +666,27 @@ using TER = TERSubset<CanCvtToTER>;
 //------------------------------------------------------------------------------
 
 inline bool
-isTelLocal(TER x)
+isTelLocal(TER x) noexcept
 {
-    return ((x) >= telLOCAL_ERROR && (x) < temMALFORMED);
+    return (x >= telLOCAL_ERROR && x < temMALFORMED);
 }
 
 inline bool
-isTemMalformed(TER x)
+isTemMalformed(TER x) noexcept
 {
-    return ((x) >= temMALFORMED && (x) < tefFAILURE);
+    return (x >= temMALFORMED && x < tefFAILURE);
 }
 
 inline bool
-isTefFailure(TER x)
+isTefFailure(TER x) noexcept
 {
-    return ((x) >= tefFAILURE && (x) < terRETRY);
+    return (x >= tefFAILURE && x < terRETRY);
 }
 
 inline bool
-isTerRetry(TER x)
+isTerRetry(TER x) noexcept
 {
-    return ((x) >= terRETRY && (x) < tesSUCCESS);
+    return (x >= terRETRY && x < tesSUCCESS);
 }
 
 template <typename T>
@@ -680,13 +697,13 @@ isTesSuccess(T x)
 }
 
 inline bool
-isTesSuccess(TER x)
+isTesSuccess(TER x) noexcept
 {
-    return ((x) >= tesSUCCESS) && (x) < tecCLAIM;
+    return (x >= tesSUCCESS) && (x) < tecCLAIM;
 }
 
 inline bool
-isTecClaim(TER x)
+isTecClaim(TER x) noexcept
 {
     return ((x) >= tecCLAIM);
 }

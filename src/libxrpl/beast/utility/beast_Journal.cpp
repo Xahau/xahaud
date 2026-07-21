@@ -19,12 +19,18 @@
 
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/beast/utility/instrumentation.h>
+
 #include <cassert>
 #ifdef BEAST_ENHANCED_LOGGING
 #include <xrpl/beast/utility/EnhancedLogging.h>
+
 #include <cstdlib>
 #include <cstring>
 #endif
+
+#include <ios>
+#include <ostream>
+#include <string>
 
 namespace beast {
 
@@ -148,7 +154,7 @@ Journal::ScopedStream::ScopedStream(
 Journal::ScopedStream::ScopedStream(
     Sink& sink,
     Severity level,
-    const char* file,
+    char const* file,
     int line)
     : m_sink(sink), m_level(level), file_(file), line_(line)
 {

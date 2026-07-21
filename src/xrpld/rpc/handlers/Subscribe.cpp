@@ -26,6 +26,7 @@
 #include <xrpld/rpc/Role.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/UDPInfoSub.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/RPCErr.h>
@@ -305,6 +306,20 @@ doSubscribe(RPC::JsonContext& context)
                     return rpcError(rpcBAD_ISSUER);
             }
 
+            if (j.isMember(jss::domain))
+            {
+                uint256 domain;
+                if (!j[jss::domain].isString() ||
+                    !domain.parseHex(j[jss::domain].asString()))
+                {
+                    return rpcError(rpcDOMAIN_MALFORMED);
+                }
+                else
+                {
+                    book.domain = domain;
+                }
+            }
+
             if (!isConsistent(book))
             {
                 JLOG(context.j.warn()) << "Bad market: " << book;
@@ -330,7 +345,7 @@ doSubscribe(RPC::JsonContext& context)
                     context.app.getLedgerMaster().getPublishedLedger();
                 if (lpLedger)
                 {
-                    const Json::Value jvMarker = Json::Value(Json::nullValue);
+                    Json::Value const jvMarker = Json::Value(Json::nullValue);
                     Json::Value jvOffers(Json::objectValue);
 
                     auto add = [&](Json::StaticString field) {

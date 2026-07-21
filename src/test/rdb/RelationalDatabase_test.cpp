@@ -19,10 +19,13 @@
 
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
+
 #include <xrpld/app/rdb/RelationalDatabase.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/core/ConfigSections.h>
+
 #include <boost/filesystem.hpp>
+
 #include <chrono>
 
 namespace ripple {
@@ -816,7 +819,7 @@ public:
     std::vector<std::string> static getBackends(std::string const& unittest_arg)
     {
         // Valid backends
-        static const std::set<std::string> validBackends = {"sqlite", "rwdb"};
+        static std::set<std::string> const validBackends = {"sqlite", "rwdb"};
 
         // Default to all valid backends if no arg specified
         if (unittest_arg.empty())

@@ -2,22 +2,21 @@
 #include "Enum.h"
 #include "Guard.h"
 #include <fcntl.h>
-#include <iostream>
-#include <optional>
-#include <ostream>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <string_view>
-#include <sys/ioctl.h>
-#include <sys/stat.h>
 #include <unistd.h>
+
+#include <iostream>
+#include <optional>
+#include <ostream>
+#include <string_view>
 #include <vector>
 
 int
 main(int argc, char** argv)
 {
-    const char* fin = 0;
+    char const* fin = 0;
 
     if (argc > 2)
         return fprintf(

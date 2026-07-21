@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/ledger/detail/ApplyStateTable.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/utility/instrumentation.h>
 #include <xrpl/json/to_string.h>
@@ -118,10 +119,11 @@ ApplyStateTable::generateTxMeta(
     std::optional<STAmount> const& deliver,
     std::vector<STObject> const& hookExecution,
     std::vector<STObject> const& hookEmission,
+    std::optional<uint256 const> const& parentBatchId,
     beast::Journal j,
     bool isProvisional)
 {
-    TxMeta meta(tx.getTransactionID(), to.seq());
+    TxMeta meta(tx.getTransactionID(), to.seq(), parentBatchId);
     if (deliver)
         meta.setDeliveredAmount(*deliver);
 
@@ -305,6 +307,7 @@ ApplyStateTable::apply(
     std::optional<STAmount> const& deliver,
     std::vector<STObject> const& hookExecution,
     std::vector<STObject> const& hookEmission,
+    std::optional<uint256 const> const& parentBatchId,
     bool isDryRun,
     beast::Journal j)
 {
@@ -316,8 +319,8 @@ ApplyStateTable::apply(
     if (!to.open() || isDryRun)
     {
         // generate meta
-        auto [meta, newMod] =
-            generateTxMeta(to, tx, deliver, hookExecution, hookEmission, j);
+        auto [meta, newMod] = generateTxMeta(
+            to, tx, deliver, hookExecution, hookEmission, parentBatchId, j);
 
         if (!isDryRun)
         {
@@ -627,7 +630,7 @@ void
 ApplyStateTable::threadItem(
     TxMeta& meta,
     std::shared_ptr<SLE> const& sle,
-    const Rules& rules)
+    Rules const& rules)
 {
     if (rules.enabled(fixProvisionalDoubleThreading))
     {

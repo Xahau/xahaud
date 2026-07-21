@@ -23,31 +23,27 @@
 #include <test/jtx/fee.h>
 #include <test/jtx/flags.h>
 #include <test/jtx/pay.h>
-#include <test/jtx/require.h>
 #include <test/jtx/seq.h>
 #include <test/jtx/sig.h>
 #include <test/jtx/trust.h>
 #include <test/jtx/utility.h>
+
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/NetworkOPs.h>
-#include <xrpld/app/misc/TxQ.h>
-#include <xrpld/consensus/LedgerTiming.h>
 #include <xrpld/net/HTTPClient.h>
 #include <xrpld/net/RPCCall.h>
+
 #include <xrpl/basics/Slice.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/ErrorCodes.h>
-#include <xrpl/protocol/Feature.h>
-#include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Indexes.h>
-#include <xrpl/protocol/LedgerFormats.h>
 #include <xrpl/protocol/Serializer.h>
-#include <xrpl/protocol/SystemParameters.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/UintTypes.h>
 #include <xrpl/protocol/jss.h>
+
 #include <memory>
 
 namespace ripple {
@@ -100,7 +96,7 @@ Env::AppBundle::~AppBundle()
     if (app)
     {
         app->getJobQueue().rendezvous();
-        app->signalStop();
+        app->signalStop("~AppBundle");
     }
     if (thread.joinable())
         thread.join();
@@ -478,7 +474,7 @@ Env::txid() const
 }
 
 void
-Env::autofill_sig(JTx& jt, Account const& account)
+Env::autofill_sig(JTx& jt)
 {
     auto& jv = jt.jv;
     if (jt.signer)
@@ -486,6 +482,9 @@ Env::autofill_sig(JTx& jt, Account const& account)
     if (!jt.fill_sig)
         return;
 
+    auto const account = jv.isMember(sfDelegate.jsonName)
+        ? lookup(jv[sfDelegate.jsonName].asString())
+        : lookup(jv[jss::Account].asString());
     if (!app().checkSigs())
     {
         jv[jss::SigningPubKey] = strHex(account.pk().slice());
@@ -501,7 +500,7 @@ Env::autofill_sig(JTx& jt, Account const& account)
 }
 
 void
-Env::acct_autofill(JTx& jt, Account const& account)
+Env::acct_autofill(JTx& jt)
 {
     auto& jv = jt.jv;
     if (jt.fill_fee)
@@ -516,7 +515,7 @@ Env::acct_autofill(JTx& jt, Account const& account)
     // Must come last
     try
     {
-        autofill_sig(jt, account);
+        autofill_sig(jt);
     }
     catch (parse_error const&)
     {
@@ -544,8 +543,7 @@ Env::autofill(JTx& jt)
     // Must come last
     try
     {
-        auto const account = lookup(jv[jss::Account].asString());
-        autofill_sig(jt, account);
+        autofill_sig(jt);
     }
     catch (parse_error const&)
     {
@@ -647,6 +645,5 @@ Env::disableFeature(uint256 const feature)
 }
 
 }  // namespace jtx
-
 }  // namespace test
 }  // namespace ripple

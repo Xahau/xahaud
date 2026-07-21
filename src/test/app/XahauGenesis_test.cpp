@@ -17,17 +17,20 @@
 
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
+
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/XahauGenesis.h>
 #include <xrpld/core/Config.h>
+
 #include <xrpl/json/json_reader.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
+
 #include <string>
 #include <vector>
 
@@ -324,7 +327,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         {
             for (auto const& [rn, x] : ngdist)
             {
-                const char first = rn.c_str()[0];
+                char const first = rn.c_str()[0];
                 BEAST_EXPECT(
                     (first == 'r' && !!parseBase58<AccountID>(rn)) ||
                     first == 'n' &&
@@ -360,7 +363,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 params = XahauGenesis::GovernanceParameters;
             for (auto const& [rn, x] : l1membership)
             {
-                const char first = rn.c_str()[0];
+                char const first = rn.c_str()[0];
                 BEAST_EXPECT(
                     (first == 'r' && !!parseBase58<AccountID>(rn)) ||
                     first == 'n' &&

@@ -255,22 +255,22 @@ InnerObjectFormats::InnerObjectFormats()
             {sfCredentialType, soeREQUIRED},
         });
 
-    add(sfHighReward.jsonName,
-        sfHighReward.getCode(),
-        {
-            {sfRewardLgrFirst, soeREQUIRED},
-            {sfRewardLgrLast, soeREQUIRED},
-            {sfRewardTime, soeREQUIRED},
-            {sfTrustLineRewardAccumulator, soeREQUIRED},
-        });
+    add(sfPermission.jsonName.c_str(),
+        sfPermission.getCode(),
+        {{sfPermissionValue, soeREQUIRED}});
 
-    add(sfLowReward.jsonName,
-        sfLowReward.getCode(),
+    add(sfBatchSigner.jsonName.c_str(),
+        sfBatchSigner.getCode(),
+        {{sfAccount, soeREQUIRED},
+         {sfSigningPubKey, soeOPTIONAL},
+         {sfTxnSignature, soeOPTIONAL},
+         {sfSigners, soeOPTIONAL}});
+
+    add(sfBook.jsonName,
+        sfBook.getCode(),
         {
-            {sfRewardLgrFirst, soeREQUIRED},
-            {sfRewardLgrLast, soeREQUIRED},
-            {sfRewardTime, soeREQUIRED},
-            {sfTrustLineRewardAccumulator, soeREQUIRED},
+            {sfBookDirectory, soeREQUIRED},
+            {sfBookNode, soeREQUIRED},
         });
 }
 

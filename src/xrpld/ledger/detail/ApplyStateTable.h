@@ -23,11 +23,13 @@
 #include <xrpld/ledger/OpenView.h>
 #include <xrpld/ledger/RawView.h>
 #include <xrpld/ledger/ReadView.h>
+
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/Rules.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxMeta.h>
 #include <xrpl/protocol/XRPAmount.h>
+
 #include <memory>
 #include <utility>
 
@@ -86,6 +88,7 @@ public:
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
+        std::optional<uint256 const> const& parentBatchId,
         beast::Journal j,
         bool isProvisional = false);
 
@@ -97,6 +100,7 @@ public:
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
+        std::optional<uint256 const> const& parentBatchId,
         bool isDryRun,
         beast::Journal j);
 

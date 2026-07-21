@@ -1,4 +1,4 @@
-from conan import ConanFile
+from conan import ConanFile, __version__ as conan_version
 from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
 import re
 
@@ -26,14 +26,12 @@ class Xrpl(ConanFile):
     }
 
     requires = [
-        'date/3.0.3',
         'grpc/1.50.1',
         'libarchive/3.7.6',
         'magic_enum/0.9.5',
         'nudb/2.0.8',
         'openssl/3.6.0',
         'soci/4.0.3@xahaud/stable',
-        'xxhash/0.8.2',
         'zlib/1.3.1',
     ]
 
@@ -111,20 +109,24 @@ class Xrpl(ConanFile):
             self.options['boost/*'].visibility = 'global'
 
     def requirements(self):
+        # Conan 2 requires transitive headers to be specified
+        transitive_headers_opt = {'transitive_headers': True} if conan_version.split('.')[0] == '2' else {}
         # Force sqlite3 version to avoid conflicts with soci
         self.requires('sqlite3/3.47.0', override=True)
-        # Force our custom snappy build for all dependencies
+        # Force our custom snappy build to avoid Conan CMakeDeps stdc++ heuristic bug
         self.requires('snappy/1.1.10@xahaud/stable', override=True)
         # Force boost version for all dependencies to avoid conflicts
-        self.requires('boost/1.86.0', override=True)
+        self.requires('boost/1.86.0', force=True, **transitive_headers_opt)
+        self.requires('date/3.0.3', **transitive_headers_opt)
         self.requires('lz4/1.10.0', force=True)
 
         if self.options.with_wasmedge:
-            self.requires('wasmedge/0.11.2@xahaud/stable')
+            self.requires('wasmedge/0.11.2@xahaud/stable', **transitive_headers_opt)
         if self.options.jemalloc:
-            self.requires('jemalloc/5.3.0')
+            self.requires('jemalloc/5.3.0', **transitive_headers_opt)
         if self.options.rocksdb:
-            self.requires('rocksdb/6.29.5')
+            self.requires('rocksdb/9.7.3', **transitive_headers_opt)
+        self.requires('xxhash/0.8.2', **transitive_headers_opt)
 
     exports_sources = (
         'CMakeLists.txt',

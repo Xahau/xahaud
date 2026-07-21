@@ -20,9 +20,9 @@
 #ifndef RIPPLE_PROTOCOL_TXFLAGS_H_INCLUDED
 #define RIPPLE_PROTOCOL_TXFLAGS_H_INCLUDED
 
-#include <cstdint>
-
 #include <xrpl/protocol/LedgerFormats.h>
+
+#include <cstdint>
 
 namespace ripple {
 
@@ -59,8 +59,9 @@ namespace ripple {
 // Universal Transaction flags:
 enum UniversalFlags : uint32_t {
     tfFullyCanonicalSig = 0x80000000,
+    tfInnerBatchTxn = 0x40000000,
 };
-constexpr std::uint32_t tfUniversal                        = tfFullyCanonicalSig;
+constexpr std::uint32_t tfUniversal                        = tfFullyCanonicalSig | tfInnerBatchTxn;
 constexpr std::uint32_t tfUniversalMask                    = ~tfUniversal;
 
 // AccountSet flags:
@@ -103,9 +104,10 @@ enum OfferCreateFlags : uint32_t {
     tfImmediateOrCancel = 0x00020000,
     tfFillOrKill = 0x00040000,
     tfSell = 0x00080000,
+    tfHybrid = 0x00100000,
 };
 constexpr std::uint32_t tfOfferCreateMask =
-    ~(tfUniversal | tfPassive | tfImmediateOrCancel | tfFillOrKill | tfSell);
+    ~(tfUniversal | tfPassive | tfImmediateOrCancel | tfFillOrKill | tfSell | tfHybrid);
 
 // Payment flags:
 enum PaymentFlags : uint32_t {
@@ -130,6 +132,7 @@ enum TrustSetFlags : uint32_t {
 constexpr std::uint32_t tfTrustSetMask =
     ~(tfUniversal | tfSetfAuth | tfSetNoRipple | tfClearNoRipple | tfSetFreeze |
       tfClearFreeze | tfSetDeepFreeze | tfClearDeepFreeze);
+constexpr std::uint32_t tfTrustSetPermissionMask = ~(tfUniversal | tfSetfAuth | tfSetFreeze | tfClearFreeze);
 
 // EnableAmendment flags:
 enum EnableAmendmentFlags : uint32_t {
@@ -180,6 +183,7 @@ enum MPTokenIssuanceSetFlags : uint32_t {
     tfMPTUnlock = 0x00000002,
 };
 constexpr std::uint32_t const tfMPTokenIssuanceSetMask  = ~(tfUniversal | tfMPTLock | tfMPTUnlock);
+constexpr std::uint32_t const tfMPTokenIssuanceSetPermissionMask = ~(tfUniversal | tfMPTLock | tfMPTUnlock);
 
 // MPTokenIssuanceDestroy flags:
 constexpr std::uint32_t const tfMPTokenIssuanceDestroyMask  = ~tfUniversal;
@@ -274,6 +278,28 @@ enum BridgeModifyFlags : uint32_t {
     tfClearAccountCreateAmount = 0x00010000,
 };
 constexpr std::uint32_t tfBridgeModifyMask = ~(tfUniversal | tfClearAccountCreateAmount);
+
+// VaultCreate flags:
+constexpr std::uint32_t const tfVaultPrivate               = 0x00010000;
+static_assert(tfVaultPrivate == lsfVaultPrivate);
+constexpr std::uint32_t const tfVaultShareNonTransferable  = 0x00020000;
+constexpr std::uint32_t const tfVaultCreateMask = ~(tfUniversal | tfVaultPrivate | tfVaultShareNonTransferable);
+
+// Batch Flags:
+enum BatchFlags : uint32_t {
+    tfAllOrNothing = 0x00010000,
+    tfOnlyOne = 0x00020000,
+    tfUntilFailure = 0x00040000,
+    tfIndependent = 0x00080000,
+};
+/**
+ * @note If nested Batch transactions are supported in the future, the tfInnerBatchTxn flag
+ *  will need to be removed from this mask to allow Batch transaction to be inside 
+ *  the sfRawTransactions array.
+ */
+constexpr std::uint32_t const tfBatchMask =
+    ~(tfUniversal | tfAllOrNothing | tfOnlyOne | tfUntilFailure | tfIndependent) | tfInnerBatchTxn;
+
 // clang-format on
 
 }  // namespace ripple
