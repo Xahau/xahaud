@@ -67,13 +67,8 @@ class WasmtimeConan(ConanFile):
 
         if self.settings.os == "Windows":
             copy(self, pattern="wasmtime.lib", src=srclibdir, dst=dstlibdir, keep_path=False)
-            copy(self, pattern="wasmtime.dll", src=srclibdir, dst=os.path.join(self.package_folder, "bin"), keep_path=False)
-        elif self.settings.os == "Macos":
-            copy(self, pattern="libwasmtime.a", src=srclibdir, dst=dstlibdir, keep_path=False)
-            copy(self, pattern="libwasmtime.dylib", src=srclibdir, dst=dstlibdir, keep_path=False)
         else:
             copy(self, pattern="libwasmtime.a", src=srclibdir, dst=dstlibdir, keep_path=False)
-            copy(self, pattern="libwasmtime.so*", src=srclibdir, dst=dstlibdir, keep_path=False)
 
         copy(self, pattern="LICENSE", src=self.source_folder, dst=os.path.join(self.package_folder, "licenses"), keep_path=False)
 
@@ -81,6 +76,7 @@ class WasmtimeConan(ConanFile):
         self.cpp_info.libs = ["wasmtime"]
 
         if self.settings.os == "Windows":
+            self.cpp_info.defines += ["WASM_API_EXTERN=", "WASI_API_EXTERN="]
             self.cpp_info.system_libs += ["ws2_32", "bcrypt", "advapi32", "userenv", "ntdll", "shell32", "ole32"]
 
         if self.settings.os in ["Linux", "FreeBSD"]:
