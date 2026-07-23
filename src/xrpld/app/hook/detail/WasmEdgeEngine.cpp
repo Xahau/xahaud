@@ -1,5 +1,5 @@
-#include <xrpld/app/hook/detail/WasmEdgeEngine.h>
 #include <xrpld/app/hook/applyHook.h>
+#include <xrpld/app/hook/detail/WasmEdgeEngine.h>
 #include <xrpl/protocol/Feature.h>
 #include <memory>
 #include <optional>
@@ -20,8 +20,7 @@ template <typename T>
 constexpr WasmValue::Kind
 kindOf()
 {
-    if constexpr (
-        std::is_same_v<T, uint64_t> || std::is_same_v<T, int64_t>)
+    if constexpr (std::is_same_v<T, uint64_t> || std::is_same_v<T, int64_t>)
         return WasmValue::Kind::I64;
     return WasmValue::Kind::I32;
 }
@@ -193,9 +192,9 @@ public:
                     k == WasmValue::Kind::I32 ? WasmEdge_ValType_I32
                                               : WasmEdge_ValType_I64);
 
-            WasmEdge_ValType resultType =
-                decl.result == WasmValue::Kind::I32 ? WasmEdge_ValType_I32
-                                                    : WasmEdge_ValType_I64;
+            WasmEdge_ValType resultType = decl.result == WasmValue::Kind::I32
+                ? WasmEdge_ValType_I32
+                : WasmEdge_ValType_I64;
 
             auto* fnType = WasmEdge_FunctionTypeCreate(
                 paramTypes.data(), paramTypes.size(), &resultType, 1);
@@ -239,8 +238,7 @@ public:
             return {false, 0, *err};
         }
 
-        WasmEdge_Value params[1] = {
-            WasmEdge_ValueGenI32((int64_t)wasmParam)};
+        WasmEdge_Value params[1] = {WasmEdge_ValueGenI32((int64_t)wasmParam)};
         WasmEdge_Value returns[1];
 
         res = WasmEdge_VMRunWasmFromBuffer(
@@ -302,13 +300,13 @@ featureGatePtr(T const& gate)
 }  // namespace
 
 #define HOOK_WRAP_PARAMS(...) __VA_ARGS__
-#define HOOK_API_DEFINITION(R, F, P, GATE)              \
-    {                                                    \
-        #F,                                              \
-        &hook_api::WasmFunction##F,                      \
-        buildKinds<HOOK_WRAP_PARAMS P>(),               \
-        kindOf<R>(),                                     \
-        featureGatePtr(GATE),                            \
+#define HOOK_API_DEFINITION(R, F, P, GATE) \
+    {                                      \
+        #F,                                \
+        &hook_api::WasmFunction##F,        \
+        buildKinds<HOOK_WRAP_PARAMS P>(),  \
+        kindOf<R>(),                       \
+        featureGatePtr(GATE),              \
     },
 
 std::vector<HostFunctionDecl> const&

@@ -1,8 +1,8 @@
 #ifndef RIPPLE_APP_HOOK_DETAIL_WASMENGINE_H_INCLUDED
 #define RIPPLE_APP_HOOK_DETAIL_WASMENGINE_H_INCLUDED
 
-#include <xrpl/hook/WasmTypes.h>
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/hook/WasmTypes.h>
 #include <xrpl/protocol/Rules.h>
 #include <optional>
 #include <string>

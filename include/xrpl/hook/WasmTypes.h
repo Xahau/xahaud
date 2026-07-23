@@ -42,11 +42,7 @@ struct GuestMemory
 
 struct WasmValue
 {
-    enum Kind : uint8_t
-    {
-        I32,
-        I64
-    } kind;
+    enum Kind : uint8_t { I32, I64 } kind;
 
     union
     {
@@ -85,8 +81,7 @@ struct WasmValue
     }
 };
 
-enum class HostCallStatus
-{
+enum class HostCallStatus {
     Success,
     Terminate,
     Trap,

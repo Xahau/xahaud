@@ -639,12 +639,12 @@ Change::activateXahauGenesis()
                 return;
             }
 
-            auto wasmValidator = ctx_.view().rules().enabled(featureWasmtimeEngine)
+            auto wasmValidator =
+                ctx_.view().rules().enabled(featureWasmtimeEngine)
                 ? hook::makeWasmtimeEngine()
                 : hook::makeWasmEdgeEngine();
-            std::optional<std::string> result2 =
-                wasmValidator->validate(
-                    wasmBytes.data(), (size_t)wasmBytes.size());
+            std::optional<std::string> result2 = wasmValidator->validate(
+                wasmBytes.data(), (size_t)wasmBytes.size());
 
             if (result2)
             {

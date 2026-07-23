@@ -24,9 +24,9 @@
 // actually use (its own vs. an import from "env"), which itself requires
 // binary inspection.  The export-injection approach is therefore the simplest
 // correct solution.
-#include <xrpld/app/hook/detail/WasmtimeEngine.h>
-#include <xrpld/app/hook/detail/WasmEngine.h>
 #include <xrpld/app/hook/applyHook.h>
+#include <xrpld/app/hook/detail/WasmEngine.h>
+#include <xrpld/app/hook/detail/WasmtimeEngine.h>
 #include <xrpl/protocol/Feature.h>
 #include <cstring>
 #include <memory>
@@ -49,8 +49,7 @@ template <typename T>
 constexpr WasmValue::Kind
 kindOf()
 {
-    if constexpr (
-        std::is_same_v<T, uint64_t> || std::is_same_v<T, int64_t>)
+    if constexpr (std::is_same_v<T, uint64_t> || std::is_same_v<T, int64_t>)
         return WasmValue::Kind::I64;
     return WasmValue::Kind::I32;
 }
@@ -122,7 +121,8 @@ getGlobalEngine()
     return gEngine;
 }
 
-// ── WASM binary normalisation ─────────────────────────────────────────────────
+// ── WASM binary normalisation
+// ─────────────────────────────────────────────────
 //
 // Hook WASM modules typically have their own memory (WebAssembly Section 5)
 // but do NOT export it.  Wasmtime's wasmtime_caller_export_get() only works
@@ -181,8 +181,14 @@ ensureMemoryExported(void const* wasm, size_t len)
     // Written as a string literal, "\x00asm…" is ambiguous because \x hex
     // escapes are greedy: "\x00a" == "\x0a" (newline).  Use a byte array.
     static constexpr uint8_t kWasmMagic[8] = {
-        0x00, 0x61, 0x73, 0x6D,  // \0asm
-        0x01, 0x00, 0x00, 0x00   // version 1
+        0x00,
+        0x61,
+        0x73,
+        0x6D,  // \0asm
+        0x01,
+        0x00,
+        0x00,
+        0x00  // version 1
     };
     if (len < 8 || std::memcmp(p, kWasmMagic, 8) != 0)
         return {p, p + len};  // not a valid WASM binary, return as-is
@@ -191,9 +197,9 @@ ensureMemoryExported(void const* wasm, size_t len)
     bool exportsMemory = false;
 
     // offset to memory section (for the insert point) and export section
-    size_t exportSectionOffset = 0;   // byte offset of existing export section
-    size_t exportSectionPayloadOff = 0; // offset of payload start
-    size_t exportSectionPayloadLen = 0; // payload length
+    size_t exportSectionOffset = 0;  // byte offset of existing export section
+    size_t exportSectionPayloadOff = 0;  // offset of payload start
+    size_t exportSectionPayloadLen = 0;  // payload length
 
     size_t pos = 8;
     while (pos + 1 < len)
@@ -224,13 +230,13 @@ ensureMemoryExported(void const* wasm, size_t len)
                 uint32_t nameLen = readUleb128(p, tmp, len);
                 if (tmp + nameLen > len)
                     break;
-                bool isMemoryName = (nameLen == 6 &&
-                    std::memcmp(p + tmp, "memory", 6) == 0);
+                bool isMemoryName =
+                    (nameLen == 6 && std::memcmp(p + tmp, "memory", 6) == 0);
                 tmp += nameLen;
                 if (tmp >= len)
                     break;
-                uint8_t kind = p[tmp++];     // export kind byte
-                readUleb128(p, tmp, len);    // export index
+                uint8_t kind = p[tmp++];           // export kind byte
+                readUleb128(p, tmp, len);          // export index
                 if (isMemoryName && kind == 0x02)  // kind 2 == memory
                 {
                     exportsMemory = true;
@@ -243,7 +249,8 @@ ensureMemoryExported(void const* wasm, size_t len)
     }
 
     // No patching needed if:
-    // - module does not own a memory (it may import one; caller_export_get works)
+    // - module does not own a memory (it may import one; caller_export_get
+    // works)
     // - module already exports its memory
     if (!hasOwnMemory || exportsMemory)
         return {p, p + len};
@@ -265,7 +272,8 @@ ensureMemoryExported(void const* wasm, size_t len)
         newSection.push_back(0x07);  // export section id
         std::vector<uint8_t> payload;
         writeUleb128(payload, 1);  // 1 export
-        payload.insert(payload.end(), newExportEntry.begin(), newExportEntry.end());
+        payload.insert(
+            payload.end(), newExportEntry.begin(), newExportEntry.end());
         writeUleb128(newSection, (uint32_t)payload.size());
         newSection.insert(newSection.end(), payload.begin(), payload.end());
 
@@ -286,23 +294,28 @@ ensureMemoryExported(void const* wasm, size_t len)
         std::vector<uint8_t> newCountBytes;
         writeUleb128(newCountBytes, newCount);
 
-        // New payload = new count + existing entries (skip old count bytes) + new entry
+        // New payload = new count + existing entries (skip old count bytes) +
+        // new entry
         std::vector<uint8_t> newPayload;
-        newPayload.insert(newPayload.end(), newCountBytes.begin(), newCountBytes.end());
-        // Existing entries start at countPos, end at exportSectionPayloadOff + exportSectionPayloadLen
+        newPayload.insert(
+            newPayload.end(), newCountBytes.begin(), newCountBytes.end());
+        // Existing entries start at countPos, end at exportSectionPayloadOff +
+        // exportSectionPayloadLen
         size_t entriesStart = countPos;
         size_t entriesEnd = exportSectionPayloadOff + exportSectionPayloadLen;
         if (entriesEnd > len)
             entriesEnd = len;
         newPayload.insert(newPayload.end(), p + entriesStart, p + entriesEnd);
-        newPayload.insert(newPayload.end(), newExportEntry.begin(), newExportEntry.end());
+        newPayload.insert(
+            newPayload.end(), newExportEntry.begin(), newExportEntry.end());
 
         // Encode new section length as LEB128
         std::vector<uint8_t> newSecLen;
         writeUleb128(newSecLen, (uint32_t)newPayload.size());
 
         // Reconstruct the full binary:
-        //   bytes before export section + id(0x07) + new_len + new_payload + bytes after
+        //   bytes before export section + id(0x07) + new_len + new_payload +
+        //   bytes after
         std::vector<uint8_t> result;
         result.reserve(len + newExportEntry.size() + 4);
         // Part 1: everything before the export section
@@ -354,14 +367,14 @@ buildFuncType(
         std::vector<wasm_valtype_t*> ptrs;
         ptrs.reserve(params.size());
         for (auto k : params)
-            ptrs.push_back(
-                wasm_valtype_new(k == WasmValue::Kind::I32 ? WASM_I32 : WASM_I64));
+            ptrs.push_back(wasm_valtype_new(
+                k == WasmValue::Kind::I32 ? WASM_I32 : WASM_I64));
         wasm_valtype_vec_new(&paramVec, ptrs.size(), ptrs.data());
     }
 
     {
-        wasm_valtype_t* rs[1] = {
-            wasm_valtype_new(result == WasmValue::Kind::I32 ? WASM_I32 : WASM_I64)};
+        wasm_valtype_t* rs[1] = {wasm_valtype_new(
+            result == WasmValue::Kind::I32 ? WASM_I32 : WASM_I64)};
         wasm_valtype_vec_new(&resultVec, 1, rs);
     }
 
@@ -410,8 +423,8 @@ bridgeFn(
     }
 
     WasmValue outVal;
-    auto status =
-        bridge->decl->fn(bridge->ctx, mem, inVals.data(), paramCount, &outVal, 1);
+    auto status = bridge->decl->fn(
+        bridge->ctx, mem, inVals.data(), paramCount, &outVal, 1);
 
     if (status == HostCallStatus::Terminate || status == HostCallStatus::Trap)
     {
@@ -455,11 +468,8 @@ public:
         auto patched = ensureMemoryExported(wasm, len);
 
         wasmtime_module_t* mod = nullptr;
-        wasmtime_error_t* err = wasmtime_module_new(
-            engine,
-            patched.data(),
-            patched.size(),
-            &mod);
+        wasmtime_error_t* err =
+            wasmtime_module_new(engine, patched.data(), patched.size(), &mod);
 
         if (auto msg = wasmtimeError(err))
             return "Wasmtime validate failed: " + *msg;
@@ -492,10 +502,7 @@ public:
         wasmtime_module_t* mod = nullptr;
         {
             wasmtime_error_t* err = wasmtime_module_new(
-                engine,
-                patched.data(),
-                patched.size(),
-                &mod);
+                engine, patched.data(), patched.size(), &mod);
             if (auto msg = wasmtimeError(err))
                 return {false, 0, "Wasmtime compile failed: " + *msg};
         }
@@ -574,8 +581,8 @@ public:
         // ── Define the "table" import (funcref, min=10, max=20) ────────────
         {
             wasm_limits_t tableLimits = {10, 20};
-            wasm_tabletype_t* tt =
-                wasm_tabletype_new(wasm_valtype_new(WASM_FUNCREF), &tableLimits);
+            wasm_tabletype_t* tt = wasm_tabletype_new(
+                wasm_valtype_new(WASM_FUNCREF), &tableLimits);
 
             wasmtime_table_t tbl;
             wasmtime_val_t initVal;
@@ -599,13 +606,7 @@ public:
             ext.of.table = tbl;
 
             err = wasmtime_linker_define(
-                linker,
-                storeCtx,
-                kEnvModule,
-                kEnvModuleLen,
-                "table",
-                5,
-                &ext);
+                linker, storeCtx, kEnvModule, kEnvModuleLen, "table", 5, &ext);
 
             if (auto msg = wasmtimeError(err))
             {
@@ -658,13 +659,7 @@ public:
             ext.of.memory = mem;
 
             err = wasmtime_linker_define(
-                linker,
-                storeCtx,
-                kEnvModule,
-                kEnvModuleLen,
-                "memory",
-                6,
-                &ext);
+                linker, storeCtx, kEnvModule, kEnvModuleLen, "memory", 6, &ext);
 
             if (auto msg = wasmtimeError(err))
             {
@@ -712,11 +707,7 @@ public:
 
         wasmtime_extern_t funcExtern;
         if (!wasmtime_instance_export_get(
-                storeCtx,
-                &instance,
-                funcName,
-                funcNameLen,
-                &funcExtern) ||
+                storeCtx, &instance, funcName, funcNameLen, &funcExtern) ||
             funcExtern.kind != WASMTIME_EXTERN_FUNC)
         {
             wasmtime_linker_delete(linker);
@@ -762,9 +753,9 @@ public:
         // rollback(), Wasmtime propagates that as a wasmtime_error_t (with the
         // trap embedded as the cause) rather than via the wasm_trap_t** output.
         // We therefore check execState.terminated FIRST — before inspecting
-        // callErr or callTrap — so that clean hook terminations (accept/rollback)
-        // are always reported as ok=true regardless of which output pointer
-        // Wasmtime chose to use.
+        // callErr or callTrap — so that clean hook terminations
+        // (accept/rollback) are always reported as ok=true regardless of which
+        // output pointer Wasmtime chose to use.
 
         if (execState.terminated)
         {
@@ -781,7 +772,10 @@ public:
         if (callErr)
         {
             auto msg = wasmtimeError(callErr);
-            return {false, instructionCount, "WASM call error: " + (msg ? *msg : "")};
+            return {
+                false,
+                instructionCount,
+                "WASM call error: " + (msg ? *msg : "")};
         }
 
         if (callTrap)

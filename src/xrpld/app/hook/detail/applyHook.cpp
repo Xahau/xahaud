@@ -1,5 +1,8 @@
 #include <xrpld/app/hook/HookAPI.h>
 #include <xrpld/app/hook/applyHook.h>
+#include <xrpld/app/hook/detail/WasmEdgeEngine.h>
+#include <xrpld/app/hook/detail/WasmEngine.h>
+#include <xrpld/app/hook/detail/WasmtimeEngine.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/NetworkOPs.h>
@@ -19,9 +22,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <xrpld/app/hook/detail/WasmEngine.h>
-#include <xrpld/app/hook/detail/WasmEdgeEngine.h>
-#include <xrpld/app/hook/detail/WasmtimeEngine.h>
 
 using namespace ripple;
 
@@ -1100,8 +1100,8 @@ hook::apply(
     if (!engineResult.ok)
     {
         hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
-        JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: "
-                       << engineResult.error.value_or("unknown");
+        JLOG(j.warn()) << "HookError[" << HC_ACC()
+                       << "]: " << engineResult.error.value_or("unknown");
     }
 
     JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: "
@@ -1272,16 +1272,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t kread_len)
 {
     return state_foreign_set(
-        hookCtx,
-        mem,
-        read_ptr,
-        read_len,
-        kread_ptr,
-        kread_len,
-        0,
-        0,
-        0,
-        0);
+        hookCtx, mem, read_ptr, read_len, kread_ptr, kread_len, 0, 0, 0, 0);
 }
 // update or create a hook state object
 // read_ptr = data to set, kread_ptr = key
@@ -1650,16 +1641,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t kread_len)
 {
     return state_foreign(
-        hookCtx,
-        mem,
-        write_ptr,
-        write_len,
-        kread_ptr,
-        kread_len,
-        0,
-        0,
-        0,
-        0);
+        hookCtx, mem, write_ptr, write_len, kread_ptr, kread_len, 0, 0, 0, 0);
 }
 
 /* This api actually serves both local and foreign state requests
@@ -3212,15 +3194,7 @@ DEFINE_HOOK_FUNCTION(
 {
     // proxy only no setup or teardown
     auto ret = sto_emplace(
-        hookCtx,
-        mem,
-        write_ptr,
-        write_len,
-        read_ptr,
-        read_len,
-        0,
-        0,
-        field_id);
+        hookCtx, mem, write_ptr, write_len, read_ptr, read_len, 0, 0, field_id);
 
     if (std::holds_alternative<uint64_t>(ret))
     {
