@@ -37,6 +37,9 @@ tests:
   - name: entropy_with_transactions
     script: .testnet/scenarios/entropy/entropy_with_transactions.py
 
+  - name: hook_entropy_api
+    script: .testnet/scenarios/entropy/hook_entropy_api.py
+
   - name: quorum_recovery_smoke
     script: .testnet/scenarios/entropy/quorum_recovery_smoke.py
 
