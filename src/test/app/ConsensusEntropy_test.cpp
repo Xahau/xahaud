@@ -184,7 +184,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     void
     testDice()
     {
-        testcase("Hook dice() API");
+        testcase("Hook entropy_cr_dice() API");
         using namespace jtx;
 
         Env env{
@@ -197,7 +197,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice);
         env.close();
 
-        // Entropy SLE must exist before hook can use dice()
+        // Entropy SLE must exist before hook can use entropy_cr_dice()
         BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
 
         // Set the hook
@@ -206,7 +206,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
 
             int64_t hook(uint32_t r)
@@ -214,7 +214,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 _g(1,1);
 
                 // A wide range makes this a useful byte-order known answer.
-                int64_t result = dice(1000000, 3);
+                int64_t result = entropy_cr_dice(1000000, 3);
 
                 // negative means error
                 if (result < 0)
@@ -223,13 +223,13 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 if (result >= 1000000)
                     rollback(0, 0, -1);
 
-                // return the dice result as the accept code
+                // return the entropy_cr_dice result as the accept code
                 return accept(0, 0, result);
             }
         )[test.hook]"];
 
         env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
-            M("set dice hook"),
+            M("set entropy_cr_dice hook"),
             HSFEE);
         env.close();
 
@@ -237,7 +237,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         Json::Value invoke;
         invoke[jss::TransactionType] = "Invoke";
         invoke[jss::Account] = alice.human();
-        env(invoke, M("test dice"), fee(XRP(1)));
+        env(invoke, M("test entropy_cr_dice"), fee(XRP(1)));
 
         auto meta = env.meta();
         BEAST_REQUIRE(meta);
@@ -263,8 +263,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             entropyDigest,
             std::uint64_t{0});
         auto const expected = expectedDice(firstBlock, 1000000);
-        std::cerr << "  dice(1000000) returnCode = " << returnCode << " (hex 0x"
-                  << std::hex << returnCode << std::dec << ")\n";
+        std::cerr << "  entropy_cr_dice(1000000) returnCode = " << returnCode
+                  << " (hex 0x" << std::hex << returnCode << std::dec << ")\n";
         BEAST_EXPECT(returnCode == expected);
 
         // Result should be 3 (accept)
@@ -274,7 +274,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     void
     testRandom()
     {
-        testcase("Hook random() API");
+        testcase("Hook entropy_cr_random() API");
         using namespace jtx;
 
         Env env{
@@ -289,14 +289,14 @@ class ConsensusEntropy_test : public beast::unit_test::suite
 
         BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
 
-        // Hook calls random() to fill a 32-byte buffer, then checks
+        // Hook calls entropy_cr_random() to fill a 32-byte buffer, then checks
         // the buffer is not all zeroes.
         TestHook hook = consensusentropy_test_wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
 
             int64_t hook(uint32_t r)
@@ -307,7 +307,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     buf[i] = 0;
 
-                int64_t result = random((uint32_t)buf, 32, 3);
+                int64_t result = entropy_cr_random((uint32_t)buf, 32, 3);
 
                 // Should return 32 (bytes written)
                 if (result != 32)
@@ -326,14 +326,14 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         )[test.hook]"];
 
         env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
-            M("set random hook"),
+            M("set entropy_cr_random hook"),
             HSFEE);
         env.close();
 
         Json::Value invoke;
         invoke[jss::TransactionType] = "Invoke";
         invoke[jss::Account] = alice.human();
-        env(invoke, M("test random"), fee(XRP(1)));
+        env(invoke, M("test entropy_cr_random"), fee(XRP(1)));
 
         auto meta = env.meta();
         BEAST_REQUIRE(meta);
@@ -350,7 +350,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     void
     testDiceConsecutiveCallsDiffer()
     {
-        testcase("Hook dice() consecutive calls return different values");
+        testcase(
+            "Hook entropy_cr_dice() consecutive calls return different values");
         using namespace jtx;
 
         Env env{
@@ -365,23 +366,23 @@ class ConsensusEntropy_test : public beast::unit_test::suite
 
         BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
 
-        // dice(1000000) twice — large range makes collision near-impossible
-        // encode r1 in low 20 bits, r2 in high bits
+        // entropy_cr_dice(1000000) twice — large range makes collision
+        // near-impossible encode r1 in low 20 bits, r2 in high bits
         TestHook hook = consensusentropy_test_wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                int64_t r1 = dice(1000000, 3);
+                int64_t r1 = entropy_cr_dice(1000000, 3);
                 if (r1 < 0)
                     rollback(0, 0, r1);
 
-                int64_t r2 = dice(1000000, 3);
+                int64_t r2 = entropy_cr_dice(1000000, 3);
                 if (r2 < 0)
                     rollback(0, 0, r2);
 
@@ -394,14 +395,14 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         )[test.hook]"];
 
         env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
-            M("set dice hook"),
+            M("set entropy_cr_dice hook"),
             HSFEE);
         env.close();
 
         Json::Value invoke;
         invoke[jss::TransactionType] = "Invoke";
         invoke[jss::Account] = alice.human();
-        env(invoke, M("test dice consecutive"), fee(XRP(1)));
+        env(invoke, M("test entropy_cr_dice consecutive"), fee(XRP(1)));
 
         auto meta = env.meta();
         BEAST_REQUIRE(meta);
@@ -414,9 +415,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         auto const r1 = rc & 0xFFFFF;
         auto const r2 = (rc >> 20) & 0xFFFFF;
 
-        std::cerr << "  two-call dice(1000000): returnCode=" << rc << " hex=0x"
-                  << std::hex << rc << std::dec << " r1=" << r1 << " r2=" << r2
-                  << "\n";
+        std::cerr << "  two-call entropy_cr_dice(1000000): returnCode=" << rc
+                  << " hex=0x" << std::hex << rc << std::dec << " r1=" << r1
+                  << " r2=" << r2 << "\n";
 
         // hookResult 3 = accept (would be 1 if r1==r2 triggered rollback)
         BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
@@ -428,7 +429,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     void
     testDiceZeroSides()
     {
-        testcase("Hook dice(0) returns INVALID_ARGUMENT");
+        testcase("Hook entropy_cr_dice(0) returns INVALID_ARGUMENT");
         using namespace jtx;
 
         Env env{
@@ -443,19 +444,19 @@ class ConsensusEntropy_test : public beast::unit_test::suite
 
         BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
 
-        // Hook calls dice(0) and returns whatever dice returns.
-        // dice(0) should return INVALID_ARGUMENT (-7).
+        // Hook calls entropy_cr_dice(0) and returns whatever entropy_cr_dice
+        // returns. entropy_cr_dice(0) should return INVALID_ARGUMENT (-7).
         TestHook hook = consensusentropy_test_wasm[R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                int64_t result = dice(0, 3);
-                // dice(0) should return negative error code, pass it through
+                int64_t result = entropy_cr_dice(0, 3);
+                // entropy_cr_dice(0) should return negative error code, pass it through
                 return accept(0, 0, result);
             }
         )[test.hook]"];
@@ -468,7 +469,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         Json::Value invoke;
         invoke[jss::TransactionType] = "Invoke";
         invoke[jss::Account] = alice.human();
-        env(invoke, M("test dice(0)"), fee(XRP(1)));
+        env(invoke, M("test entropy_cr_dice(0)"), fee(XRP(1)));
 
         auto meta = env.meta();
         BEAST_REQUIRE(meta);
@@ -483,8 +484,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         int64_t returnCode = (rawCode & 0x8000000000000000ULL)
             ? -static_cast<int64_t>(rawCode & 0x7FFFFFFFFFFFFFFFULL)
             : static_cast<int64_t>(rawCode);
-        std::cerr << "  dice(0) returnCode = " << returnCode << " (raw 0x"
-                  << std::hex << rawCode << std::dec << ")\n";
+        std::cerr << "  entropy_cr_dice(0) returnCode = " << returnCode
+                  << " (raw 0x" << std::hex << rawCode << std::dec << ")\n";
         BEAST_EXPECT(returnCode == -7);
         BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
     }
@@ -492,7 +493,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     void
     testEntropyStatus()
     {
-        testcase("Hook entropy_status() metadata and policy recipes");
+        testcase("Hook entropy_cr_status() metadata and policy recipes");
         using namespace jtx;
 
         Env env{
@@ -522,7 +523,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_status(void);
+            extern int64_t entropy_cr_status(void);
             #define ENTROPY_TIER(x) (((uint64_t)(x) >> 32U) & 0xFFU)
             #define ENTROPY_COUNT(x) (((uint64_t)(x) >> 16U) & 0xFFFFU)
             #define ENTROPY_DENOMINATOR(x) ((uint64_t)(x) & 0xFFFFU)
@@ -530,7 +531,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                int64_t status = entropy_status();
+                int64_t status = entropy_cr_status();
                 if (status < 0)
                     return accept(0, 0, 13);
 
@@ -582,7 +583,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     void
     testEntropyStatusFallback()
     {
-        testcase("Hook entropy_status() classifies fallback before arithmetic");
+        testcase(
+            "Hook entropy_cr_status() classifies fallback before arithmetic");
         using namespace jtx;
 
         Env env{
@@ -612,8 +614,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t dice(uint32_t sides, uint32_t min_tier);
-            extern int64_t entropy_status(void);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_status(void);
             #define ENTROPY_TIER(x) (((uint64_t)(x) >> 32U) & 0xFFU)
             #define ENTROPY_COUNT(x) (((uint64_t)(x) >> 16U) & 0xFFFFU)
             #define ENTROPY_DENOMINATOR(x) ((uint64_t)(x) & 0xFFFFU)
@@ -622,17 +624,17 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                int64_t status = entropy_status();
+                int64_t status = entropy_cr_status();
                 if (status < 0)
                     return accept(0, 0, 20);
                 if (ENTROPY_TIER(status) != 1 || ENTROPY_COUNT(status) != 0 ||
                     ENTROPY_DENOMINATOR(status) != 0)
                     return accept(0, 0, 21);
 
-                int64_t allowed = dice(6, 1);
+                int64_t allowed = entropy_cr_dice(6, 1);
                 if (allowed < 0 || allowed > 5)
                     return accept(0, 0, 22);
-                if (dice(6, 2) != TOO_LITTLE_ENTROPY)
+                if (entropy_cr_dice(6, 2) != TOO_LITTLE_ENTROPY)
                     return accept(0, 0, 23);
 
                 return accept(0, 0, 0);
@@ -662,7 +664,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     testStaleEntropyStatus()
     {
         testcase(
-            "Hook entropy_status() observes stale metadata while draws fail");
+            "Hook entropy_cr_status() observes stale metadata while draws "
+            "fail");
         using namespace jtx;
 
         Env env{
@@ -685,9 +688,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t dice(uint32_t sides, uint32_t min_tier);
-            extern int64_t random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
-            extern int64_t entropy_status(void);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+            extern int64_t entropy_cr_status(void);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
             #define TOO_LITTLE_ENTROPY (-48)
 
@@ -696,17 +699,17 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 _g(1,1);
                 uint64_t expected =
                     ((uint64_t)3 << 32U) | ((uint64_t)19 << 16U) | 20U;
-                if ((uint64_t)entropy_status() != expected)
+                if ((uint64_t)entropy_cr_status() != expected)
                     return accept(0, 0, 40);
 
-                int64_t dice_result = dice(6, 1);
+                int64_t dice_result = entropy_cr_dice(6, 1);
                 if (dice_result != TOO_LITTLE_ENTROPY)
                     return accept(0, 0, 41);
 
                 uint8_t buf[32];
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     buf[i] = 0xA5;
-                if (random((uint32_t)buf, 32, 1) != TOO_LITTLE_ENTROPY)
+                if (entropy_cr_random((uint32_t)buf, 32, 1) != TOO_LITTLE_ENTROPY)
                     return accept(0, 0, 42);
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     if (buf[i] != 0xA5)
@@ -785,7 +788,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     void
     testDiceTierRequirementNotMet()
     {
-        testcase("Hook dice() fails closed below min_tier");
+        testcase("Hook entropy_cr_dice() fails closed below min_tier");
         using namespace jtx;
 
         Env env{
@@ -818,25 +821,25 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                int64_t result = dice(6, 4);
+                int64_t result = entropy_cr_dice(6, 4);
                 return accept(0, 0, result);
             }
         )[test.hook]"];
 
         env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
-            M("set dice-tier-requirement hook"),
+            M("set entropy_cr_dice-tier-requirement hook"),
             HSFEE);
         env.close();
 
         Json::Value invoke;
         invoke[jss::TransactionType] = "Invoke";
         invoke[jss::Account] = alice.human();
-        env(invoke, M("test dice min_tier unmet"), fee(XRP(1)));
+        env(invoke, M("test entropy_cr_dice min_tier unmet"), fee(XRP(1)));
 
         auto meta = env.meta();
         BEAST_REQUIRE(meta);
@@ -867,12 +870,12 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                return accept(0, 0, dice(6, 3));
+                return accept(0, 0, entropy_cr_dice(6, 3));
             }
         )[test.hook]"];
 
@@ -880,13 +883,13 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
                 uint8_t buf[32];
-                return accept(0, 0, random((uint32_t)buf, 32, 3));
+                return accept(0, 0, entropy_cr_random((uint32_t)buf, 32, 3));
             }
         )[test.hook]"];
 
@@ -894,22 +897,22 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_status(void);
+            extern int64_t entropy_cr_status(void);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                return accept(0, 0, entropy_status());
+                return accept(0, 0, entropy_cr_status());
             }
         )[test.hook]"];
 
         env(ripple::test::jtx::hook(alice, {{hso(diceHook, overrideFlag)}}, 0),
-            M("set dice-no-amendment hook"),
+            M("set entropy_cr_dice-no-amendment hook"),
             HSFEE,
             ter(temMALFORMED));
         env(ripple::test::jtx::hook(
                 alice, {{hso(randomHook, overrideFlag)}}, 0),
-            M("set random-no-amendment hook"),
+            M("set entropy_cr_random-no-amendment hook"),
             HSFEE,
             ter(temMALFORMED));
         env(ripple::test::jtx::hook(
@@ -922,7 +925,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     void
     testRandomTierRequirementNotMet()
     {
-        testcase("Hook random() fails before write below min_tier");
+        testcase("Hook entropy_cr_random() fails before write below min_tier");
         using namespace jtx;
 
         Env env{
@@ -945,7 +948,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
             #define TOO_LITTLE_ENTROPY (-48)
 
@@ -956,7 +959,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     buf[i] = 0xA5;
 
-                if (random((uint32_t)buf, 32, 4) != TOO_LITTLE_ENTROPY)
+                if (entropy_cr_random((uint32_t)buf, 32, 4) != TOO_LITTLE_ENTROPY)
                     return accept(0, 0, 30);
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     if (buf[i] != 0xA5)
@@ -967,14 +970,14 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         )[test.hook]"];
 
         env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
-            M("set random-tier-requirement hook"),
+            M("set entropy_cr_random-tier-requirement hook"),
             HSFEE);
         env.close();
 
         Json::Value invoke;
         invoke[jss::TransactionType] = "Invoke";
         invoke[jss::Account] = alice.human();
-        env(invoke, M("test random min_tier unmet"), fee(XRP(1)));
+        env(invoke, M("test entropy_cr_random min_tier unmet"), fee(XRP(1)));
 
         auto meta = env.meta();
         BEAST_REQUIRE(meta);
@@ -988,7 +991,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     void
     testInvalidEntropyRequirements()
     {
-        testcase("Hook dice/random reject invalid entropy requirements");
+        testcase(
+            "Hook entropy_cr_dice/entropy_cr_random reject invalid entropy "
+            "requirements");
         using namespace jtx;
 
         Env env{
@@ -1007,8 +1012,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t dice(uint32_t sides, uint32_t min_tier);
-            extern int64_t random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
             #define INVALID_ARGUMENT (-7)
 
             int64_t hook(uint32_t r)
@@ -1016,25 +1021,25 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 _g(1,1);
                 uint8_t buf[32];
 
-                int64_t bad_min_tier = dice(6, 0);
+                int64_t bad_min_tier = entropy_cr_dice(6, 0);
                 if (bad_min_tier != INVALID_ARGUMENT)
                     return accept(0, 0, 100);
 
-                int64_t bad_high_tier = dice(6, 5);
+                int64_t bad_high_tier = entropy_cr_dice(6, 5);
                 if (bad_high_tier != INVALID_ARGUMENT)
                     return accept(0, 0, 101);
 
-                int64_t bad_random_low = random((uint32_t)buf, 32, 0);
+                int64_t bad_random_low = entropy_cr_random((uint32_t)buf, 32, 0);
                 if (bad_random_low != INVALID_ARGUMENT)
                     return accept(0, 0, 102);
 
-                int64_t bad_random_high = random((uint32_t)buf, 32, 5);
+                int64_t bad_random_high = entropy_cr_random((uint32_t)buf, 32, 5);
                 if (bad_random_high != INVALID_ARGUMENT)
                     return accept(0, 0, 103);
 
                 // Failed calls must not consume the shared RNG call counter.
                 // The test pins the first valid draw as a known-answer vector.
-                return accept(0, 0, dice(1000000, 4));
+                return accept(0, 0, entropy_cr_dice(1000000, 4));
             }
         )[test.hook]"];
 

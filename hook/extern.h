@@ -361,7 +361,7 @@ xport_cancel(uint32_t read_ptr, uint32_t read_len, uint32_t flags);
       1 = consensus_fallback, 2 = participant_aligned,
       3 = validator_quorum, 4 = validator_full.
 
-    entropy_status returns a packed non-negative value:
+    entropy_cr_status returns a packed non-negative value:
       bits 32..39 tier, 16..31 count, 0..15 denominator.
     Check for a negative error before using the ENTROPY_* macros.
 
@@ -369,18 +369,19 @@ xport_cancel(uint32_t read_ptr, uint32_t read_len, uint32_t flags);
     with count=denominator=0. Common policies are denominator-count <= 1,
     5*count >= 4*denominator (use widened arithmetic), or count >= floor.
 
-    dice/random return TOO_LITTLE_ENTROPY if fresh visible entropy is below
+    entropy_cr_dice/entropy_cr_random return TOO_LITTLE_ENTROPY if fresh
+    visible entropy is below
     min_tier. Open-ledger and simulate execution are provisional previews;
     final ordered execution may see a different entropy object.
 */
 extern int64_t
-dice(uint32_t sides, uint32_t min_tier);
+entropy_cr_dice(uint32_t sides, uint32_t min_tier);
 
 extern int64_t
-random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
 
 extern int64_t
-entropy_status(void);
+entropy_cr_status(void);
 
 #ifdef __cplusplus
 }

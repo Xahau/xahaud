@@ -216,7 +216,7 @@ re-derives them.
 Hooks state `min_tier` explicitly on every draw (no hidden network default).
 Entropy is served iff it is **fresh** (current or previous ledger) **and** meets
 that class floor; otherwise the call **fails closed**
-(`TOO_LITTLE_ENTROPY`). `entropy_status()` separately exposes the stored tier,
+(`TOO_LITTLE_ENTROPY`). `entropy_cr_status()` separately exposes the stored tier,
 contributor count, and denominator so hooks can impose proportional or absolute
 policies without freezing those policies into the host ABI.
 Fallback is tier 1 with count/denominator `0/0`, so callers must classify tier
@@ -244,27 +244,27 @@ hookHash, hookAccount, hookChainPosition, strong|weak, callback|direct,
 entropyDigest, i)`. The counter is local to one Hook execution role and is
 post-incremented once when a draw stream passes snapshot admission; rejected
 arguments or entropy do not consume it. Further blocks are
-`sha512Half(previousBlock)`. `dice` rejects zero sides and uses deterministic
+`sha512Half(previousBlock)`. `entropy_cr_dice` rejects zero sides and uses deterministic
 unsigned big-endian 32-bit rejection sampling rather than biased modulo
-reduction. `random` accepts
+reduction. `entropy_cr_random` accepts
 one through 512 requested bytes, rounds its internal generation length to a
 32-byte boundary, and writes only the requested prefix. Missing, malformed,
 future, older-than-one-ledger, or below-tier entropy makes either draw return
 `TOO_LITTLE_ENTROPY`; invalid arguments retain their specific Hook API error,
-and `random` performs no output write on an entropy failure.
+and `entropy_cr_random` performs no output write on an entropy failure.
 
-`entropy_status()` is observational, not a draw. Subject only to missing,
+`entropy_cr_status()` is observational, not a draw. Subject only to missing,
 malformed, or future-snapshot errors, it returns the stored metadata even when
-that snapshot is too old for `dice` or `random`, packed as
+that snapshot is too old for `entropy_cr_dice` or `entropy_cr_random`, packed as
 `(tier << 32) | (count << 16) | denominator`. This is deliberate: freshness is
 the draw API's safety policy, while status is advisory input to Hook policy.
-*Enforced:* `fairRng` tier/freshness gate and metadata-only `entropy_status`.
+*Enforced:* `fairRng` tier/freshness gate and metadata-only `entropy_cr_status`.
 
 **INV-7 — Inert when un-amended.**
 With `featureConsensusEntropy` off, no RNG sidecar state is consensus-visible and
 CE itself adds no proposal bytes. Export may independently use the same extended
 proposal envelope when `featureExport` is active.
-The `dice`, `random`, and `entropy_status` Hook imports are independently gated
+The `entropy_cr_dice`, `entropy_cr_random`, and `entropy_cr_status` Hook imports are independently gated
 by `featureConsensusEntropy`; they are unavailable before that amendment rule is
 enabled even if a stale entropy singleton happens to exist.
 *Enforced:* the CE per-round enable latch is snapshotted from the *parent
@@ -343,7 +343,7 @@ into an INV violation:
   never suitable for value-bearing outcomes.
 - **Provisional open-ledger entropy** differs from the closed-ledger value
   (speculative execution sees the previous ledger's entropy in the open ledger,
-  the current ledger's at close). Open-ledger `dice()`/`random()` are previews,
+  the current ledger's at close). Open-ledger `entropy_cr_dice()`/`entropy_cr_random()` are previews,
   not the authority.
 - **Bounded accept-vs-fallback timing asymmetry** remains possible at the edge of
   observation deadlines: one node may see a quorum-aligned entropy sidecar before

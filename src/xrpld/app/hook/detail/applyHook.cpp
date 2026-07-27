@@ -4106,7 +4106,7 @@ readEntropySnapshot(ApplyView& view)
 // Callers normalize byteCount to a multiple of 32.
 // minTier is the CALLER'S stated class requirement (a required hook API
 // argument — there is deliberately no network-wide default). Count and
-// denominator policy is available separately through entropy_status().
+// denominator policy is available separately through entropy_cr_status().
 inline std::vector<uint8_t>
 fairRng(
     ApplyContext& applyCtx,
@@ -4133,7 +4133,8 @@ fairRng(
     // ledger's finalized entropy. Final buildLCL execution sees the current
     // ledger's entropy pseudo-tx after it updates this SLE. That open-vs-final
     // skew is inherent to speculative execution; callers that need final
-    // entropy must treat open-ledger dice/random results as previews.
+    // entropy must treat open-ledger entropy_cr_dice/entropy_cr_random results
+    // as previews.
     if (entropy.age > 1 || entropy.tier < minTier)
         return {};
 
@@ -4176,7 +4177,11 @@ fairRng(
     return bytesOut;
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, dice, uint32_t sides, uint32_t min_tier)
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    entropy_cr_dice,
+    uint32_t sides,
+    uint32_t min_tier)
 {
     HOOK_SETUP();
 
@@ -4226,7 +4231,7 @@ DEFINE_HOOK_FUNCTION(int64_t, dice, uint32_t sides, uint32_t min_tier)
 
 DEFINE_HOOK_FUNCTION(
     int64_t,
-    random,
+    entropy_cr_random,
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t min_tier)
@@ -4269,7 +4274,7 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, entropy_status)
+DEFINE_HOOK_FUNCTION(int64_t, entropy_cr_status)
 {
     HOOK_SETUP();
 

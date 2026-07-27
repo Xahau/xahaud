@@ -390,14 +390,14 @@ non-critical: any disagreement in a ledger-written field is a ledger
 disagreement. It only keeps transaction ordering semantically tied to the
 entropy value and quality labels rather than to the accountability label. Hooks
 state their class requirement through the mandatory `min_tier` argument to
-`dice()`/`random()`: a hook that demands validator-tier entropy fails closed
+`entropy_cr_dice()`/`entropy_cr_random()`: a hook that demands validator-tier entropy fails closed
 with `TOO_LITTLE_ENTROPY` on fallback ledgers, while a hook that opts into
 fallback-grade randomness must do so explicitly at the call site. Valid
 `min_tier` values are the stored entropy tiers 1..4; invalid requirements return
 `INVALID_ARGUMENT`, while valid-but-unmet requirements return
 `TOO_LITTLE_ENTROPY`.
 
-`entropy_status()` returns a packed non-negative scalar with tier in bits
+`entropy_cr_status()` returns a packed non-negative scalar with tier in bits
 32..39, contributor count in bits 16..31, and denominator in bits 0..15.
 Negative values remain Hook API errors. This lets Hook code implement policies
 such as one-absent tolerance,
@@ -407,7 +407,7 @@ denominator arithmetic because fallback deliberately reports tier 1 and
 `0/0`.
 
 Open-ledger hook execution is provisional. During speculative open-ledger
-execution, `dice()`/`random()` and `entropy_status()` can only use the previous
+execution, `entropy_cr_dice()`/`entropy_cr_random()` and `entropy_cr_status()` can only use the previous
 ledger's finalized entropy; final buildLCL execution sees the current ledger's
 entropy pseudo-tx after it updates the SLE. Hooks that need final entropy must
 treat open-ledger RNG results as previews.
