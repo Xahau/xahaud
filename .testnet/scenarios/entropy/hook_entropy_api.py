@@ -112,8 +112,11 @@ async def scenario(ctx, log):
     if execution.get("HookResult") != 3:
         raise AssertionError(f"Hook did not ACCEPT: {execution}")
 
-    return_code = execution.get("HookReturnCode", "")
-    if return_code and str(return_code) != "0":
+    if "HookReturnCode" not in execution:
+        raise AssertionError(f"HookReturnCode missing from execution: {execution}")
+
+    return_code = execution["HookReturnCode"]
+    if str(return_code) != "0":
         raise AssertionError(f"entropy_cr_* Hook check failed: {execution}")
 
     log("entropy_cr_status, entropy_cr_dice, and entropy_cr_random passed")

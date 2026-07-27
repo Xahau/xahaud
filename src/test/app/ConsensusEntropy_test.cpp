@@ -978,8 +978,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             }
         )[test.hook]"];
 
-        env(ripple::test::jtx::hook(
-                alice, {{hso(diceHook, overrideFlag)}}, 0),
+        env(ripple::test::jtx::hook(alice, {{hso(diceHook, overrideFlag)}}, 0),
             M("reject retired dice import"),
             HSFEE,
             ter(temMALFORMED));
