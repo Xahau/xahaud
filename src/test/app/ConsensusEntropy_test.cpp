@@ -923,6 +923,79 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
+    testRetiredImportNamesRejected()
+    {
+        testcase("Retired generic entropy import names remain unavailable");
+        using namespace jtx;
+
+        Env env{
+            *this,
+            envconfig(),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        TestHook diceHook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t dice(uint32_t sides, uint32_t min_tier);
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                return accept(0, 0, dice(6, 3));
+            }
+        )[test.hook]"];
+
+        TestHook randomHook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                uint8_t buf[32];
+                return accept(0, 0, random((uint32_t)buf, 32, 3));
+            }
+        )[test.hook]"];
+
+        TestHook statusHook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t entropy_status(void);
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                return accept(0, 0, entropy_status());
+            }
+        )[test.hook]"];
+
+        env(ripple::test::jtx::hook(
+                alice, {{hso(diceHook, overrideFlag)}}, 0),
+            M("reject retired dice import"),
+            HSFEE,
+            ter(temMALFORMED));
+        env(ripple::test::jtx::hook(
+                alice, {{hso(randomHook, overrideFlag)}}, 0),
+            M("reject retired random import"),
+            HSFEE,
+            ter(temMALFORMED));
+        env(ripple::test::jtx::hook(
+                alice, {{hso(statusHook, overrideFlag)}}, 0),
+            M("reject retired entropy_status import"),
+            HSFEE,
+            ter(temMALFORMED));
+    }
+
+    void
     testRandomTierRequirementNotMet()
     {
         testcase("Hook entropy_cr_random() fails before write below min_tier");
@@ -1091,6 +1164,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         testStaleEntropyStatus();
         testDiceTierRequirementNotMet();
         testDiceWithoutAmendment();
+        testRetiredImportNamesRejected();
         testRandomTierRequirementNotMet();
         testInvalidEntropyRequirements();
         testRandom();
