@@ -25,9 +25,9 @@
 #include <boost/beast/core/string.hpp>
 #include <boost/filesystem.hpp>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <memory>
-#include <functional>
 #include <mutex>
 #include <utility>
 

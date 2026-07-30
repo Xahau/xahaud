@@ -150,23 +150,23 @@
         WasmEdge_CallingFrameContext const& frameCtx __VA_OPT__(               \
             COMMA __VA_ARGS__))
 
-#define HOOK_SETUP()                                                 \
-    using enum hook_api::hook_return_code;                           \
-    try                                                              \
-    {                                                                \
-        [[maybe_unused]] ApplyContext& applyCtx = hookCtx.applyCtx;  \
-        [[maybe_unused]] auto& view = applyCtx.view();               \
-        [[maybe_unused]] auto j = applyCtx.app.journal("View");      \
+#define HOOK_SETUP()                                                   \
+    using enum hook_api::hook_return_code;                             \
+    try                                                                \
+    {                                                                  \
+        [[maybe_unused]] ApplyContext& applyCtx = hookCtx.applyCtx;    \
+        [[maybe_unused]] auto& view = applyCtx.view();                 \
+        [[maybe_unused]] auto j = applyCtx.app.journal("View");        \
         [[maybe_unused]] auto jh = applyCtx.app.journal("HooksTrace"); \
-        [[maybe_unused]] WasmEdge_MemoryInstanceContext* memoryCtx = \
-            WasmEdge_CallingFrameGetMemoryInstance(&frameCtx, 0);    \
-        [[maybe_unused]] unsigned char* memory =                     \
-            WasmEdge_MemoryInstanceGetPointer(memoryCtx, 0, 0);      \
-        [[maybe_unused]] const uint64_t memory_length =              \
-            WasmEdge_MemoryInstanceGetPageSize(memoryCtx) *          \
-            WasmEdge_kPageSize;                                      \
-        [[maybe_unused]] auto& api = hookCtx.api();                  \
-        if (!memoryCtx || !memory || !memory_length)                 \
+        [[maybe_unused]] WasmEdge_MemoryInstanceContext* memoryCtx =   \
+            WasmEdge_CallingFrameGetMemoryInstance(&frameCtx, 0);      \
+        [[maybe_unused]] unsigned char* memory =                       \
+            WasmEdge_MemoryInstanceGetPointer(memoryCtx, 0, 0);        \
+        [[maybe_unused]] const uint64_t memory_length =                \
+            WasmEdge_MemoryInstanceGetPageSize(memoryCtx) *            \
+            WasmEdge_kPageSize;                                        \
+        [[maybe_unused]] auto& api = hookCtx.api();                    \
+        if (!memoryCtx || !memory || !memory_length)                   \
             return INTERNAL_ERROR;
 
 #define HOOK_TEARDOWN()                                        \

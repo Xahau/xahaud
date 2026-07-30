@@ -1125,10 +1125,10 @@ DEFINE_HOOK_FUNCTION(
 
         if (read_len > 0)
         {
-            JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]: "
-                             << std::string_view(
-                                    (const char*)memory + read_ptr, read_len)
-                             << ": " << number;
+            JLOG(jh.trace())
+                << "HookTrace[" << HC_ACC() << "]: "
+                << std::string_view((const char*)memory + read_ptr, read_len)
+                << ": " << number;
 
             return 0ULL;
         }
@@ -1215,7 +1215,8 @@ DEFINE_HOOK_FUNCTION(
     if (out_len > 0)
     {
         JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]: "
-                         << std::string_view((const char*)output_storage, out_len);
+                         << std::string_view(
+                                (const char*)output_storage, out_len);
     }
 
     return 0ULL;

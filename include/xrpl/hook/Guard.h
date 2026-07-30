@@ -1400,8 +1400,7 @@ validateGuards(
                 {
                     // For whitelisted imports, check expected return count.
                     // void_t (0x00) means 0 return values.
-                    uint8_t expected_return =
-                        (*first_signature).get()[0];
+                    uint8_t expected_return = (*first_signature).get()[0];
                     int expected_result_count =
                         (expected_return == 0x00U) ? 0 : 1;
                     if (result_count != expected_result_count)
@@ -1410,8 +1409,8 @@ validateGuards(
                             << "Malformed transaction. "
                             << "Hook API: " << *first_name
                             << " has wrong return count "
-                            << "(expected " << expected_result_count
-                            << ", got " << result_count << ")."
+                            << "(expected " << expected_result_count << ", got "
+                            << result_count << ")."
                             << "\n";
                         return {};
                     }
