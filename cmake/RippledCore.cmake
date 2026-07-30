@@ -229,16 +229,29 @@ if(xrpld)
           list(APPEND _hooks_extra_args "--hook-coverage")
           message(STATUS "Hook coverage enabled: compiling hooks with hookz")
         endif()
+        set(_hooks_always_run OFF)
         if(HOOKS_FORCE_RECOMPILE OR DEFINED ENV{HOOKS_FORCE_RECOMPILE})
           list(APPEND _hooks_extra_args "--force-write" "--no-cache")
+          set(_hooks_always_run ON)
           message(STATUS "Hook force recompile enabled (cache bypassed)")
+        endif()
+        if(HOOKZ_BUILDBOX OR "$ENV{HOOKZ_BUILDBOX}" STREQUAL "1")
+          # Remote evidence must observe the service on every build. An
+          # OUTPUT-cached header may otherwise preserve locally built WASM
+          # after the compiler mode changes.
+          list(APPEND _hooks_extra_args "--buildbox")
+          if(NOT _hooks_always_run)
+            list(APPEND _hooks_extra_args "--force-write")
+          endif()
+          set(_hooks_always_run ON)
+          message(STATUS "Canonical buildbox enabled (always recompiled)")
         endif()
 
         # Run hookz build-test-hooks on each test file before compilation
         foreach(_test_file ${EXTERNAL_HOOK_TESTS})
           get_filename_component(_stem ${_test_file} NAME_WE)
           set(_hooks_header "${HOOKS_TEST_DIR}/${_stem}_hooks.h")
-          if(HOOKS_FORCE_RECOMPILE OR DEFINED ENV{HOOKS_FORCE_RECOMPILE})
+          if(_hooks_always_run)
             # Always run — no DEPENDS, no OUTPUT caching
             add_custom_target(compile_hooks_${_stem} ALL
               COMMAND hookz build-test-hooks "${_test_file}" ${_hooks_extra_args}
@@ -261,7 +274,7 @@ if(xrpld)
         endforeach()
 
         # Ensure headers are generated before rippled compiles
-        if(HOOKS_FORCE_RECOMPILE OR DEFINED ENV{HOOKS_FORCE_RECOMPILE})
+        if(_hooks_always_run)
           foreach(_tgt ${EXTERNAL_HOOK_TARGETS})
             add_dependencies(rippled ${_tgt})
           endforeach()
