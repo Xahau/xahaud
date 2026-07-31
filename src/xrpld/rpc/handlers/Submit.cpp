@@ -26,9 +26,16 @@
 #include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/RPCErr.h>
+#include <xrpl/protocol/SField.h>
+#include <xrpl/protocol/STParsedJSON.h>
 #include <xrpl/resource/Fees.h>
+
+#include <xrpl/protocol/JSONTxSignatures.h>
 
 namespace ripple {
 
@@ -83,7 +90,8 @@ doInject(RPC::JsonContext& context)
 }
 
 // {
-//   tx_blob: <string> XOR tx_json: <object>,
+//   tx_blob: <string> XOR tx_json: <object>
+//              XOR { tx: <json text>, signature: <hex> },
 //   secret: <secret>
 // }
 Json::Value
@@ -91,7 +99,11 @@ doSubmit(RPC::JsonContext& context)
 {
     context.loadType = Resource::feeMediumBurdenRPC;
 
-    if (!context.params.isMember(jss::tx_blob))
+    bool const jsontx = !context.params.isMember(jss::tx_blob) &&
+        context.params.isMember(jss::tx) &&
+        context.params.isMember(jss::sig);
+
+    if (!context.params.isMember(jss::tx_blob) && !jsontx)
     {
         auto const failType = getFailHard(context);
 
@@ -119,18 +131,73 @@ doSubmit(RPC::JsonContext& context)
 
     Json::Value jvResult;
 
-    auto ret = strUnHex(context.params[jss::tx_blob].asString());
+    std::optional<Blob> ret;
+    if (!jsontx)
+    {
+        ret = strUnHex(context.params[jss::tx_blob].asString());
 
-    if (!ret || !ret->size())
-        return rpcError(rpcINVALID_PARAMS);
-
-    SerialIter sitTrans(makeSlice(*ret));
+        if (!ret || !ret->size())
+            return rpcError(rpcINVALID_PARAMS);
+    }
 
     std::shared_ptr<STTx const> stTx;
 
     try
     {
-        stTx = std::make_shared<STTx const>(std::ref(sitTrans));
+        if (!jsontx)
+        {
+            SerialIter sitTrans(makeSlice(*ret));
+            stTx = std::make_shared<STTx const>(std::ref(sitTrans));
+        }
+        else
+        {
+            std::string const raw = context.params[jss::tx].asString();
+            auto const [san, diff] = sanitize_jsontx(raw);
+            auto const sig = strUnHex(context.params[jss::sig].asString());
+            if (!sig || sig->empty())
+                throw std::runtime_error("jsontx: bad signature");
+
+            Json::Value jv;
+            if (Json::Reader r; !r.parse(san, jv))
+                throw std::runtime_error("jsontx: unparsable canonical form");
+
+            // The preimage carries the key but not the signature over itself.
+            for (auto const& n :
+                 {sfTxnSignature.fieldName, sfSigners.fieldName})
+                if (jv.isMember(n))
+                    throw std::runtime_error(
+                        "jsontx: " + n + " must not appear in tx");
+            if (!jv.isMember(sfSigningPubKey.fieldName))
+                throw std::runtime_error("jsontx: tx must carry SigningPubKey");
+
+            // Hand the parser the u64 rather than teaching STUInt64 a second
+            // spelling; the ISO form only ever exists in the preimage.
+            std::optional<std::uint64_t> ms;
+            if (jv.isMember(sfTime.fieldName))
+            {
+                ms = jsontx_iso(jv[sfTime.fieldName].asString());
+                jv.removeMember(sfTime.fieldName);
+            }
+
+            STParsedJSONObject parsed("tx_json", jv);
+            if (!parsed.object)
+                throw std::runtime_error(
+                    parsed.error[jss::error_message].asString());
+            if (ms)
+                parsed.object->setFieldU64(sfTime, *ms);
+            parsed.object->setFieldVL(sfTxnSignature, *sig);
+            stTx = std::make_shared<STTx const>(std::move(*parsed.object));
+
+            // Round-trip the binary codec, then run the exact check a relaying
+            // node will run, so this path cannot accept anything the network
+            // would later reject.
+            Serializer s;
+            stTx->add(s);
+            SerialIter si(s.slice());
+            STTx const rt{si};
+            if (jsontx_verify(rt, diff) != raw)
+                throw std::runtime_error("jsontx: does not round-trip");
+        }
     }
     catch (std::exception& e)
     {
@@ -141,7 +208,9 @@ doSubmit(RPC::JsonContext& context)
     }
 
     {
-        if (!context.app.checkSigs())
+        // jsontx signs the plaintext preimage rather than the binary one, so
+        // the binary TxnSignature check is satisfied out of band above.
+        if (!context.app.checkSigs() || jsontx)
             forceValidity(
                 context.app.getHashRouter(),
                 stTx->getTransactionID(),
