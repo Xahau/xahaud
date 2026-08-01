@@ -989,6 +989,7 @@ struct URIToken_test : public beast::unit_test::suite
 
         // setup env
         env.fund(XRP(1000), alice, bob, gw);
+        env.close();
         env.trust(USD(100000), alice, bob);
         env.close();
         env(pay(gw, alice, USD(1000)));

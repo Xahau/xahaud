@@ -328,11 +328,7 @@ Remit::doApply()
         nativeRemit += accountReserve;
 
         // Create the account.
-        std::uint32_t const seqno{
-            sb.rules().enabled(featureXahauGenesis)
-                ? sb.info().parentCloseTime.time_since_epoch().count()
-                : sb.rules().enabled(featureDeletableAccounts) ? sb.seq()
-                                                               : 1};
+        std::uint32_t const seqno = newAccountSeqNo(sb);
 
         sleDstAcc = std::make_shared<SLE>(keylet::account(dstAccID));
         sleDstAcc->setAccountID(sfAccount, dstAccID);

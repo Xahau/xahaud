@@ -1266,6 +1266,24 @@ deleteAMMTrustLine(
     std::optional<AccountID> const& ammAccountID,
     beast::Journal j);
 
+[[nodiscard]] inline std::uint32_t
+newAccountSeqNo(ReadView const& view)
+{
+    auto const time = view.info().parentCloseTime.time_since_epoch().count();
+    return view.rules().enabled(featureXahauGenesis)
+        // TEQU:
+        // When creating accounts in GenesisLedger, we previously set
+        // the account Sequence to 0. However, since this conflicts with
+        // the PseudoAccount requirements, we are changing it to 1.
+        // There will be no impact on networks that are already running,
+        // and for future networks, there won't be any impact unless you
+        // create accounts via GenesisLedger.
+        // This specifically addresses an issue that comes up during
+        // unittests.
+        ? (time == 0 ? 1 : time)
+        : view.rules().enabled(featureDeletableAccounts) ? view.seq() : 1;
+}
+
 }  // namespace ripple
 
 #endif
