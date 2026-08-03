@@ -83,17 +83,6 @@ jobs:
                   "job_type": "coverage"
               },
               {
-                  "compiler_id": "clang-14-libstdcxx-gcc11",
-                  "compiler": "clang",
-                  "cc": "clang-14",
-                  "cxx": "clang++-14",
-                  "compiler_version": 14,
-                  "stdlib": "libstdcxx",
-                  "clang_gcc_toolchain": 11,
-                  "configuration": "Debug",
-                  "job_type": "build"
-              },
-              {
                   "compiler_id": "clang-16-libstdcxx-gcc13",
                   "compiler": "clang",
                   "cc": "clang-16",
@@ -132,7 +121,7 @@ jobs:
           minimal_matrix = [
               full_matrix[1],  # gcc-13 (middle-ground gcc)
               full_matrix[2],  # gcc-13 coverage
-              full_matrix[3]   # clang-14 (mature, stable clang)
+              full_matrix[3]   # clang-16 (mature, stable clang)
           ]
           
           # Determine which matrix to use based on the target branch
