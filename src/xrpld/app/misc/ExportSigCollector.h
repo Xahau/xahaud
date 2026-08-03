@@ -72,7 +72,6 @@ public:
             , contribution_(std::move(contribution))
         {
         }
-
     };
 
     struct Admission
