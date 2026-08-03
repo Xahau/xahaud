@@ -71,7 +71,6 @@ namespace {
 
 struct ResolvedExportShare
 {
-    std::shared_ptr<SLE const> latch;
     STTx exportSigningPayload;
 };
 
@@ -231,7 +230,7 @@ resolveExportShare(
 
     return {
         ExportShareResolutionStatus::resolved,
-        ResolvedExportShare{latch, std::move(signingPayload.value())}};
+        ResolvedExportShare{std::move(signingPayload.value())}};
 }
 
 ExportShare
@@ -2284,24 +2283,6 @@ ConsensusExtensions::makeActiveValidatorView(
     return std::make_shared<ActiveValidatorView const>(buildActiveValidatorView(
         buildActiveValidatorViewSource(sourceLedger),
         buildActiveValidatorViewFallback(app_)));
-}
-
-bool
-ConsensusExtensions::isActiveValidator(PublicKey const& validationKey) const
-{
-    return isActiveValidator(validationKey, *activeValidatorView());
-}
-
-bool
-ConsensusExtensions::isActiveValidator(
-    PublicKey const& validationKey,
-    ActiveValidatorView const& view) const
-{
-    auto const trustedMaster = app_.validators().getTrustedKey(validationKey);
-    if (!trustedMaster)
-        return false;
-
-    return view.containsMaster(*trustedMaster);
 }
 
 void

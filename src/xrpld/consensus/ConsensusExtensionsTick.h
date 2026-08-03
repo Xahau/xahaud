@@ -28,15 +28,6 @@ sidecarAlignedParticipants(std::size_t aligned, bool localCounts)
     return aligned + sidecarLocalContribution(localCounts);
 }
 
-inline std::size_t
-sidecarAlignedParticipants(
-    std::size_t aligned,
-    bool localIsMember,
-    bool localPublished)
-{
-    return aligned + sidecarLocalContribution(localIsMember, localPublished);
-}
-
 inline bool
 sidecarQuorumAligned(
     std::size_t aligned,
@@ -44,17 +35,6 @@ sidecarQuorumAligned(
     std::size_t threshold)
 {
     return sidecarAlignedParticipants(aligned, localCounts) >= threshold;
-}
-
-inline bool
-sidecarQuorumAligned(
-    std::size_t aligned,
-    bool localIsMember,
-    bool localPublished,
-    std::size_t threshold)
-{
-    return sidecarAlignedParticipants(aligned, localIsMember, localPublished) >=
-        threshold;
 }
 
 inline bool

@@ -236,12 +236,6 @@ public:
         return postValidationExportSigCollector_;
     }
 
-    ExportSigCollector const&
-    postValidationExportSigCollector() const
-    {
-        return postValidationExportSigCollector_;
-    }
-
     /** Admit one post-validation Export share from any transport.
 
         Structural parsing happens at the transport boundary. This method
@@ -444,14 +438,6 @@ public:
     ActiveValidatorViewPtr
     makeActiveValidatorView(
         std::shared_ptr<Ledger const> const& prevLedger) const;
-
-    bool
-    isActiveValidator(PublicKey const& validationKey) const;
-
-    bool
-    isActiveValidator(
-        PublicKey const& validationKey,
-        ActiveValidatorView const& view) const;
 
     template <class PeerPositions>
     void
@@ -656,12 +642,6 @@ public:
         return estState_ != EstablishState::ConvergingTx ||
             (exportEnabled() &&
              (exportSigGateStarted_ || hasPendingExportSigs()));
-    }
-
-    EstablishState
-    estState() const
-    {
-        return estState_;
     }
 
     void

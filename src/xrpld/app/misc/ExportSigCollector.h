@@ -73,18 +73,6 @@ public:
         {
         }
 
-    public:
-        uint256 const&
-        origin() const
-        {
-            return origin_;
-        }
-
-        Contribution const&
-        contribution() const
-        {
-            return contribution_;
-        }
     };
 
     struct Admission
