@@ -19,7 +19,7 @@
 
 #include <test/jtx/directory.h>
 
-#include <xrpld/ledger/Sandbox.h>
+#include <xrpl/ledger/Sandbox.h>
 
 namespace ripple::test::jtx {
 

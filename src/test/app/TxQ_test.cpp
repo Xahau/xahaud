@@ -761,11 +761,9 @@ public:
 
         BEAST_EXPECT(env.current()->info().seq == 6);
         // Fail to queue an item with a low LastLedgerSeq
-        env(noop(alice),
-            json(R"({"LastLedgerSequence":7})"),
-            ter(telCAN_NOT_QUEUE));
+        env(noop(alice), last_ledger_seq(7), ter(telCAN_NOT_QUEUE));
         // Queue an item with a sufficient LastLedgerSeq.
-        env(noop(alice), json(R"({"LastLedgerSequence":8})"), queued);
+        env(noop(alice), last_ledger_seq(8), queued);
 
         constexpr auto largeFeeMultiplier = 700;
         auto const largeFee = baseFee * largeFeeMultiplier;
@@ -2792,21 +2790,15 @@ public:
 
         auto const aliceSeq = env.seq(alice);
         BEAST_EXPECT(env.current()->info().seq == 3);
-        env(noop(alice),
-            seq(aliceSeq),
-            json(R"({"LastLedgerSequence":5})"),
-            ter(terQUEUED));
-        env(noop(alice),
-            seq(aliceSeq + 1),
-            json(R"({"LastLedgerSequence":5})"),
-            ter(terQUEUED));
+        env(noop(alice), seq(aliceSeq), last_ledger_seq(5), ter(terQUEUED));
+        env(noop(alice), seq(aliceSeq + 1), last_ledger_seq(5), ter(terQUEUED));
         env(noop(alice),
             seq(aliceSeq + 2),
-            json(R"({"LastLedgerSequence":10})"),
+            last_ledger_seq(10),
             ter(terQUEUED));
         env(noop(alice),
             seq(aliceSeq + 3),
-            json(R"({"LastLedgerSequence":11})"),
+            last_ledger_seq(11),
             ter(terQUEUED));
         checkMetrics(*this, env, 4, std::nullopt, 2, 1);
         auto const bobSeq = env.seq(bob);
@@ -2903,39 +2895,39 @@ public:
             ter(terQUEUED));
         env(noop(alice),
             seq(aliceSeq + 11),
-            json(R"({"LastLedgerSequence":11})"),
+            last_ledger_seq(11),
             ter(terQUEUED));
         env(noop(alice),
             seq(aliceSeq + 12),
-            json(R"({"LastLedgerSequence":11})"),
+            last_ledger_seq(11),
             ter(terQUEUED));
         env(noop(alice),
             seq(aliceSeq + 13),
-            json(R"({"LastLedgerSequence":11})"),
+            last_ledger_seq(11),
             ter(terQUEUED));
         env(noop(alice),
             seq(aliceSeq + 14),
-            json(R"({"LastLedgerSequence":11})"),
+            last_ledger_seq(11),
             ter(terQUEUED));
         env(noop(alice),
             seq(aliceSeq + 15),
-            json(R"({"LastLedgerSequence":11})"),
+            last_ledger_seq(11),
             ter(terQUEUED));
         env(noop(alice),
             seq(aliceSeq + 16),
-            json(R"({"LastLedgerSequence": 5})"),
+            last_ledger_seq(5),
             ter(terQUEUED));
         env(noop(alice),
             seq(aliceSeq + 17),
-            json(R"({"LastLedgerSequence": 5})"),
+            last_ledger_seq(5),
             ter(terQUEUED));
         env(noop(alice),
             seq(aliceSeq + 18),
-            json(R"({"LastLedgerSequence": 5})"),
+            last_ledger_seq(5),
             ter(terQUEUED));
         env(noop(alice),
             seq(aliceSeq + 19),
-            json(R"({"LastLedgerSequence":11})"),
+            last_ledger_seq(11),
             ter(terQUEUED));
         checkMetrics(*this, env, 10, std::nullopt, 2, 1);
 
@@ -3182,16 +3174,23 @@ public:
         env.fund(XRP(1000000), alice);
         env.close();
 
-        auto const withQueue =
-            R"({ "account": ")" + alice.human() + R"(", "queue": true })";
-        auto const withoutQueue = R"({ "account": ")" + alice.human() + R"("})";
-        auto const prevLedgerWithQueue = R"({ "account": ")" + alice.human() +
-            R"(", "queue": true, "ledger_index": 3 })";
+        Json::Value withQueue;
+        withQueue[jss::account] = alice.human();
+        withQueue[jss::queue] = true;
+
+        Json::Value withoutQueue;
+        withoutQueue[jss::account] = alice.human();
+
+        Json::Value prevLedgerWithQueue;
+        prevLedgerWithQueue[jss::account] = alice.human();
+        prevLedgerWithQueue[jss::queue] = true;
+        prevLedgerWithQueue[jss::ledger_index] = 3;
         BEAST_EXPECT(env.current()->info().seq > 3);
 
         {
             // account_info without the "queue" argument.
-            auto const info = env.rpc("json", "account_info", withoutQueue);
+            auto const info =
+                env.rpc("json", "account_info", to_string(withoutQueue));
             BEAST_EXPECT(
                 info.isMember(jss::result) &&
                 info[jss::result].isMember(jss::account_data));
@@ -3199,7 +3198,8 @@ public:
         }
         {
             // account_info with the "queue" argument.
-            auto const info = env.rpc("json", "account_info", withQueue);
+            auto const info =
+                env.rpc("json", "account_info", to_string(withQueue));
             BEAST_EXPECT(
                 info.isMember(jss::result) &&
                 info[jss::result].isMember(jss::account_data));
@@ -3221,7 +3221,8 @@ public:
         checkMetrics(*this, env, 0, 6, 4, 3);
 
         {
-            auto const info = env.rpc("json", "account_info", withQueue);
+            auto const info =
+                env.rpc("json", "account_info", to_string(withQueue));
             BEAST_EXPECT(
                 info.isMember(jss::result) &&
                 info[jss::result].isMember(jss::account_data));
@@ -3250,7 +3251,8 @@ public:
         checkMetrics(*this, env, 4, 6, 4, 3);
 
         {
-            auto const info = env.rpc("json", "account_info", withQueue);
+            auto const info =
+                env.rpc("json", "account_info", to_string(withQueue));
             BEAST_EXPECT(
                 info.isMember(jss::result) &&
                 info[jss::result].isMember(jss::account_data));
@@ -3313,7 +3315,8 @@ public:
         checkMetrics(*this, env, 1, 8, 5, 4);
 
         {
-            auto const info = env.rpc("json", "account_info", withQueue);
+            auto const info =
+                env.rpc("json", "account_info", to_string(withQueue));
             BEAST_EXPECT(
                 info.isMember(jss::result) &&
                 info[jss::result].isMember(jss::account_data));
@@ -3377,7 +3380,8 @@ public:
         checkMetrics(*this, env, 1, 8, 5, 4);
 
         {
-            auto const info = env.rpc("json", "account_info", withQueue);
+            auto const info =
+                env.rpc("json", "account_info", to_string(withQueue));
             BEAST_EXPECT(
                 info.isMember(jss::result) &&
                 info[jss::result].isMember(jss::account_data));
@@ -3445,7 +3449,7 @@ public:
 
         {
             auto const info =
-                env.rpc("json", "account_info", prevLedgerWithQueue);
+                env.rpc("json", "account_info", to_string(prevLedgerWithQueue));
             BEAST_EXPECT(
                 info.isMember(jss::result) &&
                 RPC::contains_error(info[jss::result]));
@@ -3457,7 +3461,8 @@ public:
         checkMetrics(*this, env, 0, 10, 0, 5);
 
         {
-            auto const info = env.rpc("json", "account_info", withQueue);
+            auto const info =
+                env.rpc("json", "account_info", to_string(withQueue));
             BEAST_EXPECT(
                 info.isMember(jss::result) &&
                 info[jss::result].isMember(jss::account_data));
@@ -4685,7 +4690,7 @@ public:
         env(noop(alice),
             seq(seqAlice++),
             fee(--feeDrops),
-            json(R"({"LastLedgerSequence": 7})"),
+            last_ledger_seq(7),
             ter(terQUEUED));
         env(noop(alice), seq(seqAlice++), fee(--feeDrops), ter(terQUEUED));
         env(noop(alice), seq(seqAlice++), fee(--feeDrops), ter(terQUEUED));
@@ -4695,7 +4700,7 @@ public:
         // The drop penalty works a little differently with tickets.
         env(noop(bob),
             ticket::use(bobTicketSeq + 0),
-            json(R"({"LastLedgerSequence": 7})"),
+            last_ledger_seq(7),
             ter(terQUEUED));
         env(noop(bob),
             ticket::use(bobTicketSeq + 1),

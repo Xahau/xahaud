@@ -2048,7 +2048,7 @@ class AMMClawback_test : public beast::unit_test::suite
     void
     run() override
     {
-        FeatureBitset const all{jtx::testable_amendments()};
+        FeatureBitset const all = jtx::testable_amendments();
 
         testInvalidRequest();
         testFeatureDisabled(all - featureAMMClawback);

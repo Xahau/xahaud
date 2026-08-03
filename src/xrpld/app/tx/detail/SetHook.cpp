@@ -23,11 +23,11 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/URIToken.h>
-#include <xrpld/ledger/ApplyView.h>
 
 #include <xrpl/basics/Log.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Guard.h>
+#include <xrpl/ledger/ApplyView.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STAccount.h>
@@ -729,28 +729,16 @@ SetHook::preclaim(ripple::PreclaimContext const& ctx)
     return tesSUCCESS;
 }
 
+std::uint32_t
+SetHook::getFlagsMask(PreflightContext const& ctx)
+{
+    // 0 means "Allow any flags"
+    return ctx.rules.enabled(fixInvalidTxFlags) ? tfUniversalMask : 0;
+}
+
 NotTEC
 SetHook::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureHooks))
-    {
-        JLOG(ctx.j.warn()) << "HookSet(" << hook::log::AMENDMENT_DISABLED
-                           << ")[" << HS_ACC()
-                           << "]: Hooks Amendment not enabled!";
-        return temDISABLED;
-    }
-
-    auto const ret = preflight1(ctx);
-    if (!isTesSuccess(ret))
-        return ret;
-
-    if (ctx.rules.enabled(fixInvalidTxFlags) &&
-        ctx.tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(ctx.j.trace()) << "SetHook: Invalid flags set.";
-        return temINVALID_FLAG;
-    }
-
     if (!ctx.tx.isFieldPresent(sfHooks))
     {
         JLOG(ctx.j.trace())
@@ -864,7 +852,7 @@ SetHook::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -895,10 +883,12 @@ SetHook::destroyNamespace(
     auto sleAccount = view.peek(keylet::account(account));
     if (!sleAccount)
     {
+        // LCOV_EXCL_START
         JLOG(ctx.j.fatal())
             << "HookSet(" << hook::log::NSDELETE_ACCOUNT << ")[" << HS_ACC()
             << "]: Account does not exist to destroy namespace from";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     // NSDELETE is an opportunistic deleter, following "delete if exists"
@@ -932,10 +922,12 @@ SetHook::destroyNamespace(
     // fall through to here means we must prune the entries from the directory
     if (!cdirFirst(view, dirKeylet.key, sleDirNode, uDirEntry, dirEntry))
     {
+        // LCOV_EXCL_START
         JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_DIRECTORY
                             << ")[" << HS_ACC() << "]: DeleteState "
                             << "directory missing ";
         return tefINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     bool const fixEnabled = ctx.rules.enabled(fixNSDelete);
@@ -961,6 +953,7 @@ SetHook::destroyNamespace(
         auto sleItem = view.peek(itemKeylet);
         if (!sleItem)
         {
+            // LCOV_EXCL_START
             // Directory node has an invalid index.  Bail out.
             JLOG(ctx.j.fatal())
                 << "HookSet(" << hook::log::NSDELETE_DIR_ENTRY << ")["
@@ -969,18 +962,21 @@ SetHook::destroyNamespace(
                 << "has index to object that is missing: "
                 << to_string(dirEntry);
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         auto nodeType = sleItem->getFieldU16(sfLedgerEntryType);
 
         if (nodeType != ltHOOK_STATE)
         {
+            // LCOV_EXCL_START
             JLOG(ctx.j.fatal())
                 << "HookSet(" << hook::log::NSDELETE_NONSTATE << ")["
                 << HS_ACC() << "]: DeleteState "
                 << "directory node in ledger " << view.seq() << " "
                 << "has non-ltHOOK_STATE entry " << to_string(dirEntry);
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         toDelete.push_back(uint256::fromVoid(itemKeylet.key.data()));
@@ -1005,12 +1001,14 @@ SetHook::destroyNamespace(
         auto const hint = (*sleItem)[sfOwnerNode];
         if (!view.dirRemove(dirKeylet, hint, itemKey, false))
         {
+            // LCOV_EXCL_START
             JLOG(ctx.j.fatal())
                 << "HookSet(" << hook::log::NSDELETE_DIR << ")[" << HS_ACC()
                 << "]: DeleteState "
                 << "directory node in ledger " << view.seq() << " "
                 << "could not be deleted.";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
         view.erase(sleItem);
     }
@@ -1018,20 +1016,24 @@ SetHook::destroyNamespace(
     if (view.rules().enabled(featureExtendedHookState) &&
         oldStateCount < toDelete.size())
     {
+        // LCOV_EXCL_START
         JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_COUNT << ")["
                             << HS_ACC() << "]: DeleteState "
                             << "stateCount less than zero (overflow)";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     uint32_t stateCount = oldStateCount - toDelete.size();
     if (stateCount > oldStateCount)
     {
+        // LCOV_EXCL_START
         JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_COUNT << ")["
                             << HS_ACC() << "]: DeleteState "
                             << "stateCount less than zero (overflow)";
 
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     if (stateCount == 0)
@@ -1045,10 +1047,12 @@ SetHook::destroyNamespace(
         if (view.rules().enabled(featureExtendedHookState) &&
             ownerCount < toDelete.size() * scale)
         {
+            // LCOV_EXCL_START
             JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_COUNT
                                 << ")[" << HS_ACC() << "]: DeleteState "
                                 << "OwnerCount less than zero (overflow)";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
         adjustOwnerCount(view, sleAccount, -toDelete.size() * scale, ctx.j);
     }
@@ -1217,11 +1221,13 @@ updateHookParameters(
     int parameterCount = (int)(parameters.size());
     if (parameterCount > 16)
     {
+        // LCOV_EXCL_START
         JLOG(ctx.j.fatal())
             << "HookSet(" << hook::log::HOOK_PARAMS_COUNT << ")[" << HS_ACC()
             << "]: Malformed transaction: Txn would result in too many "
                "parameters on hook";
         return tecINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     STArray newParameters{
@@ -1238,11 +1244,13 @@ updateHookParameters(
         if (parameterName.size() > paramKeyMax ||
             (*parameterValue).size() > paramValueMax)
         {
+            // LCOV_EXCL_START
             JLOG(ctx.j.fatal())
                 << "HookSet(" << hook::log::HOOK_PARAM_SIZE << ")[" << HS_ACC()
                 << "]: Malformed transaction: Txn would result in a too large "
                    "parameter name/value on hook";
             return tecINTERNAL;
+            // LCOV_EXCL_STOP
         }
 
         STObject param{sfHookParameter};
@@ -1527,10 +1535,12 @@ SetHook::setHook()
         // logically impossible for the operation to not be NOOP
         if (!hookSetObj && op != hsoNOOP)
         {
+            // LCOV_EXCL_START
             JLOG(ctx.j.warn())
                 << "HookSet(" << hook::log::INTERNAL_ERROR << ")[" << HS_ACC()
                 << "]: Logic error. !hookSetObj && op != hsoNOOP";
             return tecINTERNAL;
+            // LCOV_EXCL_STOP
         }
 
         switch (op)
@@ -1759,12 +1769,14 @@ SetHook::setHook()
 
                 if (wasmBytes.size() > blobMax)
                 {
+                    // LCOV_EXCL_START
                     JLOG(ctx.j.warn())
                         << "HookSet(" << hook::log::WASM_TOO_BIG << ")["
                         << HS_ACC()
                         << "]: Malformed transaction: SetHook operation would "
                            "create blob larger than max";
                     return tecINTERNAL;
+                    // LCOV_EXCL_STOP
                 }
 
                 createHookHash = ripple::sha512Half_s(
@@ -1802,6 +1814,7 @@ SetHook::setHook()
                         // if invalid return an error
                         if (std::holds_alternative<bool>(valid))
                         {
+                            // LCOV_EXCL_START
                             if (!std::get<bool>(valid))
                             {
                                 JLOG(ctx.j.warn())
@@ -1813,8 +1826,11 @@ SetHook::setHook()
                                 return tecINTERNAL;
                             }
                             else
+                            {
                                 UNREACHABLE(
                                     "SetHook::hsoCREATE : should never happen");
+                            }
+                            // LCOV_EXCL_STOP
                         }
 
                         // otherwise assign instruction counts
@@ -1823,12 +1839,14 @@ SetHook::setHook()
                     }
                     catch (std::exception& e)
                     {
+                        // LCOV_EXCL_START
                         JLOG(ctx.j.warn())
                             << "HookSet(" << hook::log::WASM_INVALID << ")["
                             << HS_ACC()
                             << "]: Malformed transaction: SetHook operation "
                                "would create invalid hook wasm";
                         return tecINTERNAL;
+                        // LCOV_EXCL_STOP
                     }
 
                     // decrement the hook definition and mark it for deletion if
@@ -2099,7 +2117,7 @@ SetHook::setHook()
             (int64_t)(accountSLE->getFieldU32(sfOwnerCount)) + reserveDelta;
 
         if (newOwnerCount < 0 || newOwnerCount > 0xFFFFFFFFUL)
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
 
         auto const requiredDrops =
             view().fees().accountReserve((uint32_t)(newOwnerCount));
@@ -2165,10 +2183,12 @@ SetHook::setHook()
             if (!view().dirRemove(
                     keylet::ownerDir(account_), hint, hookKeylet.key, false))
             {
+                // LCOV_EXCL_START
                 JLOG(j_.fatal())
                     << "HookSet(" << hook::log::HOOK_DELETE << ")[" << HS_ACC()
                     << "]: Unable to delete ltHOOK from owner";
                 return tefBAD_LEDGER;
+                // LCOV_EXCL_STOP
             }
             view().erase(oldHookSLE);
         }
@@ -2197,7 +2217,7 @@ SetHook::setHook()
                 << (page ? "success" : "failure");
 
             if (!page)
-                return tecDIR_FULL;
+                return tecDIR_FULL;  // LCOV_EXCL_LINE
 
             newHookSLE->setFieldU64(sfOwnerNode, *page);
             view().insert(newHookSLE);

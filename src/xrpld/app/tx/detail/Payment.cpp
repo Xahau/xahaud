@@ -17,14 +17,14 @@
 */
 //==============================================================================
 
-#include <xrpld/app/misc/CredentialHelpers.h>
 #include <xrpld/app/misc/DelegateUtils.h>
 #include <xrpld/app/misc/PermissionedDEXHelpers.h>
 #include <xrpld/app/paths/RippleCalc.h>
 #include <xrpld/app/tx/detail/Payment.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/ledger/CredentialHelpers.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/TxFlags.h>
@@ -65,20 +65,33 @@ getMaxSourceAmount(
             dstAmount < beast::zero);
 }
 
-NotTEC
-Payment::preflight(PreflightContext const& ctx)
+bool
+Payment::checkExtraFeatures(PreflightContext const& ctx)
 {
     if (ctx.tx.isFieldPresent(sfCredentialIDs) &&
         !ctx.rules.enabled(featureCredentials))
-        return temDISABLED;
-
+        return false;
     if (ctx.tx.isFieldPresent(sfDomainID) &&
         !ctx.rules.enabled(featurePermissionedDEX))
-        return temDISABLED;
+        return false;
 
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
+    return true;
+}
 
+std::uint32_t
+Payment::getFlagsMask(PreflightContext const& ctx)
+{
+    auto& tx = ctx.tx;
+
+    STAmount const dstAmount(tx.getFieldAmount(sfAmount));
+    bool const mptDirect = dstAmount.holds<MPTIssue>();
+
+    return mptDirect ? tfMPTPaymentMask : tfPaymentMask;
+}
+
+NotTEC
+Payment::preflight(PreflightContext const& ctx)
+{
     auto& tx = ctx.tx;
     auto& j = ctx.j;
 
@@ -89,14 +102,6 @@ Payment::preflight(PreflightContext const& ctx)
         return temDISABLED;
 
     std::uint32_t const txFlags = tx.getFlags();
-
-    std::uint32_t paymentMask = mptDirect ? tfMPTPaymentMask : tfPaymentMask;
-
-    if (txFlags & paymentMask)
-    {
-        JLOG(j.trace()) << "Malformed transaction: Invalid flags set.";
-        return temINVALID_FLAG;
-    }
 
     if (mptDirect && ctx.tx.isFieldPresent(sfPaths))
         return temMALFORMED;
@@ -242,7 +247,7 @@ Payment::preflight(PreflightContext const& ctx)
         !isTesSuccess(err))
         return err;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -265,8 +270,33 @@ Payment::checkPermission(ReadView const& view, STTx const& tx)
     loadGranularPermission(sle, ttPAYMENT, granularPermissions);
 
     auto const& dstAmount = tx.getFieldAmount(sfAmount);
-    auto const& amountIssue = dstAmount.issue();
+    // post-amendment: disallow cross currency payments for PaymentMint and
+    // PaymentBurn
+    if (view.rules().enabled(fixDelegateV1_1))
+    {
+        auto const& amountAsset = dstAmount.asset();
+        if (tx.isFieldPresent(sfSendMax) &&
+            tx[sfSendMax].asset() != amountAsset)
+            return tecNO_DELEGATE_PERMISSION;
 
+        if (granularPermissions.contains(PaymentMint) && !isXRP(amountAsset) &&
+            amountAsset.getIssuer() == tx[sfAccount])
+            return tesSUCCESS;
+
+        if (granularPermissions.contains(PaymentBurn) && !isXRP(amountAsset) &&
+            amountAsset.getIssuer() == tx[sfDestination])
+            return tesSUCCESS;
+
+        return tecNO_DELEGATE_PERMISSION;
+    }
+
+    // Calling dstAmount.issue() in the next line would throw if it holds MPT.
+    // That exception would be caught in preclaim and returned as tefEXCEPTION.
+    // This check is just a cleaner, more explicit way to get the same result.
+    if (dstAmount.holds<MPTIssue>())
+        return tefEXCEPTION;
+
+    auto const& amountIssue = dstAmount.issue();
     if (granularPermissions.contains(PaymentMint) && !isXRP(amountIssue) &&
         amountIssue.account == tx[sfAccount])
         return tesSUCCESS;
@@ -406,12 +436,23 @@ Payment::doApply()
 
     if (!sleDst)
     {
+        auto const timeCount =
+            view().info().parentCloseTime.time_since_epoch().count();
         std::uint32_t const seqno{
             view().rules().enabled(featureXahauGenesis)
-                ? view().info().parentCloseTime.time_since_epoch().count()
+                // TEQU:
+                // When creating accounts in GenesisLedger, we previously set
+                // the account Sequence to 0. However, since this conflicts with
+                // the PseudoAccount requirements, we are changing it to 1.
+                // There will be no impact on networks that are already running,
+                // and for future networks, there won't be any impact unless you
+                // create accounts via GenesisLedger.
+                // This specifically addresses an issue that comes up during
+                // unittests.
+                ? (timeCount == 0 ? 1 : timeCount)
                 : view().rules().enabled(featureDeletableAccounts)
-                ? view().seq()
-                : 1};
+                    ? view().seq()
+                    : 1};
 
         // Create the account.
         sleDst = std::make_shared<SLE>(k);
@@ -618,7 +659,7 @@ Payment::doApply()
 
     auto const sleSrc = view().peek(keylet::account(account_));
     if (!sleSrc)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     // ownerCount is the number of entries in this ledger for this
     // account that require a reserve.

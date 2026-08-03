@@ -17,12 +17,12 @@
 */
 //==============================================================================
 
-#include <xrpld/app/misc/CredentialHelpers.h>
 #include <xrpld/app/tx/detail/Credentials.h>
-#include <xrpld/ledger/ApplyView.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/ledger/ApplyView.h>
+#include <xrpl/ledger/CredentialHelpers.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
@@ -51,23 +51,8 @@ using namespace credentials;
 NotTEC
 CredentialCreate::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureCredentials))
-    {
-        JLOG(ctx.j.trace()) << "featureCredentials is disabled.";
-        return temDISABLED;
-    }
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto const& tx = ctx.tx;
     auto& j = ctx.j;
-
-    if (tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(ctx.j.debug()) << "CredentialCreate: invalid flags.";
-        return temINVALID_FLAG;
-    }
 
     if (!tx[sfSubject])
     {
@@ -90,7 +75,7 @@ CredentialCreate::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -125,7 +110,7 @@ CredentialCreate::doApply()
 
     auto const sleCred = std::make_shared<SLE>(credentialKey);
     if (!sleCred)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     auto const optExp = ctx_.tx[~sfExpiration];
     if (optExp)
@@ -145,7 +130,7 @@ CredentialCreate::doApply()
 
     auto const sleIssuer = view().peek(keylet::account(account_));
     if (!sleIssuer)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     {
         STAmount const reserve{view().fees().accountReserve(
@@ -170,7 +155,7 @@ CredentialCreate::doApply()
                          << to_string(credentialKey.key) << ": "
                          << (page ? "success" : "failure");
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
         sleCred->setFieldU64(sfIssuerNode, *page);
 
         adjustOwnerCount(view(), sleIssuer, 1, j_);
@@ -190,7 +175,7 @@ CredentialCreate::doApply()
                          << to_string(credentialKey.key) << ": "
                          << (page ? "success" : "failure");
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
         sleCred->setFieldU64(sfSubjectNode, *page);
         view().update(view().peek(keylet::account(subject)));
     }
@@ -204,21 +189,6 @@ CredentialCreate::doApply()
 NotTEC
 CredentialDelete::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureCredentials))
-    {
-        JLOG(ctx.j.trace()) << "featureCredentials is disabled.";
-        return temDISABLED;
-    }
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(ctx.j.debug()) << "CredentialDelete: invalid flags.";
-        return temINVALID_FLAG;
-    }
-
     auto const subject = ctx.tx[~sfSubject];
     auto const issuer = ctx.tx[~sfIssuer];
 
@@ -246,7 +216,7 @@ CredentialDelete::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -273,7 +243,7 @@ CredentialDelete::doApply()
     auto const sleCred =
         view().peek(keylet::credential(subject, issuer, credType));
     if (!sleCred)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     if ((subject != account_) && (issuer != account_) &&
         !checkExpired(sleCred, ctx_.view().info().parentCloseTime))
@@ -290,21 +260,6 @@ CredentialDelete::doApply()
 NotTEC
 CredentialAccept::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureCredentials))
-    {
-        JLOG(ctx.j.trace()) << "featureCredentials is disabled.";
-        return temDISABLED;
-    }
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(ctx.j.debug()) << "CredentialAccept: invalid flags.";
-        return temINVALID_FLAG;
-    }
-
     if (!ctx.tx[sfIssuer])
     {
         JLOG(ctx.j.trace()) << "Malformed transaction: Issuer field zeroed.";
@@ -319,7 +274,7 @@ CredentialAccept::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -365,7 +320,7 @@ CredentialAccept::doApply()
     auto const sleIssuer = view().peek(keylet::account(issuer));
 
     if (!sleSubject || !sleIssuer)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     {
         STAmount const reserve{view().fees().accountReserve(

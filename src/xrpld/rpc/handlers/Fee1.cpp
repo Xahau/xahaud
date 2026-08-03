@@ -27,7 +27,7 @@
 
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/protocol/ErrorCodes.h>
-#include <xrpl/protocol/FeeUnits.h>
+#include <xrpl/protocol/Units.h>
 namespace ripple {
 
 inline std::optional<XRPAmount>
@@ -81,9 +81,11 @@ doFee(RPC::JsonContext& context)
         return jvResult;
     }
 
+    // LCOV_EXCL_START
     UNREACHABLE("ripple::doFee : invalid result type");
     RPC::inject_error(rpcINTERNAL, context.params);
     return context.params;
+    // LCOV_EXCL_STOP
 }
 
 }  // namespace ripple

@@ -19,9 +19,9 @@
 
 #include <xrpld/app/tx/detail/Cron.h>
 #include <xrpld/core/Config.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
@@ -37,16 +37,16 @@ Cron::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, TxConsequences::normal};
 }
 
+template <>
 NotTEC
-Cron::preflight(PreflightContext const& ctx)
+Transactor::invokePreflight<Cron>(PreflightContext const& ctx)
 {
     if (!ctx.rules.enabled(featureCron))
         return temDISABLED;
 
-    auto const ret = preflight0(ctx);
-    if (!isTesSuccess(ret))
+    // 0 means "Allow any flags"
+    if (auto const ret = preflight0(ctx, 0))
         return ret;
-
     auto account = ctx.tx.getAccountID(sfAccount);
     if (account != beast::zero)
     {
@@ -99,8 +99,10 @@ Cron::doApply()
         if (auto const seq = tx.getFieldU32(sfLedgerSequence);
             seq != view.info().seq)
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn()) << "Cron: wrong ledger seq=" << seq;
             return tefFAILURE;
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -116,8 +118,10 @@ Cron::doApply()
 
     if (!sle->isFieldPresent(sfCron))
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "Cron: sfCron missing from account " << id;
         return tefINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     uint256 ptr = sle->getFieldH256(sfCron);
@@ -137,7 +141,7 @@ Cron::doApply()
     // do all this sanity checking before we modify the ledger...
     uint32_t afterTime = lastStartTime + delay;
     if (afterTime < lastStartTime)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     // in all circumstances the Cron object is deleted...
     // if there are further crons to do then a new one is created at the next
@@ -145,7 +149,7 @@ Cron::doApply()
 
     if (!view.dirRemove(
             keylet::ownerDir(id), (*sleCron)[sfOwnerNode], klOld, false))
-        return tefBAD_LEDGER;
+        return tefBAD_LEDGER;  // LCOV_EXCL_LINE
 
     view.erase(sleCron);
 
@@ -167,7 +171,7 @@ Cron::doApply()
     auto const page =
         view.dirInsert(keylet::ownerDir(id), klCron, describeOwnerDir(id));
     if (!page)
-        return tecDIR_FULL;
+        return tecDIR_FULL;  // LCOV_EXCL_LINE
 
     sleCron = std::make_shared<SLE>(klCron);
 

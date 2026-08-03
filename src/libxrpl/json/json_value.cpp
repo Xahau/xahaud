@@ -24,6 +24,7 @@
 #include <xrpl/json/json_value.h>
 #include <xrpl/json/json_writer.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -32,9 +33,6 @@
 namespace Json {
 
 Value const Value::null;
-Int const Value::minInt = Int(~(UInt(-1) / 2));
-Int const Value::maxInt = Int(UInt(-1) / 2);
-UInt const Value::maxUInt = UInt(-1);
 
 class DefaultValueAllocator : public ValueAllocator
 {
@@ -212,8 +210,10 @@ Value::Value(ValueType type) : type_(type), allocated_(0)
             value_.bool_ = false;
             break;
 
+        // LCOV_EXCL_START
         default:
             UNREACHABLE("Json::Value::Value(ValueType) : invalid type");
+            // LCOV_EXCL_STOP
     }
 }
 
@@ -289,8 +289,10 @@ Value::Value(Value const& other) : type_(other.type_)
             value_.map_ = new ObjectValues(*other.value_.map_);
             break;
 
+        // LCOV_EXCL_START
         default:
             UNREACHABLE("Json::Value::Value(Value const&) : invalid type");
+            // LCOV_EXCL_STOP
     }
 }
 
@@ -317,8 +319,10 @@ Value::~Value()
                 delete value_.map_;
             break;
 
+        // LCOV_EXCL_START
         default:
             UNREACHABLE("Json::Value::~Value : invalid type");
+            // LCOV_EXCL_STOP
     }
 }
 
@@ -418,8 +422,10 @@ operator<(Value const& x, Value const& y)
             return *x.value_.map_ < *y.value_.map_;
         }
 
+            // LCOV_EXCL_START
         default:
             UNREACHABLE("Json::operator<(Value, Value) : invalid type");
+            // LCOV_EXCL_STOP
     }
 
     return 0;  // unreachable
@@ -464,8 +470,10 @@ operator==(Value const& x, Value const& y)
             return x.value_.map_->size() == y.value_.map_->size() &&
                 *x.value_.map_ == *y.value_.map_;
 
+        // LCOV_EXCL_START
         default:
             UNREACHABLE("Json::operator==(Value, Value) : invalid type");
+            // LCOV_EXCL_STOP
     }
 
     return 0;  // unreachable
@@ -505,8 +513,10 @@ Value::asString() const
         case objectValue:
             JSON_ASSERT_MESSAGE(false, "Type is not convertible to string");
 
+            // LCOV_EXCL_START
         default:
             UNREACHABLE("Json::Value::asString : invalid type");
+            // LCOV_EXCL_STOP
     }
 
     return "";  // unreachable
@@ -547,8 +557,73 @@ Value::asInt() const
         case objectValue:
             JSON_ASSERT_MESSAGE(false, "Type is not convertible to int");
 
+            // LCOV_EXCL_START
         default:
             UNREACHABLE("Json::Value::asInt : invalid type");
+            // LCOV_EXCL_STOP
+    }
+
+    return 0;  // unreachable;
+}
+
+UInt
+Value::asAbsUInt() const
+{
+    switch (type_)
+    {
+        case nullValue:
+            return 0;
+
+        case intValue: {
+            // Doing this conversion through int64 avoids overflow error for
+            // value_.int_ = -1 * 2^31 i.e. numeric_limits<int>::min().
+            if (value_.int_ < 0)
+                return static_cast<std::int64_t>(value_.int_) * -1;
+            return value_.int_;
+        }
+
+        case uintValue:
+            return value_.uint_;
+
+        case realValue: {
+            if (value_.real_ < 0)
+            {
+                JSON_ASSERT_MESSAGE(
+                    -1 * value_.real_ <= maxUInt,
+                    "Real out of unsigned integer range");
+                return UInt(-1 * value_.real_);
+            }
+            JSON_ASSERT_MESSAGE(
+                value_.real_ <= maxUInt, "Real out of unsigned integer range");
+            return UInt(value_.real_);
+        }
+
+        case booleanValue:
+            return value_.bool_ ? 1 : 0;
+
+        case stringValue: {
+            char const* const str{value_.string_ ? value_.string_ : ""};
+            auto const temp = beast::lexicalCastThrow<std::int64_t>(str);
+            if (temp < 0)
+            {
+                JSON_ASSERT_MESSAGE(
+                    -1 * temp <= maxUInt,
+                    "String out of unsigned integer range");
+                return -1 * temp;
+            }
+            JSON_ASSERT_MESSAGE(
+                temp <= maxUInt, "String out of unsigned integer range");
+            return temp;
+        }
+
+        case arrayValue:
+        case objectValue:
+            JSON_ASSERT_MESSAGE(false, "Type is not convertible to int");
+
+            // LCOV_EXCL_START
+        default:
+            UNREACHABLE("Json::Value::asAbsInt : invalid type");
+            // LCOV_EXCL_STOP
     }
 
     return 0;  // unreachable;
@@ -589,8 +664,10 @@ Value::asUInt() const
         case objectValue:
             JSON_ASSERT_MESSAGE(false, "Type is not convertible to uint");
 
+            // LCOV_EXCL_START
         default:
             UNREACHABLE("Json::Value::asUInt : invalid type");
+            // LCOV_EXCL_STOP
     }
 
     return 0;  // unreachable;
@@ -621,8 +698,10 @@ Value::asDouble() const
         case objectValue:
             JSON_ASSERT_MESSAGE(false, "Type is not convertible to double");
 
+            // LCOV_EXCL_START
         default:
             UNREACHABLE("Json::Value::asDouble : invalid type");
+            // LCOV_EXCL_STOP
     }
 
     return 0;  // unreachable;
@@ -653,8 +732,10 @@ Value::asBool() const
         case objectValue:
             return value_.map_->size() != 0;
 
+            // LCOV_EXCL_START
         default:
             UNREACHABLE("Json::Value::asBool : invalid type");
+            // LCOV_EXCL_STOP
     }
 
     return false;  // unreachable;
@@ -685,7 +766,9 @@ Value::isConvertibleTo(ValueType other) const
                 (other == intValue && value_.real_ >= minInt &&
                  value_.real_ <= maxInt) ||
                 (other == uintValue && value_.real_ >= 0 &&
-                 value_.real_ <= maxUInt) ||
+                 value_.real_ <= maxUInt &&
+                 std::fabs(round(value_.real_) - value_.real_) <
+                     std::numeric_limits<double>::epsilon()) ||
                 other == realValue || other == stringValue ||
                 other == booleanValue;
 
@@ -707,8 +790,10 @@ Value::isConvertibleTo(ValueType other) const
             return other == objectValue ||
                 (other == nullValue && value_.map_->size() == 0);
 
+        // LCOV_EXCL_START
         default:
             UNREACHABLE("Json::Value::isConvertible : invalid type");
+            // LCOV_EXCL_STOP
     }
 
     return false;  // unreachable;
@@ -741,8 +826,10 @@ Value::size() const
         case objectValue:
             return Int(value_.map_->size());
 
+            // LCOV_EXCL_START
         default:
             UNREACHABLE("Json::Value::size : invalid type");
+            // LCOV_EXCL_STOP
     }
 
     return 0;  // unreachable;

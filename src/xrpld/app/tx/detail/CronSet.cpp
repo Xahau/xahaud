@@ -18,9 +18,9 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/CronSet.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
@@ -34,23 +34,17 @@ CronSet::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, TxConsequences::normal};
 }
 
+uint32_t
+CronSet::getFlagsMask(PreflightContext const& ctx)
+{
+    return tfCronSetMask;
+}
+
 NotTEC
 CronSet::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureCron))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto& tx = ctx.tx;
     auto& j = ctx.j;
-
-    if (tx.getFlags() & tfCronSetMask)
-    {
-        JLOG(j.warn()) << "CronSet: Invalid flags set.";
-        return temINVALID_FLAG;
-    }
 
     // DelaySeconds (D), RepeatCount (R), StartTime (S)
     // DRS - Set Cron with Delay and Repeat and StartTime
@@ -130,7 +124,7 @@ CronSet::preflight(PreflightContext const& ctx)
         }
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -194,7 +188,7 @@ CronSet::doApply()
     AccountID const& id = tx.getAccountID(sfAccount);
     auto sle = view.peek(keylet::account(id));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     // in all cases whatsoever, this transaction will delete an existing
     // old cron object and return the owner reserve to the owner.
@@ -206,22 +200,28 @@ CronSet::doApply()
         auto sleCron = view.peek(klOld);
         if (!sleCron)
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn()) << "CronSet: Cron object didn't exist.";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         if (safe_cast<LedgerEntryType>(
                 sleCron->getFieldU16(sfLedgerEntryType)) != ltCRON)
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn()) << "CronSet: sfCron pointed to non-cron object!!";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         if (!view.dirRemove(
                 keylet::ownerDir(id), (*sleCron)[sfOwnerNode], klOld, false))
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn()) << "CronSet: Ownerdir bad. " << id;
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         view.erase(sleCron);
@@ -257,7 +257,7 @@ CronSet::doApply()
     auto const page =
         view.dirInsert(keylet::ownerDir(id), klCron, describeOwnerDir(id));
     if (!page)
-        return tecDIR_FULL;
+        return tecDIR_FULL;  // LCOV_EXCL_LINE
 
     sleCron->setFieldU64(sfOwnerNode, *page);
 

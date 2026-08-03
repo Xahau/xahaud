@@ -197,14 +197,16 @@ OverlayImpl::onHandoff(
     if (consumer.disconnect(journal))
         return handoff;
 
-    auto const slot = m_peerFinder->new_inbound_slot(
+    auto const [slot, result] = m_peerFinder->new_inbound_slot(
         beast::IPAddressConversion::from_asio(local_endpoint),
         beast::IPAddressConversion::from_asio(remote_endpoint));
 
     if (slot == nullptr)
     {
-        // self-connect, close
+        // connection refused either IP limit exceeded or self-connect
         handoff.moved = false;
+        JLOG(journal.debug())
+            << "Peer " << remote_endpoint << " refused, " << to_string(result);
         return handoff;
     }
 
@@ -404,10 +406,11 @@ OverlayImpl::connect(beast::IP::Endpoint const& remote_endpoint)
         return;
     }
 
-    auto const slot = peerFinder().new_outbound_slot(remote_endpoint);
+    auto const [slot, result] = peerFinder().new_outbound_slot(remote_endpoint);
     if (slot == nullptr)
     {
-        JLOG(journal_.debug()) << "Connect: No slot for " << remote_endpoint;
+        JLOG(journal_.debug()) << "Connect: No slot for " << remote_endpoint
+                               << ": " << to_string(result);
         return;
     }
 
@@ -1220,7 +1223,16 @@ OverlayImpl::relay(
     {
         auto& txn = tx->get();
         SerialIter sit(makeSlice(txn.rawtransaction()));
-        relay = !isPseudoTx(STTx{sit});
+        try
+        {
+            relay = !isPseudoTx(STTx{sit});
+        }
+        catch (std::exception const&)
+        {
+            // Could not construct STTx, not relaying
+            JLOG(journal_.debug()) << "Could not construct STTx: " << hash;
+            return;
+        }
     }
 
     Overlay::PeerSequence peers = {};

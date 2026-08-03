@@ -527,6 +527,7 @@ LEDGER_ENTRY(ltMPTOKEN_ISSUANCE, 0x007e, MPTokenIssuance, mpt_issuance, ({
     {sfPreviousTxnID,            soeREQUIRED},
     {sfPreviousTxnLgrSeq,        soeREQUIRED},
     {sfDomainID,                 soeOPTIONAL},
+    {sfMutableFlags,             soeDEFAULT},
 }))
 
 /** A ledger object which tracks MPToken
@@ -566,7 +567,7 @@ LEDGER_ENTRY(ltCREDENTIAL, 0x0081, Credential, credential, ({
     {sfExpiration,           soeOPTIONAL},
     {sfURI,                  soeOPTIONAL},
     {sfIssuerNode,           soeREQUIRED},
-    {sfSubjectNode,          soeREQUIRED},
+    {sfSubjectNode,          soeOPTIONAL},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
@@ -633,4 +634,3 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
 
 #undef EXPAND
 #undef LEDGER_ENTRY_DUPLICATE
-

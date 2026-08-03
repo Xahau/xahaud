@@ -35,13 +35,13 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         return {};
 
     if (!tx.isFieldPresent(sfAccount))
-        return {};
+        return {};  // LCOV_EXCL_LINE
 
     std::optional<AccountID> destAcc = tx.at(~sfDestination);
     std::optional<AccountID> otxnAcc = tx.at(~sfAccount);
 
     if (!otxnAcc)
-        return {};
+        return {};  // LCOV_EXCL_LINE
 
     TxType const& tt = tx.getTxnType();
 
@@ -105,7 +105,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                     auto const ut = rv.read(id);
                     if (!ut ||
                         ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
-                        continue;
+                        continue;  // LCOV_EXCL_LINE
 
                     auto const owner = ut->getAccountID(sfOwner);
                     auto const issuer = ut->getAccountID(sfIssuer);
@@ -134,7 +134,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             auto const ut = rv.read(id);
             if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
-                return {};
+                return {};  // LCOV_EXCL_LINE
 
             auto const owner = ut->getAccountID(sfOwner);
             auto const issuer = ut->getAccountID(sfIssuer);
@@ -187,7 +187,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             auto const ut = rv.read(id);
             if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
-                return {};
+                return {};  // LCOV_EXCL_LINE
 
             auto const owner = ut->getAccountID(sfOwner);
 
@@ -224,7 +224,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             auto const ut = rv.read(id);
             if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
-                return {};
+                return {};  // LCOV_EXCL_LINE
 
             if (ut->isFieldPresent(sfDestination))
             {
@@ -241,7 +241,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             auto const ut = rv.read(id);
             if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
-                return {};
+                return {};  // LCOV_EXCL_LINE
 
             auto const owner = ut->getAccountID(sfOwner);
             auto const issuer = ut->getAccountID(sfIssuer);
@@ -318,7 +318,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttNFTOKEN_CANCEL_OFFER: {
             if (!tx.isFieldPresent(sfNFTokenOffers))
-                return {};
+                return {};  // LCOV_EXCL_LINE
 
             auto const& offerVec = tx.getFieldV256(sfNFTokenOffers);
             for (auto const& offerID : offerVec)
@@ -377,7 +377,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttTRUST_SET: {
             if (!tx.isFieldPresent(sfLimitAmount))
-                return {};
+                return {};  // LCOV_EXCL_LINE
 
             auto const& lim = tx.getFieldAmount(sfLimitAmount);
             AccountID const& issuer = lim.getIssuer();
@@ -602,8 +602,10 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttUNL_REPORT: {
             break;
         }
+        // LCOV_EXCL_START
         default: {
             UNREACHABLE("Unknown transaction type");
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -881,7 +883,7 @@ hook::getHookOn(
         return def->getFieldH256(field);
     if (def->isFieldPresent(sfHookOn))
         return def->getFieldH256(sfHookOn);
-    return uint256{0};
+    return uint256{0};  // LCOV_EXCL_LINE
 }
 
 // Update HookState ledger objects for the hook... only called after accept()
@@ -900,7 +902,7 @@ hook::setHookState(
     auto const sleAccount = view.peek(ripple::keylet::account(acc));
 
     if (!sleAccount)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     // if the blob is too large don't set it
     uint16_t const hookStateScale = sleAccount->isFieldPresent(sfHookStateScale)
@@ -928,13 +930,13 @@ hook::setHookState(
                                 // defined as success
 
         if (!view.peek(hookStateDirKeylet))
-            return tefBAD_LEDGER;
+            return tefBAD_LEDGER;  // LCOV_EXCL_LINE
 
         auto const hint = (*hookState)[sfOwnerNode];
         // Remove the node from the namespace directory
         if (!view.dirRemove(
                 hookStateDirKeylet, hint, hookStateKeylet.key, false))
-            return tefBAD_LEDGER;
+            return tefBAD_LEDGER;  // LCOV_EXCL_LINE
 
         bool nsDestroyed = !view.peek(hookStateDirKeylet);
 
@@ -1013,7 +1015,7 @@ hook::setHookState(
         auto const page = view.dirInsert(
             hookStateDirKeylet, hookStateKeylet.key, describeOwnerDir(acc));
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
 
         hookState->setFieldU64(sfOwnerNode, *page);
 
@@ -1344,7 +1346,8 @@ DEFINE_HOOK_FUNCTION(
     auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
     if (!sleAccount && view.rules().enabled(featureExtendedHookState))
         // should return hook_api::hook_return_code
-        return static_cast<hook_api::hook_return_code>(tefINTERNAL);
+        return static_cast<hook_api::hook_return_code>(
+            tefINTERNAL);  // LCOV_EXCL_LINE
 
     uint16_t const hookStateScale = sleAccount->isFieldPresent(sfHookStateScale)
         ? sleAccount->getFieldU16(sfHookStateScale)
@@ -1369,11 +1372,12 @@ DEFINE_HOOK_FUNCTION(
         auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
         if (!sleAccount)
             // should return hook_api::hook_return_code
-            return static_cast<hook_api::hook_return_code>(tefINTERNAL);
+            return static_cast<hook_api::hook_return_code>(
+                tefINTERNAL);  // LCOV_EXCL_LINE
     }
 
     if (!key)
-        return INTERNAL_ERROR;
+        return INTERNAL_ERROR;  // LCOV_EXCL_LINE
 
     ripple::Blob data{memory + read_ptr, memory + read_ptr + read_len};
 
@@ -1448,9 +1452,11 @@ hook::gatherHookParameters(
 {
     if (!hookDef->isFieldPresent(sfHookParameters))
     {
+        // LCOV_EXCL_START
         JLOG(j_.fatal())
             << "HookError[]: Failure: hook def missing parameters (send)";
         return true;
+        // LCOV_EXCL_STOP
     }
 
     // first defaults
@@ -1493,9 +1499,11 @@ hook::removeEmissionEntry(ripple::ApplyContext& applyCtx)
     if (!applyCtx.view().dirRemove(
             keylet::emittedDir(), sle->getFieldU64(sfOwnerNode), key, false))
     {
+        // LCOV_EXCL_START
         JLOG(j.fatal()) << "HookError[TX:" << tx.getTransactionID()
                         << "]: removeEmissionEntry failed tefBAD_LEDGER";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     applyCtx.view().erase(sle);
@@ -1570,11 +1578,13 @@ hook::finalizeHookResult(
                 }
                 else
                 {
+                    // LCOV_EXCL_START
                     JLOG(j.warn())
                         << "HookError[" << HR_ACC() << "]: "
                         << "Emission Directory full when trying to insert "
                         << id;
                     return tecDIR_FULL;
+                    // LCOV_EXCL_STOP
                 }
             }
         }
@@ -2618,9 +2628,11 @@ DEFINE_HOOK_FUNCTION(
     }
     catch (std::exception& e)
     {
+        // LCOV_EXCL_START
         JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: Keylet exception "
                        << e.what();
         return INTERNAL_ERROR;
+        // LCOV_EXCL_STOP
     }
 
     return INVALID_ARGUMENT;
@@ -3188,7 +3200,7 @@ DEFINE_HOOK_FUNCTION(
     auto const& bytes = result.value();
 
     if (bytes.size() > write_len)
-        return INTERNAL_ERROR;
+        return INTERNAL_ERROR;  // LCOV_EXCL_LINE
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr,

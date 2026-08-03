@@ -18,9 +18,10 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/VaultClawback.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/beast/utility/instrumentation.h>
+#include <xrpl/ledger/View.h>
+#include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/MPTIssue.h>
 #include <xrpl/protocol/STAmount.h>
@@ -33,15 +34,6 @@ namespace ripple {
 NotTEC
 VaultClawback::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureSingleAssetVault))
-        return temDISABLED;
-
-    if (auto const ter = preflight1(ctx))
-        return ter;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
-
     if (ctx.tx[sfVaultID] == beast::zero)
     {
         JLOG(ctx.j.debug()) << "VaultClawback: zero/empty vault ID.";
@@ -76,7 +68,7 @@ VaultClawback::preflight(PreflightContext const& ctx)
         }
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

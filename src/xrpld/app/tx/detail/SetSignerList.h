@@ -22,8 +22,8 @@
 
 #include <xrpld/app/tx/detail/SignerEntries.h>
 #include <xrpld/app/tx/detail/Transactor.h>
-#include <xrpld/ledger/View.h>
 
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Rules.h>
 #include <xrpl/protocol/STTx.h>
 
@@ -51,6 +51,9 @@ public:
     explicit SetSignerList(ApplyContext& ctx) : Transactor(ctx)
     {
     }
+
+    static std::uint32_t
+    getFlagsMask(PreflightContext const& ctx);
 
     static NotTEC
     preflight(PreflightContext const& ctx);
@@ -138,7 +141,7 @@ public:
 
         auto const sle = view.peek(accountKeylet);
         if (!sle)
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
 
         // Compute new reserve.  Verify the account has funds to meet the
         // reserve.
@@ -176,7 +179,7 @@ public:
                         << ": " << (page ? "success" : "failure");
 
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
 
         signerList->setFieldU64(sfOwnerNode, *page);
 

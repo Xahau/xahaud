@@ -578,7 +578,7 @@ operator<=>(base_uint<Bits, Tag> const& lhs, base_uint<Bits, Tag> const& rhs)
     // This comparison might seem wrong on a casual inspection because it
     // compares data internally stored as std::uint32_t byte-by-byte. But
     // note that the underlying data is stored in big endian, even if the
-    // plaform is little endian. This makes the comparison correct.
+    // platform is little endian. This makes the comparison correct.
     //
     // FIXME: use std::lexicographical_compare_three_way once support is
     //        added to MacOS.
@@ -655,6 +655,16 @@ inline std::string
 to_string(base_uint<Bits, Tag> const& a)
 {
     return strHex(a.cbegin(), a.cend());
+}
+
+template <std::size_t Bits, class Tag>
+inline std::string
+to_short_string(base_uint<Bits, Tag> const& a)
+{
+    static_assert(
+        base_uint<Bits, Tag>::bytes > 4,
+        "For 4 bytes or less, use a native type");
+    return strHex(a.cbegin(), a.cbegin() + 4) + "...";
 }
 
 template <std::size_t Bits, class Tag>

@@ -21,9 +21,9 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/tx/detail/ClaimReward.h>
 #include <xrpld/core/Config.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
@@ -37,22 +37,27 @@ ClaimReward::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, TxConsequences::normal};
 }
 
+uint32_t
+ClaimReward::getFlagsMask(PreflightContext const& ctx)
+{
+    if (ctx.rules.enabled(fixRewardClaimFlags))
+        return tfClaimRewardMask;
+    return 0;
+}
+
 NotTEC
 ClaimReward::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureBalanceRewards))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     // can have flag 1 set to opt-out of rewards
-    auto const invalidFlags = ctx.rules.enabled(fixRewardClaimFlags)
-        ? (ctx.tx.getFlags() & tfClaimRewardMask)
-        : (ctx.tx.isFieldPresent(sfFlags) &&
-           ctx.tx.getFieldU32(sfFlags) > tfOptOut);
-    if (invalidFlags)
-        return temINVALID_FLAG;
+    if (!ctx.rules.enabled(fixRewardClaimFlags))
+    {
+        if ((ctx.tx.isFieldPresent(sfFlags) &&
+             ctx.tx.getFieldU32(sfFlags) > tfOptOut))
+        {
+            JLOG(ctx.j.warn()) << "ClaimReward: Invalid flags set.";
+            return temINVALID_FLAG;
+        }
+    }
 
     if (ctx.tx.isFieldPresent(sfIssuer) &&
         ctx.tx.getAccountID(sfIssuer) == ctx.tx.getAccountID(sfAccount))
@@ -113,7 +118,7 @@ ClaimReward::preflight(PreflightContext const& ctx)
             }
         }
     }
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -182,7 +187,7 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
         bool const isMPT = claimCurrency.holds<MPTIssue>();
 
         if (isMPT)
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
 
         auto const claimIssue = claimCurrency.get<Issue>();
 
@@ -221,14 +226,14 @@ ClaimReward::doApply()
         bool const isMPT = claimCurrency.holds<MPTIssue>();
 
         if (isMPT)
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
 
         auto const claimIssue = claimCurrency.get<Issue>();
 
         auto lineSle = view().peek(
             keylet::line(account_, claimIssue.account, claimIssue.currency));
         if (!lineSle)
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
 
         bool const isHigh = account_ > claimIssue.account;
         auto const& rewardField = isHigh ? sfHighReward : sfLowReward;

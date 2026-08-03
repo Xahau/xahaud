@@ -18,9 +18,9 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/CancelOffer.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/st.h>
 
 namespace ripple {
@@ -28,18 +28,6 @@ namespace ripple {
 NotTEC
 CancelOffer::preflight(PreflightContext const& ctx)
 {
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    auto const uTxFlags = ctx.tx.getFlags();
-
-    if (uTxFlags & tfUniversalMask)
-    {
-        JLOG(ctx.j.trace()) << "Malformed transaction: "
-                            << "Invalid flags set.";
-        return temINVALID_FLAG;
-    }
-
     if (ctx.rules.enabled(fixXahauV1))
     {
         if ((!ctx.tx.isFieldPresent(sfOfferSequence) &&
@@ -62,7 +50,7 @@ CancelOffer::preflight(PreflightContext const& ctx)
         }
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 //------------------------------------------------------------------------------
@@ -95,7 +83,7 @@ CancelOffer::doApply()
 {
     auto const sle = view().read(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     auto const offerSequence = ctx_.tx[~sfOfferSequence];
     auto const offerID = ctx_.tx[~sfOfferID];

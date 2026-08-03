@@ -19,10 +19,10 @@
 
 #include <test/jtx.h>
 
-#include <xrpld/ledger/Dir.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 
 #include <xrpl/basics/chrono.h>
+#include <xrpl/ledger/Dir.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PayChan.h>
@@ -31,6 +31,8 @@
 
 namespace ripple {
 namespace test {
+using namespace jtx::paychan;
+
 struct PayChan_test : public beast::unit_test::suite
 {
     FeatureBitset const disallowIncoming{featureDisallowIncoming};
@@ -2235,7 +2237,7 @@ struct PayChan_test : public beast::unit_test::suite
                 // Owner closes, will close after settleDelay
                 env(paychan::claim(alice, chan), txflags(tfClose));
                 env.close();
-                // settle delay hasn't ellapsed. Channels should exist.
+                // settle delay hasn't elapsed. Channels should exist.
                 BEAST_EXPECT(channelExists(*env.current(), chan));
                 auto const closeTime = env.current()->info().parentCloseTime;
                 auto const minExpiration = closeTime + settleDelay;

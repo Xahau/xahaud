@@ -221,19 +221,6 @@ private:
         uint32_t i = 0;
         {
             Json::Value a = Json::arrayValue;
-            a[0U] = "Generic";
-            Json::Value v = Json::objectValue;
-            v[jss::nth] = 0;
-            v[jss::isVLEncoded] = false;
-            v[jss::isSerialized] = false;
-            v[jss::isSigningField] = false;
-            v[jss::type] = "Unknown";
-            a[1U] = v;
-            ret[jss::FIELDS][i++] = a;
-        }
-
-        {
-            Json::Value a = Json::arrayValue;
             a[0U] = "Invalid";
             Json::Value v = Json::objectValue;
             v[jss::nth] = -1;
@@ -297,7 +284,7 @@ private:
             ret[jss::FIELDS][i++] = a;
         }
 
-        for (auto const& [code, f] : ripple::SField::knownCodeToField)
+        for (auto const& [code, f] : ripple::SField::getKnownCodeToField())
         {
             if (f->fieldName == "")
                 continue;

@@ -12,6 +12,7 @@ echo "Cleaning previously built binary"
 rm -f release-build/xahaud
 
 BUILD_CORES=$(echo "scale=0 ; $(nproc) / 1.337" | bc)
+GCC_TOOLSET_VERSION=12
 
 if [[ "$GITHUB_REPOSITORY" == "" ]]; then
   #Default
@@ -51,7 +52,7 @@ CACHE_VOLUME_NAME="xahau-release-builder-cache"
 if false; then
   echo "Static container, execute in static container to have max. cache"
   docker start $CONTAINER_NAME
-  docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && bash -x /io/build-core.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
+  docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-$GCC_TOOLSET_VERSION/enable && bash -x /io/build-core.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
   docker stop $CONTAINER_NAME
 else
   echo "No static container, build on temp container"
@@ -66,13 +67,15 @@ else
 FROM ghcr.io/phusion/holy-build-box:4.0.1-amd64
 
 ARG BUILD_CORES=8
+ARG GCC_TOOLSET_VERSION
+ENV GCC_TOOLSET_VERSION=${GCC_TOOLSET_VERSION}
 
 # Enable repositories and install dependencies
 RUN /hbb_exe/activate-exec bash -c "dnf install -y epel-release && \
     dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb && \
     dnf install -y --enablerepo=devel \
-        wget git \
-        gcc-toolset-11-gcc-c++ gcc-toolset-11-binutils gcc-toolset-11-libatomic-devel \
+        wget git perl \
+        gcc-toolset-${GCC_TOOLSET_VERSION}-gcc-c++ gcc-toolset-${GCC_TOOLSET_VERSION}-binutils gcc-toolset-${GCC_TOOLSET_VERSION}-libatomic-devel \
         lz4 lz4-devel \
         ncurses-static ncurses-devel \
         snappy snappy-devel \
@@ -132,7 +135,7 @@ ENV CC='ccache gcc'
 ENV CXX='ccache g++'
 
 # Install LLD
-RUN /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && \
+RUN /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-${GCC_TOOLSET_VERSION}/enable && \
     cd /tmp && \
     wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.3/lld-14.0.3.src.tar.xz && \
     wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.3/libunwind-14.0.3.src.tar.xz && \
@@ -163,9 +166,9 @@ RUN cd /tmp && \
     cd WasmEdge-0.11.2 && \
     ( mkdir -p build; echo "" ) && \
     cd build && \
-    /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && \
-    ln -sf /opt/rh/gcc-toolset-11/root/usr/bin/ar /usr/bin/ar && \
-    ln -sf /opt/rh/gcc-toolset-11/root/usr/bin/ranlib /usr/bin/ranlib && \
+    /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-${GCC_TOOLSET_VERSION}/enable && \
+    ln -sf /opt/rh/gcc-toolset-${GCC_TOOLSET_VERSION}/root/usr/bin/ar /usr/bin/ar && \
+    ln -sf /opt/rh/gcc-toolset-${GCC_TOOLSET_VERSION}/root/usr/bin/ranlib /usr/bin/ranlib && \
     echo '=== Binutils version check ===' && \
     ar --version | head -1 && \
     ranlib --version | head -1 && \
@@ -207,7 +210,7 @@ RUN /hbb_exe/activate-exec bash -c "ccache -M 100G && \
     echo 'compiler=gcc' >> ~/.conan2/profiles/default && \
     echo 'compiler.cppstd=20' >> ~/.conan2/profiles/default && \
     echo 'compiler.libcxx=libstdc++11' >> ~/.conan2/profiles/default && \
-    echo 'compiler.version=11' >> ~/.conan2/profiles/default && \
+    echo 'compiler.version=${GCC_TOOLSET_VERSION}' >> ~/.conan2/profiles/default && \
     echo 'os=Linux' >> ~/.conan2/profiles/default && \
     echo '' >> ~/.conan2/profiles/default && \
     echo '[conf]' >> ~/.conan2/profiles/default && \
@@ -222,12 +225,12 @@ DOCKERFILE_EOF
   # Build custom Docker image
   IMAGE_NAME="xahaud-builder:latest"
   echo "Building custom Docker image with dependencies..."
-  echo "$DOCKERFILE_CONTENT" | docker build --build-arg BUILD_CORES="$BUILD_CORES" -t "$IMAGE_NAME" - || exit 1
+  echo "$DOCKERFILE_CONTENT" | docker build --build-arg BUILD_CORES="$BUILD_CORES" --build-arg GCC_TOOLSET_VERSION="$GCC_TOOLSET_VERSION" -t "$IMAGE_NAME" - || exit 1
 
   if [[ "$GITHUB_REPOSITORY" == "" ]]; then
     # Non GH, local building
     echo "Non-GH runner, local building, temp container"
-    docker run -i --user 0:$(id -g) --rm -v /data/builds:/data/builds -v $(pwd):/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
+    docker run -i --user 0:$(id -g) --rm -v /data/builds:/data/builds -v $(pwd):/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-$GCC_TOOLSET_VERSION/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
   else
     # GH Action, runner
     echo "GH Action, runner, clean & re-create create persistent container"
@@ -235,7 +238,7 @@ DOCKERFILE_EOF
     echo "echo 'Stopping container: $CONTAINER_NAME'" >>"$JOB_CLEANUP_SCRIPT"
     echo "docker stop --time=15 \"$CONTAINER_NAME\" || echo 'Failed to stop container or container not running'" >>"$JOB_CLEANUP_SCRIPT"
     docker run -di --user 0:$(id -g) --name $CONTAINER_NAME -v /data/builds:/data/builds -v $(pwd):/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash
-    docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
+    docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-$GCC_TOOLSET_VERSION/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
     docker stop $CONTAINER_NAME
   fi
 fi

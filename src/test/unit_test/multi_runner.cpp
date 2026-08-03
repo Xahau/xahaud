@@ -30,7 +30,6 @@
 #include <vector>
 
 namespace ripple {
-namespace test {
 
 namespace detail {
 
@@ -388,6 +387,8 @@ multi_runner_base<IsParent>::add_failures(std::size_t failures)
 
 }  // namespace detail
 
+namespace test {
+
 //------------------------------------------------------------------------------
 
 multi_runner_parent::multi_runner_parent() : os_(std::cout)
@@ -462,6 +463,8 @@ multi_runner_parent::~multi_runner_parent()
 
     continue_message_queue_ = false;
     message_queue_thread_.join();
+
+    add_failures(running_suites_.size());
 
     print_results(os_);
 
@@ -645,10 +648,11 @@ multi_runner_child::on_log(std::string const& msg)
     message_queue_send(MessageType::log, s.str());
 }
 
+}  // namespace test
+
 namespace detail {
 template class multi_runner_base<true>;
 template class multi_runner_base<false>;
 }  // namespace detail
 
-}  // namespace test
 }  // namespace ripple

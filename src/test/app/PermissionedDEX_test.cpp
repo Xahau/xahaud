@@ -22,11 +22,11 @@
 #include <test/jtx/AMMTest.h>
 
 #include <xrpld/app/tx/detail/PermissionedDomainSet.h>
-#include <xrpld/ledger/ApplyViewImpl.h>
 
 #include <xrpl/basics/Blob.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/beast/unit_test/suite.h>
+#include <xrpl/ledger/ApplyViewImpl.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/IOUAmount.h>
 #include <xrpl/protocol/Indexes.h>
@@ -985,8 +985,8 @@ class PermissionedDEX_test : public beast::unit_test::suite
     {
         testcase("Remove unfunded offer");
 
-        // checking that an unfunded offer will be implictly removed by a
-        // successfuly payment tx
+        // checking that an unfunded offer will be implicitly removed by a
+        // successful payment tx
         Env env(*this, features);
         auto const& [gw, domainOwner, alice, bob, carol, USD, domainID, credType] =
             PermissionedDEX(env);

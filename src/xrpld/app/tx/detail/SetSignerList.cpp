@@ -19,9 +19,9 @@
 
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
-#include <xrpld/ledger/ApplyView.h>
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/ledger/ApplyView.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STArray.h>
@@ -77,19 +77,16 @@ SetSignerList::determineOperation(
     return std::make_tuple(tesSUCCESS, quorum, sign, op);
 }
 
+std::uint32_t
+SetSignerList::getFlagsMask(PreflightContext const& ctx)
+{
+    // 0 means "Allow any flags"
+    return ctx.rules.enabled(fixInvalidTxFlags) ? tfUniversalMask : 0;
+}
+
 NotTEC
 SetSignerList::preflight(PreflightContext const& ctx)
 {
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.rules.enabled(fixInvalidTxFlags) &&
-        (ctx.tx.getFlags() & tfUniversalMask))
-    {
-        JLOG(ctx.j.trace()) << "SetSignerList: invalid flags.";
-        return temINVALID_FLAG;
-    }
-
     auto const result = determineOperation(ctx.tx, ctx.flags, ctx.j);
 
     if (!isTesSuccess(std::get<0>(result)))
@@ -119,7 +116,7 @@ SetSignerList::preflight(PreflightContext const& ctx)
         }
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -137,8 +134,10 @@ SetSignerList::doApply()
         default:
             break;
     }
+    // LCOV_EXCL_START
     UNREACHABLE("ripple::SetSignerList::doApply : invalid operation");
     return temMALFORMED;
+    // LCOV_EXCL_STOP
 }
 
 void
@@ -229,8 +228,10 @@ SetSignerList::removeSignersFromLedger(
 
     if (!view.dirRemove(ownerDirKeylet, hint, signerListKeylet.key, false))
     {
+        // LCOV_EXCL_START
         JLOG(j.fatal()) << "Unable to delete SignerList from owner.";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     adjustOwnerCount(
@@ -346,7 +347,7 @@ SetSignerList::destroySignerList()
     // is enabled or there is a regular key.
     SLE::pointer ledgerEntry = view().peek(accountKeylet);
     if (!ledgerEntry)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     if ((ledgerEntry->isFlag(lsfDisableMaster)) &&
         (!ledgerEntry->isFieldPresent(sfRegularKey)))

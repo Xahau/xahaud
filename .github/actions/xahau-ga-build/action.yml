@@ -33,7 +33,7 @@ inputs:
     required: false
     default: ''
   compiler-id:
-    description: 'Unique identifier: compiler-version-stdlib[-gccversion] (e.g. clang-14-libstdcxx-gcc11, gcc-13-libstdcxx)'
+    description: 'Unique identifier: compiler-version-stdlib[-gccversion] (e.g. gcc-13-libstdcxx)'
     required: false
     default: ''
   cache_version:
@@ -155,7 +155,7 @@ runs:
         fi
 
         # Configure C++ standard library if specified
-        # libstdcxx used for clang-14/16 to work around missing lexicographical_compare_three_way in libc++
+        # libstdcxx used for clang-16 to work around missing lexicographical_compare_three_way in libc++
         # libcxx can be used with clang-17+ which has full C++20 support
         # Note: -stdlib flag is Clang-specific, GCC always uses libstdc++
         CMAKE_CXX_FLAGS=""
@@ -171,7 +171,7 @@ runs:
         
         # Configure GCC toolchain for Clang if specified
         if [ -n "${{ inputs.clang_gcc_toolchain }}" ] && [[ "${{ inputs.cxx }}" == clang* ]]; then
-          # Extract Clang version from compiler executable name (e.g., clang++-14 -> 14)
+          # Extract Clang version from compiler executable name (e.g., clang++-16 -> 16)
           clang_version=$(echo "${{ inputs.cxx }}" | grep -oE '[0-9]+$')
           
           # Clang 16+ supports --gcc-install-dir (precise path specification)

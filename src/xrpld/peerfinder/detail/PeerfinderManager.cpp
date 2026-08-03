@@ -127,7 +127,7 @@ public:
 
     //--------------------------------------------------------------------------
 
-    std::shared_ptr<Slot>
+    std::pair<std::shared_ptr<Slot>, Result>
     new_inbound_slot(
         beast::IP::Endpoint const& local_endpoint,
         beast::IP::Endpoint const& remote_endpoint) override
@@ -135,7 +135,7 @@ public:
         return m_logic.new_inbound_slot(local_endpoint, remote_endpoint);
     }
 
-    std::shared_ptr<Slot>
+    std::pair<std::shared_ptr<Slot>, Result>
     new_outbound_slot(beast::IP::Endpoint const& remote_endpoint) override
     {
         return m_logic.new_outbound_slot(remote_endpoint);

@@ -19,9 +19,9 @@
 
 #include <xrpld/app/tx/detail/GenesisMint.h>
 #include <xrpld/app/tx/detail/Import.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/st.h>
@@ -35,17 +35,17 @@ GenesisMint::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, TxConsequences::normal};
 }
 
+uint32_t
+GenesisMint::getFlagsMask(PreflightContext const& ctx)
+{
+    return 0;
+}
+
 NotTEC
 GenesisMint::preflight(PreflightContext const& ctx)
 {
     if (!ctx.rules.enabled(featureHooks))
         return temDISABLED;
-
-    if (!ctx.rules.enabled(featureXahauGenesis))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
 
     auto& tx = ctx.tx;
 
@@ -153,7 +153,7 @@ GenesisMint::preflight(PreflightContext const& ctx)
         alreadySeen.emplace(accid);
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -187,8 +187,10 @@ GenesisMint::doApply()
 
             if (amt && !isXRP(*amt))
             {
+                // LCOV_EXCL_START
                 JLOG(ctx_.journal.warn()) << "GenesisMint: Non-xrp amount.";
                 return tecINTERNAL;
+                // LCOV_EXCL_STOP
             }
 
             auto const flags = dest[~sfGovernanceFlags];
@@ -232,10 +234,12 @@ GenesisMint::doApply()
                 STAmount finalBal = startBal + *amt;
                 if (finalBal <= startBal)
                 {
+                    // LCOV_EXCL_START
                     JLOG(ctx_.journal.warn())
                         << "GenesisMint: cannot credit " << dest
                         << " due to balance overflow";
                     return tecINTERNAL;
+                    // LCOV_EXCL_STOP
                 }
 
                 sle->setFieldAmount(sfBalance, finalBal);
@@ -259,8 +263,10 @@ GenesisMint::doApply()
         if (dropsAdded < beast::zero ||
             dropsAdded.xrp() + view().info().drops < view().info().drops)
         {
+            // LCOV_EXCL_START
             JLOG(ctx_.journal.warn()) << "GenesisMint: dropsAdded overflowed\n";
             return tecINTERNAL;
+            // LCOV_EXCL_STOP
         }
 
         if (dropsAdded > beast::zero)
@@ -292,8 +298,10 @@ GenesisMint::doApply()
 
         if (amt && !isXRP(*amt))
         {
+            // LCOV_EXCL_START
             JLOG(ctx_.journal.warn()) << "GenesisMint: Non-xrp amount.";
             return tecINTERNAL;
+            // LCOV_EXCL_STOP
         }
 
         XRPAmount toCredit = amt ? amt->xrp() : XRPAmount{0};
@@ -319,9 +327,11 @@ GenesisMint::doApply()
             // detect overflow
             if (accTotal + toCredit < accTotal)
             {
+                // LCOV_EXCL_START
                 JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit " << id
                                           << " due to balance overflow";
                 return tecINTERNAL;
+                // LCOV_EXCL_STOP
             }
 
             accTotal += toCredit;
@@ -332,8 +342,10 @@ GenesisMint::doApply()
     if (dropsAdded < beast::zero ||
         dropsAdded.xrp() + view().info().drops < view().info().drops)
     {
+        // LCOV_EXCL_START
         JLOG(ctx_.journal.warn()) << "GenesisMint: dropsAdded overflowed\n";
         return tecINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     // action loop
@@ -365,9 +377,11 @@ GenesisMint::doApply()
             STAmount finalBal = startBal + amt;
             if (finalBal <= startBal)
             {
+                // LCOV_EXCL_START
                 JLOG(ctx_.journal.warn()) << "GenesisMint: cannot credit " << id
                                           << " due to balance overflow";
                 return tecINTERNAL;
+                // LCOV_EXCL_STOP
             }
 
             sle->setFieldAmount(sfBalance, finalBal);

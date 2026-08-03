@@ -17,16 +17,16 @@
 */
 //==============================================================================
 
-#include <xrpld/app/misc/CredentialHelpers.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/tx/detail/Escrow.h>
 #include <xrpld/conditions/Condition.h>
 #include <xrpld/conditions/Fulfillment.h>
-#include <xrpld/ledger/ApplyView.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/chrono.h>
+#include <xrpl/ledger/ApplyView.h>
+#include <xrpl/ledger/CredentialHelpers.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Rate.h>
@@ -80,19 +80,20 @@ constexpr HashRouterFlags SF_CF_VALID = HashRouterFlags::PRIVATE6;
 TxConsequences
 EscrowCreate::makeTxConsequences(PreflightContext const& ctx)
 {
-    return TxConsequences{
-        ctx.tx, isXRP(ctx.tx[sfAmount]) ? ctx.tx[sfAmount].xrp() : beast::zero};
+    auto const amount = ctx.tx[sfAmount];
+    return TxConsequences{ctx.tx, isXRP(amount) ? amount.xrp() : beast::zero};
+}
+
+std::uint32_t
+EscrowCreate::getFlagsMask(PreflightContext const& ctx)
+{
+    // 0 means "Allow any flags"
+    return ctx.rules.enabled(fix1543) ? tfUniversalMask : 0;
 }
 
 NotTEC
 EscrowCreate::preflight(PreflightContext const& ctx)
 {
-    if (ctx.rules.enabled(fix1543) && ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     STAmount const amount{ctx.tx[sfAmount]};
     if (!isXRP(amount))
     {
@@ -151,7 +152,7 @@ EscrowCreate::preflight(PreflightContext const& ctx)
             return temDISABLED;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -191,6 +192,9 @@ EscrowCreate::doApply()
     }
     else
     {
+        // This is old code that needs to stay to support replaying old ledgers,
+        // but does not need to be covered by new tests.
+        // LCOV_EXCL_START
         if (ctx_.tx[~sfCancelAfter])
         {
             auto const cancelAfter = ctx_.tx[sfCancelAfter];
@@ -206,12 +210,13 @@ EscrowCreate::doApply()
             if (closeTime.time_since_epoch().count() >= finishAfter)
                 return tecNO_PERMISSION;
         }
+        // LCOV_EXCL_STOP
     }
 
     auto const account = ctx_.tx[sfAccount];
     auto const sle = ctx_.view().peek(keylet::account(account));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     STAmount const amount{ctx_.tx[sfAmount]};
 
@@ -285,12 +290,12 @@ EscrowCreate::doApply()
         auto const sled =
             ctx_.view().read(keylet::account(ctx_.tx[sfDestination]));
         if (!sled)
-            return tecNO_DST;
+            return tecNO_DST;  // LCOV_EXCL_LINE
         if (((*sled)[sfFlags] & lsfRequireDestTag) &&
             !ctx_.tx[~sfDestinationTag])
             return tecDST_TAG_NEEDED;
 
-        // Obeying the lsfDissalowXRP flag was a bug.  Piggyback on
+        // Obeying the lsfDisallowXRP flag was a bug.  Piggyback on
         // featureDepositAuth to remove the bug.
         if (!ctx_.view().rules().enabled(featureDepositAuth) && isXRP(amount) &&
             ((*sled)[sfFlags] & lsfDisallowXRP))
@@ -323,7 +328,7 @@ EscrowCreate::doApply()
         auto page = ctx_.view().dirInsert(
             keylet::ownerDir(account), escrowKeylet, describeOwnerDir(account));
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
         (*slep)[sfOwnerNode] = *page;
     }
 
@@ -333,7 +338,7 @@ EscrowCreate::doApply()
         auto page = ctx_.view().dirInsert(
             keylet::ownerDir(dest), escrowKeylet, describeOwnerDir(dest));
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
         (*slep)[sfDestinationNode] = *page;
     }
 
@@ -391,19 +396,23 @@ checkCondition(Slice f, Slice c)
     return validate(*fulfillment, *condition);
 }
 
+bool
+EscrowFinish::checkExtraFeatures(PreflightContext const& ctx)
+{
+    return !ctx.tx.isFieldPresent(sfCredentialIDs) ||
+        ctx.rules.enabled(featureCredentials);
+}
+
+std::uint32_t
+EscrowFinish::getFlagsMask(PreflightContext const& ctx)
+{
+    // 0 means "Allow any flags"
+    return ctx.rules.enabled(fix1543) ? tfUniversalMask : 0;
+}
+
 NotTEC
 EscrowFinish::preflight(PreflightContext const& ctx)
 {
-    if (ctx.rules.enabled(fix1543) && ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
-
-    if (ctx.tx.isFieldPresent(sfCredentialIDs) &&
-        !ctx.rules.enabled(featureCredentials))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto const cb = ctx.tx[~sfCondition];
     auto const fb = ctx.tx[~sfFulfillment];
 
@@ -412,13 +421,14 @@ EscrowFinish::preflight(PreflightContext const& ctx)
     if (static_cast<bool>(cb) != static_cast<bool>(fb))
         return temMALFORMED;
 
-    // Verify the transaction signature. If it doesn't work
-    // then don't do any more work.
-    {
-        auto const ret = preflight2(ctx);
-        if (!isTesSuccess(ret))
-            return ret;
-    }
+    return tesSUCCESS;
+}
+
+NotTEC
+EscrowFinish::preflightSigValidated(PreflightContext const& ctx)
+{
+    auto const cb = ctx.tx[~sfCondition];
+    auto const fb = ctx.tx[~sfFulfillment];
 
     if (cb && fb)
     {
@@ -514,7 +524,7 @@ EscrowFinish::doApply()
         return tecNO_TARGET;
 
     if (fixV1 && slep->getFieldU16(sfLedgerEntryType) != ltESCROW)
-        return tecINTERNAL;
+        return tecINTERNAL;  // LCOV_EXCL_LINE
 
     AccountID const account = (*slep)[sfAccount];
     auto const sle = ctx_.view().peek(keylet::account(account));
@@ -537,6 +547,9 @@ EscrowFinish::doApply()
     }
     else
     {
+        // This is old code that needs to stay to support replaying old ledgers,
+        // but does not need to be covered by new tests.
+        // LCOV_EXCL_START
         // Too soon?
         if ((*slep)[~sfFinishAfter] &&
             ctx_.view().info().parentCloseTime.time_since_epoch().count() <=
@@ -548,6 +561,7 @@ EscrowFinish::doApply()
             ctx_.view().info().parentCloseTime.time_since_epoch().count() <=
                 (*slep)[sfCancelAfter])
             return tecNO_PERMISSION;
+        // LCOV_EXCL_STOP
     }
 
     // Check cryptocondition fulfillment
@@ -562,6 +576,7 @@ EscrowFinish::doApply()
         // simply re-run the check.
         if (cb && !any(flags & (SF_CF_INVALID | SF_CF_VALID)))
         {
+            // LCOV_EXCL_START
             auto const fb = ctx_.tx[~sfFulfillment];
 
             if (!fb)
@@ -573,6 +588,7 @@ EscrowFinish::doApply()
                 flags = SF_CF_INVALID;
 
             ctx_.app.getHashRouter().setFlags(id, flags);
+            // LCOV_EXCL_STOP
         }
 
         // If the check failed, then simply return an error
@@ -617,7 +633,7 @@ EscrowFinish::doApply()
             return temDISABLED;
 
         if (!slep->isFieldPresent(sfTransferRate))
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
 
         Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
         auto const issuerAccID = amount.getIssuer();
@@ -654,8 +670,10 @@ EscrowFinish::doApply()
         if (!ctx_.view().dirRemove(
                 keylet::ownerDir(account), page, k.key, true))
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "Unable to delete Escrow from owner.";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -665,8 +683,10 @@ EscrowFinish::doApply()
         if (!ctx_.view().dirRemove(
                 keylet::ownerDir(destID), *optPage, k.key, true))
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "Unable to delete Escrow from recipient.";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -676,7 +696,7 @@ EscrowFinish::doApply()
     {
         // compute transfer fee, if any
         if (!slep->isFieldPresent(sfTransferRate))
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
 
         Rate lockedRate = ripple::Rate(slep->getFieldU32(sfTransferRate));
         auto const issuerAccID = amount.getIssuer();
@@ -722,15 +742,16 @@ EscrowFinish::doApply()
 
 //------------------------------------------------------------------------------
 
+std::uint32_t
+EscrowCancel::getFlagsMask(PreflightContext const& ctx)
+{
+    // 0 means "Allow any flags"
+    return ctx.rules.enabled(fix1543) ? tfUniversalMask : 0;
+}
+
 NotTEC
 EscrowCancel::preflight(PreflightContext const& ctx)
 {
-    if (ctx.rules.enabled(fix1543) && ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     // sfOfferSequence was changed to optional, so ensure the behaviour is the
     // same until amendment passes
     if (!ctx.rules.enabled(fixXahauV1))
@@ -751,7 +772,7 @@ EscrowCancel::preflight(PreflightContext const& ctx)
             return temMALFORMED;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -791,11 +812,15 @@ EscrowCancel::doApply()
     }
     else
     {
+        // This is old code that needs to stay to support replaying old ledgers,
+        // but does not need to be covered by new tests.
+        // LCOV_EXCL_START
         // Too soon?
         if (!(*slep)[~sfCancelAfter] ||
             ctx_.view().info().parentCloseTime.time_since_epoch().count() <=
                 (*slep)[sfCancelAfter])
             return tecNO_PERMISSION;
+        // LCOV_EXCL_STOP
     }
 
     AccountID const account = (*slep)[sfAccount];
@@ -830,8 +855,10 @@ EscrowCancel::doApply()
         if (!ctx_.view().dirRemove(
                 keylet::ownerDir(account), page, k.key, true))
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "Unable to delete Escrow from owner.";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -844,8 +871,10 @@ EscrowCancel::doApply()
                 k.key,
                 true))
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "Unable to delete Escrow from recipient.";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
     }
 

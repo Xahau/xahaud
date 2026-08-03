@@ -17,13 +17,13 @@
 */
 //==============================================================================
 
-#include <xrpld/app/misc/CredentialHelpers.h>
 #include <xrpld/app/tx/detail/PayChan.h>
-#include <xrpld/ledger/ApplyView.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/chrono.h>
+#include <xrpl/ledger/ApplyView.h>
+#include <xrpl/ledger/CredentialHelpers.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PayChan.h>
@@ -149,9 +149,11 @@ closeChannel(
         auto const page = (*slep)[sfOwnerNode];
         if (!view.dirRemove(keylet::ownerDir(src), page, key, true))
         {
+            // LCOV_EXCL_START
             JLOG(j.fatal())
                 << "Could not remove paychan from src owner directory";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -162,16 +164,18 @@ closeChannel(
         auto const dst = (*slep)[sfDestination];
         if (!view.dirRemove(keylet::ownerDir(dst), *page, key, true))
         {
+            // LCOV_EXCL_START
             JLOG(j.fatal())
                 << "Could not remove paychan from dst owner directory";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
     }
 
     // Transfer amount back to owner, decrement owner count
     auto const sle = view.peek(keylet::account(src));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     XRPL_ASSERT(
         (*slep)[sfAmount] >= (*slep)[sfBalance],
@@ -208,15 +212,16 @@ PayChanCreate::makeTxConsequences(PreflightContext const& ctx)
         ctx.tx, isXRP(ctx.tx[sfAmount]) ? ctx.tx[sfAmount].xrp() : beast::zero};
 }
 
+std::uint32_t
+PayChanCreate::getFlagsMask(PreflightContext const& ctx)
+{
+    // 0 means "Allow any flags"
+    return ctx.rules.enabled(fix1543) ? tfUniversalMask : 0;
+}
+
 NotTEC
 PayChanCreate::preflight(PreflightContext const& ctx)
 {
-    if (ctx.rules.enabled(fix1543) && ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     STAmount const amount{ctx.tx[sfAmount]};
     if (!isXRP(amount))
     {
@@ -239,7 +244,7 @@ PayChanCreate::preflight(PreflightContext const& ctx)
     if (!publicKeyType(ctx.tx[sfPublicKey]))
         return temMALFORMED;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -342,7 +347,7 @@ PayChanCreate::doApply()
     auto const account = ctx_.tx[sfAccount];
     auto const sle = ctx_.view().peek(keylet::account(account));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     if (ctx_.view().rules().enabled(fixPayChanCancelAfter))
     {
@@ -390,7 +395,7 @@ PayChanCreate::doApply()
             payChanKeylet,
             describeOwnerDir(account));
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
         (*slep)[sfOwnerNode] = *page;
     }
 
@@ -400,7 +405,7 @@ PayChanCreate::doApply()
         auto const page = ctx_.view().dirInsert(
             keylet::ownerDir(dst), payChanKeylet, describeOwnerDir(dst));
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
         (*slep)[sfDestinationNode] = *page;
     }
 
@@ -448,15 +453,16 @@ PayChanFund::makeTxConsequences(PreflightContext const& ctx)
         ctx.tx, isXRP(ctx.tx[sfAmount]) ? ctx.tx[sfAmount].xrp() : beast::zero};
 }
 
+std::uint32_t
+PayChanFund::getFlagsMask(PreflightContext const& ctx)
+{
+    // 0 means "Allow any flags"
+    return ctx.rules.enabled(fix1543) ? tfUniversalMask : 0;
+}
+
 NotTEC
 PayChanFund::preflight(PreflightContext const& ctx)
 {
-    if (ctx.rules.enabled(fix1543) && ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     STAmount const amount{ctx.tx[sfAmount]};
     if (!isXRP(amount))
     {
@@ -473,7 +479,7 @@ PayChanFund::preflight(PreflightContext const& ctx)
     if (ctx.tx[sfAmount] <= beast::zero)
         return temBAD_AMOUNT;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -564,7 +570,7 @@ PayChanFund::doApply()
 
     auto const sle = ctx_.view().peek(keylet::account(txAccount));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     // do not allow adding funds if dst does not exist
     if (AccountID const dst = (*slep)[sfDestination];
@@ -617,16 +623,23 @@ PayChanFund::doApply()
 
 //------------------------------------------------------------------------------
 
+bool
+PayChanClaim::checkExtraFeatures(PreflightContext const& ctx)
+{
+    return !ctx.tx.isFieldPresent(sfCredentialIDs) ||
+        ctx.rules.enabled(featureCredentials);
+}
+
+std::uint32_t
+PayChanClaim::getFlagsMask(PreflightContext const& ctx)
+{
+    // 0 means "Allow any flags"
+    return ctx.rules.enabled(fix1543) ? tfPayChanClaimMask : 0;
+}
+
 NotTEC
 PayChanClaim::preflight(PreflightContext const& ctx)
 {
-    if (ctx.tx.isFieldPresent(sfCredentialIDs) &&
-        !ctx.rules.enabled(featureCredentials))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto const bal = ctx.tx[~sfBalance];
     if (bal)
     {
@@ -655,9 +668,6 @@ PayChanClaim::preflight(PreflightContext const& ctx)
 
     {
         auto const flags = ctx.tx.getFlags();
-
-        if (ctx.rules.enabled(fix1543) && (flags & tfPayChanClaimMask))
-            return temINVALID_FLAG;
 
         if ((flags & tfClose) && (flags & tfRenew))
             return temMALFORMED;
@@ -703,7 +713,7 @@ PayChanClaim::preflight(PreflightContext const& ctx)
         !isTesSuccess(err))
         return err;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

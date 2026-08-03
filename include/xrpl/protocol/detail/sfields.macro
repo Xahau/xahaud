@@ -116,6 +116,7 @@ TYPED_SFIELD(sfLockCount,                UINT32,    49)
 TYPED_SFIELD(sfFirstNFTokenSequence,     UINT32,    50)
 TYPED_SFIELD(sfOracleDocumentID,         UINT32,    51)
 TYPED_SFIELD(sfPermissionValue,          UINT32,    52)
+TYPED_SFIELD(sfMutableFlags,             UINT32,    53)
 
 TYPED_SFIELD(sfStartTime,                UINT32,    93)
 TYPED_SFIELD(sfRepeatCount,              UINT32,    94)
@@ -188,7 +189,8 @@ TYPED_SFIELD(sfEmitParentTxnID,          UINT256,   11)
 TYPED_SFIELD(sfEmitNonce,                UINT256,   12)
 TYPED_SFIELD(sfEmitHookHash,             UINT256,   13)
 TYPED_SFIELD(sfObjectID,                 UINT256,   14)
-TYPED_SFIELD(sfAMMID,                    UINT256,   15)
+TYPED_SFIELD(sfAMMID,                    UINT256,   15,
+    SField::sMD_PseudoAccount | SField::sMD_Default)
 
 // 256-bit (uncommon)
 TYPED_SFIELD(sfBookDirectory,            UINT256,   16)
@@ -213,7 +215,8 @@ TYPED_SFIELD(sfOfferID,                  UINT256,   34)
 TYPED_SFIELD(sfEscrowID,                 UINT256,   35)
 TYPED_SFIELD(sfURITokenID,               UINT256,   36)
 TYPED_SFIELD(sfDomainID,                 UINT256,   37)
-TYPED_SFIELD(sfVaultID,                  UINT256,   38)
+TYPED_SFIELD(sfVaultID,                  UINT256,   38,
+    SField::sMD_PseudoAccount | SField::sMD_Default)
 TYPED_SFIELD(sfParentBatchID,            UINT256,   39)
 TYPED_SFIELD(sfHookOnOutgoing,           UINT256,   93)
 TYPED_SFIELD(sfHookOnIncoming,           UINT256,   94)
@@ -229,6 +232,12 @@ TYPED_SFIELD(sfAssetsAvailable,          NUMBER,     2)
 TYPED_SFIELD(sfAssetsMaximum,            NUMBER,     3)
 TYPED_SFIELD(sfAssetsTotal,              NUMBER,     4)
 TYPED_SFIELD(sfLossUnrealized,           NUMBER,     5)
+
+// int32
+// NOTE: Do not use `sfDummyInt32`. It's so far the only use of INT32
+// in this file and has been defined here for test only.
+// TODO: Replace `sfDummyInt32` with actually useful field.
+TYPED_SFIELD(sfDummyInt32,               INT32,      1) // for tests only
 
 // currency amount (common)
 TYPED_SFIELD(sfAmount,                   AMOUNT,     1)
