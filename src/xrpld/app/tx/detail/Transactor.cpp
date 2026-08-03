@@ -43,7 +43,6 @@
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/UintTypes.h>
 
-#include <limits>
 #include <set>
 
 namespace ripple {
@@ -145,8 +144,8 @@ preflight1(PreflightContext const& ctx)
     // in their prevalidated form so this is safe
     if (ctx.rules.enabled(featureHooks) && hook::isEmittedTxn(ctx.tx))
     {
-        if ((ctx.app.getHashRouter().getFlags(ctx.tx.getTransactionID()) &
-             SF_EMITTED) ||
+        if (any(ctx.app.getHashRouter().getFlags(ctx.tx.getTransactionID()) &
+                HashRouterFlags::EMITTED) ||
             (ctx.flags & tapPREFLIGHT_EMIT))
         {
             if (ctx.tx.getSeqProxy().isTicket() &&
@@ -944,8 +943,8 @@ Transactor::checkSign(PreclaimContext const& ctx)
     {
         // ensure the txn was either emitted here or it's in preflight testing
         // during emission
-        if ((ctx.app.getHashRouter().getFlags(ctx.tx.getTransactionID()) &
-             SF_EMITTED) ||
+        if (any(ctx.app.getHashRouter().getFlags(ctx.tx.getTransactionID()) &
+                HashRouterFlags::EMITTED) ||
             (ctx.flags & tapPREFLIGHT_EMIT))
             return tesSUCCESS;
 
@@ -2103,8 +2102,9 @@ Transactor::operator()()
     if ((ctx_.flags() & tapPREFLIGHT_EMIT) ||
         (view().flags() & tapPREFLIGHT_EMIT) ||
         (ctx_.isEmittedTxn() &&
-         !(ctx_.app.getHashRouter().getFlags(ctx_.tx.getTransactionID()) &
-           SF_EMITTED)))
+         !any(
+             ctx_.app.getHashRouter().getFlags(ctx_.tx.getTransactionID()) &
+             HashRouterFlags::EMITTED)))
         return {tecINTERNAL, false};
 
     if (auto const& trap = ctx_.app.trapTxID();

@@ -4941,8 +4941,8 @@ public:
     run() override
     {
         using namespace test::jtx;
-        testWithFeatures(supported_amendments());
-        testHookFloat(supported_amendments());
+        testWithFeatures(testable_amendments());
+        testHookFloat(testable_amendments());
     }
 };
 

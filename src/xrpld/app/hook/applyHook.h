@@ -15,7 +15,6 @@
 
 #include <wasmedge/wasmedge.h>
 
-#include <any>
 #include <memory>
 #include <optional>
 #include <queue>

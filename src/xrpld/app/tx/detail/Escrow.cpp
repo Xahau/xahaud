@@ -33,13 +33,13 @@
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/XRPAmount.h>
 
+namespace ripple {
+
 // During an EscrowFinish, the transaction must specify both
 // a condition and a fulfillment. We track whether that
 // fulfillment matches and validates the condition.
-#define SF_CF_INVALID SF_PRIVATE5
-#define SF_CF_VALID SF_PRIVATE6
-
-namespace ripple {
+constexpr HashRouterFlags SF_CF_INVALID = HashRouterFlags::PRIVATE5;
+constexpr HashRouterFlags SF_CF_VALID = HashRouterFlags::PRIVATE6;
 
 /*
     Escrow
@@ -430,7 +430,7 @@ EscrowFinish::preflight(PreflightContext const& ctx)
         // If we haven't checked the condition, check it
         // now. Whether it passes or not isn't important
         // in preflight.
-        if (!(flags & (SF_CF_INVALID | SF_CF_VALID)))
+        if (!any(flags & (SF_CF_INVALID | SF_CF_VALID)))
         {
             if (checkCondition(*fb, *cb))
                 router.setFlags(id, SF_CF_VALID);
@@ -439,7 +439,8 @@ EscrowFinish::preflight(PreflightContext const& ctx)
         }
     }
 
-    if (auto const err = credentials::checkFields(ctx); !isTesSuccess(err))
+    if (auto const err = credentials::checkFields(ctx.tx, ctx.j);
+        !isTesSuccess(err))
         return err;
 
     // sfOfferSequence was changed to optional, so ensure the behaviour is the
@@ -481,12 +482,13 @@ EscrowFinish::calculateBaseFee(ReadView const& view, STTx const& tx)
 TER
 EscrowFinish::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureCredentials))
-        return Transactor::preclaim(ctx);
-
-    if (auto const err = credentials::valid(ctx, ctx.tx[sfAccount]);
-        !isTesSuccess(err))
-        return err;
+    if (ctx.view.rules().enabled(featureCredentials))
+    {
+        if (auto const err =
+                credentials::valid(ctx.tx, ctx.view, ctx.tx[sfAccount], ctx.j);
+            !isTesSuccess(err))
+            return err;
+    }
 
     return tesSUCCESS;
 }
@@ -558,7 +560,7 @@ EscrowFinish::doApply()
         // It's unlikely that the results of the check will
         // expire from the hash router, but if it happens,
         // simply re-run the check.
-        if (cb && !(flags & (SF_CF_INVALID | SF_CF_VALID)))
+        if (cb && !any(flags & (SF_CF_INVALID | SF_CF_VALID)))
         {
             auto const fb = ctx_.tx[~sfFulfillment];
 
@@ -575,7 +577,7 @@ EscrowFinish::doApply()
 
         // If the check failed, then simply return an error
         // and don't look at anything else.
-        if (flags & SF_CF_INVALID)
+        if (any(flags & SF_CF_INVALID))
             return tecCRYPTOCONDITION_ERROR;
 
         // Check against condition in the ledger entry:
@@ -603,7 +605,8 @@ EscrowFinish::doApply()
 
     if (ctx_.view().rules().enabled(featureDepositAuth))
     {
-        if (auto err = verifyDepositPreauth(ctx_, account_, destID, sled);
+        if (auto err = verifyDepositPreauth(
+                ctx_.tx, ctx_.view(), account_, destID, sled, ctx_.journal);
             !isTesSuccess(err))
             return err;
     }

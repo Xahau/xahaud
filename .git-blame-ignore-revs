@@ -23,3 +23,5 @@ e61880699997398f5a746e6c4034edc7632661f5
 d25b5dcd568bb96c18e347d55fac10fe901a1bfb
 # Reformat code with clang-format-18
 02749feea88ce61c1f7eeb2d61a57d8ecf07ab11
+# chore: Run prettier on all files (#5657) (rippled)
+97f0747e103f13e26e45b731731059b32f7679ac

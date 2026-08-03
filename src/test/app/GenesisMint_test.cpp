@@ -698,7 +698,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        auto const sa = supported_amendments();
+        auto const sa = testable_amendments();
         testWithFeats(sa);
         testWithFeats(sa - fixXahauV1);
         testWithFeats(sa - fixHookAPI20251128);

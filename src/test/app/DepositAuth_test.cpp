@@ -352,27 +352,27 @@ struct DepositAuth_test : public beast::unit_test::suite
             auto const noRippleNext = i & 0x2;
             auto const withDepositAuth = i & 0x4;
             testIssuer(
-                supported_amendments() | featureDepositAuth,
+                testable_amendments() | featureDepositAuth,
                 noRipplePrev,
                 noRippleNext,
                 withDepositAuth);
 
             if (!withDepositAuth)
                 testIssuer(
-                    supported_amendments() - featureDepositAuth,
+                    testable_amendments() - featureDepositAuth,
                     noRipplePrev,
                     noRippleNext,
                     withDepositAuth);
 
             testNonIssuer(
-                supported_amendments() | featureDepositAuth,
+                testable_amendments() | featureDepositAuth,
                 noRipplePrev,
                 noRippleNext,
                 withDepositAuth);
 
             if (!withDepositAuth)
                 testNonIssuer(
-                    supported_amendments() - featureDepositAuth,
+                    testable_amendments() - featureDepositAuth,
                     noRipplePrev,
                     noRippleNext,
                     withDepositAuth);
@@ -382,7 +382,7 @@ struct DepositAuth_test : public beast::unit_test::suite
     void
     run() override
     {
-        auto const all{jtx::supported_amendments() - featureXahauGenesis};
+        auto const all{jtx::testable_amendments() - featureXahauGenesis};
         testEnable(all);
         testPayIOU(all);
         testPayXRP(all);
@@ -1561,9 +1561,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
     void
     run() override
     {
-        auto const all{
-            (jtx::supported_amendments() | featureCredentials) -
-            featureXahauGenesis};
+        auto const all{jtx::testable_amendments() - featureXahauGenesis};
         testEnable(all);
         testInvalid(all);
         testPayment(all - featureDepositPreauth - featureCredentials);

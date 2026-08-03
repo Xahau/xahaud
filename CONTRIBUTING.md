@@ -7,7 +7,6 @@ We assume you are familiar with the general practice of [making
 contributions on GitHub][1]. This file includes only special
 instructions specific to this project.
 
-
 ## Before you start
 
 In general, contributions should be developed in your personal
@@ -28,7 +27,6 @@ your verifying key. Please set up [signature verification][signing].
 [signing]:
     https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification
 
-
 ## Major contributions
 
 If your contribution is a major feature or breaking change, then you
@@ -44,7 +42,6 @@ questions, suggestions, and changes to the XLS draft. It is the
 responsibility of the XLS author to update the draft to match the final
 implementation when its corresponding pull request is merged, unless the
 author delegates that responsibility to others.
-
 
 ## Before making a pull request
 
@@ -75,16 +72,17 @@ Changes should be usually squashed down into a single commit.
 Some larger or more complicated change sets make more sense,
 and are easier to review if organized into multiple logical commits.
 Either way, all commits should fit the following criteria:
-* Changes should be presented in a single commit or a logical
+
+- Changes should be presented in a single commit or a logical
   sequence of commits.
   Specifically, chronological commits that simply
   reflect the history of how the author implemented
   the change, "warts and all", are not useful to
   reviewers.
-* Every commit should have a [good message](#good-commit-messages).
+- Every commit should have a [good message](#good-commit-messages).
   to explain a specific aspects of the change.
-* Every commit should be signed.
-* Every commit should be well-formed (builds successfully,
+- Every commit should be signed.
+- Every commit should be well-formed (builds successfully,
   unit tests passing), as this helps to resolve merge
   conflicts, and makes it easier to use `git bisect`
   to find bugs.
@@ -96,13 +94,14 @@ Refer to
 for general rules on writing a good commit message.
 
 tl;dr
+
 > 1. Separate subject from body with a blank line.
 > 2. Limit the subject line to 50 characters.
->    * [...]shoot for 50 characters, but consider 72 the hard limit.
+>    - [...]shoot for 50 characters, but consider 72 the hard limit.
 > 3. Capitalize the subject line.
 > 4. Do not end the subject line with a period.
 > 5. Use the imperative mood in the subject line.
->    * A properly formed Git commit subject line should always be able
+>    - A properly formed Git commit subject line should always be able
 >      to complete the following sentence: "If applied, this commit will
 >      _your subject line here_".
 > 6. Wrap the body at 72 characters.
@@ -110,16 +109,17 @@ tl;dr
 
 In addition to those guidelines, please add one of the following
 prefixes to the subject line if appropriate.
-* `fix:` - The primary purpose is to fix an existing bug.
-* `perf:` - The primary purpose is performance improvements.
-* `refactor:` - The changes refactor code without affecting
+
+- `fix:` - The primary purpose is to fix an existing bug.
+- `perf:` - The primary purpose is performance improvements.
+- `refactor:` - The changes refactor code without affecting
   functionality.
-* `test:` - The changes _only_ affect unit tests.
-* `docs:` - The changes _only_ affect documentation. This can
+- `test:` - The changes _only_ affect unit tests.
+- `docs:` - The changes _only_ affect documentation. This can
   include code comments in addition to `.md` files like this one.
-* `build:` - The changes _only_ affect the build process,
+- `build:` - The changes _only_ affect the build process,
   including CMake and/or Conan settings.
-* `chore:` - Other tasks that don't affect the binary, but don't fit
+- `chore:` - Other tasks that don't affect the binary, but don't fit
   any of the other cases. e.g. formatting, git settings, updating
   Github Actions jobs.
 
@@ -169,11 +169,11 @@ meets a few criteria:
 2. All CI checks must be complete and passed. (One-off failures may
    be acceptable if they are related to a known issue.)
 3. The PR must have a [good commit message](#good-commit-messages).
-   * If the PR started with a good commit message, and it doesn't
+   - If the PR started with a good commit message, and it doesn't
      need to be updated, the author can indicate that in a comment.
-   * Any contributor, preferably the author, can leave a comment
+   - Any contributor, preferably the author, can leave a comment
      suggesting a commit message.
-   * If the author squashes and rebases the code in preparation for
+   - If the author squashes and rebases the code in preparation for
      merge, they should also ensure the commit message(s) are updated
      as well.
 4. The PR branch must be up to date with the base branch (usually
@@ -320,7 +320,6 @@ This is a non-exhaustive list of recommended style guidelines. These are
 not always strictly enforced and serve as a way to keep the codebase
 coherent rather than a set of _thou shalt not_ commandments.
 
-
 ## Formatting
 
 All code must conform to `clang-format` version 10,
@@ -349,6 +348,7 @@ To download the patch file:
 5. Commit and push.
 
 You can install a pre-commit hook to automatically run `clang-format` before every commit:
+
 ```
 pip3 install pre-commit
 pre-commit install
@@ -379,49 +379,51 @@ locations, where the reporting of contract violations on the Antithesis
 platform is either not possible or not useful.
 
 For this reason:
-* The locations where `assert` or `assert(false)` contracts should continue to be used:
-  * `constexpr` functions
-  * unit tests i.e. files under `src/test`
-  * unit tests-related modules (files under `beast/test` and `beast/unit_test`)
-* Outside of the listed locations, do not use `assert`; use `XRPL_ASSERT` instead,
+
+- The locations where `assert` or `assert(false)` contracts should continue to be used:
+  - `constexpr` functions
+  - unit tests i.e. files under `src/test`
+  - unit tests-related modules (files under `beast/test` and `beast/unit_test`)
+- Outside of the listed locations, do not use `assert`; use `XRPL_ASSERT` instead,
   giving it unique name, with the short description of the contract.
-* Outside of the listed locations, do not use `assert(false)`; use
+- Outside of the listed locations, do not use `assert(false)`; use
   `UNREACHABLE` instead, giving it unique name, with the description of the
   condition being violated
-* The contract name should start with a full name (including scope) of the
-  function, optionally a named lambda, followed by a colon ` : ` and a brief
+- The contract name should start with a full name (including scope) of the
+  function, optionally a named lambda, followed by a colon `:` and a brief
   (typically at most five words) description. `UNREACHABLE` contracts
   can use slightly longer descriptions. If there are multiple overloads of the
   function, use common sense to balance both brevity and unambiguity of the
   function name. NOTE: the purpose of name is to provide stable means of
   unique identification of every contract; for this reason try to avoid elements
   which can change in some obvious refactors or when reinforcing the condition.
-* Contract description typically (except for `UNREACHABLE`) should describe the
+- Contract description typically (except for `UNREACHABLE`) should describe the
   _expected_ condition, as in "I assert that _expected_ is true".
-* Contract description for `UNREACHABLE` should describe the _unexpected_
+- Contract description for `UNREACHABLE` should describe the _unexpected_
   situation which caused the line to have been reached.
-* Example good name for an
+- Example good name for an
   `UNREACHABLE` macro `"Json::operator==(Value, Value) : invalid type"`; example
   good name for an `XRPL_ASSERT` macro `"Json::Value::asCString : valid type"`.
-* Example **bad** name
+- Example **bad** name
   `"RFC1751::insert(char* s, int x, int start, int length) : length is greater than or equal zero"`
   (missing namespace, unnecessary full function signature, description too verbose).
   Good name: `"ripple::RFC1751::insert : minimum length"`.
-* In **few** well-justified cases a non-standard name can be used, in which case a
+- In **few** well-justified cases a non-standard name can be used, in which case a
   comment should be placed to explain the rationale (example in `contract.cpp`)
-* Do **not** rename a contract without a good reason (e.g. the name no longer
+- Do **not** rename a contract without a good reason (e.g. the name no longer
   reflects the location or the condition being checked)
-* Do not use `std::unreachable`
-* Do not put contracts where they can be violated by an external condition
+- Do not use `std::unreachable`
+- Do not put contracts where they can be violated by an external condition
   (e.g. timing, data payload before mandatory validation etc.) as this creates
   bogus bug reports (and causes crashes of Debug builds)
 
 ## Unit Tests
+
 To execute all unit tests:
 
-```rippled --unittest --unittest-jobs=<number of cores>```
+`rippled --unittest --unittest-jobs=<number of cores>`
 
-(Note: Using multiple cores on a Mac M1 can cause spurious test failures. The 
+(Note: Using multiple cores on a Mac M1 can cause spurious test failures. The
 cause is still under investigation. If you observe this problem, try specifying fewer jobs.)
 
 To run a specific set of test suites:
@@ -429,10 +431,11 @@ To run a specific set of test suites:
 ```
 rippled --unittest TestSuiteName
 ```
+
 Note: In this example, all tests with prefix `TestSuiteName` will be run, so if
-`TestSuiteName1` and `TestSuiteName2` both exist, then both tests will run. 
-Alternatively, if the unit test name finds an exact match, it will stop 
-doing partial matches, i.e. if a unit test with a title of `TestSuiteName` 
+`TestSuiteName1` and `TestSuiteName2` both exist, then both tests will run.
+Alternatively, if the unit test name finds an exact match, it will stop
+doing partial matches, i.e. if a unit test with a title of `TestSuiteName`
 exists, then no other unit test will be executed, apart from `TestSuiteName`.
 
 ## Avoid
@@ -448,7 +451,6 @@ exists, then no other unit test will be executed, apart from `TestSuiteName`.
    explanatory comments.
 8. Importing new libraries unless there is a very good reason to do so.
 
-
 ## Seek to
 
 9. Extend functionality of existing code rather than creating new code.
@@ -463,13 +465,11 @@ exists, then no other unit test will be executed, apart from `TestSuiteName`.
 14. Provide as many comments as you feel that a competent programmer
     would need to understand what your code does.
 
-
 # Maintainers
 
 Maintainers are ecosystem participants with elevated access to the repository.
 They are able to push new code, make decisions on when a release should be
 made, etc.
-
 
 ## Adding and removing
 
@@ -484,7 +484,6 @@ behest of two existing maintainers.
 A minimum of 60% agreement and 50% participation are required.
 The XRP Ledger Foundation will have the ability, for cause, to remove an
 existing maintainer without a vote.
-
 
 ## Current Maintainers
 

@@ -302,7 +302,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        auto const sa = supported_amendments();
+        auto const sa = testable_amendments();
 
         testcase("With fixProvisionalDoubleThreading enabled");
         testPreviousTxnID(sa);

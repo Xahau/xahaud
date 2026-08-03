@@ -346,7 +346,7 @@ public:
         Account const diana{"diana"};
         Account const carol{"carol"};
 
-        Env env(*this, supported_amendments() | featureCredentials);
+        Env env(*this);
         env.fund(XRP(1000), alice, becky, carol, diana);
         env.close();
 
@@ -638,7 +638,7 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(DepositAuthorized, app, ripple);
+BEAST_DEFINE_TESTSUITE(DepositAuthorized, rpc, ripple);
 
 }  // namespace test
 }  // namespace ripple

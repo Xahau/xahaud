@@ -933,7 +933,7 @@ class Ticket_test : public beast::unit_test::suite
         // Try the test without featureTicketBatch enabled.
         using namespace test::jtx;
         {
-            Env env{*this, features - featureTicketBatch};
+            Env env{*this, testable_amendments() - featureTicketBatch};
             Account alice{"alice"};
 
             env.fund(XRP(10000), alice);
@@ -957,7 +957,7 @@ class Ticket_test : public beast::unit_test::suite
         }
         // Try the test with featureTicketBatch enabled.
         {
-            Env env{*this, supported_amendments()};
+            Env env{*this, testable_amendments()};
             Account alice{"alice"};
 
             env.fund(XRP(10000), alice);
@@ -990,7 +990,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        FeatureBitset const all{testable_amendments() - featureXahauGenesis};
         testTicketNotEnabled(all);
         testTicketCreatePreflightFail(all);
         testTicketCreatePreclaimFail(all);
@@ -1002,6 +1002,6 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(Ticket, tx, ripple);
+BEAST_DEFINE_TESTSUITE(Ticket, app, ripple);
 
 }  // namespace ripple

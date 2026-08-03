@@ -500,7 +500,7 @@ public:
         Env env(
             *this,
             std::move(cfg),
-            supported_amendments() - featureXahauGenesis -
+            testable_amendments() - featureXahauGenesis -
                 fixProvisionalDoubleThreading - fixHookAPI20251128);
 
         Json::Value jv;
@@ -720,6 +720,7 @@ public:
         env.close();
 
         std::string index;
+        int hashesLedgerEntryIndex = -1;
         {
             Json::Value jvParams;
             jvParams[jss::ledger_index] = 3u;
@@ -730,11 +731,27 @@ public:
                 env.rpc("json", "ledger", to_string(jvParams))[jss::result];
             BEAST_EXPECT(jrr[jss::ledger].isMember(jss::accountState));
             BEAST_EXPECT(jrr[jss::ledger][jss::accountState].isArray());
-            BEAST_EXPECT(jrr[jss::ledger][jss::accountState].size() == 1u);
+
+            for (auto i = 0; i < jrr[jss::ledger][jss::accountState].size();
+                 i++)
+                if (jrr[jss::ledger][jss::accountState][i]["LedgerEntryType"] ==
+                    jss::LedgerHashes)
+                {
+                    index = jrr[jss::ledger][jss::accountState][i]["index"]
+                                .asString();
+                    hashesLedgerEntryIndex = i;
+                }
+
+            for (auto const& object : jrr[jss::ledger][jss::accountState])
+                if (object["LedgerEntryType"] == jss::LedgerHashes)
+                    index = object["index"].asString();
+
+            // jss::type is a deprecated field
             BEAST_EXPECT(
-                jrr[jss::ledger][jss::accountState][0u]["LedgerEntryType"] ==
-                jss::LedgerHashes);
-            index = jrr[jss::ledger][jss::accountState][0u]["index"].asString();
+                jrr.isMember(jss::warnings) && jrr[jss::warnings].isArray() &&
+                jrr[jss::warnings].size() == 1 &&
+                jrr[jss::warnings][0u][jss::id].asInt() ==
+                    warnRPC_FIELDS_DEPRECATED);
         }
         {
             Json::Value jvParams;
@@ -746,8 +763,17 @@ public:
                 env.rpc("json", "ledger", to_string(jvParams))[jss::result];
             BEAST_EXPECT(jrr[jss::ledger].isMember(jss::accountState));
             BEAST_EXPECT(jrr[jss::ledger][jss::accountState].isArray());
-            BEAST_EXPECT(jrr[jss::ledger][jss::accountState].size() == 1u);
-            BEAST_EXPECT(jrr[jss::ledger][jss::accountState][0u] == index);
+            BEAST_EXPECT(
+                hashesLedgerEntryIndex > 0 &&
+                jrr[jss::ledger][jss::accountState][hashesLedgerEntryIndex] ==
+                    index);
+
+            // jss::type is a deprecated field
+            BEAST_EXPECT(
+                jrr.isMember(jss::warnings) && jrr[jss::warnings].isArray() &&
+                jrr[jss::warnings].size() == 1 &&
+                jrr[jss::warnings][0u][jss::id].asInt() ==
+                    warnRPC_FIELDS_DEPRECATED);
         }
     }
 
@@ -768,7 +794,7 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(LedgerRPC, app, ripple);
+BEAST_DEFINE_TESTSUITE(LedgerRPC, rpc, ripple);
 
 }  // namespace test
 }  // namespace ripple

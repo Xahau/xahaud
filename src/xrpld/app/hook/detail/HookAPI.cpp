@@ -3152,13 +3152,14 @@ HookAPI::get_stobject_length(
                 hookCtx.applyCtx.view().rules(),
                 recursion_depth + 1);
             DBG_PRINTF(
-                "%d get_stobject_length i %d %d-%d, upto %d sublength %d\n",
+                "%d get_stobject_length i %d %d-%d, upto %ld sublength %d\n",
                 recursion_depth,
                 i,
                 subtype,
                 subfield,
                 upto - start,
-                sublength);
+                sublength ? sublength.value()
+                          : static_cast<int>(sublength.error()));
             if (!sublength)
                 return Unexpected(pe_unexpected_end);
             upto += sublength.value();

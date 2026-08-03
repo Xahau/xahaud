@@ -1263,8 +1263,7 @@ public:
         };
 
         using namespace test::jtx;
-        auto const sa =
-            (supported_amendments() | featureCredentials) - featureXahauGenesis;
+        auto const sa = testable_amendments();
         testWithFeatures(sa);
     }
 };

@@ -178,7 +178,7 @@ class NegativeUNL_test : public beast::unit_test::suite
 
         testcase("Create UNLModify Tx and apply to ledgers");
 
-        jtx::Env env(*this, jtx::supported_amendments() | featureNegativeUNL);
+        jtx::Env env(*this, jtx::testable_amendments() | featureNegativeUNL);
         std::vector<PublicKey> publicKeys = createPublicKeys(3);
         // genesis ledger
         auto l = std::make_shared<Ledger>(
@@ -492,7 +492,7 @@ class NegativeUNLNoAmendment_test : public beast::unit_test::suite
     {
         testcase("No negative UNL amendment");
 
-        jtx::Env env(*this, jtx::supported_amendments() - featureNegativeUNL);
+        jtx::Env env(*this, jtx::testable_amendments() - featureNegativeUNL);
         std::vector<PublicKey> publicKeys = createPublicKeys(1);
         // genesis ledger
         auto l = std::make_shared<Ledger>(
@@ -548,7 +548,7 @@ struct NetworkHistory
     };
 
     NetworkHistory(beast::unit_test::suite& suite, Parameter const& p)
-        : env(suite, jtx::supported_amendments() | featureNegativeUNL)
+        : env(suite, jtx::testable_amendments() | featureNegativeUNL)
         , param(p)
         , validations(env.app().getValidations())
     {
@@ -1862,8 +1862,8 @@ class NegativeUNLVoteFilterValidations_test : public beast::unit_test::suite
     }
 };
 
-BEAST_DEFINE_TESTSUITE(NegativeUNL, ledger, ripple);
-BEAST_DEFINE_TESTSUITE(NegativeUNLNoAmendment, ledger, ripple);
+BEAST_DEFINE_TESTSUITE(NegativeUNL, consensus, ripple);
+BEAST_DEFINE_TESTSUITE(NegativeUNLNoAmendment, consensus, ripple);
 
 BEAST_DEFINE_TESTSUITE(NegativeUNLVoteInternal, consensus, ripple);
 BEAST_DEFINE_TESTSUITE_MANUAL(NegativeUNLVoteScoreTable, consensus, ripple);

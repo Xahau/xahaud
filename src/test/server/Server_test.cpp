@@ -549,7 +549,7 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(Server, http, ripple);
+BEAST_DEFINE_TESTSUITE(Server, server, ripple);
 
 }  // namespace test
 }  // namespace ripple

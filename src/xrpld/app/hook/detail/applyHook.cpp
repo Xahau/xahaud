@@ -1526,14 +1526,14 @@ hook::finalizeHookResult(
 
     if (doEmit)
     {
-        DBG_PRINTF("emitted txn count: %d\n", hookResult.emittedTxn.size());
+        DBG_PRINTF("emitted txn count: %zu\n", hookResult.emittedTxn.size());
         for (; hookResult.emittedTxn.size() > 0; hookResult.emittedTxn.pop())
         {
             auto& tpTrans = hookResult.emittedTxn.front();
             auto& id = tpTrans->getID();
             JLOG(j.trace()) << "HookEmit[" << HR_ACC() << "]: " << id;
 
-            applyCtx.app.getHashRouter().setFlags(id, SF_EMITTED);
+            applyCtx.app.getHashRouter().setFlags(id, HashRouterFlags::EMITTED);
 
             std::shared_ptr<ripple::STTx const> ptr =
                 tpTrans->getSTransaction();

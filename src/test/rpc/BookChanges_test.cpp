@@ -93,9 +93,7 @@ public:
         testcase("Domain Offer");
         using namespace jtx;
 
-        FeatureBitset const all{
-            jtx::supported_amendments() | featurePermissionedDomains |
-            featureCredentials | featurePermissionedDEX};
+        FeatureBitset const all{jtx::testable_amendments()};
 
         Env env(*this, all);
         PermissionedDEX permDex(env);
@@ -143,7 +141,7 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(BookChanges, app, ripple);
+BEAST_DEFINE_TESTSUITE(BookChanges, rpc, ripple);
 
 }  // namespace test
 }  // namespace ripple

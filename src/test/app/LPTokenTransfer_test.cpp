@@ -388,7 +388,7 @@ public:
     void
     run() override
     {
-        FeatureBitset const all{jtx::supported_amendments() | featureAMM};
+        FeatureBitset const all{jtx::testable_amendments()};
 
         testDirectStep(all);
         testBookStep(all);

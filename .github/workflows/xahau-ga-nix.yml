@@ -433,7 +433,9 @@ jobs:
         run: |
           # Ensure the binary exists before trying to run
           if [ -f "${{ env.build_dir }}/rippled" ]; then
-            ${{ env.build_dir }}/rippled --unittest --unittest-jobs $(nproc)
+            cd ${{ env.build_dir }}
+            ./rippled --unittest --unittest-jobs $(nproc)
+            ctest -j $(nproc) --output-on-failure
           else
              echo "Error: rippled executable not found in ${{ env.build_dir }}"
              exit 1

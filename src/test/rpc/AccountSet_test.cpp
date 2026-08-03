@@ -53,7 +53,7 @@ public:
         Account const alice("alice");
 
         // Test without DepositAuth enabled initially.
-        Env env(*this, supported_amendments() - featureDepositAuth);
+        Env env(*this, testable_amendments() - featureDepositAuth);
         env.fund(XRP(10000), noripple(alice));
 
         // Give alice a regular key so she can legally set and clear
@@ -353,7 +353,7 @@ public:
         };
 
         doTests(
-            supported_amendments(),
+            testable_amendments(),
             {{1.0, tesSUCCESS, 1.0},
              {1.1, tesSUCCESS, 1.1},
              {2.0, tesSUCCESS, 2.0},
@@ -582,7 +582,7 @@ public:
         testcase("HookStateScale");
 
         using namespace test::jtx;
-        Env env(*this, supported_amendments() - featureExtendedHookState);
+        Env env(*this, testable_amendments() - featureExtendedHookState);
         Account const alice("alice");
 
         env.fund(XRP(10000), alice);
@@ -694,6 +694,6 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE_PRIO(AccountSet, app, ripple, 1);
+BEAST_DEFINE_TESTSUITE_PRIO(AccountSet, rpc, ripple, 1);
 
 }  // namespace ripple

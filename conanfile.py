@@ -27,12 +27,16 @@ class Xrpl(ConanFile):
 
     requires = [
         'grpc/1.50.1',
-        'libarchive/3.7.6',
+        'libarchive/3.8.1',
         'magic_enum/0.9.5',
-        'nudb/2.0.8',
+        'nudb/2.0.9',
         'openssl/3.6.0',
         'soci/4.0.3@xahaud/stable',
         'zlib/1.3.1',
+    ]
+
+    test_requires = [
+        'doctest/2.4.11',
     ]
 
     tool_requires = [
@@ -90,12 +94,13 @@ class Xrpl(ConanFile):
     }
 
     def set_version(self):
-        path = f'{self.recipe_folder}/src/libxrpl/protocol/BuildInfo.cpp'
-        regex = r'versionString\s?=\s?\"(.*)\"'
-        with open(path, 'r') as file:
-            matches = (re.search(regex, line) for line in file)
-            match = next(m for m in matches if m)
-            self.version = match.group(1)
+        if self.version is None:
+            path = f'{self.recipe_folder}/src/libxrpl/protocol/BuildInfo.cpp'
+            regex = r'versionString\s?=\s?\"(.*)\"'
+            with open(path, encoding='utf-8') as file:
+                matches = (re.search(regex, line) for line in file)
+                match = next(m for m in matches if m)
+                self.version = match.group(1)
 
     def build_requirements(self):
         # These provide build tools (protoc, grpc plugins) that run during build
@@ -112,12 +117,12 @@ class Xrpl(ConanFile):
         # Conan 2 requires transitive headers to be specified
         transitive_headers_opt = {'transitive_headers': True} if conan_version.split('.')[0] == '2' else {}
         # Force sqlite3 version to avoid conflicts with soci
-        self.requires('sqlite3/3.47.0', override=True)
+        self.requires('sqlite3/3.49.1', override=True)
         # Force our custom snappy build to avoid Conan CMakeDeps stdc++ heuristic bug
         self.requires('snappy/1.1.10@xahaud/stable', override=True)
         # Force boost version for all dependencies to avoid conflicts
         self.requires('boost/1.86.0', force=True, **transitive_headers_opt)
-        self.requires('date/3.0.3', **transitive_headers_opt)
+        self.requires('date/3.0.4', **transitive_headers_opt)
         self.requires('lz4/1.10.0', force=True)
 
         if self.options.with_wasmedge:
@@ -125,12 +130,11 @@ class Xrpl(ConanFile):
         if self.options.jemalloc:
             self.requires('jemalloc/5.3.0', **transitive_headers_opt)
         if self.options.rocksdb:
-            self.requires('rocksdb/9.7.3', **transitive_headers_opt)
-        self.requires('xxhash/0.8.2', **transitive_headers_opt)
+            self.requires('rocksdb/10.0.1')
+        self.requires('xxhash/0.8.3', **transitive_headers_opt)
 
     exports_sources = (
         'CMakeLists.txt',
-        'bin/getRippledInfo',
         'cfg/*',
         'cmake/*',
         'external/*',
@@ -181,7 +185,17 @@ class Xrpl(ConanFile):
         # `include/`, not `include/ripple/proto/`.
         libxrpl.includedirs = ['include', 'include/ripple/proto']
         libxrpl.requires = [
-            'boost::boost',
+            'boost::headers',
+            'boost::chrono',
+            'boost::container',
+            'boost::coroutine',
+            'boost::date_time',
+            'boost::filesystem',
+            'boost::json',
+            'boost::program_options',
+            'boost::regex',
+            'boost::system',
+            'boost::thread',
             'date::date',
             'grpc::grpc++',
             'libarchive::libarchive',
