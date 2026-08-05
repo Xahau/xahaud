@@ -23,14 +23,17 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/base64.h>
+#include <xrpl/basics/random.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/Sign.h>
 
 #include <boost/algorithm/string/trim.hpp>
 
+#include <iterator>
 #include <numeric>
 #include <stdexcept>
+#include <vector>
 
 namespace ripple {
 
@@ -372,6 +375,26 @@ ManifestCache::revoked(PublicKey const& pk) const
 ManifestDisposition
 ManifestCache::applyManifest(Manifest m, ManifestRateLimitCapPolicy const cap)
 {
+    return applyManifestImpl(std::move(m), cap, nullptr);
+}
+
+ManifestDisposition
+ManifestCache::applyManifestWithEviction(
+    Manifest m,
+    hash_set<PublicKey> const& currentValidationKeys)
+{
+    return applyManifestImpl(
+        std::move(m),
+        ManifestRateLimitCapPolicy::Capped,
+        &currentValidationKeys);
+}
+
+ManifestDisposition
+ManifestCache::applyManifestImpl(
+    Manifest m,
+    ManifestRateLimitCapPolicy const cap,
+    hash_set<PublicKey> const* const currentValidationKeys)
+{
     bool const uncapped = cap == ManifestRateLimitCapPolicy::Uncapped;
     bool checkSignature = true;
 
@@ -479,34 +502,33 @@ ManifestCache::applyManifest(Manifest m, ManifestRateLimitCapPolicy const cap)
         return std::nullopt;
     };
 
-    auto atUntrustedCap = [this, &m, uncapped](
-                              auto const& iter, auto const& lock) {
+    auto atUntrustedCap = [this, uncapped](auto const& iter, auto const& lock) {
         XRPL_ASSERT(
             lock.owns_lock(),
             "ripple::ManifestCache::applyManifest::atUntrustedCap : locked");
         (void)lock;
-        if (iter == map_.end() && !uncapped &&
-            untrustedKeys_.size() >= kMaxUntrustedCount)
+        return iter == map_.end() && !uncapped &&
+            untrustedKeys_.size() >= kMaxUntrustedCount;
+    };
+
+    auto rejectAtUntrustedCap = [this, &m]() {
+        if (auto stream = j_.debug())
+            LOG_MANIFEST_ACTION(
+                stream, "UntrustedCapacity", m.masterKey, m.sequence);
+        if (auto const n = untrustedRejectCount_.fetch_add(1) + 1;
+            n % kUntrustedRejectCount == 0)
         {
-            if (auto stream = j_.debug())
-                LOG_MANIFEST_ACTION(
-                    stream, "UntrustedCapacity", m.masterKey, m.sequence);
-            if (auto const n = untrustedRejectCount_.fetch_add(1) + 1;
-                n % kUntrustedRejectCount == 0)
-            {
-                JLOG(j_.warn()) << "Untrusted manifest cap reached; " << n
-                                << " manifests rejected so far";
-            }
-            return true;
+            JLOG(j_.warn()) << "Untrusted manifest cap reached; " << n
+                            << " manifests rejected so far";
         }
-        return false;
+        return ManifestDisposition::untrustedCapacity;
     };
 
     {
         std::shared_lock sl{mutex_};
         auto const iter = map_.find(m.masterKey);
-        if (atUntrustedCap(iter, sl))
-            return ManifestDisposition::untrustedCapacity;
+        if (atUntrustedCap(iter, sl) && !currentValidationKeys)
+            return rejectAtUntrustedCap();
         if (auto d = prewriteCheck(iter, sl); d.has_value())
             return *d;
     }
@@ -514,8 +536,9 @@ ManifestCache::applyManifest(Manifest m, ManifestRateLimitCapPolicy const cap)
     std::unique_lock sl{mutex_};
     auto const iter = map_.find(m.masterKey);
 
-    if (atUntrustedCap(iter, sl))
-        return ManifestDisposition::untrustedCapacity;
+    bool const needsEviction = atUntrustedCap(iter, sl);
+    if (needsEviction && !currentValidationKeys)
+        return rejectAtUntrustedCap();
     // Since we released the previously held read lock, it's possible that the
     // collections have been written to. This means we need to run
     // `prewriteCheck` again. This re-does work, but `prewriteCheck` is
@@ -527,6 +550,51 @@ ManifestCache::applyManifest(Manifest m, ManifestRateLimitCapPolicy const cap)
     // deadlock.
     if (auto d = prewriteCheck(iter, sl); d.has_value())
         return *d;
+
+    if (needsEviction)
+    {
+        XRPL_ASSERT(
+            currentValidationKeys && !untrustedKeys_.empty(),
+            "ripple::ManifestCache::applyManifestImpl : eviction inputs");
+
+        std::vector<PublicKey> dormant;
+        dormant.reserve(untrustedKeys_.size());
+        for (auto const& master : untrustedKeys_)
+        {
+            auto const victim = map_.find(master);
+            XRPL_ASSERT(
+                victim != map_.end(),
+                "ripple::ManifestCache::applyManifestImpl : untrusted key "
+                "retained");
+            if (victim == map_.end())
+                continue;
+            if (!victim->second.signingKey ||
+                !currentValidationKeys->contains(*victim->second.signingKey))
+            {
+                dormant.push_back(master);
+            }
+        }
+
+        PublicKey const victimMaster = [&]() {
+            if (!dormant.empty())
+                return dormant[rand_int(dormant.size() - 1)];
+            auto victim = untrustedKeys_.begin();
+            std::advance(victim, rand_int(untrustedKeys_.size() - 1));
+            return *victim;
+        }();
+
+        auto const victim = map_.find(victimMaster);
+        XRPL_ASSERT(
+            victim != map_.end(),
+            "ripple::ManifestCache::applyManifestImpl : victim retained");
+        if (victim == map_.end())
+            return rejectAtUntrustedCap();
+
+        if (victim->second.signingKey)
+            signingToMasterKeys_.erase(*victim->second.signingKey);
+        map_.erase(victim);
+        untrustedKeys_.erase(victimMaster);
+    }
 
     bool const revoked = m.revoked();
     // This is the first manifest we are seeing for a master key. This should

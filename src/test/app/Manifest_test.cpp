@@ -984,6 +984,158 @@ public:
     }
 
     void
+    testUntrustedEviction()
+    {
+        testcase("untrusted eviction");
+
+        ManifestCache cache;
+
+        auto const trustedMasterSecret = randomSecretKey();
+        auto const trustedMaster =
+            derivePublicKey(KeyType::ed25519, trustedMasterSecret);
+        auto const trustedSigning = randomKeyPair(KeyType::secp256k1);
+        BEAST_EXPECT(
+            cache.applyManifest(
+                makeManifest(
+                    trustedMasterSecret,
+                    KeyType::ed25519,
+                    trustedSigning.second,
+                    KeyType::secp256k1,
+                    0),
+                ManifestRateLimitCapPolicy::Uncapped) ==
+            ManifestDisposition::accepted);
+
+        std::vector<PublicKey> untrustedMasters;
+        std::vector<PublicKey> untrustedSigningKeys;
+        untrustedMasters.reserve(1000);
+        untrustedSigningKeys.reserve(1000);
+        for (std::size_t i = 0; i < 1000; ++i)
+        {
+            auto const masterSecret = randomSecretKey();
+            auto const master = derivePublicKey(KeyType::ed25519, masterSecret);
+            auto const signing = randomKeyPair(KeyType::secp256k1);
+            BEAST_EXPECT(
+                cache.applyManifest(
+                    makeManifest(
+                        masterSecret,
+                        KeyType::ed25519,
+                        signing.second,
+                        KeyType::secp256k1,
+                        0),
+                    ManifestRateLimitCapPolicy::Capped) ==
+                ManifestDisposition::accepted);
+            untrustedMasters.push_back(master);
+            untrustedSigningKeys.push_back(signing.first);
+        }
+
+        auto retainedMasters = [&cache]() {
+            hash_set<PublicKey> result;
+            cache.for_each_manifest([&result](Manifest const& manifest) {
+                result.insert(manifest.masterKey);
+            });
+            return result;
+        };
+
+        auto const beforeInvalid = retainedMasters();
+        auto const invalidMasterSecret = randomSecretKey();
+        auto const invalidSigning = randomKeyPair(KeyType::secp256k1);
+        BEAST_EXPECT(
+            cache.applyManifestWithEviction(
+                makeManifest(
+                    invalidMasterSecret,
+                    KeyType::ed25519,
+                    invalidSigning.second,
+                    KeyType::secp256k1,
+                    0,
+                    true),
+                {}) == ManifestDisposition::invalid);
+        BEAST_EXPECT(retainedMasters() == beforeInvalid);
+
+        auto const incomingMasterSecret = randomSecretKey();
+        auto const incomingMaster =
+            derivePublicKey(KeyType::ed25519, incomingMasterSecret);
+        auto const incomingSigning = randomKeyPair(KeyType::secp256k1);
+        auto const incoming = makeManifest(
+            incomingMasterSecret,
+            KeyType::ed25519,
+            incomingSigning.second,
+            KeyType::secp256k1,
+            0);
+
+        BEAST_EXPECT(
+            cache.applyManifest(
+                clone(incoming), ManifestRateLimitCapPolicy::Capped) ==
+            ManifestDisposition::untrustedCapacity);
+
+        hash_set<PublicKey> const currentValidationKeys = {
+            untrustedSigningKeys.front()};
+        BEAST_EXPECT(
+            cache.applyManifestWithEviction(
+                clone(incoming), currentValidationKeys) ==
+            ManifestDisposition::accepted);
+
+        auto const afterEviction = retainedMasters();
+        BEAST_EXPECT(afterEviction.size() == 1001);
+        BEAST_EXPECT(afterEviction.contains(trustedMaster));
+        BEAST_EXPECT(afterEviction.contains(untrustedMasters.front()));
+        BEAST_EXPECT(afterEviction.contains(incomingMaster));
+
+        std::optional<std::size_t> evicted;
+        for (std::size_t i = 0; i < untrustedMasters.size(); ++i)
+        {
+            if (!afterEviction.contains(untrustedMasters[i]))
+            {
+                BEAST_EXPECT(!evicted);
+                evicted = i;
+            }
+        }
+        BEAST_EXPECT(evicted);
+        if (evicted)
+        {
+            BEAST_EXPECT(
+                cache.getMasterKey(untrustedSigningKeys[*evicted]) ==
+                untrustedSigningKeys[*evicted]);
+        }
+
+        auto const replacementSigning = randomKeyPair(KeyType::secp256k1);
+        BEAST_EXPECT(
+            cache.applyManifestWithEviction(
+                makeManifest(
+                    incomingMasterSecret,
+                    KeyType::ed25519,
+                    replacementSigning.second,
+                    KeyType::secp256k1,
+                    1),
+                {}) == ManifestDisposition::accepted);
+        BEAST_EXPECT(retainedMasters() == afterEviction);
+
+        hash_set<PublicKey> allCurrentSigningKeys;
+        cache.for_each_manifest(
+            [&allCurrentSigningKeys](Manifest const& manifest) {
+                if (manifest.signingKey)
+                    allCurrentSigningKeys.insert(*manifest.signingKey);
+            });
+
+        auto const secondIncomingMasterSecret = randomSecretKey();
+        auto const secondIncomingMaster =
+            derivePublicKey(KeyType::ed25519, secondIncomingMasterSecret);
+        auto const secondIncomingSigning = randomKeyPair(KeyType::secp256k1);
+        BEAST_EXPECT(
+            cache.applyManifestWithEviction(
+                makeManifest(
+                    secondIncomingMasterSecret,
+                    KeyType::ed25519,
+                    secondIncomingSigning.second,
+                    KeyType::secp256k1,
+                    0),
+                allCurrentSigningKeys) == ManifestDisposition::accepted);
+        auto const afterAllActiveEviction = retainedMasters();
+        BEAST_EXPECT(afterAllActiveEviction.size() == 1001);
+        BEAST_EXPECT(afterAllActiveEviction.contains(trustedMaster));
+        BEAST_EXPECT(afterAllActiveEviction.contains(secondIncomingMaster));
+    }
+
+    void
     run() override
     {
         ManifestCache cache;
@@ -1109,6 +1261,7 @@ public:
         testManifestDeserialization();
         testManifestDomainNames();
         testManifestVersioning();
+        testUntrustedEviction();
     }
 };
 

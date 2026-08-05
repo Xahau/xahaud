@@ -66,9 +66,11 @@ namespace ripple {
     added to the manifest cache.  Other manifests are added as "gossip"
     received from rippled peers, including ones for validators this node does
     not trust. Manifests for untrusted validators are capped
-    (kMaxUntrustedCount) so peer gossip cannot grow the cache without bound;
-    trusted validators are not capped. Entries are never evicted, so a stored
-    revocation is permanent.
+    (kMaxUntrustedCount) so peer gossip cannot grow the cache without bound.
+    Entries admitted as trusted, or later promoted to trusted, are not capped
+    or evicted. Promotion is one-way. At capacity, an untrusted entry is
+    evicted to admit a new valid manifest; entries whose signing keys have
+    current validations are avoided while a dormant victim exists.
 
     When an ephemeral key is compromised, a new signing key pair is created,
     along with a new manifest vouching for it (with a higher sequence number),
@@ -278,7 +280,25 @@ enum class ManifestRateLimitCapPolicy : std::uint8_t { Capped, Uncapped };
 
 class DatabaseCon;
 
-/** Remembers manifests with the highest sequence number. */
+/** Remembers manifests with the highest sequence number.
+
+    This is protocol state, not merely a payload cache. While an entry remains
+    resident, it supplies the sequence high-water mark, revocation state, and
+    master/signing-key collision checks for that validator. Evicting an
+    untrusted entry necessarily forgets those facts and can make an old
+    manifest cache-new again.
+
+    Entries admitted uncapped, or later promoted, are outside the eviction
+    population. For unlisted validators, recent validation activity is only an
+    eviction preference; it does not confer trust and cannot prevent eviction
+    when every candidate is active. Relay suppression must therefore be
+    maintained independently of this cache.
+
+    This is a retained-state bound, not complete adversarial containment. A
+    stream of unique, valid identities can still consume signature checks,
+    victim-selection work, and relay bandwidth. HashRouter suppresses repeat
+    relay of the same manifest hash; it does not bound novel-hash amplification.
+*/
 class ManifestCache
 {
 private:
@@ -297,13 +317,19 @@ private:
     hash_set<PublicKey> untrustedKeys_;
 
     /** Maximum number of untrusted master keys retained in memory. */
-    static constexpr std::size_t kMaxUntrustedCount = 100;
+    static constexpr std::size_t kMaxUntrustedCount = 1000;
 
     /** Number of manifests rejected because the untrusted cache was full. */
     std::atomic<std::uint64_t> untrustedRejectCount_{0};
 
     /** Number of capacity rejections between warning summaries. */
     static constexpr std::uint64_t kUntrustedRejectCount = 10000;
+
+    ManifestDisposition
+    applyManifestImpl(
+        Manifest m,
+        ManifestRateLimitCapPolicy cap,
+        hash_set<PublicKey> const* currentValidationKeys);
 
 public:
     explicit ManifestCache(
@@ -395,6 +421,22 @@ public:
     */
     ManifestDisposition
     applyManifest(Manifest m, ManifestRateLimitCapPolicy cap);
+
+    /** Add an untrusted manifest, evicting another at capacity.
+
+        A dormant untrusted entry is chosen at random when possible. If all
+        retained untrusted signing keys have current validations, any
+        untrusted entry may be chosen. The candidate is fully verified before
+        eviction.
+
+        @param m Manifest to add
+        @param currentValidationKeys Signing keys with current validations;
+               these are eviction preferences, not trusted identities
+    */
+    ManifestDisposition
+    applyManifestWithEviction(
+        Manifest m,
+        hash_set<PublicKey> const& currentValidationKeys);
 
     /** Stop counting a cached master key against the untrusted cap. */
     void

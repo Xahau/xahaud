@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/consensus/RCLValidations.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/NetworkOPs.h>
@@ -639,8 +640,11 @@ OverlayImpl::onManifests(
     auto const total = static_cast<std::size_t>(m->list_size());
     std::size_t untrusted = 0;
     bool skippedUntrusted = false;
+    auto const currentValidationKeys =
+        app_.getValidations().getCurrentNodeKeys();
 
     protocol::TMManifests relay;
+    std::optional<std::set<HashRouter::PeerShortID>> relaySkip;
 
     for (std::size_t i = 0; i < total; ++i)
     {
@@ -649,6 +653,7 @@ OverlayImpl::onManifests(
         if (auto mo = deserializeManifest(s))
         {
             auto const serialized = mo->serialized;
+            auto const manifestHash = mo->hash();
 
             bool const isTrusted = app_.validators().listed(mo->masterKey);
             if (!isTrusted)
@@ -661,14 +666,11 @@ OverlayImpl::onManifests(
                 ++untrusted;
             }
 
-            bool const isKnown = app_.validatorManifests()
-                                     .getSequence(mo->masterKey)
-                                     .has_value();
-
-            auto const result = app_.validatorManifests().applyManifest(
-                std::move(*mo),
-                isTrusted ? ManifestRateLimitCapPolicy::Uncapped
-                          : ManifestRateLimitCapPolicy::Capped);
+            auto const result = isTrusted
+                ? app_.validatorManifests().applyManifest(
+                      std::move(*mo), ManifestRateLimitCapPolicy::Uncapped)
+                : app_.validatorManifests().applyManifestWithEviction(
+                      std::move(*mo), currentValidationKeys);
 
             if (result == ManifestDisposition::accepted)
             {
@@ -683,15 +685,32 @@ OverlayImpl::onManifests(
 
                 app_.getOPs().pubManifest(*mo);
 
-                if (isTrusted || isKnown)
+                // Acceptance is relative to the retention cache. Eviction can
+                // make the same manifest acceptable again, so relay novelty
+                // must be tracked independently. Record the source before
+                // asking HashRouter whether this node should relay it.
+                auto& hashRouter = app_.getHashRouter();
+                hashRouter.addSuppressionPeer(manifestHash, from->id());
+                if (auto toSkip = hashRouter.shouldRelay(manifestHash))
                 {
                     relay.add_list()->set_stobject(s);
 
-                    if (isTrusted)
+                    if (!relaySkip)
                     {
-                        auto db = app_.getWalletDB().checkoutDb();
-                        addValidatorManifest(*db, serialized);
+                        relaySkip = std::move(*toSkip);
                     }
+                    else
+                    {
+                        std::erase_if(*relaySkip, [&toSkip](auto const peer) {
+                            return !toSkip->contains(peer);
+                        });
+                    }
+                }
+
+                if (isTrusted)
+                {
+                    auto db = app_.getWalletDB().checkoutDb();
+                    addValidatorManifest(*db, serialized);
                 }
             }
         }
@@ -714,8 +733,16 @@ OverlayImpl::onManifests(
     }
 
     if (!relay.list().empty())
-        for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS)](
-                     std::shared_ptr<PeerImp>&& p) { p->send(m2); });
+    {
+        XRPL_ASSERT(
+            relaySkip,
+            "ripple::OverlayImpl::onManifests : relay suppression state");
+        for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS),
+                  &relaySkip](std::shared_ptr<PeerImp>&& p) {
+            if (!relaySkip->contains(p->id()))
+                p->send(m2);
+        });
+    }
 }
 
 void
