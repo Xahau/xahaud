@@ -36,6 +36,7 @@
 #include <xrpl/basics/random.h>
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/protocol/STTx.h>
+#include <xrpl/resource/Fees.h>
 #include <xrpl/server/SimpleWriter.h>
 
 #include <xrpld/core/ConfigSections.h>
@@ -633,12 +634,15 @@ OverlayImpl::onManifests(
     std::shared_ptr<protocol::TMManifests> const& m,
     std::shared_ptr<PeerImp> const& from)
 {
-    auto const n = m->list_size();
     auto const& journal = from->pjournal();
+
+    auto const total = static_cast<std::size_t>(m->list_size());
+    std::size_t untrusted = 0;
+    bool skippedUntrusted = false;
 
     protocol::TMManifests relay;
 
-    for (std::size_t i = 0; i < n; ++i)
+    for (std::size_t i = 0; i < total; ++i)
     {
         auto& s = m->list().Get(i).stobject();
 
@@ -646,13 +650,28 @@ OverlayImpl::onManifests(
         {
             auto const serialized = mo->serialized;
 
-            auto const result =
-                app_.validatorManifests().applyManifest(std::move(*mo));
+            bool const isTrusted = app_.validators().listed(mo->masterKey);
+            if (!isTrusted)
+            {
+                if (untrusted >= kMaxManifestsPerMessage)
+                {
+                    skippedUntrusted = true;
+                    continue;
+                }
+                ++untrusted;
+            }
+
+            bool const isKnown = app_.validatorManifests()
+                                     .getSequence(mo->masterKey)
+                                     .has_value();
+
+            auto const result = app_.validatorManifests().applyManifest(
+                std::move(*mo),
+                isTrusted ? ManifestRateLimitCapPolicy::Uncapped
+                          : ManifestRateLimitCapPolicy::Capped);
 
             if (result == ManifestDisposition::accepted)
             {
-                relay.add_list()->set_stobject(s);
-
                 // N.B.: this is important; the applyManifest call above moves
                 //       the loaded Manifest out of the optional so we need to
                 //       reload it here.
@@ -664,10 +683,15 @@ OverlayImpl::onManifests(
 
                 app_.getOPs().pubManifest(*mo);
 
-                if (app_.validators().listed(mo->masterKey))
+                if (isTrusted || isKnown)
                 {
-                    auto db = app_.getWalletDB().checkoutDb();
-                    addValidatorManifest(*db, serialized);
+                    relay.add_list()->set_stobject(s);
+
+                    if (isTrusted)
+                    {
+                        auto db = app_.getWalletDB().checkoutDb();
+                        addValidatorManifest(*db, serialized);
+                    }
                 }
             }
         }
@@ -677,6 +701,16 @@ OverlayImpl::onManifests(
                 << "Malformed manifest #" << i + 1 << ": " << strHex(s);
             continue;
         }
+    }
+
+    if (skippedUntrusted)
+    {
+        from->charge(
+            Resource::feeMalformedRequest, "too many untrusted manifests");
+        JLOG(journal.warn())
+            << "Manifests: message had " << total
+            << " entries; processed all trusted plus the first "
+            << kMaxManifestsPerMessage << " untrusted";
     }
 
     if (!relay.list().empty())
@@ -1188,15 +1222,45 @@ OverlayImpl::getManifestsMessage()
     if (auto seq = app_.validatorManifests().sequence();
         seq != manifestListSeq_)
     {
-        protocol::TMManifests tm;
+        struct CachedManifest
+        {
+            PublicKey masterKey;
+            std::string serialized;
+            uint256 hash;
+        };
 
+        std::vector<CachedManifest> cached;
         app_.validatorManifests().for_each_manifest(
-            [&tm](std::size_t s) { tm.mutable_list()->Reserve(s); },
-            [&tm, &hr = app_.getHashRouter()](Manifest const& manifest) {
-                tm.add_list()->set_stobject(
-                    manifest.serialized.data(), manifest.serialized.size());
-                hr.addSuppression(manifest.hash());
+            [&cached](std::size_t s) { cached.reserve(s); },
+            [&cached](Manifest const& manifest) {
+                cached.push_back(
+                    {manifest.masterKey, manifest.serialized, manifest.hash()});
             });
+
+        std::vector<CachedManifest const*> selected;
+        std::vector<CachedManifest const*> untrusted;
+        for (auto const& entry : cached)
+        {
+            if (app_.validators().listed(entry.masterKey))
+                selected.push_back(&entry);
+            else
+                untrusted.push_back(&entry);
+        }
+
+        auto const take = std::min(kMaxManifestsPerMessage, untrusted.size());
+        selected.insert(
+            selected.end(), untrusted.begin(), untrusted.begin() + take);
+        std::shuffle(selected.begin(), selected.end(), default_prng());
+
+        protocol::TMManifests tm;
+        auto& hashRouter = app_.getHashRouter();
+        tm.mutable_list()->Reserve(static_cast<int>(selected.size()));
+        for (auto const* entry : selected)
+        {
+            tm.add_list()->set_stobject(
+                entry->serialized.data(), entry->serialized.size());
+            hashRouter.addSuppression(entry->hash);
+        }
 
         manifestMessage_.reset();
 

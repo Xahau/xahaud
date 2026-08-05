@@ -24,6 +24,7 @@
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/ValidatorList.h>
@@ -1060,6 +1061,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
     if (s > 100)
         fee_.update(Resource::feeModerateBurdenPeer, "oversize");
 
+    // OverlayImpl bounds untrusted work and charges if the cap is exceeded;
+    // trusted manifests are always processed and do not count against it.
     app_.getJobQueue().addJob(
         jtMANIFEST, "receiveManifests", [this, that = shared_from_this(), m]() {
             overlay_.onManifests(m, that);

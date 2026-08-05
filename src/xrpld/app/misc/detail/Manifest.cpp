@@ -55,6 +55,9 @@ deserializeManifest(Slice s, beast::Journal journal)
     if (s.empty())
         return std::nullopt;
 
+    if (s.size() > kMaxManifestBytes)
+        return std::nullopt;
+
     static SOTemplate const manifestFormat{
         // A manifest must include:
         // - the master public key
@@ -367,8 +370,11 @@ ManifestCache::revoked(PublicKey const& pk) const
 }
 
 ManifestDisposition
-ManifestCache::applyManifest(Manifest m)
+ManifestCache::applyManifest(Manifest m, ManifestRateLimitCapPolicy const cap)
 {
+    bool const uncapped = cap == ManifestRateLimitCapPolicy::Uncapped;
+    bool checkSignature = true;
+
     // Check the manifest against the conditions that do not require a
     // `unique_lock` (write lock) on the `mutex_`. Since the signature can be
     // relatively expensive, the `checkSignature` parameter determines if the
@@ -376,8 +382,9 @@ ManifestCache::applyManifest(Manifest m)
     // comment below), `checkSignature` only needs to be set to true on the
     // first run.
     auto prewriteCheck =
-        [this, &m](auto const& iter, bool checkSignature, auto const& lock)
-        -> std::optional<ManifestDisposition> {
+        [this, &m, &checkSignature](
+            auto const& iter,
+            auto const& lock) -> std::optional<ManifestDisposition> {
         XRPL_ASSERT(
             lock.owns_lock(),
             "ripple::ManifestCache::applyManifest::prewriteCheck : locked");
@@ -399,11 +406,16 @@ ManifestCache::applyManifest(Manifest m)
             return ManifestDisposition::stale;
         }
 
-        if (checkSignature && !m.verify())
+        if (checkSignature)
         {
-            if (auto stream = j_.warn())
-                LOG_MANIFEST_ACTION(stream, "Invalid", m.masterKey, m.sequence);
-            return ManifestDisposition::invalid;
+            checkSignature = false;
+            if (!m.verify())
+            {
+                if (auto stream = j_.warn())
+                    LOG_MANIFEST_ACTION(
+                        stream, "Invalid", m.masterKey, m.sequence);
+                return ManifestDisposition::invalid;
+            }
         }
 
         // If the master key associated with a manifest is or might be
@@ -467,15 +479,43 @@ ManifestCache::applyManifest(Manifest m)
         return std::nullopt;
     };
 
+    auto atUntrustedCap = [this, &m, uncapped](
+                              auto const& iter, auto const& lock) {
+        XRPL_ASSERT(
+            lock.owns_lock(),
+            "ripple::ManifestCache::applyManifest::atUntrustedCap : locked");
+        (void)lock;
+        if (iter == map_.end() && !uncapped &&
+            untrustedKeys_.size() >= kMaxUntrustedCount)
+        {
+            if (auto stream = j_.debug())
+                LOG_MANIFEST_ACTION(
+                    stream, "UntrustedCapacity", m.masterKey, m.sequence);
+            if (auto const n = untrustedRejectCount_.fetch_add(1) + 1;
+                n % kUntrustedRejectCount == 0)
+            {
+                JLOG(j_.warn()) << "Untrusted manifest cap reached; " << n
+                                << " manifests rejected so far";
+            }
+            return true;
+        }
+        return false;
+    };
+
     {
         std::shared_lock sl{mutex_};
-        if (auto d =
-                prewriteCheck(map_.find(m.masterKey), /*checkSig*/ true, sl))
+        auto const iter = map_.find(m.masterKey);
+        if (atUntrustedCap(iter, sl))
+            return ManifestDisposition::untrustedCapacity;
+        if (auto d = prewriteCheck(iter, sl); d.has_value())
             return *d;
     }
 
     std::unique_lock sl{mutex_};
     auto const iter = map_.find(m.masterKey);
+
+    if (atUntrustedCap(iter, sl))
+        return ManifestDisposition::untrustedCapacity;
     // Since we released the previously held read lock, it's possible that the
     // collections have been written to. This means we need to run
     // `prewriteCheck` again. This re-does work, but `prewriteCheck` is
@@ -485,7 +525,7 @@ ManifestCache::applyManifest(Manifest m)
     // doesn't need to happen again (signature checks are somewhat expensive).
     // Note: It's a mistake to use an upgradable lock. This is a recipe for
     // deadlock.
-    if (auto d = prewriteCheck(iter, /*checkSig*/ false, sl))
+    if (auto d = prewriteCheck(iter, sl); d.has_value())
         return *d;
 
     bool const revoked = m.revoked();
@@ -500,6 +540,8 @@ ManifestCache::applyManifest(Manifest m)
             signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);
 
         auto masterKey = m.masterKey;
+        if (!uncapped)
+            untrustedKeys_.insert(masterKey);
         map_.emplace(std::move(masterKey), std::move(m));
 
         // Increment sequence to invalidate cached manifest messages
@@ -518,6 +560,9 @@ ManifestCache::applyManifest(Manifest m)
             m.sequence,
             iter->second.sequence);
 
+    if (uncapped)
+        untrustedKeys_.erase(m.masterKey);
+
     signingToMasterKeys_.erase(*iter->second.signingKey);
 
     if (!revoked)
@@ -529,6 +574,13 @@ ManifestCache::applyManifest(Manifest m)
     seq_++;
 
     return ManifestDisposition::accepted;
+}
+
+void
+ManifestCache::promoteToTrusted(PublicKey const& pk)
+{
+    std::unique_lock sl{mutex_};
+    untrustedKeys_.erase(pk);
 }
 
 void
@@ -561,7 +613,9 @@ ManifestCache::load(
             JLOG(j_.warn()) << "Configured manifest revokes public key";
         }
 
-        if (applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
+        if (applyManifest(
+                std::move(*mo), ManifestRateLimitCapPolicy::Uncapped) ==
+            ManifestDisposition::invalid)
         {
             JLOG(j_.error()) << "Manifest in config was rejected";
             return false;
@@ -585,7 +639,9 @@ ManifestCache::load(
         auto mo = deserializeManifest(base64_decode(revocationStr));
 
         if (!mo || !mo->revoked() ||
-            applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
+            applyManifest(
+                std::move(*mo), ManifestRateLimitCapPolicy::Uncapped) ==
+                ManifestDisposition::invalid)
         {
             JLOG(j_.error()) << "Invalid validator key revocation in config";
             return false;

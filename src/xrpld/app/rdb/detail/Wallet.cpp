@@ -20,6 +20,8 @@
 #include <xrpld/app/rdb/Wallet.h>
 #include <boost/format.hpp>
 
+#include <cstddef>
+
 namespace ripple {
 
 std::unique_ptr<DatabaseCon>
@@ -65,7 +67,8 @@ getManifests(
                 continue;
             }
 
-            mCache.applyManifest(std::move(*mo));
+            mCache.applyManifest(
+                std::move(*mo), ManifestRateLimitCapPolicy::Uncapped);
         }
         else
         {
@@ -99,19 +102,24 @@ saveManifests(
 {
     soci::transaction tr(session);
     session << "DELETE FROM " << dbTable;
+    std::size_t skipped = 0;
     for (auto const& v : map)
     {
-        // Save all revocation manifests,
-        // but only save trusted non-revocation manifests.
-        if (!v.second.revoked() && !isTrusted(v.second.masterKey))
+        if (!isTrusted(v.second.masterKey))
         {
-            JLOG(j.info()) << "Untrusted manifest in cache not saved to db";
+            ++skipped;
             continue;
         }
 
         saveManifest(session, dbTable, v.second.serialized);
     }
     tr.commit();
+
+    if (skipped != 0)
+    {
+        JLOG(j.info()) << skipped
+                       << " untrusted manifest(s) in cache not saved to db";
+    }
 }
 
 void

@@ -62,6 +62,24 @@
 
 namespace ripple {
 
+namespace base64 {
+
+/** Returns the maximum number of characters needed to base64-encode bytes. */
+constexpr std::size_t
+encoded_size(std::size_t const numBytes)
+{
+    return 4 * ((numBytes + 2) / 3);
+}
+
+/** Returns an upper bound on bytes decoded from base64 characters. */
+constexpr std::size_t
+decoded_size(std::size_t const numChars)
+{
+    return ((numChars / 4) * 3) + 2;
+}
+
+}  // namespace base64
+
 std::string
 base64_encode(std::uint8_t const* data, std::size_t len);
 

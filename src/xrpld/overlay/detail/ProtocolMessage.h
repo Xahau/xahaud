@@ -382,6 +382,15 @@ invokeProtocolMessage(
         return result;
     }
 
+    // Drop an oversized TMManifests without penalizing an unpatched peer.
+    if (header->message_type == protocol::mtMANIFESTS &&
+        (header->payload_wire_size > maximumManifestsMessageSize ||
+         header->uncompressed_size > maximumManifestsMessageSize))
+    {
+        result.first = header->total_wire_size;
+        return result;
+    }
+
     bool success;
 
     switch (header->message_type)

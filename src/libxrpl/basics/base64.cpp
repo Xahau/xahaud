@@ -111,18 +111,6 @@ get_inverse()
     return &tab[0];
 }
 
-/// Returns max chars needed to encode a base64 string
-inline std::size_t constexpr encoded_size(std::size_t n)
-{
-    return 4 * ((n + 2) / 3);
-}
-
-/// Returns max bytes needed to decode a base64 string
-inline std::size_t constexpr decoded_size(std::size_t n)
-{
-    return ((n / 4) * 3) + 2;
-}
-
 /** Encode a series of octets as a padded, base64 string.
 
     The resulting string will not be null terminated.

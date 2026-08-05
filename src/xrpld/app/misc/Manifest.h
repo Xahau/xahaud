@@ -21,10 +21,15 @@
 #define RIPPLE_APP_MISC_MANIFEST_H_INCLUDED
 
 #include <xrpl/basics/UnorderedContainers.h>
+#include <xrpl/basics/base64.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SecretKey.h>
 
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <optional>
 #include <shared_mutex>
 #include <string>
@@ -54,12 +59,16 @@ namespace ripple {
     dynamically generates the signatureless form when it needs to verify
     the signature.
 
-    An instance of ManifestCache stores, for each trusted validator, (a) its
+    An instance of ManifestCache stores, for each known validator, (a) its
     master public key, and (b) the most senior of all valid manifests it has
     seen for that validator, if any.  On startup, the [validator_token] config
     entry (which contains the manifest for this validator) is decoded and
     added to the manifest cache.  Other manifests are added as "gossip"
-    received from rippled peers.
+    received from rippled peers, including ones for validators this node does
+    not trust. Manifests for untrusted validators are capped
+    (kMaxUntrustedCount) so peer gossip cannot grow the cache without bound;
+    trusted validators are not capped. Entries are never evicted, so a stored
+    revocation is permanent.
 
     When an ephemeral key is compromised, a new signing key pair is created,
     along with a new manifest vouching for it (with a higher sequence number),
@@ -151,6 +160,16 @@ struct Manifest
 std::string
 to_string(Manifest const& m);
 
+/** Largest a valid manifest can be, in decoded bytes. */
+constexpr std::size_t kMaxManifestBytes = 358;
+
+/** Largest a valid manifest can be, in base64 characters. */
+constexpr std::size_t kMaxManifestBase64 =
+    base64::encoded_size(kMaxManifestBytes);
+
+/** Maximum number of untrusted manifests processed from one message. */
+constexpr std::size_t kMaxManifestsPerMessage = 200;
+
 /** Constructs Manifest from serialized string
 
     @param s Serialized manifest string
@@ -226,7 +245,10 @@ enum class ManifestDisposition {
     badEphemeralKey,
 
     /// Timely, but invalid signature
-    invalid
+    invalid,
+
+    /// Unlisted and limit reached
+    untrustedCapacity
 };
 
 inline std::string
@@ -244,10 +266,15 @@ to_string(ManifestDisposition m)
             return "badEphemeralKey";
         case ManifestDisposition::invalid:
             return "invalid";
+        case ManifestDisposition::untrustedCapacity:
+            return "untrustedCapacity";
         default:
             return "unknown";
     }
 }
+
+/** Whether a manifest counts against the untrusted cache cap. */
+enum class ManifestRateLimitCapPolicy : std::uint8_t { Capped, Uncapped };
 
 class DatabaseCon;
 
@@ -265,6 +292,18 @@ private:
     hash_map<PublicKey, PublicKey> signingToMasterKeys_;
 
     std::atomic<std::uint32_t> seq_{0};
+
+    /** Master keys currently counted against the untrusted cache cap. */
+    hash_set<PublicKey> untrustedKeys_;
+
+    /** Maximum number of untrusted master keys retained in memory. */
+    static constexpr std::size_t kMaxUntrustedCount = 100;
+
+    /** Number of manifests rejected because the untrusted cache was full. */
+    std::atomic<std::uint64_t> untrustedRejectCount_{0};
+
+    /** Number of capacity rejections between warning summaries. */
+    static constexpr std::uint64_t kUntrustedRejectCount = 10000;
 
 public:
     explicit ManifestCache(
@@ -345,6 +384,8 @@ public:
 
         @param m Manifest to add
 
+        @param cap Whether a new master key counts against the untrusted cap
+
         @return `ManifestDisposition::accepted` if successful, or
                 `stale` or `invalid` otherwise
 
@@ -353,7 +394,11 @@ public:
         May be called concurrently
     */
     ManifestDisposition
-    applyManifest(Manifest m);
+    applyManifest(Manifest m, ManifestRateLimitCapPolicy cap);
+
+    /** Stop counting a cached master key against the untrusted cap. */
+    void
+    promoteToTrusted(PublicKey const& pk);
 
     /** Populate manifest cache with manifests in database and config.
 

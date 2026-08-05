@@ -20,6 +20,7 @@
 #ifndef RIPPLE_OVERLAY_MESSAGE_H_INCLUDED
 #define RIPPLE_OVERLAY_MESSAGE_H_INCLUDED
 
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/overlay/Compression.h>
 #include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/protocol/PublicKey.h>
@@ -36,6 +37,10 @@
 namespace ripple {
 
 constexpr std::size_t maximiumMessageSize = megabytes(64);
+
+constexpr std::size_t manifestFramingBytes = 8;
+constexpr std::size_t maximumManifestsMessageSize =
+    kMaxManifestsPerMessage * (kMaxManifestBytes + manifestFramingBytes);
 
 // VFALCO NOTE If we forward declare Message and write out shared_ptr
 //             instead of using the in-class type alias, we can remove the

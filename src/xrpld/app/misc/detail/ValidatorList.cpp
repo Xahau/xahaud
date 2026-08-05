@@ -1087,6 +1087,7 @@ ValidatorList::updatePublisherList(
         {
             // Increment list count for added keys
             ++keyListings_[*iNew];
+            validatorManifests_.promoteToTrusted(*iNew);
             ++iNew;
         }
         else if (
@@ -1123,7 +1124,8 @@ ValidatorList::updatePublisherList(
             continue;
         }
 
-        if (auto const r = validatorManifests_.applyManifest(std::move(*m));
+        if (auto const r = validatorManifests_.applyManifest(
+                std::move(*m), ManifestRateLimitCapPolicy::Uncapped);
             r == ManifestDisposition::invalid)
         {
             JLOG(j_.warn()) << "List for " << strHex(pubKey)
@@ -1143,10 +1145,16 @@ ValidatorList::applyList(
     std::optional<uint256> const& hash,
     ValidatorList::lock_guard const& lock)
 {
+    auto const& manifest = localManifest ? *localManifest : globalManifest;
+    if (manifest.size() > kMaxManifestBase64)
+    {
+        JLOG(j_.warn()) << "UNL manifest exceeds maximum size";
+        return PublisherListStats{ListDisposition::invalid};
+    }
+
     using namespace std::string_literals;
 
     Json::Value list;
-    auto const& manifest = localManifest ? *localManifest : globalManifest;
     auto [result, pubKeyOpt] = verify(lock, list, manifest, blob, signature);
 
     if (!pubKeyOpt)
@@ -1366,7 +1374,8 @@ ValidatorList::verify(
     PublicKey masterPubKey = m->masterKey;
     auto const revoked = m->revoked();
 
-    auto const result = publisherManifests_.applyManifest(std::move(*m));
+    auto const result = publisherManifests_.applyManifest(
+        std::move(*m), ManifestRateLimitCapPolicy::Uncapped);
 
     if (revoked && result == ManifestDisposition::accepted)
     {
