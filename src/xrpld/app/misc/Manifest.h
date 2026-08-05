@@ -27,12 +27,14 @@
 #include <xrpl/protocol/SecretKey.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <shared_mutex>
 #include <string>
+#include <utility>
 
 namespace ripple {
 
@@ -294,15 +296,22 @@ class DatabaseCon;
     when every candidate is active. Relay suppression must therefore be
     maintained independently of this cache.
 
-    This is a retained-state bound, not complete adversarial containment. A
-    stream of unique, valid identities can still consume signature checks,
-    victim-selection work, and relay bandwidth. HashRouter suppresses repeat
-    relay of the same manifest hash; it does not bound novel-hash amplification.
+    This is not complete adversarial containment. Once full, the cache gives
+    valid novel identities a small eviction budget, bounding cache churn and
+    corresponding relays. A candidate is verified before consuming a permit;
+    when no permit or refill is available, it is rejected before verification.
+    HashRouter separately suppresses repeat relay of the same manifest hash.
+    A sustained sender can monopolize the global eviction budget and delay a
+    legitimate novel untrusted validator; protected validators are unaffected.
 */
 class ManifestCache
 {
 private:
+    using TimePoint = std::chrono::steady_clock::time_point;
+    using Now = std::function<TimePoint()>;
+
     beast::Journal j_;
+    Now now_;
     std::shared_mutex mutable mutex_;
 
     /** Active manifests stored by master public key. */
@@ -319,6 +328,12 @@ private:
     /** Maximum number of untrusted master keys retained in memory. */
     static constexpr std::size_t kMaxUntrustedCount = 1000;
 
+    /** Burst and refill rate for evictions after the untrusted cache fills. */
+    static constexpr std::size_t kMaxEvictionPermits = 10;
+    static constexpr std::chrono::seconds kEvictionPermitInterval{1};
+    std::size_t evictionPermits_ = kMaxEvictionPermits;
+    TimePoint evictionBudgetUpdated_;
+
     /** Number of manifests rejected because the untrusted cache was full. */
     std::atomic<std::uint64_t> untrustedRejectCount_{0};
 
@@ -333,8 +348,9 @@ private:
 
 public:
     explicit ManifestCache(
-        beast::Journal j = beast::Journal(beast::Journal::getNullSink()))
-        : j_(j)
+        beast::Journal j = beast::Journal(beast::Journal::getNullSink()),
+        Now now = [] { return std::chrono::steady_clock::now(); })
+        : j_(j), now_(std::move(now)), evictionBudgetUpdated_(now_())
     {
     }
 

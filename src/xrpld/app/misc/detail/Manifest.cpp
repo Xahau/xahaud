@@ -524,11 +524,24 @@ ManifestCache::applyManifestImpl(
         return ManifestDisposition::untrustedCapacity;
     };
 
+    auto evictionPermitAvailable = [this](auto const& lock) {
+        XRPL_ASSERT(
+            lock.owns_lock(),
+            "ripple::ManifestCache::applyManifestImpl : eviction budget "
+            "locked");
+        (void)lock;
+        return evictionPermits_ > 0 ||
+            now_() - evictionBudgetUpdated_ >= kEvictionPermitInterval;
+    };
+
     {
         std::shared_lock sl{mutex_};
         auto const iter = map_.find(m.masterKey);
-        if (atUntrustedCap(iter, sl) && !currentValidationKeys)
-            return rejectAtUntrustedCap();
+        if (atUntrustedCap(iter, sl))
+        {
+            if (!currentValidationKeys || !evictionPermitAvailable(sl))
+                return rejectAtUntrustedCap();
+        }
         if (auto d = prewriteCheck(iter, sl); d.has_value())
             return *d;
     }
@@ -556,6 +569,22 @@ ManifestCache::applyManifestImpl(
         XRPL_ASSERT(
             currentValidationKeys && !untrustedKeys_.empty(),
             "ripple::ManifestCache::applyManifestImpl : eviction inputs");
+
+        auto const now = now_();
+        auto const elapsed = now - evictionBudgetUpdated_;
+        auto const refillIntervals = elapsed / kEvictionPermitInterval;
+        if (refillIntervals > 0)
+        {
+            auto const refill = refillIntervals >= kMaxEvictionPermits
+                ? kMaxEvictionPermits
+                : static_cast<std::size_t>(refillIntervals);
+            evictionPermits_ =
+                std::min(kMaxEvictionPermits, evictionPermits_ + refill);
+            evictionBudgetUpdated_ += refillIntervals * kEvictionPermitInterval;
+        }
+        if (evictionPermits_ == 0)
+            return rejectAtUntrustedCap();
+        --evictionPermits_;
 
         std::vector<PublicKey> dormant;
         dormant.reserve(untrustedKeys_.size());
