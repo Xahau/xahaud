@@ -21,7 +21,6 @@
 #include <test/jtx/Env.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/ValidatorList.h>
-#include <xrpld/core/ConfigSections.h>
 #include <xrpld/overlay/detail/OverlayImpl.h>
 #include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpld/peerfinder/detail/SlotImp.h>
@@ -194,7 +193,7 @@ class manifest_relay_test : public beast::unit_test::suite
         auto const trusted = makeManifest();
         jtx::Env env{
             *this, jtx::envconfig([&trusted](std::unique_ptr<Config> config) {
-                config->section(SECTION_VALIDATORS)
+                config->section("validators")
                     .append(toBase58(TokenType::NodePublic, trusted.masterKey));
                 return config;
             })};
@@ -274,7 +273,7 @@ class manifest_relay_test : public beast::unit_test::suite
 
         jtx::Env env{
             *this, jtx::envconfig([&trusted](std::unique_ptr<Config> config) {
-                auto& validators = config->section(SECTION_VALIDATORS);
+                auto& validators = config->section("validators");
                 for (auto const& manifest : trusted)
                 {
                     validators.append(
