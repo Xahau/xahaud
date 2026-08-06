@@ -1279,10 +1279,9 @@ OverlayImpl::getManifestsMessage()
 
         protocol::TMManifests tm;
         auto& hashRouter = app_.getHashRouter();
-        tm.mutable_list()->Reserve(
-            static_cast<int>(
-                trusted.size() +
-                std::min(kMaxManifestsPerMessage, untrusted.size())));
+        tm.mutable_list()->Reserve(static_cast<int>(
+            trusted.size() +
+            std::min(kMaxManifestsPerMessage, untrusted.size())));
 
         auto addIfFits = [&tm, &hashRouter](CachedManifest const& entry) {
             tm.add_list()->set_stobject(
