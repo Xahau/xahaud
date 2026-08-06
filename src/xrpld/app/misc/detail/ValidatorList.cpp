@@ -226,6 +226,8 @@ ValidatorList::load(
             keyListings_.insert({*localPubKey_, listThreshold_});
         if (inserted)
         {
+            ++listingSequence_;
+            validatorManifests_.promoteToTrusted(*localPubKey_);
             JLOG(j_.debug()) << "Added own master key "
                              << toBase58(TokenType::NodePublic, *localPubKey_);
         }
@@ -265,6 +267,8 @@ ValidatorList::load(
             JLOG(j_.warn()) << "Duplicate node identity: " << match[1];
             continue;
         }
+        ++listingSequence_;
+        validatorManifests_.promoteToTrusted(*id);
         localPublisherList.list.emplace_back(*id);
         ++count;
     }
@@ -1086,7 +1090,9 @@ ValidatorList::updatePublisherList(
             (iNew != publisherList.end() && *iNew < *iOld))
         {
             // Increment list count for added keys
-            ++keyListings_[*iNew];
+            auto& count = keyListings_[*iNew];
+            if (count++ == 0)
+                ++listingSequence_;
             validatorManifests_.promoteToTrusted(*iNew);
             ++iNew;
         }
@@ -1096,7 +1102,10 @@ ValidatorList::updatePublisherList(
         {
             // Decrement list count for removed keys
             if (keyListings_[*iOld] <= 1)
+            {
                 keyListings_.erase(*iOld);
+                ++listingSequence_;
+            }
             else
                 --keyListings_[*iOld];
             ++iOld;
@@ -1540,7 +1549,10 @@ ValidatorList::removePublisherList(
             continue;
 
         if (iVal->second <= 1)
+        {
             keyListings_.erase(iVal);
+            ++listingSequence_;
+        }
         else
             --iVal->second;
     }

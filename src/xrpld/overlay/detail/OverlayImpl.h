@@ -128,6 +128,8 @@ private:
     std::shared_ptr<Message> manifestMessage_;
     // Used to track whether we need to update the cached list of manifests
     std::optional<std::uint32_t> manifestListSeq_;
+    // Listed-key policy also affects which manifests receive snapshot priority
+    std::optional<std::uint64_t> manifestListingSeq_;
     // Protects the message and the sequence list of manifests
     std::mutex manifestLock_;
 

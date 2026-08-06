@@ -31,6 +31,7 @@
 #include <boost/iterator/counting_iterator.hpp>
 #include <boost/range/adaptors.hpp>
 #include <boost/thread/shared_mutex.hpp>
+#include <atomic>
 #include <mutex>
 #include <numeric>
 #include <shared_mutex>
@@ -238,6 +239,10 @@ class ValidatorList
 
     // Listed master public keys with the number of lists they appear on
     hash_map<PublicKey, std::size_t> keyListings_;
+
+    // Incremented when a master key becomes listed or ceases to be listed.
+    // Consumers use this to invalidate policy-dependent cached views.
+    std::atomic<std::uint64_t> listingSequence_{0};
 
     // The current list of trusted master keys
     hash_set<PublicKey> trustedMasterKeys_;
@@ -529,6 +534,16 @@ public:
     */
     bool
     listed(PublicKey const& identity) const;
+
+    /** Returns a sequence that changes when listed-key membership changes.
+
+        May be called concurrently.
+    */
+    std::uint64_t
+    listingSequence() const
+    {
+        return listingSequence_.load();
+    }
 
     /** Returns master public key if public key is trusted
 

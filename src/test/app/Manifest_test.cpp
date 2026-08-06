@@ -1224,6 +1224,32 @@ public:
 
         cache.promoteToTrusted(master);
         BEAST_EXPECT(cache.sequence() == admitted + 1);
+
+        ManifestCache retryCache;
+        auto const retryMasterSecret = randomSecretKey();
+        auto const retrySigning = randomKeyPair(KeyType::secp256k1);
+        BEAST_EXPECT(
+            retryCache.applyManifest(
+                makeManifest(
+                    retryMasterSecret,
+                    KeyType::ed25519,
+                    retrySigning.second,
+                    KeyType::secp256k1,
+                    0),
+                ManifestRateLimitCapPolicy::Capped) ==
+            ManifestDisposition::accepted);
+        auto const retryAdmitted = retryCache.sequence();
+        BEAST_EXPECT(
+            retryCache.applyManifest(
+                makeManifest(
+                    retryMasterSecret,
+                    KeyType::ed25519,
+                    retrySigning.second,
+                    KeyType::secp256k1,
+                    0),
+                ManifestRateLimitCapPolicy::Uncapped) ==
+            ManifestDisposition::stale);
+        BEAST_EXPECT(retryCache.sequence() == retryAdmitted + 1);
     }
 
     void

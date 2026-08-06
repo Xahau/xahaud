@@ -638,6 +638,16 @@ OverlayImpl::onManifests(
     auto const& journal = from->pjournal();
 
     auto const total = static_cast<std::size_t>(m->list_size());
+    if (total > kMaxManifestEntriesPerMessage)
+    {
+        from->charge(
+            Resource::feeMalformedRequest, "too many manifest entries");
+        JLOG(journal.warn())
+            << "Manifests: message had " << total << " entries; maximum is "
+            << kMaxManifestEntriesPerMessage;
+        return;
+    }
+
     std::size_t untrusted = 0;
     bool skippedUntrusted = false;
     auto const currentValidationKeys =
@@ -653,9 +663,10 @@ OverlayImpl::onManifests(
         if (auto mo = deserializeManifest(s))
         {
             auto const serialized = mo->serialized;
+            auto const masterKey = mo->masterKey;
             auto const manifestHash = mo->hash();
 
-            bool const isTrusted = app_.validators().listed(mo->masterKey);
+            bool isTrusted = app_.validators().listed(masterKey);
             if (!isTrusted)
             {
                 if (untrusted >= kMaxManifestsPerMessage)
@@ -666,11 +677,39 @@ OverlayImpl::onManifests(
                 ++untrusted;
             }
 
-            auto const result = isTrusted
+            auto result = isTrusted
                 ? app_.validatorManifests().applyManifest(
                       std::move(*mo), ManifestRateLimitCapPolicy::Uncapped)
                 : app_.validatorManifests().applyManifestWithEviction(
                       std::move(*mo), currentValidationKeys);
+
+            if (!isTrusted &&
+                (result == ManifestDisposition::accepted ||
+                 result == ManifestDisposition::untrustedCapacity) &&
+                app_.validators().listed(masterKey))
+            {
+                // Listing may have raced capped admission. An uncapped stale
+                // application promotes the retained entry under the cache
+                // write lock; if eviction already won, it inserts this saved,
+                // previously validated manifest instead.
+                mo = deserializeManifest(serialized);
+                XRPL_ASSERT(
+                    mo,
+                    "ripple::OverlayImpl::onManifests : manifest "
+                    "deserialization succeeded for trusted reconciliation");
+                auto const trustedResult =
+                    app_.validatorManifests().applyManifest(
+                        std::move(*mo), ManifestRateLimitCapPolicy::Uncapped);
+
+                if (result == ManifestDisposition::untrustedCapacity)
+                    result = trustedResult;
+                else if (
+                    trustedResult != ManifestDisposition::accepted &&
+                    trustedResult != ManifestDisposition::stale)
+                    result = trustedResult;
+
+                isTrusted = true;
+            }
 
             if (result == ManifestDisposition::accepted)
             {
@@ -1246,8 +1285,9 @@ OverlayImpl::getManifestsMessage()
 {
     std::lock_guard g(manifestLock_);
 
-    if (auto seq = app_.validatorManifests().sequence();
-        seq != manifestListSeq_)
+    auto const seq = app_.validatorManifests().sequence();
+    auto const listingSeq = app_.validators().listingSequence();
+    if (seq != manifestListSeq_ || listingSeq != manifestListingSeq_)
     {
         struct CachedManifest
         {
@@ -1284,6 +1324,10 @@ OverlayImpl::getManifestsMessage()
             std::min(kMaxManifestsPerMessage, untrusted.size())));
 
         auto addIfFits = [&tm, &hashRouter](CachedManifest const& entry) {
+            if (static_cast<std::size_t>(tm.list_size()) >=
+                kMaxManifestEntriesPerMessage)
+                return;
+
             tm.add_list()->set_stobject(
                 entry.serialized.data(), entry.serialized.size());
             if (Message::messageSize(tm) > maximumManifestsMessageSize)
@@ -1313,6 +1357,7 @@ OverlayImpl::getManifestsMessage()
                 std::make_shared<Message>(tm, protocol::mtMANIFESTS);
 
         manifestListSeq_ = seq;
+        manifestListingSeq_ = listingSeq;
     }
 
     return manifestMessage_;

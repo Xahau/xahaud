@@ -543,7 +543,14 @@ ManifestCache::applyManifestImpl(
                 return rejectAtUntrustedCap();
         }
         if (auto d = prewriteCheck(iter, sl); d.has_value())
-            return *d;
+        {
+            // An uncapped application also carries retention policy. Defer a
+            // stale result to the write lock so an existing entry can be
+            // promoted atomically instead of racing eviction.
+            if (!uncapped || *d != ManifestDisposition::stale ||
+                !untrustedKeys_.contains(m.masterKey))
+                return *d;
+        }
     }
 
     std::unique_lock sl{mutex_};
@@ -552,6 +559,14 @@ ManifestCache::applyManifestImpl(
     bool const needsEviction = atUntrustedCap(iter, sl);
     if (needsEviction && !currentValidationKeys)
         return rejectAtUntrustedCap();
+
+    if (uncapped && iter != map_.end() && m.sequence <= iter->second.sequence)
+    {
+        if (untrustedKeys_.erase(m.masterKey) != 0)
+            ++seq_;
+        return ManifestDisposition::stale;
+    }
+
     // Since we released the previously held read lock, it's possible that the
     // collections have been written to. This means we need to run
     // `prewriteCheck` again. This re-does work, but `prewriteCheck` is
@@ -606,9 +621,14 @@ ManifestCache::applyManifestImpl(
 
         PublicKey const victimMaster = [&]() {
             if (!dormant.empty())
+            {
+                if (dormant.size() == 1)
+                    return dormant.front();
                 return dormant[rand_int(dormant.size() - 1)];
+            }
             auto victim = untrustedKeys_.begin();
-            std::advance(victim, rand_int(untrustedKeys_.size() - 1));
+            if (untrustedKeys_.size() > 1)
+                std::advance(victim, rand_int(untrustedKeys_.size() - 1));
             return *victim;
         }();
 

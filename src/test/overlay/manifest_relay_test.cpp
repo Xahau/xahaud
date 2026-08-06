@@ -85,6 +85,7 @@ class manifest_relay_test : public beast::unit_test::suite
     {
         std::string serialized;
         PublicKey masterKey;
+        PublicKey signingKey;
         uint256 hash;
     };
 
@@ -119,7 +120,11 @@ class manifest_relay_test : public beast::unit_test::suite
             static_cast<char const*>(serialized.data()), serialized.size()};
         auto manifest = deserializeManifest(bytes);
         BEAST_EXPECT(manifest.has_value());
-        return {bytes, masterPublic, manifest ? manifest->hash() : uint256{}};
+        return {
+            bytes,
+            masterPublic,
+            signingPublic,
+            manifest ? manifest->hash() : uint256{}};
     }
 
     std::shared_ptr<PeerTest>
@@ -226,6 +231,29 @@ class manifest_relay_test : public beast::unit_test::suite
     }
 
     void
+    testTotalEntryLimit()
+    {
+        testcase("total entry limit bounds malformed work");
+
+        jtx::Env env{*this};
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        auto const source = addPeer(env);
+        auto const destination = addPeer(env);
+
+        auto incoming = std::make_shared<protocol::TMManifests>();
+        for (std::size_t i = 0; i < kMaxManifestEntriesPerMessage + 1; ++i)
+            incoming->add_list()->set_stobject("");
+
+        BEAST_EXPECT(incoming->IsInitialized());
+        auto const before = env.app().validatorManifests().sequence();
+        overlay.onManifests(incoming, source);
+
+        BEAST_EXPECT(env.app().validatorManifests().sequence() == before);
+        BEAST_EXPECT(source->sent_.empty());
+        BEAST_EXPECT(destination->sent_.empty());
+    }
+
+    void
     testRelaySkipIntersection()
     {
         testcase("relay skips only peers that have every bundled manifest");
@@ -253,6 +281,64 @@ class manifest_relay_test : public beast::unit_test::suite
         BEAST_EXPECT(complete->sent_.empty());
         expectBundle(partial, 2);
         expectBundle(fresh, 2);
+    }
+
+    void
+    testEvictionDoesNotRearmRelay()
+    {
+        testcase("eviction does not rearm relay suppression");
+
+        jtx::Env env{*this};
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        auto const source = addPeer(env);
+        auto const destination = addPeer(env);
+        auto const target = makeManifest();
+
+        auto incoming = std::make_shared<protocol::TMManifests>();
+        incoming->add_list()->set_stobject(target.serialized);
+        overlay.onManifests(incoming, source);
+        expectBundle(destination, 1);
+        destination->sent_.clear();
+
+        constexpr std::size_t untrustedCacheLimit = 1000;
+        hash_set<PublicKey> activeSigningKeys;
+        activeSigningKeys.reserve(untrustedCacheLimit - 1);
+        auto& cache = env.app().validatorManifests();
+        for (std::size_t i = 1; i < untrustedCacheLimit; ++i)
+        {
+            auto const filler = makeManifest();
+            activeSigningKeys.insert(filler.signingKey);
+            auto manifest = deserializeManifest(filler.serialized);
+            BEAST_EXPECT(manifest.has_value());
+            if (manifest)
+            {
+                BEAST_EXPECT(
+                    cache.applyManifest(
+                        std::move(*manifest),
+                        ManifestRateLimitCapPolicy::Capped) ==
+                    ManifestDisposition::accepted);
+            }
+        }
+
+        auto const replacement = makeManifest();
+        auto replacementManifest = deserializeManifest(replacement.serialized);
+        BEAST_EXPECT(replacementManifest.has_value());
+        if (replacementManifest)
+        {
+            BEAST_EXPECT(
+                cache.applyManifestWithEviction(
+                    std::move(*replacementManifest), activeSigningKeys) ==
+                ManifestDisposition::accepted);
+        }
+        BEAST_EXPECT(!cache.getSequence(target.masterKey));
+
+        incoming = std::make_shared<protocol::TMManifests>();
+        incoming->add_list()->set_stobject(target.serialized);
+        overlay.onManifests(incoming, source);
+
+        BEAST_EXPECT(cache.getSequence(target.masterKey) == 0);
+        BEAST_EXPECT(source->sent_.empty());
+        BEAST_EXPECT(destination->sent_.empty());
     }
 
     void
@@ -335,13 +421,86 @@ class manifest_relay_test : public beast::unit_test::suite
         }
     }
 
+    void
+    testListingChangeInvalidatesSnapshot()
+    {
+        testcase("listing change invalidates cached snapshot");
+
+        jtx::Env env{*this};
+        auto const target = makeManifest();
+        auto manifest = deserializeManifest(target.serialized);
+        BEAST_EXPECT(manifest.has_value());
+        if (!manifest)
+            return;
+
+        auto& cache = env.app().validatorManifests();
+        BEAST_EXPECT(
+            cache.applyManifest(
+                std::move(*manifest), ManifestRateLimitCapPolicy::Uncapped) ==
+            ManifestDisposition::accepted);
+
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        auto const first = overlay.getManifestsMessage();
+        BEAST_EXPECT(first != nullptr);
+        auto const manifestSeq = cache.sequence();
+        auto const listingSeq = env.app().validators().listingSequence();
+
+        BEAST_EXPECT(env.app().validators().load(
+            std::nullopt,
+            {toBase58(TokenType::NodePublic, target.masterKey)},
+            {},
+            std::nullopt));
+        BEAST_EXPECT(env.app().validators().listed(target.masterKey));
+        BEAST_EXPECT(cache.sequence() == manifestSeq);
+        BEAST_EXPECT(env.app().validators().listingSequence() > listingSeq);
+
+        auto const second = overlay.getManifestsMessage();
+        BEAST_EXPECT(second != nullptr);
+        BEAST_EXPECT(second != first);
+    }
+
+    void
+    testConfigListingPromotesRetention()
+    {
+        testcase("config listing promotes retained manifest");
+
+        jtx::Env env{*this};
+        auto const target = makeManifest();
+        auto manifest = deserializeManifest(target.serialized);
+        BEAST_EXPECT(manifest.has_value());
+        if (!manifest)
+            return;
+
+        auto& cache = env.app().validatorManifests();
+        BEAST_EXPECT(
+            cache.applyManifest(
+                std::move(*manifest), ManifestRateLimitCapPolicy::Capped) ==
+            ManifestDisposition::accepted);
+        auto const before = cache.sequence();
+
+        BEAST_EXPECT(env.app().validators().load(
+            std::nullopt,
+            {toBase58(TokenType::NodePublic, target.masterKey)},
+            {},
+            std::nullopt));
+        BEAST_EXPECT(env.app().validators().listed(target.masterKey));
+        BEAST_EXPECT(cache.sequence() == before + 1);
+
+        cache.promoteToTrusted(target.masterKey);
+        BEAST_EXPECT(cache.sequence() == before + 1);
+    }
+
 public:
     void
     run() override
     {
         testBoundedReceive();
+        testTotalEntryLimit();
         testRelaySkipIntersection();
+        testEvictionDoesNotRearmRelay();
         testSnapshotByteBudget();
+        testListingChangeInvalidatesSnapshot();
+        testConfigListingPromotesRetention();
     }
 };
 

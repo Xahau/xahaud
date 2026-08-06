@@ -174,6 +174,13 @@ constexpr std::size_t kMaxManifestBase64 =
 /** Maximum number of untrusted manifests processed from one message. */
 constexpr std::size_t kMaxManifestsPerMessage = 200;
 
+/** Maximum total manifest entries processed from one message.
+
+    This is separate from the wire-byte limit and the valid-untrusted limit:
+    malformed entries can be only a few bytes each and never reach the latter.
+ */
+constexpr std::size_t kMaxManifestEntriesPerMessage = 1000;
+
 /** Constructs Manifest from serialized string
 
     @param s Serialized manifest string
