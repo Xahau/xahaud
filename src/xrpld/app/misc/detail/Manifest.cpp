@@ -677,7 +677,12 @@ void
 ManifestCache::promoteToTrusted(PublicKey const& pk)
 {
     std::unique_lock sl{mutex_};
-    untrustedKeys_.erase(pk);
+    if (untrustedKeys_.erase(pk) != 0)
+    {
+        // Trust classification affects which manifests are selected for the
+        // cached peer snapshot, even though the retained manifest is unchanged.
+        ++seq_;
+    }
 }
 
 void

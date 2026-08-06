@@ -1264,29 +1264,47 @@ OverlayImpl::getManifestsMessage()
                     {manifest.masterKey, manifest.serialized, manifest.hash()});
             });
 
-        std::vector<CachedManifest const*> selected;
+        std::vector<CachedManifest const*> trusted;
         std::vector<CachedManifest const*> untrusted;
         for (auto const& entry : cached)
         {
             if (app_.validators().listed(entry.masterKey))
-                selected.push_back(&entry);
+                trusted.push_back(&entry);
             else
                 untrusted.push_back(&entry);
         }
 
-        auto const take = std::min(kMaxManifestsPerMessage, untrusted.size());
-        selected.insert(
-            selected.end(), untrusted.begin(), untrusted.begin() + take);
-        std::shuffle(selected.begin(), selected.end(), default_prng());
+        std::shuffle(trusted.begin(), trusted.end(), default_prng());
+        std::shuffle(untrusted.begin(), untrusted.end(), default_prng());
 
         protocol::TMManifests tm;
         auto& hashRouter = app_.getHashRouter();
-        tm.mutable_list()->Reserve(static_cast<int>(selected.size()));
-        for (auto const* entry : selected)
-        {
+        tm.mutable_list()->Reserve(
+            static_cast<int>(
+                trusted.size() +
+                std::min(kMaxManifestsPerMessage, untrusted.size())));
+
+        auto addIfFits = [&tm, &hashRouter](CachedManifest const& entry) {
             tm.add_list()->set_stobject(
-                entry->serialized.data(), entry->serialized.size());
-            hashRouter.addSuppression(entry->hash);
+                entry.serialized.data(), entry.serialized.size());
+            if (Message::messageSize(tm) > maximumManifestsMessageSize)
+            {
+                tm.mutable_list()->RemoveLast();
+                return;
+            }
+            hashRouter.addSuppression(entry.hash);
+        };
+
+        // Listed validators are authoritative local policy and get first use
+        // of the snapshot byte budget. Unlisted manifests may use the
+        // remainder, but both sides must agree on one maximum frame size.
+        for (auto const* entry : trusted)
+            addIfFits(*entry);
+
+        auto const take = std::min(kMaxManifestsPerMessage, untrusted.size());
+        for (std::size_t i = 0; i < take; ++i)
+        {
+            addIfFits(*untrusted[i]);
         }
 
         manifestMessage_.reset();

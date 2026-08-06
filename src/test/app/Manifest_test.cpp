@@ -1195,6 +1195,38 @@ public:
     }
 
     void
+    testTrustPromotionInvalidatesSnapshot()
+    {
+        testcase("trust promotion invalidates snapshot");
+
+        ManifestCache cache;
+        auto const masterSecret = randomSecretKey();
+        auto const master = derivePublicKey(KeyType::ed25519, masterSecret);
+        auto const signing = randomKeyPair(KeyType::secp256k1);
+
+        BEAST_EXPECT(
+            cache.applyManifest(
+                makeManifest(
+                    masterSecret,
+                    KeyType::ed25519,
+                    signing.second,
+                    KeyType::secp256k1,
+                    0),
+                ManifestRateLimitCapPolicy::Capped) ==
+            ManifestDisposition::accepted);
+
+        auto const admitted = cache.sequence();
+        cache.promoteToTrusted(randomMasterKey());
+        BEAST_EXPECT(cache.sequence() == admitted);
+
+        cache.promoteToTrusted(master);
+        BEAST_EXPECT(cache.sequence() == admitted + 1);
+
+        cache.promoteToTrusted(master);
+        BEAST_EXPECT(cache.sequence() == admitted + 1);
+    }
+
+    void
     run() override
     {
         ManifestCache cache;
@@ -1321,6 +1353,7 @@ public:
         testManifestDomainNames();
         testManifestVersioning();
         testUntrustedEviction();
+        testTrustPromotionInvalidatesSnapshot();
     }
 };
 

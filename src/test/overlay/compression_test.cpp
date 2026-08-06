@@ -45,6 +45,7 @@
 #include <boost/beast/core/multi_buffer.hpp>
 #include <boost/endian/conversion.hpp>
 #include <algorithm>
+#include <array>
 
 namespace ripple {
 
@@ -73,6 +74,95 @@ class compression_test : public beast::unit_test::suite
 {
     using Compressed = compression::Compressed;
     using Algorithm = compression::Algorithm;
+
+    class ProtocolHandler
+    {
+    public:
+        bool invoked = false;
+
+        bool
+        compressionEnabled() const
+        {
+            return true;
+        }
+
+        void
+        onMessageUnknown(std::uint16_t)
+        {
+            invoked = true;
+        }
+
+        void
+        onMessageBegin(
+            std::uint16_t,
+            std::shared_ptr<::google::protobuf::Message> const&,
+            std::size_t,
+            std::size_t,
+            bool)
+        {
+            invoked = true;
+        }
+
+        template <class T>
+        void
+        onMessage(std::shared_ptr<T> const&)
+        {
+            invoked = true;
+        }
+
+        void
+        onMessageEnd(
+            std::uint16_t,
+            std::shared_ptr<::google::protobuf::Message> const&)
+        {
+            invoked = true;
+        }
+    };
+
+    static void
+    put16(
+        std::vector<std::uint8_t>& frame,
+        std::size_t const offset,
+        std::uint16_t const value)
+    {
+        frame[offset] = static_cast<std::uint8_t>(value >> 8);
+        frame[offset + 1] = static_cast<std::uint8_t>(value);
+    }
+
+    static void
+    put32(
+        std::vector<std::uint8_t>& frame,
+        std::size_t const offset,
+        std::uint32_t const value)
+    {
+        frame[offset] = static_cast<std::uint8_t>(value >> 24);
+        frame[offset + 1] = static_cast<std::uint8_t>(value >> 16);
+        frame[offset + 2] = static_cast<std::uint8_t>(value >> 8);
+        frame[offset + 3] = static_cast<std::uint8_t>(value);
+    }
+
+    static std::vector<std::uint8_t>
+    uncompressedManifestFrame(std::size_t const payloadSize)
+    {
+        std::vector<std::uint8_t> frame(compression::headerBytes + payloadSize);
+        put32(frame, 0, static_cast<std::uint32_t>(payloadSize));
+        put16(frame, 4, protocol::mtMANIFESTS);
+        return frame;
+    }
+
+    static std::vector<std::uint8_t>
+    compressedManifestFrame(
+        std::size_t const payloadSize,
+        std::size_t const uncompressedSize)
+    {
+        std::vector<std::uint8_t> frame(
+            compression::headerBytesCompressed + payloadSize);
+        put32(frame, 0, static_cast<std::uint32_t>(payloadSize));
+        frame[0] |= static_cast<std::uint8_t>(Algorithm::LZ4);
+        put16(frame, 4, protocol::mtMANIFESTS);
+        put32(frame, 6, static_cast<std::uint32_t>(uncompressedSize));
+        return frame;
+    }
 
 public:
     compression_test()
@@ -530,10 +620,54 @@ public:
     }
 
     void
+    testManifestFrameLimit()
+    {
+        testcase("TMManifests frame limit");
+
+        auto invokeFrame = [](std::vector<std::uint8_t> const& frame,
+                              ProtocolHandler& handler) {
+            std::array<boost::asio::const_buffer, 1> const buffers{
+                boost::asio::buffer(frame)};
+            std::size_t hint = 0;
+            return invokeProtocolMessage(buffers, handler, hint);
+        };
+
+        {
+            auto const frame =
+                uncompressedManifestFrame(maximumManifestsMessageSize + 1);
+            ProtocolHandler handler;
+            auto const [consumed, ec] = invokeFrame(frame, handler);
+            BEAST_EXPECT(consumed == frame.size());
+            BEAST_EXPECT(!ec);
+            BEAST_EXPECT(!handler.invoked);
+        }
+        {
+            auto const frame =
+                compressedManifestFrame(1, maximumManifestsMessageSize + 1);
+            ProtocolHandler handler;
+            auto const [consumed, ec] = invokeFrame(frame, handler);
+            BEAST_EXPECT(consumed == frame.size());
+            BEAST_EXPECT(!ec);
+            BEAST_EXPECT(!handler.invoked);
+        }
+        {
+            auto const frame =
+                uncompressedManifestFrame(maximumManifestsMessageSize);
+            ProtocolHandler handler;
+            auto const [consumed, ec] = invokeFrame(frame, handler);
+            BEAST_EXPECT(consumed == frame.size());
+            BEAST_EXPECT(
+                ec == make_error_code(boost::system::errc::bad_message));
+            BEAST_EXPECT(!handler.invoked);
+        }
+    }
+
+    void
     run() override
     {
         testProtocol();
         testHandshake();
+        testManifestFrameLimit();
     }
 };
 
