@@ -108,7 +108,7 @@ SetManifest::preclaim(PreclaimContext const& ctx)
     if (!sle)
         return terNO_ACCOUNT;
 
-    if (!sle->isFieldPresent(sfManifest))
+    if (!sle->isFieldPresent(sfManifestID))
     {
         // pass, no special conditions if they've never set a manifest
         return tesSUCCESS;
@@ -121,39 +121,25 @@ SetManifest::preclaim(PreclaimContext const& ctx)
     auto newManifest = Manifest::deserializeManifest(newObj, j);
 
 
-    STObject const& oldObj = const_cast<ripple::STObject&>(*sle)
-                                  .getField(sfManifest)
-                                  .downcast<STObject>();
+    auto const sleOld = view.read(Keylet{ltMANIFEST, sle->getFieldH256(sfManifestID));
 
-    auto oldManifest = Manifest::deserializeManifest(oldObj, j);
-
-    if (!oldManifest)
+    if (!sleOld)
     {
-        // this is an error but to prevent bricking the manifest system let them set a new one
-        JLOG(ctx.j.warn())
-                << "SetManifest: WARNING old sfManifest was not parsable!! " << id;
-        return tesSUCCCESS;
+        // this is actually a nasty error but it's handled with a tefBAD_LEDGER in apply
+        return tesSUCCESS;
     }
-
-    if (newManifest->hash() == oldManifest->hash() || newManifest->sequence == oldManifest->sequence)
-    {
-        JLOG(ctx.j.warn())
-                << "SetManifest: Old sfManifest was same as new one. " << id;
-        return temREDUNDANT;
-    }
-
-
-    if (oldManifest->revoked())
+    
+    if (sleOld->getFieldU32(sfSequence) == std::numeric_limits<std::uint32_t>::max())
     {
         JLOG(ctx.j.warn())  
                 << "SetManifest: New manifest submitted for revoked master. " << id;
         return tefREVOKED_MANIFEST;
     }
 
-    if (oldManifest->sequence < newManifest->sequence)
+    if (newManifest->sequence <= sleOld->getFieldU32(sfSequence))
     {
         JLOG(ctx.j.warn())
-                << "SetManifest: Replay or past seq manifest. " << id;
+                << "SetManifest: Manifest sequence already passed. " << id;
         return tefPAST_MANIFEST_SEQ;
     }
     
@@ -163,11 +149,106 @@ SetManifest::preclaim(PreclaimContext const& ctx)
 TER
 SetManifest::doApply()
 {
-    auto const sle = view().read(keylet::account(account_));
+    auto sle = view().peek(keylet::account(account_));
     if (!sle)
         return tefINTERNAL;
 
-    sle.set(ctx_.tx[sfManifest]);
+    if (sle->isFieldPresent(sfManifestID))
+    {
+        // there's an existing manifest on the account
+        // all manifests have two identical objects for ease of lookup
+        // keylet(ephemeral key) -> obj1
+        // keylet(master key) -> obj2
+        // we need to remove and re-create both objects each time the manifest
+        // is updated to keep them in sync
+
+        uint256 const firstID = sle->getFieldH256(sfManifestID);
+        auto sleMan1 = view().peek(Keylet{ltMANIFEST, firstID});
+        if (!sleMan1)
+        {
+            JLOG(ctx.j.error())
+                    << "SetManifest: Old manifest object referenced but missing (ID1) !! " << strHex(firstID);
+            return tefBAD_LEDGER;
+        }
+
+        uint256 const secondID = sle->getFieldH256(sfManifestID);
+        if (secondID == firstID)
+        {
+            JLOG(ctx.j.error())
+                << "SetManifest: Manifest second ID references first object!! " << strHex(firstID);
+            return tefBAD_LEDGER;
+        }
+
+        auto sleMan2 = view().peek(Keylet{ltMANIFEST, secondID});
+        if (!sleMan2)
+        {
+            JLOG(ctx.j.error())
+                    << "SetManifest: Old manifest object referenced but missing (ID2) !! " << strHex(secondID);
+            return tefBAD_LEDGER;
+        }
+
+        if (sleMan1->getAccountID(sfAccount) != account_ ||
+            sleMan2->getAccountID(sfAccount) != account_)
+        {
+            JLOG(ctx.j.error())
+                    << "SetManifest: One or more manifest IDs point at incorrect account!!";
+            return tefBAD_LEDGER;
+        }
+    
+        // remove both manifests so they can be recreated by the code path below
+
+        view().erase(sleMan1);
+        view().erase(sleMan2);
+    }
+
+
+    STObject const& obj = const_cast<ripple::STTx&>(ctx_.tx)
+                                  .getField(sfManifest)
+                                  .downcast<STObject>();
+
+    auto manifest = Manifest::deserializeManifest(obj, j);
+    
+    if (!manifest.has_value())
+    {
+        JLOG(j.warn()) << "SetManifest: invalid manifest passed (parseManifest failed).";
+        return temMALFORMED;
+    }
+
+    if (calcAccountID(manifest->masterKey) != account_)
+        return tefINTERNAL;
+
+    Keylet klMan1 = Keylet::manifest(manifest->masterKey);
+    std::optional<Keylet> klMan2;
+    if (!manifest->revoked() && manifest->signingKey.has_value())
+        klMan2 = Keylet::manifest(manifest->signingKey);
+
+    auto setManifest = [&](std::shared_ptr<SLE>& sle, std::optional<uint256> otherKey) -> void
+    {
+        sle->setAccountID(sfAccount, account_);
+        sle->setFieldVL(sfPublicKey, manifest->masterKey);
+        if (manifest->signingKey.has_value())
+            sle->setFieldVL(sfSigningPubKey, *(manifest->signingKey));
+        sle->setFieldU32(sfSequence, manifest->sequence);
+        sle->setFieldU16(sfVersion, 0);
+        if (manifest->domain.has_value() && manifest->domain != "")
+            sle->setFieldVL(sfDomain, manifest->domain);
+        if (otherKey.has_value())
+            sle>setFieldH256(sfManifestID, *otherKey);
+    };
+
+    std::shared_ptr<SLE> sleMan1 = std::make_shared<SLE>(klMan1);
+    setManifest(sleMan1, klMan2);
+    
+    if (klMan2.has_value())
+    {
+        sleMan2 = std::make_shared<SLE>(*klMan2);
+        setManifest(sleMan2, klMan1);
+        view().insert(sleMan2);
+    }
+    
+    view().insert(sleMan1);
+
+    sle->setFieldH256(sfManifestID, klMan1.key);
 
     view().update(sle);
 

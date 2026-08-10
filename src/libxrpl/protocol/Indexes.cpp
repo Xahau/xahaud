@@ -670,6 +670,12 @@ permissionedDomain(uint256 const& domainID) noexcept
     return {ltPERMISSIONED_DOMAIN, domainID};
 }
 
+Keylet
+manifest(PublicKey const& pk)
+{
+    return {ltMANIFEST, pk};
+}
+
 }  // namespace keylet
 
 }  // namespace ripple

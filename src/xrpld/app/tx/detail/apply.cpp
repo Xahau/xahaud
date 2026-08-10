@@ -73,6 +73,32 @@ checkValidity(
         return {Validity::Valid, ""};
     }
 
+    if (rules.enabled(featureOnChainManifests) &&
+            tx.getTxType() == ttMANIFEST_SET &&
+            tx.isFieldPresent(sfTxnSignature) && 
+            tx.getFieldVL(sfTxnSignature).empty() && 
+            tx.isFieldPresent(sfSigningPubKey) &&
+            tx.getFieldVL(sfSigningPubKey).empty() &&
+            tx.isFieldPresent(sfManifest))
+    {
+        // perform alternative signature check over manifest
+        STObject const& man = const_cast<ripple::STTx&>(ctx.tx)
+                                  .getField(sfManifest)
+                                  .downcast<STObject>();
+
+        auto man = Manifest::deserializeManifest(newObj, j);
+        if (!man->valid())
+            return {
+                Validity::SigBad,
+                "Manifest signature is bad"};
+        
+        std::string reason;
+        if (!passesLocalChecks(tx, reason))
+            return {Validity::SigGoodOnly, reason};
+
+        return {Validity::Valid, ""};
+    }
+
     if (flags & SF_SIGBAD)
         // Signature is known bad
         return {Validity::SigBad, "Transaction has bad signature."};

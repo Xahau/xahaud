@@ -262,7 +262,7 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfHookStateScale,       soeOPTIONAL},
     {sfCron,                 soeOPTIONAL},
     {sfAMMID,                soeOPTIONAL},
-    {sfManifest              soeOPTIONAL},
+    {sfManifestID            soeOPTIONAL},
 }))
 
 /** A ledger object which contains a list of object identifiers.
@@ -591,6 +591,18 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
     {sfOwnerNode,            soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
+LEDGER_ENTRY(ltMANIFEST, 0x004D, Manifest, manifest, ({
+    {sfAccount,             soeREQUIRED},
+    {sfPublicKey,           soeREQUIRED},
+    {sfSigningPubKey,       soeOPTIONAL}, /* may be absent if the master is revoked */
+    {sfSequence,            soeREQUIRED},
+    {sfVersion,             soeREQUIRED},
+    {sfDomain,              soeOPTIONAL},
+    {sfManifestID,          soeOPTIONAL}, /* pointer to the identical other copy on the other key */
+    {sfPreviousTxnID,       soeREQUIRED},
+    {sfPreviousTxnLgrSeq,   soeREQUIRED},
 }))
 
 #undef EXPAND
