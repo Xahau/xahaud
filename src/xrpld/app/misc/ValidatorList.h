@@ -178,6 +178,10 @@ class ValidatorList
 
         std::vector<PublicKey> list;
         std::vector<std::string> manifests;
+        // Validators published for monitoring only. They never contribute to
+        // keyListings_, the trusted UNL, or quorum.
+        std::vector<PublicKey> candidates;
+        std::vector<std::string> candidateManifests;
         std::size_t sequence;
         TimeKeeper::time_point validFrom;
         TimeKeeper::time_point validUntil;

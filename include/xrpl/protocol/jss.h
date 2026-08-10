@@ -212,6 +212,7 @@ JSS(build_version);    // out: NetworkOPs
 JSS(bytes_written);
 JSS(cancel_after);           // out: AccountChannels
 JSS(can_delete);             // out: CanDelete
+JSS(candidates);             // in: ValidatorList
 JSS(mpt_amount);             // out: mpt_holders
 JSS(mpt_issuance_id);        // in: Payment, mpt_holders
 JSS(mptoken_index);          // out: mpt_holders

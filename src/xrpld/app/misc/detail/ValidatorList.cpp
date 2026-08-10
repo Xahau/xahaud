@@ -1141,6 +1141,34 @@ ValidatorList::updatePublisherList(
                             << " contained invalid validator manifest";
         }
     }
+
+    // Candidate manifests are authenticated by the trusted publisher, so keep
+    // their key bindings outside the untrusted eviction population. Candidate
+    // master keys deliberately do not enter keyListings_: this is a monitoring
+    // tier, not a second source of consensus weight.
+    for (auto const& candidateManifest : current.candidateManifests)
+    {
+        auto m = deserializeManifest(base64_decode(candidateManifest));
+
+        if (!m ||
+            !std::binary_search(
+                current.candidates.begin(),
+                current.candidates.end(),
+                m->masterKey))
+        {
+            JLOG(j_.warn()) << "List for " << strHex(pubKey)
+                            << " contained unmatched candidate manifest";
+            continue;
+        }
+
+        if (auto const r = validatorManifests_.applyManifest(
+                std::move(*m), ManifestRateLimitCapPolicy::Uncapped);
+            r == ManifestDisposition::invalid)
+        {
+            JLOG(j_.warn()) << "List for " << strHex(pubKey)
+                            << " contained invalid candidate manifest";
+        }
+    }
 }
 
 ValidatorList::PublisherListStats
@@ -1218,6 +1246,8 @@ ValidatorList::applyList(
         pubCollection.maxSequence = sequence;
 
     Json::Value const& newList = list[jss::validators];
+    Json::Value const* const newCandidates =
+        list.isMember(jss::candidates) ? &list[jss::candidates] : nullptr;
     std::vector<PublicKey> oldList;
     if (accepted && pubCollection.remaining.count(sequence) != 0)
     {
@@ -1256,6 +1286,9 @@ ValidatorList::applyList(
 
         std::vector<PublicKey>& publisherList = publisher.list;
         std::vector<std::string>& manifests = publisher.manifests;
+        std::vector<PublicKey>& candidates = publisher.candidates;
+        std::vector<std::string>& candidateManifests =
+            publisher.candidateManifests;
 
         // Copy the old validator list
         oldList = std::move(publisherList);
@@ -1290,6 +1323,41 @@ ValidatorList::applyList(
 
         // Standardize the list order by sorting
         std::sort(publisherList.begin(), publisherList.end());
+
+        candidates.clear();
+        candidateManifests.clear();
+        if (newCandidates)
+        {
+            candidates.reserve(newCandidates->size());
+            for (auto const& val : *newCandidates)
+            {
+                if (val.isObject() &&
+                    val.isMember(jss::validation_public_key) &&
+                    val[jss::validation_public_key].isString())
+                {
+                    std::optional<Blob> const ret =
+                        strUnHex(val[jss::validation_public_key].asString());
+
+                    if (!ret || !publicKeyType(makeSlice(*ret)))
+                    {
+                        JLOG(j_.error())
+                            << "Invalid candidate identity: "
+                            << val[jss::validation_public_key].asString();
+                    }
+                    else
+                    {
+                        candidates.emplace_back(
+                            Slice{ret->data(), ret->size()});
+                    }
+
+                    if (val.isMember(jss::manifest) &&
+                        val[jss::manifest].isString())
+                        candidateManifests.push_back(
+                            val[jss::manifest].asString());
+                }
+            }
+            std::sort(candidates.begin(), candidates.end());
+        }
     }
     // If this publisher has ever sent a more updated version than the one
     // in this file, keep it. This scenario is unlikely, but legal.
@@ -1410,7 +1478,8 @@ ValidatorList::verify(
     if (list.isMember(jss::sequence) && list[jss::sequence].isInt() &&
         list.isMember(jss::expiration) && list[jss::expiration].isInt() &&
         (!list.isMember(jss::effective) || list[jss::effective].isInt()) &&
-        list.isMember(jss::validators) && list[jss::validators].isArray())
+        list.isMember(jss::validators) && list[jss::validators].isArray() &&
+        (!list.isMember(jss::candidates) || list[jss::candidates].isArray()))
     {
         auto const sequence = list[jss::sequence].asUInt();
         auto const validFrom = TimeKeeper::time_point{TimeKeeper::duration{

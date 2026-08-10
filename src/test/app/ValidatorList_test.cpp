@@ -131,7 +131,8 @@ private:
         std::vector<Validator> const& validators,
         std::size_t sequence,
         std::size_t validUntil,
-        std::optional<std::size_t> validFrom = {})
+        std::optional<std::size_t> validFrom = {},
+        std::vector<Validator> const& candidates = {})
     {
         std::string data = "{\"sequence\":" + std::to_string(sequence) +
             ",\"expiration\":" + std::to_string(validUntil);
@@ -146,7 +147,22 @@ private:
         }
 
         data.pop_back();
-        data += "]}";
+        data += "]";
+
+        if (!candidates.empty())
+        {
+            data += ",\"candidates\":[";
+            for (auto const& val : candidates)
+            {
+                data += "{\"validation_public_key\":\"" +
+                    strHex(val.masterPublic) + "\",\"manifest\":\"" +
+                    val.manifest + "\"},";
+            }
+            data.pop_back();
+            data += "]";
+        }
+
+        data += "}";
         return base64_encode(data);
     }
 
@@ -988,6 +1004,97 @@ private:
         }
 
         checkAvailable(trustedKeys, hexPublic, manifest2, 0, {});
+    }
+
+    void
+    testCandidates()
+    {
+        testcase("Publisher candidate manifests");
+        using namespace std::chrono_literals;
+
+        ManifestCache validatorManifests;
+        ManifestCache publisherManifests;
+        jtx::Env env(*this);
+        auto& app = env.app();
+        auto trustedKeys = std::make_unique<ValidatorList>(
+            validatorManifests,
+            publisherManifests,
+            env.timeKeeper(),
+            app.config().legacy("database_path"),
+            env.journal);
+
+        auto const publisherSecret = randomSecretKey();
+        auto const publisherPublic =
+            derivePublicKey(KeyType::ed25519, publisherSecret);
+        auto const publisherSigning = randomKeyPair(KeyType::secp256k1);
+        auto const publisherManifest = base64_encode(makeManifestString(
+            publisherPublic,
+            publisherSecret,
+            publisherSigning.first,
+            publisherSigning.second,
+            1));
+
+        BEAST_EXPECT(trustedKeys->load(
+            {}, {}, std::vector<std::string>{strHex(publisherPublic)}));
+
+        auto const listedValidator = randomValidator();
+        auto const candidate = randomValidator();
+        auto const validUntil = env.timeKeeper().now() + 1h;
+        auto const blob = makeList(
+            {listedValidator},
+            1,
+            validUntil.time_since_epoch().count(),
+            {},
+            {candidate});
+        auto const signature = signList(blob, publisherSigning);
+
+        BEAST_EXPECT(
+            trustedKeys
+                ->applyLists(
+                    publisherManifest,
+                    1,
+                    {{blob, signature, {}}},
+                    "testCandidates.test")
+                .bestDisposition() == ListDisposition::accepted);
+
+        BEAST_EXPECT(trustedKeys->listed(listedValidator.masterPublic));
+        BEAST_EXPECT(!trustedKeys->listed(candidate.masterPublic));
+        BEAST_EXPECT(!trustedKeys->listed(candidate.signingPublic));
+        BEAST_EXPECT(!trustedKeys->trusted(candidate.masterPublic));
+        BEAST_EXPECT(!trustedKeys->trusted(candidate.signingPublic));
+        BEAST_EXPECT(
+            validatorManifests.getMasterKey(candidate.signingPublic) ==
+            candidate.masterPublic);
+        BEAST_EXPECT(
+            validatorManifests.getSigningKey(candidate.masterPublic) ==
+            candidate.signingPublic);
+
+        // An optional candidates member is accepted only as an array.
+        auto invalidJson = base64_decode(blob);
+        auto const pos = invalidJson.find("\"candidates\":[");
+        BEAST_EXPECT(pos != std::string::npos);
+        if (pos != std::string::npos)
+        {
+            auto const arrayStart = pos + std::string{"\"candidates\":"}.size();
+            auto const arrayEnd = invalidJson.find(']', arrayStart);
+            BEAST_EXPECT(arrayEnd != std::string::npos);
+            if (arrayEnd != std::string::npos)
+            {
+                invalidJson.replace(
+                    arrayStart, arrayEnd - arrayStart + 1, "{}");
+                auto const invalidBlob = base64_encode(invalidJson);
+                auto const invalidSignature =
+                    signList(invalidBlob, publisherSigning);
+                BEAST_EXPECT(
+                    trustedKeys
+                        ->applyLists(
+                            publisherManifest,
+                            1,
+                            {{invalidBlob, invalidSignature, {}}},
+                            "testCandidates.test")
+                        .bestDisposition() == ListDisposition::invalid);
+            }
+        }
     }
 
     void
@@ -4146,6 +4253,7 @@ public:
         testGenesisQuorum();
         testConfigLoad();
         testApplyLists();
+        testCandidates();
         testGetAvailable();
         testUpdateTrusted();
         testExpires();
