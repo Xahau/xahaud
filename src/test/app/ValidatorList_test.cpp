@@ -1074,6 +1074,34 @@ private:
                 lateListedKey.first,
                 lateListedKey.second,
                 1))};
+
+        auto const maskedCandidateMasterSecret = randomSecretKey();
+        auto const maskedCandidateMaster =
+            derivePublicKey(KeyType::ed25519, maskedCandidateMasterSecret);
+        auto const maskedCandidateSigning = randomKeyPair(KeyType::secp256k1);
+        Validator const maskedCandidate{
+            maskedCandidateMaster,
+            maskedCandidateSigning.first,
+            base64_encode(makeManifestString(
+                maskedCandidateMaster,
+                maskedCandidateMasterSecret,
+                maskedCandidateSigning.first,
+                maskedCandidateSigning.second,
+                1))};
+
+        auto const revokedMainMasterSecret = randomSecretKey();
+        auto const revokedMainMaster =
+            derivePublicKey(KeyType::ed25519, revokedMainMasterSecret);
+        auto const revokedMainSigning = randomKeyPair(KeyType::secp256k1);
+        Validator const revokedMainCandidate{
+            revokedMainMaster,
+            revokedMainSigning.first,
+            base64_encode(makeManifestString(
+                revokedMainMaster,
+                revokedMainMasterSecret,
+                revokedMainSigning.first,
+                revokedMainSigning.second,
+                1))};
         auto const graduatingCandidate = randomValidator();
 
         auto const revokedCandidateSecret = randomSecretKey();
@@ -1114,6 +1142,8 @@ private:
             {},
             {candidate,
              lateCollisionCandidate,
+             maskedCandidate,
+             revokedMainCandidate,
              graduatingCandidate,
              revokedCandidate,
              collidingCandidate,
@@ -1144,6 +1174,56 @@ private:
         BEAST_EXPECT(
             validatorManifests.getMasterKey(lateListedKey.first) ==
             lateCandidateMaster);
+
+        // Ordinary manifest state masks candidate state dynamically in both
+        // lookup directions. This is current-view priority, not retained
+        // shadow history.
+        auto const mainCollisionMasterSecret = randomSecretKey();
+        auto const mainCollisionMaster =
+            derivePublicKey(KeyType::ed25519, mainCollisionMasterSecret);
+        auto mainCollision = deserializeManifest(makeManifestString(
+            mainCollisionMaster,
+            mainCollisionMasterSecret,
+            maskedCandidateSigning.first,
+            maskedCandidateSigning.second,
+            1));
+        BEAST_EXPECT(mainCollision);
+        if (mainCollision)
+            BEAST_EXPECT(
+                validatorManifests.applyManifest(
+                    std::move(*mainCollision),
+                    ManifestRateLimitCapPolicy::Uncapped) ==
+                ManifestDisposition::accepted);
+        BEAST_EXPECT(
+            validatorManifests.getMasterKey(maskedCandidateSigning.first) ==
+            mainCollisionMaster);
+        BEAST_EXPECT(
+            validatorManifests.getSigningKey(maskedCandidateMaster) ==
+            maskedCandidateMaster);
+        BEAST_EXPECT(!validatorManifests.getSequence(maskedCandidateMaster));
+
+        auto mainRevocation = deserializeManifest(
+            makeRevocationString(revokedMainMaster, revokedMainMasterSecret));
+        BEAST_EXPECT(mainRevocation);
+        if (mainRevocation)
+            BEAST_EXPECT(
+                validatorManifests.applyManifest(
+                    std::move(*mainRevocation),
+                    ManifestRateLimitCapPolicy::Uncapped) ==
+                ManifestDisposition::accepted);
+        BEAST_EXPECT(validatorManifests.revoked(revokedMainMaster));
+        BEAST_EXPECT(
+            validatorManifests.getSigningKey(revokedMainMaster) ==
+            revokedMainMaster);
+        BEAST_EXPECT(!validatorManifests.getSequence(revokedMainMaster));
+        BEAST_EXPECT(!validatorManifests.getManifest(revokedMainMaster));
+
+        bool candidateRelayed = false;
+        validatorManifests.for_each_manifest([&](Manifest const& manifest) {
+            candidateRelayed = candidateRelayed ||
+                manifest.masterKey == candidate.masterPublic;
+        });
+        BEAST_EXPECT(!candidateRelayed);
         BEAST_EXPECT(
             validatorManifests.getMasterKey(
                 graduatingCandidate.signingPublic) ==

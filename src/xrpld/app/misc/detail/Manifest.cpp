@@ -305,11 +305,17 @@ ManifestCache::getSigningKey(PublicKey const& pk) const
 {
     std::shared_lock lock{mutex_};
     auto const authoritative = map_.find(pk);
-    if (authoritative != map_.end() && !authoritative->second.revoked())
+    if (authoritative != map_.end())
+    {
+        if (authoritative->second.revoked())
+            return pk;
         return authoritative->second.signingKey;
+    }
 
     auto const candidate = publisherCandidates_.find(pk);
-    if (candidate != publisherCandidates_.end() && !candidate->second.revoked())
+    if (candidate != publisherCandidates_.end() &&
+        publisherCandidateVisible(pk, candidate->second) &&
+        !candidate->second.revoked())
         return candidate->second.signingKey;
 
     return pk;
@@ -326,7 +332,12 @@ ManifestCache::getMasterKey(PublicKey const& pk) const
 
     if (auto const candidate = candidateSigningToMasterKeys_.find(pk);
         candidate != candidateSigningToMasterKeys_.end())
-        return candidate->second;
+    {
+        auto const manifest = publisherCandidates_.find(candidate->second);
+        if (manifest != publisherCandidates_.end() &&
+            publisherCandidateVisible(manifest->first, manifest->second))
+            return candidate->second;
+    }
 
     return pk;
 }
@@ -364,11 +375,17 @@ ManifestCache::getSequence(PublicKey const& pk) const
 {
     std::shared_lock lock{mutex_};
     auto const authoritative = map_.find(pk);
-    if (authoritative != map_.end() && !authoritative->second.revoked())
+    if (authoritative != map_.end())
+    {
+        if (authoritative->second.revoked())
+            return std::nullopt;
         return authoritative->second.sequence;
+    }
 
     auto const candidate = publisherCandidates_.find(pk);
-    if (candidate != publisherCandidates_.end() && !candidate->second.revoked())
+    if (candidate != publisherCandidates_.end() &&
+        publisherCandidateVisible(pk, candidate->second) &&
+        !candidate->second.revoked())
         return candidate->second.sequence;
 
     return std::nullopt;
@@ -379,11 +396,17 @@ ManifestCache::getDomain(PublicKey const& pk) const
 {
     std::shared_lock lock{mutex_};
     auto const authoritative = map_.find(pk);
-    if (authoritative != map_.end() && !authoritative->second.revoked())
+    if (authoritative != map_.end())
+    {
+        if (authoritative->second.revoked())
+            return std::nullopt;
         return authoritative->second.domain;
+    }
 
     auto const candidate = publisherCandidates_.find(pk);
-    if (candidate != publisherCandidates_.end() && !candidate->second.revoked())
+    if (candidate != publisherCandidates_.end() &&
+        publisherCandidateVisible(pk, candidate->second) &&
+        !candidate->second.revoked())
         return candidate->second.domain;
 
     return std::nullopt;
@@ -394,11 +417,17 @@ ManifestCache::getManifest(PublicKey const& pk) const
 {
     std::shared_lock lock{mutex_};
     auto const authoritative = map_.find(pk);
-    if (authoritative != map_.end() && !authoritative->second.revoked())
+    if (authoritative != map_.end())
+    {
+        if (authoritative->second.revoked())
+            return std::nullopt;
         return authoritative->second.serialized;
+    }
 
     auto const candidate = publisherCandidates_.find(pk);
-    if (candidate != publisherCandidates_.end() && !candidate->second.revoked())
+    if (candidate != publisherCandidates_.end() &&
+        publisherCandidateVisible(pk, candidate->second) &&
+        !candidate->second.revoked())
         return candidate->second.serialized;
 
     return std::nullopt;
@@ -413,10 +442,26 @@ ManifestCache::revoked(PublicKey const& pk) const
         return authoritative->second.revoked();
 
     auto const candidate = publisherCandidates_.find(pk);
-    if (candidate != publisherCandidates_.end())
+    if (candidate != publisherCandidates_.end() &&
+        publisherCandidateVisible(pk, candidate->second))
         return candidate->second.revoked();
 
     return false;
+}
+
+bool
+ManifestCache::publisherCandidateVisible(
+    PublicKey const& master,
+    Manifest const& candidate) const
+{
+    if (map_.contains(master) || signingToMasterKeys_.contains(master))
+        return false;
+
+    if (!candidate.signingKey)
+        return true;
+
+    auto const& signing = *candidate.signingKey;
+    return !map_.contains(signing) && !signingToMasterKeys_.contains(signing);
 }
 
 ManifestDisposition
@@ -504,20 +549,8 @@ ManifestCache::replacePublisherCandidates(
             continue;
         }
 
-        // Main-cache state wins every cross-master collision. Sequence
-        // numbers are comparable only for manifests with the same master.
-        if (auto const owner = signingToMasterKeys_.find(master);
-            owner != signingToMasterKeys_.end() && owner->second != master)
-            conflicts.insert(master);
         if (!candidate.signingKey)
             continue;
-        if (auto const authoritativeMaster = map_.find(*candidate.signingKey);
-            authoritativeMaster != map_.end() &&
-            authoritativeMaster->first != master)
-            conflicts.insert(master);
-        if (auto const owner = signingToMasterKeys_.find(*candidate.signingKey);
-            owner != signingToMasterKeys_.end() && owner->second != master)
-            conflicts.insert(master);
 
         if (auto const [owner, inserted] =
                 candidateSigningOwners.emplace(*candidate.signingKey, master);

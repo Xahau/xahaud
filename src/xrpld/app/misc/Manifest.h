@@ -364,6 +364,17 @@ private:
         ManifestRateLimitCapPolicy cap,
         hash_set<PublicKey> const* currentValidationKeys);
 
+    /** Whether a candidate is unambiguous against current ordinary state.
+
+        The caller must hold `mutex_`. Ordinary state always masks candidate
+        state, including revocation. This is deliberately a live visibility
+        rule, not a retained high-water or historical non-reuse guarantee.
+    */
+    bool
+    publisherCandidateVisible(
+        PublicKey const& master,
+        Manifest const& candidate) const;
+
 public:
     /** Maximum number of current publisher candidates retained globally. */
     static constexpr std::size_t maxPublisherCandidates = 1000;
