@@ -1077,6 +1077,7 @@ ValidatorList::updatePublisherList(
     PublicKey const& pubKey,
     PublisherList const& current,
     std::vector<PublicKey> const& oldList,
+    bool const applyCandidates,
     ValidatorList::lock_guard const&)
 {
     // Update keyListings_ for added and removed keys
@@ -1142,31 +1143,41 @@ ValidatorList::updatePublisherList(
         }
     }
 
-    // Candidate manifests are authenticated by the trusted publisher, so keep
-    // their key bindings outside the untrusted eviction population. Candidate
-    // master keys deliberately do not enter keyListings_: this is a monitoring
-    // tier, not a second source of consensus weight.
-    for (auto const& candidateManifest : current.candidateManifests)
+    if (!applyCandidates)
+        return;
+
+    // Candidates are monitoring hints, not trusted validators. Their
+    // manifests use the bounded untrusted cache and may not alter the binding
+    // of any key which currently contributes to keyListings_.
+    for (auto const& [candidateKey, candidateManifest] : current.candidates)
     {
         auto m = deserializeManifest(base64_decode(candidateManifest));
 
-        if (!m ||
-            !std::binary_search(
-                current.candidates.begin(),
-                current.candidates.end(),
-                m->masterKey))
+        if (!m || m->masterKey != candidateKey || !m->verify())
         {
-            JLOG(j_.warn()) << "List for " << strHex(pubKey)
-                            << " contained unmatched candidate manifest";
+            JLOG(j_.warn())
+                << "List for " << strHex(pubKey)
+                << " contained invalid or mismatched candidate manifest";
+            continue;
+        }
+
+        if (keyListings_.contains(m->masterKey) ||
+            (m->signingKey && keyListings_.contains(*m->signingKey)))
+        {
+            JLOG(j_.warn())
+                << "List for " << strHex(pubKey)
+                << " contained candidate manifest intersecting a listed key";
             continue;
         }
 
         if (auto const r = validatorManifests_.applyManifest(
-                std::move(*m), ManifestRateLimitCapPolicy::Uncapped);
-            r == ManifestDisposition::invalid)
+                std::move(*m), ManifestRateLimitCapPolicy::Capped);
+            r != ManifestDisposition::accepted &&
+            r != ManifestDisposition::stale &&
+            r != ManifestDisposition::untrustedCapacity)
         {
             JLOG(j_.warn()) << "List for " << strHex(pubKey)
-                            << " contained invalid candidate manifest";
+                            << " contained conflicting candidate manifest";
         }
     }
 }
@@ -1286,9 +1297,8 @@ ValidatorList::applyList(
 
         std::vector<PublicKey>& publisherList = publisher.list;
         std::vector<std::string>& manifests = publisher.manifests;
-        std::vector<PublicKey>& candidates = publisher.candidates;
-        std::vector<std::string>& candidateManifests =
-            publisher.candidateManifests;
+        std::vector<std::pair<PublicKey, std::string>>& candidates =
+            publisher.candidates;
 
         // Copy the old validator list
         oldList = std::move(publisherList);
@@ -1325,15 +1335,18 @@ ValidatorList::applyList(
         std::sort(publisherList.begin(), publisherList.end());
 
         candidates.clear();
-        candidateManifests.clear();
         if (newCandidates)
         {
             candidates.reserve(newCandidates->size());
+            hash_set<PublicKey> candidateKeys;
+            candidateKeys.reserve(newCandidates->size());
             for (auto const& val : *newCandidates)
             {
                 if (val.isObject() &&
                     val.isMember(jss::validation_public_key) &&
-                    val[jss::validation_public_key].isString())
+                    val[jss::validation_public_key].isString() &&
+                    val.isMember(jss::manifest) &&
+                    val[jss::manifest].isString())
                 {
                     std::optional<Blob> const ret =
                         strUnHex(val[jss::validation_public_key].asString());
@@ -1346,17 +1359,21 @@ ValidatorList::applyList(
                     }
                     else
                     {
-                        candidates.emplace_back(
-                            Slice{ret->data(), ret->size()});
+                        PublicKey const key{Slice{ret->data(), ret->size()}};
+                        if (candidateKeys.insert(key).second)
+                        {
+                            candidates.emplace_back(
+                                key, val[jss::manifest].asString());
+                        }
+                        else
+                        {
+                            JLOG(j_.warn())
+                                << "Duplicate candidate identity: "
+                                << val[jss::validation_public_key].asString();
+                        }
                     }
-
-                    if (val.isMember(jss::manifest) &&
-                        val[jss::manifest].isString())
-                        candidateManifests.push_back(
-                            val[jss::manifest].asString());
                 }
             }
-            std::sort(candidates.begin(), candidates.end());
         }
     }
     // If this publisher has ever sent a more updated version than the one
@@ -1374,7 +1391,12 @@ ValidatorList::applyList(
 
     if (accepted)
     {
-        updatePublisherList(pubKey, pubCollection.current, oldList, lock);
+        updatePublisherList(
+            pubKey,
+            pubCollection.current,
+            oldList,
+            result == ListDisposition::accepted,
+            lock);
     }
 
     return applyResult;
@@ -2058,7 +2080,12 @@ ValidatorList::updateTrusted(
                 if (current.validUntil <= closeTime)
                     current.list.clear();
 
-                updatePublisherList(pubKey, current, oldList, lock);
+                updatePublisherList(
+                    pubKey,
+                    current,
+                    oldList,
+                    current.validUntil > closeTime,
+                    lock);
 
                 // Only broadcast the current, which will consequently only
                 // send to peers that don't understand v2, or which are

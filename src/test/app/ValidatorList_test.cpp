@@ -1034,18 +1034,50 @@ private:
             publisherSigning.second,
             1));
 
+        // A manifest whose signing key is already used as a directly listed
+        // legacy identity must not be able to remap that identity.
+        auto const directListedSecret = randomSecretKey();
+        auto const directListedKey =
+            derivePublicKey(KeyType::ed25519, directListedSecret);
         BEAST_EXPECT(trustedKeys->load(
-            {}, {}, std::vector<std::string>{strHex(publisherPublic)}));
+            {},
+            {toBase58(TokenType::NodePublic, directListedKey)},
+            std::vector<std::string>{strHex(publisherPublic)}));
 
         auto const listedValidator = randomValidator();
         auto const candidate = randomValidator();
+        auto const collidingMasterSecret = randomSecretKey();
+        auto const collidingMaster =
+            derivePublicKey(KeyType::ed25519, collidingMasterSecret);
+        Validator const collidingCandidate{
+            collidingMaster,
+            directListedKey,
+            base64_encode(makeManifestString(
+                collidingMaster,
+                collidingMasterSecret,
+                directListedKey,
+                directListedSecret,
+                1))};
+
+        auto mismatchedCandidate = randomValidator();
+        auto const mismatchedManifestOwner = randomValidator();
+        mismatchedCandidate.manifest = mismatchedManifestOwner.manifest;
+
+        auto invalidCandidate = randomValidator();
+        auto invalidManifest = base64_decode(invalidCandidate.manifest);
+        invalidManifest.back() ^= 1;
+        invalidCandidate.manifest = base64_encode(invalidManifest);
+
         auto const validUntil = env.timeKeeper().now() + 1h;
         auto const blob = makeList(
             {listedValidator},
             1,
             validUntil.time_since_epoch().count(),
             {},
-            {candidate});
+            {candidate,
+             collidingCandidate,
+             mismatchedCandidate,
+             invalidCandidate});
         auto const signature = signList(blob, publisherSigning);
 
         BEAST_EXPECT(
@@ -1068,6 +1100,45 @@ private:
         BEAST_EXPECT(
             validatorManifests.getSigningKey(candidate.masterPublic) ==
             candidate.signingPublic);
+        BEAST_EXPECT(
+            validatorManifests.getMasterKey(directListedKey) ==
+            directListedKey);
+        BEAST_EXPECT(trustedKeys->listed(directListedKey));
+        BEAST_EXPECT(!validatorManifests.getSequence(collidingMaster));
+        BEAST_EXPECT(
+            !validatorManifests.getSequence(mismatchedCandidate.masterPublic));
+        BEAST_EXPECT(
+            !validatorManifests.getSequence(invalidCandidate.masterPublic));
+
+        trustedKeys->updateTrusted(
+            {},
+            env.timeKeeper().now(),
+            env.app().getOPs(),
+            env.app().overlay(),
+            env.app().getHashRouter());
+        BEAST_EXPECT(trustedKeys->trusted(directListedKey));
+        BEAST_EXPECT(!trustedKeys->trusted(candidate.masterPublic));
+
+        // An already-expired generation must not seed candidate bindings.
+        env.timeKeeper().set(env.timeKeeper().now() + 2s);
+        auto const expiredCandidate = randomValidator();
+        auto const expiredBlob = makeList(
+            {listedValidator},
+            2,
+            (env.timeKeeper().now() - 1s).time_since_epoch().count(),
+            {},
+            {expiredCandidate});
+        auto const expiredSignature = signList(expiredBlob, publisherSigning);
+        auto const expiredResult = trustedKeys->applyLists(
+            publisherManifest,
+            1,
+            {{expiredBlob, expiredSignature, {}}},
+            "testCandidates.test");
+        BEAST_EXPECTS(
+            expiredResult.bestDisposition() == ListDisposition::expired,
+            to_string(expiredResult.bestDisposition()));
+        BEAST_EXPECT(
+            !validatorManifests.getSequence(expiredCandidate.masterPublic));
 
         // An optional candidates member is accepted only as an array.
         auto invalidJson = base64_decode(blob);

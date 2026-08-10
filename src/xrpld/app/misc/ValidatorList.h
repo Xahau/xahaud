@@ -35,6 +35,7 @@
 #include <mutex>
 #include <numeric>
 #include <shared_mutex>
+#include <utility>
 
 namespace protocol {
 class TMValidatorList;
@@ -180,8 +181,7 @@ class ValidatorList
         std::vector<std::string> manifests;
         // Validators published for monitoring only. They never contribute to
         // keyListings_, the trusted UNL, or quorum.
-        std::vector<PublicKey> candidates;
-        std::vector<std::string> candidateManifests;
+        std::vector<std::pair<PublicKey, std::string>> candidates;
         std::size_t sequence;
         TimeKeeper::time_point validFrom;
         TimeKeeper::time_point validUntil;
@@ -814,6 +814,7 @@ private:
         PublicKey const& pubKey,
         PublisherList const& current,
         std::vector<PublicKey> const& oldList,
+        bool applyCandidates,
         lock_guard const&);
 
     static void
