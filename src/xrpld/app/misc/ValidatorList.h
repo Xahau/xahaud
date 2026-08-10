@@ -814,8 +814,10 @@ private:
         PublicKey const& pubKey,
         PublisherList const& current,
         std::vector<PublicKey> const& oldList,
-        bool applyCandidates,
         lock_guard const&);
+
+    void
+    rebuildPublisherCandidates(lock_guard const&);
 
     static void
     buildBlobInfos(

@@ -1044,8 +1044,46 @@ private:
             {toBase58(TokenType::NodePublic, directListedKey)},
             std::vector<std::string>{strHex(publisherPublic)}));
 
+        // Publisher candidates have a separate bounded lifetime and remain
+        // available even when ordinary untrusted gossip has filled its cache.
+        for (std::size_t i = 0; i < ManifestCache::maxPublisherCandidates; ++i)
+        {
+            auto const filler = randomValidator();
+            auto manifest = deserializeManifest(base64_decode(filler.manifest));
+            BEAST_EXPECT(manifest);
+            if (manifest)
+                BEAST_EXPECT(
+                    validatorManifests.applyManifest(
+                        std::move(*manifest),
+                        ManifestRateLimitCapPolicy::Capped) ==
+                    ManifestDisposition::accepted);
+        }
+
         auto const listedValidator = randomValidator();
         auto const candidate = randomValidator();
+        auto const lateListedKey = randomKeyPair(KeyType::secp256k1);
+        auto const lateCandidateMasterSecret = randomSecretKey();
+        auto const lateCandidateMaster =
+            derivePublicKey(KeyType::ed25519, lateCandidateMasterSecret);
+        Validator const lateCollisionCandidate{
+            lateCandidateMaster,
+            lateListedKey.first,
+            base64_encode(makeManifestString(
+                lateCandidateMaster,
+                lateCandidateMasterSecret,
+                lateListedKey.first,
+                lateListedKey.second,
+                1))};
+        auto const graduatingCandidate = randomValidator();
+
+        auto const revokedCandidateSecret = randomSecretKey();
+        auto const revokedCandidateMaster =
+            derivePublicKey(KeyType::ed25519, revokedCandidateSecret);
+        Validator const revokedCandidate{
+            revokedCandidateMaster,
+            revokedCandidateMaster,
+            base64_encode(makeRevocationString(
+                revokedCandidateMaster, revokedCandidateSecret))};
         auto const collidingMasterSecret = randomSecretKey();
         auto const collidingMaster =
             derivePublicKey(KeyType::ed25519, collidingMasterSecret);
@@ -1075,6 +1113,9 @@ private:
             validUntil.time_since_epoch().count(),
             {},
             {candidate,
+             lateCollisionCandidate,
+             graduatingCandidate,
+             revokedCandidate,
              collidingCandidate,
              mismatchedCandidate,
              invalidCandidate});
@@ -1101,6 +1142,14 @@ private:
             validatorManifests.getSigningKey(candidate.masterPublic) ==
             candidate.signingPublic);
         BEAST_EXPECT(
+            validatorManifests.getMasterKey(lateListedKey.first) ==
+            lateCandidateMaster);
+        BEAST_EXPECT(
+            validatorManifests.getMasterKey(
+                graduatingCandidate.signingPublic) ==
+            graduatingCandidate.masterPublic);
+        BEAST_EXPECT(validatorManifests.revoked(revokedCandidateMaster));
+        BEAST_EXPECT(
             validatorManifests.getMasterKey(directListedKey) ==
             directListedKey);
         BEAST_EXPECT(trustedKeys->listed(directListedKey));
@@ -1109,6 +1158,46 @@ private:
             !validatorManifests.getSequence(mismatchedCandidate.masterPublic));
         BEAST_EXPECT(
             !validatorManifests.getSequence(invalidCandidate.masterPublic));
+
+        // Promotion is explicit: a candidate affects authoritative state only
+        // when its manifest appears in the validators tier. A newly listed
+        // signing alias remains a direct identity.
+        Validator const lateListedValidator{
+            lateListedKey.first, lateListedKey.first, {}};
+        Validator const graduatingListedValidator = graduatingCandidate;
+        Validator const revokedListedValidator = revokedCandidate;
+        auto const secondBlob = makeList(
+            {listedValidator,
+             lateListedValidator,
+             graduatingListedValidator,
+             revokedListedValidator},
+            2,
+            validUntil.time_since_epoch().count(),
+            {},
+            {candidate,
+             lateCollisionCandidate,
+             graduatingCandidate,
+             revokedCandidate});
+        auto const secondSignature = signList(secondBlob, publisherSigning);
+        BEAST_EXPECT(
+            trustedKeys
+                ->applyLists(
+                    publisherManifest,
+                    1,
+                    {{secondBlob, secondSignature, {}}},
+                    "testCandidates.test")
+                .bestDisposition() == ListDisposition::accepted);
+        BEAST_EXPECT(trustedKeys->listed(lateListedKey.first));
+        BEAST_EXPECT(
+            validatorManifests.getMasterKey(lateListedKey.first) ==
+            lateListedKey.first);
+        BEAST_EXPECT(
+            validatorManifests.getAuthoritativeSigningKey(
+                graduatingCandidate.masterPublic) ==
+            graduatingCandidate.signingPublic);
+        BEAST_EXPECT(trustedKeys->listed(graduatingCandidate.signingPublic));
+        BEAST_EXPECT(
+            validatorManifests.authoritativeRevoked(revokedCandidateMaster));
 
         trustedKeys->updateTrusted(
             {},
@@ -1124,7 +1213,7 @@ private:
         auto const expiredCandidate = randomValidator();
         auto const expiredBlob = makeList(
             {listedValidator},
-            2,
+            3,
             (env.timeKeeper().now() - 1s).time_since_epoch().count(),
             {},
             {expiredCandidate});
@@ -1139,6 +1228,9 @@ private:
             to_string(expiredResult.bestDisposition()));
         BEAST_EXPECT(
             !validatorManifests.getSequence(expiredCandidate.masterPublic));
+        BEAST_EXPECT(
+            validatorManifests.getMasterKey(candidate.signingPublic) ==
+            candidate.signingPublic);
 
         // An optional candidates member is accepted only as an array.
         auto invalidJson = base64_decode(blob);

@@ -215,7 +215,8 @@ ValidatorList::load(
     JLOG(j_.debug()) << "Loaded " << count << " keys";
 
     if (localSigningKey)
-        localPubKey_ = validatorManifests_.getMasterKey(*localSigningKey);
+        localPubKey_ =
+            validatorManifests_.getAuthoritativeMasterKey(*localSigningKey);
 
     // Treat local validator key as though it was listed in the config
     if (localPubKey_)
@@ -1077,7 +1078,6 @@ ValidatorList::updatePublisherList(
     PublicKey const& pubKey,
     PublisherList const& current,
     std::vector<PublicKey> const& oldList,
-    bool const applyCandidates,
     ValidatorList::lock_guard const&)
 {
     // Update keyListings_ for added and removed keys
@@ -1142,44 +1142,41 @@ ValidatorList::updatePublisherList(
                             << " contained invalid validator manifest";
         }
     }
+}
 
-    if (!applyCandidates)
-        return;
-
-    // Candidates are monitoring hints, not trusted validators. Their
-    // manifests use the bounded untrusted cache and may not alter the binding
-    // of any key which currently contributes to keyListings_.
-    for (auto const& [candidateKey, candidateManifest] : current.candidates)
+void
+ValidatorList::rebuildPublisherCandidates(ValidatorList::lock_guard const&)
+{
+    std::vector<Manifest> candidates;
+    for (auto const& [pubKey, collection] : publisherLists_)
     {
-        auto m = deserializeManifest(base64_decode(candidateManifest));
-
-        if (!m || m->masterKey != candidateKey || !m->verify())
-        {
-            JLOG(j_.warn())
-                << "List for " << strHex(pubKey)
-                << " contained invalid or mismatched candidate manifest";
+        if (collection.status != PublisherStatus::available)
             continue;
-        }
 
-        if (keyListings_.contains(m->masterKey) ||
-            (m->signingKey && keyListings_.contains(*m->signingKey)))
+        for (auto const& [candidateKey, candidateManifest] :
+             collection.current.candidates)
         {
-            JLOG(j_.warn())
-                << "List for " << strHex(pubKey)
-                << " contained candidate manifest intersecting a listed key";
-            continue;
-        }
-
-        if (auto const r = validatorManifests_.applyManifest(
-                std::move(*m), ManifestRateLimitCapPolicy::Capped);
-            r != ManifestDisposition::accepted &&
-            r != ManifestDisposition::stale &&
-            r != ManifestDisposition::untrustedCapacity)
-        {
-            JLOG(j_.warn()) << "List for " << strHex(pubKey)
-                            << " contained conflicting candidate manifest";
+            auto m = deserializeManifest(base64_decode(candidateManifest));
+            if (!m || m->masterKey != candidateKey || !m->verify())
+            {
+                JLOG(j_.warn())
+                    << "List for " << strHex(pubKey)
+                    << " contained invalid or mismatched candidate manifest";
+                continue;
+            }
+            candidates.push_back(std::move(*m));
         }
     }
+
+    hash_set<PublicKey> listedMasters;
+    listedMasters.reserve(keyListings_.size());
+    for (auto const& [master, _] : keyListings_)
+    {
+        (void)_;
+        listedMasters.insert(master);
+    }
+    validatorManifests_.replacePublisherCandidates(
+        std::move(candidates), listedMasters);
 }
 
 ValidatorList::PublisherListStats
@@ -1342,6 +1339,12 @@ ValidatorList::applyList(
             candidateKeys.reserve(newCandidates->size());
             for (auto const& val : *newCandidates)
             {
+                if (candidates.size() >= ManifestCache::maxPublisherCandidates)
+                {
+                    JLOG(j_.warn()) << "Publisher candidate limit reached for "
+                                    << strHex(pubKey);
+                    break;
+                }
                 if (val.isObject() &&
                     val.isMember(jss::validation_public_key) &&
                     val[jss::validation_public_key].isString() &&
@@ -1395,8 +1398,8 @@ ValidatorList::applyList(
             pubKey,
             pubCollection.current,
             oldList,
-            result == ListDisposition::accepted,
             lock);
+        rebuildPublisherCandidates(lock);
     }
 
     return applyResult;
@@ -1551,7 +1554,7 @@ ValidatorList::listed(PublicKey const& identity) const
 {
     std::shared_lock read_lock{mutex_};
 
-    auto const pubKey = validatorManifests_.getMasterKey(identity);
+    auto const pubKey = validatorManifests_.getAuthoritativeMasterKey(identity);
     return keyListings_.find(pubKey) != keyListings_.end();
 }
 
@@ -1560,7 +1563,7 @@ ValidatorList::trusted(
     ValidatorList::shared_lock const&,
     PublicKey const& identity) const
 {
-    auto const pubKey = validatorManifests_.getMasterKey(identity);
+    auto const pubKey = validatorManifests_.getAuthoritativeMasterKey(identity);
     return trustedMasterKeys_.find(pubKey) != trustedMasterKeys_.end();
 }
 
@@ -1576,7 +1579,7 @@ ValidatorList::getListedKey(PublicKey const& identity) const
 {
     std::shared_lock read_lock{mutex_};
 
-    auto const pubKey = validatorManifests_.getMasterKey(identity);
+    auto const pubKey = validatorManifests_.getAuthoritativeMasterKey(identity);
     if (keyListings_.find(pubKey) != keyListings_.end())
         return pubKey;
     return std::nullopt;
@@ -1587,7 +1590,7 @@ ValidatorList::getTrustedKey(
     ValidatorList::shared_lock const&,
     PublicKey const& identity) const
 {
-    auto const pubKey = validatorManifests_.getMasterKey(identity);
+    auto const pubKey = validatorManifests_.getAuthoritativeMasterKey(identity);
     if (trustedMasterKeys_.find(pubKey) != trustedMasterKeys_.end())
         return pubKey;
     return std::nullopt;
@@ -1618,7 +1621,7 @@ ValidatorList::localPublicKey() const
 
 bool
 ValidatorList::removePublisherList(
-    ValidatorList::lock_guard const&,
+    ValidatorList::lock_guard const& lock,
     PublicKey const& publisherKey,
     PublisherStatus reason)
 {
@@ -1650,6 +1653,7 @@ ValidatorList::removePublisherList(
 
     iList->second.current.list.clear();
     iList->second.status = reason;
+    rebuildPublisherCandidates(lock);
 
     return true;
 }
@@ -2084,7 +2088,6 @@ ValidatorList::updateTrusted(
                     pubKey,
                     current,
                     oldList,
-                    current.validUntil > closeTime,
                     lock);
 
                 // Only broadcast the current, which will consequently only
@@ -2117,6 +2120,7 @@ ValidatorList::updateTrusted(
         if (collection.status != PublisherStatus::available)
             good = false;
     }
+    rebuildPublisherCandidates(lock);
     if (good)
         ops.clearUNLBlocked();
 
@@ -2128,7 +2132,7 @@ ValidatorList::updateTrusted(
         auto const kit = keyListings_.find(*it);
         if (kit == keyListings_.end() ||     //
             kit->second < listThreshold_ ||  //
-            validatorManifests_.revoked(*it))
+            validatorManifests_.authoritativeRevoked(*it))
         {
             trustChanges.removed.insert(calcNodeID(*it));
             it = trustedMasterKeys_.erase(it);
@@ -2145,7 +2149,7 @@ ValidatorList::updateTrusted(
     for (auto const& val : keyListings_)
     {
         if (val.second >= listThreshold_ &&
-            !validatorManifests_.revoked(val.first) &&
+            !validatorManifests_.authoritativeRevoked(val.first) &&
             trustedMasterKeys_.emplace(val.first).second)
             trustChanges.added.insert(calcNodeID(val.first));
     }
@@ -2161,7 +2165,7 @@ ValidatorList::updateTrusted(
         for (auto const& k : trustedMasterKeys_)
         {
             std::optional<PublicKey> const signingKey =
-                validatorManifests_.getSigningKey(k);
+                validatorManifests_.getAuthoritativeSigningKey(k);
             XRPL_ASSERT(
                 signingKey,
                 "ripple::ValidatorList::updateTrusted : found signing key");

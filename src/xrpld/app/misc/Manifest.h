@@ -327,6 +327,17 @@ private:
     /** Master public keys stored by current ephemeral public key. */
     hash_map<PublicKey, PublicKey> signingToMasterKeys_;
 
+    /** Current monitoring-only manifests supplied by trusted VL publishers.
+
+        This is a source-aware overlay rather than part of `map_`: candidates
+        must remain available while their publisher generation is effective,
+        but must not consume trust, interfere with authoritative manifests,
+        enter peer gossip/SQLite persistence, or survive replacement of that
+        generation.
+    */
+    hash_map<PublicKey, Manifest> publisherCandidates_;
+    hash_map<PublicKey, PublicKey> candidateSigningToMasterKeys_;
+
     std::atomic<std::uint32_t> seq_{0};
 
     /** Master keys currently counted against the untrusted cache cap. */
@@ -354,6 +365,9 @@ private:
         hash_set<PublicKey> const* currentValidationKeys);
 
 public:
+    /** Maximum number of current publisher candidates retained globally. */
+    static constexpr std::size_t maxPublisherCandidates = 1000;
+
     explicit ManifestCache(
         beast::Journal j = beast::Journal(beast::Journal::getNullSink()),
         Now now = [] { return std::chrono::steady_clock::now(); })
@@ -393,6 +407,22 @@ public:
     */
     PublicKey
     getMasterKey(PublicKey const& pk) const;
+
+    /** Resolve an ephemeral key using only the authoritative manifest cache.
+
+        Publisher candidates are intentionally excluded. Consensus trust and
+        quorum policy must use this accessor rather than the monitoring view.
+    */
+    PublicKey
+    getAuthoritativeMasterKey(PublicKey const& pk) const;
+
+    /** Return a signing key using only the authoritative manifest cache. */
+    std::optional<PublicKey>
+    getAuthoritativeSigningKey(PublicKey const& pk) const;
+
+    /** Return revocation state from only the authoritative manifest cache. */
+    bool
+    authoritativeRevoked(PublicKey const& pk) const;
 
     /** Returns master key's current manifest sequence.
 
@@ -460,6 +490,25 @@ public:
     applyManifestWithEviction(
         Manifest m,
         hash_set<PublicKey> const& currentValidationKeys);
+
+    /** Atomically replace the monitoring-only publisher-candidate view.
+
+        Candidate manifests are verified, deduplicated by master/sequence,
+        checked for internal key collisions, and filtered against listed
+        master keys and their current authoritative signing keys. The result
+        is deterministically capped at `maxPublisherCandidates`.
+
+        Candidate entries affect monitoring lookup only. They are excluded
+        from normal manifest collision state, relay enumeration, and
+        persistence. This current-generation view does not enforce historical
+        signing-key non-reuse; doing that requires durable tombstones or
+        ledger history. Promotion is explicit through the ordinary validators
+        tier, never inferred from this overlay.
+    */
+    void
+    replacePublisherCandidates(
+        std::vector<Manifest> candidates,
+        hash_set<PublicKey> const& listedMasterKeys);
 
     /** Stop counting a cached master key against the untrusted cap. */
     void
