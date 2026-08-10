@@ -54,7 +54,6 @@ deserializeManifest(Slice s, beast::Journal journal)
 {
     if (s.empty())
         return std::nullopt;
-
     static SOTemplate const manifestFormat{
         // A manifest must include:
         // - the master public key
@@ -80,11 +79,12 @@ deserializeManifest(Slice s, beast::Journal journal)
         {sfSignature, soeOPTIONAL},
     };
 
+
     try
     {
         SerialIter sit{s};
         STObject st{sit, sfGeneric};
-
+        
         st.applyTemplate(manifestFormat);
 
         // We only understand "version 0" manifests at this time:

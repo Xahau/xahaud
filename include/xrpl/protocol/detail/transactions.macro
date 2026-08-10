@@ -500,6 +500,11 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
 
+TRANSACTION(ttMANIFEST_SET, 91, ManifestSet, ({
+    {sfAccount, soeREQUIRED},
+    {sfManifest, soeREQUIRED},
+}))
+
 /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
 TRANSACTION(ttCRON, 92, Cron, ({
     {sfOwner, soeREQUIRED},

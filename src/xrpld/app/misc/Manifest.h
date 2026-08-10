@@ -79,6 +79,7 @@ namespace ripple {
 
 struct Manifest
 {
+
     /// The manifest in serialized form.
     std::string serialized;
 
