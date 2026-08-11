@@ -73,8 +73,7 @@ namespace ripple {
     Entries admitted as protected, or later reclassified as protected, are not
     capped or evicted. Entries return to the evictable population when their
     protected source disappears. At capacity, an evictable entry is evicted to
-    admit a new valid manifest; entries whose signing keys have current
-    validations are avoided while a dormant victim exists.
+    admit a new valid manifest.
 
     When an ephemeral key is compromised, a new signing key pair is created,
     along with a new manifest vouching for it (with a higher sequence number),
@@ -317,10 +316,9 @@ class DatabaseCon;
     manifest cache-new again.
 
     Entries admitted with protected retention, or later reclassified as
-    protected, are outside the eviction population. For other validators,
-    recent validation activity is only an
-    eviction preference; it does not confer trust and cannot prevent eviction
-    when every candidate is active.
+    protected, are outside the eviction population. Other validators are
+    evictable regardless of recent validation activity; tier-2 publisher
+    provenance is the explicit way to protect a monitored candidate.
 
     This is not complete adversarial containment. Once full, the cache gives
     valid novel identities a small eviction budget, bounding admitted identity
@@ -378,7 +376,7 @@ private:
     applyManifestImpl(
         Manifest m,
         ManifestRetention retention,
-        hash_set<PublicKey> const* currentValidationKeys,
+        bool mayEvict,
         bool* acceptedUpdate);
 
 public:
@@ -475,22 +473,16 @@ public:
 
     /** Add an untrusted manifest, evicting another at capacity.
 
-        A dormant untrusted entry is chosen at random when possible. If all
-        retained untrusted signing keys have current validations, any
-        untrusted entry may be chosen. The candidate is fully verified before
-        eviction.
+        An evictable entry is chosen at random. The candidate is fully
+        verified before eviction.
 
         @param m Manifest to add
-        @param currentValidationKeys Signing keys with current validations;
-               these are eviction preferences, not trusted identities
 
         @return disposition and an atomic indication that an accepted manifest
                 updated an identity retained at admission time
     */
     ManifestApplyResult
-    applyManifestWithEviction(
-        Manifest m,
-        hash_set<PublicKey> const& currentValidationKeys);
+    applyManifestWithEviction(Manifest m);
 
     /** Change the retention class of an already cached master.
 

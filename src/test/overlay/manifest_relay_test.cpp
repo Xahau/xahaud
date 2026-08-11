@@ -557,15 +557,13 @@ class manifest_relay_test : public beast::unit_test::suite
         BEAST_EXPECT(destination->sent_.empty());
 
         constexpr std::size_t untrustedCacheLimit = 1000;
-        hash_set<PublicKey> activeSigningKeys;
-        activeSigningKeys.reserve(untrustedCacheLimit - 1);
+        std::vector<ManifestData> retained;
+        retained.reserve(untrustedCacheLimit);
+        retained.push_back(target);
         auto& cache = env.app().validatorManifests();
         for (std::size_t i = 1; i < untrustedCacheLimit; ++i)
         {
             auto const filler = makeManifest();
-            BEAST_EXPECT(filler.signingKey.has_value());
-            if (filler.signingKey)
-                activeSigningKeys.insert(*filler.signingKey);
             auto manifest = deserializeManifest(filler.serialized);
             BEAST_EXPECT(manifest.has_value());
             if (manifest)
@@ -575,6 +573,7 @@ class manifest_relay_test : public beast::unit_test::suite
                         std::move(*manifest), ManifestRetention::evictable) ==
                     ManifestDisposition::accepted);
             }
+            retained.push_back(filler);
         }
 
         auto const replacement = makeManifest();
@@ -583,18 +582,23 @@ class manifest_relay_test : public beast::unit_test::suite
         if (replacementManifest)
         {
             BEAST_EXPECT(
-                cache
-                    .applyManifestWithEviction(
-                        std::move(*replacementManifest), activeSigningKeys)
+                cache.applyManifestWithEviction(std::move(*replacementManifest))
                     .disposition == ManifestDisposition::accepted);
         }
-        BEAST_EXPECT(!cache.getSequence(target.masterKey));
+
+        auto const evicted = std::find_if(
+            retained.begin(), retained.end(), [&cache](ManifestData const& m) {
+                return !cache.getSequence(m.masterKey);
+            });
+        BEAST_EXPECT(evicted != retained.end());
+        if (evicted == retained.end())
+            return;
 
         incoming = std::make_shared<protocol::TMManifests>();
-        incoming->add_list()->set_stobject(target.serialized);
+        incoming->add_list()->set_stobject(evicted->serialized);
         overlay.onManifests(incoming, source);
 
-        BEAST_EXPECT(cache.getSequence(target.masterKey) == 0);
+        BEAST_EXPECT(cache.getSequence(evicted->masterKey) == 0);
         BEAST_EXPECT(source->sent_.empty());
         BEAST_EXPECT(destination->sent_.empty());
     }

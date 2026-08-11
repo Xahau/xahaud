@@ -1027,27 +1027,6 @@ public:
         return ret;
     }
 
-    /** Get the signing keys associated with current validations.
-
-        Includes trusted and untrusted validators. Calling this method also
-        removes validations that have aged out under the normal validation
-        freshness rules.
-    */
-    auto
-    getCurrentNodeKeys() -> hash_set<NodeKey>
-    {
-        hash_set<NodeKey> ret;
-        std::lock_guard lock{mutex_};
-        current(
-            lock,
-            [&](std::size_t numValidations) { ret.reserve(numValidations); },
-            [&](NodeID const&, Validation const& validation) {
-                ret.insert(validation.key());
-            });
-
-        return ret;
-    }
-
     /** Count the number of trusted full validations for the given ledger
 
         @param ledgerID The identifier of ledger of interest

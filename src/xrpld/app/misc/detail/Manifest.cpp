@@ -375,20 +375,15 @@ ManifestCache::revoked(PublicKey const& pk) const
 ManifestDisposition
 ManifestCache::applyManifest(Manifest m, ManifestRetention const retention)
 {
-    return applyManifestImpl(std::move(m), retention, nullptr, nullptr);
+    return applyManifestImpl(std::move(m), retention, false, nullptr);
 }
 
 ManifestApplyResult
-ManifestCache::applyManifestWithEviction(
-    Manifest m,
-    hash_set<PublicKey> const& currentValidationKeys)
+ManifestCache::applyManifestWithEviction(Manifest m)
 {
     bool acceptedUpdate = false;
     auto const disposition = applyManifestImpl(
-        std::move(m),
-        ManifestRetention::evictable,
-        &currentValidationKeys,
-        &acceptedUpdate);
+        std::move(m), ManifestRetention::evictable, true, &acceptedUpdate);
     return {disposition, acceptedUpdate};
 }
 
@@ -396,7 +391,7 @@ ManifestDisposition
 ManifestCache::applyManifestImpl(
     Manifest m,
     ManifestRetention const retention,
-    hash_set<PublicKey> const* const currentValidationKeys,
+    bool const mayEvict,
     bool* const acceptedUpdate)
 {
     if (acceptedUpdate)
@@ -547,7 +542,7 @@ ManifestCache::applyManifestImpl(
         auto const iter = map_.find(m.masterKey);
         if (atEvictableCap(iter, sl))
         {
-            if (!currentValidationKeys || !evictionPermitAvailable(sl))
+            if (!mayEvict || !evictionPermitAvailable(sl))
                 return rejectAtUntrustedCap();
         }
         if (auto d = prewriteCheck(iter, sl); d.has_value())
@@ -565,7 +560,7 @@ ManifestCache::applyManifestImpl(
     auto const iter = map_.find(m.masterKey);
 
     bool const needsEviction = atEvictableCap(iter, sl);
-    if (needsEviction && !currentValidationKeys)
+    if (needsEviction && !mayEvict)
         return rejectAtUntrustedCap();
 
     if (protectedRetention && iter != map_.end() &&
@@ -591,7 +586,7 @@ ManifestCache::applyManifestImpl(
     if (needsEviction)
     {
         XRPL_ASSERT(
-            currentValidationKeys && !evictableKeys_.empty(),
+            mayEvict && !evictableKeys_.empty(),
             "ripple::ManifestCache::applyManifestImpl : eviction inputs");
 
         auto const now = now_();
@@ -610,36 +605,10 @@ ManifestCache::applyManifestImpl(
             return rejectAtUntrustedCap();
         --evictionPermits_;
 
-        std::vector<PublicKey> dormant;
-        dormant.reserve(evictableKeys_.size());
-        for (auto const& master : evictableKeys_)
-        {
-            auto const victim = map_.find(master);
-            XRPL_ASSERT(
-                victim != map_.end(),
-                "ripple::ManifestCache::applyManifestImpl : untrusted key "
-                "retained");
-            if (victim == map_.end())
-                continue;
-            if (!victim->second.signingKey ||
-                !currentValidationKeys->contains(*victim->second.signingKey))
-            {
-                dormant.push_back(master);
-            }
-        }
-
-        PublicKey const victimMaster = [&]() {
-            if (!dormant.empty())
-            {
-                if (dormant.size() == 1)
-                    return dormant.front();
-                return dormant[rand_int(dormant.size() - 1)];
-            }
-            auto victim = evictableKeys_.begin();
-            if (evictableKeys_.size() > 1)
-                std::advance(victim, rand_int(evictableKeys_.size() - 1));
-            return *victim;
-        }();
+        auto victimKey = evictableKeys_.begin();
+        if (evictableKeys_.size() > 1)
+            std::advance(victimKey, rand_int(evictableKeys_.size() - 1));
+        PublicKey const victimMaster = *victimKey;
 
         auto const victim = map_.find(victimMaster);
         XRPL_ASSERT(

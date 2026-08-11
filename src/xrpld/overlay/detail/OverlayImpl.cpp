@@ -650,9 +650,6 @@ OverlayImpl::onManifests(
 
     std::size_t untrusted = 0;
     bool skippedUntrusted = false;
-    auto const currentValidationKeys =
-        app_.getValidations().getCurrentNodeKeys();
-
     protocol::TMManifests relay;
 
     for (std::size_t i = 0; i < total; ++i)
@@ -686,7 +683,7 @@ OverlayImpl::onManifests(
             {
                 auto const admission =
                     app_.validatorManifests().applyManifestWithEviction(
-                        std::move(*mo), currentValidationKeys);
+                        std::move(*mo));
                 acceptedUpdate = admission.acceptedUpdate;
                 result = admission.disposition;
             }
@@ -1279,28 +1276,20 @@ OverlayImpl::getManifestsMessages()
     auto const seq = app_.validatorManifests().sequence();
     if (seq != manifestListSeq_)
     {
-        struct CachedManifest
-        {
-            std::string serialized;
-            ManifestRetention retention;
-        };
-
-        std::vector<CachedManifest> cached;
+        std::vector<std::string> protectedManifests;
+        std::vector<std::string> evictableManifests;
         app_.validatorManifests().for_each_manifest(
-            [&cached](std::size_t s) { cached.reserve(s); },
-            [&cached](Manifest const& manifest, ManifestRetention retention) {
-                cached.push_back({manifest.serialized, retention});
+            [&protectedManifests, &evictableManifests](std::size_t s) {
+                protectedManifests.reserve(s);
+                evictableManifests.reserve(s);
+            },
+            [&protectedManifests, &evictableManifests](
+                Manifest const& manifest, ManifestRetention retention) {
+                auto& entries = retention == ManifestRetention::protected_
+                    ? protectedManifests
+                    : evictableManifests;
+                entries.push_back(manifest.serialized);
             });
-
-        std::vector<CachedManifest const*> protectedManifests;
-        std::vector<CachedManifest const*> evictableManifests;
-        for (auto const& entry : cached)
-        {
-            if (entry.retention == ManifestRetention::protected_)
-                protectedManifests.push_back(&entry);
-            else
-                evictableManifests.push_back(&entry);
-        }
 
         std::shuffle(
             protectedManifests.begin(),
@@ -1320,20 +1309,19 @@ OverlayImpl::getManifestsMessages()
                 std::make_shared<Message>(tm, protocol::mtMANIFESTS));
             tm.Clear();
         };
-        auto add = [this, &tm, &flush](CachedManifest const& entry) {
+        auto add = [this, &tm, &flush](std::string const& serialized) {
             if (static_cast<std::size_t>(tm.list_size()) ==
                 kMaxManifestEntriesPerMessage)
                 flush();
 
-            tm.add_list()->set_stobject(
-                entry.serialized.data(), entry.serialized.size());
+            tm.add_list()->set_stobject(serialized.data(), serialized.size());
             if (Message::messageSize(tm) > maximumManifestsMessageSize)
             {
                 tm.mutable_list()->RemoveLast();
                 flush();
 
                 tm.add_list()->set_stobject(
-                    entry.serialized.data(), entry.serialized.size());
+                    serialized.data(), serialized.size());
                 if (Message::messageSize(tm) > maximumManifestsMessageSize)
                 {
                     tm.mutable_list()->RemoveLast();
@@ -1347,13 +1335,13 @@ OverlayImpl::getManifestsMessages()
         // needed. This covers local, listed, and publisher-candidate sources
         // without re-deriving provenance in the overlay.
         // The bounded evictable population remains best-effort and sampled.
-        for (auto const* entry : protectedManifests)
-            add(*entry);
+        for (auto const& entry : protectedManifests)
+            add(entry);
 
         auto const take =
             std::min(kMaxManifestsPerMessage, evictableManifests.size());
         for (std::size_t i = 0; i < take; ++i)
-            add(*evictableManifests[i]);
+            add(evictableManifests[i]);
         flush();
 
         manifestListSeq_ = seq;
