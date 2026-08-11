@@ -1521,9 +1521,16 @@ ValidatorList::applyList(
         candidates.clear();
         if (newCandidates)
         {
-            bool candidatePlaneValid =
+            bool candidatePlaneValid = newCandidates->isArray() &&
                 newCandidates->size() <= maxPublisherCandidates;
-            if (!candidatePlaneValid)
+            if (!newCandidates->isArray())
+            {
+                JLOG(j_.error())
+                    << "List for " << strHex(pubKey)
+                    << " supplied a non-array candidate tier. Ignoring "
+                       "candidate tier only.";
+            }
+            else if (!candidatePlaneValid)
             {
                 JLOG(j_.error())
                     << "List for " << strHex(pubKey) << " supplied "
@@ -1742,8 +1749,7 @@ ValidatorList::verify(
     if (list.isMember(jss::sequence) && list[jss::sequence].isInt() &&
         list.isMember(jss::expiration) && list[jss::expiration].isInt() &&
         (!list.isMember(jss::effective) || list[jss::effective].isInt()) &&
-        list.isMember(jss::validators) && list[jss::validators].isArray() &&
-        (!list.isMember(jss::candidates) || list[jss::candidates].isArray()))
+        list.isMember(jss::validators) && list[jss::validators].isArray())
     {
         auto const sequence = list[jss::sequence].asUInt();
         auto const validFrom = TimeKeeper::time_point{TimeKeeper::duration{

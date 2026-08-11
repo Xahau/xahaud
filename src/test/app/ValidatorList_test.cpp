@@ -1263,8 +1263,15 @@ private:
             validatorManifests.getSequence(expiredValidator.masterPublic));
         BEAST_EXPECT(!trustedKeys->listed(expiredValidator.masterPublic));
 
-        // An optional candidates member is accepted only as an array.
-        auto invalidJson = base64_decode(blob);
+        // A malformed extension does not reject a newer legacy validator
+        // generation; it contributes no candidates.
+        auto const malformedShapeBlob = makeList(
+            {listedValidator},
+            5,
+            validUntil.time_since_epoch().count(),
+            {},
+            {candidate});
+        auto invalidJson = base64_decode(malformedShapeBlob);
         auto const pos = invalidJson.find("\"candidates\":[");
         BEAST_EXPECT(pos != std::string::npos);
         if (pos != std::string::npos)
@@ -1286,7 +1293,17 @@ private:
                             1,
                             {{invalidBlob, invalidSignature, {}}},
                             "testCandidates.test")
-                        .bestDisposition() == ListDisposition::invalid);
+                        .bestDisposition() == ListDisposition::accepted);
+                BEAST_EXPECT(
+                    trustedKeys->listed(listedValidator.signingPublic));
+                BEAST_EXPECT(
+                    trustedKeys
+                        ->lookupMonitoringIdentity(candidate.masterPublic)
+                        .status == ValidatorIdentityStatus::resolved);
+                BEAST_EXPECT(
+                    trustedKeys
+                        ->lookupMonitoringIdentity(candidate.masterPublic)
+                        .presentInOrdinaryState);
             }
         }
     }
