@@ -14,6 +14,7 @@
 #include <xrpl/protocol/st.h>
 #include <xrpl/protocol/tokens.h>
 #include <boost/multiprecision/cpp_dec_float.hpp>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -622,6 +623,180 @@ hook::setQuickJSProviderForTests(Blob provider)
         std::make_shared<Blob const>(std::move(provider));
 }
 #endif
+
+void
+hook::HookExecutor::executeQuickJSBytecode(
+    const void* providerWasm,
+    size_t providerLen,
+    const void* bytecode,
+    size_t bytecodeLen,
+    bool callback,
+    uint32_t reserved,
+    beast::Journal const& j)
+{
+    XRPL_ASSERT(
+        !spent,
+        "HookExecutor::executeQuickJSBytecode : HookExecutor can only execute "
+        "once");
+    spent = true;
+
+    // This is the first working backend, not the production engine boundary.
+    // The production provider is a Wizer snapshot serialized as Wasmtime AOT;
+    // keep engine-specific execution here so HookContext and callers do not
+    // inherit the backend's callback, memory, or terminal representation.
+    WasmEdge_LogOff();
+    WasmEdgeVM vm{/* enableWasi */ true};
+    if (!vm.sane())
+    {
+        hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+        return;
+    }
+
+    auto fail = [&](std::string const& phase, WasmEdge_Result& result) {
+        if (auto err = getWasmError(phase, result); err)
+        {
+            JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: " << *err;
+            hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+            return true;
+        }
+        return false;
+    };
+
+    auto execute = [&](char const* name,
+                       WasmEdge_Value const* params,
+                       uint32_t paramCount,
+                       WasmEdge_Value* returns,
+                       uint32_t returnCount) {
+        auto functionName = WasmEdge_StringCreateByCString(name);
+        auto result = WasmEdge_VMExecute(
+            vm.ctx, functionName, params, paramCount, returns, returnCount);
+        WasmEdge_StringDelete(functionName);
+        return result;
+    };
+
+    WasmEdge_Result res =
+        WasmEdge_VMRegisterModuleFromImport(vm.ctx, importObj);
+    if (fail("QuickJS import phase failed", res))
+        return;
+
+    res = WasmEdge_VMLoadWasmFromBuffer(
+        vm.ctx, reinterpret_cast<uint8_t const*>(providerWasm), providerLen);
+    if (fail("QuickJS load failed", res))
+        return;
+
+    res = WasmEdge_VMValidate(vm.ctx);
+    if (fail("QuickJS validation failed", res))
+        return;
+
+    res = WasmEdge_VMInstantiate(vm.ctx);
+    if (fail("QuickJS instantiation failed", res))
+        return;
+
+    res = execute("_initialize", nullptr, 0, nullptr, 0);
+    if (fail("QuickJS reactor initialization failed", res))
+        return;
+
+    res = execute("qjs_init", nullptr, 0, nullptr, 0);
+    if (fail("QuickJS initialization failed", res))
+        return;
+
+    if (bytecodeLen > std::numeric_limits<uint32_t>::max())
+    {
+        JLOG(j.warn()) << "HookError[" << HC_ACC()
+                       << "]: QuickJS Hook bytecode is too large";
+        hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+        return;
+    }
+
+    WasmEdge_Value mallocParam[1] = {
+        WasmEdge_ValueGenI32(static_cast<int32_t>(bytecodeLen))};
+    WasmEdge_Value mallocReturn[1];
+    res = execute("malloc", mallocParam, 1, mallocReturn, 1);
+    if (fail("QuickJS bytecode allocation failed", res))
+        return;
+
+    auto const bytecodePtr = WasmEdge_ValueGetI32(mallocReturn[0]);
+    auto const* module = WasmEdge_VMGetActiveModule(vm.ctx);
+    auto memoryName = WasmEdge_StringCreateByCString("memory");
+    auto* memory = WasmEdge_ModuleInstanceFindMemory(module, memoryName);
+    WasmEdge_StringDelete(memoryName);
+    if (!memory)
+    {
+        JLOG(j.warn()) << "HookError[" << HC_ACC()
+                       << "]: QuickJS provider exports no memory";
+        hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+        return;
+    }
+
+    res = WasmEdge_MemoryInstanceSetData(
+        memory,
+        reinterpret_cast<uint8_t const*>(bytecode),
+        static_cast<uint32_t>(bytecodePtr),
+        static_cast<uint32_t>(bytecodeLen));
+    if (fail("QuickJS bytecode copy failed", res))
+        return;
+
+    WasmEdge_Value evalParams[3] = {
+        WasmEdge_ValueGenI32(bytecodePtr),
+        WasmEdge_ValueGenI32(static_cast<int32_t>(bytecodeLen)),
+        WasmEdge_ValueGenI32(static_cast<int32_t>(reserved))};
+    WasmEdge_Value evalReturn[1]{};
+    res = execute(
+        callback ? "qjs_cbak" : "qjs_hook", evalParams, 3, evalReturn, 1);
+    auto const terminated = WasmEdge_ResultGetCode(res) ==
+        WasmEdge_ResultGetCode(WasmEdge_Result_Terminate);
+    if (fail("QuickJS entry invocation failed", res))
+        return;
+    if (!terminated && WasmEdge_ValueGetI32(evalReturn[0]) != 0)
+    {
+        std::string detail;
+        WasmEdge_Value resultPtrValue[1];
+        WasmEdge_Value resultLenValue[1];
+        auto ptrResult =
+            execute("qjs_get_result_ptr", nullptr, 0, resultPtrValue, 1);
+        auto lenResult =
+            execute("qjs_get_result_len", nullptr, 0, resultLenValue, 1);
+        if (WasmEdge_ResultOK(ptrResult) && WasmEdge_ResultOK(lenResult))
+        {
+            auto const resultPtr =
+                static_cast<uint32_t>(WasmEdge_ValueGetI32(resultPtrValue[0]));
+            auto resultLen =
+                static_cast<uint32_t>(WasmEdge_ValueGetI32(resultLenValue[0]));
+            constexpr uint32_t maxDiagnosticLength = 4096;
+            if (resultLen > maxDiagnosticLength)
+                resultLen = maxDiagnosticLength;
+            if (resultLen > 0)
+            {
+                detail.resize(resultLen);
+                auto readResult = WasmEdge_MemoryInstanceGetData(
+                    memory,
+                    reinterpret_cast<uint8_t*>(detail.data()),
+                    resultPtr,
+                    resultLen);
+                if (!WasmEdge_ResultOK(readResult))
+                    detail.clear();
+            }
+        }
+        JLOG(j.warn()) << "HookError[" << HC_ACC()
+                       << "]: QuickJS entry invocation returned an error"
+                       << (detail.empty() ? "" : ": ") << detail;
+        hookCtx.result.exitReason = detail;
+        hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+        return;
+    }
+
+    auto* statsCtx = WasmEdge_VMGetStatisticsContext(vm.ctx);
+    hookCtx.result.instructionCount =
+        WasmEdge_StatisticsGetInstrCount(statsCtx);
+
+    if (hookCtx.result.exitType != hook_api::ExitType::ACCEPT &&
+        hookCtx.result.exitType != hook_api::ExitType::ROLLBACK)
+    {
+        JLOG(j.warn()) << "HookError[" << HC_ACC()
+                       << "]: JavaScript Hook returned without a terminal";
+        hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+    }
+}
 
 // cu_ptr is a pointer into memory, bounds check is assumed to have already
 // happened
