@@ -32,6 +32,7 @@
 #include <boost/range/adaptors.hpp>
 #include <boost/thread/shared_mutex.hpp>
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <numeric>
 #include <shared_mutex>
@@ -126,6 +127,34 @@ struct ValidatorBlobInfo
     std::optional<std::string> manifest;
 };
 
+/** Result of explicitly composing ordinary and publisher-candidate identity
+    state for monitoring. This type must not be used for trust or quorum. */
+enum class ValidatorIdentityStatus {
+    resolved,
+    revoked,
+    conflict,
+    unknown,
+    unstable
+};
+
+struct ValidatorIdentity
+{
+    explicit ValidatorIdentity(PublicKey const& requested_)
+        : requested(requested_)
+    {
+    }
+
+    ValidatorIdentityStatus status = ValidatorIdentityStatus::unknown;
+    PublicKey requested;
+    std::optional<PublicKey> master;
+    std::vector<PublicKey> conflictingMasters;
+    std::optional<PublicKey> signing;
+    std::shared_ptr<Manifest const> manifest;
+    bool presentInOrdinaryState = false;
+    hash_set<PublicKey> candidateIdentityPublishers;
+    hash_set<PublicKey> candidateManifestPublishers;
+};
+
 /**
     Trusted Validators List
     -----------------------
@@ -173,15 +202,26 @@ struct ValidatorBlobInfo
 */
 class ValidatorList
 {
+    struct PublisherValidator
+    {
+        PublicKey master;
+        std::shared_ptr<Manifest const> manifest;
+    };
+
+    struct PublisherCandidate
+    {
+        PublicKey master;
+        std::shared_ptr<Manifest const> manifest;
+    };
+
     struct PublisherList
     {
         explicit PublisherList() = default;
 
-        std::vector<PublicKey> list;
-        std::vector<std::string> manifests;
+        std::vector<PublisherValidator> validators;
         // Validators published for monitoring only. They never contribute to
         // keyListings_, the trusted UNL, or quorum.
-        std::vector<std::pair<PublicKey, std::string>> candidates;
+        std::vector<PublisherCandidate> candidates;
         std::size_t sequence;
         TimeKeeper::time_point validFrom;
         TimeKeeper::time_point validUntil;
@@ -226,6 +266,31 @@ class ValidatorList
         std::uint32_t rawVersion = 0;
     };
 
+    struct CandidateVariant
+    {
+        std::shared_ptr<Manifest const> manifest;
+        hash_set<PublicKey> publishers;
+    };
+
+    struct CandidateRecord
+    {
+        explicit CandidateRecord(PublicKey const& master_) : master(master_)
+        {
+        }
+
+        PublicKey master;
+        hash_set<PublicKey> identityPublishers;
+        std::vector<CandidateVariant> highestSequenceVariants;
+    };
+
+    struct PublisherCandidateIndex
+    {
+        hash_map<PublicKey, CandidateRecord> byMaster;
+        hash_map<PublicKey, hash_set<PublicKey>> signingOwners;
+        hash_set<PublicKey> conflictedMasters;
+        std::uint64_t revision = 0;
+    };
+
     ManifestCache& validatorManifests_;
     ManifestCache& publisherManifests_;
     TimeKeeper& timeKeeper_;
@@ -240,6 +305,10 @@ class ValidatorList
 
     // Published lists stored by publisher master public key
     hash_map<PublicKey, PublisherListCollection> publisherLists_;
+
+    // Monitoring-only current candidate snapshot. It is owned by the
+    // ValidatorList lifecycle and never enters ManifestCache.
+    PublisherCandidateIndex publisherCandidates_;
 
     // Listed master public keys with the number of lists they appear on
     hash_map<PublicKey, std::size_t> keyListings_;
@@ -283,6 +352,9 @@ class ValidatorList
     static const std::string filePrefix_;
 
 public:
+    /** Per-generation and aggregate bound for monitoring candidates. */
+    static constexpr std::size_t maxPublisherCandidates = 1000;
+
     ValidatorList(
         ManifestCache& validatorManifests,
         ManifestCache& publisherManifests,
@@ -575,6 +647,23 @@ public:
     std::optional<PublicKey>
     getListedKey(PublicKey const& identity) const;
 
+    /** Compose ordinary and current publisher-candidate state for a master.
+
+        Monitoring only: callers must not use this result for trust, quorum,
+        negative-UNL scoring or consensus identity.
+    */
+    ValidatorIdentity
+    lookupMonitoringIdentity(PublicKey const& master) const;
+
+    /** Resolve a validation signing key through the monitoring-only composed
+        identity view. */
+    ValidatorIdentity
+    resolveMonitoringSigner(PublicKey const& signingKey) const;
+
+    /** Revision of the current publisher candidate snapshot. */
+    std::uint64_t
+    publisherCandidateRevision() const;
+
     /** Returns `true` if public key is a trusted publisher
 
         @param identity Publisher public key
@@ -812,12 +901,30 @@ private:
     void
     updatePublisherList(
         PublicKey const& pubKey,
-        PublisherList const& current,
+        std::vector<PublicKey> const& current,
         std::vector<PublicKey> const& oldList,
         lock_guard const&);
 
     void
+    ingestPublisherManifests(
+        PublicKey const& pubKey,
+        PublisherList const& current,
+        lock_guard const&);
+
+    bool
     rebuildPublisherCandidates(lock_guard const&);
+
+    static std::vector<PublicKey>
+    validatorMasters(PublisherList const& list);
+
+    static ValidatorIdentity
+    composeMonitoringIdentity(
+        PublicKey const& master,
+        std::shared_ptr<Manifest const> const& ordinary,
+        std::optional<CandidateRecord> const& candidate,
+        bool directListed,
+        bool candidateConflict,
+        std::vector<PublicKey> conflictingMasters = {});
 
     static void
     buildBlobInfos(

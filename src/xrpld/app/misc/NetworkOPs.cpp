@@ -2206,11 +2206,12 @@ NetworkOPsImp::pubValidation(std::shared_ptr<STValidation> const& val)
         if (auto hash = (*val)[~sfValidatedHash])
             jvObj[jss::validated_hash] = strHex(*hash);
 
-        auto const masterKey =
-            app_.validatorManifests().getMasterKey(signerPublic);
-
-        if (masterKey != signerPublic)
-            jvObj[jss::master_key] = toBase58(TokenType::NodePublic, masterKey);
+        auto const identity =
+            app_.validators().resolveMonitoringSigner(signerPublic);
+        if (identity.status == ValidatorIdentityStatus::resolved &&
+            identity.master && *identity.master != signerPublic)
+            jvObj[jss::master_key] =
+                toBase58(TokenType::NodePublic, *identity.master);
 
         // NOTE *seq is a number, but old API versions used string. We replace
         // number with a string using MultiApiJson near end of this function
