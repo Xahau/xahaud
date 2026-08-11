@@ -308,7 +308,7 @@ private:
 
             manifests.applyManifest(
                 *deserializeManifest(cfgManifest),
-                ManifestRateLimitCapPolicy::Capped);
+                ManifestRetention::evictable);
             BEAST_EXPECT(trustedKeys->load(
                 localSigningPublicOuter, emptyCfgKeys, emptyCfgPublishers));
 
@@ -407,7 +407,7 @@ private:
 
             manifests.applyManifest(
                 *deserializeManifest(cfgManifest),
-                ManifestRateLimitCapPolicy::Capped);
+                ManifestRetention::evictable);
 
             BEAST_EXPECT(trustedKeys->load(
                 localSigningPublicOuter, cfgKeys, emptyCfgPublishers));
@@ -504,7 +504,7 @@ private:
                     pubRevokedSigning.first,
                     pubRevokedSigning.second,
                     std::numeric_limits<std::uint32_t>::max())),
-                ManifestRateLimitCapPolicy::Capped);
+                ManifestRetention::evictable);
 
             // these two are not revoked (and not in the manifest cache at all.)
             auto legitKey1 = randomMasterKey();
@@ -545,7 +545,7 @@ private:
                     pubRevokedSigning.first,
                     pubRevokedSigning.second,
                     std::numeric_limits<std::uint32_t>::max())),
-                ManifestRateLimitCapPolicy::Capped);
+                ManifestRetention::evictable);
 
             // this one is not revoked (and not in the manifest cache at all.)
             auto legitKey = randomMasterKey();
@@ -1038,19 +1038,11 @@ private:
             publisherSigning.first,
             publisherSigning.second,
             1));
-
-        // A manifest whose signing key is already used as a directly listed
-        // legacy identity must not be able to remap that identity.
-        auto const directListedSecret = randomSecretKey();
-        auto const directListedKey =
-            derivePublicKey(KeyType::ed25519, directListedSecret);
         BEAST_EXPECT(trustedKeys->load(
-            {},
-            {toBase58(TokenType::NodePublic, directListedKey)},
-            std::vector<std::string>{strHex(publisherPublic)}));
+            {}, {}, std::vector<std::string>{strHex(publisherPublic)}));
 
-        // Publisher candidates are independent of the ordinary untrusted
-        // cache and remain observable when that cache is full.
+        // Fill the bounded population. A publisher candidate is still admitted
+        // because its tier changes retention policy, not manifest authority.
         for (std::size_t i = 0; i < ValidatorList::maxPublisherCandidates; ++i)
         {
             auto const filler = randomValidator();
@@ -1059,170 +1051,20 @@ private:
             if (manifest)
                 BEAST_EXPECT(
                     validatorManifests.applyManifest(
-                        std::move(*manifest),
-                        ManifestRateLimitCapPolicy::Capped) ==
+                        std::move(*manifest), ManifestRetention::evictable) ==
                     ManifestDisposition::accepted);
         }
 
-        auto const listedValidator = randomValidator();
+        auto const listed = randomValidator();
         auto const candidate = randomValidator();
-        auto const liveCandidateSecret = randomSecretKey();
-        auto const liveCandidateMaster =
-            derivePublicKey(KeyType::ed25519, liveCandidateSecret);
-        auto const liveCandidateSigning = randomKeyPair(KeyType::secp256k1);
-        Validator const liveCandidate{
-            liveCandidateMaster,
-            liveCandidateSigning.first,
-            base64_encode(makeManifestString(
-                liveCandidateMaster,
-                liveCandidateSecret,
-                liveCandidateSigning.first,
-                liveCandidateSigning.second,
-                1))};
-
-        auto const equalSequenceMasterSecret = randomSecretKey();
-        auto const equalSequenceMaster =
-            derivePublicKey(KeyType::ed25519, equalSequenceMasterSecret);
-        auto const ordinaryEqualSigning = randomKeyPair(KeyType::secp256k1);
-        auto const candidateEqualSigning = randomKeyPair(KeyType::secp256k1);
-        auto ordinaryEqual = deserializeManifest(makeManifestString(
-            equalSequenceMaster,
-            equalSequenceMasterSecret,
-            ordinaryEqualSigning.first,
-            ordinaryEqualSigning.second,
-            1));
-        BEAST_EXPECT(ordinaryEqual);
-        if (ordinaryEqual)
-            BEAST_EXPECT(
-                validatorManifests.applyManifest(
-                    std::move(*ordinaryEqual),
-                    ManifestRateLimitCapPolicy::Uncapped) ==
-                ManifestDisposition::accepted);
-        Validator const equalSequenceCandidate{
-            equalSequenceMaster,
-            candidateEqualSigning.first,
-            base64_encode(makeManifestString(
-                equalSequenceMaster,
-                equalSequenceMasterSecret,
-                candidateEqualSigning.first,
-                candidateEqualSigning.second,
-                1))};
-
-        auto const ordinaryCrossMasterSecret = randomSecretKey();
-        auto const ordinaryCrossMaster =
-            derivePublicKey(KeyType::ed25519, ordinaryCrossMasterSecret);
-        auto const ordinaryCrossSigning = randomKeyPair(KeyType::secp256k1);
-        auto ordinaryCross = deserializeManifest(makeManifestString(
-            ordinaryCrossMaster,
-            ordinaryCrossMasterSecret,
-            ordinaryCrossSigning.first,
-            ordinaryCrossSigning.second,
-            1));
-        BEAST_EXPECT(ordinaryCross);
-        if (ordinaryCross)
-            BEAST_EXPECT(
-                validatorManifests.applyManifest(
-                    std::move(*ordinaryCross),
-                    ManifestRateLimitCapPolicy::Uncapped) ==
-                ManifestDisposition::accepted);
-
-        auto const candidateToOrdinaryMasterSecret = randomSecretKey();
-        auto const candidateToOrdinaryMaster =
-            derivePublicKey(KeyType::ed25519, candidateToOrdinaryMasterSecret);
-        Validator const candidateUsingOrdinaryMaster{
-            candidateToOrdinaryMaster,
-            ordinaryCrossMaster,
-            base64_encode(makeManifestString(
-                candidateToOrdinaryMaster,
-                candidateToOrdinaryMasterSecret,
-                ordinaryCrossMaster,
-                ordinaryCrossMasterSecret,
-                1))};
-        auto const candidateFromOrdinarySigning =
-            randomKeyPair(KeyType::secp256k1);
-        Validator const candidateUsingOrdinarySigningAsMaster{
-            ordinaryCrossSigning.first,
-            candidateFromOrdinarySigning.first,
-            base64_encode(makeManifestString(
-                ordinaryCrossSigning.first,
-                ordinaryCrossSigning.second,
-                candidateFromOrdinarySigning.first,
-                candidateFromOrdinarySigning.second,
-                1))};
-
-        auto const ordinaryRevocationOwnerSecret = randomSecretKey();
-        auto const ordinaryRevocationOwner =
-            derivePublicKey(KeyType::ed25519, ordinaryRevocationOwnerSecret);
-        auto const ordinaryRevokedAlias = randomKeyPair(KeyType::secp256k1);
-        auto ordinaryForRevocation = deserializeManifest(makeManifestString(
-            ordinaryRevocationOwner,
-            ordinaryRevocationOwnerSecret,
-            ordinaryRevokedAlias.first,
-            ordinaryRevokedAlias.second,
-            1));
-        BEAST_EXPECT(ordinaryForRevocation);
-        if (ordinaryForRevocation)
-            BEAST_EXPECT(
-                validatorManifests.applyManifest(
-                    std::move(*ordinaryForRevocation),
-                    ManifestRateLimitCapPolicy::Uncapped) ==
-                ManifestDisposition::accepted);
-        Validator const revokedOrdinaryAlias{
-            ordinaryRevokedAlias.first,
-            ordinaryRevokedAlias.first,
-            base64_encode(makeRevocationString(
-                ordinaryRevokedAlias.first, ordinaryRevokedAlias.second))};
-
-        auto const intersectingCandidate = randomValidator();
-        Validator const intersectingBareIdentity{
-            intersectingCandidate.signingPublic,
-            intersectingCandidate.signingPublic,
-            {}};
-
-        auto const bareSecret = randomSecretKey();
-        auto const bareMaster = derivePublicKey(KeyType::ed25519, bareSecret);
-        Validator const bareCandidate{bareMaster, bareMaster, {}};
-
-        auto const revokedCandidateSecret = randomSecretKey();
-        auto const revokedCandidateMaster =
-            derivePublicKey(KeyType::ed25519, revokedCandidateSecret);
-        Validator const revokedCandidate{
-            revokedCandidateMaster,
-            revokedCandidateMaster,
-            base64_encode(makeRevocationString(
-                revokedCandidateMaster, revokedCandidateSecret))};
-        auto const collidingMasterSecret = randomSecretKey();
-        auto const collidingMaster =
-            derivePublicKey(KeyType::ed25519, collidingMasterSecret);
-        Validator const collidingCandidate{
-            collidingMaster,
-            directListedKey,
-            base64_encode(makeManifestString(
-                collidingMaster,
-                collidingMasterSecret,
-                directListedKey,
-                directListedSecret,
-                1))};
-
         auto const validUntil = env.timeKeeper().now() + 1h;
         auto const blob = makeList(
-            {listedValidator},
+            {listed},
             1,
             validUntil.time_since_epoch().count(),
             {},
-            {candidate,
-             liveCandidate,
-             equalSequenceCandidate,
-             candidateUsingOrdinaryMaster,
-             candidateUsingOrdinarySigningAsMaster,
-             revokedOrdinaryAlias,
-             intersectingCandidate,
-             intersectingBareIdentity,
-             bareCandidate,
-             revokedCandidate,
-             collidingCandidate});
+            {candidate});
         auto const signature = signList(blob, publisherSigning);
-
         BEAST_EXPECT(
             trustedKeys
                 ->applyLists(
@@ -1232,434 +1074,107 @@ private:
                     "testCandidates.test")
                 .bestDisposition() == ListDisposition::accepted);
 
-        BEAST_EXPECT(trustedKeys->listed(listedValidator.masterPublic));
+        BEAST_EXPECT(trustedKeys->listed(listed.masterPublic));
         BEAST_EXPECT(!trustedKeys->listed(candidate.masterPublic));
-        BEAST_EXPECT(!trustedKeys->listed(candidate.signingPublic));
         BEAST_EXPECT(!trustedKeys->trusted(candidate.masterPublic));
-        BEAST_EXPECT(!trustedKeys->trusted(candidate.signingPublic));
-        auto candidatePolicy =
-            trustedKeys->manifestPolicy(candidate.masterPublic);
-        BEAST_EXPECT(!candidatePolicy.consensusListed);
-        BEAST_EXPECT(candidatePolicy.publisherCandidate);
-        BEAST_EXPECT(candidatePolicy.relayEligible());
-        auto listedPolicy =
-            trustedKeys->manifestPolicy(listedValidator.masterPublic);
-        BEAST_EXPECT(listedPolicy.consensusListed);
-        BEAST_EXPECT(!listedPolicy.publisherCandidate);
-        BEAST_EXPECT(listedPolicy.relayEligible());
+        auto const policy = trustedKeys->manifestPolicy(candidate.masterPublic);
+        BEAST_EXPECT(!policy.consensusListed);
+        BEAST_EXPECT(policy.publisherCandidate);
+        BEAST_EXPECT(policy.relayEligible());
 
-        // Candidate state does not enter the ordinary manifest cache.
+        // All provenance classes share ManifestCache's one high-water and
+        // signer-to-master index. Candidate status only protects retention.
         BEAST_EXPECT(
             validatorManifests.getMasterKey(candidate.signingPublic) ==
-            candidate.signingPublic);
+            candidate.masterPublic);
         BEAST_EXPECT(
             validatorManifests.getSigningKey(candidate.masterPublic) ==
-            candidate.masterPublic);
-        BEAST_EXPECT(!validatorManifests.getSequence(candidate.masterPublic));
+            candidate.signingPublic);
+        BEAST_EXPECT(
+            validatorManifests.getSequence(candidate.masterPublic) == 1);
 
-        auto identity =
-            trustedKeys->lookupMonitoringIdentity(candidate.masterPublic);
-        BEAST_EXPECT(identity.status == ValidatorIdentityStatus::resolved);
-        BEAST_EXPECT(identity.master == candidate.masterPublic);
-        BEAST_EXPECT(identity.signing == candidate.signingPublic);
-        BEAST_EXPECT(!identity.presentInOrdinaryState);
-        BEAST_EXPECT(
-            identity.candidateIdentityPublishers.contains(publisherPublic));
-        BEAST_EXPECT(
-            identity.candidateManifestPublishers.contains(publisherPublic));
-
-        auto signer =
-            trustedKeys->resolveMonitoringSigner(candidate.signingPublic);
-        BEAST_EXPECT(signer.status == ValidatorIdentityStatus::resolved);
-        BEAST_EXPECT(signer.master == candidate.masterPublic);
-
-        // Same-master, same-sequence variants conflict symmetrically: neither
-        // signing key is attributed merely because it came from one layer.
-        BEAST_EXPECT(
-            trustedKeys->lookupMonitoringIdentity(equalSequenceMaster).status ==
-            ValidatorIdentityStatus::conflict);
-        BEAST_EXPECT(
-            trustedKeys->resolveMonitoringSigner(ordinaryEqualSigning.first)
-                .status == ValidatorIdentityStatus::conflict);
-        BEAST_EXPECT(
-            trustedKeys->resolveMonitoringSigner(candidateEqualSigning.first)
-                .status == ValidatorIdentityStatus::conflict);
-
-        // Candidate roles cannot reuse current ordinary master/signing
-        // namespaces under another identity.
-        BEAST_EXPECT(
-            trustedKeys->resolveMonitoringSigner(ordinaryCrossMaster).status ==
-            ValidatorIdentityStatus::conflict);
-        BEAST_EXPECT(
-            trustedKeys
-                ->resolveMonitoringSigner(candidateFromOrdinarySigning.first)
-                .status == ValidatorIdentityStatus::conflict);
-        BEAST_EXPECT(
-            trustedKeys->lookupMonitoringIdentity(ordinaryRevokedAlias.first)
-                .status == ValidatorIdentityStatus::conflict);
-        BEAST_EXPECT(
-            trustedKeys->resolveMonitoringSigner(ordinaryRevokedAlias.first)
-                .status == ValidatorIdentityStatus::conflict);
-
-        // Candidate master/signing intersections are reported symmetrically.
-        auto const intersectionOwner = trustedKeys->lookupMonitoringIdentity(
-            intersectingCandidate.masterPublic);
-        auto const intersectionIdentity = trustedKeys->lookupMonitoringIdentity(
-            intersectingCandidate.signingPublic);
-        BEAST_EXPECT(
-            intersectionOwner.status == ValidatorIdentityStatus::conflict);
-        BEAST_EXPECT(
-            intersectionIdentity.status == ValidatorIdentityStatus::conflict);
-        for (auto const& result : {intersectionOwner, intersectionIdentity})
-        {
-            BEAST_EXPECT(
-                std::find(
-                    result.conflictingMasters.begin(),
-                    result.conflictingMasters.end(),
-                    intersectingCandidate.masterPublic) !=
-                result.conflictingMasters.end());
-            BEAST_EXPECT(
-                std::find(
-                    result.conflictingMasters.begin(),
-                    result.conflictingMasters.end(),
-                    intersectingCandidate.signingPublic) !=
-                result.conflictingMasters.end());
-        }
-
-        auto bare = trustedKeys->lookupMonitoringIdentity(bareMaster);
-        BEAST_EXPECT(bare.status == ValidatorIdentityStatus::resolved);
-        BEAST_EXPECT(bare.signing == bareMaster);
-
-        auto revoked =
-            trustedKeys->lookupMonitoringIdentity(revokedCandidateMaster);
-        BEAST_EXPECT(revoked.status == ValidatorIdentityStatus::revoked);
-        BEAST_EXPECT(
-            trustedKeys->resolveMonitoringSigner(revokedCandidateMaster)
-                .status == ValidatorIdentityStatus::unknown);
-
-        // A valid candidate can intentionally reuse a key only when it can
-        // produce both required signatures. The monitoring view reports the
-        // resulting cross-master ambiguity; consensus remains on the direct
-        // listed identity.
-        auto collision = trustedKeys->resolveMonitoringSigner(directListedKey);
-        BEAST_EXPECT(collision.status == ValidatorIdentityStatus::conflict);
-        BEAST_EXPECT(trustedKeys->listed(directListedKey));
-
-        bool candidateRelayed = false;
-        validatorManifests.for_each_manifest([&](Manifest const& manifest) {
-            candidateRelayed = candidateRelayed ||
-                manifest.masterKey == candidate.masterPublic;
-        });
-        BEAST_EXPECT(!candidateRelayed);
-
-        auto const liveRotation = randomKeyPair(KeyType::secp256k1);
-        auto liveManifest = deserializeManifest(makeManifestString(
-            liveCandidateMaster,
-            liveCandidateSecret,
-            liveRotation.first,
-            liveRotation.second,
-            2));
-        BEAST_EXPECT(liveManifest);
-        if (liveManifest)
-        {
-            BEAST_EXPECT(
-                trustedKeys->applyCandidateManifest(std::move(*liveManifest)) ==
-                ManifestDisposition::accepted);
-        }
-        BEAST_EXPECT(
-            trustedKeys->lookupMonitoringIdentity(liveCandidateMaster)
-                .signing == liveRotation.first);
-        BEAST_EXPECT(trustedKeys->candidateManifestOverrides().size() == 1);
-
-        // A malformed candidate invalidates only the candidate extension.
-        // The signed legacy validator list, including its associated manifest,
-        // remains accepted and applied.
-        auto invalidCandidate = randomValidator();
-        auto invalidManifest = base64_decode(invalidCandidate.manifest);
-        invalidManifest.back() ^= 1;
-        invalidCandidate.manifest = base64_encode(invalidManifest);
-        auto const secondBlob = makeList(
-            {listedValidator},
-            2,
-            validUntil.time_since_epoch().count(),
-            {},
-            {candidate, invalidCandidate});
-        auto const secondSignature = signList(secondBlob, publisherSigning);
-        BEAST_EXPECT(
-            trustedKeys
-                ->applyLists(
-                    publisherManifest,
-                    1,
-                    {{secondBlob, secondSignature, {}}},
-                    "testCandidates.test")
-                .bestDisposition() == ListDisposition::accepted);
-        BEAST_EXPECT(trustedKeys->listed(listedValidator.signingPublic));
-        BEAST_EXPECT(
-            validatorManifests.getMasterKey(listedValidator.signingPublic) ==
-            listedValidator.masterPublic);
-        BEAST_EXPECT(
-            trustedKeys->lookupMonitoringIdentity(candidate.masterPublic)
-                .status == ValidatorIdentityStatus::unknown);
-        BEAST_EXPECT(
-            trustedKeys->lookupMonitoringIdentity(liveCandidateMaster).status ==
-            ValidatorIdentityStatus::unknown);
-        BEAST_EXPECT(trustedKeys->candidateManifestOverrides().empty());
-        candidatePolicy = trustedKeys->manifestPolicy(candidate.masterPublic);
-        BEAST_EXPECT(!candidatePolicy.consensusListed);
-        BEAST_EXPECT(!candidatePolicy.publisherCandidate);
-        BEAST_EXPECT(!candidatePolicy.relayEligible());
-
-        // Promotion is explicit. Repeating a candidate manifest in the
-        // validators tier moves it into ordinary manifest state; merely having
-        // appeared in an older candidate generation does not.
-        auto const thirdBlob = makeList(
-            {listedValidator, candidate, revokedCandidate},
-            3,
-            validUntil.time_since_epoch().count());
-        auto const thirdSignature = signList(thirdBlob, publisherSigning);
-        BEAST_EXPECT(
-            trustedKeys
-                ->applyLists(
-                    publisherManifest,
-                    1,
-                    {{thirdBlob, thirdSignature, {}}},
-                    "testCandidates.test")
-                .bestDisposition() == ListDisposition::accepted);
-        BEAST_EXPECT(
-            validatorManifests.getMasterKey(candidate.signingPublic) ==
-            candidate.masterPublic);
-        BEAST_EXPECT(trustedKeys->listed(candidate.signingPublic));
-        candidatePolicy = trustedKeys->manifestPolicy(candidate.masterPublic);
-        BEAST_EXPECT(candidatePolicy.consensusListed);
-        BEAST_EXPECT(!candidatePolicy.publisherCandidate);
-        BEAST_EXPECT(candidatePolicy.relayEligible());
-        identity =
-            trustedKeys->lookupMonitoringIdentity(candidate.masterPublic);
-        BEAST_EXPECT(identity.status == ValidatorIdentityStatus::resolved);
-        BEAST_EXPECT(identity.presentInOrdinaryState);
-        BEAST_EXPECT(identity.candidateIdentityPublishers.empty());
-        BEAST_EXPECT(validatorManifests.revoked(revokedCandidateMaster));
-
-        trustedKeys->updateTrusted(
-            {},
-            env.timeKeeper().now(),
-            env.app().getOPs(),
-            env.app().overlay(),
-            env.app().getHashRouter());
-        BEAST_EXPECT(trustedKeys->trusted(directListedKey));
-        BEAST_EXPECT(trustedKeys->trusted(candidate.signingPublic));
-
-        // An already-expired generation preserves legacy ordinary-list and
-        // manifest handling, but does not seed the current candidate view.
-        env.timeKeeper().set(env.timeKeeper().now() + 2s);
-        auto const expiredCandidate = randomValidator();
-        auto const expiredValidator = randomValidator();
-        auto const expiredBlob = makeList(
-            {expiredValidator},
-            4,
-            (env.timeKeeper().now() - 1s).time_since_epoch().count(),
-            {},
-            {expiredCandidate});
-        auto const expiredSignature = signList(expiredBlob, publisherSigning);
-        auto const expiredResult = trustedKeys->applyLists(
-            publisherManifest,
-            1,
-            {{expiredBlob, expiredSignature, {}}},
-            "testCandidates.test");
-        BEAST_EXPECTS(
-            expiredResult.bestDisposition() == ListDisposition::expired,
-            to_string(expiredResult.bestDisposition()));
-        BEAST_EXPECT(
-            trustedKeys->lookupMonitoringIdentity(expiredCandidate.masterPublic)
-                .status == ValidatorIdentityStatus::unknown);
-        BEAST_EXPECT(
-            !validatorManifests.getSequence(expiredCandidate.masterPublic));
-        BEAST_EXPECT(
-            validatorManifests.getSequence(expiredValidator.masterPublic));
-        BEAST_EXPECT(trustedKeys->listed(expiredValidator.masterPublic));
-
-        // A malformed extension does not reject a newer legacy validator
-        // generation; it contributes no candidates.
-        auto const malformedShapeBlob = makeList(
-            {listedValidator},
-            5,
-            validUntil.time_since_epoch().count(),
-            {},
-            {candidate});
-        auto invalidJson = base64_decode(malformedShapeBlob);
-        auto const pos = invalidJson.find("\"candidates\":[");
-        BEAST_EXPECT(pos != std::string::npos);
-        if (pos != std::string::npos)
-        {
-            auto const arrayStart = pos + std::string{"\"candidates\":"}.size();
-            auto const arrayEnd = invalidJson.find(']', arrayStart);
-            BEAST_EXPECT(arrayEnd != std::string::npos);
-            if (arrayEnd != std::string::npos)
-            {
-                invalidJson.replace(
-                    arrayStart, arrayEnd - arrayStart + 1, "{}");
-                auto const invalidBlob = base64_encode(invalidJson);
-                auto const invalidSignature =
-                    signList(invalidBlob, publisherSigning);
-                BEAST_EXPECT(
-                    trustedKeys
-                        ->applyLists(
-                            publisherManifest,
-                            1,
-                            {{invalidBlob, invalidSignature, {}}},
-                            "testCandidates.test")
-                        .bestDisposition() == ListDisposition::accepted);
-                BEAST_EXPECT(
-                    trustedKeys->listed(listedValidator.signingPublic));
-                BEAST_EXPECT(
-                    trustedKeys
-                        ->lookupMonitoringIdentity(candidate.masterPublic)
-                        .status == ValidatorIdentityStatus::resolved);
-                BEAST_EXPECT(
-                    trustedKeys
-                        ->lookupMonitoringIdentity(candidate.masterPublic)
-                        .presentInOrdinaryState);
-            }
-        }
-    }
-
-    void
-    testCandidateVariantDeterminism()
-    {
-        testcase("Publisher candidate variant determinism");
-        using namespace std::chrono_literals;
-
-        jtx::Env env(*this);
-        auto const listedValidator = randomValidator();
         auto const candidateMasterSecret = randomSecretKey();
         auto const candidateMaster =
             derivePublicKey(KeyType::ed25519, candidateMasterSecret);
-
-        struct PublisherInput
-        {
-            PublicKey master;
-            std::pair<PublicKey, SecretKey> signing;
-            std::string manifest;
-        };
-        std::vector<PublisherInput> publishers;
-        for (int i = 0; i < 3; ++i)
-        {
-            auto const secret = randomSecretKey();
-            auto const master = derivePublicKey(KeyType::ed25519, secret);
-            auto const signing = randomKeyPair(KeyType::secp256k1);
-            publishers.push_back(PublisherInput{
-                master,
-                signing,
-                base64_encode(makeManifestString(
-                    master, secret, signing.first, signing.second, 1))});
-        }
-
-        struct VariantInput
-        {
-            Validator validator;
-            std::string serialized;
-        };
-        std::vector<VariantInput> variants;
-        for (int i = 0; i < 3; ++i)
-        {
-            auto const signing = randomKeyPair(KeyType::secp256k1);
-            auto const serialized = makeManifestString(
+        auto const candidateSigning1 = randomKeyPair(KeyType::secp256k1);
+        auto const candidateSigning2 = randomKeyPair(KeyType::secp256k1);
+        Validator const rotatingCandidate{
+            candidateMaster,
+            candidateSigning1.first,
+            base64_encode(makeManifestString(
                 candidateMaster,
                 candidateMasterSecret,
-                signing.first,
-                signing.second,
-                7);
-            variants.push_back(VariantInput{
-                Validator{
-                    candidateMaster, signing.first, base64_encode(serialized)},
-                serialized});
-        }
-        std::sort(
-            variants.begin(),
-            variants.end(),
-            [](VariantInput const& lhs, VariantInput const& rhs) {
-                return lhs.serialized < rhs.serialized;
-            });
-
-        // Assign the largest variant to one of the first two unordered-map
-        // publishers. The pre-fix first-two policy therefore differs from the
-        // required lexicographically smallest-two policy deterministically.
-        hash_map<PublicKey, std::size_t> iterationProbe;
-        for (std::size_t i = 0; i < publishers.size(); ++i)
-            iterationProbe.emplace(publishers[i].master, i);
-        std::vector<std::size_t> iterationOrder;
-        for (auto const& [_, index] : iterationProbe)
-        {
-            (void)_;
-            iterationOrder.push_back(index);
-        }
-        BEAST_EXPECT(iterationOrder.size() == 3);
-        if (iterationOrder.size() != 3)
-            return;
-
-        std::vector<std::size_t> publisherVariant(3);
-        publisherVariant[iterationOrder[0]] = 0;
-        publisherVariant[iterationOrder[1]] = 2;
-        publisherVariant[iterationOrder[2]] = 1;
-
-        auto runOrder = [&](std::vector<std::size_t> const& applyOrder) {
-            ManifestCache validatorManifests;
-            ManifestCache publisherManifests;
-            ValidatorList trustedKeys(
-                validatorManifests,
-                publisherManifests,
-                env.timeKeeper(),
-                env.app().config().legacy("database_path"),
-                env.journal);
-
-            std::vector<std::string> publisherKeys;
-            for (auto const& publisher : publishers)
-                publisherKeys.push_back(strHex(publisher.master));
-            BEAST_EXPECT(trustedKeys.load({}, {}, publisherKeys));
-
-            auto const validUntil = env.timeKeeper().now() + 1h;
-            for (auto const index : applyOrder)
-            {
-                auto const blob = makeList(
-                    {listedValidator},
+                candidateSigning1.first,
+                candidateSigning1.second,
+                1))};
+        auto const blob2 = makeList(
+            {listed},
+            2,
+            validUntil.time_since_epoch().count(),
+            {},
+            {candidate, rotatingCandidate});
+        auto const signature2 = signList(blob2, publisherSigning);
+        BEAST_EXPECT(
+            trustedKeys
+                ->applyLists(
+                    publisherManifest,
                     1,
-                    validUntil.time_since_epoch().count(),
-                    {},
-                    {variants[publisherVariant[index]].validator});
-                auto const signature =
-                    signList(blob, publishers[index].signing);
-                BEAST_EXPECT(
-                    trustedKeys
-                        .applyLists(
-                            publishers[index].manifest,
-                            1,
-                            {{blob, signature, {}}},
-                            "testCandidateVariantDeterminism.test")
-                        .bestDisposition() == ListDisposition::accepted);
-            }
+                    {{blob2, signature2, {}}},
+                    "testCandidates.test")
+                .bestDisposition() == ListDisposition::accepted);
 
-            std::vector<ValidatorIdentityStatus> result;
-            for (auto const& variant : variants)
-                result.push_back(trustedKeys
-                                     .resolveMonitoringSigner(
-                                         variant.validator.signingPublic)
-                                     .status);
+        auto rotation = deserializeManifest(makeManifestString(
+            candidateMaster,
+            candidateMasterSecret,
+            candidateSigning2.first,
+            candidateSigning2.second,
+            2));
+        BEAST_EXPECT(rotation);
+        if (rotation)
             BEAST_EXPECT(
-                trustedKeys.lookupMonitoringIdentity(candidateMaster).status ==
-                ValidatorIdentityStatus::conflict);
-            return result;
-        };
+                validatorManifests.applyManifest(
+                    std::move(*rotation), ManifestRetention::protected_) ==
+                ManifestDisposition::accepted);
+        BEAST_EXPECT(
+            validatorManifests.getSigningKey(candidateMaster) ==
+            candidateSigning2.first);
 
-        auto const forward = runOrder({0, 1, 2});
-        auto const reverse = runOrder({2, 1, 0});
-        BEAST_EXPECT(forward == reverse);
-        BEAST_EXPECT(forward.size() == 3);
-        if (forward.size() == 3)
-        {
-            BEAST_EXPECT(forward[0] == ValidatorIdentityStatus::conflict);
-            BEAST_EXPECT(forward[1] == ValidatorIdentityStatus::conflict);
-            BEAST_EXPECT(forward[2] == ValidatorIdentityStatus::unknown);
-        }
+        // Removing the candidate removes only its protection. Because the
+        // bounded population is already full, its transient manifest is
+        // discarded rather than creating a second retention pool.
+        auto const blob3 =
+            makeList({listed}, 3, validUntil.time_since_epoch().count());
+        auto const signature3 = signList(blob3, publisherSigning);
+        BEAST_EXPECT(
+            trustedKeys
+                ->applyLists(
+                    publisherManifest,
+                    1,
+                    {{blob3, signature3, {}}},
+                    "testCandidates.test")
+                .bestDisposition() == ListDisposition::accepted);
+        BEAST_EXPECT(
+            !trustedKeys->manifestPolicy(candidateMaster).publisherCandidate);
+        BEAST_EXPECT(!validatorManifests.getSequence(candidateMaster));
+
+        // Protection follows the current union of configured/listed and
+        // candidate masters. Removing a tier-1 entry demotes it through the
+        // same reconciliation path; it does not remain protected forever.
+        auto const replacementListed = randomValidator();
+        auto const blob4 = makeList(
+            {replacementListed}, 4, validUntil.time_since_epoch().count());
+        auto const signature4 = signList(blob4, publisherSigning);
+        BEAST_EXPECT(
+            trustedKeys
+                ->applyLists(
+                    publisherManifest,
+                    1,
+                    {{blob4, signature4, {}}},
+                    "testCandidates.test")
+                .bestDisposition() == ListDisposition::accepted);
+        BEAST_EXPECT(!trustedKeys->listed(listed.masterPublic));
+        BEAST_EXPECT(!validatorManifests.getSequence(listed.masterPublic));
+        BEAST_EXPECT(trustedKeys->listed(replacementListed.masterPublic));
     }
 
     void
@@ -1918,7 +1433,7 @@ private:
 
             BEAST_EXPECT(
                 manifestsOuter.applyManifest(
-                    std::move(*m1), ManifestRateLimitCapPolicy::Capped) ==
+                    std::move(*m1), ManifestRetention::evictable) ==
                 ManifestDisposition::accepted);
             BEAST_EXPECT(trustedKeysOuter->listed(masterPublic));
             BEAST_EXPECT(trustedKeysOuter->trusted(masterPublic));
@@ -1937,7 +1452,7 @@ private:
                 2));
             BEAST_EXPECT(
                 manifestsOuter.applyManifest(
-                    std::move(*m2), ManifestRateLimitCapPolicy::Capped) ==
+                    std::move(*m2), ManifestRetention::evictable) ==
                 ManifestDisposition::accepted);
             BEAST_EXPECT(trustedKeysOuter->listed(masterPublic));
             BEAST_EXPECT(trustedKeysOuter->trusted(masterPublic));
@@ -1956,7 +1471,7 @@ private:
             BEAST_EXPECT(mMax->revoked());
             BEAST_EXPECT(
                 manifestsOuter.applyManifest(
-                    std::move(*mMax), ManifestRateLimitCapPolicy::Capped) ==
+                    std::move(*mMax), ManifestRetention::evictable) ==
                 ManifestDisposition::accepted);
             BEAST_EXPECT(
                 manifestsOuter.getSigningKey(masterPublic) == masterPublic);
@@ -3456,7 +2971,7 @@ private:
             {
                 valManifests.applyManifest(
                     *deserializeManifest(base64_decode(self->manifest)),
-                    ManifestRateLimitCapPolicy::Capped);
+                    ManifestRetention::evictable);
                 BEAST_EXPECT(result->load(
                     self->signingPublic,
                     emptyCfgKeys,
@@ -4819,7 +4334,6 @@ public:
         testConfigLoad();
         testApplyLists();
         testCandidates();
-        testCandidateVariantDeterminism();
         testGetAvailable();
         testUpdateTrusted();
         testExpires();

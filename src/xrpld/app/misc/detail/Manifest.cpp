@@ -360,19 +360,6 @@ ManifestCache::getManifest(PublicKey const& pk) const
     return std::nullopt;
 }
 
-std::shared_ptr<Manifest const>
-ManifestCache::getManifestByMaster(PublicKey const& pk) const
-{
-    std::shared_lock lock{mutex_};
-    if (auto const iter = map_.find(pk); iter != map_.end())
-    {
-        auto const& m = iter->second;
-        return std::make_shared<Manifest const>(
-            m.serialized, m.masterKey, m.signingKey, m.sequence, m.domain);
-    }
-    return {};
-}
-
 bool
 ManifestCache::revoked(PublicKey const& pk) const
 {
@@ -386,9 +373,9 @@ ManifestCache::revoked(PublicKey const& pk) const
 }
 
 ManifestDisposition
-ManifestCache::applyManifest(Manifest m, ManifestRateLimitCapPolicy const cap)
+ManifestCache::applyManifest(Manifest m, ManifestRetention const retention)
 {
-    return applyManifestImpl(std::move(m), cap, nullptr, nullptr);
+    return applyManifestImpl(std::move(m), retention, nullptr, nullptr);
 }
 
 ManifestApplyResult
@@ -399,7 +386,7 @@ ManifestCache::applyManifestWithEviction(
     bool acceptedUpdate = false;
     auto const disposition = applyManifestImpl(
         std::move(m),
-        ManifestRateLimitCapPolicy::Capped,
+        ManifestRetention::evictable,
         &currentValidationKeys,
         &acceptedUpdate);
     return {disposition, acceptedUpdate};
@@ -408,14 +395,14 @@ ManifestCache::applyManifestWithEviction(
 ManifestDisposition
 ManifestCache::applyManifestImpl(
     Manifest m,
-    ManifestRateLimitCapPolicy const cap,
+    ManifestRetention const retention,
     hash_set<PublicKey> const* const currentValidationKeys,
     bool* const acceptedUpdate)
 {
     if (acceptedUpdate)
         *acceptedUpdate = false;
 
-    bool const uncapped = cap == ManifestRateLimitCapPolicy::Uncapped;
+    bool const protectedRetention = retention == ManifestRetention::protected_;
     bool checkSignature = true;
 
     // Check the manifest against the conditions that do not require a
@@ -522,13 +509,14 @@ ManifestCache::applyManifestImpl(
         return std::nullopt;
     };
 
-    auto atUntrustedCap = [this, uncapped](auto const& iter, auto const& lock) {
+    auto atEvictableCap = [this, protectedRetention](
+                              auto const& iter, auto const& lock) {
         XRPL_ASSERT(
             lock.owns_lock(),
-            "ripple::ManifestCache::applyManifest::atUntrustedCap : locked");
+            "ripple::ManifestCache::applyManifest::atEvictableCap : locked");
         (void)lock;
-        return iter == map_.end() && !uncapped &&
-            untrustedKeys_.size() >= kMaxUntrustedCount;
+        return iter == map_.end() && !protectedRetention &&
+            evictableKeys_.size() >= kMaxUntrustedCount;
     };
 
     auto rejectAtUntrustedCap = [this, &m]() {
@@ -557,18 +545,18 @@ ManifestCache::applyManifestImpl(
     {
         std::shared_lock sl{mutex_};
         auto const iter = map_.find(m.masterKey);
-        if (atUntrustedCap(iter, sl))
+        if (atEvictableCap(iter, sl))
         {
             if (!currentValidationKeys || !evictionPermitAvailable(sl))
                 return rejectAtUntrustedCap();
         }
         if (auto d = prewriteCheck(iter, sl); d.has_value())
         {
-            // An uncapped application also carries retention policy. Defer a
+            // A protected application also carries retention policy. Defer a
             // stale result to the write lock so an existing entry can be
             // promoted atomically instead of racing eviction.
-            if (!uncapped || *d != ManifestDisposition::stale ||
-                !untrustedKeys_.contains(m.masterKey))
+            if (!protectedRetention || *d != ManifestDisposition::stale ||
+                !evictableKeys_.contains(m.masterKey))
                 return *d;
         }
     }
@@ -576,13 +564,14 @@ ManifestCache::applyManifestImpl(
     std::unique_lock sl{mutex_};
     auto const iter = map_.find(m.masterKey);
 
-    bool const needsEviction = atUntrustedCap(iter, sl);
+    bool const needsEviction = atEvictableCap(iter, sl);
     if (needsEviction && !currentValidationKeys)
         return rejectAtUntrustedCap();
 
-    if (uncapped && iter != map_.end() && m.sequence <= iter->second.sequence)
+    if (protectedRetention && iter != map_.end() &&
+        m.sequence <= iter->second.sequence)
     {
-        if (untrustedKeys_.erase(m.masterKey) != 0)
+        if (evictableKeys_.erase(m.masterKey) != 0)
             ++seq_;
         return ManifestDisposition::stale;
     }
@@ -602,7 +591,7 @@ ManifestCache::applyManifestImpl(
     if (needsEviction)
     {
         XRPL_ASSERT(
-            currentValidationKeys && !untrustedKeys_.empty(),
+            currentValidationKeys && !evictableKeys_.empty(),
             "ripple::ManifestCache::applyManifestImpl : eviction inputs");
 
         auto const now = now_();
@@ -622,8 +611,8 @@ ManifestCache::applyManifestImpl(
         --evictionPermits_;
 
         std::vector<PublicKey> dormant;
-        dormant.reserve(untrustedKeys_.size());
-        for (auto const& master : untrustedKeys_)
+        dormant.reserve(evictableKeys_.size());
+        for (auto const& master : evictableKeys_)
         {
             auto const victim = map_.find(master);
             XRPL_ASSERT(
@@ -646,9 +635,9 @@ ManifestCache::applyManifestImpl(
                     return dormant.front();
                 return dormant[rand_int(dormant.size() - 1)];
             }
-            auto victim = untrustedKeys_.begin();
-            if (untrustedKeys_.size() > 1)
-                std::advance(victim, rand_int(untrustedKeys_.size() - 1));
+            auto victim = evictableKeys_.begin();
+            if (evictableKeys_.size() > 1)
+                std::advance(victim, rand_int(evictableKeys_.size() - 1));
             return *victim;
         }();
 
@@ -662,7 +651,7 @@ ManifestCache::applyManifestImpl(
         if (victim->second.signingKey)
             signingToMasterKeys_.erase(*victim->second.signingKey);
         map_.erase(victim);
-        untrustedKeys_.erase(victimMaster);
+        evictableKeys_.erase(victimMaster);
     }
 
     bool const revoked = m.revoked();
@@ -677,8 +666,8 @@ ManifestCache::applyManifestImpl(
             signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);
 
         auto masterKey = m.masterKey;
-        if (!uncapped)
-            untrustedKeys_.insert(masterKey);
+        if (!protectedRetention)
+            evictableKeys_.insert(masterKey);
         map_.emplace(std::move(masterKey), std::move(m));
 
         // Increment sequence to invalidate cached manifest messages
@@ -697,8 +686,8 @@ ManifestCache::applyManifestImpl(
             m.sequence,
             iter->second.sequence);
 
-    if (uncapped)
-        untrustedKeys_.erase(m.masterKey);
+    if (protectedRetention)
+        evictableKeys_.erase(m.masterKey);
 
     signingToMasterKeys_.erase(*iter->second.signingKey);
 
@@ -717,15 +706,87 @@ ManifestCache::applyManifestImpl(
 }
 
 void
-ManifestCache::promoteToTrusted(PublicKey const& pk)
+ManifestCache::setRetention(
+    PublicKey const& pk,
+    ManifestRetention const retention)
 {
     std::unique_lock sl{mutex_};
-    if (untrustedKeys_.erase(pk) != 0)
+    auto const iter = map_.find(pk);
+    if (iter == map_.end())
+        return;
+
+    if (retention == ManifestRetention::protected_)
     {
-        // Trust classification affects which manifests are selected for the
-        // cached peer snapshot, even though the retained manifest is unchanged.
-        ++seq_;
+        if (evictableKeys_.erase(pk) != 0)
+        {
+            // Retention affects peer-snapshot priority even though the
+            // retained manifest is unchanged.
+            ++seq_;
+        }
+        return;
     }
+
+    if (evictableKeys_.contains(pk))
+        return;
+
+    if (configuredKeys_.contains(pk))
+        return;
+
+    if (evictableKeys_.size() < kMaxUntrustedCount)
+    {
+        evictableKeys_.insert(pk);
+    }
+    else
+    {
+        if (iter->second.signingKey)
+            signingToMasterKeys_.erase(*iter->second.signingKey);
+        map_.erase(iter);
+    }
+
+    // Retention changes peer-snapshot priority; removal also changes manifest
+    // resolution.
+    ++seq_;
+}
+
+void
+ManifestCache::reconcileRetention(hash_set<PublicKey> const& protectedMasters)
+{
+    std::unique_lock sl{mutex_};
+    bool changed = false;
+
+    for (auto iter = map_.begin(); iter != map_.end();)
+    {
+        auto const master = iter->first;
+        if (configuredKeys_.contains(master) ||
+            protectedMasters.contains(master))
+        {
+            changed = evictableKeys_.erase(master) != 0 || changed;
+            ++iter;
+            continue;
+        }
+
+        if (evictableKeys_.contains(master))
+        {
+            ++iter;
+            continue;
+        }
+
+        if (evictableKeys_.size() < kMaxUntrustedCount)
+        {
+            evictableKeys_.insert(master);
+            changed = true;
+            ++iter;
+            continue;
+        }
+
+        if (iter->second.signingKey)
+            signingToMasterKeys_.erase(*iter->second.signingKey);
+        iter = map_.erase(iter);
+        changed = true;
+    }
+
+    if (changed)
+        ++seq_;
 }
 
 void
@@ -758,13 +819,16 @@ ManifestCache::load(
             JLOG(j_.warn()) << "Configured manifest revokes public key";
         }
 
-        if (applyManifest(
-                std::move(*mo), ManifestRateLimitCapPolicy::Uncapped) ==
+        auto const masterKey = mo->masterKey;
+        if (applyManifest(std::move(*mo), ManifestRetention::protected_) ==
             ManifestDisposition::invalid)
         {
             JLOG(j_.error()) << "Manifest in config was rejected";
             return false;
         }
+
+        std::unique_lock lock{mutex_};
+        configuredKeys_.insert(masterKey);
     }
 
     if (!configRevocation.empty())
@@ -783,14 +847,22 @@ ManifestCache::load(
 
         auto mo = deserializeManifest(base64_decode(revocationStr));
 
-        if (!mo || !mo->revoked() ||
-            applyManifest(
-                std::move(*mo), ManifestRateLimitCapPolicy::Uncapped) ==
-                ManifestDisposition::invalid)
+        if (!mo || !mo->revoked())
         {
             JLOG(j_.error()) << "Invalid validator key revocation in config";
             return false;
         }
+
+        auto const masterKey = mo->masterKey;
+        if (applyManifest(std::move(*mo), ManifestRetention::protected_) ==
+            ManifestDisposition::invalid)
+        {
+            JLOG(j_.error()) << "Invalid validator key revocation in config";
+            return false;
+        }
+
+        std::unique_lock lock{mutex_};
+        configuredKeys_.insert(masterKey);
     }
 
     return true;

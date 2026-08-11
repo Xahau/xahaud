@@ -127,38 +127,10 @@ struct ValidatorBlobInfo
     std::optional<std::string> manifest;
 };
 
-/** Result of explicitly composing ordinary and publisher-candidate identity
-    state for monitoring. This type must not be used for trust or quorum. */
-enum class ValidatorIdentityStatus {
-    resolved,
-    revoked,
-    conflict,
-    unknown,
-    unstable
-};
-
-struct ValidatorIdentity
-{
-    explicit ValidatorIdentity(PublicKey const& requested_)
-        : requested(requested_)
-    {
-    }
-
-    ValidatorIdentityStatus status = ValidatorIdentityStatus::unknown;
-    PublicKey requested;
-    std::optional<PublicKey> master;
-    std::vector<PublicKey> conflictingMasters;
-    std::optional<PublicKey> signing;
-    std::shared_ptr<Manifest const> manifest;
-    bool presentInOrdinaryState = false;
-    hash_set<PublicKey> candidateIdentityPublishers;
-    hash_set<PublicKey> candidateManifestPublishers;
-};
-
 /** Manifest transport/admission policy for a master key.
 
-    Publisher candidates are eligible for bounded cache admission and relay,
-    but are not listed or trusted for consensus.
+    Publisher candidates receive protected manifest retention and relay, but
+    are not listed or trusted for consensus.
 */
 struct ValidatorManifestPolicy
 {
@@ -283,31 +255,6 @@ class ValidatorList
         std::uint32_t rawVersion = 0;
     };
 
-    struct CandidateVariant
-    {
-        std::shared_ptr<Manifest const> manifest;
-        hash_set<PublicKey> publishers;
-    };
-
-    struct CandidateRecord
-    {
-        explicit CandidateRecord(PublicKey const& master_) : master(master_)
-        {
-        }
-
-        PublicKey master;
-        hash_set<PublicKey> identityPublishers;
-        std::vector<CandidateVariant> highestSequenceVariants;
-    };
-
-    struct PublisherCandidateIndex
-    {
-        hash_map<PublicKey, CandidateRecord> byMaster;
-        hash_map<PublicKey, hash_set<PublicKey>> signingOwners;
-        hash_set<PublicKey> conflictedMasters;
-        std::uint64_t revision = 0;
-    };
-
     ManifestCache& validatorManifests_;
     ManifestCache& publisherManifests_;
     TimeKeeper& timeKeeper_;
@@ -323,23 +270,13 @@ class ValidatorList
     // Published lists stored by publisher master public key
     hash_map<PublicKey, PublisherListCollection> publisherLists_;
 
-    // Monitoring-only current candidate snapshot. It is owned by the
-    // ValidatorList lifecycle and never enters ManifestCache.
-    PublisherCandidateIndex publisherCandidates_;
-
-    // Newer manifests learned by gossip for masters in the current signed
-    // candidate set. At most one is retained per current candidate master;
-    // rebuildPublisherCandidates removes entries whose membership disappears
-    // or whose publisher manifest catches up. This state is monitoring-only.
-    hash_map<PublicKey, std::shared_ptr<Manifest const>>
-        candidateManifestOverrides_;
+    // Current publisher-selected candidate masters. Candidate manifests use
+    // the ordinary ManifestCache: tier membership changes retention and relay
+    // policy, not identity-resolution semantics.
+    hash_set<PublicKey> publisherCandidateMasters_;
 
     // Listed master public keys with the number of lists they appear on
     hash_map<PublicKey, std::size_t> keyListings_;
-
-    // Incremented when a master key becomes listed or ceases to be listed.
-    // Consumers use this to invalidate policy-dependent cached views.
-    std::atomic<std::uint64_t> listingSequence_{0};
 
     // The current list of trusted master keys
     hash_set<PublicKey> trustedMasterKeys_;
@@ -635,16 +572,6 @@ public:
     bool
     listed(PublicKey const& identity) const;
 
-    /** Returns a sequence that changes when listed-key membership changes.
-
-        May be called concurrently.
-    */
-    std::uint64_t
-    listingSequence() const
-    {
-        return listingSequence_.load();
-    }
-
     /** Returns master public key if public key is trusted
 
         @param identity Validation public key
@@ -679,36 +606,6 @@ public:
     */
     ValidatorManifestPolicy
     manifestPolicy(PublicKey const& master) const;
-
-    /** Apply a manifest only if its master is a current publisher candidate.
-
-        The returned optional is empty when candidate membership changed before
-        admission. An accepted manifest updates only the monitoring view and
-        never enters the consensus ManifestCache.
-    */
-    std::optional<ManifestDisposition>
-    applyCandidateManifest(Manifest m);
-
-    /** Return the current live candidate-manifest overrides for peer sync. */
-    std::vector<std::shared_ptr<Manifest const>>
-    candidateManifestOverrides() const;
-
-    /** Compose ordinary and current publisher-candidate state for a master.
-
-        Monitoring only: callers must not use this result for trust, quorum,
-        negative-UNL scoring or consensus identity.
-    */
-    ValidatorIdentity
-    lookupMonitoringIdentity(PublicKey const& master) const;
-
-    /** Resolve a validation signing key through the monitoring-only composed
-        identity view. */
-    ValidatorIdentity
-    resolveMonitoringSigner(PublicKey const& signingKey) const;
-
-    /** Revision of the current publisher candidate snapshot. */
-    std::uint64_t
-    publisherCandidateRevision() const;
 
     /** Returns `true` if public key is a trusted publisher
 
@@ -957,20 +854,11 @@ private:
         PublisherList const& current,
         lock_guard const&);
 
-    bool
+    void
     rebuildPublisherCandidates(lock_guard const&);
 
     static std::vector<PublicKey>
     validatorMasters(PublisherList const& list);
-
-    static ValidatorIdentity
-    composeMonitoringIdentity(
-        PublicKey const& master,
-        std::shared_ptr<Manifest const> const& ordinary,
-        std::optional<CandidateRecord> const& candidate,
-        bool directListed,
-        bool candidateConflict,
-        std::vector<PublicKey> conflictingMasters = {});
 
     static void
     buildBlobInfos(

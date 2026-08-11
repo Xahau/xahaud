@@ -70,10 +70,11 @@ namespace ripple {
     received from rippled peers, including ones for validators this node does
     not trust. Manifests for untrusted validators are capped
     (kMaxUntrustedCount) so peer gossip cannot grow the cache without bound.
-    Entries admitted as trusted, or later promoted to trusted, are not capped
-    or evicted. Promotion is one-way. At capacity, an untrusted entry is
-    evicted to admit a new valid manifest; entries whose signing keys have
-    current validations are avoided while a dormant victim exists.
+    Entries admitted as protected, or later reclassified as protected, are not
+    capped or evicted. Entries return to the evictable population when their
+    protected source disappears. At capacity, an evictable entry is evicted to
+    admit a new valid manifest; entries whose signing keys have current
+    validations are avoided while a dormant victim exists.
 
     When an ephemeral key is compromised, a new signing key pair is created,
     along with a new manifest vouching for it (with a higher sequence number),
@@ -297,8 +298,13 @@ to_string(ManifestDisposition m)
     }
 }
 
-/** Whether a manifest counts against the untrusted cache cap. */
-enum class ManifestRateLimitCapPolicy : std::uint8_t { Capped, Uncapped };
+/** Retention policy for an accepted manifest.
+
+    This is deliberately independent of validator-list membership and
+    consensus trust. Protected entries are not part of the bounded eviction
+    population; evictable entries are.
+*/
+enum class ManifestRetention : std::uint8_t { evictable, protected_ };
 
 class DatabaseCon;
 
@@ -310,8 +316,9 @@ class DatabaseCon;
     untrusted entry necessarily forgets those facts and can make an old
     manifest cache-new again.
 
-    Entries admitted uncapped, or later promoted, are outside the eviction
-    population. For unlisted validators, recent validation activity is only an
+    Entries admitted with protected retention, or later reclassified as
+    protected, are outside the eviction population. For other validators,
+    recent validation activity is only an
     eviction preference; it does not confer trust and cannot prevent eviction
     when every candidate is active.
 
@@ -346,8 +353,11 @@ private:
 
     std::atomic<std::uint32_t> seq_{0};
 
-    /** Master keys currently counted against the untrusted cache cap. */
-    hash_set<PublicKey> untrustedKeys_;
+    /** Master keys currently counted against the bounded eviction cap. */
+    hash_set<PublicKey> evictableKeys_;
+
+    /** Master keys explicitly protected by local validator configuration. */
+    hash_set<PublicKey> configuredKeys_;
 
     /** Maximum number of untrusted master keys retained in memory. */
     static constexpr std::size_t kMaxUntrustedCount = 1000;
@@ -367,7 +377,7 @@ private:
     ManifestDisposition
     applyManifestImpl(
         Manifest m,
-        ManifestRateLimitCapPolicy cap,
+        ManifestRetention retention,
         hash_set<PublicKey> const* currentValidationKeys,
         bool* acceptedUpdate);
 
@@ -436,15 +446,6 @@ public:
     std::optional<std::string>
     getManifest(PublicKey const& pk) const;
 
-    /** Return a copy of the ordinary manifest for a master key.
-
-        Unlike `getManifest`, this includes terminal revocations. The returned
-        copy can safely be composed with monitoring-only publisher state after
-        the cache lock is released.
-    */
-    std::shared_ptr<Manifest const>
-    getManifestByMaster(PublicKey const& pk) const;
-
     /** Returns `true` if master key has been revoked in a manifest.
 
         @param pk Master public key
@@ -460,7 +461,7 @@ public:
 
         @param m Manifest to add
 
-        @param cap Whether a new master key counts against the untrusted cap
+        @param retention Whether the entry is protected or evictable
 
         @return `ManifestDisposition::accepted` if successful, or
                 `stale` or `invalid` otherwise
@@ -470,7 +471,7 @@ public:
         May be called concurrently
     */
     ManifestDisposition
-    applyManifest(Manifest m, ManifestRateLimitCapPolicy cap);
+    applyManifest(Manifest m, ManifestRetention retention);
 
     /** Add an untrusted manifest, evicting another at capacity.
 
@@ -491,9 +492,26 @@ public:
         Manifest m,
         hash_set<PublicKey> const& currentValidationKeys);
 
-    /** Stop counting a cached master key against the untrusted cap. */
+    /** Change the retention class of an already cached master.
+
+        Consensus trust is not changed. If an entry becomes evictable while
+        the bounded population is full, it is discarded and can later be
+        reacquired from its signed source.
+    */
     void
-    promoteToTrusted(PublicKey const& pk);
+    setRetention(PublicKey const& pk, ManifestRetention retention);
+
+    /** Reconcile cached retention against the current protected-master set.
+
+        This changes retention only; it never grants validator-list membership
+        or consensus weight. Cached entries outside `protectedMasters` and
+        local validator configuration become evictable, subject to the
+        ordinary bounded population. Terminal revocations are treated like
+        other current high-water state: once every protected source
+        disappears, they become evictable.
+    */
+    void
+    reconcileRetention(hash_set<PublicKey> const& protectedMasters);
 
     /** Populate manifest cache with manifests in database and config.
 
@@ -582,7 +600,7 @@ public:
         @param pf Pre-function called with the maximum number of times f will be
             called (useful for memory allocations)
 
-        @param f Function called for each manifest
+        @param f Function called for each manifest and its retention class
 
         @par Thread Safety
 
@@ -594,10 +612,11 @@ public:
     {
         std::shared_lock lock{mutex_};
         pf(map_.size());
-        for (auto const& [_, manifest] : map_)
+        for (auto const& [master, manifest] : map_)
         {
-            (void)_;
-            f(manifest);
+            f(manifest,
+              evictableKeys_.contains(master) ? ManifestRetention::evictable
+                                              : ManifestRetention::protected_);
         }
     }
 };

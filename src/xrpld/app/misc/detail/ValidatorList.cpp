@@ -226,8 +226,8 @@ ValidatorList::load(
             keyListings_.insert({*localPubKey_, listThreshold_});
         if (inserted)
         {
-            ++listingSequence_;
-            validatorManifests_.promoteToTrusted(*localPubKey_);
+            validatorManifests_.setRetention(
+                *localPubKey_, ManifestRetention::protected_);
             JLOG(j_.debug()) << "Added own master key "
                              << toBase58(TokenType::NodePublic, *localPubKey_);
         }
@@ -267,8 +267,7 @@ ValidatorList::load(
             JLOG(j_.warn()) << "Duplicate node identity: " << match[1];
             continue;
         }
-        ++listingSequence_;
-        validatorManifests_.promoteToTrusted(*id);
+        validatorManifests_.setRetention(*id, ManifestRetention::protected_);
         localPublisherList.validators.push_back(PublisherValidator{*id, {}});
         ++count;
     }
@@ -280,6 +279,12 @@ ValidatorList::load(
         localPublisherList.validUntil = TimeKeeper::time_point::max();
 
     JLOG(j_.debug()) << "Loaded " << count << " entries";
+
+    // Wallet rows are loaded before local and publisher configuration is
+    // known. Reconcile that provisional startup retention now that the current
+    // local source set is complete. Available publisher lists, if any, are
+    // folded in by the same path.
+    rebuildPublisherCandidates(lock);
 
     return true;
 }
@@ -1098,10 +1103,9 @@ ValidatorList::updatePublisherList(
             (iNew != publisherList.end() && *iNew < *iOld))
         {
             // Increment list count for added keys
-            auto& count = keyListings_[*iNew];
-            if (count++ == 0)
-                ++listingSequence_;
-            validatorManifests_.promoteToTrusted(*iNew);
+            ++keyListings_[*iNew];
+            validatorManifests_.setRetention(
+                *iNew, ManifestRetention::protected_);
             ++iNew;
         }
         else if (
@@ -1110,10 +1114,7 @@ ValidatorList::updatePublisherList(
         {
             // Decrement list count for removed keys
             if (keyListings_[*iOld] <= 1)
-            {
                 keyListings_.erase(*iOld);
-                ++listingSequence_;
-            }
             else
                 --keyListings_[*iOld];
             ++iOld;
@@ -1156,7 +1157,7 @@ ValidatorList::ingestPublisherManifests(
             supplied.sequence,
             supplied.domain};
         if (auto const r = validatorManifests_.applyManifest(
-                std::move(m), ManifestRateLimitCapPolicy::Uncapped);
+                std::move(m), ManifestRetention::protected_);
             r == ManifestDisposition::invalid)
         {
             JLOG(j_.warn()) << "List for " << strHex(pubKey)
@@ -1165,49 +1166,12 @@ ValidatorList::ingestPublisherManifests(
     }
 }
 
-bool
+void
 ValidatorList::rebuildPublisherCandidates(ValidatorList::lock_guard const&)
 {
-    hash_map<PublicKey, CandidateRecord> byMaster;
+    hash_set<PublicKey> candidateMasters;
     hash_set<PublicKey> contributingPublishers;
     std::size_t supplied = 0;
-
-    auto mergeManifest = [](CandidateRecord& record,
-                            std::shared_ptr<Manifest const> const& manifest,
-                            PublicKey const* publisher) {
-        auto const sequence = manifest->sequence;
-        auto& variants = record.highestSequenceVariants;
-        if (!variants.empty() && variants.front().manifest->sequence > sequence)
-            return;
-        if (!variants.empty() && variants.front().manifest->sequence < sequence)
-            variants.clear();
-
-        auto const existing = std::find_if(
-            variants.begin(),
-            variants.end(),
-            [&](CandidateVariant const& variant) {
-                return variant.manifest->serialized == manifest->serialized;
-            });
-        if (existing != variants.end())
-        {
-            if (publisher)
-                existing->publishers.insert(*publisher);
-            return;
-        }
-
-        CandidateVariant variant{manifest, {}};
-        if (publisher)
-            variant.publishers.insert(*publisher);
-        variants.push_back(std::move(variant));
-        std::sort(
-            variants.begin(),
-            variants.end(),
-            [](CandidateVariant const& lhs, CandidateVariant const& rhs) {
-                return lhs.manifest->serialized < rhs.manifest->serialized;
-            });
-        if (variants.size() > 2)
-            variants.pop_back();
-    };
 
     for (auto const& [pubKey, collection] : publisherLists_)
     {
@@ -1218,26 +1182,14 @@ ValidatorList::rebuildPublisherCandidates(ValidatorList::lock_guard const&)
         {
             ++supplied;
             contributingPublishers.insert(pubKey);
-            auto [it, inserted] =
-                byMaster.try_emplace(candidate.master, candidate.master);
-            (void)inserted;
-            auto& record = it->second;
-            record.identityPublishers.insert(pubKey);
-
-            if (!candidate.manifest)
-                continue;
-
-            mergeManifest(record, candidate.manifest, &pubKey);
+            candidateMasters.insert(candidate.master);
         }
     }
 
     std::vector<PublicKey> retained;
-    retained.reserve(byMaster.size());
-    for (auto const& [master, _] : byMaster)
-    {
-        (void)_;
+    retained.reserve(candidateMasters.size());
+    for (auto const& master : candidateMasters)
         retained.push_back(master);
-    }
     std::sort(retained.begin(), retained.end());
 
     auto const distinct = retained.size();
@@ -1246,7 +1198,7 @@ ValidatorList::rebuildPublisherCandidates(ValidatorList::lock_guard const&)
         for (auto it = retained.begin() + maxPublisherCandidates;
              it != retained.end();
              ++it)
-            byMaster.erase(*it);
+            candidateMasters.erase(*it);
         retained.erase(
             retained.begin() + maxPublisherCandidates, retained.end());
 
@@ -1258,114 +1210,52 @@ ValidatorList::rebuildPublisherCandidates(ValidatorList::lock_guard const&)
             << ", publishers=" << contributingPublishers.size();
     }
 
-    bool overridesChanged = false;
-    for (auto it = candidateManifestOverrides_.begin();
-         it != candidateManifestOverrides_.end();)
+    // List tiers choose retention and relay policy only. ManifestCache remains
+    // the sole high-water and signer-to-master namespace. Reconcile the whole
+    // current source set so removed validators do not stay protected merely
+    // because an older publisher generation once named them.
+    hash_set<PublicKey> protectedMasters;
+    protectedMasters.reserve(keyListings_.size() + candidateMasters.size());
+    for (auto const& [master, _] : keyListings_)
     {
-        auto const record = byMaster.find(it->first);
-        if (record == byMaster.end() || keyListings_.contains(it->first))
-        {
-            it = candidateManifestOverrides_.erase(it);
-            overridesChanged = true;
-            continue;
-        }
-
-        auto const& variants = record->second.highestSequenceVariants;
-        bool const publisherIsNewer = !variants.empty() &&
-            variants.front().manifest->sequence > it->second->sequence;
-        bool const publisherHasSameManifest = std::any_of(
-            variants.begin(),
-            variants.end(),
-            [&](CandidateVariant const& variant) {
-                return variant.manifest->serialized == it->second->serialized;
-            });
-        if (publisherIsNewer || publisherHasSameManifest)
-        {
-            it = candidateManifestOverrides_.erase(it);
-            overridesChanged = true;
-            continue;
-        }
-
-        mergeManifest(record->second, it->second, nullptr);
-        ++it;
+        (void)_;
+        protectedMasters.insert(master);
     }
+    for (auto const& master : candidateMasters)
+        protectedMasters.insert(master);
+    validatorManifests_.reconcileRetention(protectedMasters);
 
-    hash_map<PublicKey, hash_set<PublicKey>> signingOwners;
-    hash_set<PublicKey> conflicts;
-    for (auto const& [master, record] : byMaster)
+    // Apply candidate manifests only after enforcing the global candidate
+    // bound. They use ManifestCache's ordinary verification, collision and
+    // sequence rules. Protected retention grants no consensus weight.
+    for (auto const& [pubKey, collection] : publisherLists_)
     {
-        if (record.highestSequenceVariants.size() > 1)
-            conflicts.insert(master);
-
-        for (auto const& variant : record.highestSequenceVariants)
+        if (collection.status != PublisherStatus::available)
+            continue;
+        for (auto const& candidate : collection.current.candidates)
         {
-            if (variant.manifest->signingKey)
-                signingOwners[*variant.manifest->signingKey].insert(master);
-        }
-    }
+            if (!candidate.manifest ||
+                !candidateMasters.contains(candidate.master))
+                continue;
 
-    for (auto const& [signing, owners] : signingOwners)
-    {
-        if (owners.size() > 1)
-            conflicts.insert(owners.begin(), owners.end());
-
-        if (auto const identity = byMaster.find(signing);
-            identity != byMaster.end())
-        {
-            for (auto const& owner : owners)
+            auto const& supplied = *candidate.manifest;
+            Manifest manifest{
+                supplied.serialized,
+                supplied.masterKey,
+                supplied.signingKey,
+                supplied.sequence,
+                supplied.domain};
+            if (auto const result = validatorManifests_.applyManifest(
+                    std::move(manifest), ManifestRetention::protected_);
+                result == ManifestDisposition::invalid)
             {
-                if (owner != identity->first)
-                {
-                    conflicts.insert(owner);
-                    conflicts.insert(identity->first);
-                }
+                JLOG(j_.warn()) << "List for " << strHex(pubKey)
+                                << " contained invalid candidate manifest";
             }
         }
     }
 
-    auto recordsEqual = [](CandidateRecord const& lhs,
-                           CandidateRecord const& rhs) {
-        if (lhs.master != rhs.master ||
-            lhs.identityPublishers != rhs.identityPublishers ||
-            lhs.highestSequenceVariants.size() !=
-                rhs.highestSequenceVariants.size())
-            return false;
-        for (std::size_t i = 0; i < lhs.highestSequenceVariants.size(); ++i)
-        {
-            auto const& l = lhs.highestSequenceVariants[i];
-            auto const& r = rhs.highestSequenceVariants[i];
-            if (l.manifest->serialized != r.manifest->serialized ||
-                l.publishers != r.publishers)
-                return false;
-        }
-        return true;
-    };
-
-    bool unchanged = !overridesChanged &&
-        byMaster.size() == publisherCandidates_.byMaster.size() &&
-        signingOwners == publisherCandidates_.signingOwners &&
-        conflicts == publisherCandidates_.conflictedMasters;
-    if (unchanged)
-    {
-        for (auto const& [master, record] : byMaster)
-        {
-            auto const old = publisherCandidates_.byMaster.find(master);
-            if (old == publisherCandidates_.byMaster.end() ||
-                !recordsEqual(record, old->second))
-            {
-                unchanged = false;
-                break;
-            }
-        }
-    }
-    if (unchanged)
-        return false;
-
-    publisherCandidates_.byMaster = std::move(byMaster);
-    publisherCandidates_.signingOwners = std::move(signingOwners);
-    publisherCandidates_.conflictedMasters = std::move(conflicts);
-    ++publisherCandidates_.revision;
-    return true;
+    publisherCandidateMasters_ = std::move(candidateMasters);
 }
 
 ValidatorList::PublisherListStats
@@ -1753,7 +1643,7 @@ ValidatorList::verify(
     auto const revoked = m->revoked();
 
     auto const result = publisherManifests_.applyManifest(
-        std::move(*m), ManifestRateLimitCapPolicy::Uncapped);
+        std::move(*m), ManifestRetention::protected_);
 
     if (revoked && result == ManifestDisposition::accepted)
     {
@@ -1840,49 +1730,7 @@ ValidatorList::manifestPolicy(PublicKey const& master) const
     std::shared_lock readLock{mutex_};
     return {
         keyListings_.contains(master),
-        publisherCandidates_.byMaster.contains(master)};
-}
-
-std::optional<ManifestDisposition>
-ValidatorList::applyCandidateManifest(Manifest m)
-{
-    if (!m.verify())
-        return ManifestDisposition::invalid;
-
-    std::lock_guard lock{mutex_};
-    auto const candidate = publisherCandidates_.byMaster.find(m.masterKey);
-    if (candidate == publisherCandidates_.byMaster.end() ||
-        keyListings_.contains(m.masterKey))
-        return std::nullopt;
-
-    auto const ordinary = validatorManifests_.getManifestByMaster(m.masterKey);
-    if (ordinary && m.sequence <= ordinary->sequence)
-        return ManifestDisposition::stale;
-
-    auto const& variants = candidate->second.highestSequenceVariants;
-    if (!variants.empty() && m.sequence <= variants.front().manifest->sequence)
-        return ManifestDisposition::stale;
-
-    auto manifest = std::make_shared<Manifest const>(
-        m.serialized, m.masterKey, m.signingKey, m.sequence, m.domain);
-    candidateManifestOverrides_.insert_or_assign(
-        m.masterKey, std::move(manifest));
-    rebuildPublisherCandidates(lock);
-    return ManifestDisposition::accepted;
-}
-
-std::vector<std::shared_ptr<Manifest const>>
-ValidatorList::candidateManifestOverrides() const
-{
-    std::shared_lock lock{mutex_};
-    std::vector<std::shared_ptr<Manifest const>> result;
-    result.reserve(candidateManifestOverrides_.size());
-    for (auto const& [_, manifest] : candidateManifestOverrides_)
-    {
-        (void)_;
-        result.push_back(manifest);
-    }
-    return result;
+        publisherCandidateMasters_.contains(master)};
 }
 
 bool
@@ -1910,387 +1758,6 @@ ValidatorList::getListedKey(PublicKey const& identity) const
     if (keyListings_.find(pubKey) != keyListings_.end())
         return pubKey;
     return std::nullopt;
-}
-
-ValidatorIdentity
-ValidatorList::composeMonitoringIdentity(
-    PublicKey const& master,
-    std::shared_ptr<Manifest const> const& ordinary,
-    std::optional<CandidateRecord> const& candidate,
-    bool const directListed,
-    bool const candidateConflict,
-    std::vector<PublicKey> conflictingMasters)
-{
-    ValidatorIdentity result{master};
-    result.presentInOrdinaryState = static_cast<bool>(ordinary) || directListed;
-    if (candidate)
-        result.candidateIdentityPublishers = candidate->identityPublishers;
-
-    auto select = [&](std::shared_ptr<Manifest const> const& manifest) {
-        result.master = master;
-        result.manifest = manifest;
-        if (manifest->revoked())
-        {
-            result.status = ValidatorIdentityStatus::revoked;
-            result.signing.reset();
-        }
-        else
-        {
-            result.status = ValidatorIdentityStatus::resolved;
-            result.signing = manifest->signingKey;
-        }
-    };
-
-    if (!candidate || candidate->highestSequenceVariants.empty())
-    {
-        if (ordinary)
-            select(ordinary);
-        else if (candidate && candidateConflict)
-        {
-            result.status = ValidatorIdentityStatus::conflict;
-            result.master = master;
-            result.conflictingMasters = std::move(conflictingMasters);
-            if (result.conflictingMasters.empty())
-                result.conflictingMasters.push_back(master);
-        }
-        else if (candidate || directListed)
-        {
-            result.status = ValidatorIdentityStatus::resolved;
-            result.master = master;
-            result.signing = master;
-        }
-        return result;
-    }
-
-    auto const& variants = candidate->highestSequenceVariants;
-    auto const candidateSequence = variants.front().manifest->sequence;
-    if (ordinary && ordinary->sequence > candidateSequence)
-    {
-        select(ordinary);
-        return result;
-    }
-
-    for (auto const& variant : variants)
-        result.candidateManifestPublishers.insert(
-            variant.publishers.begin(), variant.publishers.end());
-
-    if (variants.size() > 1 || candidateConflict)
-    {
-        result.status = ValidatorIdentityStatus::conflict;
-        result.master = master;
-        result.conflictingMasters = std::move(conflictingMasters);
-        if (result.conflictingMasters.empty())
-            result.conflictingMasters.push_back(master);
-        return result;
-    }
-
-    auto const& published = variants.front().manifest;
-    if (ordinary && ordinary->sequence == candidateSequence)
-    {
-        if (ordinary->serialized != published->serialized)
-        {
-            result.status = ValidatorIdentityStatus::conflict;
-            result.master = master;
-            result.conflictingMasters.push_back(master);
-            return result;
-        }
-        select(ordinary);
-        return result;
-    }
-
-    select(published);
-    return result;
-}
-
-std::uint64_t
-ValidatorList::publisherCandidateRevision() const
-{
-    std::shared_lock lock{mutex_};
-    return publisherCandidates_.revision;
-}
-
-ValidatorIdentity
-ValidatorList::lookupMonitoringIdentity(PublicKey const& master) const
-{
-    for (int attempt = 0; attempt < 3; ++attempt)
-    {
-        auto const ordinaryRevision = validatorManifests_.sequence();
-        std::uint64_t candidateRevision;
-        std::uint64_t listingRevision;
-        std::optional<CandidateRecord> candidate;
-        bool directListed = false;
-        bool candidateConflict = false;
-        std::vector<PublicKey> conflictingMasters;
-        {
-            std::shared_lock lock{mutex_};
-            candidateRevision = publisherCandidates_.revision;
-            listingRevision = listingSequence_.load();
-            directListed = keyListings_.contains(master);
-            if (auto const it = publisherCandidates_.byMaster.find(master);
-                it != publisherCandidates_.byMaster.end())
-                candidate = it->second;
-            candidateConflict =
-                publisherCandidates_.conflictedMasters.contains(master);
-            if (candidateConflict && candidate)
-            {
-                conflictingMasters.push_back(master);
-                for (auto const& variant : candidate->highestSequenceVariants)
-                {
-                    if (!variant.manifest->signingKey)
-                        continue;
-                    if (publisherCandidates_.byMaster.contains(
-                            *variant.manifest->signingKey))
-                        conflictingMasters.push_back(
-                            *variant.manifest->signingKey);
-                    if (auto const owners =
-                            publisherCandidates_.signingOwners.find(
-                                *variant.manifest->signingKey);
-                        owners != publisherCandidates_.signingOwners.end())
-                        conflictingMasters.insert(
-                            conflictingMasters.end(),
-                            owners->second.begin(),
-                            owners->second.end());
-                }
-                if (auto const owners =
-                        publisherCandidates_.signingOwners.find(master);
-                    owners != publisherCandidates_.signingOwners.end())
-                    conflictingMasters.insert(
-                        conflictingMasters.end(),
-                        owners->second.begin(),
-                        owners->second.end());
-                std::sort(conflictingMasters.begin(), conflictingMasters.end());
-                conflictingMasters.erase(
-                    std::unique(
-                        conflictingMasters.begin(), conflictingMasters.end()),
-                    conflictingMasters.end());
-            }
-        }
-
-        auto ordinary = validatorManifests_.getManifestByMaster(master);
-        if (ordinaryRevision != validatorManifests_.sequence() ||
-            candidateRevision != publisherCandidateRevision() ||
-            listingRevision != listingSequence_.load())
-            continue;
-
-        auto result = composeMonitoringIdentity(
-            master,
-            ordinary,
-            candidate,
-            directListed,
-            candidateConflict,
-            std::move(conflictingMasters));
-        if (result.status == ValidatorIdentityStatus::resolved &&
-            result.signing)
-        {
-            auto signer = resolveMonitoringSigner(*result.signing);
-            if (signer.status == ValidatorIdentityStatus::conflict)
-            {
-                result.status = ValidatorIdentityStatus::conflict;
-                result.conflictingMasters =
-                    std::move(signer.conflictingMasters);
-                result.signing.reset();
-            }
-        }
-        else if (result.status == ValidatorIdentityStatus::revoked)
-        {
-            auto namespaceResult = resolveMonitoringSigner(master);
-            if (namespaceResult.status == ValidatorIdentityStatus::conflict)
-            {
-                result.status = ValidatorIdentityStatus::conflict;
-                result.conflictingMasters =
-                    std::move(namespaceResult.conflictingMasters);
-            }
-        }
-        return result;
-    }
-
-    ValidatorIdentity result{master};
-    result.status = ValidatorIdentityStatus::unstable;
-    return result;
-}
-
-ValidatorIdentity
-ValidatorList::resolveMonitoringSigner(PublicKey const& signingKey) const
-{
-    for (int attempt = 0; attempt < 3; ++attempt)
-    {
-        auto const ordinaryRevision = validatorManifests_.sequence();
-        auto const ordinaryMaster =
-            validatorManifests_.getMasterKey(signingKey);
-
-        std::uint64_t candidateRevision;
-        std::uint64_t listingRevision;
-        hash_set<PublicKey> possibleMasters;
-        hash_map<PublicKey, CandidateRecord> candidates;
-        hash_set<PublicKey> directListedMasters;
-        hash_set<PublicKey> candidateNamespaceKeys;
-        hash_set<PublicKey> directlyListedNamespaces;
-        hash_set<PublicKey> candidateConflicts;
-        bool directListed = false;
-        {
-            std::shared_lock lock{mutex_};
-            candidateRevision = publisherCandidates_.revision;
-            listingRevision = listingSequence_.load();
-            directListed = keyListings_.contains(signingKey);
-            if (auto const owners =
-                    publisherCandidates_.signingOwners.find(signingKey);
-                owners != publisherCandidates_.signingOwners.end())
-                possibleMasters.insert(
-                    owners->second.begin(), owners->second.end());
-            if (publisherCandidates_.byMaster.contains(signingKey))
-                possibleMasters.insert(signingKey);
-            if (ordinaryMaster != signingKey || directListed)
-                possibleMasters.insert(ordinaryMaster);
-
-            for (auto const& master : possibleMasters)
-            {
-                if (keyListings_.contains(master))
-                    directListedMasters.insert(master);
-                if (auto const it = publisherCandidates_.byMaster.find(master);
-                    it != publisherCandidates_.byMaster.end())
-                {
-                    candidates.emplace(master, it->second);
-                    candidateNamespaceKeys.insert(master);
-                    for (auto const& variant :
-                         it->second.highestSequenceVariants)
-                        if (variant.manifest->signingKey)
-                            candidateNamespaceKeys.insert(
-                                *variant.manifest->signingKey);
-                }
-                if (publisherCandidates_.conflictedMasters.contains(master))
-                    candidateConflicts.insert(master);
-            }
-            for (auto const& key : candidateNamespaceKeys)
-                if (keyListings_.contains(key))
-                    directlyListedNamespaces.insert(key);
-        }
-
-        hash_map<PublicKey, std::shared_ptr<Manifest const>> ordinary;
-        for (auto const& master : possibleMasters)
-        {
-            if (auto manifest = validatorManifests_.getManifestByMaster(master))
-                ordinary.emplace(master, std::move(manifest));
-        }
-
-        hash_map<PublicKey, hash_set<PublicKey>> ordinaryNamespaceOwners;
-        for (auto const& key : candidateNamespaceKeys)
-        {
-            auto const owner = validatorManifests_.getMasterKey(key);
-            if (owner != key)
-                ordinaryNamespaceOwners[key].insert(owner);
-            if (validatorManifests_.getManifestByMaster(key) ||
-                directlyListedNamespaces.contains(key))
-                ordinaryNamespaceOwners[key].insert(key);
-        }
-
-        if (ordinaryRevision != validatorManifests_.sequence() ||
-            candidateRevision != publisherCandidateRevision() ||
-            listingRevision != listingSequence_.load())
-            continue;
-
-        std::vector<ValidatorIdentity> resolved;
-        hash_set<PublicKey> conflicts;
-        for (auto const& master : possibleMasters)
-        {
-            std::shared_ptr<Manifest const> ordinaryManifest;
-            if (auto const it = ordinary.find(master); it != ordinary.end())
-                ordinaryManifest = it->second;
-            std::optional<CandidateRecord> candidate;
-            if (auto const it = candidates.find(master); it != candidates.end())
-                candidate = it->second;
-
-            auto identity = composeMonitoringIdentity(
-                master,
-                ordinaryManifest,
-                candidate,
-                directListedMasters.contains(master),
-                candidateConflicts.contains(master));
-
-            bool candidateEffective = false;
-            if (candidate)
-            {
-                auto const& variants = candidate->highestSequenceVariants;
-                candidateEffective = variants.empty() ? !ordinaryManifest
-                                                      : !ordinaryManifest ||
-                        variants.front().manifest->sequence >=
-                            ordinaryManifest->sequence;
-            }
-
-            hash_set<PublicKey> crossLayerOwners;
-            auto addNamespaceOwners = [&](PublicKey const& key) {
-                if (auto const owners = ordinaryNamespaceOwners.find(key);
-                    owners != ordinaryNamespaceOwners.end())
-                    crossLayerOwners.insert(
-                        owners->second.begin(), owners->second.end());
-            };
-            if (candidateEffective)
-            {
-                addNamespaceOwners(master);
-                if (identity.signing)
-                    addNamespaceOwners(*identity.signing);
-                crossLayerOwners.erase(master);
-            }
-            if (!crossLayerOwners.empty())
-            {
-                conflicts.insert(master);
-                conflicts.insert(
-                    crossLayerOwners.begin(), crossLayerOwners.end());
-                continue;
-            }
-
-            if (identity.status == ValidatorIdentityStatus::resolved &&
-                identity.signing && *identity.signing == signingKey)
-                resolved.push_back(std::move(identity));
-            else if (identity.status == ValidatorIdentityStatus::conflict)
-            {
-                bool relevant = master == signingKey;
-                if (ordinaryManifest && ordinaryManifest->signingKey)
-                    relevant =
-                        relevant || *ordinaryManifest->signingKey == signingKey;
-                if (candidate)
-                {
-                    for (auto const& variant :
-                         candidate->highestSequenceVariants)
-                        relevant = relevant ||
-                            (variant.manifest->signingKey &&
-                             *variant.manifest->signingKey == signingKey);
-                }
-                if (relevant)
-                {
-                    conflicts.insert(master);
-                    conflicts.insert(
-                        identity.conflictingMasters.begin(),
-                        identity.conflictingMasters.end());
-                }
-            }
-        }
-
-        if (resolved.size() == 1 && conflicts.empty())
-        {
-            resolved.front().requested = signingKey;
-            return std::move(resolved.front());
-        }
-        if (resolved.size() > 1 || !conflicts.empty())
-        {
-            ValidatorIdentity result{signingKey};
-            result.status = ValidatorIdentityStatus::conflict;
-            for (auto const& identity : resolved)
-                if (identity.master)
-                    conflicts.insert(*identity.master);
-            result.conflictingMasters.assign(
-                conflicts.begin(), conflicts.end());
-            std::sort(
-                result.conflictingMasters.begin(),
-                result.conflictingMasters.end());
-            return result;
-        }
-
-        return ValidatorIdentity{signingKey};
-    }
-
-    ValidatorIdentity result{signingKey};
-    result.status = ValidatorIdentityStatus::unstable;
-    return result;
 }
 
 std::optional<PublicKey>
@@ -2352,10 +1819,7 @@ ValidatorList::removePublisherList(
             continue;
 
         if (iVal->second <= 1)
-        {
             keyListings_.erase(iVal);
-            ++listingSequence_;
-        }
         else
             --iVal->second;
     }

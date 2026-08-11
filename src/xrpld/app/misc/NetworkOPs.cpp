@@ -2178,22 +2178,14 @@ NetworkOPsImp::pubConsensus(ConsensusPhase phase)
 void
 NetworkOPsImp::pubValidation(std::shared_ptr<STValidation> const& val)
 {
-    {
-        std::lock_guard sl(mSubLock);
-        if (mStreamMaps[sValidations].empty())
-            return;
-    }
-
-    auto const signerPublic = val->getSignerPublic();
-    auto const identity =
-        app_.validators().resolveMonitoringSigner(signerPublic);
-
     // VFALCO consider std::shared_mutex
     std::lock_guard sl(mSubLock);
 
     if (!mStreamMaps[sValidations].empty())
     {
         Json::Value jvObj(Json::objectValue);
+
+        auto const signerPublic = val->getSignerPublic();
 
         jvObj[jss::type] = "validationReceived";
         jvObj[jss::validation_public_key] =
@@ -2214,10 +2206,11 @@ NetworkOPsImp::pubValidation(std::shared_ptr<STValidation> const& val)
         if (auto hash = (*val)[~sfValidatedHash])
             jvObj[jss::validated_hash] = strHex(*hash);
 
-        if (identity.status == ValidatorIdentityStatus::resolved &&
-            identity.master && *identity.master != signerPublic)
-            jvObj[jss::master_key] =
-                toBase58(TokenType::NodePublic, *identity.master);
+        auto const masterKey =
+            app_.validatorManifests().getMasterKey(signerPublic);
+
+        if (masterKey != signerPublic)
+            jvObj[jss::master_key] = toBase58(TokenType::NodePublic, masterKey);
 
         // NOTE *seq is a number, but old API versions used string. We replace
         // number with a string using MultiApiJson near end of this function

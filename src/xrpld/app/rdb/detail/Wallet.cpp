@@ -67,8 +67,7 @@ getManifests(
                 continue;
             }
 
-            mCache.applyManifest(
-                std::move(*mo), ManifestRateLimitCapPolicy::Uncapped);
+            mCache.applyManifest(std::move(*mo), ManifestRetention::protected_);
         }
         else
         {
@@ -105,7 +104,10 @@ saveManifests(
     std::size_t skipped = 0;
     for (auto const& v : map)
     {
-        if (!isTrusted(v.second.masterKey))
+        // Preserve the existing wallet contract: terminal revocations are
+        // saved, while non-revocation manifests are saved only for validators
+        // selected by the caller. Retention remains an in-memory policy.
+        if (!v.second.revoked() && !isTrusted(v.second.masterKey))
         {
             ++skipped;
             continue;

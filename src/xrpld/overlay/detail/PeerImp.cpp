@@ -871,7 +871,7 @@ PeerImp::doProtocolStart()
             });
     }
 
-    if (auto m = overlay_.getManifestsMessage())
+    for (auto const& m : overlay_.getManifestsMessages())
         send(m);
 
     setTimer();

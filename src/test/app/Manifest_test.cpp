@@ -243,6 +243,20 @@ public:
         return m2;
     }
 
+    static std::optional<ManifestRetention>
+    retentionOf(ManifestCache const& cache, PublicKey const& master)
+    {
+        std::optional<ManifestRetention> result;
+        cache.for_each_manifest(
+            [](std::size_t) {},
+            [&result, &master](
+                Manifest const& manifest, ManifestRetention retention) {
+                if (manifest.masterKey == master)
+                    result = retention;
+            });
+        return result;
+    }
+
     void
     testLoadStore(ManifestCache& m)
     {
@@ -287,25 +301,71 @@ public:
                 env.journal);
 
             {
-                // save should not store untrusted master keys to db
-                // except for revocations
-                m.save(
-                    *dbCon,
-                    "ValidatorManifests",
-                    [&unl](PublicKey const& pubKey) {
-                        return unl->listed(pubKey);
+                // Protection is current-source policy, not a second permanent
+                // manifest authority. Source removal demotes revocations into
+                // the ordinary bounded population. The existing wallet format
+                // still saves retained revocations.
+                ManifestCache persistence;
+                auto const protectedSecret = randomSecretKey();
+                auto const protectedSigning = randomKeyPair(KeyType::secp256k1);
+                auto const protectedOld = makeManifest(
+                    protectedSecret,
+                    KeyType::ed25519,
+                    protectedSigning.second,
+                    KeyType::secp256k1,
+                    0);
+                auto const protectedRevocation =
+                    makeRevocation(protectedSecret, KeyType::ed25519);
+                auto const arbitrarySecret = randomSecretKey();
+                auto const arbitraryRevocation =
+                    makeRevocation(arbitrarySecret, KeyType::ed25519);
+                auto const protectedMaster = protectedRevocation.masterKey;
+                auto const arbitraryMaster = arbitraryRevocation.masterKey;
+                BEAST_EXPECT(
+                    persistence.applyManifest(
+                        clone(protectedRevocation),
+                        ManifestRetention::protected_) ==
+                    ManifestDisposition::accepted);
+                BEAST_EXPECT(
+                    persistence.applyManifest(
+                        clone(arbitraryRevocation),
+                        ManifestRetention::evictable) ==
+                    ManifestDisposition::accepted);
+
+                persistence.reconcileRetention({});
+                BEAST_EXPECT(
+                    retentionOf(persistence, protectedMaster) ==
+                    ManifestRetention::evictable);
+                BEAST_EXPECT(
+                    retentionOf(persistence, arbitraryMaster) ==
+                    ManifestRetention::evictable);
+
+                persistence.save(
+                    *dbCon, "ValidatorManifests", [](PublicKey const&) {
+                        return false;
                     });
 
                 ManifestCache loaded;
 
                 loaded.load(*dbCon, "ValidatorManifests");
-
-                // check that all loaded manifests are revocations
-                std::vector<Manifest const*> const loadedManifests(
-                    sort(getPopulatedManifests(loaded)));
-
-                for (auto const& man : loadedManifests)
-                    BEAST_EXPECT(man->revoked());
+                BEAST_EXPECT(loaded.revoked(protectedMaster));
+                BEAST_EXPECT(loaded.revoked(arbitraryMaster));
+                BEAST_EXPECT(
+                    retentionOf(loaded, protectedMaster) ==
+                    ManifestRetention::protected_);
+                // Startup reconciliation is what returns database-only rows
+                // to the bounded population once live sources are known.
+                loaded.reconcileRetention({});
+                BEAST_EXPECT(
+                    retentionOf(loaded, protectedMaster) ==
+                    ManifestRetention::evictable);
+                BEAST_EXPECT(
+                    retentionOf(loaded, arbitraryMaster) ==
+                    ManifestRetention::evictable);
+                BEAST_EXPECT(
+                    loaded.applyManifest(
+                        clone(protectedOld), ManifestRetention::evictable) ==
+                    ManifestDisposition::stale);
             }
             {
                 // save should store all trusted master keys to db
@@ -415,10 +475,61 @@ public:
                     cfgRevocation));
 
                 BEAST_EXPECT(loaded.revoked(pk));
+                loaded.reconcileRetention({});
+                BEAST_EXPECT(
+                    retentionOf(loaded, pk) == ManifestRetention::protected_);
             }
         }
         boost::filesystem::remove(
             getDatabasePath() / boost::filesystem::path(dbName));
+    }
+
+    void
+    testStartupRetentionReconciliation()
+    {
+        testcase("startup retention reconciliation");
+
+        jtx::Env env(*this);
+        ManifestCache manifests;
+        ManifestCache publisherManifests;
+        auto const formerSecret = randomSecretKey();
+        auto const formerSigning = randomKeyPair(KeyType::secp256k1);
+        auto const former = makeManifest(
+            formerSecret,
+            KeyType::ed25519,
+            formerSigning.second,
+            KeyType::secp256k1,
+            0);
+        auto const revocation =
+            makeRevocation(randomSecretKey(), KeyType::ed25519);
+        auto const formerMaster = former.masterKey;
+        auto const revokedMaster = revocation.masterKey;
+
+        // Database rows are provisionally loaded as protected before current
+        // local and publisher sources are known.
+        BEAST_EXPECT(
+            manifests.applyManifest(
+                clone(former), ManifestRetention::protected_) ==
+            ManifestDisposition::accepted);
+        BEAST_EXPECT(
+            manifests.applyManifest(
+                clone(revocation), ManifestRetention::protected_) ==
+            ManifestDisposition::accepted);
+
+        ValidatorList validators(
+            manifests,
+            publisherManifests,
+            env.timeKeeper(),
+            env.app().config().legacy("database_path"),
+            env.journal);
+        BEAST_EXPECT(validators.load({}, {}, {}));
+
+        BEAST_EXPECT(
+            retentionOf(manifests, formerMaster) ==
+            ManifestRetention::evictable);
+        BEAST_EXPECT(
+            retentionOf(manifests, revokedMaster) ==
+            ManifestRetention::evictable);
     }
 
     void
@@ -467,7 +578,7 @@ public:
             cache.applyManifest(
                 makeManifest(
                     sk, KeyType::ed25519, kp0.second, KeyType::secp256k1, 0),
-                ManifestRateLimitCapPolicy::Capped));
+                ManifestRetention::evictable));
         BEAST_EXPECT(cache.getSigningKey(pk) == kp0.first);
         BEAST_EXPECT(cache.getMasterKey(kp0.first) == pk);
 
@@ -481,7 +592,7 @@ public:
             cache.applyManifest(
                 makeManifest(
                     sk, KeyType::ed25519, kp1.second, KeyType::secp256k1, 1),
-                ManifestRateLimitCapPolicy::Capped));
+                ManifestRetention::evictable));
         BEAST_EXPECT(cache.getSigningKey(pk) == kp1.first);
         BEAST_EXPECT(cache.getMasterKey(kp1.first) == pk);
         BEAST_EXPECT(cache.getMasterKey(kp0.first) == kp0.first);
@@ -493,7 +604,7 @@ public:
             cache.applyManifest(
                 makeManifest(
                     sk, KeyType::ed25519, kp1.second, KeyType::secp256k1, 2),
-                ManifestRateLimitCapPolicy::Capped));
+                ManifestRetention::evictable));
         BEAST_EXPECT(cache.getSigningKey(pk) == kp1.first);
         BEAST_EXPECT(cache.getMasterKey(kp1.first) == pk);
         BEAST_EXPECT(cache.getMasterKey(kp0.first) == kp0.first);
@@ -505,7 +616,7 @@ public:
             ManifestDisposition::accepted ==
             cache.applyManifest(
                 makeRevocation(sk, KeyType::ed25519),
-                ManifestRateLimitCapPolicy::Capped));
+                ManifestRetention::evictable));
         BEAST_EXPECT(cache.revoked(pk));
         BEAST_EXPECT(cache.getSigningKey(pk) == pk);
         BEAST_EXPECT(cache.getMasterKey(kp0.first) == kp0.first);
@@ -1005,7 +1116,7 @@ public:
                     trustedSigning.second,
                     KeyType::secp256k1,
                     0),
-                ManifestRateLimitCapPolicy::Uncapped) ==
+                ManifestRetention::protected_) ==
             ManifestDisposition::accepted);
 
         std::vector<PublicKey> untrustedMasters;
@@ -1025,7 +1136,7 @@ public:
                         signing.second,
                         KeyType::secp256k1,
                         0),
-                    ManifestRateLimitCapPolicy::Capped) ==
+                    ManifestRetention::evictable) ==
                 ManifestDisposition::accepted);
             untrustedMasters.push_back(master);
             untrustedSigningKeys.push_back(signing.first);
@@ -1069,7 +1180,7 @@ public:
 
         BEAST_EXPECT(
             cache.applyManifest(
-                clone(incoming), ManifestRateLimitCapPolicy::Capped) ==
+                clone(incoming), ManifestRetention::evictable) ==
             ManifestDisposition::untrustedCapacity);
 
         hash_set<PublicKey> const currentValidationKeys = {
@@ -1207,9 +1318,9 @@ public:
     }
 
     void
-    testTrustPromotionInvalidatesSnapshot()
+    testRetentionInvalidatesSnapshot()
     {
-        testcase("trust promotion invalidates snapshot");
+        testcase("retention changes invalidate snapshot");
 
         ManifestCache cache;
         auto const masterSecret = randomSecretKey();
@@ -1224,18 +1335,27 @@ public:
                     signing.second,
                     KeyType::secp256k1,
                     0),
-                ManifestRateLimitCapPolicy::Capped) ==
-            ManifestDisposition::accepted);
+                ManifestRetention::evictable) == ManifestDisposition::accepted);
 
         auto const admitted = cache.sequence();
-        cache.promoteToTrusted(randomMasterKey());
+        cache.setRetention(randomMasterKey(), ManifestRetention::protected_);
         BEAST_EXPECT(cache.sequence() == admitted);
 
-        cache.promoteToTrusted(master);
+        cache.setRetention(master, ManifestRetention::protected_);
         BEAST_EXPECT(cache.sequence() == admitted + 1);
 
-        cache.promoteToTrusted(master);
+        cache.reconcileRetention({master});
         BEAST_EXPECT(cache.sequence() == admitted + 1);
+
+        cache.reconcileRetention({});
+        BEAST_EXPECT(cache.sequence() == admitted + 2);
+        BEAST_EXPECT(cache.getSequence(master) == 0);
+
+        cache.reconcileRetention({master});
+        BEAST_EXPECT(cache.sequence() == admitted + 3);
+
+        cache.setRetention(master, ManifestRetention::protected_);
+        BEAST_EXPECT(cache.sequence() == admitted + 3);
 
         ManifestCache retryCache;
         auto const retryMasterSecret = randomSecretKey();
@@ -1248,8 +1368,7 @@ public:
                     retrySigning.second,
                     KeyType::secp256k1,
                     0),
-                ManifestRateLimitCapPolicy::Capped) ==
-            ManifestDisposition::accepted);
+                ManifestRetention::evictable) == ManifestDisposition::accepted);
         auto const retryAdmitted = retryCache.sequence();
         BEAST_EXPECT(
             retryCache.applyManifest(
@@ -1259,8 +1378,7 @@ public:
                     retrySigning.second,
                     KeyType::secp256k1,
                     0),
-                ManifestRateLimitCapPolicy::Uncapped) ==
-            ManifestDisposition::stale);
+                ManifestRetention::protected_) == ManifestDisposition::stale);
         BEAST_EXPECT(retryCache.sequence() == retryAdmitted + 1);
     }
 
@@ -1305,29 +1423,29 @@ public:
             // higher sequence numbers
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_a0), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_a0), ManifestRetention::evictable) ==
                 ManifestDisposition::accepted);
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_a0), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_a0), ManifestRetention::evictable) ==
                 ManifestDisposition::stale);
 
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_a1), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_a1), ManifestRetention::evictable) ==
                 ManifestDisposition::accepted);
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_a1), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_a1), ManifestRetention::evictable) ==
                 ManifestDisposition::stale);
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_a0), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_a0), ManifestRetention::evictable) ==
                 ManifestDisposition::stale);
 
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_a2), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_a2), ManifestRetention::evictable) ==
                 ManifestDisposition::badEphemeralKey);
 
             // applyManifest should accept manifests with max sequence numbers
@@ -1336,39 +1454,39 @@ public:
             BEAST_EXPECT(s_aMax.revoked());
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_aMax), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_aMax), ManifestRetention::evictable) ==
                 ManifestDisposition::accepted);
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_aMax), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_aMax), ManifestRetention::evictable) ==
                 ManifestDisposition::stale);
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_a1), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_a1), ManifestRetention::evictable) ==
                 ManifestDisposition::stale);
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_a0), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_a0), ManifestRetention::evictable) ==
                 ManifestDisposition::stale);
             BEAST_EXPECT(cache.revoked(pk_a));
 
             // applyManifest should reject manifests with invalid signatures
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_b0), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_b0), ManifestRetention::evictable) ==
                 ManifestDisposition::accepted);
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_b0), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_b0), ManifestRetention::evictable) ==
                 ManifestDisposition::stale);
             BEAST_EXPECT(!deserializeManifest(fake));
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_b1), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_b1), ManifestRetention::evictable) ==
                 ManifestDisposition::invalid);
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_b2), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_b2), ManifestRetention::evictable) ==
                 ManifestDisposition::accepted);
 
             auto const s_c0 = makeManifest(
@@ -1379,11 +1497,12 @@ public:
                 47);
             BEAST_EXPECT(
                 cache.applyManifest(
-                    clone(s_c0), ManifestRateLimitCapPolicy::Capped) ==
+                    clone(s_c0), ManifestRetention::evictable) ==
                 ManifestDisposition::badMasterKey);
         }
 
         testLoadStore(cache);
+        testStartupRetentionReconciliation();
         testGetSignature();
         testGetKeys();
         testValidatorToken();
@@ -1391,7 +1510,7 @@ public:
         testManifestDomainNames();
         testManifestVersioning();
         testUntrustedEviction();
-        testTrustPromotionInvalidatesSnapshot();
+        testRetentionInvalidatesSnapshot();
     }
 };
 

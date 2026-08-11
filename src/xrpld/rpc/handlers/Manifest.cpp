@@ -18,16 +18,12 @@
 //==============================================================================
 
 #include <xrpld/app/main/Application.h>
-#include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/rpc/Context.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/jss.h>
-
-#include <algorithm>
-#include <vector>
 
 namespace ripple {
 Json::Value
@@ -50,72 +46,29 @@ doManifest(RPC::JsonContext& context)
         return ret;
     }
 
-    auto identity = context.app.validators().resolveMonitoringSigner(*pk);
-    if (identity.status == ValidatorIdentityStatus::unknown)
-        identity = context.app.validators().lookupMonitoringIdentity(*pk);
+    // first attempt to use params as ephemeral key,
+    // if this lookup succeeds master key will be returned,
+    // else an unseated optional is returned
+    auto const mk = context.app.validatorManifests().getMasterKey(*pk);
 
-    auto statusName = [](ValidatorIdentityStatus status) -> char const* {
-        switch (status)
-        {
-            case ValidatorIdentityStatus::resolved:
-                return "resolved";
-            case ValidatorIdentityStatus::revoked:
-                return "revoked";
-            case ValidatorIdentityStatus::conflict:
-                return "conflict";
-            case ValidatorIdentityStatus::unstable:
-                return "unstable";
-            case ValidatorIdentityStatus::unknown:
-                return "unknown";
-        }
-        return "unknown";
-    };
-    ret["monitoring_status"] = statusName(identity.status);
-    if (identity.status == ValidatorIdentityStatus::unknown ||
-        identity.status == ValidatorIdentityStatus::unstable)
+    auto const ek = context.app.validatorManifests().getSigningKey(mk);
+
+    // if ephemeral key not found, we don't have specified manifest
+    if (!ek)
         return ret;
 
-    if (identity.manifest)
-        ret[jss::manifest] = base64_encode(identity.manifest->serialized);
+    if (auto const manifest = context.app.validatorManifests().getManifest(mk))
+        ret[jss::manifest] = base64_encode(*manifest);
     Json::Value details;
 
-    if (identity.master)
-        details[jss::master_key] =
-            toBase58(TokenType::NodePublic, *identity.master);
-    if (identity.signing)
-        details[jss::ephemeral_key] =
-            toBase58(TokenType::NodePublic, *identity.signing);
+    details[jss::master_key] = toBase58(TokenType::NodePublic, mk);
+    details[jss::ephemeral_key] = toBase58(TokenType::NodePublic, *ek);
 
-    if (identity.manifest)
-    {
-        details[jss::seq] = identity.manifest->sequence;
-        if (!identity.manifest->domain.empty())
-            details[jss::domain] = identity.manifest->domain;
-    }
+    if (auto const seq = context.app.validatorManifests().getSequence(mk))
+        details[jss::seq] = *seq;
 
-    details["ordinary_state"] = identity.presentInOrdinaryState;
-
-    auto appendPublishers = [&](char const* field,
-                                hash_set<PublicKey> const& publishers) {
-        if (publishers.empty())
-            return;
-        auto& array = details[field] = Json::arrayValue;
-        std::vector<PublicKey> ordered{publishers.begin(), publishers.end()};
-        std::sort(ordered.begin(), ordered.end());
-        for (auto const& publisher : ordered)
-            array.append(strHex(publisher));
-    };
-    appendPublishers(
-        "candidate_identity_publishers", identity.candidateIdentityPublishers);
-    appendPublishers(
-        "candidate_manifest_publishers", identity.candidateManifestPublishers);
-
-    if (!identity.conflictingMasters.empty())
-    {
-        auto& conflicts = details["conflicting_masters"] = Json::arrayValue;
-        for (auto const& master : identity.conflictingMasters)
-            conflicts.append(toBase58(TokenType::NodePublic, master));
-    }
+    if (auto const domain = context.app.validatorManifests().getDomain(mk))
+        details[jss::domain] = *domain;
 
     ret[jss::details] = details;
     return ret;

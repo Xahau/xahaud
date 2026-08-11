@@ -49,6 +49,7 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 namespace ripple {
 
@@ -124,15 +125,11 @@ private:
     // Transaction reduce-relay metrics
     metrics::TxMetrics txMetrics_;
 
-    // A message with the list of manifests we send to peers
-    std::shared_ptr<Message> manifestMessage_;
+    // Bounded messages containing the manifest snapshot sent to new peers.
+    std::vector<std::shared_ptr<Message>> manifestMessages_;
     // Used to track whether we need to update the cached list of manifests
     std::optional<std::uint32_t> manifestListSeq_;
-    // Listed-key policy also affects which manifests receive snapshot priority
-    std::optional<std::uint64_t> manifestListingSeq_;
-    // Current publisher-candidate overrides are included in peer snapshots.
-    std::optional<std::uint64_t> manifestCandidateSeq_;
-    // Protects the message and the sequence list of manifests
+    // Protects the messages and the sequence list of manifests
     std::mutex manifestLock_;
 
     //--------------------------------------------------------------------------
@@ -245,8 +242,8 @@ public:
         std::optional<std::reference_wrapper<protocol::TMTransaction>> m,
         std::set<Peer::id_t> const& skip) override;
 
-    std::shared_ptr<Message>
-    getManifestsMessage();
+    std::vector<std::shared_ptr<Message>>
+    getManifestsMessages();
 
     //--------------------------------------------------------------------------
     //

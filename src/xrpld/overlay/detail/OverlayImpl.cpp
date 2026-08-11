@@ -677,44 +677,10 @@ OverlayImpl::onManifests(
 
             bool acceptedUpdate = false;
             ManifestDisposition result;
-            if (policy.consensusListed)
+            if (policy.relayEligible())
             {
                 result = app_.validatorManifests().applyManifest(
-                    std::move(*mo), ManifestRateLimitCapPolicy::Uncapped);
-            }
-            else if (policy.publisherCandidate)
-            {
-                auto const candidateResult =
-                    app_.validators().applyCandidateManifest(std::move(*mo));
-                if (candidateResult)
-                {
-                    result = *candidateResult;
-                }
-                else
-                {
-                    // Candidate membership changed after classification.
-                    // Reclassify the same bytes under the current policy.
-                    policy = app_.validators().manifestPolicy(masterKey);
-                    mo = deserializeManifest(serialized);
-                    XRPL_ASSERT(
-                        mo,
-                        "ripple::OverlayImpl::onManifests : manifest "
-                        "deserialization succeeded for policy reconciliation");
-                    if (policy.consensusListed)
-                    {
-                        result = app_.validatorManifests().applyManifest(
-                            std::move(*mo),
-                            ManifestRateLimitCapPolicy::Uncapped);
-                    }
-                    else
-                    {
-                        auto const admission =
-                            app_.validatorManifests().applyManifestWithEviction(
-                                std::move(*mo), currentValidationKeys);
-                        acceptedUpdate = admission.acceptedUpdate;
-                        result = admission.disposition;
-                    }
-                }
+                    std::move(*mo), ManifestRetention::protected_);
             }
             else
             {
@@ -725,37 +691,35 @@ OverlayImpl::onManifests(
                 result = admission.disposition;
             }
 
-            if (!policy.consensusListed &&
+            auto const latestPolicy =
+                app_.validators().manifestPolicy(masterKey);
+            if (!policy.relayEligible() && latestPolicy.relayEligible() &&
                 (result == ManifestDisposition::accepted ||
                  result == ManifestDisposition::untrustedCapacity))
             {
-                auto const latestPolicy =
-                    app_.validators().manifestPolicy(masterKey);
-                if (latestPolicy.consensusListed)
-                {
-                    // Listing may have raced non-consensus admission. Replay
-                    // the already verified bytes as ordinary listed state.
-                    mo = deserializeManifest(serialized);
-                    XRPL_ASSERT(
-                        mo,
-                        "ripple::OverlayImpl::onManifests : manifest "
-                        "deserialization succeeded for policy reconciliation");
-
-                    auto const reconciled =
-                        app_.validatorManifests().applyManifest(
-                            std::move(*mo),
-                            ManifestRateLimitCapPolicy::Uncapped);
-
-                    if (result == ManifestDisposition::untrustedCapacity)
-                        result = reconciled;
-                    else if (
-                        reconciled != ManifestDisposition::accepted &&
-                        reconciled != ManifestDisposition::stale)
-                        result = reconciled;
-
-                    policy = latestPolicy;
-                }
+                // Protected membership may race bounded admission. Reapply the
+                // already parsed bytes so the retained high-water is promoted
+                // atomically by ManifestCache.
+                mo = deserializeManifest(serialized);
+                XRPL_ASSERT(
+                    mo,
+                    "ripple::OverlayImpl::onManifests : manifest "
+                    "deserialization succeeded for policy reconciliation");
+                auto const reconciled = app_.validatorManifests().applyManifest(
+                    std::move(*mo), ManifestRetention::protected_);
+                if (result == ManifestDisposition::untrustedCapacity)
+                    result = reconciled;
+                else if (
+                    reconciled != ManifestDisposition::accepted &&
+                    reconciled != ManifestDisposition::stale)
+                    result = reconciled;
             }
+            else if (policy.relayEligible() && !latestPolicy.relayEligible())
+            {
+                app_.validatorManifests().setRetention(
+                    masterKey, ManifestRetention::evictable);
+            }
+            policy = latestPolicy;
 
             if (result == ManifestDisposition::accepted)
             {
@@ -1307,128 +1271,95 @@ OverlayImpl::relay(
     return {};
 }
 
-std::shared_ptr<Message>
-OverlayImpl::getManifestsMessage()
+std::vector<std::shared_ptr<Message>>
+OverlayImpl::getManifestsMessages()
 {
     std::lock_guard g(manifestLock_);
 
     auto const seq = app_.validatorManifests().sequence();
-    auto const listingSeq = app_.validators().listingSequence();
-    auto const candidateSeq = app_.validators().publisherCandidateRevision();
-    if (seq != manifestListSeq_ || listingSeq != manifestListingSeq_ ||
-        candidateSeq != manifestCandidateSeq_)
+    if (seq != manifestListSeq_)
     {
         struct CachedManifest
         {
-            PublicKey masterKey;
             std::string serialized;
-            std::uint32_t sequence;
+            ManifestRetention retention;
         };
 
         std::vector<CachedManifest> cached;
         app_.validatorManifests().for_each_manifest(
             [&cached](std::size_t s) { cached.reserve(s); },
-            [&cached](Manifest const& manifest) {
-                cached.push_back(
-                    {manifest.masterKey,
-                     manifest.serialized,
-                     manifest.sequence});
+            [&cached](Manifest const& manifest, ManifestRetention retention) {
+                cached.push_back({manifest.serialized, retention});
             });
 
-        auto const candidateOverrides =
-            app_.validators().candidateManifestOverrides();
-        std::vector<CachedManifest> candidates;
-        hash_map<PublicKey, std::uint32_t> candidateSequences;
-        candidates.reserve(candidateOverrides.size());
-        for (auto const& manifest : candidateOverrides)
-        {
-            candidateSequences.emplace(manifest->masterKey, manifest->sequence);
-            candidates.push_back(
-                {manifest->masterKey,
-                 manifest->serialized,
-                 manifest->sequence});
-        }
-
-        hash_set<PublicKey> suppressedCandidates;
-        std::vector<CachedManifest const*> trusted;
-        std::vector<CachedManifest const*> untrusted;
+        std::vector<CachedManifest const*> protectedManifests;
+        std::vector<CachedManifest const*> evictableManifests;
         for (auto const& entry : cached)
         {
-            if (app_.validators().listed(entry.masterKey))
-            {
-                trusted.push_back(&entry);
-                suppressedCandidates.insert(entry.masterKey);
-            }
-            else if (auto const candidate =
-                         candidateSequences.find(entry.masterKey);
-                     candidate != candidateSequences.end())
-            {
-                if (candidate->second > entry.sequence)
-                    continue;
-                suppressedCandidates.insert(entry.masterKey);
-                untrusted.push_back(&entry);
-            }
+            if (entry.retention == ManifestRetention::protected_)
+                protectedManifests.push_back(&entry);
             else
-                untrusted.push_back(&entry);
+                evictableManifests.push_back(&entry);
         }
 
-        std::erase_if(candidates, [&](CachedManifest const& candidate) {
-            return suppressedCandidates.contains(candidate.masterKey);
-        });
+        std::shuffle(
+            protectedManifests.begin(),
+            protectedManifests.end(),
+            default_prng());
+        std::shuffle(
+            evictableManifests.begin(),
+            evictableManifests.end(),
+            default_prng());
 
-        std::shuffle(trusted.begin(), trusted.end(), default_prng());
-        std::shuffle(candidates.begin(), candidates.end(), default_prng());
-        std::shuffle(untrusted.begin(), untrusted.end(), default_prng());
-
+        manifestMessages_.clear();
         protocol::TMManifests tm;
-        tm.mutable_list()->Reserve(static_cast<int>(
-            trusted.size() + candidates.size() +
-            std::min(kMaxManifestsPerMessage, untrusted.size())));
-
-        auto addIfFits = [&tm](CachedManifest const& entry) {
-            if (static_cast<std::size_t>(tm.list_size()) >=
-                kMaxManifestEntriesPerMessage)
+        auto flush = [this, &tm]() {
+            if (tm.list_size() == 0)
                 return;
+            manifestMessages_.push_back(
+                std::make_shared<Message>(tm, protocol::mtMANIFESTS));
+            tm.Clear();
+        };
+        auto add = [this, &tm, &flush](CachedManifest const& entry) {
+            if (static_cast<std::size_t>(tm.list_size()) ==
+                kMaxManifestEntriesPerMessage)
+                flush();
 
             tm.add_list()->set_stobject(
                 entry.serialized.data(), entry.serialized.size());
             if (Message::messageSize(tm) > maximumManifestsMessageSize)
             {
                 tm.mutable_list()->RemoveLast();
-                return;
+                flush();
+
+                tm.add_list()->set_stobject(
+                    entry.serialized.data(), entry.serialized.size());
+                if (Message::messageSize(tm) > maximumManifestsMessageSize)
+                {
+                    tm.mutable_list()->RemoveLast();
+                    JLOG(journal_.warn())
+                        << "Manifest exceeds peer snapshot message limit";
+                }
             }
         };
 
-        // Listed validators are authoritative local policy and get first use
-        // of the snapshot byte budget. Unlisted manifests may use the
-        // remainder, but both sides must agree on one maximum frame size.
-        for (auto const* entry : trusted)
-            addIfFits(*entry);
+        // All protected entries are delivered across as many bounded frames as
+        // needed. This covers local, listed, and publisher-candidate sources
+        // without re-deriving provenance in the overlay.
+        // The bounded evictable population remains best-effort and sampled.
+        for (auto const* entry : protectedManifests)
+            add(*entry);
 
-        // Current signed-list candidates have no consensus weight, but their
-        // newer live manifests are a bounded, publisher-authorized transport
-        // class and are included ahead of arbitrary untrusted entries.
-        for (auto const& entry : candidates)
-            addIfFits(entry);
-
-        auto const take = std::min(kMaxManifestsPerMessage, untrusted.size());
+        auto const take =
+            std::min(kMaxManifestsPerMessage, evictableManifests.size());
         for (std::size_t i = 0; i < take; ++i)
-        {
-            addIfFits(*untrusted[i]);
-        }
-
-        manifestMessage_.reset();
-
-        if (tm.list_size() != 0)
-            manifestMessage_ =
-                std::make_shared<Message>(tm, protocol::mtMANIFESTS);
+            add(*evictableManifests[i]);
+        flush();
 
         manifestListSeq_ = seq;
-        manifestListingSeq_ = listingSeq;
-        manifestCandidateSeq_ = candidateSeq;
     }
 
-    return manifestMessage_;
+    return manifestMessages_;
 }
 
 void
