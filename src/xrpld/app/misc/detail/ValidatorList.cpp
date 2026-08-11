@@ -2090,6 +2090,9 @@ ValidatorList::resolveMonitoringSigner(PublicKey const& signingKey) const
             else if (identity.status == ValidatorIdentityStatus::conflict)
             {
                 bool relevant = master == signingKey;
+                if (ordinaryManifest && ordinaryManifest->signingKey)
+                    relevant =
+                        relevant || *ordinaryManifest->signingKey == signingKey;
                 if (candidate)
                 {
                     for (auto const& variant :

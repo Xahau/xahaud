@@ -1067,6 +1067,34 @@ private:
         auto const listedValidator = randomValidator();
         auto const candidate = randomValidator();
 
+        auto const equalSequenceMasterSecret = randomSecretKey();
+        auto const equalSequenceMaster =
+            derivePublicKey(KeyType::ed25519, equalSequenceMasterSecret);
+        auto const ordinaryEqualSigning = randomKeyPair(KeyType::secp256k1);
+        auto const candidateEqualSigning = randomKeyPair(KeyType::secp256k1);
+        auto ordinaryEqual = deserializeManifest(makeManifestString(
+            equalSequenceMaster,
+            equalSequenceMasterSecret,
+            ordinaryEqualSigning.first,
+            ordinaryEqualSigning.second,
+            1));
+        BEAST_EXPECT(ordinaryEqual);
+        if (ordinaryEqual)
+            BEAST_EXPECT(
+                validatorManifests.applyManifest(
+                    std::move(*ordinaryEqual),
+                    ManifestRateLimitCapPolicy::Uncapped) ==
+                ManifestDisposition::accepted);
+        Validator const equalSequenceCandidate{
+            equalSequenceMaster,
+            candidateEqualSigning.first,
+            base64_encode(makeManifestString(
+                equalSequenceMaster,
+                equalSequenceMasterSecret,
+                candidateEqualSigning.first,
+                candidateEqualSigning.second,
+                1))};
+
         auto const bareSecret = randomSecretKey();
         auto const bareMaster = derivePublicKey(KeyType::ed25519, bareSecret);
         Validator const bareCandidate{bareMaster, bareMaster, {}};
@@ -1098,7 +1126,11 @@ private:
             1,
             validUntil.time_since_epoch().count(),
             {},
-            {candidate, bareCandidate, revokedCandidate, collidingCandidate});
+            {candidate,
+             equalSequenceCandidate,
+             bareCandidate,
+             revokedCandidate,
+             collidingCandidate});
         auto const signature = signList(blob, publisherSigning);
 
         BEAST_EXPECT(
@@ -1140,6 +1172,18 @@ private:
             trustedKeys->resolveMonitoringSigner(candidate.signingPublic);
         BEAST_EXPECT(signer.status == ValidatorIdentityStatus::resolved);
         BEAST_EXPECT(signer.master == candidate.masterPublic);
+
+        // Same-master, same-sequence variants conflict symmetrically: neither
+        // signing key is attributed merely because it came from one layer.
+        BEAST_EXPECT(
+            trustedKeys->lookupMonitoringIdentity(equalSequenceMaster).status ==
+            ValidatorIdentityStatus::conflict);
+        BEAST_EXPECT(
+            trustedKeys->resolveMonitoringSigner(ordinaryEqualSigning.first)
+                .status == ValidatorIdentityStatus::conflict);
+        BEAST_EXPECT(
+            trustedKeys->resolveMonitoringSigner(candidateEqualSigning.first)
+                .status == ValidatorIdentityStatus::conflict);
 
         auto bare = trustedKeys->lookupMonitoringIdentity(bareMaster);
         BEAST_EXPECT(bare.status == ValidatorIdentityStatus::resolved);

@@ -2178,14 +2178,22 @@ NetworkOPsImp::pubConsensus(ConsensusPhase phase)
 void
 NetworkOPsImp::pubValidation(std::shared_ptr<STValidation> const& val)
 {
+    {
+        std::lock_guard sl(mSubLock);
+        if (mStreamMaps[sValidations].empty())
+            return;
+    }
+
+    auto const signerPublic = val->getSignerPublic();
+    auto const identity =
+        app_.validators().resolveMonitoringSigner(signerPublic);
+
     // VFALCO consider std::shared_mutex
     std::lock_guard sl(mSubLock);
 
     if (!mStreamMaps[sValidations].empty())
     {
         Json::Value jvObj(Json::objectValue);
-
-        auto const signerPublic = val->getSignerPublic();
 
         jvObj[jss::type] = "validationReceived";
         jvObj[jss::validation_public_key] =
@@ -2206,8 +2214,6 @@ NetworkOPsImp::pubValidation(std::shared_ptr<STValidation> const& val)
         if (auto hash = (*val)[~sfValidatedHash])
             jvObj[jss::validated_hash] = strHex(*hash);
 
-        auto const identity =
-            app_.validators().resolveMonitoringSigner(signerPublic);
         if (identity.status == ValidatorIdentityStatus::resolved &&
             identity.master && *identity.master != signerPublic)
             jvObj[jss::master_key] =
