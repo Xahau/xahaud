@@ -1638,9 +1638,7 @@ ValidatorList::applyList(
 
     if (accepted)
     {
-        auto const currentMasters = result == ListDisposition::accepted
-            ? validatorMasters(pubCollection.current)
-            : std::vector<PublicKey>{};
+        auto const currentMasters = validatorMasters(pubCollection.current);
         updatePublisherList(pubKey, currentMasters, oldList, lock);
         ingestPublisherManifests(pubKey, pubCollection.current, lock);
         rebuildPublisherCandidates(lock);

@@ -1394,9 +1394,8 @@ private:
         BEAST_EXPECT(trustedKeys->trusted(directListedKey));
         BEAST_EXPECT(trustedKeys->trusted(candidate.signingPublic));
 
-        // An already-expired generation does not seed current candidates or
-        // selection, but its independently valid validator manifests may still
-        // advance the ordinary manifest high-water.
+        // An already-expired generation preserves legacy ordinary-list and
+        // manifest handling, but does not seed the current candidate view.
         env.timeKeeper().set(env.timeKeeper().now() + 2s);
         auto const expiredCandidate = randomValidator();
         auto const expiredValidator = randomValidator();
@@ -1422,7 +1421,7 @@ private:
             !validatorManifests.getSequence(expiredCandidate.masterPublic));
         BEAST_EXPECT(
             validatorManifests.getSequence(expiredValidator.masterPublic));
-        BEAST_EXPECT(!trustedKeys->listed(expiredValidator.masterPublic));
+        BEAST_EXPECT(trustedKeys->listed(expiredValidator.masterPublic));
 
         // A malformed extension does not reject a newer legacy validator
         // generation; it contributes no candidates.
