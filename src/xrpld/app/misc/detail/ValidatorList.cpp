@@ -1934,6 +1934,7 @@ ValidatorList::lookupMonitoringIdentity(PublicKey const& master) const
     {
         auto const ordinaryRevision = validatorManifests_.sequence();
         std::uint64_t candidateRevision;
+        std::uint64_t listingRevision;
         std::optional<CandidateRecord> candidate;
         bool directListed = false;
         bool candidateConflict = false;
@@ -1941,6 +1942,7 @@ ValidatorList::lookupMonitoringIdentity(PublicKey const& master) const
         {
             std::shared_lock lock{mutex_};
             candidateRevision = publisherCandidates_.revision;
+            listingRevision = listingSequence_.load();
             directListed = keyListings_.contains(master);
             if (auto const it = publisherCandidates_.byMaster.find(master);
                 it != publisherCandidates_.byMaster.end())
@@ -1979,7 +1981,8 @@ ValidatorList::lookupMonitoringIdentity(PublicKey const& master) const
 
         auto ordinary = validatorManifests_.getManifestByMaster(master);
         if (ordinaryRevision != validatorManifests_.sequence() ||
-            candidateRevision != publisherCandidateRevision())
+            candidateRevision != publisherCandidateRevision() ||
+            listingRevision != listingSequence_.load())
             continue;
 
         auto result = composeMonitoringIdentity(
@@ -2019,6 +2022,7 @@ ValidatorList::resolveMonitoringSigner(PublicKey const& signingKey) const
             validatorManifests_.getMasterKey(signingKey);
 
         std::uint64_t candidateRevision;
+        std::uint64_t listingRevision;
         hash_set<PublicKey> possibleMasters;
         hash_map<PublicKey, CandidateRecord> candidates;
         hash_set<PublicKey> directListedMasters;
@@ -2027,6 +2031,7 @@ ValidatorList::resolveMonitoringSigner(PublicKey const& signingKey) const
         {
             std::shared_lock lock{mutex_};
             candidateRevision = publisherCandidates_.revision;
+            listingRevision = listingSequence_.load();
             directListed = keyListings_.contains(signingKey);
             if (auto const owners =
                     publisherCandidates_.signingOwners.find(signingKey);
@@ -2058,7 +2063,8 @@ ValidatorList::resolveMonitoringSigner(PublicKey const& signingKey) const
         }
 
         if (ordinaryRevision != validatorManifests_.sequence() ||
-            candidateRevision != publisherCandidateRevision())
+            candidateRevision != publisherCandidateRevision() ||
+            listingRevision != listingSequence_.load())
             continue;
 
         std::vector<ValidatorIdentity> resolved;
