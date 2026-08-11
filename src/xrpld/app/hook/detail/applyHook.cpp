@@ -1,4 +1,5 @@
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/hook/HookHostOperations.h>
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/HashRouter.h>
@@ -1400,75 +1401,15 @@ DEFINE_HOOK_FUNCTION(
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx on
                    // current stack
-    if (NOT_IN_BOUNDS(mread_ptr, mread_len, memory_length) ||
-        NOT_IN_BOUNDS(dread_ptr, dread_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (!j.trace())
-        return 0ULL;
-
-    if (mread_len > 128)
-        mread_len = 128;
-
-    if (dread_len > 1023)
-        dread_len = 1023;
-
-    uint8_t output_storage[2200];
-    size_t out_len = 0;
-
-    uint8_t* output = output_storage;
-
-    if (mread_len > 0)
-    {
-        memcpy(output, memory + mread_ptr, mread_len);
-        out_len += mread_len;
-
-        // detect and skip \0 if it appears at the end
-        if (output[out_len - 1] == '\0')
-            out_len--;
-
-        output[out_len++] = ':';
-        output[out_len++] = ' ';
-    }
-
-    output = output_storage + out_len;
-
-    if (dread_len > 0)
-    {
-        if (as_hex)
-        {
-            out_len += dread_len * 2;
-            for (int i = 0; i < dread_len && i < memory_length; ++i)
-            {
-                uint8_t high = (memory[dread_ptr + i] >> 4) & 0xFU;
-                uint8_t low = (memory[dread_ptr + i] & 0xFU);
-                high += (high < 10U ? '0' : 'A' - 10);
-                low += (low < 10U ? '0' : 'A' - 10);
-                output[i * 2 + 0] = high;
-                output[i * 2 + 1] = low;
-            }
-        }
-        else if (is_UTF16LE(memory + dread_ptr, dread_len))
-        {
-            out_len += dread_len /
-                2;  // is_UTF16LE will only return true if read_len is even
-            for (int i = 0; i < (dread_len / 2); ++i)
-                output[i] = memory[dread_ptr + i * 2];
-        }
-        else
-        {
-            out_len += dread_len;
-            memcpy(output, memory + dread_ptr, dread_len);
-        }
-    }
-
-    if (out_len > 0)
-    {
-        j.trace() << "HookTrace[" << HC_ACC() << "]: "
-                  << std::string_view((const char*)output_storage, out_len);
-    }
-
-    return 0ULL;
+    return hook::raw::trace(
+        hookCtx,
+        hook::HookGuestMemory{memory, memory_length},
+        mread_ptr,
+        mread_len,
+        dread_ptr,
+        dread_len,
+        as_hex,
+        j);
     HOOK_TEARDOWN();
 }
 
@@ -1504,17 +1445,15 @@ DEFINE_HOOK_FUNCTION(
     uint32_t kread_ptr,
     uint32_t kread_len)
 {
-    return state_foreign_set(
+    HOOK_SETUP();
+    return hook::raw::stateSet(
         hookCtx,
-        frameCtx,
+        hook::HookGuestMemory{memory, memory_length},
         read_ptr,
         read_len,
         kread_ptr,
-        kread_len,
-        0,
-        0,
-        0,
-        0);
+        kread_len);
+    HOOK_TEARDOWN();
 }
 // update or create a hook state object
 // read_ptr = data to set, kread_ptr = key
@@ -1882,17 +1821,15 @@ DEFINE_HOOK_FUNCTION(
     uint32_t kread_ptr,
     uint32_t kread_len)
 {
-    return state_foreign(
+    HOOK_SETUP();
+    return hook::raw::state(
         hookCtx,
-        frameCtx,
+        hook::HookGuestMemory{memory, memory_length},
         write_ptr,
         write_len,
         kread_ptr,
-        kread_len,
-        0,
-        0,
-        0,
-        0);
+        kread_len);
+    HOOK_TEARDOWN();
 }
 
 /* This api actually serves both local and foreign state requests
@@ -1984,7 +1921,12 @@ DEFINE_HOOK_FUNCTION(
     int64_t error_code)
 {
     HOOK_SETUP();
-    HOOK_EXIT(read_ptr, read_len, error_code, hook_api::ExitType::ACCEPT);
+    return hook::raw::accept(
+        hookCtx,
+        hook::HookGuestMemory{memory, memory_length},
+        read_ptr,
+        read_len,
+        error_code);
     HOOK_TEARDOWN();
 }
 
@@ -1998,7 +1940,12 @@ DEFINE_HOOK_FUNCTION(
     int64_t error_code)
 {
     HOOK_SETUP();
-    HOOK_EXIT(read_ptr, read_len, error_code, hook_api::ExitType::ROLLBACK);
+    return hook::raw::rollback(
+        hookCtx,
+        hook::HookGuestMemory{memory, memory_length},
+        read_ptr,
+        read_len,
+        error_code);
     HOOK_TEARDOWN();
 }
 
@@ -2043,7 +1990,7 @@ DEFINE_HOOK_FUNCTION(int64_t, otxn_type)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    return api.otxn_type();
+    return hook::raw::otxnType(hookCtx);
 
     HOOK_TEARDOWN();
 }
@@ -2093,7 +2040,7 @@ DEFINE_HOOK_FUNCTION(int64_t, ledger_seq)
 {
     HOOK_SETUP();
 
-    return api.ledger_seq();
+    return hook::raw::ledgerSequence(hookCtx);
 
     HOOK_TEARDOWN();
 }
@@ -2105,16 +2052,11 @@ DEFINE_HOOK_FUNCTION(
     uint32_t write_len)
 {
     HOOK_SETUP();
-
-    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
-        return OUT_OF_BOUNDS;
-    if (write_len < 32)
-        return TOO_SMALL;
-
-    auto const hash = api.ledger_last_hash();
-
-    WRITE_WASM_MEMORY_AND_RETURN(
-        write_ptr, write_len, hash.data(), 32, memory, memory_length);
+    return hook::raw::ledgerLastHash(
+        hookCtx,
+        hook::HookGuestMemory{memory, memory_length},
+        write_ptr,
+        write_len);
 
     HOOK_TEARDOWN();
 }
@@ -2123,7 +2065,7 @@ DEFINE_HOOK_FUNCTION(int64_t, ledger_last_time)
 {
     HOOK_SETUP();
 
-    return api.ledger_last_time();
+    return hook::raw::ledgerLastTime(hookCtx);
 
     HOOK_TEARDOWN();
 }
@@ -2997,17 +2939,11 @@ DEFINE_HOOK_FUNCTION(
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
-
-    if (NOT_IN_BOUNDS(write_ptr, ptr_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (ptr_len < 20)
-        return TOO_SMALL;
-
-    auto const result = api.hook_account();
-
-    WRITE_WASM_MEMORY_AND_RETURN(
-        write_ptr, 20, result.data(), 20, memory, memory_length);
+    return hook::raw::hookAccount(
+        hookCtx,
+        hook::HookGuestMemory{memory, memory_length},
+        write_ptr,
+        ptr_len);
 
     HOOK_TEARDOWN();
 }
