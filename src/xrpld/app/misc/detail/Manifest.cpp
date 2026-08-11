@@ -388,26 +388,33 @@ ManifestCache::revoked(PublicKey const& pk) const
 ManifestDisposition
 ManifestCache::applyManifest(Manifest m, ManifestRateLimitCapPolicy const cap)
 {
-    return applyManifestImpl(std::move(m), cap, nullptr);
+    return applyManifestImpl(std::move(m), cap, nullptr, nullptr);
 }
 
-ManifestDisposition
+ManifestApplyResult
 ManifestCache::applyManifestWithEviction(
     Manifest m,
     hash_set<PublicKey> const& currentValidationKeys)
 {
-    return applyManifestImpl(
+    bool acceptedUpdate = false;
+    auto const disposition = applyManifestImpl(
         std::move(m),
         ManifestRateLimitCapPolicy::Capped,
-        &currentValidationKeys);
+        &currentValidationKeys,
+        &acceptedUpdate);
+    return {disposition, acceptedUpdate};
 }
 
 ManifestDisposition
 ManifestCache::applyManifestImpl(
     Manifest m,
     ManifestRateLimitCapPolicy const cap,
-    hash_set<PublicKey> const* const currentValidationKeys)
+    hash_set<PublicKey> const* const currentValidationKeys,
+    bool* const acceptedUpdate)
 {
+    if (acceptedUpdate)
+        *acceptedUpdate = false;
+
     bool const uncapped = cap == ManifestRateLimitCapPolicy::Uncapped;
     bool checkSignature = true;
 
@@ -659,8 +666,8 @@ ManifestCache::applyManifestImpl(
     }
 
     bool const revoked = m.revoked();
-    // This is the first manifest we are seeing for a master key. This should
-    // only ever happen once per validator run.
+    // This master key is not currently retained. An untrusted key may reach
+    // this path again after eviction.
     if (iter == map_.end())
     {
         if (auto stream = j_.info())
@@ -702,6 +709,9 @@ ManifestCache::applyManifestImpl(
 
     // Something has changed. Keep track of it.
     seq_++;
+
+    if (acceptedUpdate)
+        *acceptedUpdate = true;
 
     return ManifestDisposition::accepted;
 }

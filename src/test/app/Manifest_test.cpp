@@ -1043,15 +1043,17 @@ public:
         auto const invalidMasterSecret = randomSecretKey();
         auto const invalidSigning = randomKeyPair(KeyType::secp256k1);
         BEAST_EXPECT(
-            cache.applyManifestWithEviction(
-                makeManifest(
-                    invalidMasterSecret,
-                    KeyType::ed25519,
-                    invalidSigning.second,
-                    KeyType::secp256k1,
-                    0,
-                    true),
-                {}) == ManifestDisposition::invalid);
+            cache
+                .applyManifestWithEviction(
+                    makeManifest(
+                        invalidMasterSecret,
+                        KeyType::ed25519,
+                        invalidSigning.second,
+                        KeyType::secp256k1,
+                        0,
+                        true),
+                    {})
+                .disposition == ManifestDisposition::invalid);
         BEAST_EXPECT(retainedMasters() == beforeInvalid);
 
         auto const incomingMasterSecret = randomSecretKey();
@@ -1072,10 +1074,11 @@ public:
 
         hash_set<PublicKey> const currentValidationKeys = {
             untrustedSigningKeys.front()};
+        auto const incomingAdmission = cache.applyManifestWithEviction(
+            clone(incoming), currentValidationKeys);
         BEAST_EXPECT(
-            cache.applyManifestWithEviction(
-                clone(incoming), currentValidationKeys) ==
-            ManifestDisposition::accepted);
+            incomingAdmission.disposition == ManifestDisposition::accepted);
+        BEAST_EXPECT(!incomingAdmission.acceptedUpdate);
 
         auto const afterEviction = retainedMasters();
         BEAST_EXPECT(afterEviction.size() == 1001);
@@ -1101,15 +1104,17 @@ public:
         }
 
         auto const replacementSigning = randomKeyPair(KeyType::secp256k1);
+        auto const updateAdmission = cache.applyManifestWithEviction(
+            makeManifest(
+                incomingMasterSecret,
+                KeyType::ed25519,
+                replacementSigning.second,
+                KeyType::secp256k1,
+                1),
+            {});
         BEAST_EXPECT(
-            cache.applyManifestWithEviction(
-                makeManifest(
-                    incomingMasterSecret,
-                    KeyType::ed25519,
-                    replacementSigning.second,
-                    KeyType::secp256k1,
-                    1),
-                {}) == ManifestDisposition::accepted);
+            updateAdmission.disposition == ManifestDisposition::accepted);
+        BEAST_EXPECT(updateAdmission.acceptedUpdate);
         BEAST_EXPECT(retainedMasters() == afterEviction);
 
         hash_set<PublicKey> allCurrentSigningKeys;
@@ -1124,14 +1129,16 @@ public:
             derivePublicKey(KeyType::ed25519, secondIncomingMasterSecret);
         auto const secondIncomingSigning = randomKeyPair(KeyType::secp256k1);
         BEAST_EXPECT(
-            cache.applyManifestWithEviction(
-                makeManifest(
-                    secondIncomingMasterSecret,
-                    KeyType::ed25519,
-                    secondIncomingSigning.second,
-                    KeyType::secp256k1,
-                    0),
-                allCurrentSigningKeys) == ManifestDisposition::accepted);
+            cache
+                .applyManifestWithEviction(
+                    makeManifest(
+                        secondIncomingMasterSecret,
+                        KeyType::ed25519,
+                        secondIncomingSigning.second,
+                        KeyType::secp256k1,
+                        0),
+                    allCurrentSigningKeys)
+                .disposition == ManifestDisposition::accepted);
         auto const afterAllActiveEviction = retainedMasters();
         BEAST_EXPECT(afterAllActiveEviction.size() == 1001);
         BEAST_EXPECT(afterAllActiveEviction.contains(trustedMaster));
@@ -1155,43 +1162,48 @@ public:
         for (std::size_t i = 0; i < 8; ++i)
         {
             BEAST_EXPECT(
-                cache.applyManifestWithEviction(
-                    std::move(evictionBurst[i]),
-                    {secondIncomingSigning.first}) ==
-                ManifestDisposition::accepted);
+                cache
+                    .applyManifestWithEviction(
+                        std::move(evictionBurst[i]),
+                        {secondIncomingSigning.first})
+                    .disposition == ManifestDisposition::accepted);
         }
         BEAST_EXPECT(
-            cache.applyManifestWithEviction(
-                std::move(evictionBurst.back()),
-                {secondIncomingSigning.first}) ==
-            ManifestDisposition::untrustedCapacity);
+            cache
+                .applyManifestWithEviction(
+                    std::move(evictionBurst.back()),
+                    {secondIncomingSigning.first})
+                .disposition == ManifestDisposition::untrustedCapacity);
         BEAST_EXPECT(retainedMasters().size() == 1001);
 
         now += std::chrono::seconds{1};
         auto const refilledMasterSecret = randomSecretKey();
         auto const refilledSigning = randomKeyPair(KeyType::secp256k1);
         BEAST_EXPECT(
-            cache.applyManifestWithEviction(
-                makeManifest(
-                    refilledMasterSecret,
-                    KeyType::ed25519,
-                    refilledSigning.second,
-                    KeyType::secp256k1,
-                    0),
-                {secondIncomingSigning.first}) ==
-            ManifestDisposition::accepted);
+            cache
+                .applyManifestWithEviction(
+                    makeManifest(
+                        refilledMasterSecret,
+                        KeyType::ed25519,
+                        refilledSigning.second,
+                        KeyType::secp256k1,
+                        0),
+                    {secondIncomingSigning.first})
+                .disposition == ManifestDisposition::accepted);
 
         // Exhausting the eviction budget must not block an existing entry.
         auto const finalReplacementSigning = randomKeyPair(KeyType::secp256k1);
         BEAST_EXPECT(
-            cache.applyManifestWithEviction(
-                makeManifest(
-                    secondIncomingMasterSecret,
-                    KeyType::ed25519,
-                    finalReplacementSigning.second,
-                    KeyType::secp256k1,
-                    1),
-                {}) == ManifestDisposition::accepted);
+            cache
+                .applyManifestWithEviction(
+                    makeManifest(
+                        secondIncomingMasterSecret,
+                        KeyType::ed25519,
+                        finalReplacementSigning.second,
+                        KeyType::secp256k1,
+                        1),
+                    {})
+                .disposition == ManifestDisposition::accepted);
     }
 
     void

@@ -263,6 +263,18 @@ enum class ManifestDisposition {
     untrustedCapacity
 };
 
+/** Result of bounded untrusted-manifest admission.
+
+    `acceptedUpdate` is meaningful only when `disposition` is `accepted`. It is
+    computed under the cache write lock and distinguishes an update of a
+    retained identity from admission as a new identity.
+*/
+struct ManifestApplyResult
+{
+    ManifestDisposition disposition;
+    bool acceptedUpdate;
+};
+
 inline std::string
 to_string(ManifestDisposition m)
 {
@@ -301,16 +313,20 @@ class DatabaseCon;
     Entries admitted uncapped, or later promoted, are outside the eviction
     population. For unlisted validators, recent validation activity is only an
     eviction preference; it does not confer trust and cannot prevent eviction
-    when every candidate is active. Relay suppression must therefore be
-    maintained independently of this cache.
+    when every candidate is active.
 
     This is not complete adversarial containment. Once full, the cache gives
-    valid novel identities a small eviction budget, bounding cache churn and
-    corresponding relays. A candidate is verified before consuming a permit;
-    when no permit or refill is available, it is rejected before verification.
-    HashRouter separately suppresses repeat relay of the same manifest hash.
-    A sustained sender can monopolize the global eviction budget and delay a
-    legitimate novel untrusted validator; protected validators are unaffected.
+    valid novel identities a small eviction budget, bounding admitted identity
+    churn. Capacity rejection normally avoids verification when no permit is
+    available, although concurrent callers may race on observed availability.
+    Updates to an already retained identity do not consume the budget.
+    First-seen unlisted identities are not relayed live. A bounded selected
+    subset propagates through the cached connection snapshot.
+    Later rotations and revocations relay while the identity remains resident.
+    If eviction forgets one, its reappearance is first-seen again and therefore
+    does not immediately relay. A sustained sender can monopolize the eviction
+    budget and delay a legitimate novel untrusted validator; protected
+    validators are unaffected.
 */
 class ManifestCache
 {
@@ -352,7 +368,8 @@ private:
     applyManifestImpl(
         Manifest m,
         ManifestRateLimitCapPolicy cap,
-        hash_set<PublicKey> const* currentValidationKeys);
+        hash_set<PublicKey> const* currentValidationKeys,
+        bool* acceptedUpdate);
 
 public:
     explicit ManifestCache(
@@ -465,8 +482,11 @@ public:
         @param m Manifest to add
         @param currentValidationKeys Signing keys with current validations;
                these are eviction preferences, not trusted identities
+
+        @return disposition and an atomic indication that an accepted manifest
+                updated an identity retained at admission time
     */
-    ManifestDisposition
+    ManifestApplyResult
     applyManifestWithEviction(
         Manifest m,
         hash_set<PublicKey> const& currentValidationKeys);

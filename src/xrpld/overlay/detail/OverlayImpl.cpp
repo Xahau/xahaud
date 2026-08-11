@@ -654,7 +654,6 @@ OverlayImpl::onManifests(
         app_.getValidations().getCurrentNodeKeys();
 
     protocol::TMManifests relay;
-    std::optional<std::set<HashRouter::PeerShortID>> relaySkip;
 
     for (std::size_t i = 0; i < total; ++i)
     {
@@ -664,7 +663,6 @@ OverlayImpl::onManifests(
         {
             auto const serialized = mo->serialized;
             auto const masterKey = mo->masterKey;
-            auto const manifestHash = mo->hash();
 
             bool isTrusted = app_.validators().listed(masterKey);
             if (!isTrusted)
@@ -677,11 +675,21 @@ OverlayImpl::onManifests(
                 ++untrusted;
             }
 
-            auto result = isTrusted
-                ? app_.validatorManifests().applyManifest(
-                      std::move(*mo), ManifestRateLimitCapPolicy::Uncapped)
-                : app_.validatorManifests().applyManifestWithEviction(
-                      std::move(*mo), currentValidationKeys);
+            bool acceptedUpdate = false;
+            ManifestDisposition result;
+            if (isTrusted)
+            {
+                result = app_.validatorManifests().applyManifest(
+                    std::move(*mo), ManifestRateLimitCapPolicy::Uncapped);
+            }
+            else
+            {
+                auto const admission =
+                    app_.validatorManifests().applyManifestWithEviction(
+                        std::move(*mo), currentValidationKeys);
+                acceptedUpdate = admission.acceptedUpdate;
+                result = admission.disposition;
+            }
 
             if (!isTrusted &&
                 (result == ManifestDisposition::accepted ||
@@ -724,27 +732,13 @@ OverlayImpl::onManifests(
 
                 app_.getOPs().pubManifest(*mo);
 
-                // Acceptance is relative to the retention cache. Eviction can
-                // make the same manifest acceptable again, so relay novelty
-                // must be tracked independently. Record the source before
-                // asking HashRouter whether this node should relay it.
-                auto& hashRouter = app_.getHashRouter();
-                hashRouter.addSuppressionPeer(manifestHash, from->id());
-                if (auto toSkip = hashRouter.shouldRelay(manifestHash))
-                {
+                // Do not live-relay a first-seen unlisted identity. Retained
+                // identities may relay later rotations and revocations, while
+                // listed identities always relay. If eviction later forgets
+                // this identity, a reappearance is first-seen again and stops
+                // locally instead of producing an immediate relay loop.
+                if (isTrusted || acceptedUpdate)
                     relay.add_list()->set_stobject(s);
-
-                    if (!relaySkip)
-                    {
-                        relaySkip = std::move(*toSkip);
-                    }
-                    else
-                    {
-                        std::erase_if(*relaySkip, [&toSkip](auto const peer) {
-                            return !toSkip->contains(peer);
-                        });
-                    }
-                }
 
                 if (isTrusted)
                 {
@@ -772,16 +766,11 @@ OverlayImpl::onManifests(
     }
 
     if (!relay.list().empty())
-    {
-        XRPL_ASSERT(
-            relaySkip,
-            "ripple::OverlayImpl::onManifests : relay suppression state");
         for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS),
-                  &relaySkip](std::shared_ptr<PeerImp>&& p) {
-            if (!relaySkip->contains(p->id()))
+                  source = from->id()](std::shared_ptr<PeerImp>&& p) {
+            if (p->id() != source)
                 p->send(m2);
         });
-    }
 }
 
 void
@@ -1293,15 +1282,13 @@ OverlayImpl::getManifestsMessage()
         {
             PublicKey masterKey;
             std::string serialized;
-            uint256 hash;
         };
 
         std::vector<CachedManifest> cached;
         app_.validatorManifests().for_each_manifest(
             [&cached](std::size_t s) { cached.reserve(s); },
             [&cached](Manifest const& manifest) {
-                cached.push_back(
-                    {manifest.masterKey, manifest.serialized, manifest.hash()});
+                cached.push_back({manifest.masterKey, manifest.serialized});
             });
 
         std::vector<CachedManifest const*> trusted;
@@ -1318,12 +1305,11 @@ OverlayImpl::getManifestsMessage()
         std::shuffle(untrusted.begin(), untrusted.end(), default_prng());
 
         protocol::TMManifests tm;
-        auto& hashRouter = app_.getHashRouter();
         tm.mutable_list()->Reserve(static_cast<int>(
             trusted.size() +
             std::min(kMaxManifestsPerMessage, untrusted.size())));
 
-        auto addIfFits = [&tm, &hashRouter](CachedManifest const& entry) {
+        auto addIfFits = [&tm](CachedManifest const& entry) {
             if (static_cast<std::size_t>(tm.list_size()) >=
                 kMaxManifestEntriesPerMessage)
                 return;
@@ -1335,7 +1321,6 @@ OverlayImpl::getManifestsMessage()
                 tm.mutable_list()->RemoveLast();
                 return;
             }
-            hashRouter.addSuppression(entry.hash);
         };
 
         // Listed validators are authoritative local policy and get first use

@@ -19,7 +19,6 @@
 
 #include <test/jtx.h>
 #include <test/jtx/Env.h>
-#include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/overlay/detail/OverlayImpl.h>
 #include <xrpld/overlay/detail/PeerImp.h>
@@ -28,6 +27,9 @@
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/STExchange.h>
 #include <xrpl/protocol/Sign.h>
+
+#include <limits>
+#include <optional>
 
 namespace ripple {
 namespace test {
@@ -85,20 +87,22 @@ class manifest_relay_test : public beast::unit_test::suite
     {
         std::string serialized;
         PublicKey masterKey;
-        PublicKey signingKey;
-        uint256 hash;
+        std::optional<PublicKey> signingKey;
     };
 
     ManifestData
-    makeManifest(bool const large = false)
+    makeManifest(
+        SecretKey const& masterSecret,
+        std::uint32_t const sequence,
+        bool const large = false)
     {
-        auto const [masterPublic, masterSecret] =
-            randomKeyPair(KeyType::ed25519);
+        auto const masterPublic =
+            derivePublicKey(KeyType::ed25519, masterSecret);
         auto const [signingPublic, signingSecret] =
             randomKeyPair(KeyType::secp256k1);
 
         STObject st{sfGeneric};
-        st[sfSequence] = 0;
+        st[sfSequence] = sequence;
         st[sfPublicKey] = masterPublic;
         st[sfSigningPubKey] = signingPublic;
         if (large)
@@ -120,11 +124,39 @@ class manifest_relay_test : public beast::unit_test::suite
             static_cast<char const*>(serialized.data()), serialized.size()};
         auto manifest = deserializeManifest(bytes);
         BEAST_EXPECT(manifest.has_value());
-        return {
-            bytes,
-            masterPublic,
-            signingPublic,
-            manifest ? manifest->hash() : uint256{}};
+        return {bytes, masterPublic, signingPublic};
+    }
+
+    ManifestData
+    makeRevocation(SecretKey const& masterSecret)
+    {
+        auto const masterPublic =
+            derivePublicKey(KeyType::ed25519, masterSecret);
+
+        STObject st{sfGeneric};
+        st[sfSequence] = std::numeric_limits<std::uint32_t>::max();
+        st[sfPublicKey] = masterPublic;
+        sign(
+            st,
+            HashPrefix::manifest,
+            KeyType::ed25519,
+            masterSecret,
+            sfMasterSignature);
+
+        Serializer serialized;
+        st.add(serialized);
+        std::string const bytes{
+            static_cast<char const*>(serialized.data()), serialized.size()};
+        auto manifest = deserializeManifest(bytes);
+        BEAST_EXPECT(manifest.has_value());
+        BEAST_EXPECT(manifest && manifest->revoked());
+        return {bytes, masterPublic, std::nullopt};
+    }
+
+    ManifestData
+    makeManifest(bool const large = false)
+    {
+        return makeManifest(randomSecretKey(), 0, large);
     }
 
     std::shared_ptr<PeerTest>
@@ -218,7 +250,7 @@ class manifest_relay_test : public beast::unit_test::suite
             env.app().validatorManifests().sequence() ==
             before + kMaxManifestsPerMessage + 1);
         BEAST_EXPECT(source->sent_.empty());
-        expectBundle(destination, kMaxManifestsPerMessage + 1);
+        expectBundle(destination, 1);
 
         auto const snapshot = unpack(overlay.getManifestsMessage());
         BEAST_EXPECT(snapshot.has_value());
@@ -254,39 +286,87 @@ class manifest_relay_test : public beast::unit_test::suite
     }
 
     void
-    testRelaySkipIntersection()
+    testKnownUpdateRelays()
     {
-        testcase("relay skips only peers that have every bundled manifest");
+        testcase("known unlisted rotations relay");
 
         jtx::Env env{*this};
         auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
         auto const source = addPeer(env);
-        auto const partial = addPeer(env);
-        auto const complete = addPeer(env);
-        auto const fresh = addPeer(env);
-        auto const first = makeManifest();
-        auto const second = makeManifest();
-
-        auto& hashRouter = env.app().getHashRouter();
-        hashRouter.addSuppressionPeer(first.hash, partial->id());
-        hashRouter.addSuppressionPeer(first.hash, complete->id());
-        hashRouter.addSuppressionPeer(second.hash, complete->id());
+        auto const destination = addPeer(env);
+        auto const masterSecret = randomSecretKey();
+        auto const first = makeManifest(masterSecret, 0);
+        auto const second = makeManifest(masterSecret, 1);
 
         auto incoming = std::make_shared<protocol::TMManifests>();
         incoming->add_list()->set_stobject(first.serialized);
+        overlay.onManifests(incoming, source);
+
+        BEAST_EXPECT(source->sent_.empty());
+        BEAST_EXPECT(destination->sent_.empty());
+
+        incoming = std::make_shared<protocol::TMManifests>();
         incoming->add_list()->set_stobject(second.serialized);
         overlay.onManifests(incoming, source);
 
         BEAST_EXPECT(source->sent_.empty());
-        BEAST_EXPECT(complete->sent_.empty());
-        expectBundle(partial, 2);
-        expectBundle(fresh, 2);
+        expectBundle(destination, 1);
     }
 
     void
-    testEvictionDoesNotRearmRelay()
+    testRevocationRelay()
     {
-        testcase("eviction does not rearm relay suppression");
+        testcase("revocation relay follows retained and listed policy");
+
+        auto const retainedSecret = randomSecretKey();
+        auto const retained = makeManifest(retainedSecret, 0);
+        auto const retainedRevocation = makeRevocation(retainedSecret);
+        auto const firstSeenRevocation = makeRevocation(randomSecretKey());
+        auto const listedRevocation = makeRevocation(randomSecretKey());
+
+        jtx::Env env{
+            *this,
+            jtx::envconfig([&listedRevocation](std::unique_ptr<Config> config) {
+                config->section("validators")
+                    .append(toBase58(
+                        TokenType::NodePublic, listedRevocation.masterKey));
+                return config;
+            })};
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        auto const source = addPeer(env);
+        auto const destination = addPeer(env);
+
+        auto send = [&](ManifestData const& data) {
+            auto incoming = std::make_shared<protocol::TMManifests>();
+            incoming->add_list()->set_stobject(data.serialized);
+            overlay.onManifests(incoming, source);
+        };
+
+        send(retained);
+        BEAST_EXPECT(destination->sent_.empty());
+
+        send(retainedRevocation);
+        expectBundle(destination, 1);
+        BEAST_EXPECT(
+            env.app().validatorManifests().revoked(retained.masterKey));
+        destination->sent_.clear();
+
+        send(firstSeenRevocation);
+        BEAST_EXPECT(destination->sent_.empty());
+        BEAST_EXPECT(env.app().validatorManifests().revoked(
+            firstSeenRevocation.masterKey));
+
+        send(listedRevocation);
+        expectBundle(destination, 1);
+        BEAST_EXPECT(
+            env.app().validatorManifests().revoked(listedRevocation.masterKey));
+        BEAST_EXPECT(source->sent_.empty());
+    }
+
+    void
+    testEvictedManifestStopsLocally()
+    {
+        testcase("reaccepted evicted manifest does not live relay");
 
         jtx::Env env{*this};
         auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
@@ -297,8 +377,8 @@ class manifest_relay_test : public beast::unit_test::suite
         auto incoming = std::make_shared<protocol::TMManifests>();
         incoming->add_list()->set_stobject(target.serialized);
         overlay.onManifests(incoming, source);
-        expectBundle(destination, 1);
-        destination->sent_.clear();
+        BEAST_EXPECT(source->sent_.empty());
+        BEAST_EXPECT(destination->sent_.empty());
 
         constexpr std::size_t untrustedCacheLimit = 1000;
         hash_set<PublicKey> activeSigningKeys;
@@ -307,7 +387,9 @@ class manifest_relay_test : public beast::unit_test::suite
         for (std::size_t i = 1; i < untrustedCacheLimit; ++i)
         {
             auto const filler = makeManifest();
-            activeSigningKeys.insert(filler.signingKey);
+            BEAST_EXPECT(filler.signingKey.has_value());
+            if (filler.signingKey)
+                activeSigningKeys.insert(*filler.signingKey);
             auto manifest = deserializeManifest(filler.serialized);
             BEAST_EXPECT(manifest.has_value());
             if (manifest)
@@ -326,9 +408,10 @@ class manifest_relay_test : public beast::unit_test::suite
         if (replacementManifest)
         {
             BEAST_EXPECT(
-                cache.applyManifestWithEviction(
-                    std::move(*replacementManifest), activeSigningKeys) ==
-                ManifestDisposition::accepted);
+                cache
+                    .applyManifestWithEviction(
+                        std::move(*replacementManifest), activeSigningKeys)
+                    .disposition == ManifestDisposition::accepted);
         }
         BEAST_EXPECT(!cache.getSequence(target.masterKey));
 
@@ -496,8 +579,9 @@ public:
     {
         testBoundedReceive();
         testTotalEntryLimit();
-        testRelaySkipIntersection();
-        testEvictionDoesNotRearmRelay();
+        testKnownUpdateRelays();
+        testRevocationRelay();
+        testEvictedManifestStopsLocally();
         testSnapshotByteBudget();
         testListingChangeInvalidatesSnapshot();
         testConfigListingPromotesRetention();
