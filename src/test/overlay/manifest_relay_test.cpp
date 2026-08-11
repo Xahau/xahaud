@@ -93,24 +93,23 @@ class manifest_relay_test : public beast::unit_test::suite
     ManifestData
     makeManifest(
         SecretKey const& masterSecret,
+        std::pair<PublicKey, SecretKey> const& signing,
         std::uint32_t const sequence,
         bool const large = false)
     {
         auto const masterPublic =
             derivePublicKey(KeyType::ed25519, masterSecret);
-        auto const [signingPublic, signingSecret] =
-            randomKeyPair(KeyType::secp256k1);
 
         STObject st{sfGeneric};
         st[sfSequence] = sequence;
         st[sfPublicKey] = masterPublic;
-        st[sfSigningPubKey] = signingPublic;
+        st[sfSigningPubKey] = signing.first;
         if (large)
         {
             st[sfDomain] =
                 makeSlice(std::string(63, 'a') + "." + std::string(63, 'b'));
         }
-        sign(st, HashPrefix::manifest, KeyType::secp256k1, signingSecret);
+        sign(st, HashPrefix::manifest, KeyType::secp256k1, signing.second);
         sign(
             st,
             HashPrefix::manifest,
@@ -124,7 +123,17 @@ class manifest_relay_test : public beast::unit_test::suite
             static_cast<char const*>(serialized.data()), serialized.size()};
         auto manifest = deserializeManifest(bytes);
         BEAST_EXPECT(manifest.has_value());
-        return {bytes, masterPublic, signingPublic};
+        return {bytes, masterPublic, signing.first};
+    }
+
+    ManifestData
+    makeManifest(
+        SecretKey const& masterSecret,
+        std::uint32_t const sequence,
+        bool const large = false)
+    {
+        return makeManifest(
+            masterSecret, randomKeyPair(KeyType::secp256k1), sequence, large);
     }
 
     ManifestData
@@ -219,6 +228,226 @@ class manifest_relay_test : public beast::unit_test::suite
         {
             BEAST_EXPECT(
                 static_cast<std::size_t>(relayed->list_size()) == count);
+        }
+    }
+
+    void
+    installCandidate(jtx::Env& env, ManifestData const& candidate)
+    {
+        auto const publisherMasterSecret = randomSecretKey();
+        auto const publisherMaster =
+            derivePublicKey(KeyType::ed25519, publisherMasterSecret);
+        auto const publisherSigning = randomKeyPair(KeyType::secp256k1);
+        auto const publisherManifest =
+            makeManifest(publisherMasterSecret, publisherSigning, 1);
+        auto const listed = makeManifest();
+
+        BEAST_EXPECT(env.app().validators().load(
+            {}, {}, std::vector<std::string>{strHex(publisherMaster)}));
+
+        auto const expiration = (env.timeKeeper().now() + std::chrono::hours{1})
+                                    .time_since_epoch()
+                                    .count();
+        std::string const payload =
+            "{\"sequence\":1,\"expiration\":" + std::to_string(expiration) +
+            ",\"validators\":[{\"validation_public_key\":\"" +
+            strHex(listed.masterKey) +
+            "\"}],\"candidates\":[{\"validation_public_key\":\"" +
+            strHex(candidate.masterKey) + "\",\"manifest\":\"" +
+            base64_encode(candidate.serialized) + "\"}]}";
+        auto const blob = base64_encode(payload);
+        auto const signature = strHex(sign(
+            publisherSigning.first,
+            publisherSigning.second,
+            makeSlice(payload)));
+
+        BEAST_EXPECT(
+            env.app()
+                .validators()
+                .applyLists(
+                    base64_encode(publisherManifest.serialized),
+                    1,
+                    {{blob, signature, {}}},
+                    "manifest_relay_test")
+                .bestDisposition() == ListDisposition::accepted);
+        auto const policy =
+            env.app().validators().manifestPolicy(candidate.masterKey);
+        BEAST_EXPECT(!policy.consensusListed);
+        BEAST_EXPECT(policy.publisherCandidate);
+        BEAST_EXPECT(policy.relayEligible());
+    }
+
+    void
+    testCandidateUpdateRelays()
+    {
+        testcase("publisher candidate rotations and revocations relay");
+
+        jtx::Env env{*this};
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        auto const source = addPeer(env);
+        auto const destination = addPeer(env);
+        auto const masterSecret = randomSecretKey();
+        auto const published = makeManifest(masterSecret, 1);
+        auto const rotation = makeManifest(masterSecret, 2);
+        auto const revocation = makeRevocation(masterSecret);
+
+        installCandidate(env, published);
+        BEAST_EXPECT(!env.app().validators().listed(published.masterKey));
+        BEAST_EXPECT(!env.app().validators().trusted(published.masterKey));
+        BEAST_EXPECT(
+            !env.app().validatorManifests().getSequence(published.masterKey));
+
+        auto send = [&](ManifestData const& data) {
+            auto incoming = std::make_shared<protocol::TMManifests>();
+            incoming->add_list()->set_stobject(data.serialized);
+            overlay.onManifests(incoming, source);
+        };
+
+        send(rotation);
+        expectBundle(destination, 1);
+        BEAST_EXPECT(
+            !env.app().validatorManifests().getSequence(published.masterKey));
+        auto identity = env.app().validators().lookupMonitoringIdentity(
+            published.masterKey);
+        BEAST_EXPECT(identity.status == ValidatorIdentityStatus::resolved);
+        BEAST_EXPECT(identity.signing == rotation.signingKey);
+        BEAST_EXPECT(identity.manifest && identity.manifest->sequence == 2);
+        BEAST_EXPECT(!identity.presentInOrdinaryState);
+        BEAST_EXPECT(!env.app().validators().listed(published.masterKey));
+        BEAST_EXPECT(!env.app().validators().trusted(published.masterKey));
+
+        auto snapshot = unpack(overlay.getManifestsMessage());
+        BEAST_EXPECT(snapshot.has_value());
+        if (snapshot)
+        {
+            BEAST_EXPECT(std::any_of(
+                snapshot->list().begin(),
+                snapshot->list().end(),
+                [&](auto const& entry) {
+                    return entry.stobject() == rotation.serialized;
+                }));
+        }
+
+        destination->sent_.clear();
+        send(revocation);
+        expectBundle(destination, 1);
+        BEAST_EXPECT(
+            !env.app().validatorManifests().getSequence(published.masterKey));
+        identity = env.app().validators().lookupMonitoringIdentity(
+            published.masterKey);
+        BEAST_EXPECT(identity.status == ValidatorIdentityStatus::revoked);
+        BEAST_EXPECT(!identity.signing);
+        BEAST_EXPECT(identity.manifest && identity.manifest->revoked());
+        BEAST_EXPECT(!identity.presentInOrdinaryState);
+        BEAST_EXPECT(!env.app().validators().listed(published.masterKey));
+        BEAST_EXPECT(!env.app().validators().trusted(published.masterKey));
+    }
+
+    void
+    testCandidateCollisionDoesNotAffectConsensus()
+    {
+        testcase("candidate signing collision does not affect consensus");
+
+        auto const directSigning = randomKeyPair(KeyType::secp256k1);
+        jtx::Env env{
+            *this,
+            jtx::envconfig([&directSigning](std::unique_ptr<Config> config) {
+                config->section("validators")
+                    .append(
+                        toBase58(TokenType::NodePublic, directSigning.first));
+                return config;
+            })};
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        auto const source = addPeer(env);
+        auto const destination = addPeer(env);
+        auto const candidateSecret = randomSecretKey();
+        auto const published = makeManifest(candidateSecret, 1);
+        auto const collision = makeManifest(candidateSecret, directSigning, 2);
+
+        installCandidate(env, published);
+        BEAST_EXPECT(env.app().validators().listed(directSigning.first));
+        BEAST_EXPECT(
+            env.app().validatorManifests().getMasterKey(directSigning.first) ==
+            directSigning.first);
+
+        auto incoming = std::make_shared<protocol::TMManifests>();
+        incoming->add_list()->set_stobject(collision.serialized);
+        overlay.onManifests(incoming, source);
+
+        expectBundle(destination, 1);
+        BEAST_EXPECT(env.app().validators().listed(directSigning.first));
+        BEAST_EXPECT(
+            env.app().validatorManifests().getMasterKey(directSigning.first) ==
+            directSigning.first);
+        BEAST_EXPECT(
+            !env.app().validatorManifests().getSequence(published.masterKey));
+        BEAST_EXPECT(
+            env.app()
+                .validators()
+                .lookupMonitoringIdentity(published.masterKey)
+                .status == ValidatorIdentityStatus::conflict);
+        BEAST_EXPECT(
+            env.app()
+                .validators()
+                .resolveMonitoringSigner(directSigning.first)
+                .status == ValidatorIdentityStatus::conflict);
+    }
+
+    void
+    testCandidateCannotRollbackOrdinaryHighWater()
+    {
+        testcase("candidate cannot roll back ordinary manifest high-water");
+
+        jtx::Env env{*this};
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        auto const source = addPeer(env);
+        auto const destination = addPeer(env);
+        auto const masterSecret = randomSecretKey();
+        auto const published = makeManifest(masterSecret, 1);
+        auto const staleRotation = makeManifest(masterSecret, 2);
+        auto const revocation = makeRevocation(masterSecret);
+
+        auto ordinary = deserializeManifest(revocation.serialized);
+        BEAST_EXPECT(ordinary.has_value());
+        if (ordinary)
+        {
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*ordinary), ManifestRateLimitCapPolicy::Capped) ==
+                ManifestDisposition::accepted);
+        }
+        installCandidate(env, published);
+
+        auto incoming = std::make_shared<protocol::TMManifests>();
+        incoming->add_list()->set_stobject(staleRotation.serialized);
+        overlay.onManifests(incoming, source);
+
+        BEAST_EXPECT(destination->sent_.empty());
+        BEAST_EXPECT(
+            env.app().validators().candidateManifestOverrides().empty());
+        BEAST_EXPECT(
+            env.app().validatorManifests().revoked(published.masterKey));
+        auto const identity = env.app().validators().lookupMonitoringIdentity(
+            published.masterKey);
+        BEAST_EXPECT(identity.status == ValidatorIdentityStatus::revoked);
+        BEAST_EXPECT(identity.manifest && identity.manifest->revoked());
+
+        auto const snapshot = unpack(overlay.getManifestsMessage());
+        BEAST_EXPECT(snapshot.has_value());
+        if (snapshot)
+        {
+            BEAST_EXPECT(std::any_of(
+                snapshot->list().begin(),
+                snapshot->list().end(),
+                [&](auto const& entry) {
+                    return entry.stobject() == revocation.serialized;
+                }));
+            BEAST_EXPECT(std::none_of(
+                snapshot->list().begin(),
+                snapshot->list().end(),
+                [&](auto const& entry) {
+                    return entry.stobject() == staleRotation.serialized;
+                }));
         }
     }
 
@@ -580,6 +809,9 @@ public:
         testBoundedReceive();
         testTotalEntryLimit();
         testKnownUpdateRelays();
+        testCandidateUpdateRelays();
+        testCandidateCollisionDoesNotAffectConsensus();
+        testCandidateCannotRollbackOrdinaryHighWater();
         testRevocationRelay();
         testEvictedManifestStopsLocally();
         testSnapshotByteBudget();

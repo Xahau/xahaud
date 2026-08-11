@@ -664,8 +664,8 @@ OverlayImpl::onManifests(
             auto const serialized = mo->serialized;
             auto const masterKey = mo->masterKey;
 
-            bool isTrusted = app_.validators().listed(masterKey);
-            if (!isTrusted)
+            auto policy = app_.validators().manifestPolicy(masterKey);
+            if (!policy.relayEligible())
             {
                 if (untrusted >= kMaxManifestsPerMessage)
                 {
@@ -677,10 +677,44 @@ OverlayImpl::onManifests(
 
             bool acceptedUpdate = false;
             ManifestDisposition result;
-            if (isTrusted)
+            if (policy.consensusListed)
             {
                 result = app_.validatorManifests().applyManifest(
                     std::move(*mo), ManifestRateLimitCapPolicy::Uncapped);
+            }
+            else if (policy.publisherCandidate)
+            {
+                auto const candidateResult =
+                    app_.validators().applyCandidateManifest(std::move(*mo));
+                if (candidateResult)
+                {
+                    result = *candidateResult;
+                }
+                else
+                {
+                    // Candidate membership changed after classification.
+                    // Reclassify the same bytes under the current policy.
+                    policy = app_.validators().manifestPolicy(masterKey);
+                    mo = deserializeManifest(serialized);
+                    XRPL_ASSERT(
+                        mo,
+                        "ripple::OverlayImpl::onManifests : manifest "
+                        "deserialization succeeded for policy reconciliation");
+                    if (policy.consensusListed)
+                    {
+                        result = app_.validatorManifests().applyManifest(
+                            std::move(*mo),
+                            ManifestRateLimitCapPolicy::Uncapped);
+                    }
+                    else
+                    {
+                        auto const admission =
+                            app_.validatorManifests().applyManifestWithEviction(
+                                std::move(*mo), currentValidationKeys);
+                        acceptedUpdate = admission.acceptedUpdate;
+                        result = admission.disposition;
+                    }
+                }
             }
             else
             {
@@ -691,32 +725,36 @@ OverlayImpl::onManifests(
                 result = admission.disposition;
             }
 
-            if (!isTrusted &&
+            if (!policy.consensusListed &&
                 (result == ManifestDisposition::accepted ||
-                 result == ManifestDisposition::untrustedCapacity) &&
-                app_.validators().listed(masterKey))
+                 result == ManifestDisposition::untrustedCapacity))
             {
-                // Listing may have raced capped admission. An uncapped stale
-                // application promotes the retained entry under the cache
-                // write lock; if eviction already won, it inserts this saved,
-                // previously validated manifest instead.
-                mo = deserializeManifest(serialized);
-                XRPL_ASSERT(
-                    mo,
-                    "ripple::OverlayImpl::onManifests : manifest "
-                    "deserialization succeeded for trusted reconciliation");
-                auto const trustedResult =
-                    app_.validatorManifests().applyManifest(
-                        std::move(*mo), ManifestRateLimitCapPolicy::Uncapped);
+                auto const latestPolicy =
+                    app_.validators().manifestPolicy(masterKey);
+                if (latestPolicy.consensusListed)
+                {
+                    // Listing may have raced non-consensus admission. Replay
+                    // the already verified bytes as ordinary listed state.
+                    mo = deserializeManifest(serialized);
+                    XRPL_ASSERT(
+                        mo,
+                        "ripple::OverlayImpl::onManifests : manifest "
+                        "deserialization succeeded for policy reconciliation");
 
-                if (result == ManifestDisposition::untrustedCapacity)
-                    result = trustedResult;
-                else if (
-                    trustedResult != ManifestDisposition::accepted &&
-                    trustedResult != ManifestDisposition::stale)
-                    result = trustedResult;
+                    auto const reconciled =
+                        app_.validatorManifests().applyManifest(
+                            std::move(*mo),
+                            ManifestRateLimitCapPolicy::Uncapped);
 
-                isTrusted = true;
+                    if (result == ManifestDisposition::untrustedCapacity)
+                        result = reconciled;
+                    else if (
+                        reconciled != ManifestDisposition::accepted &&
+                        reconciled != ManifestDisposition::stale)
+                        result = reconciled;
+
+                    policy = latestPolicy;
+                }
             }
 
             if (result == ManifestDisposition::accepted)
@@ -737,10 +775,10 @@ OverlayImpl::onManifests(
                 // listed identities always relay. If eviction later forgets
                 // this identity, a reappearance is first-seen again and stops
                 // locally instead of producing an immediate relay loop.
-                if (isTrusted || acceptedUpdate)
+                if (policy.relayEligible() || acceptedUpdate)
                     relay.add_list()->set_stobject(s);
 
-                if (isTrusted)
+                if (policy.consensusListed)
                 {
                     auto db = app_.getWalletDB().checkoutDb();
                     addValidatorManifest(*db, serialized);
@@ -1276,37 +1314,75 @@ OverlayImpl::getManifestsMessage()
 
     auto const seq = app_.validatorManifests().sequence();
     auto const listingSeq = app_.validators().listingSequence();
-    if (seq != manifestListSeq_ || listingSeq != manifestListingSeq_)
+    auto const candidateSeq = app_.validators().publisherCandidateRevision();
+    if (seq != manifestListSeq_ || listingSeq != manifestListingSeq_ ||
+        candidateSeq != manifestCandidateSeq_)
     {
         struct CachedManifest
         {
             PublicKey masterKey;
             std::string serialized;
+            std::uint32_t sequence;
         };
 
         std::vector<CachedManifest> cached;
         app_.validatorManifests().for_each_manifest(
             [&cached](std::size_t s) { cached.reserve(s); },
             [&cached](Manifest const& manifest) {
-                cached.push_back({manifest.masterKey, manifest.serialized});
+                cached.push_back(
+                    {manifest.masterKey,
+                     manifest.serialized,
+                     manifest.sequence});
             });
 
+        auto const candidateOverrides =
+            app_.validators().candidateManifestOverrides();
+        std::vector<CachedManifest> candidates;
+        hash_map<PublicKey, std::uint32_t> candidateSequences;
+        candidates.reserve(candidateOverrides.size());
+        for (auto const& manifest : candidateOverrides)
+        {
+            candidateSequences.emplace(manifest->masterKey, manifest->sequence);
+            candidates.push_back(
+                {manifest->masterKey,
+                 manifest->serialized,
+                 manifest->sequence});
+        }
+
+        hash_set<PublicKey> suppressedCandidates;
         std::vector<CachedManifest const*> trusted;
         std::vector<CachedManifest const*> untrusted;
         for (auto const& entry : cached)
         {
             if (app_.validators().listed(entry.masterKey))
+            {
                 trusted.push_back(&entry);
+                suppressedCandidates.insert(entry.masterKey);
+            }
+            else if (auto const candidate =
+                         candidateSequences.find(entry.masterKey);
+                     candidate != candidateSequences.end())
+            {
+                if (candidate->second > entry.sequence)
+                    continue;
+                suppressedCandidates.insert(entry.masterKey);
+                untrusted.push_back(&entry);
+            }
             else
                 untrusted.push_back(&entry);
         }
 
+        std::erase_if(candidates, [&](CachedManifest const& candidate) {
+            return suppressedCandidates.contains(candidate.masterKey);
+        });
+
         std::shuffle(trusted.begin(), trusted.end(), default_prng());
+        std::shuffle(candidates.begin(), candidates.end(), default_prng());
         std::shuffle(untrusted.begin(), untrusted.end(), default_prng());
 
         protocol::TMManifests tm;
         tm.mutable_list()->Reserve(static_cast<int>(
-            trusted.size() +
+            trusted.size() + candidates.size() +
             std::min(kMaxManifestsPerMessage, untrusted.size())));
 
         auto addIfFits = [&tm](CachedManifest const& entry) {
@@ -1329,6 +1405,12 @@ OverlayImpl::getManifestsMessage()
         for (auto const* entry : trusted)
             addIfFits(*entry);
 
+        // Current signed-list candidates have no consensus weight, but their
+        // newer live manifests are a bounded, publisher-authorized transport
+        // class and are included ahead of arbitrary untrusted entries.
+        for (auto const& entry : candidates)
+            addIfFits(entry);
+
         auto const take = std::min(kMaxManifestsPerMessage, untrusted.size());
         for (std::size_t i = 0; i < take; ++i)
         {
@@ -1343,6 +1425,7 @@ OverlayImpl::getManifestsMessage()
 
         manifestListSeq_ = seq;
         manifestListingSeq_ = listingSeq;
+        manifestCandidateSeq_ = candidateSeq;
     }
 
     return manifestMessage_;

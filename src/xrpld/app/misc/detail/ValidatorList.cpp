@@ -1172,6 +1172,43 @@ ValidatorList::rebuildPublisherCandidates(ValidatorList::lock_guard const&)
     hash_set<PublicKey> contributingPublishers;
     std::size_t supplied = 0;
 
+    auto mergeManifest = [](CandidateRecord& record,
+                            std::shared_ptr<Manifest const> const& manifest,
+                            PublicKey const* publisher) {
+        auto const sequence = manifest->sequence;
+        auto& variants = record.highestSequenceVariants;
+        if (!variants.empty() && variants.front().manifest->sequence > sequence)
+            return;
+        if (!variants.empty() && variants.front().manifest->sequence < sequence)
+            variants.clear();
+
+        auto const existing = std::find_if(
+            variants.begin(),
+            variants.end(),
+            [&](CandidateVariant const& variant) {
+                return variant.manifest->serialized == manifest->serialized;
+            });
+        if (existing != variants.end())
+        {
+            if (publisher)
+                existing->publishers.insert(*publisher);
+            return;
+        }
+
+        CandidateVariant variant{manifest, {}};
+        if (publisher)
+            variant.publishers.insert(*publisher);
+        variants.push_back(std::move(variant));
+        std::sort(
+            variants.begin(),
+            variants.end(),
+            [](CandidateVariant const& lhs, CandidateVariant const& rhs) {
+                return lhs.manifest->serialized < rhs.manifest->serialized;
+            });
+        if (variants.size() > 2)
+            variants.pop_back();
+    };
+
     for (auto const& [pubKey, collection] : publisherLists_)
     {
         if (collection.status != PublisherStatus::available)
@@ -1190,43 +1227,7 @@ ValidatorList::rebuildPublisherCandidates(ValidatorList::lock_guard const&)
             if (!candidate.manifest)
                 continue;
 
-            auto const sequence = candidate.manifest->sequence;
-            auto& variants = record.highestSequenceVariants;
-            if (!variants.empty() &&
-                variants.front().manifest->sequence > sequence)
-                continue;
-            if (!variants.empty() &&
-                variants.front().manifest->sequence < sequence)
-            {
-                variants.clear();
-            }
-
-            auto const existing = std::find_if(
-                variants.begin(),
-                variants.end(),
-                [&](CandidateVariant const& v) {
-                    return v.manifest->serialized ==
-                        candidate.manifest->serialized;
-                });
-            if (existing != variants.end())
-            {
-                existing->publishers.insert(pubKey);
-            }
-            else
-            {
-                variants.push_back(
-                    CandidateVariant{candidate.manifest, {pubKey}});
-                std::sort(
-                    variants.begin(),
-                    variants.end(),
-                    [](CandidateVariant const& lhs,
-                       CandidateVariant const& rhs) {
-                        return lhs.manifest->serialized <
-                            rhs.manifest->serialized;
-                    });
-                if (variants.size() > 2)
-                    variants.pop_back();
-            }
+            mergeManifest(record, candidate.manifest, &pubKey);
         }
     }
 
@@ -1255,6 +1256,38 @@ ValidatorList::rebuildPublisherCandidates(ValidatorList::lock_guard const&)
             << ", retained=" << retained.size()
             << ", dropped=" << (distinct - retained.size())
             << ", publishers=" << contributingPublishers.size();
+    }
+
+    bool overridesChanged = false;
+    for (auto it = candidateManifestOverrides_.begin();
+         it != candidateManifestOverrides_.end();)
+    {
+        auto const record = byMaster.find(it->first);
+        if (record == byMaster.end() || keyListings_.contains(it->first))
+        {
+            it = candidateManifestOverrides_.erase(it);
+            overridesChanged = true;
+            continue;
+        }
+
+        auto const& variants = record->second.highestSequenceVariants;
+        bool const publisherIsNewer = !variants.empty() &&
+            variants.front().manifest->sequence > it->second->sequence;
+        bool const publisherHasSameManifest = std::any_of(
+            variants.begin(),
+            variants.end(),
+            [&](CandidateVariant const& variant) {
+                return variant.manifest->serialized == it->second->serialized;
+            });
+        if (publisherIsNewer || publisherHasSameManifest)
+        {
+            it = candidateManifestOverrides_.erase(it);
+            overridesChanged = true;
+            continue;
+        }
+
+        mergeManifest(record->second, it->second, nullptr);
+        ++it;
     }
 
     hash_map<PublicKey, hash_set<PublicKey>> signingOwners;
@@ -1308,7 +1341,8 @@ ValidatorList::rebuildPublisherCandidates(ValidatorList::lock_guard const&)
         return true;
     };
 
-    bool unchanged = byMaster.size() == publisherCandidates_.byMaster.size() &&
+    bool unchanged = !overridesChanged &&
+        byMaster.size() == publisherCandidates_.byMaster.size() &&
         signingOwners == publisherCandidates_.signingOwners &&
         conflicts == publisherCandidates_.conflictedMasters;
     if (unchanged)
@@ -1798,6 +1832,57 @@ ValidatorList::listed(PublicKey const& identity) const
 
     auto const pubKey = validatorManifests_.getMasterKey(identity);
     return keyListings_.find(pubKey) != keyListings_.end();
+}
+
+ValidatorManifestPolicy
+ValidatorList::manifestPolicy(PublicKey const& master) const
+{
+    std::shared_lock readLock{mutex_};
+    return {
+        keyListings_.contains(master),
+        publisherCandidates_.byMaster.contains(master)};
+}
+
+std::optional<ManifestDisposition>
+ValidatorList::applyCandidateManifest(Manifest m)
+{
+    if (!m.verify())
+        return ManifestDisposition::invalid;
+
+    std::lock_guard lock{mutex_};
+    auto const candidate = publisherCandidates_.byMaster.find(m.masterKey);
+    if (candidate == publisherCandidates_.byMaster.end() ||
+        keyListings_.contains(m.masterKey))
+        return std::nullopt;
+
+    auto const ordinary = validatorManifests_.getManifestByMaster(m.masterKey);
+    if (ordinary && m.sequence <= ordinary->sequence)
+        return ManifestDisposition::stale;
+
+    auto const& variants = candidate->second.highestSequenceVariants;
+    if (!variants.empty() && m.sequence <= variants.front().manifest->sequence)
+        return ManifestDisposition::stale;
+
+    auto manifest = std::make_shared<Manifest const>(
+        m.serialized, m.masterKey, m.signingKey, m.sequence, m.domain);
+    candidateManifestOverrides_.insert_or_assign(
+        m.masterKey, std::move(manifest));
+    rebuildPublisherCandidates(lock);
+    return ManifestDisposition::accepted;
+}
+
+std::vector<std::shared_ptr<Manifest const>>
+ValidatorList::candidateManifestOverrides() const
+{
+    std::shared_lock lock{mutex_};
+    std::vector<std::shared_ptr<Manifest const>> result;
+    result.reserve(candidateManifestOverrides_.size());
+    for (auto const& [_, manifest] : candidateManifestOverrides_)
+    {
+        (void)_;
+        result.push_back(manifest);
+    }
+    return result;
 }
 
 bool

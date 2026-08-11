@@ -1066,6 +1066,19 @@ private:
 
         auto const listedValidator = randomValidator();
         auto const candidate = randomValidator();
+        auto const liveCandidateSecret = randomSecretKey();
+        auto const liveCandidateMaster =
+            derivePublicKey(KeyType::ed25519, liveCandidateSecret);
+        auto const liveCandidateSigning = randomKeyPair(KeyType::secp256k1);
+        Validator const liveCandidate{
+            liveCandidateMaster,
+            liveCandidateSigning.first,
+            base64_encode(makeManifestString(
+                liveCandidateMaster,
+                liveCandidateSecret,
+                liveCandidateSigning.first,
+                liveCandidateSigning.second,
+                1))};
 
         auto const equalSequenceMasterSecret = randomSecretKey();
         auto const equalSequenceMaster =
@@ -1198,6 +1211,7 @@ private:
             validUntil.time_since_epoch().count(),
             {},
             {candidate,
+             liveCandidate,
              equalSequenceCandidate,
              candidateUsingOrdinaryMaster,
              candidateUsingOrdinarySigningAsMaster,
@@ -1223,6 +1237,16 @@ private:
         BEAST_EXPECT(!trustedKeys->listed(candidate.signingPublic));
         BEAST_EXPECT(!trustedKeys->trusted(candidate.masterPublic));
         BEAST_EXPECT(!trustedKeys->trusted(candidate.signingPublic));
+        auto candidatePolicy =
+            trustedKeys->manifestPolicy(candidate.masterPublic);
+        BEAST_EXPECT(!candidatePolicy.consensusListed);
+        BEAST_EXPECT(candidatePolicy.publisherCandidate);
+        BEAST_EXPECT(candidatePolicy.relayEligible());
+        auto listedPolicy =
+            trustedKeys->manifestPolicy(listedValidator.masterPublic);
+        BEAST_EXPECT(listedPolicy.consensusListed);
+        BEAST_EXPECT(!listedPolicy.publisherCandidate);
+        BEAST_EXPECT(listedPolicy.relayEligible());
 
         // Candidate state does not enter the ordinary manifest cache.
         BEAST_EXPECT(
@@ -1328,6 +1352,25 @@ private:
         });
         BEAST_EXPECT(!candidateRelayed);
 
+        auto const liveRotation = randomKeyPair(KeyType::secp256k1);
+        auto liveManifest = deserializeManifest(makeManifestString(
+            liveCandidateMaster,
+            liveCandidateSecret,
+            liveRotation.first,
+            liveRotation.second,
+            2));
+        BEAST_EXPECT(liveManifest);
+        if (liveManifest)
+        {
+            BEAST_EXPECT(
+                trustedKeys->applyCandidateManifest(std::move(*liveManifest)) ==
+                ManifestDisposition::accepted);
+        }
+        BEAST_EXPECT(
+            trustedKeys->lookupMonitoringIdentity(liveCandidateMaster)
+                .signing == liveRotation.first);
+        BEAST_EXPECT(trustedKeys->candidateManifestOverrides().size() == 1);
+
         // A malformed candidate invalidates only the candidate extension.
         // The signed legacy validator list, including its associated manifest,
         // remains accepted and applied.
@@ -1357,6 +1400,14 @@ private:
         BEAST_EXPECT(
             trustedKeys->lookupMonitoringIdentity(candidate.masterPublic)
                 .status == ValidatorIdentityStatus::unknown);
+        BEAST_EXPECT(
+            trustedKeys->lookupMonitoringIdentity(liveCandidateMaster).status ==
+            ValidatorIdentityStatus::unknown);
+        BEAST_EXPECT(trustedKeys->candidateManifestOverrides().empty());
+        candidatePolicy = trustedKeys->manifestPolicy(candidate.masterPublic);
+        BEAST_EXPECT(!candidatePolicy.consensusListed);
+        BEAST_EXPECT(!candidatePolicy.publisherCandidate);
+        BEAST_EXPECT(!candidatePolicy.relayEligible());
 
         // Promotion is explicit. Repeating a candidate manifest in the
         // validators tier moves it into ordinary manifest state; merely having
@@ -1378,6 +1429,10 @@ private:
             validatorManifests.getMasterKey(candidate.signingPublic) ==
             candidate.masterPublic);
         BEAST_EXPECT(trustedKeys->listed(candidate.signingPublic));
+        candidatePolicy = trustedKeys->manifestPolicy(candidate.masterPublic);
+        BEAST_EXPECT(candidatePolicy.consensusListed);
+        BEAST_EXPECT(!candidatePolicy.publisherCandidate);
+        BEAST_EXPECT(candidatePolicy.relayEligible());
         identity =
             trustedKeys->lookupMonitoringIdentity(candidate.masterPublic);
         BEAST_EXPECT(identity.status == ValidatorIdentityStatus::resolved);

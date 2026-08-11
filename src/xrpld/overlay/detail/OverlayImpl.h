@@ -130,6 +130,8 @@ private:
     std::optional<std::uint32_t> manifestListSeq_;
     // Listed-key policy also affects which manifests receive snapshot priority
     std::optional<std::uint64_t> manifestListingSeq_;
+    // Current publisher-candidate overrides are included in peer snapshots.
+    std::optional<std::uint64_t> manifestCandidateSeq_;
     // Protects the message and the sequence list of manifests
     std::mutex manifestLock_;
 

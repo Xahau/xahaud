@@ -155,6 +155,23 @@ struct ValidatorIdentity
     hash_set<PublicKey> candidateManifestPublishers;
 };
 
+/** Manifest transport/admission policy for a master key.
+
+    Publisher candidates are eligible for bounded cache admission and relay,
+    but are not listed or trusted for consensus.
+*/
+struct ValidatorManifestPolicy
+{
+    bool consensusListed = false;
+    bool publisherCandidate = false;
+
+    bool
+    relayEligible() const
+    {
+        return consensusListed || publisherCandidate;
+    }
+};
+
 /**
     Trusted Validators List
     -----------------------
@@ -309,6 +326,13 @@ class ValidatorList
     // Monitoring-only current candidate snapshot. It is owned by the
     // ValidatorList lifecycle and never enters ManifestCache.
     PublisherCandidateIndex publisherCandidates_;
+
+    // Newer manifests learned by gossip for masters in the current signed
+    // candidate set. At most one is retained per current candidate master;
+    // rebuildPublisherCandidates removes entries whose membership disappears
+    // or whose publisher manifest catches up. This state is monitoring-only.
+    hash_map<PublicKey, std::shared_ptr<Manifest const>>
+        candidateManifestOverrides_;
 
     // Listed master public keys with the number of lists they appear on
     hash_map<PublicKey, std::size_t> keyListings_;
@@ -646,6 +670,28 @@ public:
     */
     std::optional<PublicKey>
     getListedKey(PublicKey const& identity) const;
+
+    /** Return manifest admission/relay policy for an asserted master key.
+
+        This is deliberately distinct from consensus listing and trust.
+        Current publisher candidates may relay valid self-signed manifest
+        updates, but never gain validation weight through this API.
+    */
+    ValidatorManifestPolicy
+    manifestPolicy(PublicKey const& master) const;
+
+    /** Apply a manifest only if its master is a current publisher candidate.
+
+        The returned optional is empty when candidate membership changed before
+        admission. An accepted manifest updates only the monitoring view and
+        never enters the consensus ManifestCache.
+    */
+    std::optional<ManifestDisposition>
+    applyCandidateManifest(Manifest m);
+
+    /** Return the current live candidate-manifest overrides for peer sync. */
+    std::vector<std::shared_ptr<Manifest const>>
+    candidateManifestOverrides() const;
 
     /** Compose ordinary and current publisher-candidate state for a master.
 
