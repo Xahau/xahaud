@@ -338,7 +338,7 @@ export function hook(_reserved: number): never {
   const write = state.set("bridge", "must-not-stick");
   if (!write.ok) lifecycle.rollback("state write failed", write.code);
   trace("js-state-rollback", "must-not-stick");
-        lifecycle.rollback("state rollback", -84);
+  lifecycle.rollback("state rollback", -84);
 }
 )[test.hook]",
      {

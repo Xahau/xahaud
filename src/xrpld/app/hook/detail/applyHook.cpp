@@ -9,6 +9,7 @@
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
+#include <xrpl/hook/HookArtifact.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
@@ -1282,16 +1283,42 @@ hook::apply(
 
     auto const& j = applyCtx.app.journal("View");
 
+    auto const artifact = hook::artifact::parse(makeSlice(wasm));
+    if (!artifact || artifact->hookApiVersion != hookApiVersion)
+    {
+        JLOG(j.warn())
+            << "HookError[" << HC_ACC()
+            << "]: Stored Hook artifact is invalid or disagrees with "
+               "sfHookApiVersion"
+            << (artifact ? "" : ": ")
+            << (artifact ? std::string_view{}
+                         : hook::artifact::toString(artifact.error()));
+        hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+        return hookCtx.result;
+    }
+
     HookExecutor executor{hookCtx};
 
-    switch (static_cast<hook_api::CodeType>(hookApiVersion))
+    switch (artifact->kind)
     {
-        case hook_api::CodeType::WASM:
+        case hook::artifact::Kind::legacyWasm:
             executor.executeWasm(
-                wasm.data(), (size_t)wasm.size(), isCallback, wasmParam, j);
+                artifact->payload.data(),
+                artifact->payload.size(),
+                isCallback,
+                wasmParam,
+                j);
             break;
 
-        case hook_api::CodeType::QUICKJS: {
+        case hook::artifact::Kind::quickJSBytecode: {
+            // Execution resolves the profile pinned at creation; it does not
+            // re-apply today's install policy. The prototype identity is the
+            // sole retained profile until the production registry lands.
+            if (!hook::artifact::isPrototypeQuickJS(*artifact))
+            {
+                hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+                break;
+            }
             auto provider = quickJSProviderForTests();
             if (!provider)
             {
@@ -1301,8 +1328,8 @@ hook::apply(
             executor.executeQuickJSBytecode(
                 provider->data(),
                 provider->size(),
-                wasm.data(),
-                wasm.size(),
+                artifact->payload.data(),
+                artifact->payload.size(),
                 isCallback,
                 wasmParam,
                 j);

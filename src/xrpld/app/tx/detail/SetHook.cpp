@@ -28,6 +28,7 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Guard.h>
+#include <xrpl/hook/HookArtifact.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STAccount.h>
@@ -57,6 +58,64 @@
 namespace ripple {
 
 using GrantKey = std::pair<uint256, std::optional<AccountID>>;
+
+namespace {
+
+enum class ArtifactInstallability {
+    allowed,
+    apiMismatch,
+    amendmentDisabled,
+    unsupportedProfile,
+};
+
+ArtifactInstallability
+artifactInstallability(
+    hook::artifact::View const& artifact,
+    std::uint16_t declaredApiVersion,
+    Rules const& rules)
+{
+    if (artifact.hookApiVersion != declaredApiVersion)
+        return ArtifactInstallability::apiMismatch;
+
+    switch (artifact.kind)
+    {
+        case hook::artifact::Kind::legacyWasm:
+            return declaredApiVersion == 0
+                ? ArtifactInstallability::allowed
+                : ArtifactInstallability::apiMismatch;
+
+        case hook::artifact::Kind::quickJSBytecode:
+            if (declaredApiVersion != 1)
+                return ArtifactInstallability::apiMismatch;
+            if (!rules.enabled(featureJSHooks))
+                return ArtifactInstallability::amendmentDisabled;
+#ifdef ENABLE_TESTS
+            if (hook::artifact::isPrototypeQuickJS(artifact))
+                return ArtifactInstallability::allowed;
+#endif
+            return ArtifactInstallability::unsupportedProfile;
+    }
+    return ArtifactInstallability::unsupportedProfile;
+}
+
+std::string_view
+toString(ArtifactInstallability result)
+{
+    switch (result)
+    {
+        case ArtifactInstallability::allowed:
+            return "allowed";
+        case ArtifactInstallability::apiMismatch:
+            return "artifact and sfHookApiVersion disagree";
+        case ArtifactInstallability::amendmentDisabled:
+            return "JSHooks is disabled";
+        case ArtifactInstallability::unsupportedProfile:
+            return "QuickJS bytecode ABI or runtime profile is unsupported";
+    }
+    return "unknown artifact installation policy";
+}
+
+}  // namespace
 
 bool
 validateHookGrants(SetHookCtx& ctx, STArray const& hookGrants)
@@ -444,21 +503,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 return false;
             }
 
-            //@@start jshooks-install-version-gate
             auto version = hookSetObj.getFieldU16(sfHookApiVersion);
-            if (version > static_cast<uint16_t>(hook_api::CodeType::QUICKJS) ||
-                (version ==
-                     static_cast<uint16_t>(hook_api::CodeType::QUICKJS) &&
-                 !ctx.rules.enabled(featureJSHooks)))
-            {
-                JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook "
-                       "sfHook->sfHookApiVersion invalid or JSHooks amendment "
-                       "is disabled.";
-                return false;
-            }
-            //@@end jshooks-install-version-gate
 
             // validate sfHookOn
             if (!hookSetObj.isFieldPresent(sfHookOn))
@@ -533,18 +578,34 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     return {};
 
                 Blob hook = hookSetObj.getFieldVL(sfCreateCode);
-
-                //@@start jshooks-validation-placeholder
-                if (version ==
-                    static_cast<uint16_t>(hook_api::CodeType::QUICKJS))
+                auto const artifact = hook::artifact::parse(makeSlice(hook));
+                if (!artifact)
                 {
-                    // The external compiler parsed and serialized this module
-                    // with the exact provider. Provider identity and bytecode
-                    // validation become part of the production installation
-                    // gate; this first transaction seam is test-only.
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::WASM_INVALID << ")["
+                        << HS_ACC() << "]: Malformed Hook artifact: "
+                        << hook::artifact::toString(artifact.error());
+                    return false;
+                }
+
+                auto const installability =
+                    artifactInstallability(*artifact, version, ctx.rules);
+                if (installability != ArtifactInstallability::allowed)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::API_INVALID << ")["
+                        << HS_ACC() << "]: Hook artifact cannot be installed: "
+                        << toString(installability);
+                    return false;
+                }
+
+                if (artifact->kind == hook::artifact::Kind::quickJSBytecode)
+                {
+                    // The prototype profile is test-only. Its placeholder
+                    // admission units disappear when the production Wasmtime
+                    // profile defines metering and fee admission together.
                     return std::pair<uint64_t, uint64_t>{1, 1};
                 }
-                //@@end jshooks-validation-placeholder
 
                 // RH NOTE: validateGuards has a generic non-rippled specific
                 // interface so it can be used in other projects (i.e. tooling).
@@ -730,13 +791,39 @@ SetHook::preclaim(ripple::PreclaimContext const& ctx)
 
         auto const& hash = hookSetObj.getFieldH256(sfHookHash);
         {
-            if (!ctx.view.exists(keylet::hookDefinition(hash)))
+            auto const definition = ctx.view.read(keylet::hookDefinition(hash));
+            if (!definition)
             {
                 JLOG(ctx.j.trace()) << "HookSet(" << hook::log::HOOK_DEF_MISSING
                                     << ")[" << HS_ACC()
                                     << "]: Malformed transaction: No hook "
                                        "exists with the specified hash.";
                 return terNO_HOOK;
+            }
+
+            if (!definition->isFieldPresent(sfCreateCode) ||
+                !definition->isFieldPresent(sfHookApiVersion))
+                return tefBAD_LEDGER;
+
+            auto const code = definition->getFieldVL(sfCreateCode);
+            auto const artifact = hook::artifact::parse(makeSlice(code));
+            if (!artifact)
+                return tefBAD_LEDGER;
+
+            auto const installability = artifactInstallability(
+                *artifact,
+                definition->getFieldU16(sfHookApiVersion),
+                ctx.view.rules());
+            if (installability == ArtifactInstallability::apiMismatch)
+                return tefBAD_LEDGER;
+            if (installability != ArtifactInstallability::allowed)
+            {
+                JLOG(ctx.j.trace())
+                    << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
+                    << "]: HookHash targets a definition that is not "
+                       "installable: "
+                    << toString(installability);
+                return temDISABLED;
             }
         }
     }
@@ -1605,6 +1692,11 @@ SetHook::setHook()
                 if (!oldDefSLE || !oldHook)
                     return tecNO_ENTRY;
 
+                // Updating parameters/routing on an already-installed Hook is
+                // deliberately permitted after its profile stops accepting
+                // new installs. Execution still resolves the profile pinned
+                // by its existing HookDefinition; removal must remain possible.
+
                 // initially carry over the prior non-array values, whatever
                 // those were
                 newHook.setFieldH256(
@@ -1949,6 +2041,24 @@ SetHook::setHook()
                            "which does not exist on ledger";
                     return tecNO_ENTRY;
                 }
+
+                // Hash INSTALL and CREATE-dedup share this stored-definition
+                // check. Preclaim/preflight enforce current authorization;
+                // disagreement here means ledger corruption or an impossible
+                // hash collision, not a reason to reinterpret the bytes.
+                if (!newDefSLE->isFieldPresent(sfCreateCode) ||
+                    !newDefSLE->isFieldPresent(sfHookApiVersion))
+                    return tefBAD_LEDGER;
+                auto const definitionCode = newDefSLE->getFieldVL(sfCreateCode);
+                auto const definitionArtifact =
+                    hook::artifact::parse(makeSlice(definitionCode));
+                if (!definitionArtifact)
+                    return tefBAD_LEDGER;
+                if (artifactInstallability(
+                        *definitionArtifact,
+                        newDefSLE->getFieldU16(sfHookApiVersion),
+                        view().rules()) != ArtifactInstallability::allowed)
+                    return tefBAD_LEDGER;
 
                 // decrement the hook definition and mark it for deletion if
                 // appropriate

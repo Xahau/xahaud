@@ -275,11 +275,6 @@ enum hook_log_code : uint16_t {
 
 namespace hook_api {
 
-enum class CodeType : uint16_t {
-    WASM = 0,
-    QUICKJS = 1,
-};
-
 namespace keylet_code {
 enum keylet_code : uint32_t {
     HOOK = 1,
