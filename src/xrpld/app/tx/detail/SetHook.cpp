@@ -444,16 +444,21 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 return false;
             }
 
+            //@@start jshooks-install-version-gate
             auto version = hookSetObj.getFieldU16(sfHookApiVersion);
-            if (version != 0)
+            if (version > static_cast<uint16_t>(hook_api::CodeType::QUICKJS) ||
+                (version ==
+                     static_cast<uint16_t>(hook_api::CodeType::QUICKJS) &&
+                 !ctx.rules.enabled(featureJSHooks)))
             {
-                // we currently only accept api version 0
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
                     << "]: Malformed transaction: SetHook "
-                       "sfHook->sfHookApiVersion invalid. (Try 0).";
+                       "sfHook->sfHookApiVersion invalid or JSHooks amendment "
+                       "is disabled.";
                 return false;
             }
+            //@@end jshooks-install-version-gate
 
             // validate sfHookOn
             if (!hookSetObj.isFieldPresent(sfHookOn))
@@ -528,6 +533,18 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     return {};
 
                 Blob hook = hookSetObj.getFieldVL(sfCreateCode);
+
+                //@@start jshooks-validation-placeholder
+                if (version ==
+                    static_cast<uint16_t>(hook_api::CodeType::QUICKJS))
+                {
+                    // The external compiler parsed and serialized this module
+                    // with the exact provider. Provider identity and bytecode
+                    // validation become part of the production installation
+                    // gate; this first transaction seam is test-only.
+                    return std::pair<uint64_t, uint64_t>{1, 1};
+                }
+                //@@end jshooks-validation-placeholder
 
                 // RH NOTE: validateGuards has a generic non-rippled specific
                 // interface so it can be used in other projects (i.e. tooling).

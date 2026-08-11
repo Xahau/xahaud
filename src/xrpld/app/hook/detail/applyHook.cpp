@@ -599,6 +599,30 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 using namespace hook::hook_float;
 using hook::Bytes;
 
+namespace {
+std::shared_ptr<Blob const>&
+quickJSProviderStorage()
+{
+    static std::shared_ptr<Blob const> provider;
+    return provider;
+}
+}  // namespace
+
+std::shared_ptr<Blob const>
+hook::quickJSProviderForTests()
+{
+    return quickJSProviderStorage();
+}
+
+#ifdef ENABLE_TESTS
+void
+hook::setQuickJSProviderForTests(Blob provider)
+{
+    quickJSProviderStorage() =
+        std::make_shared<Blob const>(std::move(provider));
+}
+#endif
+
 // cu_ptr is a pointer into memory, bounds check is assumed to have already
 // happened
 inline std::optional<Currency>
@@ -1021,6 +1045,7 @@ hook::apply(
                                             used for caching (one day) */
     ripple::uint256 const&
         hookHash, /* hash of the actual hook byte code, used for metadata */
+    uint16_t hookApiVersion,
     ripple::uint256 const& hookCanEmit,
     ripple::uint256 const& hookNamespace,
     ripple::Blob const& wasm,
@@ -1084,8 +1109,31 @@ hook::apply(
 
     HookExecutor executor{hookCtx};
 
-    executor.executeWasm(
-        wasm.data(), (size_t)wasm.size(), isCallback, wasmParam, j);
+    switch (static_cast<hook_api::CodeType>(hookApiVersion))
+    {
+        case hook_api::CodeType::WASM:
+            executor.executeWasm(
+                wasm.data(), (size_t)wasm.size(), isCallback, wasmParam, j);
+            break;
+
+        case hook_api::CodeType::QUICKJS: {
+            auto provider = quickJSProviderForTests();
+            if (!provider)
+            {
+                hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+                break;
+            }
+            executor.executeQuickJSBytecode(
+                provider->data(),
+                provider->size(),
+                wasm.data(),
+                wasm.size(),
+                isCallback,
+                wasmParam,
+                j);
+            break;
+        }
+    }
 
     JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: "
                     << (hookCtx.result.exitType == hook_api::ExitType::ROLLBACK

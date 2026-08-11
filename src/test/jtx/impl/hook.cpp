@@ -69,7 +69,25 @@ hso(std::vector<uint8_t> const& wasmBytes, void (*f)(Json::Value& jv))
 }
 
 Json::Value
+hsoVersioned(
+    std::vector<uint8_t> const& hookCode,
+    std::uint16_t apiVersion,
+    void (*f)(Json::Value& jv))
+{
+    return hsoVersioned(strHex(hookCode), apiVersion, f);
+}
+
+Json::Value
 hso(std::string const& wasmHex, void (*f)(Json::Value& jv))
+{
+    return hsoVersioned(wasmHex, 0, f);
+}
+
+Json::Value
+hsoVersioned(
+    std::string const& wasmHex,
+    std::uint16_t apiVersion,
+    void (*f)(Json::Value& jv))
 {
     if (wasmHex.size() == 0)
         throw std::runtime_error(
@@ -82,7 +100,7 @@ hso(std::string const& wasmHex, void (*f)(Json::Value& jv))
         jv[jss::HookOn] =
             "0000000000000000000000000000000000000000000000000000000000000000";
         jv[jss::HookNamespace] = to_string(uint256{beast::zero});
-        jv[jss::HookApiVersion] = Json::Value{0};
+        jv[jss::HookApiVersion] = Json::Value{apiVersion};
     }
 
     if (f)

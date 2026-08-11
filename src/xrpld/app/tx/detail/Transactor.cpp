@@ -1412,6 +1412,7 @@ Transactor::executeHookChain(
             results.push_back(hook::apply(
                 hookDef->getFieldH256(sfHookSetTxnID),
                 hookHash,
+                hookDef->getFieldU16(sfHookApiVersion),
                 hookCanEmit,
                 ns,
                 hookDef->getFieldVL(sfCreateCode),
@@ -1570,6 +1571,7 @@ Transactor::doHookCallback(
             hook::HookResult callbackResult = hook::apply(
                 hookDef->getFieldH256(sfHookSetTxnID),
                 callbackHookHash,
+                hookDef->getFieldU16(sfHookApiVersion),
                 hookCanEmit,
                 ns,
                 hookDef->getFieldVL(sfCreateCode),
@@ -1877,6 +1879,7 @@ Transactor::doAgainAsWeak(
             hook::HookResult aawResult = hook::apply(
                 hookDef->getFieldH256(sfHookSetTxnID),
                 hookHash,
+                hookDef->getFieldU16(sfHookApiVersion),
                 hookCanEmit,
                 ns,
                 hookDef->getFieldVL(sfCreateCode),
