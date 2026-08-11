@@ -1212,10 +1212,20 @@ ValidatorList::rebuildPublisherCandidates(ValidatorList::lock_guard const&)
             {
                 existing->publishers.insert(pubKey);
             }
-            else if (variants.size() < 2)
+            else
             {
                 variants.push_back(
                     CandidateVariant{candidate.manifest, {pubKey}});
+                std::sort(
+                    variants.begin(),
+                    variants.end(),
+                    [](CandidateVariant const& lhs,
+                       CandidateVariant const& rhs) {
+                        return lhs.manifest->serialized <
+                            rhs.manifest->serialized;
+                    });
+                if (variants.size() > 2)
+                    variants.pop_back();
             }
         }
     }
@@ -1245,17 +1255,6 @@ ValidatorList::rebuildPublisherCandidates(ValidatorList::lock_guard const&)
             << ", retained=" << retained.size()
             << ", dropped=" << (distinct - retained.size())
             << ", publishers=" << contributingPublishers.size();
-    }
-
-    for (auto& [_, record] : byMaster)
-    {
-        (void)_;
-        std::sort(
-            record.highestSequenceVariants.begin(),
-            record.highestSequenceVariants.end(),
-            [](CandidateVariant const& lhs, CandidateVariant const& rhs) {
-                return lhs.manifest->serialized < rhs.manifest->serialized;
-            });
     }
 
     hash_map<PublicKey, hash_set<PublicKey>> signingOwners;
@@ -1951,10 +1950,15 @@ ValidatorList::lookupMonitoringIdentity(PublicKey const& master) const
                 publisherCandidates_.conflictedMasters.contains(master);
             if (candidateConflict && candidate)
             {
+                conflictingMasters.push_back(master);
                 for (auto const& variant : candidate->highestSequenceVariants)
                 {
                     if (!variant.manifest->signingKey)
                         continue;
+                    if (publisherCandidates_.byMaster.contains(
+                            *variant.manifest->signingKey))
+                        conflictingMasters.push_back(
+                            *variant.manifest->signingKey);
                     if (auto const owners =
                             publisherCandidates_.signingOwners.find(
                                 *variant.manifest->signingKey);
@@ -2004,6 +2008,16 @@ ValidatorList::lookupMonitoringIdentity(PublicKey const& master) const
                 result.signing.reset();
             }
         }
+        else if (result.status == ValidatorIdentityStatus::revoked)
+        {
+            auto namespaceResult = resolveMonitoringSigner(master);
+            if (namespaceResult.status == ValidatorIdentityStatus::conflict)
+            {
+                result.status = ValidatorIdentityStatus::conflict;
+                result.conflictingMasters =
+                    std::move(namespaceResult.conflictingMasters);
+            }
+        }
         return result;
     }
 
@@ -2026,6 +2040,8 @@ ValidatorList::resolveMonitoringSigner(PublicKey const& signingKey) const
         hash_set<PublicKey> possibleMasters;
         hash_map<PublicKey, CandidateRecord> candidates;
         hash_set<PublicKey> directListedMasters;
+        hash_set<PublicKey> candidateNamespaceKeys;
+        hash_set<PublicKey> directlyListedNamespaces;
         hash_set<PublicKey> candidateConflicts;
         bool directListed = false;
         {
@@ -2049,10 +2065,21 @@ ValidatorList::resolveMonitoringSigner(PublicKey const& signingKey) const
                     directListedMasters.insert(master);
                 if (auto const it = publisherCandidates_.byMaster.find(master);
                     it != publisherCandidates_.byMaster.end())
+                {
                     candidates.emplace(master, it->second);
+                    candidateNamespaceKeys.insert(master);
+                    for (auto const& variant :
+                         it->second.highestSequenceVariants)
+                        if (variant.manifest->signingKey)
+                            candidateNamespaceKeys.insert(
+                                *variant.manifest->signingKey);
+                }
                 if (publisherCandidates_.conflictedMasters.contains(master))
                     candidateConflicts.insert(master);
             }
+            for (auto const& key : candidateNamespaceKeys)
+                if (keyListings_.contains(key))
+                    directlyListedNamespaces.insert(key);
         }
 
         hash_map<PublicKey, std::shared_ptr<Manifest const>> ordinary;
@@ -2060,6 +2087,17 @@ ValidatorList::resolveMonitoringSigner(PublicKey const& signingKey) const
         {
             if (auto manifest = validatorManifests_.getManifestByMaster(master))
                 ordinary.emplace(master, std::move(manifest));
+        }
+
+        hash_map<PublicKey, hash_set<PublicKey>> ordinaryNamespaceOwners;
+        for (auto const& key : candidateNamespaceKeys)
+        {
+            auto const owner = validatorManifests_.getMasterKey(key);
+            if (owner != key)
+                ordinaryNamespaceOwners[key].insert(owner);
+            if (validatorManifests_.getManifestByMaster(key) ||
+                directlyListedNamespaces.contains(key))
+                ordinaryNamespaceOwners[key].insert(key);
         }
 
         if (ordinaryRevision != validatorManifests_.sequence() ||
@@ -2084,6 +2122,39 @@ ValidatorList::resolveMonitoringSigner(PublicKey const& signingKey) const
                 candidate,
                 directListedMasters.contains(master),
                 candidateConflicts.contains(master));
+
+            bool candidateEffective = false;
+            if (candidate)
+            {
+                auto const& variants = candidate->highestSequenceVariants;
+                candidateEffective = variants.empty() ? !ordinaryManifest
+                                                      : !ordinaryManifest ||
+                        variants.front().manifest->sequence >=
+                            ordinaryManifest->sequence;
+            }
+
+            hash_set<PublicKey> crossLayerOwners;
+            auto addNamespaceOwners = [&](PublicKey const& key) {
+                if (auto const owners = ordinaryNamespaceOwners.find(key);
+                    owners != ordinaryNamespaceOwners.end())
+                    crossLayerOwners.insert(
+                        owners->second.begin(), owners->second.end());
+            };
+            if (candidateEffective)
+            {
+                addNamespaceOwners(master);
+                if (identity.signing)
+                    addNamespaceOwners(*identity.signing);
+                crossLayerOwners.erase(master);
+            }
+            if (!crossLayerOwners.empty())
+            {
+                conflicts.insert(master);
+                conflicts.insert(
+                    crossLayerOwners.begin(), crossLayerOwners.end());
+                continue;
+            }
+
             if (identity.status == ValidatorIdentityStatus::resolved &&
                 identity.signing && *identity.signing == signingKey)
                 resolved.push_back(std::move(identity));

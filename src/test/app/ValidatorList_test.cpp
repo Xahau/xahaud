@@ -1095,6 +1095,77 @@ private:
                 candidateEqualSigning.second,
                 1))};
 
+        auto const ordinaryCrossMasterSecret = randomSecretKey();
+        auto const ordinaryCrossMaster =
+            derivePublicKey(KeyType::ed25519, ordinaryCrossMasterSecret);
+        auto const ordinaryCrossSigning = randomKeyPair(KeyType::secp256k1);
+        auto ordinaryCross = deserializeManifest(makeManifestString(
+            ordinaryCrossMaster,
+            ordinaryCrossMasterSecret,
+            ordinaryCrossSigning.first,
+            ordinaryCrossSigning.second,
+            1));
+        BEAST_EXPECT(ordinaryCross);
+        if (ordinaryCross)
+            BEAST_EXPECT(
+                validatorManifests.applyManifest(
+                    std::move(*ordinaryCross),
+                    ManifestRateLimitCapPolicy::Uncapped) ==
+                ManifestDisposition::accepted);
+
+        auto const candidateToOrdinaryMasterSecret = randomSecretKey();
+        auto const candidateToOrdinaryMaster =
+            derivePublicKey(KeyType::ed25519, candidateToOrdinaryMasterSecret);
+        Validator const candidateUsingOrdinaryMaster{
+            candidateToOrdinaryMaster,
+            ordinaryCrossMaster,
+            base64_encode(makeManifestString(
+                candidateToOrdinaryMaster,
+                candidateToOrdinaryMasterSecret,
+                ordinaryCrossMaster,
+                ordinaryCrossMasterSecret,
+                1))};
+        auto const candidateFromOrdinarySigning =
+            randomKeyPair(KeyType::secp256k1);
+        Validator const candidateUsingOrdinarySigningAsMaster{
+            ordinaryCrossSigning.first,
+            candidateFromOrdinarySigning.first,
+            base64_encode(makeManifestString(
+                ordinaryCrossSigning.first,
+                ordinaryCrossSigning.second,
+                candidateFromOrdinarySigning.first,
+                candidateFromOrdinarySigning.second,
+                1))};
+
+        auto const ordinaryRevocationOwnerSecret = randomSecretKey();
+        auto const ordinaryRevocationOwner =
+            derivePublicKey(KeyType::ed25519, ordinaryRevocationOwnerSecret);
+        auto const ordinaryRevokedAlias = randomKeyPair(KeyType::secp256k1);
+        auto ordinaryForRevocation = deserializeManifest(makeManifestString(
+            ordinaryRevocationOwner,
+            ordinaryRevocationOwnerSecret,
+            ordinaryRevokedAlias.first,
+            ordinaryRevokedAlias.second,
+            1));
+        BEAST_EXPECT(ordinaryForRevocation);
+        if (ordinaryForRevocation)
+            BEAST_EXPECT(
+                validatorManifests.applyManifest(
+                    std::move(*ordinaryForRevocation),
+                    ManifestRateLimitCapPolicy::Uncapped) ==
+                ManifestDisposition::accepted);
+        Validator const revokedOrdinaryAlias{
+            ordinaryRevokedAlias.first,
+            ordinaryRevokedAlias.first,
+            base64_encode(makeRevocationString(
+                ordinaryRevokedAlias.first, ordinaryRevokedAlias.second))};
+
+        auto const intersectingCandidate = randomValidator();
+        Validator const intersectingBareIdentity{
+            intersectingCandidate.signingPublic,
+            intersectingCandidate.signingPublic,
+            {}};
+
         auto const bareSecret = randomSecretKey();
         auto const bareMaster = derivePublicKey(KeyType::ed25519, bareSecret);
         Validator const bareCandidate{bareMaster, bareMaster, {}};
@@ -1128,6 +1199,11 @@ private:
             {},
             {candidate,
              equalSequenceCandidate,
+             candidateUsingOrdinaryMaster,
+             candidateUsingOrdinarySigningAsMaster,
+             revokedOrdinaryAlias,
+             intersectingCandidate,
+             intersectingBareIdentity,
              bareCandidate,
              revokedCandidate,
              collidingCandidate});
@@ -1184,6 +1260,47 @@ private:
         BEAST_EXPECT(
             trustedKeys->resolveMonitoringSigner(candidateEqualSigning.first)
                 .status == ValidatorIdentityStatus::conflict);
+
+        // Candidate roles cannot reuse current ordinary master/signing
+        // namespaces under another identity.
+        BEAST_EXPECT(
+            trustedKeys->resolveMonitoringSigner(ordinaryCrossMaster).status ==
+            ValidatorIdentityStatus::conflict);
+        BEAST_EXPECT(
+            trustedKeys
+                ->resolveMonitoringSigner(candidateFromOrdinarySigning.first)
+                .status == ValidatorIdentityStatus::conflict);
+        BEAST_EXPECT(
+            trustedKeys->lookupMonitoringIdentity(ordinaryRevokedAlias.first)
+                .status == ValidatorIdentityStatus::conflict);
+        BEAST_EXPECT(
+            trustedKeys->resolveMonitoringSigner(ordinaryRevokedAlias.first)
+                .status == ValidatorIdentityStatus::conflict);
+
+        // Candidate master/signing intersections are reported symmetrically.
+        auto const intersectionOwner = trustedKeys->lookupMonitoringIdentity(
+            intersectingCandidate.masterPublic);
+        auto const intersectionIdentity = trustedKeys->lookupMonitoringIdentity(
+            intersectingCandidate.signingPublic);
+        BEAST_EXPECT(
+            intersectionOwner.status == ValidatorIdentityStatus::conflict);
+        BEAST_EXPECT(
+            intersectionIdentity.status == ValidatorIdentityStatus::conflict);
+        for (auto const& result : {intersectionOwner, intersectionIdentity})
+        {
+            BEAST_EXPECT(
+                std::find(
+                    result.conflictingMasters.begin(),
+                    result.conflictingMasters.end(),
+                    intersectingCandidate.masterPublic) !=
+                result.conflictingMasters.end());
+            BEAST_EXPECT(
+                std::find(
+                    result.conflictingMasters.begin(),
+                    result.conflictingMasters.end(),
+                    intersectingCandidate.signingPublic) !=
+                result.conflictingMasters.end());
+        }
 
         auto bare = trustedKeys->lookupMonitoringIdentity(bareMaster);
         BEAST_EXPECT(bare.status == ValidatorIdentityStatus::resolved);
@@ -1349,6 +1466,145 @@ private:
                         ->lookupMonitoringIdentity(candidate.masterPublic)
                         .presentInOrdinaryState);
             }
+        }
+    }
+
+    void
+    testCandidateVariantDeterminism()
+    {
+        testcase("Publisher candidate variant determinism");
+        using namespace std::chrono_literals;
+
+        jtx::Env env(*this);
+        auto const listedValidator = randomValidator();
+        auto const candidateMasterSecret = randomSecretKey();
+        auto const candidateMaster =
+            derivePublicKey(KeyType::ed25519, candidateMasterSecret);
+
+        struct PublisherInput
+        {
+            PublicKey master;
+            std::pair<PublicKey, SecretKey> signing;
+            std::string manifest;
+        };
+        std::vector<PublisherInput> publishers;
+        for (int i = 0; i < 3; ++i)
+        {
+            auto const secret = randomSecretKey();
+            auto const master = derivePublicKey(KeyType::ed25519, secret);
+            auto const signing = randomKeyPair(KeyType::secp256k1);
+            publishers.push_back(PublisherInput{
+                master,
+                signing,
+                base64_encode(makeManifestString(
+                    master, secret, signing.first, signing.second, 1))});
+        }
+
+        struct VariantInput
+        {
+            Validator validator;
+            std::string serialized;
+        };
+        std::vector<VariantInput> variants;
+        for (int i = 0; i < 3; ++i)
+        {
+            auto const signing = randomKeyPair(KeyType::secp256k1);
+            auto const serialized = makeManifestString(
+                candidateMaster,
+                candidateMasterSecret,
+                signing.first,
+                signing.second,
+                7);
+            variants.push_back(VariantInput{
+                Validator{
+                    candidateMaster, signing.first, base64_encode(serialized)},
+                serialized});
+        }
+        std::sort(
+            variants.begin(),
+            variants.end(),
+            [](VariantInput const& lhs, VariantInput const& rhs) {
+                return lhs.serialized < rhs.serialized;
+            });
+
+        // Assign the largest variant to one of the first two unordered-map
+        // publishers. The pre-fix first-two policy therefore differs from the
+        // required lexicographically smallest-two policy deterministically.
+        hash_map<PublicKey, std::size_t> iterationProbe;
+        for (std::size_t i = 0; i < publishers.size(); ++i)
+            iterationProbe.emplace(publishers[i].master, i);
+        std::vector<std::size_t> iterationOrder;
+        for (auto const& [_, index] : iterationProbe)
+        {
+            (void)_;
+            iterationOrder.push_back(index);
+        }
+        BEAST_EXPECT(iterationOrder.size() == 3);
+        if (iterationOrder.size() != 3)
+            return;
+
+        std::vector<std::size_t> publisherVariant(3);
+        publisherVariant[iterationOrder[0]] = 0;
+        publisherVariant[iterationOrder[1]] = 2;
+        publisherVariant[iterationOrder[2]] = 1;
+
+        auto runOrder = [&](std::vector<std::size_t> const& applyOrder) {
+            ManifestCache validatorManifests;
+            ManifestCache publisherManifests;
+            ValidatorList trustedKeys(
+                validatorManifests,
+                publisherManifests,
+                env.timeKeeper(),
+                env.app().config().legacy("database_path"),
+                env.journal);
+
+            std::vector<std::string> publisherKeys;
+            for (auto const& publisher : publishers)
+                publisherKeys.push_back(strHex(publisher.master));
+            BEAST_EXPECT(trustedKeys.load({}, {}, publisherKeys));
+
+            auto const validUntil = env.timeKeeper().now() + 1h;
+            for (auto const index : applyOrder)
+            {
+                auto const blob = makeList(
+                    {listedValidator},
+                    1,
+                    validUntil.time_since_epoch().count(),
+                    {},
+                    {variants[publisherVariant[index]].validator});
+                auto const signature =
+                    signList(blob, publishers[index].signing);
+                BEAST_EXPECT(
+                    trustedKeys
+                        .applyLists(
+                            publishers[index].manifest,
+                            1,
+                            {{blob, signature, {}}},
+                            "testCandidateVariantDeterminism.test")
+                        .bestDisposition() == ListDisposition::accepted);
+            }
+
+            std::vector<ValidatorIdentityStatus> result;
+            for (auto const& variant : variants)
+                result.push_back(trustedKeys
+                                     .resolveMonitoringSigner(
+                                         variant.validator.signingPublic)
+                                     .status);
+            BEAST_EXPECT(
+                trustedKeys.lookupMonitoringIdentity(candidateMaster).status ==
+                ValidatorIdentityStatus::conflict);
+            return result;
+        };
+
+        auto const forward = runOrder({0, 1, 2});
+        auto const reverse = runOrder({2, 1, 0});
+        BEAST_EXPECT(forward == reverse);
+        BEAST_EXPECT(forward.size() == 3);
+        if (forward.size() == 3)
+        {
+            BEAST_EXPECT(forward[0] == ValidatorIdentityStatus::conflict);
+            BEAST_EXPECT(forward[1] == ValidatorIdentityStatus::conflict);
+            BEAST_EXPECT(forward[2] == ValidatorIdentityStatus::unknown);
         }
     }
 
@@ -4509,6 +4765,7 @@ public:
         testConfigLoad();
         testApplyLists();
         testCandidates();
+        testCandidateVariantDeterminism();
         testGetAvailable();
         testUpdateTrusted();
         testExpires();
