@@ -163,4 +163,6 @@ runs:
           --output-folder . \
           --build missing \
           --settings build_type=${{ inputs.configuration }} \
+          --options '&:xrpld=True' \
+          --options '&:tests=True' \
           ..
