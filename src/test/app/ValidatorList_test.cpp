@@ -1183,6 +1183,115 @@ private:
     }
 
     void
+    testCandidateAggregateCap()
+    {
+        testcase("Publisher candidate aggregate cap");
+        using namespace std::chrono_literals;
+
+        struct Publisher
+        {
+            PublicKey master;
+            std::pair<PublicKey, SecretKey> signing;
+            std::string manifest;
+        };
+
+        auto makePublisher = []() {
+            auto const masterSecret = randomSecretKey();
+            auto const master = derivePublicKey(KeyType::ed25519, masterSecret);
+            auto signing = randomKeyPair(KeyType::secp256k1);
+            auto manifest = base64_encode(makeManifestString(
+                master, masterSecret, signing.first, signing.second, 1));
+            return Publisher{master, std::move(signing), std::move(manifest)};
+        };
+
+        std::array<Publisher, 2> const publishers{
+            makePublisher(), makePublisher()};
+        std::array<std::vector<Validator>, 2> candidates;
+        std::vector<PublicKey> candidateMasters;
+        candidateMasters.reserve(1200);
+        for (auto& publisherCandidates : candidates)
+        {
+            publisherCandidates.reserve(600);
+            for (std::size_t i = 0; i < 600; ++i)
+            {
+                auto candidate = randomValidator();
+                candidateMasters.push_back(candidate.masterPublic);
+                publisherCandidates.push_back(std::move(candidate));
+            }
+        }
+        std::sort(candidateMasters.begin(), candidateMasters.end());
+
+        jtx::Env env(*this);
+        auto const validUntil = env.timeKeeper().now() + 1h;
+        auto const listed = randomValidator();
+        std::array<std::string, 2> blobs;
+        std::array<std::string, 2> signatures;
+        for (std::size_t i = 0; i < publishers.size(); ++i)
+        {
+            blobs[i] = makeList(
+                {listed},
+                1,
+                validUntil.time_since_epoch().count(),
+                {},
+                candidates[i]);
+            signatures[i] = signList(blobs[i], publishers[i].signing);
+        }
+
+        auto checkOrder = [&](std::array<std::size_t, 2> const& order) {
+            ManifestCache validatorManifests;
+            ManifestCache publisherManifests;
+            auto trustedKeys = std::make_unique<ValidatorList>(
+                validatorManifests,
+                publisherManifests,
+                env.timeKeeper(),
+                env.app().config().legacy("database_path"),
+                env.journal);
+            BEAST_EXPECT(trustedKeys->load(
+                {},
+                {},
+                std::vector<std::string>{
+                    strHex(publishers[0].master),
+                    strHex(publishers[1].master)}));
+
+            for (auto const i : order)
+            {
+                BEAST_EXPECT(
+                    trustedKeys
+                        ->applyLists(
+                            publishers[i].manifest,
+                            1,
+                            {{blobs[i], signatures[i], {}}},
+                            "testCandidateAggregateCap.test")
+                        .bestDisposition() == ListDisposition::accepted);
+            }
+
+            hash_set<PublicKey> protectedMasters;
+            validatorManifests.for_each_manifest(
+                [&protectedMasters](std::size_t size) {
+                    protectedMasters.reserve(size);
+                },
+                [&protectedMasters](
+                    Manifest const& manifest, ManifestRetention retention) {
+                    if (retention == ManifestRetention::protected_)
+                        protectedMasters.insert(manifest.masterKey);
+                });
+
+            for (std::size_t i = 0; i < candidateMasters.size(); ++i)
+            {
+                auto const& master = candidateMasters[i];
+                auto const policy = trustedKeys->manifestPolicy(master);
+                bool const retained = i < ValidatorList::maxPublisherCandidates;
+                BEAST_EXPECT(policy.publisherCandidate == retained);
+                BEAST_EXPECT(policy.relayEligible() == retained);
+                BEAST_EXPECT(protectedMasters.contains(master) == retained);
+            }
+        };
+
+        checkOrder({0, 1});
+        checkOrder({1, 0});
+    }
+
+    void
     testExpiredPendingAccounting()
     {
         testcase("Expired pending list preserves other publisher counts");
@@ -4497,6 +4606,7 @@ public:
         testConfigLoad();
         testApplyLists();
         testCandidates();
+        testCandidateAggregateCap();
         testExpiredPendingAccounting();
         testGetAvailable();
         testUpdateTrusted();
