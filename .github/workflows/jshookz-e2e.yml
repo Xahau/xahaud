@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: jshookz-e2e-${{ github.ref }}
@@ -143,12 +144,22 @@ jobs:
         run: |
           x-run-tests \
             --compile-hooks src/test/app/JSHooks_test.cpp \
-            --build-type Debug \
+            --build-type Coverage \
             --build-dir build-jshookz-e2e \
             --reconfigure-build \
             --no-ccache \
             -j 2 \
             -- ripple.app.JSHooks
+
+      - name: Upload JSHookz coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: build-jshookz-e2e/coverage/coverage.json
+          fail_ci_if_error: true
+          disable_search: true
+          verbose: true
+          plugins: noop
+          use_oidc: true
 
       - name: Verify the checked-in fixture header is current
         run: git diff --exit-code -- src/test/app/JSHooks_test_hooks.h
