@@ -977,6 +977,10 @@ ValidatorList::applyListsAndBroadcast(
             networkOPs.clearUNLBlocked();
         }
     }
+    else if (disposition == ListDisposition::expired)
+    {
+        networkOPs.setUNLBlocked();
+    }
     bool broadcast = disposition <= ListDisposition::known_sequence;
 
     // this function is only called for PublicKeys which are not specified
@@ -1320,14 +1324,14 @@ ValidatorList::applyList(
     // Update publisher's list
     auto& pubCollection = publisherLists_[pubKey];
     auto const sequence = list[jss::sequence].asUInt();
-    auto const accepted =
+    auto const currentGeneration =
         (result == ListDisposition::accepted ||
          result == ListDisposition::expired);
+    bool const available = result == ListDisposition::accepted;
 
-    if (accepted)
-        pubCollection.status = result == ListDisposition::accepted
-            ? PublisherStatus::available
-            : PublisherStatus::expired;
+    if (currentGeneration)
+        pubCollection.status =
+            available ? PublisherStatus::available : PublisherStatus::expired;
     pubCollection.rawManifest = globalManifest;
     if (!pubCollection.maxSequence || sequence > *pubCollection.maxSequence)
         pubCollection.maxSequence = sequence;
@@ -1336,7 +1340,7 @@ ValidatorList::applyList(
     Json::Value const* const newCandidates =
         list.isMember(jss::candidates) ? &list[jss::candidates] : nullptr;
     std::vector<PublicKey> oldList;
-    if (accepted && pubCollection.remaining.count(sequence) != 0)
+    if (currentGeneration && pubCollection.remaining.count(sequence) != 0)
     {
         // We've seen this list before and stored it in "remaining". The
         // normal expected process is that the processed list would have
@@ -1357,8 +1361,8 @@ ValidatorList::applyList(
     }
     else
     {
-        auto& publisher = accepted ? pubCollection.current
-                                   : pubCollection.remaining[sequence];
+        auto& publisher = currentGeneration ? pubCollection.current
+                                            : pubCollection.remaining[sequence];
         publisher.sequence = sequence;
         publisher.validFrom = TimeKeeper::time_point{TimeKeeper::duration{
             list.isMember(jss::effective) ? list[jss::effective].asUInt() : 0}};
@@ -1560,11 +1564,19 @@ ValidatorList::applyList(
     PublisherListStats const applyResult{
         result, pubKey, pubCollection.status, *pubCollection.maxSequence};
 
-    if (accepted)
+    if (currentGeneration)
     {
+        // An expired generation is retained as newer publisher evidence, but
+        // contributes no effective membership or manifest protection.
+        if (!available)
+        {
+            pubCollection.current.validators.clear();
+            pubCollection.current.candidates.clear();
+        }
         auto const currentMasters = validatorMasters(pubCollection.current);
         updatePublisherList(pubKey, currentMasters, oldList, lock);
-        ingestPublisherManifests(pubKey, pubCollection.current, lock);
+        if (available)
+            ingestPublisherManifests(pubKey, pubCollection.current, lock);
         rebuildPublisherCandidates(lock);
     }
 
@@ -1825,6 +1837,7 @@ ValidatorList::removePublisherList(
     }
 
     iList->second.current.validators.clear();
+    iList->second.current.candidates.clear();
     iList->second.status = reason;
 
     return true;

@@ -696,12 +696,17 @@ private:
 
         checkResult(
             trustedKeys->applyLists(
-                manifest1,
-                version,
-                {{expiredblob, expiredSig, {}}, {blob2, sig2, {}}},
-                siteUri),
+                manifest1, version, {{expiredblob, expiredSig, {}}}, siteUri),
             publisherPublic,
             ListDisposition::expired,
+            ListDisposition::expired);
+        expectUntrusted(lists.at(1));
+
+        checkResult(
+            trustedKeys->applyLists(
+                manifest1, version, {{blob2, sig2, {}}}, siteUri),
+            publisherPublic,
+            ListDisposition::accepted,
             ListDisposition::accepted);
 
         expectTrusted(lists.at(2));
@@ -1277,6 +1282,62 @@ private:
         // not remove publisher B's contribution.
         BEAST_EXPECT(validators->listed(shared.masterPublic));
         BEAST_EXPECT(validators->listed(replacement.masterPublic));
+
+        // Reapplying a pending list after its expiry exercises applyList's
+        // remaining-to-current recovery path rather than updateTrusted.
+        app.getOPs().clearUNLBlocked();
+        auto const expiredOnly = randomValidator();
+        auto const pendingAgain = makeList(
+            {expiredOnly},
+            3,
+            (env.timeKeeper().now() + 20s).time_since_epoch().count(),
+            (env.timeKeeper().now() + 10s).time_since_epoch().count());
+        auto const pendingAgainSig = signList(pendingAgain, publisherA.signing);
+        checkResult(
+            validators->applyLists(
+                publisherA.manifest,
+                2,
+                {{pendingAgain, pendingAgainSig, {}}},
+                siteUri),
+            publisherA.master,
+            ListDisposition::pending,
+            ListDisposition::pending);
+
+        env.timeKeeper().set(env.timeKeeper().now() + 21s);
+        checkResult(
+            validators->applyListsAndBroadcast(
+                publisherA.manifest,
+                2,
+                {{pendingAgain, pendingAgainSig, {}}},
+                siteUri,
+                uint256{},
+                app.overlay(),
+                app.getHashRouter(),
+                app.getOPs()),
+            publisherA.master,
+            ListDisposition::expired,
+            ListDisposition::expired);
+        BEAST_EXPECT(app.getOPs().isUNLBlocked());
+        BEAST_EXPECT(!validators->listed(replacement.masterPublic));
+        BEAST_EXPECT(!validators->listed(expiredOnly.masterPublic));
+        BEAST_EXPECT(validators->listed(shared.masterPublic));
+
+        // Publisher A never contributed expiredOnly. When publisher B moves
+        // away from shared, neither key may survive through phantom counts.
+        auto const replacementB = randomValidator();
+        auto const refreshB = makeList(
+            {replacementB},
+            2,
+            (env.timeKeeper().now() + 1h).time_since_epoch().count());
+        auto const refreshBSig = signList(refreshB, publisherB.signing);
+        checkResult(
+            validators->applyLists(
+                publisherB.manifest, 2, {{refreshB, refreshBSig, {}}}, siteUri),
+            publisherB.master,
+            ListDisposition::accepted,
+            ListDisposition::accepted);
+        BEAST_EXPECT(!validators->listed(shared.masterPublic));
+        BEAST_EXPECT(validators->listed(replacementB.masterPublic));
     }
 
     void
