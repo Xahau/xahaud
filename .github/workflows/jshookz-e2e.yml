@@ -1,0 +1,154 @@
+# End-to-end proof for the external jshookz toolchain and real Xahau Env.
+name: JSHookz end to end
+
+on:
+  push:
+    branches: [jshookz]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jshookz-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JSHOOKZ_REF: 4a62fc3ffcf1946fe01c54e3927ac667b0227a73
+  HOOKZ_REF: 846f5f0f80861985dceb41ad6f02ff914f8a0c3d
+  XAHAUD_SCRIPTS_REF: e41a712c68a613d95a8911cbf89711db2d95aa3b
+  WASI_SDK_VERSION: "32"
+  WASI_SDK_SHA256: 55fc523ebfbc98f69d1034fcfcb83d1ff5610cd9ab7eceef6cd097a30ba4ef93
+  BINARYEN_VERSION: "128"
+  BINARYEN_SHA256: 4ce79586d1c4762502eebe9a1db071fa5e446ef8897f2f766eb1cce5ec6dee9e
+  WASI_SDK_PATH: ${{ github.workspace }}/.tools/wasi-sdk
+  HOOKZ_WASI_SDK: ${{ github.workspace }}/.tools/wasi-sdk
+  BINARYEN_HOME: ${{ github.workspace }}/.tools/binaryen
+  JSHOOKZ_PROVIDER_BUNDLE: ${{ github.workspace }}/.deps/jshookz/build/xahau-provider
+  JSHOOKZ_HOOK_COMPILER: ${{ github.workspace }}/.deps/jshookz/packages/jshookz/.venv/bin/jshookz compile-hook
+  XAHAU_QJS_PROVIDER_WASM: ${{ github.workspace }}/.deps/jshookz/build/xahau-provider/jshookz_provider.wasm
+  XAHAU_REQUIRE_QJS_PROVIDER_TESTS: "1"
+  CC: gcc-13
+  CXX: g++-13
+  CMAKE_BUILD_PARALLEL_LEVEL: "2"
+
+jobs:
+  env-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out Xahau integration
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check out public jshookz
+        uses: actions/checkout@v4
+        with:
+          repository: sublimator/jshookz
+          ref: ${{ env.JSHOOKZ_REF }}
+          path: .deps/jshookz
+          persist-credentials: false
+
+      - name: Check out public hookz
+        uses: actions/checkout@v4
+        with:
+          repository: sublimator/hookz
+          ref: ${{ env.HOOKZ_REF }}
+          path: .deps/hookz
+          persist-credentials: false
+
+      - name: Check out public xahaud-scripts
+        uses: actions/checkout@v4
+        with:
+          repository: sublimator/xahaud-scripts
+          ref: ${{ env.XAHAUD_SCRIPTS_REF }}
+          path: .deps/xahaud-scripts
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install native and TypeScript tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential ccache clang-format-18 cmake curl g++-13 gcc-13 \
+            git ninja-build pkg-config xz-utils
+          sudo ln -sf /usr/bin/clang-format-18 /usr/local/bin/clang-format
+          npm install --global typescript@6.0.3
+          uv python install 3.13
+          uv tool install --python 3.13 conan==2.21.0
+
+      - name: Install wasi-sdk and Binaryen
+        run: |
+          mkdir -p .tools
+          curl --fail --location --retry 3 \
+            --output /tmp/wasi-sdk.tar.gz \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz"
+          echo "$WASI_SDK_SHA256  /tmp/wasi-sdk.tar.gz" | sha256sum --check
+          tar -xzf /tmp/wasi-sdk.tar.gz -C .tools
+          mv ".tools/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux" "$WASI_SDK_PATH"
+
+          curl --fail --location --retry 3 \
+            --output /tmp/binaryen.tar.gz \
+            "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+          echo "$BINARYEN_SHA256  /tmp/binaryen.tar.gz" | sha256sum --check
+          tar -xzf /tmp/binaryen.tar.gz -C .tools
+          mv ".tools/binaryen-version_${BINARYEN_VERSION}" "$BINARYEN_HOME"
+          echo "$BINARYEN_HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Install the Hook toolchain
+        run: |
+          uv sync --project .deps/jshookz/packages/jshookz \
+            --locked --group dev --python 3.13
+          uv tool install --python 3.13 --force --from .deps/hookz hookz
+          uv tool install --python 3.13 --force \
+            --from .deps/xahaud-scripts xahaud-scripts
+          jshookz_cmd=.deps/jshookz/packages/jshookz/.venv/bin/jshookz
+          "$jshookz_cmd" info
+          hookz --version
+          x-run-tests --help >/dev/null
+
+      - name: Build and verify the sealed provider
+        run: |
+          .deps/jshookz/packages/jshookz/.venv/bin/jshookz build provider
+          test -s "$XAHAU_QJS_PROVIDER_WASM"
+          cmp external/quickjs-provider/jshookz_provider.manifest.json \
+            "$JSHOOKZ_PROVIDER_BUNDLE/jshookz_provider.manifest.json"
+          cmp external/quickjs-provider/jshookz_provider.manifest.cmake \
+            "$JSHOOKZ_PROVIDER_BUNDLE/jshookz_provider.manifest.cmake"
+          cp "$XAHAU_QJS_PROVIDER_WASM" \
+            external/quickjs-provider/jshookz_provider.wasm
+
+      - name: Configure Conan for Xahau
+        run: |
+          conan profile detect --force
+          conan remote add --force xrplf https://conan.ripplex.io
+          printf '\n[options]\n&:xrpld=True\n&:tests=True\ndate/*:use_system_tz_db=True\n' \
+            >> "$HOME/.conan2/profiles/default"
+          conan export external/snappy --version 1.1.10 \
+            --user xahaud --channel stable
+          conan export external/soci --version 4.0.3 \
+            --user xahaud --channel stable
+          conan export external/wasmedge --version 0.11.2 \
+            --user xahaud --channel stable
+          conan export external/wasmtime --version 47.0.3 \
+            --user xahaud --channel stable
+
+      - name: Build Xahau and run the authoritative Env suite
+        run: |
+          x-run-tests \
+            --compile-hooks src/test/app/JSHooks_test.cpp \
+            --build-type Debug \
+            --build-dir build-jshookz-e2e \
+            --reconfigure-build \
+            --no-ccache \
+            -j 2 \
+            -- ripple.app.JSHooks
+
+      - name: Verify the checked-in fixture header is current
+        run: git diff --exit-code -- src/test/app/JSHooks_test_hooks.h
