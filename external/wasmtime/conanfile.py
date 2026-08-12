@@ -37,9 +37,9 @@ class WasmtimeConan(ConanFile):
     def package_id(self):
         # Official release archives contain a prebuilt C ABI. Compiler patch
         # versions do not change the packaged bytes.
-        del self.info.settings.compiler.version
         if self.info.settings.compiler == "clang":
             self.info.settings.compiler = "gcc"
+        del self.info.settings.compiler.version
 
     def validate(self):
         try:
