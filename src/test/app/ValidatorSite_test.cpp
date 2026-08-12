@@ -135,7 +135,7 @@ private:
         std::string msg;
         bool ssl;
         bool failFetch = false;
-        bool failApply = false;
+        bool expectUnlisted = false;
         int serverVersion = 1;
         std::chrono::seconds expiresFromNow = detail::default_expires;
         std::chrono::seconds effectiveOverlap =
@@ -252,9 +252,11 @@ private:
             for (auto const& val : u.list)
             {
                 BEAST_EXPECT(
-                    trustedKeys.listed(val.masterPublic) != u.cfg.failApply);
+                    trustedKeys.listed(val.masterPublic) !=
+                    u.cfg.expectUnlisted);
                 BEAST_EXPECT(
-                    trustedKeys.listed(val.signingPublic) != u.cfg.failApply);
+                    trustedKeys.listed(val.signingPublic) !=
+                    u.cfg.expectUnlisted);
             }
 
             Json::Value myStatus;
@@ -570,7 +572,7 @@ public:
                   "Applied 1 expired validator list(s)",
                   ssl,
                   false,
-                  false,
+                  true,
                   1,
                   0s}});
             testFetchList(
@@ -579,7 +581,7 @@ public:
                   "Applied 1 expired validator list(s)",
                   ssl,
                   false,
-                  false,
+                  true,
                   1,
                   0s,
                   -1s}});
