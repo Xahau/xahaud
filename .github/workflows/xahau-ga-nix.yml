@@ -399,6 +399,9 @@ jobs:
       - name: Build (Coverage)
         if: matrix.job_type == 'coverage'
         uses: ./.github/actions/xahau-ga-build
+        env:
+          XAHAU_QJS_PROVIDER_WASM: ${{ github.workspace }}/external/quickjs-provider/jshookz_provider.wasm
+          XAHAU_REQUIRE_QJS_PROVIDER_TESTS: "1"
         with:
           generator: Ninja
           configuration: ${{ matrix.configuration }}
