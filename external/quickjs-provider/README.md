@@ -1,14 +1,14 @@
 # QuickJS provider manifest
 
-These files are generated together by:
+These files are generated together by a jshookz source checkout:
 
 ```sh
-cd quickjs-wasm-compilation/qjs-wasm-py
-uv run qjs-wasm build provider
+uv sync --project packages/jshookz --locked --group dev
+packages/jshookz/.venv/bin/jshookz build provider
 ```
 
-`quickjs_contract.manifest.json` is the verified runtime-profile lock.
-`quickjs_contract.manifest.cmake` is its minimal CMake projection. Xahau checks
+`jshookz_provider.manifest.json` is the verified runtime-profile lock.
+`jshookz_provider.manifest.cmake` is its minimal CMake projection. Xahau checks
 the JSON hash before generating the C++ profile constants, and the runtime
 checks any supplied provider WASM against the projected size and SHA-256.
 
@@ -21,7 +21,7 @@ bundle instead of copying it:
 
 ```sh
 cmake -S . -B build \
-  -DXAHAU_QUICKJS_PROVIDER_BUNDLE_DIR=/path/to/quickjs-wasm-compilation/build/xahau-hook-provider
+  -DXAHAU_QUICKJS_PROVIDER_BUNDLE_DIR=/path/to/jshookz/build/xahau-provider
 ```
 
 CMake reads both generated manifests and, when the provider is present,

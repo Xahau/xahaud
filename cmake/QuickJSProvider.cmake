@@ -7,9 +7,9 @@ get_filename_component(XAHAU_QUICKJS_PROVIDER_BUNDLE_DIR
   ABSOLUTE
   BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(XAHAU_QUICKJS_PROVIDER_MANIFEST
-  "${XAHAU_QUICKJS_PROVIDER_BUNDLE_DIR}/quickjs_contract.manifest.cmake")
+  "${XAHAU_QUICKJS_PROVIDER_BUNDLE_DIR}/jshookz_provider.manifest.cmake")
 set(XAHAU_QUICKJS_PROVIDER_PROFILE_LOCK
-  "${XAHAU_QUICKJS_PROVIDER_BUNDLE_DIR}/quickjs_contract.manifest.json")
+  "${XAHAU_QUICKJS_PROVIDER_BUNDLE_DIR}/jshookz_provider.manifest.json")
 
 if(NOT EXISTS "${XAHAU_QUICKJS_PROVIDER_MANIFEST}")
   message(FATAL_ERROR
