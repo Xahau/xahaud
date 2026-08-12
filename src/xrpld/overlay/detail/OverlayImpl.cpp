@@ -683,7 +683,9 @@ OverlayImpl::onManifests(
             {
                 auto const admission =
                     app_.validatorManifests().applyManifestWithEviction(
-                        std::move(*mo));
+                        std::move(*mo), [this] {
+                            return app_.getValidations().getCurrentNodeKeys();
+                        });
                 acceptedUpdate = admission.acceptedUpdate;
                 result = admission.disposition;
             }

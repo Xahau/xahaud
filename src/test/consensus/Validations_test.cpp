@@ -564,6 +564,10 @@ class Validations_test : public beast::unit_test::suite
         {
             hash_set<PeerID> const expectedKeys = {a.nodeID(), b.nodeID()};
             BEAST_EXPECT(harness.vals().getCurrentNodeIDs() == expectedKeys);
+            hash_set<PeerKey> const expectedSigningKeys = {
+                a.currKey(), b.currKey()};
+            BEAST_EXPECT(
+                harness.vals().getCurrentNodeKeys() == expectedSigningKeys);
         }
 
         harness.clock().advance(3s);
@@ -579,11 +583,16 @@ class Validations_test : public beast::unit_test::suite
         {
             hash_set<PeerID> const expectedKeys = {a.nodeID(), b.nodeID()};
             BEAST_EXPECT(harness.vals().getCurrentNodeIDs() == expectedKeys);
+            hash_set<PeerKey> const expectedSigningKeys = {
+                a.currKey(), b.currKey()};
+            BEAST_EXPECT(
+                harness.vals().getCurrentNodeKeys() == expectedSigningKeys);
         }
 
         // Pass enough time for them to go stale
         harness.clock().advance(harness.parms().validationCURRENT_LOCAL);
         BEAST_EXPECT(harness.vals().getCurrentNodeIDs().empty());
+        BEAST_EXPECT(harness.vals().getCurrentNodeKeys().empty());
     }
 
     void

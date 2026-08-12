@@ -375,15 +375,21 @@ ManifestCache::revoked(PublicKey const& pk) const
 ManifestDisposition
 ManifestCache::applyManifest(Manifest m, ManifestRetention const retention)
 {
-    return applyManifestImpl(std::move(m), retention, false, nullptr);
+    return applyManifestImpl(std::move(m), retention, false, {}, nullptr);
 }
 
 ManifestApplyResult
-ManifestCache::applyManifestWithEviction(Manifest m)
+ManifestCache::applyManifestWithEviction(
+    Manifest m,
+    std::function<hash_set<PublicKey>()> const& currentValidationKeys)
 {
     bool acceptedUpdate = false;
     auto const disposition = applyManifestImpl(
-        std::move(m), ManifestRetention::evictable, true, &acceptedUpdate);
+        std::move(m),
+        ManifestRetention::evictable,
+        true,
+        currentValidationKeys,
+        &acceptedUpdate);
     return {disposition, acceptedUpdate};
 }
 
@@ -392,6 +398,7 @@ ManifestCache::applyManifestImpl(
     Manifest m,
     ManifestRetention const retention,
     bool const mayEvict,
+    std::function<hash_set<PublicKey>()> const& currentValidationKeys,
     bool* const acceptedUpdate)
 {
     if (acceptedUpdate)
@@ -556,6 +563,33 @@ ManifestCache::applyManifestImpl(
         }
     }
 
+    // Signature verification above remains concurrent. Serialize the short
+    // post-verification admission path so racing callers cannot all sample
+    // activity after observing the same eviction permit. This lock is always
+    // acquired before mutex_, and caller code runs with mutex_ released.
+    std::unique_lock<std::mutex> evictionAdmissionLock{
+        evictionAdmissionMutex_, std::defer_lock};
+    if (mayEvict)
+        evictionAdmissionLock.lock();
+
+    bool needsCurrentValidationKeys = false;
+    if (mayEvict)
+    {
+        std::shared_lock sl{mutex_};
+        auto const iter = map_.find(m.masterKey);
+        if (atEvictableCap(iter, sl))
+        {
+            if (!evictionPermitAvailable(sl))
+                return rejectAtUntrustedCap();
+            needsCurrentValidationKeys =
+                static_cast<bool>(currentValidationKeys);
+        }
+    }
+
+    std::optional<hash_set<PublicKey>> activeSigningKeys;
+    if (needsCurrentValidationKeys)
+        activeSigningKeys = currentValidationKeys();
+
     std::unique_lock sl{mutex_};
     auto const iter = map_.find(m.masterKey);
 
@@ -605,10 +639,37 @@ ManifestCache::applyManifestImpl(
             return rejectAtUntrustedCap();
         --evictionPermits_;
 
-        auto victimKey = evictableKeys_.begin();
-        if (evictableKeys_.size() > 1)
-            std::advance(victimKey, rand_int(evictableKeys_.size() - 1));
-        PublicKey const victimMaster = *victimKey;
+        std::optional<PublicKey> dormantVictim;
+        std::size_t dormantSeen = 0;
+        if (activeSigningKeys)
+        {
+            for (auto const& master : evictableKeys_)
+            {
+                auto const candidate = map_.find(master);
+                XRPL_ASSERT(
+                    candidate != map_.end(),
+                    "ripple::ManifestCache::applyManifestImpl : evictable "
+                    "key retained");
+                if (candidate == map_.end())
+                    continue;
+                if (!candidate->second.signingKey ||
+                    !activeSigningKeys->contains(*candidate->second.signingKey))
+                {
+                    ++dormantSeen;
+                    if (dormantSeen == 1 || rand_int(dormantSeen - 1) == 0)
+                        dormantVictim = master;
+                }
+            }
+        }
+
+        PublicKey const victimMaster = [&]() {
+            if (dormantVictim)
+                return *dormantVictim;
+            auto victim = evictableKeys_.begin();
+            if (evictableKeys_.size() > 1)
+                std::advance(victim, rand_int(evictableKeys_.size() - 1));
+            return *victim;
+        }();
 
         auto const victim = map_.find(victimMaster);
         XRPL_ASSERT(

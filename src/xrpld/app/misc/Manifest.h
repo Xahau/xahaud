@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <shared_mutex>
 #include <string>
@@ -73,7 +74,8 @@ namespace ripple {
     Entries admitted as protected, or later reclassified as protected, are not
     capped or evicted. Entries return to the evictable population when their
     protected source disappears. At capacity, an evictable entry is evicted to
-    admit a new valid manifest.
+    admit a new valid manifest, preferring one with no current validation when
+    activity information is available.
 
     When an ephemeral key is compromised, a new signing key pair is created,
     along with a new manifest vouching for it (with a higher sequence number),
@@ -316,9 +318,12 @@ class DatabaseCon;
     manifest cache-new again.
 
     Entries admitted with protected retention, or later reclassified as
-    protected, are outside the eviction population. Other validators are
-    evictable regardless of recent validation activity; tier-2 publisher
-    provenance is the explicit way to protect a monitored candidate.
+    protected, are outside the eviction population. For other validators,
+    recent validation activity is an eviction preference, not a retention
+    guarantee or source of consensus trust. Tier-2 publisher provenance is the
+    explicit way to protect a monitored candidate. This preference makes an
+    actively validating untrusted identity harder to displace than a quiet one;
+    if every evictable identity appears active, selection is uniformly random.
 
     This is not complete adversarial containment. Once full, the cache gives
     valid novel identities a small eviction budget, bounding admitted identity
@@ -341,6 +346,18 @@ private:
 
     beast::Journal j_;
     Now now_;
+
+    /** Serialize post-verification admission of evictable manifests.
+
+        Signature verification remains concurrent. Once verified, evictable
+        admissions pass through this mutex so only the caller that can consume
+        an eviction permit samples activity and selects a victim. When both
+        mutexes are needed, this mutex is acquired before `mutex_`; caller code
+        is never invoked while `mutex_` is held. Manifest jobs use the shared
+        JobQueue worker pool, so work in this section must remain small.
+    */
+    std::mutex evictionAdmissionMutex_;
+
     std::shared_mutex mutable mutex_;
 
     /** Active manifests stored by master public key. */
@@ -377,6 +394,7 @@ private:
         Manifest m,
         ManifestRetention retention,
         bool mayEvict,
+        std::function<hash_set<PublicKey>()> const& currentValidationKeys,
         bool* acceptedUpdate);
 
 public:
@@ -473,16 +491,29 @@ public:
 
     /** Add an untrusted manifest, evicting another at capacity.
 
-        An evictable entry is chosen at random. The candidate is fully
-        verified before eviction.
+        A dormant evictable entry is chosen at random when possible. If every
+        retained evictable signing key has a current validation, any evictable
+        entry may be chosen. The candidate is fully verified before current
+        validations are sampled or an entry is evicted.
+
+        Activity is matched to the manifest's current signing key. Immediately
+        after rotation, an evictable identity appears dormant until a
+        validation from its new key arrives.
 
         @param m Manifest to add
+        @param currentValidationKeys Supplies signing keys with current
+               validations. It is called only when a verified novel manifest
+               needs and is permitted to evict an entry after serialized
+               admission rechecks. If omitted, victim selection is uniformly
+               random. The callback must not re-enter this method.
 
         @return disposition and an atomic indication that an accepted manifest
                 updated an identity retained at admission time
     */
     ManifestApplyResult
-    applyManifestWithEviction(Manifest m);
+    applyManifestWithEviction(
+        Manifest m,
+        std::function<hash_set<PublicKey>()> const& currentValidationKeys = {});
 
     /** Change the retention class of an already cached master.
 
