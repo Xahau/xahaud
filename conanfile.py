@@ -88,6 +88,7 @@ class Xrpl(ConanFile):
         'soci/*:shared': False,
         'soci/*:with_sqlite3': True,
         'soci/*:with_boost': True,
+        'wasmtime/*:shared': False,
         'xxhash/*:shared': False,
     }
 
@@ -121,6 +122,8 @@ class Xrpl(ConanFile):
 
         if self.options.with_wasmedge:
             self.requires('wasmedge/0.11.2@xahaud/stable')
+        if self.options.xrpld:
+            self.requires('wasmtime/47.0.3@xahaud/stable')
         if self.options.jemalloc:
             self.requires('jemalloc/5.3.0')
         if self.options.rocksdb:

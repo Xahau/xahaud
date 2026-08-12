@@ -168,6 +168,7 @@ if(xrpld)
   target_include_directories(rippled
     PRIVATE
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+      $<BUILD_INTERFACE:${XAHAU_QUICKJS_GENERATED_INCLUDE_DIR}>
   )
 
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS
@@ -186,6 +187,7 @@ if(xrpld)
     Ripple::boost
     Ripple::opts
     Ripple::libs
+    wasmtime::wasmtime
     xrpl.libxrpl
     # Workaround for a Conan 1.x bug that prevents static linking of libstdc++
     # when a dependency (snappy) modifies system_libs. See the comment in

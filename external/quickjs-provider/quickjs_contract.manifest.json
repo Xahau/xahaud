@@ -1,0 +1,735 @@
+{
+  "bytecode_abi_id": "2bad0879c48ec590a5587c191619502b831bb6b2b3f6cde8a5d930a20eb88f40",
+  "provider": {
+    "exports": [
+      {
+        "kind": "function",
+        "name": "_initialize",
+        "params": [],
+        "results": []
+      },
+      {
+        "kind": "function",
+        "name": "free",
+        "params": [
+          "i32"
+        ],
+        "results": []
+      },
+      {
+        "kind": "function",
+        "name": "malloc",
+        "params": [
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "memory",
+        "maximum_pages": 512,
+        "memory64": false,
+        "minimum_pages": 4,
+        "name": "memory",
+        "shared": false
+      },
+      {
+        "kind": "function",
+        "name": "qjs_cbak",
+        "params": [
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "qjs_compile",
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "qjs_compile_module",
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "qjs_destroy",
+        "params": [],
+        "results": []
+      },
+      {
+        "kind": "function",
+        "name": "qjs_enable_coverage",
+        "params": [
+          "i32"
+        ],
+        "results": []
+      },
+      {
+        "kind": "function",
+        "name": "qjs_eval",
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "qjs_eval_bytecode",
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "qjs_eval_module",
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "qjs_get_bytecode_len",
+        "params": [],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "qjs_get_bytecode_ptr",
+        "params": [],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "qjs_get_result_len",
+        "params": [],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "qjs_get_result_ptr",
+        "params": [],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "qjs_hook",
+        "params": [
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "qjs_init",
+        "params": [],
+        "results": []
+      },
+      {
+        "kind": "function",
+        "name": "qjs_set_max_stack_size",
+        "params": [
+          "i32"
+        ],
+        "results": []
+      },
+      {
+        "kind": "function",
+        "name": "qjs_set_memory_limit",
+        "params": [
+          "i32"
+        ],
+        "results": []
+      },
+      {
+        "kind": "function",
+        "name": "qjs_set_seed",
+        "params": [
+          "i32"
+        ],
+        "results": []
+      },
+      {
+        "kind": "function",
+        "name": "qjs_validate_hook_module",
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i32"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "wizer.initialize",
+        "params": [],
+        "results": []
+      }
+    ],
+    "imports": [
+      {
+        "module": "env",
+        "name": "accept",
+        "params": [
+          "i32",
+          "i32",
+          "i64"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "emit",
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "etxn_reserve",
+        "params": [
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "hook_account",
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "ledger_last_hash",
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "ledger_last_time",
+        "params": [],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "ledger_seq",
+        "params": [],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "otxn_type",
+        "params": [],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "prepare",
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "rollback",
+        "params": [
+          "i32",
+          "i32",
+          "i64"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "state",
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "state_set",
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "trace",
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      }
+    ],
+    "sha256": "fb544a87204491b5e81ea0ebcb117ad6e03955674a6e31f0e21730aabd7bd086",
+    "size": 1005720
+  },
+  "runtime_profile_id": "a3619f29dbe5d3d3da332736cc56900b73a30ac24d593bba2f190bcc6f7893e5",
+  "schema": "xahau.quickjs.runtime-profile-lock.v1",
+  "source": {
+    "artifact": {
+      "envelope_version": 1,
+      "hook_api_version": 1,
+      "kind": "quickjs-bytecode"
+    },
+    "bytecode_abi": {
+      "quickjs_bytecode_version": 5,
+      "quickjs_version": "2025-09-13",
+      "read_flags": [
+        "JS_READ_OBJ_BYTECODE"
+      ],
+      "root": "es-module",
+      "write_flags": [
+        "JS_WRITE_OBJ_BYTECODE"
+      ]
+    },
+    "engine": {
+      "configuration": {
+        "consume_fuel": true,
+        "cranelift_nan_canonicalization": true,
+        "wasi": false,
+        "wasm_memory64": false,
+        "wasm_multi_memory": false,
+        "wasm_relaxed_simd": false,
+        "wasm_tail_call": false,
+        "wasm_threads": false
+      },
+      "implementation": "wasmtime",
+      "module_lifecycle": "compile-once-fresh-store-and-instance-per-invocation",
+      "version": "47.0.3"
+    },
+    "execution": {
+      "host_adapter_policy": "xahau-raw-hook-host-v1",
+      "host_work_exhaustion": "uncatchable-wasmtime-trap-to-wasm-error",
+      "initialization": "finite-cold-qjs-init-budget-before-invocation-fuel-reset",
+      "ordinary_host_status": "returned-as-i64-never-trapped",
+      "pending_jobs_after_entry": "not-drained",
+      "sfHookInstructionCount": "initial-wasmtime-invocation-fuel-minus-remaining-fuel",
+      "terminals": "record-hook-result-and-uncatchable-wasmtime-trap"
+    },
+    "limits": {
+      "host_work_base_per_call": 1,
+      "host_work_budget": 1000000,
+      "host_work_meter": "base-plus-addressed-byte-v1",
+      "host_work_per_addressed_byte": 1,
+      "quickjs_heap_bytes": 16777216,
+      "quickjs_stack_bytes": 65536,
+      "wasmtime_fuel_per_initialization": 5000000,
+      "wasmtime_fuel_per_invocation": 50000000
+    },
+    "name": "xahau-quickjs-v1",
+    "provider": {
+      "build": {
+        "c_flags": [
+          "-fwrapv",
+          "-funsigned-char",
+          "-mllvm",
+          "-wasm-enable-sjlj"
+        ],
+        "cxx_flags": [
+          "-fno-exceptions",
+          "-fno-rtti",
+          "-mllvm",
+          "-wasm-enable-sjlj"
+        ],
+        "optimization": "O2",
+        "target": "wasm32-wasi",
+        "wasi_sdk": "32",
+        "wasm_memory_max_bytes": 33554432,
+        "wasm_stack_bytes": 131072
+      },
+      "forbidden_import_modules": [
+        "wasi_snapshot_preview1"
+      ],
+      "imports": [
+        {
+          "module": "env",
+          "name": "accept",
+          "params": [
+            "i32",
+            "i32",
+            "i64"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "emit",
+          "params": [
+            "i32",
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "etxn_reserve",
+          "params": [
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "hook_account",
+          "params": [
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "ledger_last_hash",
+          "params": [
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "ledger_last_time",
+          "params": [],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "ledger_seq",
+          "params": [],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "otxn_type",
+          "params": [],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "prepare",
+          "params": [
+            "i32",
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "rollback",
+          "params": [
+            "i32",
+            "i32",
+            "i64"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "state",
+          "params": [
+            "i32",
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "state_set",
+          "params": [
+            "i32",
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "trace",
+          "params": [
+            "i32",
+            "i32",
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        }
+      ],
+      "javascript": {
+        "atomics": false,
+        "date_now": "previous-ledger-close-ripple-epoch-to-unix-milliseconds",
+        "dynamic_eval": "enabled-and-metered",
+        "finalization_registry": false,
+        "math_random": "absent-use-ledger-random-api",
+        "number": "enabled",
+        "promise": "required-for-module-evaluation-no-post-entry-job-drain",
+        "shared_array_buffer": false,
+        "timezone": "UTC",
+        "weak_ref": false
+      },
+      "required_exports": [
+        {
+          "kind": "memory",
+          "maximum_pages": 512,
+          "memory64": false,
+          "minimum_pages": 4,
+          "name": "memory",
+          "shared": false
+        },
+        {
+          "kind": "function",
+          "name": "_initialize",
+          "params": [],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "malloc",
+          "params": [
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "free",
+          "params": [
+            "i32"
+          ],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "qjs_init",
+          "params": [],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "qjs_set_memory_limit",
+          "params": [
+            "i32"
+          ],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "qjs_set_max_stack_size",
+          "params": [
+            "i32"
+          ],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "qjs_compile_module",
+          "params": [
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_get_bytecode_ptr",
+          "params": [],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_get_bytecode_len",
+          "params": [],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_hook",
+          "params": [
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_cbak",
+          "params": [
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_validate_hook_module",
+          "params": [
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_get_result_ptr",
+          "params": [],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_get_result_len",
+          "params": [],
+          "results": [
+            "i32"
+          ]
+        }
+      ]
+    },
+    "schema": "xahau.quickjs.runtime-profile-source.v1"
+  }
+}

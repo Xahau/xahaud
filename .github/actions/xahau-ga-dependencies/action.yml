@@ -145,6 +145,10 @@ runs:
         # Export wasmedge if not already exported
         conan list wasmedge/0.11.2@xahaud/stable 2>/dev/null | (grep -q "not found" && exit 1 || exit 0) || \
           conan export external/wasmedge --version 0.11.2 --user xahaud --channel stable
+
+        # Export the pinned QuickJS runtime backend if not already exported
+        conan list wasmtime/47.0.3@xahaud/stable 2>/dev/null | (grep -q "not found" && exit 1 || exit 0) || \
+          conan export external/wasmtime --version 47.0.3 --user xahaud --channel stable
     - name: Install dependencies
       shell: bash
       env:
