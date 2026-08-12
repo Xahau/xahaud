@@ -19,9 +19,9 @@
 
 #include <xrpld/app/tx/detail/SetHook.h>
 
-#include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/hook/HookWasmEngine.h>
 #include <xrpld/app/hook/QuickJSHookRuntime.h>
+#include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/OpenLedger.h>
@@ -615,8 +615,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     {
                         JLOG(ctx.j.trace())
                             << "HookSet(" << hook::log::WASM_INVALID << ")["
-                            << HS_ACC()
-                            << "]: Invalid QuickJS Hook bytecode: "
+                            << HS_ACC() << "]: Invalid QuickJS Hook bytecode: "
                             << *validationError;
                         return false;
                     }

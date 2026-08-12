@@ -271,7 +271,6 @@ gatherHookParameters(
 #define HR_ACC() hookResult.account << "-" << hookResult.otxnAccount
 #define HC_ACC() hookCtx.result.account << "-" << hookCtx.result.otxnAccount
 
-
 }  // namespace hook
 
 #endif

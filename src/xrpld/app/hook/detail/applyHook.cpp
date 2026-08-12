@@ -603,9 +603,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 using namespace hook::hook_float;
 using hook::Bytes;
 
-
-
-
 bool
 hook::isEmittedTxn(ripple::STTx const& tx)
 {
@@ -631,7 +628,6 @@ hook::computeCreationFee(uint64_t byteCount)
 
     return fee;
 }
-
 
 /* returns true iff every even char is ascii and every odd char is 00
  * only a hueristic, may be inaccurate in edgecases */
@@ -1018,8 +1014,8 @@ hook::apply(
             {
                 hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
                 JLOG(j.warn())
-                    << "HookError[" << HC_ACC() << "]: "
-                    << execution.error.value_or("unknown WASM error");
+                    << "HookError[" << HC_ACC()
+                    << "]: " << execution.error.value_or("unknown WASM error");
             }
             break;
         }
@@ -1054,10 +1050,6 @@ hook::apply(
 
     return hookCtx.result;
 }
-
-
-
-
 
 ripple::TER
 hook::finalizeHookState(
@@ -1316,61 +1308,6 @@ hook::finalizeHookResult(
 
     return tesSUCCESS;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /*
 

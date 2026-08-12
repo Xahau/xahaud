@@ -10,7 +10,10 @@ namespace {
 class Reader
 {
 public:
-    Reader(std::span<std::uint8_t const> bytes, std::size_t begin, std::size_t end)
+    Reader(
+        std::span<std::uint8_t const> bytes,
+        std::size_t begin,
+        std::size_t end)
         : bytes_(bytes), position_(begin), end_(end)
     {
     }
@@ -128,8 +131,7 @@ sameName(std::span<std::uint8_t const> name, char const* expected) noexcept
 bool
 sectionFollowsExports(std::uint8_t id) noexcept
 {
-    return id == 8 || id == 9 || id == 10 || id == 11 || id == 12 ||
-        id == 13;
+    return id == 8 || id == 9 || id == 10 || id == 11 || id == 12 || id == 13;
 }
 
 bool
@@ -220,7 +222,8 @@ ensureHookMemoryExport(std::span<std::uint8_t const> wasm)
         if (id == 2)
         {
             if (!readImports(wasm, payloadStart, payloadEnd, memoryCount))
-                return {{}, "unsupported or invalid WebAssembly import section"};
+                return {
+                    {}, "unsupported or invalid WebAssembly import section"};
         }
         else if (id == 5)
         {
@@ -228,7 +231,8 @@ ensureHookMemoryExport(std::span<std::uint8_t const> wasm)
             auto const count = reader.u32();
             if (!count)
                 return {{}, "invalid WebAssembly memory section"};
-            if (*count > std::numeric_limits<std::uint32_t>::max() - memoryCount)
+            if (*count >
+                std::numeric_limits<std::uint32_t>::max() - memoryCount)
                 return {{}, "WebAssembly memory count overflow"};
             memoryCount += *count;
         }
@@ -254,7 +258,9 @@ ensureHookMemoryExport(std::span<std::uint8_t const> wasm)
                 if (sameName(*name, "memory"))
                 {
                     if (*kind != 2 || *itemIndex != 0)
-                        return {{}, "the `memory` export does not name memory index 0"};
+                        return {
+                            {},
+                            "the `memory` export does not name memory index 0"};
                     hasMemoryExport = true;
                 }
             }
@@ -287,7 +293,8 @@ ensureHookMemoryExport(std::span<std::uint8_t const> wasm)
 
         std::vector<std::uint8_t> result;
         result.reserve(wasm.size() + section.size());
-        result.insert(result.end(), wasm.begin(), wasm.begin() + insertionOffset);
+        result.insert(
+            result.end(), wasm.begin(), wasm.begin() + insertionOffset);
         result.insert(result.end(), section.begin(), section.end());
         result.insert(result.end(), wasm.begin() + insertionOffset, wasm.end());
         return {std::move(result), {}};
@@ -307,7 +314,8 @@ ensureHookMemoryExport(std::span<std::uint8_t const> wasm)
 
     std::vector<std::uint8_t> result;
     result.reserve(wasm.size() + entry.size() + 5);
-    result.insert(result.end(), wasm.begin(), wasm.begin() + *exportSectionStart);
+    result.insert(
+        result.end(), wasm.begin(), wasm.begin() + *exportSectionStart);
     result.push_back(7);
     appendU32(result, static_cast<std::uint32_t>(payload.size()));
     result.insert(result.end(), payload.begin(), payload.end());

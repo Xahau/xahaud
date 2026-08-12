@@ -46,8 +46,7 @@ public:
                     (descriptor.parameters[parameter] ==
                              hook::HookHostValueKind::i32
                          ? WASM_I32
-                         : WASM_I64) ==
-                    expected.parameterKinds[parameter]);
+                         : WASM_I64) == expected.parameterKinds[parameter]);
             }
         }
     }

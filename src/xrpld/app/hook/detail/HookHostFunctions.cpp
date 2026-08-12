@@ -10,8 +10,8 @@ template <class T>
 constexpr HookHostValueKind
 kindOf() noexcept
 {
-    if constexpr (std::is_same_v<T, std::uint32_t> ||
-                  std::is_same_v<T, std::int32_t>)
+    if constexpr (
+        std::is_same_v<T, std::uint32_t> || std::is_same_v<T, std::int32_t>)
         return HookHostValueKind::i32;
     else
         return HookHostValueKind::i64;
@@ -38,12 +38,12 @@ hookHostFunctionCatalogue()
 
 #define HOOK_WRAP_PARAMS(...) __VA_ARGS__
 #define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, GATE) \
-    {                                                                      \
-        #FUNCTION_NAME,                                                    \
-        &hook_api::HostFunction##FUNCTION_NAME,                            \
-        kindsOf<HOOK_WRAP_PARAMS PARAMS_TUPLE>(),                          \
-        kindOf<RETURN_TYPE>(),                                             \
-        GATE,                                                              \
+    {                                                                       \
+        #FUNCTION_NAME,                                                     \
+        &hook_api::HostFunction##FUNCTION_NAME,                             \
+        kindsOf<HOOK_WRAP_PARAMS PARAMS_TUPLE>(),                           \
+        kindOf<RETURN_TYPE>(),                                              \
+        GATE,                                                               \
     },
 
     static std::vector<HookHostFunctionDescriptor> const catalogue = {

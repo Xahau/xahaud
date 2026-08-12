@@ -53,8 +53,8 @@ findFunction(
             context, &instance, name, std::strlen(name), &item) ||
         item.kind != WASMTIME_EXTERN_FUNC)
     {
-        error = std::string{"missing QuickJS provider function export: "} +
-            name;
+        error =
+            std::string{"missing QuickJS provider function export: "} + name;
         return false;
     }
     result = item.of.func;
@@ -111,16 +111,13 @@ readDiagnostic(
             pointerFunction,
             ignored) ||
         !findFunction(
-            context,
-            instance,
-            "qjs_get_result_len",
-            lengthFunction,
-            ignored))
+            context, instance, "qjs_get_result_len", lengthFunction, ignored))
         return {};
 
     wasmtime_val_t pointerResult[1];
     wasmtime_val_t lengthResult[1];
-    if (!call(context, pointerFunction, nullptr, 0, pointerResult, 1, ignored) ||
+    if (!call(
+            context, pointerFunction, nullptr, 0, pointerResult, 1, ignored) ||
         !call(context, lengthFunction, nullptr, 0, lengthResult, 1, ignored))
         return {};
 
@@ -204,15 +201,14 @@ validateQuickJSBytecode(
 
     wasmtime_val_t limit[1] = {
         {.kind = WASMTIME_I32,
-         .of = {
-             .i32 = static_cast<std::int32_t>(runtime->profile.heapBytes)}}};
+         .of = {.i32 = static_cast<std::int32_t>(runtime->profile.heapBytes)}}};
     if (!callExport("qjs_set_memory_limit", limit, 1, nullptr, 0))
         return error;
     limit[0].of.i32 = static_cast<std::int32_t>(runtime->profile.stackBytes);
     if (!callExport("qjs_set_max_stack_size", limit, 1, nullptr, 0))
         return error;
-    if (auto* fuelError = wasmtime_context_set_fuel(
-            context, runtime->profile.invocationFuel))
+    if (auto* fuelError =
+            wasmtime_context_set_fuel(context, runtime->profile.invocationFuel))
         return takeError(fuelError);
 
     wasmtime_val_t allocateArgument[1] = {
@@ -221,8 +217,7 @@ validateQuickJSBytecode(
     wasmtime_val_t allocateResult[1];
     if (!callExport("malloc", allocateArgument, 1, allocateResult, 1))
         return error;
-    auto const pointer =
-        static_cast<std::uint32_t>(allocateResult[0].of.i32);
+    auto const pointer = static_cast<std::uint32_t>(allocateResult[0].of.i32);
 
     wasmtime_extern_t memoryExport;
     if (!wasmtime_instance_export_get(
@@ -232,8 +227,8 @@ validateQuickJSBytecode(
     HookGuestMemory memory{
         wasmtime_memory_data(context, &memoryExport.of.memory),
         wasmtime_memory_data_size(context, &memoryExport.of.memory)};
-    auto destination = memory.write(
-        pointer, static_cast<std::uint32_t>(bytecode.size()));
+    auto destination =
+        memory.write(pointer, static_cast<std::uint32_t>(bytecode.size()));
     if (!destination)
         return "QuickJS validation bytecode copy was out of bounds";
     std::copy(bytecode.begin(), bytecode.end(), destination->begin());
@@ -244,14 +239,12 @@ validateQuickJSBytecode(
         {.kind = WASMTIME_I32,
          .of = {.i32 = static_cast<std::int32_t>(bytecode.size())}}};
     wasmtime_val_t result[1];
-    if (!callExport(
-            "qjs_validate_hook_module", arguments, 2, result, 1))
+    if (!callExport("qjs_validate_hook_module", arguments, 2, result, 1))
         return error;
     auto const flags = result[0].of.i32;
     if (flags != 1 && flags != 3)
     {
-        auto detail =
-            readDiagnostic(context, instance, memoryExport.of.memory);
+        auto detail = readDiagnostic(context, instance, memoryExport.of.memory);
         return detail.empty() ? "QuickJS Hook bytecode validation failed"
                               : detail;
     }

@@ -25,8 +25,7 @@ struct WasmEdgeVM
         configuration = WasmEdge_ConfigureCreate();
         if (!configuration)
             return;
-        WasmEdge_ConfigureStatisticsSetInstructionCounting(
-            configuration, true);
+        WasmEdge_ConfigureStatisticsSetInstructionCounting(configuration, true);
         vm = WasmEdge_VMCreate(configuration, nullptr);
     }
 
@@ -67,8 +66,9 @@ legacyWrite(
     std::span<std::uint8_t const> bytes) noexcept
 {
     auto* memory = static_cast<WasmEdge_MemoryInstanceContext*>(context);
-    return memory && WasmEdge_ResultOK(WasmEdge_MemoryInstanceSetData(
-                         memory, bytes.data(), offset, bytes.size()));
+    return memory &&
+        WasmEdge_ResultOK(WasmEdge_MemoryInstanceSetData(
+            memory, bytes.data(), offset, bytes.size()));
 }
 
 WasmEdge_Result
@@ -81,18 +81,16 @@ bridgeHostFunction(
     auto* bridge = static_cast<BridgeData*>(data);
     auto const& descriptor = *bridge->descriptor;
 
-    auto* memoryContext =
-        WasmEdge_CallingFrameGetMemoryInstance(frame, 0);
+    auto* memoryContext = WasmEdge_CallingFrameGetMemoryInstance(frame, 0);
     std::uint8_t* memoryData = nullptr;
     std::size_t memorySize = 0;
     if (memoryContext)
     {
         memoryData = WasmEdge_MemoryInstanceGetPointer(memoryContext, 0, 0);
-        memorySize = WasmEdge_MemoryInstanceGetPageSize(memoryContext) *
-            wasmPageSize;
+        memorySize =
+            WasmEdge_MemoryInstanceGetPageSize(memoryContext) * wasmPageSize;
     }
-    HookGuestMemory memory{
-        memoryData, memorySize, memoryContext, &legacyWrite};
+    HookGuestMemory memory{memoryData, memorySize, memoryContext, &legacyWrite};
 
     XRPL_ASSERT(
         descriptor.parameters.size() <= maxHookHostParameters,
@@ -145,9 +143,7 @@ public:
             return "Could not create WASMEDGE instance";
 
         auto result = WasmEdge_VMLoadWasmFromBuffer(
-            engine.vm,
-            static_cast<std::uint8_t const*>(wasm),
-            length);
+            engine.vm, static_cast<std::uint8_t const*>(wasm), length);
         if (auto error = wasmError("VMLoadWasmFromBuffer failed", result))
             return error;
 
@@ -166,11 +162,9 @@ public:
     {
         static auto const envName = WasmEdge_StringCreateByCString("env");
         static auto const tableName = WasmEdge_StringCreateByCString("table");
-        static auto const memoryName =
-            WasmEdge_StringCreateByCString("memory");
+        static auto const memoryName = WasmEdge_StringCreateByCString("memory");
         static auto const hookName = WasmEdge_StringCreateByCString("hook");
-        static auto const callbackName =
-            WasmEdge_StringCreateByCString("cbak");
+        static auto const callbackName = WasmEdge_StringCreateByCString("cbak");
         static auto* tableType = WasmEdge_TableTypeCreate(
             WasmEdge_RefType_FuncRef,
             {.HasMax = true, .Shared = false, .Min = 10, .Max = 20});
@@ -194,10 +188,7 @@ public:
             auto* functionType = WasmEdge_FunctionTypeCreate(
                 parameters.data(), parameters.size(), &resultType, 1);
             auto* function = WasmEdge_FunctionInstanceCreate(
-                functionType,
-                &bridgeHostFunction,
-                &bridgeData.back(),
-                0);
+                functionType, &bridgeHostFunction, &bridgeData.back(), 0);
             WasmEdge_FunctionTypeDelete(functionType);
 
             auto name = WasmEdge_StringCreateByCString(descriptor.name);
@@ -206,17 +197,13 @@ public:
         }
 
         WasmEdge_ModuleInstanceAddTable(
-            imports,
-            tableName,
-            WasmEdge_TableInstanceCreate(tableType));
+            imports, tableName, WasmEdge_TableInstanceCreate(tableType));
         WasmEdge_ModuleInstanceAddMemory(
-            imports,
-            memoryName,
-            WasmEdge_MemoryInstanceCreate(memoryType));
+            imports, memoryName, WasmEdge_MemoryInstanceCreate(memoryType));
 
-        JLOG(journal.trace()) << "HookInfo[" << hookContext.result.account
-                              << "-" << hookContext.result.otxnAccount
-                              << "]: creating wasm instance";
+        JLOG(journal.trace())
+            << "HookInfo[" << hookContext.result.account << "-"
+            << hookContext.result.otxnAccount << "]: creating wasm instance";
         WasmEdge_LogOff();
 
         WasmEdgeVM engine;

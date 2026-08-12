@@ -331,16 +331,11 @@ void ledger.sequence;
                 ter(temMALFORMED));
             identityEnv(
                 jtx::hook(
-                    alice,
-                    {{hsoVersioned(nonCallableEntriesCode, 1)}},
-                    0),
+                    alice, {{hsoVersioned(nonCallableEntriesCode, 1)}}, 0),
                 fee(XRP(10)),
                 ter(temMALFORMED));
             identityEnv(
-                jtx::hook(
-                    alice,
-                    {{hsoVersioned(hostInitializingCode, 1)}},
-                    0),
+                jtx::hook(alice, {{hsoVersioned(hostInitializingCode, 1)}}, 0),
                 fee(XRP(10)),
                 ter(temMALFORMED));
 
@@ -471,8 +466,7 @@ void ledger.sequence;
         {
             hook::ScopedHookWasmEngineForTests useWasmtime{
                 hook::HookWasmEngineKind::wasmtime};
-            env(
-                jtx::hook(alice, {{seedHook}}, 0),
+            env(jtx::hook(alice, {{seedHook}}, 0),
                 fee(XRP(10)),
                 ter(tesSUCCESS));
             env.close();
@@ -501,8 +495,7 @@ void ledger.sequence;
 
         auto const wasmtimeMeta = env.meta();
         BEAST_EXPECT(!!wasmtimeMeta);
-        if (!wasmtimeMeta ||
-            !wasmtimeMeta->isFieldPresent(sfHookExecutions))
+        if (!wasmtimeMeta || !wasmtimeMeta->isFieldPresent(sfHookExecutions))
             return;
         auto const wasmtimeExecutions =
             wasmtimeMeta->getFieldArray(sfHookExecutions);
@@ -513,8 +506,7 @@ void ledger.sequence;
         BEAST_EXPECT(
             wasmtimeExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
-        BEAST_EXPECT(
-            wasmtimeExecution.getFieldU64(sfHookInstructionCount) > 0);
+        BEAST_EXPECT(wasmtimeExecution.getFieldU64(sfHookInstructionCount) > 0);
 
         testcase("Match C Hook effects through WasmEdge and Wasmtime");
         Env wasmEdgeEnv{*this, features | featureJSHooks};
@@ -530,16 +522,13 @@ void ledger.sequence;
             wasmEdgeEnv.close();
 
             wasmEdgeEnv(
-                pay(bob, alice, XRP(1)),
-                fee(XRP(100)),
-                ter(tesSUCCESS));
+                pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
             wasmEdgeEnv.close();
         }
 
         auto const wasmEdgeMeta = wasmEdgeEnv.meta();
         BEAST_EXPECT(!!wasmEdgeMeta);
-        if (!wasmEdgeMeta ||
-            !wasmEdgeMeta->isFieldPresent(sfHookExecutions))
+        if (!wasmEdgeMeta || !wasmEdgeMeta->isFieldPresent(sfHookExecutions))
             return;
         auto const wasmEdgeExecutions =
             wasmEdgeMeta->getFieldArray(sfHookExecutions);
@@ -557,15 +546,13 @@ void ledger.sequence;
         BEAST_EXPECT(
             wasmEdgeExecution.getFieldVL(sfHookReturnString) ==
             wasmtimeExecution.getFieldVL(sfHookReturnString));
-        BEAST_EXPECT(
-            wasmEdgeExecution.getFieldU64(sfHookInstructionCount) > 0);
+        BEAST_EXPECT(wasmEdgeExecution.getFieldU64(sfHookInstructionCount) > 0);
 
         auto const wasmEdgeState = wasmEdgeEnv.le(stateKeylet);
         BEAST_EXPECT(!!wasmEdgeState);
         if (!wasmEdgeState)
             return;
-        BEAST_EXPECT(
-            wasmEdgeState->getFieldVL(sfHookStateData) == seededData);
+        BEAST_EXPECT(wasmEdgeState->getFieldVL(sfHookStateData) == seededData);
 
         testcase("Read Wasmtime C Hook state from TypeScript and replace it");
 
@@ -687,8 +674,7 @@ void ledger.sequence;
         BEAST_EXPECT(!!callbackDefinition);
         if (!callbackDefinition)
             return;
-        BEAST_EXPECT(
-            callbackDefinition->isFieldPresent(sfHookCallbackFee));
+        BEAST_EXPECT(callbackDefinition->isFieldPresent(sfHookCallbackFee));
 
         callbackEnv(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
         auto const parentMetadata = callbackEnv.meta();
@@ -717,8 +703,8 @@ void ledger.sequence;
             return;
         BEAST_EXPECT(emittedTransaction->getTxnType() == ttACCOUNT_SET);
         BEAST_EXPECT(emittedTransaction->isFieldPresent(sfEmitDetails));
-        BEAST_EXPECT(isTesSuccess(
-            emittedMetadata->getFieldU8(sfTransactionResult)));
+        BEAST_EXPECT(
+            isTesSuccess(emittedMetadata->getFieldU8(sfTransactionResult)));
         BEAST_EXPECT(emittedMetadata->isFieldPresent(sfHookExecutions));
         if (!emittedMetadata->isFieldPresent(sfHookExecutions))
             return;
@@ -731,8 +717,7 @@ void ledger.sequence;
         BEAST_EXPECT(
             callbackExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
-        BEAST_EXPECT(
-            callbackExecution.getFieldU64(sfHookReturnCode) == 202);
+        BEAST_EXPECT(callbackExecution.getFieldU64(sfHookReturnCode) == 202);
         auto const callbackMessage =
             callbackExecution.getFieldVL(sfHookReturnString);
         BEAST_EXPECT(
@@ -746,8 +731,8 @@ void ledger.sequence;
                  0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
                  0x00U, 0x00U, 0x00U, 0x00U, 'c',   'b',   'a',   'k'})
                 .data());
-        auto const callbackState = callbackEnv.le(keylet::hookState(
-            alice.id(), callbackKey, uint256{beast::zero}));
+        auto const callbackState = callbackEnv.le(
+            keylet::hookState(alice.id(), callbackKey, uint256{beast::zero}));
         BEAST_EXPECT(!!callbackState);
         if (!callbackState)
             return;

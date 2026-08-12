@@ -144,8 +144,8 @@ def render_source(items: list[dict]) -> bytes:
 
 def render_header(wasm: bytes, items: list[dict]) -> bytes:
     values = []
-    for offset in range(0, len(wasm), 12):
-        chunk = ", ".join(f"0x{value:02X}U" for value in wasm[offset : offset + 12])
+    for offset in range(0, len(wasm), 11):
+        chunk = ", ".join(f"0x{value:02X}U" for value in wasm[offset : offset + 11])
         values.append(f"    {chunk},")
     names = [f'    "{item["name"]}",' for item in items]
     text = [
