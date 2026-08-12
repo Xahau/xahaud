@@ -6,7 +6,7 @@
 #include <xrpl/basics/Blob.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/hook/Enum.h>
-#include <xrpl/hook/Macro.h>
+#include <xrpld/app/hook/HookMacros.h>
 #include <xrpl/hook/Misc.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/TER.h>
