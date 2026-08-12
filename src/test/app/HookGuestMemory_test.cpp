@@ -15,6 +15,8 @@ public:
         std::array<std::uint8_t, 8> bytes{};
         hook::HookGuestMemory memory{bytes.data(), bytes.size()};
 
+        BEAST_EXPECT(memory.valid());
+        BEAST_EXPECT(memory.data() == bytes.data());
         BEAST_EXPECT(memory.contains(0, 0));
         BEAST_EXPECT(memory.contains(7, 1));
         BEAST_EXPECT(!memory.contains(8, 0));
@@ -38,6 +40,32 @@ public:
         auto rejected = memory.write(7, 2);
         BEAST_EXPECT(!rejected);
         BEAST_EXPECT(bytes == before);
+
+        testcase("Legacy write compatibility");
+        std::array<std::uint8_t, 2> source{9, 8};
+        BEAST_EXPECT(memory.legacyWrite(
+            6, std::span<std::uint8_t const>{source.data(), source.size()}));
+        BEAST_EXPECT(bytes[6] == 9 && bytes[7] == 8);
+        BEAST_EXPECT(memory.legacyWrite(
+            8, std::span<std::uint8_t const>{source.data(), 0}));
+        BEAST_EXPECT(memory.legacyWrite(8, std::span<std::uint8_t const>{}));
+        BEAST_EXPECT(!memory.legacyWrite(
+            7, std::span<std::uint8_t const>{source.data(), source.size()}));
+
+        hook::HookGuestMemory writerFailure{
+            bytes.data(),
+            bytes.size(),
+            nullptr,
+            +[](void*, std::uint32_t, std::span<std::uint8_t const>) noexcept {
+                return false;
+            }};
+        BEAST_EXPECT(!writerFailure.legacyWrite(
+            bytes.size(), std::span<std::uint8_t const>{}));
+
+        hook::HookGuestMemory empty{nullptr, 0};
+        BEAST_EXPECT(!empty.valid());
+        BEAST_EXPECT(!empty.legacyWrite(
+            0, std::span<std::uint8_t const>{source.data(), 0}));
     }
 };
 

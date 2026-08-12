@@ -36,12 +36,12 @@ quickJSArtifact(std::vector<std::uint8_t> const& payload = {'a', 'b', 'c'})
     result[14] = static_cast<std::uint8_t>(length >> 8);
     result[15] = static_cast<std::uint8_t>(length);
     std::copy(
-        hook::artifact::prototypeBytecodeABI.begin(),
-        hook::artifact::prototypeBytecodeABI.end(),
+        hook::artifact::quickJSBytecodeABI.begin(),
+        hook::artifact::quickJSBytecodeABI.end(),
         result.begin() + 16);
     std::copy(
-        hook::artifact::prototypeRuntimeProfile.begin(),
-        hook::artifact::prototypeRuntimeProfile.end(),
+        hook::artifact::quickJSRuntimeProfile.begin(),
+        hook::artifact::quickJSRuntimeProfile.end(),
         result.begin() + 48);
     std::copy(payload.begin(), payload.end(), result.begin() + 80);
     return result;
@@ -75,7 +75,7 @@ public:
         {
             BEAST_EXPECT(parsed->kind == hook::artifact::Kind::quickJSBytecode);
             BEAST_EXPECT(parsed->hookApiVersion == 1);
-            BEAST_EXPECT(hook::artifact::isPrototypeQuickJS(*parsed));
+            BEAST_EXPECT(hook::artifact::isCurrentQuickJS(*parsed));
             BEAST_EXPECT(parsed->payload.size() == 3);
             BEAST_EXPECT(parsed->payload[0] == 'a');
         }
