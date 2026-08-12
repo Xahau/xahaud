@@ -19,10 +19,12 @@
 
 #ifndef RIPPLE_APP_MAIN_APPLICATION_H_INCLUDED
 #define RIPPLE_APP_MAIN_APPLICATION_H_INCLUDED
+#include <xrpld/app/misc/DomainTrustAnchor.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/overlay/PeerReservationTable.h>
 #include <xrpld/shamap/FullBelowCache.h>
 #include <xrpld/shamap/TreeNodeCache.h>
+#include <xrpl/basics/Slice.h>
 #include <xrpl/basics/TaggedCache.h>
 #include <xrpl/beast/utility/PropertyStream.h>
 #include <xrpl/protocol/Protocol.h>
@@ -30,6 +32,7 @@
 #include <boost/program_options.hpp>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 namespace ripple {
 
@@ -271,13 +274,30 @@ public:
 
     virtual const std::optional<uint256>&
     trapTxID() const = 0;
+
+    /** Immutable domain WebPKI trust anchor for this Application instance.
+     *
+     * Fixed at construction. Production binaries always receive the
+     * CMake-embedded ISRG Root X1. Unit-test Env may inject a private
+     * test root; there is no runtime selector.
+     */
+    virtual DomainTrustAnchor
+    domainTrustAnchor() const = 0;
 };
 
+/** Construct an Application.
+ *
+ * @param domainTrustRootDer optional root certificate DER. When omitted,
+ *        the production ISRG Root X1 is used. When provided (jtx only),
+ *        that exact DER is owned by the Application for its lifetime.
+ *        Not selectable via config, RPC, or environment.
+ */
 std::unique_ptr<Application>
 make_Application(
     std::unique_ptr<Config> config,
     std::unique_ptr<Logs> logs,
-    std::unique_ptr<TimeKeeper> timeKeeper);
+    std::unique_ptr<TimeKeeper> timeKeeper,
+    std::optional<Slice> domainTrustRootDer = std::nullopt);
 
 }  // namespace ripple
 

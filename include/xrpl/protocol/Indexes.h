@@ -328,6 +328,18 @@ xChainCreateAccountClaimID(STXChainBridge const& bridge, std::uint64_t seq);
 Keylet
 did(AccountID const& account) noexcept;
 
+/** Stable validator identity indexed by master public key. */
+Keylet
+validator(PublicKey const& masterKey) noexcept;
+
+/** Current signing-key to validator-master reverse lookup. */
+Keylet
+validatorManifest(PublicKey const& signingKey) noexcept;
+
+/** Certified validator-domain binding indexed by normalized domain bytes. */
+Keylet
+validatorDomain(Slice const& normalizedDomain) noexcept;
+
 Keylet
 oracle(AccountID const& account, std::uint32_t const& documentID) noexcept;
 

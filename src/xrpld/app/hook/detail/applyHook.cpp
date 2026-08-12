@@ -2,6 +2,7 @@
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
@@ -569,6 +570,32 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttPERMISSIONED_DOMAIN_SET:
         case ttPERMISSIONED_DOMAIN_DELETE: {
             // TODO: Implement if needed
+            break;
+        }
+        case ttVALIDATOR_MANIFEST_SET: {
+            // The outer Account is handled as the originating hook account.
+            // If the validator master also names an AccountRoot, that account
+            // is an additional strong stakeholder in its identity update.
+            auto const manifest = deserializeManifest(
+                tx.getFieldVL(sfManifest),
+                beast::Journal(beast::Journal::getNullSink()));
+            if (manifest)
+            {
+                auto const validator = calcAccountID(manifest->masterKey);
+                if (rv.exists(keylet::account(validator)))
+                    ADD_TSH(validator, tshSTRONG);
+            }
+            break;
+        }
+        case ttVALIDATOR_DOMAIN_SET: {
+            auto const bytes = tx.getFieldVL(sfValidatorPublicKey);
+            if (publicKeyType(makeSlice(bytes)))
+            {
+                auto const validator =
+                    calcAccountID(PublicKey{makeSlice(bytes)});
+                if (rv.exists(keylet::account(validator)))
+                    ADD_TSH(validator, tshSTRONG);
+            }
             break;
         }
         case ttREMARKS_SET: {

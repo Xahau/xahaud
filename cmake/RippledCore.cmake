@@ -162,12 +162,31 @@ target_link_modules(xrpl PUBLIC
 
 if(xrpld)
   add_executable(rippled)
+
+  set(validator_identity_root
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/certificates/isrg-root-x1.der")
+  set(validator_identity_root_header
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/xrpld/app/tx/detail/ValidatorIdentityRoot.h")
+  add_custom_command(
+    OUTPUT "${validator_identity_root_header}"
+    COMMAND "${CMAKE_COMMAND}"
+      -DINPUT=${validator_identity_root}
+      -DOUTPUT=${validator_identity_root_header}
+      -DSYMBOL=isrgRootX1Der
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBinary.cmake"
+    DEPENDS
+      "${validator_identity_root}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBinary.cmake"
+    VERBATIM)
+  target_sources(rippled PRIVATE "${validator_identity_root_header}")
+
   if(tests)
     target_compile_definitions(rippled PUBLIC ENABLE_TESTS)
   endif()
   target_include_directories(rippled
     PRIVATE
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
   )
 
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS

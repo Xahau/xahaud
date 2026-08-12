@@ -6206,6 +6206,26 @@ private:
         pass();
     }
 
+    void
+    testValidatorManifestSetTSH(FeatureBitset features)
+    {
+        testcase("validator manifest set tsh");
+
+        // Required by the macro-generated transaction dispatcher. Protocol-
+        // specific veto coverage is in ValidatorIdentityHook_test.
+        pass();
+    }
+
+    void
+    testValidatorDomainSetTSH(FeatureBitset features)
+    {
+        testcase("validator domain set tsh");
+
+        // Required by the macro-generated transaction dispatcher. Protocol-
+        // specific veto coverage is in ValidatorIdentityHook_test.
+        pass();
+    }
+
     // | otxn | tfBurnable | tsh |   mint |  burn  |  buy  |  sell  | cancel
     // |   O  |    false   |  O  |   N/A  |   S    |  N/A  |   S    |   S
     // |   O  |    false   |  I  |   N/A  |   N    |  N/A  |   W    |   N/A

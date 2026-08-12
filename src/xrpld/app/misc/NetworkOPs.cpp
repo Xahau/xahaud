@@ -33,6 +33,7 @@
 #include <xrpld/app/misc/DeliverMax.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/StateAccounting.h>
 #include <xrpld/app/misc/Transaction.h>
@@ -1390,8 +1391,60 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
 
             if (e.applied)
             {
-                pubProposedTransaction(
-                    newOL, e.transaction->getSTransaction(), e.result);
+                auto const& sttx = e.transaction->getSTransaction();
+                // Some tec results still consume fee and sequence, but
+                // must not activate live identity state. Only a fully
+                // successful carrier transaction may update ManifestCache.
+                if (sttx->getTxnType() == ttVALIDATOR_MANIFEST_SET &&
+                    isTesSuccess(e.result))
+                {
+                    // Manifest-first activation begins only after the carrier
+                    // transaction has passed normal admission and changed the
+                    // open ledger. The transaction remains the transport;
+                    // this updates the same bounded live cache used by legacy
+                    // manifest receipt and deliberately does not persist the
+                    // provisional observation.
+                    if (auto manifest = deserializeManifest(
+                            sttx->getFieldVL(sfManifest), m_journal))
+                    {
+                        auto const master = manifest->masterKey;
+                        auto const policy =
+                            app_.validators().manifestPolicy(master);
+                        ManifestDisposition disposition;
+                        if (policy.relayEligible())
+                        {
+                            disposition =
+                                app_.validatorManifests().applyManifest(
+                                    std::move(*manifest),
+                                    ManifestRetention::protected_);
+                        }
+                        else
+                        {
+                            disposition =
+                                app_.validatorManifests()
+                                    .applyManifestWithEviction(
+                                        std::move(*manifest),
+                                        [this] {
+                                            return app_.getValidations()
+                                                .getCurrentNodeKeys();
+                                        })
+                                    .disposition;
+                        }
+
+                        if (disposition == ManifestDisposition::accepted)
+                        {
+                            manifest = deserializeManifest(
+                                sttx->getFieldVL(sfManifest), m_journal);
+                            XRPL_ASSERT(
+                                manifest,
+                                "ripple::NetworkOPsImp::apply : admitted "
+                                "validator manifest deserializes");
+                            pubManifest(*manifest);
+                        }
+                    }
+                }
+
+                pubProposedTransaction(newOL, sttx, e.result);
                 e.transaction->setApplied();
             }
 

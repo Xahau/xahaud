@@ -60,7 +60,8 @@ Env::AppBundle::AppBundle(
     beast::unit_test::suite& suite,
     std::unique_ptr<Config> config,
     std::unique_ptr<Logs> logs,
-    beast::severities::Severity thresh)
+    beast::severities::Severity thresh,
+    std::optional<Slice> domainTrustRootDer)
     : AppBundle()
 {
     using namespace beast::severities;
@@ -80,7 +81,10 @@ Env::AppBundle::AppBundle(
     // Hack so we don't have to call Config::setup
     HTTPClient::initializeSSLContext(*config, debugLog());
     owned = make_Application(
-        std::move(config), std::move(logs), std::move(timeKeeper_));
+        std::move(config),
+        std::move(logs),
+        std::move(timeKeeper_),
+        std::move(domainTrustRootDer));
     app = owned.get();
     app->logs().threshold(thresh);
     if (!app->setup({}))

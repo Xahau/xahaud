@@ -49,6 +49,7 @@
 #include <xrpld/app/rdb/RelationalDatabase.h>
 #include <xrpld/app/rdb/Wallet.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/ValidatorIdentityRoot.h>
 #include <xrpld/core/DatabaseCon.h>
 #include <xrpld/nodestore/DummyScheduler.h>
 #include <xrpld/overlay/Cluster.h>
@@ -58,6 +59,7 @@
 #include <xrpld/perflog/PerfLog.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/shamap/NodeFamily.h>
+#include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/basics/ResolverAsio.h>
 #include <xrpl/basics/random.h>
@@ -70,6 +72,7 @@
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STParsedJSON.h>
+#include <xrpl/protocol/digest.h>
 #include <xrpl/resource/Fees.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -172,6 +175,10 @@ public:
     std::uint64_t const instanceCookie_;
 
     beast::Journal m_journal;
+    // Immutable for Application lifetime; must be declared before members
+    // whose constructors may observe domainTrustAnchor().
+    Buffer const domainTrustRootDer_;
+    uint256 const domainTrustRootSetID_;
     std::unique_ptr<perf::PerfLog> perfLog_;
     Application::MutexType m_masterMutex;
 
@@ -271,7 +278,8 @@ public:
     ApplicationImp(
         std::unique_ptr<Config> config,
         std::unique_ptr<Logs> logs,
-        std::unique_ptr<TimeKeeper> timeKeeper)
+        std::unique_ptr<TimeKeeper> timeKeeper,
+        std::optional<Slice> domainTrustRootDer)
         : BasicApp(numberOfThreads(*config))
         , config_(std::move(config))
         , logs_(std::move(logs))
@@ -282,6 +290,19 @@ public:
                   crypto_prng(),
                   std::numeric_limits<std::uint64_t>::max() - 1))
         , m_journal(logs_->journal("Application"))
+        , domainTrustRootDer_([&]() {
+            // Own a copy of either the injected test root or the
+            // production ISRG Root X1. Fixed for Application lifetime.
+            Slice const root =
+                (domainTrustRootDer && !domainTrustRootDer->empty())
+                ? *domainTrustRootDer
+                : Slice{
+                      validator_identity::isrgRootX1Der.data(),
+                      validator_identity::isrgRootX1Der.size()};
+            return Buffer{root.data(), root.size()};
+        }())
+        , domainTrustRootSetID_(
+              sha512Half(static_cast<Slice>(domainTrustRootDer_)))
 
         // PerfLog must be started before any other threads are launched.
         , perfLog_(perf::make_PerfLog(
@@ -1146,6 +1167,12 @@ public:
     trapTxID() const override
     {
         return trapTxID_;
+    }
+
+    DomainTrustAnchor
+    domainTrustAnchor() const override
+    {
+        return {static_cast<Slice>(domainTrustRootDer_), domainTrustRootSetID_};
     }
 
 private:
@@ -2376,10 +2403,14 @@ std::unique_ptr<Application>
 make_Application(
     std::unique_ptr<Config> config,
     std::unique_ptr<Logs> logs,
-    std::unique_ptr<TimeKeeper> timeKeeper)
+    std::unique_ptr<TimeKeeper> timeKeeper,
+    std::optional<Slice> domainTrustRootDer)
 {
     return std::make_unique<ApplicationImp>(
-        std::move(config), std::move(logs), std::move(timeKeeper));
+        std::move(config),
+        std::move(logs),
+        std::move(timeKeeper),
+        std::move(domainTrustRootDer));
 }
 
 void

@@ -223,6 +223,42 @@ LEDGER_ENTRY(ltURI_TOKEN, 0x0055, URIToken, uri_token, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
+/** Current reverse lookup from a validator signing key to its master key. */
+LEDGER_ENTRY(ltMANIFEST, 0x0056, ValidatorManifest, validator_manifest, ({
+    {sfPublicKey,            soeREQUIRED},
+    {sfValidatorPublicKey,   soeREQUIRED},
+    {sfManifestHash,         soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
+/** Stable validator identity and manifest sequence high-water. */
+LEDGER_ENTRY(ltVALIDATOR, 0x0057, Validator, validator, ({
+    {sfPublicKey,            soeREQUIRED},
+    {sfManifest,             soeREQUIRED},
+    {sfManifestHash,         soeREQUIRED},
+    {sfSequence,             soeREQUIRED},
+    {sfSigningPubKey,        soeOPTIONAL},
+    {sfDomainID,             soeOPTIONAL},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
+/** WebPKI-backed domain-to-validator binding. */
+LEDGER_ENTRY(ltVALIDATOR_DOMAIN, 0x0058, ValidatorDomain, validator_domain, ({
+    {sfDomain,               soeREQUIRED},
+    {sfValidatorPublicKey,   soeREQUIRED},
+    {sfCertificateChain,     soeREQUIRED},
+    {sfDomainSignature,      soeREQUIRED},
+    {sfValidatorMasterSignature, soeREQUIRED},
+    {sfRootSetID,            soeREQUIRED},
+    {sfNotBefore,            soeREQUIRED},
+    {sfNotAfter,             soeREQUIRED},
+    {sfDigest,               soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
 /** A ledger object which describes an account.
 
     \sa keylet::account
@@ -594,4 +630,3 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
 
 #undef EXPAND
 #undef LEDGER_ENTRY_DUPLICATE
-

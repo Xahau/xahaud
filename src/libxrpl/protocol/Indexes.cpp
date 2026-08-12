@@ -91,6 +91,9 @@ enum class LedgerNameSpace : std::uint16_t {
     MPTOKEN = 't',
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
+    VALIDATOR = LEDGER_NAMESPACE2(0x01, 'V'),
+    VALIDATOR_MANIFEST = LEDGER_NAMESPACE2(0x01, 'M'),
+    VALIDATOR_DOMAIN = LEDGER_NAMESPACE2(0x01, 'W'),
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -610,6 +613,27 @@ Keylet
 did(AccountID const& account) noexcept
 {
     return {ltDID, indexHash(LedgerNameSpace::DID, account)};
+}
+
+Keylet
+validator(PublicKey const& masterKey) noexcept
+{
+    return {ltVALIDATOR, indexHash(LedgerNameSpace::VALIDATOR, masterKey)};
+}
+
+Keylet
+validatorManifest(PublicKey const& signingKey) noexcept
+{
+    return {
+        ltMANIFEST, indexHash(LedgerNameSpace::VALIDATOR_MANIFEST, signingKey)};
+}
+
+Keylet
+validatorDomain(Slice const& normalizedDomain) noexcept
+{
+    return {
+        ltVALIDATOR_DOMAIN,
+        indexHash(LedgerNameSpace::VALIDATOR_DOMAIN, normalizedDomain)};
 }
 
 Keylet

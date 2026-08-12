@@ -148,7 +148,8 @@ private:
             beast::unit_test::suite& suite,
             std::unique_ptr<Config> config,
             std::unique_ptr<Logs> logs,
-            beast::severities::Severity thresh);
+            beast::severities::Severity thresh,
+            std::optional<Slice> domainTrustRootDer = std::nullopt);
         ~AppBundle();
     };
 
@@ -177,13 +178,23 @@ public:
      * supported_features_except() to enable all and disable specific features.
      */
     // VFALCO Could wrap the suite::log in a Journal here
+    //
+    // domainTrustRootDer: optional private WebPKI root for ValidatorDomainSet
+    // e2e tests. When set, the test Application is constructed with that
+    // immutable trust anchor; production binaries never pass this.
     Env(beast::unit_test::suite& suite_,
         std::unique_ptr<Config> config,
         FeatureBitset features,
         std::unique_ptr<Logs> logs = nullptr,
-        beast::severities::Severity thresh = beast::severities::kError)
+        beast::severities::Severity thresh = beast::severities::kError,
+        std::optional<Slice> domainTrustRootDer = std::nullopt)
         : test(suite_)
-        , bundle_(suite_, std::move(config), std::move(logs), thresh)
+        , bundle_(
+              suite_,
+              std::move(config),
+              std::move(logs),
+              thresh,
+              std::move(domainTrustRootDer))
         , journal{bundle_.app->journal("Env")}
     {
         memoize(Account::master);

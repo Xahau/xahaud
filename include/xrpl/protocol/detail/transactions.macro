@@ -606,3 +606,25 @@ TRANSACTION(ttUNL_REPORT, 104, UNLReport, ({
     {sfActiveValidator, soeOPTIONAL},
     {sfImportVLKey, soeOPTIONAL},
 }))
+
+/** Publish an existing validator manifest. The outer account only carries and
+  * pays for the internally authorized assertion. */
+TRANSACTION(ttVALIDATOR_MANIFEST_SET, 105, ValidatorManifestSet, ({
+    {sfManifest, soeREQUIRED},
+}))
+
+/** Bind a WebPKI-authenticated domain to a validator master key.
+ *  Outer Account is carrier/payer only. Proof signatures use dedicated
+ *  fields that participate in carrier TxnSignature coverage. */
+TRANSACTION(ttVALIDATOR_DOMAIN_SET, 106, ValidatorDomainSet, ({
+    {sfDomain, soeREQUIRED},
+    {sfValidatorPublicKey, soeREQUIRED},
+    {sfCertificateChain, soeREQUIRED},
+    {sfDomainSignature, soeREQUIRED},
+    {sfValidatorMasterSignature, soeREQUIRED},
+    {sfRootSetID, soeREQUIRED},
+    {sfNotBefore, soeREQUIRED},
+    {sfNotAfter, soeREQUIRED},
+    {sfExpectedDomainHash, soeREQUIRED},
+    {sfExpectedValidatorDomainHash, soeREQUIRED},
+}))

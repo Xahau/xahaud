@@ -77,6 +77,7 @@ XRPL_FEATURE(Clawback,                   Supported::yes, VoteBehavior::DefaultNo
 XRPL_FIX    (RewardClaimFlags,           Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(HookCanEmit,                Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (20250131,                   Supported::yes, VoteBehavior::DefaultYes)
+XRPL_FEATURE(OnlineValidatorIdentity,    Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (XahauV3,                    Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (ReduceImport,               Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(Touch,                      Supported::yes, VoteBehavior::DefaultNo)

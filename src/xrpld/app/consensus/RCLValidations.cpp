@@ -22,6 +22,7 @@
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/consensus/LedgerTiming.h>
@@ -31,11 +32,64 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/chrono.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
 #include <memory>
 #include <mutex>
 #include <thread>
 
 namespace ripple {
+
+namespace {
+
+bool
+loadLedgerManifest(Application& app, PublicKey const& signingKey)
+{
+    auto const ledger = app.getLedgerMaster().getValidatedLedger();
+    if (!ledger || !ledger->rules().enabled(featureOnlineValidatorIdentity))
+        return false;
+
+    auto const reverse = ledger->read(keylet::validatorManifest(signingKey));
+    if (!reverse)
+        return false;
+    auto const masterBytes = reverse->getFieldVL(sfValidatorPublicKey);
+    if (!publicKeyType(makeSlice(masterBytes)))
+        return false;
+    PublicKey const master{makeSlice(masterBytes)};
+
+    auto const validator = ledger->read(keylet::validator(master));
+    if (!validator || !validator->isFieldPresent(sfManifest))
+        return false;
+    auto manifest = deserializeManifest(
+        validator->getFieldVL(sfManifest), app.logs().journal("Manifest"));
+    if (!manifest || !manifest->verify() || manifest->masterKey != master ||
+        !manifest->signingKey || *manifest->signingKey != signingKey ||
+        manifest->hash() != reverse->getFieldH256(sfManifestHash) ||
+        manifest->hash() != validator->getFieldH256(sfManifestHash))
+        return false;
+
+    auto const policy = app.validators().manifestPolicy(master);
+    ManifestDisposition result;
+    if (policy.relayEligible())
+    {
+        result = app.validatorManifests().applyManifest(
+            std::move(*manifest), ManifestRetention::protected_);
+    }
+    else
+    {
+        result = app.validatorManifests()
+                     .applyManifestWithEviction(
+                         std::move(*manifest),
+                         [&app] {
+                             return app.getValidations().getCurrentNodeKeys();
+                         })
+                     .disposition;
+    }
+    return result == ManifestDisposition::accepted ||
+        result == ManifestDisposition::stale;
+}
+
+}  // namespace
 
 RCLValidatedLedger::RCLValidatedLedger(MakeGenesis)
     : ledgerID_{0}, ledgerSeq_{0}, j_{beast::Journal::getNullSink()}
@@ -178,6 +232,12 @@ handleNewValidation(
 
     // Ensure validation is marked as trusted if signer currently trusted
     auto masterKey = app.validators().getTrustedKey(signingKey);
+
+    // Validated state is durable recovery, not a parallel resolver. On a cache
+    // miss, load its exact current manifest into the ordinary bounded cache and
+    // then use the existing listed/trusted APIs.
+    if (!masterKey && loadLedgerManifest(app, signingKey))
+        masterKey = app.validators().getTrustedKey(signingKey);
 
     if (!val->isTrusted() && masterKey)
         val->setTrusted();
