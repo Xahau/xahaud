@@ -2251,13 +2251,20 @@ ValidatorList::updateTrusted(
                     "ripple::ValidatorList::updateTrusted : sequence match");
 
                 bool const expired = current.validUntil <= closeTime;
-                collection.status = expired ? PublisherStatus::expired
-                                            : PublisherStatus::available;
-                auto const currentMasters = expired ? std::vector<PublicKey>{}
-                                                    : validatorMasters(current);
+                collection.status = PublisherStatus::available;
+                if (expired)
+                {
+                    // Preserve the raw list for publisher history, but do not
+                    // retain parsed identities that were never counted in
+                    // keyListings_. A later refresh must not subtract them.
+                    current.validators.clear();
+                    current.candidates.clear();
+                }
+                auto const currentMasters = validatorMasters(current);
 
                 updatePublisherList(pubKey, currentMasters, oldList, lock);
-                ingestPublisherManifests(pubKey, current, lock);
+                if (!expired)
+                    ingestPublisherManifests(pubKey, current, lock);
                 publisherCandidatesDirty = true;
 
                 // Only broadcast the current, which will consequently only

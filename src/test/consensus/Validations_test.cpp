@@ -544,6 +544,49 @@ class Validations_test : public beast::unit_test::suite
     }
 
     void
+    testGetCurrentPublicKeys()
+    {
+        using namespace std::chrono_literals;
+        testcase("Current public keys");
+
+        LedgerHistoryHelper h;
+        Ledger ledgerA = h["a"];
+        Ledger ledgerAC = h["ac"];
+
+        TestHarness harness(h.oracle);
+        Node a = harness.makeNode(), b = harness.makeNode();
+        b.untrust();
+
+        for (auto const& node : {a, b})
+            BEAST_EXPECT(
+                ValStatus::current == harness.add(node.validate(ledgerA)));
+
+        {
+            hash_set<PeerID> const expectedKeys = {a.nodeID(), b.nodeID()};
+            BEAST_EXPECT(harness.vals().getCurrentNodeIDs() == expectedKeys);
+        }
+
+        harness.clock().advance(3s);
+
+        // Change keys and issue partials
+        a.advanceKey();
+        b.advanceKey();
+
+        for (auto const& node : {a, b})
+            BEAST_EXPECT(
+                ValStatus::current == harness.add(node.partial(ledgerAC)));
+
+        {
+            hash_set<PeerID> const expectedKeys = {a.nodeID(), b.nodeID()};
+            BEAST_EXPECT(harness.vals().getCurrentNodeIDs() == expectedKeys);
+        }
+
+        // Pass enough time for them to go stale
+        harness.clock().advance(harness.parms().validationCURRENT_LOCAL);
+        BEAST_EXPECT(harness.vals().getCurrentNodeIDs().empty());
+    }
+
+    void
     testTrustedByLedgerFunctions()
     {
         // Test the Validations functions that calculate a value by ledger ID
@@ -1089,6 +1132,7 @@ class Validations_test : public beast::unit_test::suite
         testOnStale();
         testGetNodesAfter();
         testCurrentTrusted();
+        testGetCurrentPublicKeys();
         testTrustedByLedgerFunctions();
         testExpire();
         testFlush();

@@ -1178,6 +1178,108 @@ private:
     }
 
     void
+    testExpiredPendingAccounting()
+    {
+        testcase("Expired pending list preserves other publisher counts");
+        using namespace std::chrono_literals;
+
+        struct Publisher
+        {
+            PublicKey master;
+            std::pair<PublicKey, SecretKey> signing;
+            std::string manifest;
+        };
+
+        auto makePublisher = []() {
+            auto const masterSecret = randomSecretKey();
+            auto const master = derivePublicKey(KeyType::ed25519, masterSecret);
+            auto signing = randomKeyPair(KeyType::secp256k1);
+            auto manifest = base64_encode(makeManifestString(
+                master, masterSecret, signing.first, signing.second, 1));
+            return Publisher{master, std::move(signing), std::move(manifest)};
+        };
+
+        ManifestCache validatorManifests;
+        ManifestCache publisherManifests;
+        jtx::Env env(*this);
+        auto& app = env.app();
+        auto validators = std::make_unique<ValidatorList>(
+            validatorManifests,
+            publisherManifests,
+            env.timeKeeper(),
+            app.config().legacy("database_path"),
+            env.journal);
+
+        auto const publisherA = makePublisher();
+        auto const publisherB = makePublisher();
+        BEAST_EXPECT(validators->load(
+            {}, {}, {strHex(publisherA.master), strHex(publisherB.master)}));
+
+        auto const shared = randomValidator();
+        auto const replacement = randomValidator();
+        auto const now = env.timeKeeper().now();
+        std::string const siteUri = "expired-pending-accounting.test";
+
+        auto const currentBlob =
+            makeList({shared}, 1, (now + 1h).time_since_epoch().count());
+        auto const currentSig = signList(currentBlob, publisherB.signing);
+        checkResult(
+            validators->applyLists(
+                publisherB.manifest,
+                2,
+                {{currentBlob, currentSig, {}}},
+                siteUri),
+            publisherB.master,
+            ListDisposition::accepted,
+            ListDisposition::accepted);
+        BEAST_EXPECT(validators->listed(shared.masterPublic));
+
+        auto const pendingBlob = makeList(
+            {shared},
+            1,
+            (now + 20s).time_since_epoch().count(),
+            (now + 10s).time_since_epoch().count());
+        auto const pendingSig = signList(pendingBlob, publisherA.signing);
+        checkResult(
+            validators->applyLists(
+                publisherA.manifest,
+                2,
+                {{pendingBlob, pendingSig, {}}},
+                siteUri),
+            publisherA.master,
+            ListDisposition::pending,
+            ListDisposition::pending);
+
+        env.timeKeeper().set(now + 21s);
+        validators->updateTrusted(
+            {},
+            env.timeKeeper().now(),
+            app.getOPs(),
+            app.overlay(),
+            app.getHashRouter());
+        BEAST_EXPECT(app.getOPs().isUNLBlocked());
+        BEAST_EXPECT(validators->listed(shared.masterPublic));
+
+        auto const refreshBlob =
+            makeList({replacement}, 2, (now + 1h).time_since_epoch().count());
+        auto const refreshSig = signList(refreshBlob, publisherA.signing);
+        checkResult(
+            validators->applyLists(
+                publisherA.manifest,
+                2,
+                {{refreshBlob, refreshSig, {}}},
+                siteUri),
+            publisherA.master,
+            ListDisposition::accepted,
+            ListDisposition::accepted);
+
+        // Publisher A never contributed the shared key, so refreshing A must
+        // not remove publisher B's contribution.
+        BEAST_EXPECT(validators->listed(shared.masterPublic));
+        BEAST_EXPECT(validators->listed(replacement.masterPublic));
+    }
+
+    void
     testGetAvailable()
     {
         testcase("GetAvailable");
@@ -4334,6 +4436,7 @@ public:
         testConfigLoad();
         testApplyLists();
         testCandidates();
+        testExpiredPendingAccounting();
         testGetAvailable();
         testUpdateTrusted();
         testExpires();
