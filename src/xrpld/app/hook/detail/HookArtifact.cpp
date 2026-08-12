@@ -4,6 +4,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/hook/detail/QuickJSProviderProfile.h>
 #include <xrpl/hook/HookArtifact.h>
 #include <algorithm>
 #include <array>
@@ -11,6 +12,23 @@
 #include <cstdint>
 
 namespace hook::artifact {
+
+Identity const quickJSBytecodeABI = generated::bytecodeABI;
+Identity const quickJSRuntimeProfile = generated::runtimeProfile;
+Identity const quickJSProviderSHA256 = generated::providerSHA256;
+std::size_t const quickJSProviderSize = generated::providerSize;
+std::uint16_t const quickJSHookApiVersion = generated::hookApiVersion;
+std::uint64_t const quickJSInitializationFuel = generated::initializationFuel;
+std::uint64_t const quickJSInvocationFuel = generated::invocationFuel;
+std::string_view const quickJSHostWorkMeter = generated::hostWorkMeter;
+std::uint64_t const quickJSHostWorkBudget = generated::hostWorkBudget;
+std::uint64_t const quickJSHostWorkBasePerCall = generated::hostWorkBasePerCall;
+std::uint64_t const quickJSHostWorkPerAddressedByte =
+    generated::hostWorkPerAddressedByte;
+std::string_view const quickJSHostAdapterPolicy = generated::hostAdapterPolicy;
+std::uint32_t const quickJSHeapBytes = generated::heapBytes;
+std::uint32_t const quickJSStackBytes = generated::stackBytes;
+
 namespace {
 
 constexpr std::array<std::uint8_t, 4> wasmMagic = {0x00, 0x61, 0x73, 0x6D};
@@ -48,6 +66,15 @@ isZero(Identity const& identity)
 }
 
 }  // namespace
+
+bool
+isCurrentQuickJS(View const& artifact) noexcept
+{
+    return artifact.kind == Kind::quickJSBytecode &&
+        artifact.hookApiVersion == quickJSHookApiVersion &&
+        artifact.bytecodeABI == quickJSBytecodeABI &&
+        artifact.runtimeProfile == quickJSRuntimeProfile;
+}
 
 ripple::Expected<View, Error>
 parse(ripple::Slice code) noexcept

@@ -5,6 +5,7 @@
 #include <xrpl/hook/Enum.h>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <span>
 
 namespace hook {
@@ -19,16 +20,39 @@ class HookGuestMemory
 {
 public:
     using Error = hook_api::hook_return_code;
+    using LegacyWriter = bool (*)(
+        void* context,
+        std::uint32_t offset,
+        std::span<std::uint8_t const> bytes) noexcept;
 
-    HookGuestMemory(std::uint8_t* data, std::size_t size) noexcept
-        : data_(data), size_(size)
+    HookGuestMemory(
+        std::uint8_t* data,
+        std::size_t size,
+        void* legacyWriterContext = nullptr,
+        LegacyWriter legacyWriter = nullptr) noexcept
+        : data_(data)
+        , size_(size)
+        , legacyWriterContext_(legacyWriterContext)
+        , legacyWriter_(legacyWriter)
     {
+    }
+
+    [[nodiscard]] std::uint8_t*
+    data() const noexcept
+    {
+        return data_;
     }
 
     [[nodiscard]] std::size_t
     size() const noexcept
     {
         return size_;
+    }
+
+    [[nodiscard]] bool
+    valid() const noexcept
+    {
+        return data_ != nullptr && size_ != 0;
     }
 
     [[nodiscard]] bool
@@ -56,9 +80,38 @@ public:
         return std::span<std::uint8_t>{data_ + offset, length};
     }
 
+    /** Preserve the legacy Hook macro write contract.
+
+        Unlike contains(), a zero-byte write at exactly the end of memory is
+        permitted. WasmEdge supplies its native SetData operation so the
+        adapter retains that operation's failure result; other engines may use
+        the checked direct-memory fallback.
+     */
+    [[nodiscard]] bool
+    legacyWrite(std::uint32_t offset, std::span<std::uint8_t const> bytes)
+        const noexcept
+    {
+        auto const start = static_cast<std::uint64_t>(offset);
+        auto const count = static_cast<std::uint64_t>(bytes.size());
+        auto const extent = static_cast<std::uint64_t>(size_);
+        if (data_ == nullptr || start > extent || count > extent - start)
+            return false;
+
+        if (legacyWriter_)
+            return legacyWriter_(legacyWriterContext_, offset, bytes);
+
+        if (bytes.empty())
+            return true;
+
+        std::memcpy(data_ + offset, bytes.data(), bytes.size());
+        return true;
+    }
+
 private:
     std::uint8_t* data_;
     std::size_t size_;
+    void* legacyWriterContext_;
+    LegacyWriter legacyWriter_;
 };
 
 }  // namespace hook

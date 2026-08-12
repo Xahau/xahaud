@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/hook/applyHook.h>
+#include <xrpld/app/hook/HookWasmEngine.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
@@ -637,9 +638,9 @@ Change::activateXahauGenesis()
                 return;
             }
 
-            std::optional<std::string> result2 =
-                hook::HookExecutor::validateWasm(
-                    wasmBytes.data(), (size_t)wasmBytes.size());
+            auto engine = hook::makeHookWasmEngine();
+            std::optional<std::string> result2 = engine->validate(
+                wasmBytes.data(), (size_t)wasmBytes.size());
 
             if (result2)
             {

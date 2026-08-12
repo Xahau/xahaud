@@ -17,7 +17,6 @@
 #include <queue>
 #include <utility>
 #include <vector>
-#include <wasmedge/wasmedge.h>
 
 namespace hook {
 struct HookContext;
@@ -128,16 +127,6 @@ apply(
     // result of apply() if this is weak exec
     std::shared_ptr<STObject const> const& provisionalMeta);
 
-/** Test-only provider injection for the first transaction-level QuickJS seam.
- * Production must pin the provider as a consensus artifact instead. */
-std::shared_ptr<ripple::Blob const>
-quickJSProviderForTests();
-
-#ifdef ENABLE_TESTS
-void
-setQuickJSProviderForTests(ripple::Blob provider);
-#endif
-
 struct HookContext;
 
 int64_t
@@ -190,8 +179,6 @@ struct HookResult
         foreignStateGrantCache;  // add found grants here to avoid rechecking
 };
 
-class HookExecutor;
-
 struct SlotEntry
 {
     std::shared_ptr<const ripple::STObject> storage;
@@ -228,8 +215,6 @@ struct HookContext
         emitFailure;  // if this is a callback from a failed
                       // emitted txn then this optional becomes
                       // populated with the SLE
-    const HookExecutor* module = 0;
-
     // Lazy-initialized HookAPI member
     mutable std::unique_ptr<HookAPI> api_;
 
@@ -283,255 +268,9 @@ gatherHookParameters(
     std::map<std::vector<uint8_t>, std::vector<uint8_t>>& parameters,
     beast::Journal const& j_);
 
-// RH TODO: call destruct for these on rippled shutdown
-#define ADD_HOOK_FUNCTION(F, ctx)                          \
-    {                                                      \
-        WasmEdge_FunctionInstanceContext* hf =             \
-            WasmEdge_FunctionInstanceCreate(               \
-                hook_api::WasmFunctionType##F,             \
-                hook_api::WasmFunction##F,                 \
-                (void*)(&ctx),                             \
-                0);                                        \
-        WasmEdge_ModuleInstanceAddFunction(                \
-            importObj, hook_api::WasmFunctionName##F, hf); \
-    }
-
 #define HR_ACC() hookResult.account << "-" << hookResult.otxnAccount
 #define HC_ACC() hookCtx.result.account << "-" << hookCtx.result.otxnAccount
 
-// create these once at boot and keep them
-static WasmEdge_String exportName = WasmEdge_StringCreateByCString("env");
-static WasmEdge_String tableName = WasmEdge_StringCreateByCString("table");
-static auto* tableType = WasmEdge_TableTypeCreate(
-    WasmEdge_RefType_FuncRef,
-    {.HasMax = true, .Shared = false, .Min = 10, .Max = 20});
-static auto* memType = WasmEdge_MemoryTypeCreate(
-    {.HasMax = true, .Shared = false, .Min = 1, .Max = 1});
-static WasmEdge_String memName = WasmEdge_StringCreateByCString("memory");
-static WasmEdge_String cbakFunctionName =
-    WasmEdge_StringCreateByCString("cbak");
-static WasmEdge_String hookFunctionName =
-    WasmEdge_StringCreateByCString("hook");
-
-// see: lib/system/allocator.cpp
-#define WasmEdge_kPageSize 65536ULL
-
-/**
- * HookExecutor is effectively a two-part function:
- * The first part sets up the Hook Api inside the wasm import, ready for use
- * (this is done during object construction.)
- * The second part is actually executing webassembly instructions
- * this is done during execteWasm function.
- * The instance is single use.
- */
-class HookExecutor
-{
-private:
-    bool spent = false;  // a HookExecutor can only be used once
-
-public:
-    HookContext& hookCtx;
-    WasmEdge_ModuleInstanceContext* importObj;
-
-    class WasmEdgeVM
-    {
-    public:
-        WasmEdge_ConfigureContext* conf = NULL;
-        WasmEdge_VMContext* ctx = NULL;
-
-        explicit WasmEdgeVM(bool enableWasi = false)
-        {
-            conf = WasmEdge_ConfigureCreate();
-            if (!conf)
-                return;
-            if (enableWasi)
-                WasmEdge_ConfigureAddHostRegistration(
-                    conf, WasmEdge_HostRegistration_Wasi);
-            WasmEdge_ConfigureStatisticsSetInstructionCounting(conf, true);
-            ctx = WasmEdge_VMCreate(conf, NULL);
-        }
-
-        bool
-        sane()
-        {
-            return ctx && conf;
-        }
-
-        ~WasmEdgeVM()
-        {
-            if (ctx)
-                WasmEdge_VMDelete(ctx);
-            if (conf)
-                WasmEdge_ConfigureDelete(conf);
-        }
-    };
-
-    // if an error occured return a string prefixed with `prefix` followed by
-    // the error description
-    static std::optional<std::string>
-    getWasmError(std::string prefix, WasmEdge_Result& res)
-    {
-        if (WasmEdge_ResultOK(res))
-            return {};
-
-        const char* msg = WasmEdge_ResultGetMessage(res);
-        return prefix + ": " + (msg ? msg : "unknown error");
-    }
-
-    /**
-     * Validate that a web assembly blob can be loaded by wasmedge
-     */
-    static std::optional<std::string>
-    validateWasm(const void* wasm, size_t len)
-    {
-        WasmEdgeVM vm;
-
-        if (!vm.sane())
-            return "Could not create WASMEDGE instance";
-
-        WasmEdge_Result res = WasmEdge_VMLoadWasmFromBuffer(
-            vm.ctx, reinterpret_cast<const uint8_t*>(wasm), len);
-
-        if (auto err = getWasmError("VMLoadWasmFromBuffer failed", res); err)
-            return *err;
-
-        res = WasmEdge_VMValidate(vm.ctx);
-
-        if (auto err = getWasmError("VMValidate failed", res); err)
-            return *err;
-
-        return {};
-    }
-
-    /**
-     * Execute web assembly byte code against the constructed Hook Context
-     * Once execution has occured the exector is spent and cannot be used again
-     * and should be destructed Information about the execution is populated
-     * into hookCtx
-     */
-    void
-    executeWasm(
-        const void* wasm,
-        size_t len,
-        bool callback,
-        uint32_t wasmParam,
-        beast::Journal const& j)
-    {
-        // HookExecutor can only execute once
-        XRPL_ASSERT(
-            !spent,
-            "HookExecutor::executeWasm : HookExecutor can only execute once");
-
-        spent = true;
-
-        JLOG(j.trace()) << "HookInfo[" << HC_ACC()
-                        << "]: creating wasm instance";
-
-        WasmEdge_LogOff();
-
-        WasmEdgeVM vm;
-
-        if (!vm.sane())
-        {
-            JLOG(j.warn()) << "HookError[" << HC_ACC()
-                           << "]: Could not create WASMEDGE instance.";
-
-            hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
-            return;
-        }
-
-        WasmEdge_Result res =
-            WasmEdge_VMRegisterModuleFromImport(vm.ctx, this->importObj);
-
-        if (auto err = getWasmError("Import phase failed", res); err)
-        {
-            hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
-            JLOG(j.trace()) << "HookError[" << HC_ACC() << "]: " << *err;
-            return;
-        }
-
-        WasmEdge_Value params[1] = {WasmEdge_ValueGenI32((int64_t)wasmParam)};
-        WasmEdge_Value returns[1];
-
-        res = WasmEdge_VMRunWasmFromBuffer(
-            vm.ctx,
-            reinterpret_cast<const uint8_t*>(wasm),
-            len,
-            callback ? cbakFunctionName : hookFunctionName,
-            params,
-            1,
-            returns,
-            1);
-
-        if (auto err = getWasmError("WASM VM error", res); err)
-        {
-            JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: " << *err;
-            hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
-            return;
-        }
-
-        auto* statsCtx = WasmEdge_VMGetStatisticsContext(vm.ctx);
-        hookCtx.result.instructionCount =
-            WasmEdge_StatisticsGetInstrCount(statsCtx);
-
-        // RH NOTE: stack unwind will clean up WasmEdgeVM
-    }
-
-    /**
-     * Execute compiled QuickJS bytecode through the Hook provider.
-     *
-     * This is the first integration seam: the provider is a separate WASM
-     * artifact, while the TypeScript-produced bytecode remains contract data.
-     * The provider calls the same generated raw Hook imports as a C Hook, so
-     * HookContext and metering stay owned by this executor.
-     *
-     * The current wasi-sdk provider still has four libc WASI imports.  Keep
-     * that temporary registration local to this path; removing those imports
-     * is a provider-build task, not a reason to widen the Hook ABI.
-     */
-    void
-    executeQuickJSBytecode(
-        const void* providerWasm,
-        size_t providerLen,
-        const void* bytecode,
-        size_t bytecodeLen,
-        bool callback,
-        uint32_t reserved,
-        beast::Journal const& j);
-
-    HookExecutor(HookContext& ctx)
-        : hookCtx(ctx), importObj(WasmEdge_ModuleInstanceCreate(exportName))
-    {
-        ctx.module = this;
-
-        WasmEdge_LogSetDebugLevel();
-
-#pragma push_macro("HOOK_API_DEFINITION")
-#undef HOOK_API_DEFINITION
-
-#define HOOK_WRAP_PARAMS(...) __VA_ARGS__
-#define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
-    ADD_HOOK_FUNCTION(FUNCTION_NAME, ctx);
-
-#include <xrpl/hook/hook_api.macro>
-
-#undef HOOK_API_DEFINITION
-#undef HOOK_WRAP_PARAMS
-#pragma pop_macro("HOOK_API_DEFINITION")
-
-        WasmEdge_TableInstanceContext* hostTable =
-            WasmEdge_TableInstanceCreate(tableType);
-        WasmEdge_ModuleInstanceAddTable(importObj, tableName, hostTable);
-        WasmEdge_MemoryInstanceContext* hostMem =
-            WasmEdge_MemoryInstanceCreate(memType);
-        WasmEdge_ModuleInstanceAddMemory(importObj, memName, hostMem);
-    }
-
-    ~HookExecutor()
-    {
-        WasmEdge_ModuleInstanceDelete(importObj);
-    };
-};
 
 }  // namespace hook
 

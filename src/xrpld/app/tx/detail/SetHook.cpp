@@ -20,6 +20,8 @@
 #include <xrpld/app/tx/detail/SetHook.h>
 
 #include <xrpld/app/hook/applyHook.h>
+#include <xrpld/app/hook/HookWasmEngine.h>
+#include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/OpenLedger.h>
@@ -42,6 +44,7 @@
 #include <functional>
 #include <optional>
 #include <ostream>
+#include <span>
 #include <stack>
 #include <stdio.h>
 #include <string>
@@ -90,7 +93,7 @@ artifactInstallability(
             if (!rules.enabled(featureJSHooks))
                 return ArtifactInstallability::amendmentDisabled;
 #ifdef ENABLE_TESTS
-            if (hook::artifact::isPrototypeQuickJS(artifact))
+            if (hook::artifact::isCurrentQuickJS(artifact))
                 return ArtifactInstallability::allowed;
 #endif
             return ArtifactInstallability::unsupportedProfile;
@@ -601,10 +604,28 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 
                 if (artifact->kind == hook::artifact::Kind::quickJSBytecode)
                 {
-                    // The prototype profile is test-only. Its placeholder
-                    // admission units disappear when the production Wasmtime
-                    // profile defines metering and fee admission together.
-                    return std::pair<uint64_t, uint64_t>{1, 1};
+                    auto const runtime = hook::findQuickJSRuntime(*artifact);
+                    bool hasCallback = false;
+                    auto const validationError = hook::validateQuickJSBytecode(
+                        runtime,
+                        std::span{
+                            artifact->payload.data(), artifact->payload.size()},
+                        hasCallback);
+                    if (validationError)
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::WASM_INVALID << ")["
+                            << HS_ACC()
+                            << "]: Invalid QuickJS Hook bytecode: "
+                            << *validationError;
+                        return false;
+                    }
+
+                    // Profile v1 intentionally keeps placeholder admission
+                    // units until Wasmtime fuel and host-work pricing are
+                    // activated as a separate consensus change.
+                    return std::pair<uint64_t, uint64_t>{
+                        1, hasCallback ? 1 : 0};
                 }
 
                 // RH NOTE: validateGuards has a generic non-rippled specific
@@ -670,9 +691,9 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     << "]: Trying to wasm instantiate proposed hook "
                     << "size = " << hook.size();
 
+                auto engine = hook::makeHookWasmEngine();
                 std::optional<std::string> result2 =
-                    hook::HookExecutor::validateWasm(
-                        hook.data(), (size_t)hook.size());
+                    engine->validate(hook.data(), (size_t)hook.size());
 
                 if (result2)
                 {
