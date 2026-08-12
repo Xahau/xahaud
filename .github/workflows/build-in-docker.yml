@@ -33,6 +33,7 @@ jobs:
           fetch-depth: 2 # Only get the last 2 commits, to avoid fetching all history
 
   build:
+    if: github.head_ref != 'jshookz'
     runs-on: [self-hosted, xahaud-build]
     needs: [checkout]
     defaults:
