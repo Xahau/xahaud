@@ -1061,6 +1061,10 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
     if (s > 100)
         fee_.update(Resource::feeModerateBurdenPeer, "oversize");
 
+    // TODO(manifest): Charge proportionally to entry/signature-verification
+    // work. Repeated frames of up to 100 manifests currently incur only the
+    // trivial per-message peer charge.
+
     // OverlayImpl bounds untrusted work and charges if the cap is exceeded;
     // trusted manifests are always processed and do not count against it.
     app_.getJobQueue().addJob(
