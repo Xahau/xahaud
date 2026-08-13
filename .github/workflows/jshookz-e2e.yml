@@ -31,12 +31,21 @@ env:
   XAHAU_REQUIRE_QJS_PROVIDER_TESTS: "1"
   CC: gcc-13
   CXX: g++-13
+  CCACHE_DIR: /github/home/.ccache-cache
   CMAKE_BUILD_PARALLEL_LEVEL: "2"
 
 jobs:
   env-proof:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, generic, 20.04]
     timeout-minutes: 120
+    container:
+      image: ubuntu:24.04
+      volumes:
+        - /home/runner/.conan-cache:/.conan-cache
+        - /home/runner/.ccache-cache:/github/home/.ccache-cache
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Check out Xahau integration
         uses: actions/checkout@v4
@@ -75,14 +84,16 @@ jobs:
 
       - name: Install native and TypeScript tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          apt-get update
+          apt-get install -y \
             build-essential ccache clang-format-18 cmake curl g++-13 gcc-13 \
             git ninja-build pkg-config xz-utils
-          sudo ln -sf /usr/bin/clang-format-18 /usr/local/bin/clang-format
+          ln -sf /usr/bin/clang-format-18 /usr/local/bin/clang-format
+          ln -sf /usr/bin/gcov-13 /usr/local/bin/gcov
           npm install --global typescript@6.0.3
           uv python install 3.13
           uv tool install --python 3.13 conan==2.21.0
+          uv tool install --python 3.13 'gcovr>=7,<9'
 
       - name: Install wasi-sdk and Binaryen
         run: |
@@ -127,10 +138,41 @@ jobs:
 
       - name: Configure Conan for Xahau
         run: |
-          conan profile detect --force
+          mkdir -p \
+            /.conan-cache/conan2 \
+            /.conan-cache/conan2_download \
+            /.conan-cache/conan2_sources
+          mkdir -p "$HOME/.conan2"
+          printf '%s\n' \
+            'core.cache:storage_path=/.conan-cache/conan2' \
+            'core.download:download_cache=/.conan-cache/conan2_download' \
+            'core.sources:download_cache=/.conan-cache/conan2_sources' \
+            > "$HOME/.conan2/global.conf"
+          mkdir -p "$HOME/.conan2/profiles"
+          cat > "$HOME/.conan2/profiles/default" <<'EOF'
+          [settings]
+          arch=x86_64
+          build_type=Debug
+          compiler=gcc
+          compiler.cppstd=20
+          compiler.libcxx=libstdc++11
+          compiler.version=13
+          os=Linux
+
+          [buildenv]
+          CC=/usr/bin/gcc-13
+          CXX=/usr/bin/g++-13
+
+          [conf]
+          tools.build:compiler_executables={"c": "/usr/bin/gcc-13", "cpp": "/usr/bin/g++-13"}
+
+          [options]
+          &:xrpld=True
+          &:tests=True
+          date/*:use_system_tz_db=True
+          EOF
           conan remote add --force xrplf https://conan.ripplex.io
-          printf '\n[options]\n&:xrpld=True\n&:tests=True\ndate/*:use_system_tz_db=True\n' \
-            >> "$HOME/.conan2/profiles/default"
+          conan profile show
           conan export external/snappy --version 1.1.10 \
             --user xahaud --channel stable
           conan export external/soci --version 4.0.3 \
@@ -147,7 +189,7 @@ jobs:
             --build-type Coverage \
             --build-dir build-jshookz-e2e \
             --reconfigure-build \
-            --no-ccache \
+            --ccache \
             -j 2 \
             -- ripple.app.JSHooks
 
