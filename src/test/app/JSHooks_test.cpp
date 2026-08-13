@@ -284,6 +284,17 @@ void ledger.sequence;
             return;
         BEAST_EXPECT(!hook::findQuickJSRuntime(*currentArtifact));
 
+        testcase("Reject unregistered QuickJS profiles in test builds");
+        {
+            Env unregisteredEnv{*this, features | featureJSHooks};
+            unregisteredEnv.fund(XRP(10000), alice);
+            unregisteredEnv.close();
+            unregisteredEnv(
+                jtx::hook(alice, {{hsoVersioned(hookCode, 1)}}, 0),
+                fee(XRP(10)),
+                ter(temMALFORMED));
+        }
+
         auto const providerError = hook::setQuickJSProviderForTests(provider);
         BEAST_EXPECT(!providerError);
         if (providerError)

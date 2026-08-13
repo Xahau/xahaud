@@ -4,6 +4,7 @@
 #include <xrpl/basics/contract.h>
 #include <array>
 #include <bit>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -175,7 +176,16 @@ public:
         std::vector<BridgeData> bridgeData;
         bridgeData.reserve(catalogue.size());
 
-        auto* imports = WasmEdge_ModuleInstanceCreate(envName);
+        // WasmEdge 0.11.2 does not take ownership here: a module registered
+        // with WasmEdge_VMRegisterModuleFromImport must outlive every VM use.
+        // Keep this declared before `engine` below so reverse destruction
+        // shuts down the VM before deleting its imported host functions.
+        std::unique_ptr<
+            WasmEdge_ModuleInstanceContext,
+            decltype(&WasmEdge_ModuleInstanceDelete)>
+            imports{
+                WasmEdge_ModuleInstanceCreate(envName),
+                &WasmEdge_ModuleInstanceDelete};
         for (auto const& descriptor : catalogue)
         {
             bridgeData.push_back({&descriptor, &hookContext});
@@ -192,14 +202,16 @@ public:
             WasmEdge_FunctionTypeDelete(functionType);
 
             auto name = WasmEdge_StringCreateByCString(descriptor.name);
-            WasmEdge_ModuleInstanceAddFunction(imports, name, function);
+            WasmEdge_ModuleInstanceAddFunction(imports.get(), name, function);
             WasmEdge_StringDelete(name);
         }
 
         WasmEdge_ModuleInstanceAddTable(
-            imports, tableName, WasmEdge_TableInstanceCreate(tableType));
+            imports.get(), tableName, WasmEdge_TableInstanceCreate(tableType));
         WasmEdge_ModuleInstanceAddMemory(
-            imports, memoryName, WasmEdge_MemoryInstanceCreate(memoryType));
+            imports.get(),
+            memoryName,
+            WasmEdge_MemoryInstanceCreate(memoryType));
 
         JLOG(journal.trace())
             << "HookInfo[" << hookContext.result.account << "-"
@@ -208,17 +220,12 @@ public:
 
         WasmEdgeVM engine;
         if (!engine.sane())
-        {
-            WasmEdge_ModuleInstanceDelete(imports);
             return {false, 0, "Could not create WASMEDGE instance"};
-        }
 
-        auto result = WasmEdge_VMRegisterModuleFromImport(engine.vm, imports);
+        auto result =
+            WasmEdge_VMRegisterModuleFromImport(engine.vm, imports.get());
         if (auto error = wasmError("Import phase failed", result))
-        {
-            WasmEdge_ModuleInstanceDelete(imports);
             return {false, 0, error};
-        }
 
         WasmEdge_Value parameters[1] = {
             WasmEdge_ValueGenI32(static_cast<std::int32_t>(wasmParameter))};
@@ -243,7 +250,6 @@ public:
                 true, WasmEdge_StatisticsGetInstrCount(statistics), {}};
         }
 
-        WasmEdge_ModuleInstanceDelete(imports);
         return execution;
     }
 };
