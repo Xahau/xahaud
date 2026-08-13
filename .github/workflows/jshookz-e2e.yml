@@ -47,6 +47,11 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Install checkout prerequisite
+        run: |
+          apt-get update
+          apt-get install -y git
+
       - name: Check out Xahau integration
         uses: actions/checkout@v4
         with:
@@ -84,10 +89,9 @@ jobs:
 
       - name: Install native and TypeScript tools
         run: |
-          apt-get update
           apt-get install -y \
             build-essential ccache clang-format-18 cmake curl g++-13 gcc-13 \
-            git ninja-build pkg-config xz-utils
+            ninja-build pkg-config xz-utils
           ln -sf /usr/bin/clang-format-18 /usr/local/bin/clang-format
           ln -sf /usr/bin/gcov-13 /usr/local/bin/gcov
           npm install --global typescript@6.0.3
