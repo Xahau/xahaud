@@ -70,7 +70,7 @@ state(
         return dataAsInt64(bytes);
     if (bytes.size() > writeLength)
         return TOO_SMALL;
-    if (!memory.legacyWrite(writePtr, bytes))
+    if (!memory.compatibilityCopy(writePtr, bytes))
         return INTERNAL_ERROR;
     return static_cast<std::uint64_t>(bytes.size());
 }

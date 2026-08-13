@@ -30,7 +30,7 @@ ledgerLastHash(
     if (writeLength < 32)
         return TOO_SMALL;
     auto const hash = hookCtx.api().ledger_last_hash();
-    if (!memory.legacyWrite(
+    if (!memory.compatibilityCopy(
             writePtr, std::span<std::uint8_t const>{hash.data(), 32}))
         return INTERNAL_ERROR;
     return std::uint64_t{32};

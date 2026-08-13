@@ -10,30 +10,19 @@
 
 namespace hook {
 
-/** Non-owning, engine-neutral view of one Hook guest's linear memory.
+/** Non-owning view of one QuickJS provider invocation's linear memory.
 
-    WasmEdge and Wasmtime adapters construct this view from the memory owned by
-    the current invocation.  All pointer arithmetic is widened before bounds
-    checks; the class never truncates or grows guest buffers.
+    The Wasmtime adapter constructs this view from the current callback's
+    memory. All pointer arithmetic is widened before bounds checks; the class
+    never truncates or grows guest buffers.
  */
 class HookGuestMemory
 {
 public:
     using Error = hook_api::hook_return_code;
-    using LegacyWriter = bool (*)(
-        void* context,
-        std::uint32_t offset,
-        std::span<std::uint8_t const> bytes) noexcept;
 
-    HookGuestMemory(
-        std::uint8_t* data,
-        std::size_t size,
-        void* legacyWriterContext = nullptr,
-        LegacyWriter legacyWriter = nullptr) noexcept
-        : data_(data)
-        , size_(size)
-        , legacyWriterContext_(legacyWriterContext)
-        , legacyWriter_(legacyWriter)
+    HookGuestMemory(std::uint8_t* data, std::size_t size) noexcept
+        : data_(data), size_(size)
     {
     }
 
@@ -80,15 +69,13 @@ public:
         return std::span<std::uint8_t>{data_ + offset, length};
     }
 
-    /** Preserve the legacy Hook macro write contract.
+    /** Copy bytes with the raw-operation compatibility boundary.
 
         Unlike contains(), a zero-byte write at exactly the end of memory is
-        permitted. WasmEdge supplies its native SetData operation so the
-        adapter retains that operation's failure result; other engines may use
-        the checked direct-memory fallback.
+        permitted.
      */
     [[nodiscard]] bool
-    legacyWrite(std::uint32_t offset, std::span<std::uint8_t const> bytes)
+    compatibilityCopy(std::uint32_t offset, std::span<std::uint8_t const> bytes)
         const noexcept
     {
         auto const start = static_cast<std::uint64_t>(offset);
@@ -96,9 +83,6 @@ public:
         auto const extent = static_cast<std::uint64_t>(size_);
         if (data_ == nullptr || start > extent || count > extent - start)
             return false;
-
-        if (legacyWriter_)
-            return legacyWriter_(legacyWriterContext_, offset, bytes);
 
         if (bytes.empty())
             return true;
@@ -110,8 +94,6 @@ public:
 private:
     std::uint8_t* data_;
     std::size_t size_;
-    void* legacyWriterContext_;
-    LegacyWriter legacyWriter_;
 };
 
 }  // namespace hook

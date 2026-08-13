@@ -73,7 +73,7 @@ emit(
         memory.write(writePtr, static_cast<std::uint32_t>(id.size()));
     if (!destination)
         return destination.error();
-    if (!memory.legacyWrite(
+    if (!memory.compatibilityCopy(
             writePtr, std::span<std::uint8_t const>{id.data(), id.size()}))
         return INTERNAL_ERROR;
     if (id.size() == 32)

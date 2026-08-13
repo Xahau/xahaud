@@ -18,7 +18,7 @@ hookAccount(
     if (writeLength < 20)
         return TOO_SMALL;
     auto const account = hookCtx.api().hook_account();
-    if (!memory.legacyWrite(
+    if (!memory.compatibilityCopy(
             writePtr, std::span<std::uint8_t const>{account.data(), 20}))
         return INTERNAL_ERROR;
     return std::uint64_t{20};
