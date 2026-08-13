@@ -122,10 +122,8 @@ quickJSHostWorkCost(
 
 QuickJSInvocation::QuickJSInvocation(
     HookContext& hookCtx_,
-    beast::Journal const& journal_,
     QuickJSRuntimeProfile const& profile_) noexcept
     : hookCtx(hookCtx_)
-    , journal(journal_)
     , profile(profile_)
     , hostWorkRemaining(profile_.hostWorkBudget)
 {
@@ -136,18 +134,6 @@ QuickJSHostCall::QuickJSHostCall(
     wasmtime_caller_t* caller) noexcept
     : invocation_(invocation), caller_(caller)
 {
-}
-
-HookContext&
-QuickJSHostCall::hookContext() noexcept
-{
-    return invocation_.hookCtx;
-}
-
-beast::Journal const&
-QuickJSHostCall::journal() const noexcept
-{
-    return invocation_.journal;
 }
 
 std::optional<HookGuestMemory>
@@ -169,18 +155,9 @@ QuickJSHostCall::charge(std::uint64_t declaredBytes) noexcept
     auto const& profile = invocation_.profile;
     auto const cost = quickJSHostWorkCost(profile, declaredBytes);
     if (cost > invocation_.hostWorkRemaining)
-    {
-        fault_ = "Xahau Hook host-work budget exhausted";
         return false;
-    }
     invocation_.hostWorkRemaining -= cost;
     return true;
-}
-
-char const*
-QuickJSHostCall::fault() const noexcept
-{
-    return fault_;
 }
 
 std::uint64_t
@@ -262,12 +239,11 @@ rawHookCallback(
         if (binding->charging == WasmtimeHostBinding::Charging::quickJSV1 &&
             !call.charge(declaredHostWork(
                 binding->measure, std::span{args, argumentCount})))
-            return callbackTrap(call.fault());
+            return callbackTrap("Xahau Hook host-work budget exhausted");
 
-        constexpr std::size_t maxHostParameters = 12;
-        if (argumentCount > maxHostParameters)
+        if (argumentCount > maxImportParameters)
             return callbackTrap("too many Xahau Hook host arguments");
-        std::array<HookHostValue, maxHostParameters> neutralInputs{};
+        std::array<HookHostValue, maxImportParameters> neutralInputs{};
         for (std::size_t index = 0; index < argumentCount; ++index)
         {
             auto const kind = operation.parameters[index];
@@ -296,8 +272,6 @@ rawHookCallback(
             argumentCount,
             &output,
             1);
-        if (call.fault())
-            return callbackTrap(call.fault());
         return finishCallback(
             *invocation, *binding, status, output, results, resultCount);
     }

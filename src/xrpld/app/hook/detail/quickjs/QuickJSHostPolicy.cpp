@@ -14,15 +14,6 @@ nativeParameterKinds(std::index_sequence<Indices...>) noexcept
     return result;
 }
 
-template <class Tuple, std::size_t... Indices>
-std::array<wasm_valkind_t, maxImportParameters>
-wasmParameterKinds(std::index_sequence<Indices...>) noexcept
-{
-    std::array<wasm_valkind_t, maxImportParameters> result{};
-    ((result[Indices] = wasmKind<std::tuple_element_t<Indices, Tuple>>), ...);
-    return result;
-}
-
 template <QuickJSV1ImportId Id>
 QuickJSV1ImportDescriptor
 makeV1Descriptor()
@@ -38,9 +29,6 @@ makeV1Descriptor()
         .amendment = Traits::amendment(),
         .nativeResult = nativeScalarKind<typename Traits::Return>,
         .nativeParameters = nativeParameterKinds<typename Traits::Parameters>(
-            std::make_index_sequence<parameterCount>{}),
-        .resultKind = wasmKind<typename Traits::Return>,
-        .parameterKinds = wasmParameterKinds<typename Traits::Parameters>(
             std::make_index_sequence<parameterCount>{}),
         .parameterCount = static_cast<std::uint8_t>(parameterCount),
         .measure = Traits::measure,

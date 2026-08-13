@@ -178,7 +178,7 @@ public:
                 alice.id(),
                 {.expected_etxn_count = 1},
                 state);
-            QuickJSInvocation invocation{hookContext, env.journal, profile};
+            QuickJSInvocation invocation{hookContext, profile};
             StorePtr store{
                 wasmtime_store_new(engine.get(), &invocation, nullptr),
                 &wasmtime_store_delete};

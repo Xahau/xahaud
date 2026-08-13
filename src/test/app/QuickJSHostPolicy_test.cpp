@@ -14,13 +14,26 @@ namespace ripple::test {
 namespace {
 
 std::string_view
-wasmKindName(wasm_valkind_t kind)
+wasmScalarName(hook::HookHostValueKind kind)
 {
-    if (kind == WASM_I32)
-        return "i32";
-    if (kind == WASM_I64)
-        return "i64";
-    return "unsupported";
+    return hook::isI32(kind) ? "i32" : "i64";
+}
+
+std::string_view
+nativeScalarName(hook::HookHostValueKind kind)
+{
+    switch (kind)
+    {
+        case hook::HookHostValueKind::i32:
+            return "int32_t";
+        case hook::HookHostValueKind::u32:
+            return "uint32_t";
+        case hook::HookHostValueKind::i64:
+            return "int64_t";
+        case hook::HookHostValueKind::u64:
+            return "uint64_t";
+    }
+    return {};
 }
 
 template <class Kinds, class Name>
@@ -49,7 +62,7 @@ amendmentFromFrozenName(std::string_view name)
 
 }  // namespace
 
-class QuickJSImportCatalogue_test : public beast::unit_test::suite
+class QuickJSHostPolicy_test : public beast::unit_test::suite
 {
 public:
     void
@@ -59,59 +72,27 @@ public:
         namespace generated = hook::artifact::generated;
 
         testcase("Current macro catalogue");
-        auto const catalogue = importCatalogue();
-        BEAST_EXPECT(catalogue.size() == 75);
-        BEAST_EXPECT(catalogue.size() == quickJSImportCount);
-        BEAST_EXPECT(generated::nativeABICatalogueCount == 75);
-        std::set<std::string_view> currentNames;
-        for (std::size_t index = 0; index < catalogue.size(); ++index)
-        {
-            auto const& descriptor = catalogue[index];
-            BEAST_EXPECT(static_cast<std::size_t>(descriptor.id) == index);
-            BEAST_EXPECT(currentNames.emplace(descriptor.name).second);
-            BEAST_EXPECT(descriptor.parameterCount <= maxImportParameters);
-        }
-
         auto const hostCatalogue = hook::hookHostFunctionCatalogue();
         BEAST_EXPECT(hostCatalogue.size() == 75);
-        std::set<std::string_view> hostNames;
+        BEAST_EXPECT(generated::nativeABICatalogueCount == 75);
+        std::set<std::string_view> currentNames;
         for (auto const& operation : hostCatalogue)
         {
             BEAST_EXPECT(operation.function != nullptr);
             BEAST_EXPECT(operation.implementationVersion == 1);
-            BEAST_EXPECT(currentNames.contains(operation.name));
-            BEAST_EXPECT(hostNames.emplace(operation.name).second);
-            auto const current = std::find_if(
-                catalogue.begin(),
-                catalogue.end(),
-                [&](auto const& descriptor) {
-                    return descriptor.name == operation.name;
-                });
-            BEAST_EXPECT(current != catalogue.end());
-            if (current == catalogue.end())
-                continue;
-            BEAST_EXPECT(operation.result == current->nativeResult);
-            BEAST_EXPECT(
-                operation.parameters.size() == current->parameterCount);
-            BEAST_EXPECT(operation.declarationAmendment == current->amendment);
-            for (std::size_t parameter = 0;
-                 parameter < operation.parameters.size();
-                 ++parameter)
-                BEAST_EXPECT(
-                    operation.parameters[parameter] ==
-                    current->nativeParameters[parameter]);
+            BEAST_EXPECT(currentNames.emplace(operation.name).second);
+            BEAST_EXPECT(operation.parameters.size() <= maxImportParameters);
         }
-        BEAST_EXPECT(hostNames == currentNames);
 
         auto const guard = std::find_if(
-            catalogue.begin(), catalogue.end(), [](auto const& descriptor) {
-                return descriptor.id == QuickJSImportId::_g;
-            });
-        BEAST_EXPECT(guard != catalogue.end());
-        if (guard != catalogue.end())
+            hostCatalogue.begin(),
+            hostCatalogue.end(),
+            [](auto const& descriptor) { return descriptor.name == "_g"; });
+        BEAST_EXPECT(guard != hostCatalogue.end());
+        if (guard != hostCatalogue.end())
         {
-            BEAST_EXPECT(guard->resultKind == WASM_I32);
-            BEAST_EXPECT(guard->parameterCount == 2);
+            BEAST_EXPECT(guard->result == hook::HookHostValueKind::i32);
+            BEAST_EXPECT(guard->parameters.size() == 2);
         }
 
         testcase("Frozen v1 policy is complete and independent");
@@ -197,11 +178,11 @@ public:
             BEAST_EXPECT(descriptor->module == expected.module);
             BEAST_EXPECT(
                 joinKinds(
-                    descriptor->parameterKinds,
+                    descriptor->nativeParameters,
                     descriptor->parameterCount,
-                    wasmKindName) == expected.parameters);
+                    wasmScalarName) == expected.parameters);
             BEAST_EXPECT(
-                wasmKindName(descriptor->resultKind) == expected.results);
+                wasmScalarName(descriptor->nativeResult) == expected.results);
         }
         BEAST_EXPECT(providerNames == v1Names);
 
@@ -225,12 +206,12 @@ public:
                     return item.name == expected.name;
                 });
             auto const current = std::find_if(
-                catalogue.begin(), catalogue.end(), [&](auto const& item) {
-                    return item.name == expected.name;
-                });
+                hostCatalogue.begin(),
+                hostCatalogue.end(),
+                [&](auto const& item) { return item.name == expected.name; });
             BEAST_EXPECT(frozen != snapshot.end());
-            BEAST_EXPECT(current != catalogue.end());
-            if (frozen == snapshot.end() || current == catalogue.end())
+            BEAST_EXPECT(current != hostCatalogue.end());
+            if (frozen == snapshot.end() || current == hostCatalogue.end())
                 continue;
 
             auto const expectedAmendment =
@@ -239,11 +220,10 @@ public:
                 expected.amendment.empty() ||
                 expected.amendment == "featureHooksUpdate2");
             BEAST_EXPECT(frozen->amendment == expectedAmendment);
-            BEAST_EXPECT(current->amendment == expectedAmendment);
+            BEAST_EXPECT(current->declarationAmendment == expectedAmendment);
             BEAST_EXPECT(
                 nativeScalarName(frozen->nativeResult) == expected.result);
-            BEAST_EXPECT(
-                nativeScalarName(current->nativeResult) == expected.result);
+            BEAST_EXPECT(nativeScalarName(current->result) == expected.result);
             BEAST_EXPECT(
                 joinKinds(
                     frozen->nativeParameters,
@@ -251,8 +231,8 @@ public:
                     nativeScalarName) == expected.parameters);
             BEAST_EXPECT(
                 joinKinds(
-                    current->nativeParameters,
-                    current->parameterCount,
+                    current->parameters,
+                    current->parameters.size(),
                     nativeScalarName) == expected.parameters);
         }
         BEAST_EXPECT(nativeNames == v1Names);
@@ -280,8 +260,9 @@ public:
                  ++index)
             {
                 arguments[index].kind =
-                    descriptor.parameterKinds[index] == WASM_I32 ? WASMTIME_I32
-                                                                 : WASMTIME_I64;
+                    hook::isI32(descriptor.nativeParameters[index])
+                    ? WASMTIME_I32
+                    : WASMTIME_I64;
                 if (arguments[index].kind == WASMTIME_I32)
                     arguments[index].of.i32 =
                         index == 1 ? 7 : (index == 3 ? 11 : 3);
@@ -333,6 +314,6 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(QuickJSImportCatalogue, app, ripple);
+BEAST_DEFINE_TESTSUITE(QuickJSHostPolicy, app, ripple);
 
 }  // namespace ripple::test

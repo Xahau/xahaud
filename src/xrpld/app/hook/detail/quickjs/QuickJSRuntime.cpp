@@ -36,8 +36,7 @@ executeQuickJSBytecode(
 
         quickjs::ProviderStage stage = quickjs::ProviderStage::none;
         std::string detail;
-        quickjs::QuickJSInvocation invocation{
-            hookCtx, journal, runtime->profile};
+        quickjs::QuickJSInvocation invocation{hookCtx, runtime->profile};
         auto session = quickjs::ProviderSession::create(
             *runtime, &invocation, stage, detail);
         if (!session)

@@ -5,7 +5,6 @@
 #include <xrpld/app/hook/HookHostFunction.h>
 #include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/hook/detail/quickjs/QuickJSHostPolicy.h>
-#include <xrpl/beast/utility/Journal.h>
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -26,14 +25,12 @@ quickJSHostWorkCost(
 struct QuickJSInvocation
 {
     HookContext& hookCtx;
-    beast::Journal const& journal;
     QuickJSRuntimeProfile const& profile;
     std::uint64_t hostWorkRemaining;
     bool terminal = false;
 
     QuickJSInvocation(
         HookContext& hookCtx,
-        beast::Journal const& journal,
         QuickJSRuntimeProfile const& profile) noexcept;
 };
 
@@ -44,25 +41,15 @@ public:
         QuickJSInvocation& invocation,
         wasmtime_caller_t* caller) noexcept;
 
-    HookContext&
-    hookContext() noexcept;
-
-    beast::Journal const&
-    journal() const noexcept;
-
     std::optional<HookGuestMemory>
     memory() const noexcept;
 
     bool
     charge(std::uint64_t declaredBytes) noexcept;
 
-    char const*
-    fault() const noexcept;
-
 private:
     QuickJSInvocation& invocation_;
     wasmtime_caller_t* caller_;
-    char const* fault_ = nullptr;
 };
 
 struct WasmtimeHostBinding

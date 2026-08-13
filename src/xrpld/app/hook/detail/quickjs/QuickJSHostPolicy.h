@@ -1,7 +1,8 @@
 #ifndef XRPLD_APP_HOOK_DETAIL_QUICKJS_QUICKJSHOSTPOLICY_H_INCLUDED
 #define XRPLD_APP_HOOK_DETAIL_QUICKJS_QUICKJSHOSTPOLICY_H_INCLUDED
 
-#include <xrpld/app/hook/detail/quickjs/QuickJSImportCatalogue.h>
+#include <xrpld/app/hook/HookHostFunction.h>
+#include <xrpl/protocol/Feature.h>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +12,25 @@
 #include <type_traits>
 
 namespace hook::quickjs {
+
+using NativeScalarKind = HookHostValueKind;
+
+template <class T>
+inline constexpr NativeScalarKind nativeScalarKind = [] {
+    if constexpr (std::is_same_v<T, std::int32_t>)
+        return NativeScalarKind::i32;
+    else if constexpr (std::is_same_v<T, std::uint32_t>)
+        return NativeScalarKind::u32;
+    else if constexpr (std::is_same_v<T, std::int64_t>)
+        return NativeScalarKind::i64;
+    else
+    {
+        static_assert(std::is_same_v<T, std::uint64_t>);
+        return NativeScalarKind::u64;
+    }
+}();
+
+inline constexpr std::size_t maxImportParameters = 9;
 
 /** Immutable import identity for the retained xahau-raw-hook-host-v1 policy.
 
@@ -174,8 +194,6 @@ struct QuickJSV1ImportDescriptor
     ripple::uint256 amendment;
     NativeScalarKind nativeResult;
     std::array<NativeScalarKind, maxImportParameters> nativeParameters;
-    wasm_valkind_t resultKind;
-    std::array<wasm_valkind_t, maxImportParameters> parameterKinds;
     std::uint8_t parameterCount;
     HostWorkMeasureKind measure;
     TerminalBehavior terminal;
