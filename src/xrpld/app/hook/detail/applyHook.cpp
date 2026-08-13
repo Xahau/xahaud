@@ -1,5 +1,4 @@
 #include <xrpld/app/hook/HookAPI.h>
-#include <xrpld/app/hook/HookHostOperations.h>
 #include <xrpld/app/hook/HookWasmEngine.h>
 #include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/hook/applyHook.h>
@@ -603,6 +602,93 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 using namespace hook::hook_float;
 using hook::Bytes;
 
+// cu_ptr is a pointer into memory, bounds check is assumed to have already
+// happened
+inline std::optional<Currency>
+parseCurrency(uint8_t* cu_ptr, uint32_t cu_len)
+{
+    if (cu_len == 20)
+    {
+        // normal 20 byte currency
+        return Currency::fromVoid(cu_ptr);
+    }
+    else if (cu_len == 3)
+    {
+        // 3 byte ascii currency
+        // need to check what data is in these three bytes, to ensure ISO4217
+        // compliance
+        auto const validateChar = [](uint8_t c) -> bool {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9') || c == '?' || c == '!' || c == '@' ||
+                c == '#' || c == '$' || c == '%' || c == '^' || c == '&' ||
+                c == '*' || c == '<' || c == '>' || c == '(' || c == ')' ||
+                c == '{' || c == '}' || c == '[' || c == ']' || c == '|';
+        };
+
+        if (!validateChar(*((uint8_t*)(cu_ptr + 0U))) ||
+            !validateChar(*((uint8_t*)(cu_ptr + 1U))) ||
+            !validateChar(*((uint8_t*)(cu_ptr + 2U))))
+            return {};
+
+        uint8_t cur_buf[20] = {
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            *((uint8_t*)(cu_ptr + 0U)),
+            *((uint8_t*)(cu_ptr + 1U)),
+            *((uint8_t*)(cu_ptr + 2U)),
+            0,
+            0,
+            0,
+            0,
+            0};
+        return Currency::fromVoid(cur_buf);
+    }
+    else
+        return {};
+}
+
+inline std::variant<uint64_t, hook_api::hook_return_code>
+serialize_keylet(
+    ripple::Keylet& kl,
+    uint8_t* memory,
+    uint32_t write_ptr,
+    uint32_t write_len)
+{
+    if (write_len < 34)
+        return TOO_SMALL;
+
+    memory[write_ptr + 0] = (kl.type >> 8) & 0xFFU;
+    memory[write_ptr + 1] = (kl.type >> 0) & 0xFFU;
+
+    for (int i = 0; i < 32; ++i)
+        memory[write_ptr + 2 + i] = kl.key.data()[i];
+
+    return 34ULL;
+}
+
+std::optional<ripple::Keylet>
+unserialize_keylet(uint8_t* ptr, uint32_t len)
+{
+    if (len != 34)
+        return {};
+
+    uint16_t ktype = ((uint16_t)ptr[0] << 8) + ((uint16_t)ptr[1]);
+
+    return ripple::Keylet{
+        static_cast<LedgerEntryType>(ktype),
+        ripple::uint256::fromVoid(ptr + 2)};
+}
+
 bool
 hook::isEmittedTxn(ripple::STTx const& tx)
 {
@@ -627,6 +713,22 @@ hook::computeCreationFee(uint64_t byteCount)
         return 0x7FFFFFFFFFFFFFFFLL;
 
     return fee;
+}
+
+// many datatypes can be encoded into an int64_t
+inline std::variant<uint64_t, hook_api::hook_return_code>
+data_as_int64(void const* ptr_raw, uint32_t len)
+{
+    if (len > 8)
+        return TOO_BIG;
+
+    uint8_t const* ptr = reinterpret_cast<uint8_t const*>(ptr_raw);
+    uint64_t output = 0;
+    for (int i = 0, j = (len - 1) * 8; i < len; ++i, j -= 8)
+        output += (((uint64_t)ptr[i]) << j);
+    if ((1ULL << 63U) & output)
+        return TOO_BIG;
+    return output;
 }
 
 /* returns true iff every even char is ascii and every odd char is 00
@@ -1051,6 +1153,274 @@ hook::apply(
     return hookCtx.result;
 }
 
+/* If XRPLD is running with trace log level hooks may produce debugging output
+ * to the trace log specifying both a string and an integer to output */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    trace_num,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    int64_t number)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx on
+                   // current stack
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (!j.trace())
+        return 0ULL;
+
+    if (read_len > 128)
+        read_len = 128;
+
+    if (read_len > 0)
+    {
+        // skip \0 if present at the end
+        if (*((const char*)memory + read_ptr + read_len - 1) == '\0')
+            read_len--;
+
+        if (read_len > 0)
+        {
+            j.trace() << "HookTrace[" << HC_ACC() << "]: "
+                      << std::string_view(
+                             (const char*)memory + read_ptr, read_len)
+                      << ": " << number;
+
+            return 0ULL;
+        }
+    }
+
+    j.trace() << "HookTrace[" << HC_ACC() << "]: " << number;
+    return 0ULL;
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    trace,
+    uint32_t mread_ptr,
+    uint32_t mread_len,
+    uint32_t dread_ptr,
+    uint32_t dread_len,
+    uint32_t as_hex)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx on
+                   // current stack
+    if (NOT_IN_BOUNDS(mread_ptr, mread_len, memory_length) ||
+        NOT_IN_BOUNDS(dread_ptr, dread_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (!j.trace())
+        return 0ULL;
+
+    if (mread_len > 128)
+        mread_len = 128;
+
+    if (dread_len > 1023)
+        dread_len = 1023;
+
+    uint8_t output_storage[2200];
+    size_t out_len = 0;
+
+    uint8_t* output = output_storage;
+
+    if (mread_len > 0)
+    {
+        memcpy(output, memory + mread_ptr, mread_len);
+        out_len += mread_len;
+
+        // detect and skip \0 if it appears at the end
+        if (output[out_len - 1] == '\0')
+            out_len--;
+
+        output[out_len++] = ':';
+        output[out_len++] = ' ';
+    }
+
+    output = output_storage + out_len;
+
+    if (dread_len > 0)
+    {
+        if (as_hex)
+        {
+            out_len += dread_len * 2;
+            for (int i = 0; i < dread_len && i < memory_length; ++i)
+            {
+                uint8_t high = (memory[dread_ptr + i] >> 4) & 0xFU;
+                uint8_t low = (memory[dread_ptr + i] & 0xFU);
+                high += (high < 10U ? '0' : 'A' - 10);
+                low += (low < 10U ? '0' : 'A' - 10);
+                output[i * 2 + 0] = high;
+                output[i * 2 + 1] = low;
+            }
+        }
+        else if (is_UTF16LE(memory + dread_ptr, dread_len))
+        {
+            out_len += dread_len /
+                2;  // is_UTF16LE will only return true if read_len is even
+            for (int i = 0; i < (dread_len / 2); ++i)
+                output[i] = memory[dread_ptr + i * 2];
+        }
+        else
+        {
+            out_len += dread_len;
+            memcpy(output, memory + dread_ptr, dread_len);
+        }
+    }
+
+    if (out_len > 0)
+    {
+        j.trace() << "HookTrace[" << HC_ACC() << "]: "
+                  << std::string_view((const char*)output_storage, out_len);
+    }
+
+    return 0ULL;
+    HOOK_TEARDOWN();
+}
+
+// zero pad on the left a key to bring it up to 32 bytes
+std::optional<ripple::uint256> inline make_state_key(std::string_view source)
+{
+    size_t source_len = source.size();
+
+    if (source_len > 32 || source_len < 1)
+        return std::nullopt;
+
+    unsigned char key_buffer[32];
+    int i = 0;
+    int pad = 32 - source_len;
+
+    // zero pad on the left
+    for (; i < pad; ++i)
+        key_buffer[i] = 0;
+
+    const char* data = source.data();
+
+    for (; i < 32; ++i)
+        key_buffer[i] = data[i - pad];
+
+    return ripple::uint256::fromVoid(key_buffer);
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    state_set,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t kread_ptr,
+    uint32_t kread_len)
+{
+    return state_foreign_set(
+        hookCtx,
+        frameCtx,
+        read_ptr,
+        read_len,
+        kread_ptr,
+        kread_len,
+        0,
+        0,
+        0,
+        0);
+}
+// update or create a hook state object
+// read_ptr = data to set, kread_ptr = key
+// RH NOTE passing 0 size causes a delete operation which is as-intended
+/*
+    uint32_t write_ptr, uint32_t write_len,
+    uint32_t kread_ptr, uint32_t kread_len,         // key
+    uint32_t nread_ptr, uint32_t nread_len,         // namespace
+    uint32_t aread_ptr, uint32_t aread_len )        // account
+ */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    state_foreign_set,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t kread_ptr,
+    uint32_t kread_len,
+    uint32_t nread_ptr,
+    uint32_t nread_len,
+    uint32_t aread_ptr,
+    uint32_t aread_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (read_ptr == 0 && read_len == 0)
+    {
+        // valid, this is a delete operation
+    }
+    else if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (kread_len > 32)
+        return TOO_BIG;
+
+    if (kread_len < 1)
+        return TOO_SMALL;
+
+    if (nread_len != 0 && nread_len != 32)
+        return INVALID_ARGUMENT;
+
+    if (aread_len != 0 && aread_len != 20)
+        return INVALID_ARGUMENT;
+
+    if (NOT_IN_BOUNDS(kread_ptr, kread_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    // ns can be null if and only if this is a local set
+    if (nread_ptr == 0 && nread_len == 0 && !(aread_ptr == 0 && aread_len == 0))
+        return INVALID_ARGUMENT;
+
+    if ((nread_len && NOT_IN_BOUNDS(nread_ptr, nread_len, memory_length)) ||
+        (kread_len && NOT_IN_BOUNDS(kread_ptr, kread_len, memory_length)) ||
+        (aread_len && NOT_IN_BOUNDS(aread_ptr, aread_len, memory_length)))
+        return OUT_OF_BOUNDS;
+
+    auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
+    if (!sleAccount && view.rules().enabled(featureExtendedHookState))
+        // should return hook_api::hook_return_code
+        return static_cast<hook_api::hook_return_code>(tefINTERNAL);
+
+    uint16_t const hookStateScale = sleAccount->isFieldPresent(sfHookStateScale)
+        ? sleAccount->getFieldU16(sfHookStateScale)
+        : 1;
+
+    uint32_t maxSize = hook::maxHookStateDataSize(hookStateScale);
+    if (read_len > maxSize)
+        return TOO_BIG;
+
+    uint256 ns = nread_len == 0 ? hookCtx.result.hookNamespace
+                                : uint256::fromVoid(memory + nread_ptr);
+
+    ripple::AccountID acc = aread_len == 20
+        ? AccountID::fromVoid(memory + aread_ptr)
+        : hookCtx.result.account;
+
+    auto const key = make_state_key(
+        std::string_view{(const char*)(memory + kread_ptr), (size_t)kread_len});
+
+    if (view.rules().enabled(fixXahauV1))
+    {
+        auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
+        if (!sleAccount)
+            // should return hook_api::hook_return_code
+            return static_cast<hook_api::hook_return_code>(tefINTERNAL);
+    }
+
+    if (!key)
+        return INTERNAL_ERROR;
+
+    ripple::Blob data{memory + read_ptr, memory + read_ptr + read_len};
+
+    auto const result = api.state_foreign_set(*key, ns, acc, data);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
 ripple::TER
 hook::finalizeHookState(
     HookStateMap const& stateMap,
@@ -1309,6 +1679,2326 @@ hook::finalizeHookResult(
     return tesSUCCESS;
 }
 
+/* Retrieve the state into write_ptr identified by the key in kread_ptr */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    state,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t kread_ptr,
+    uint32_t kread_len)
+{
+    return state_foreign(
+        hookCtx,
+        frameCtx,
+        write_ptr,
+        write_len,
+        kread_ptr,
+        kread_len,
+        0,
+        0,
+        0,
+        0);
+}
+
+/* This api actually serves both local and foreign state requests
+ * feeding aread_ptr = 0 and aread_len = 0 will cause it to read local
+ * feeding nread_len = 0 will cause hook's native namespace to be used */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    state_foreign,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t kread_ptr,
+    uint32_t kread_len,  // key
+    uint32_t nread_ptr,
+    uint32_t nread_len,  // namespace
+    uint32_t aread_ptr,
+    uint32_t aread_len)  // account
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    bool is_foreign = false;
+    if (aread_ptr == 0)
+    {
+        // valid arguments, local state
+        if (aread_len != 0)
+            return INVALID_ARGUMENT;
+    }
+    else
+    {
+        // valid arguments, foreign state
+        is_foreign = true;
+        if (aread_len != 20)
+            return INVALID_ARGUMENT;
+    }
+
+    if (kread_len > 32)
+        return TOO_BIG;
+
+    if (kread_len < 1)
+        return TOO_SMALL;
+
+    if (write_len < 1 && write_ptr != 0)
+        return TOO_SMALL;
+
+    if (!is_foreign && nread_len == 0)
+    {
+        // local account will be populated with local hook namespace unless
+        // otherwise specified
+    }
+    else if (nread_len != 32)
+        return INVALID_ARGUMENT;
+
+    if (NOT_IN_BOUNDS(kread_ptr, kread_len, memory_length) ||
+        NOT_IN_BOUNDS(nread_ptr, nread_len, memory_length) ||
+        NOT_IN_BOUNDS(aread_ptr, aread_len, memory_length) ||
+        NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    uint256 ns = nread_len == 0 ? hookCtx.result.hookNamespace
+                                : uint256::fromVoid(memory + nread_ptr);
+
+    ripple::AccountID acc = is_foreign ? AccountID::fromVoid(memory + aread_ptr)
+                                       : hookCtx.result.account;
+
+    auto const key = make_state_key(
+        std::string_view{(const char*)(memory + kread_ptr), (size_t)kread_len});
+
+    if (!key)
+        return INVALID_ARGUMENT;
+
+    auto const result = api.state_foreign(*key, ns, acc);
+    if (!result)
+        return result.error();
+    auto const& b = result.value();
+
+    WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(
+        write_ptr, write_len, b.data(), b.size(), false);
+
+    HOOK_TEARDOWN();
+}
+
+// Cause the originating transaction to go through, save state changes and emit
+// emitted tx, exit hook
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    accept,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    int64_t error_code)
+{
+    HOOK_SETUP();
+    HOOK_EXIT(read_ptr, read_len, error_code, hook_api::ExitType::ACCEPT);
+    HOOK_TEARDOWN();
+}
+
+// Cause the originating transaction to be rejected, discard state changes and
+// discard emitted tx, exit hook
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    rollback,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    int64_t error_code)
+{
+    HOOK_SETUP();
+    HOOK_EXIT(read_ptr, read_len, error_code, hook_api::ExitType::ROLLBACK);
+    HOOK_TEARDOWN();
+}
+
+// Write the TxnID of the originating transaction into the write_ptr
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    otxn_id,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t flags)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const result = api.otxn_id(flags);
+    if (!result)
+        return result.error();
+
+    auto const& txID = result.value();
+
+    if (txID.size() > write_len)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length) ||
+        NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        txID.size(),
+        txID.data(),
+        txID.size(),
+        memory,
+        memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+// Return the tt (Transaction Type) numeric code of the originating transaction
+DEFINE_HOOK_FUNCTION(int64_t, otxn_type)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    return api.otxn_type();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, otxn_slot, uint32_t slot_into)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const result = api.otxn_slot(slot_into);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+// Return the burden of the originating transaction... this will be 1 unless the
+// originating transaction was itself an emitted transaction from a previous
+// hook invocation
+DEFINE_HOOK_FUNCTION(int64_t, otxn_burden)
+{
+    HOOK_SETUP();
+    return api.otxn_burden();
+    HOOK_TEARDOWN();
+}
+
+// Return the generation of the originating transaction... this will be 1 unless
+// the originating transaction was itself an emitted transaction from a previous
+// hook invocation
+DEFINE_HOOK_FUNCTION(int64_t, otxn_generation)
+{
+    HOOK_SETUP();
+    return api.otxn_generation();
+    HOOK_TEARDOWN();
+}
+
+// Return the generation of a hypothetically emitted transaction from this hook
+DEFINE_HOOK_FUNCTION(int64_t, etxn_generation)
+{
+    // proxy only, no setup or teardown
+    return hookCtx.api().etxn_generation();
+}
+
+// Return the current ledger sequence number
+DEFINE_HOOK_FUNCTION(int64_t, ledger_seq)
+{
+    HOOK_SETUP();
+
+    return api.ledger_seq();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    ledger_last_hash,
+    uint32_t write_ptr,
+    uint32_t write_len)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    auto const hash = api.ledger_last_hash();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, write_len, hash.data(), 32, memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, ledger_last_time)
+{
+    HOOK_SETUP();
+
+    return api.ledger_last_time();
+
+    HOOK_TEARDOWN();
+}
+
+// Dump a field from the originating transaction into the hook's memory
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    otxn_field,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t field_id)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (write_ptr == 0)
+    {
+        if (write_len != 0)
+            return INVALID_ARGUMENT;
+
+        // otherwise pass, we're trying to return the data as an int64_t
+    }
+    else if NOT_IN_BOUNDS (write_ptr, write_len, memory_length)
+        return OUT_OF_BOUNDS;
+
+    auto const result = api.otxn_field(field_id);
+    if (!result)
+        return result.error();
+
+    auto const& field = result.value();
+
+    Serializer s;
+    field->add(s);
+
+    WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(
+        write_ptr,
+        write_len,
+        s.getDataPtr(),
+        s.getDataLength(),
+        field->getSType() == STI_ACCOUNT);
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    slot,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t slot_no)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (write_ptr == 0)
+    {
+        // in this mode the function returns the data encoded in an int64_t
+        if (write_len != 0)
+            return INVALID_ARGUMENT;
+    }
+    else
+    {
+        if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+            return OUT_OF_BOUNDS;
+
+        if (write_len < 1)
+            return TOO_SMALL;
+    }
+
+    auto const result = api.slot(slot_no);
+    if (!result)
+        return result.error();
+
+    Serializer s;
+    (*result)->add(s);
+
+    WRITE_WASM_MEMORY_OR_RETURN_AS_INT64(
+        write_ptr,
+        write_len,
+        s.getDataPtr(),
+        s.getDataLength(),
+        (*result)->getSType() == STI_ACCOUNT);
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, slot_clear, uint32_t slot_no)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const result = api.slot_clear(slot_no);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, slot_count, uint32_t slot_no)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const result = api.slot_count(slot_no);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    slot_set,
+    uint32_t read_ptr,
+    uint32_t read_len,  // readptr is a keylet
+    uint32_t slot_into /* providing 0 allocates a slot to you */)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    Bytes data{memory + read_ptr, memory + read_ptr + read_len};
+    auto const result = api.slot_set(data, slot_into);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, slot_size, uint32_t slot_no)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const result = api.slot_size(slot_no);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    slot_subarray,
+    uint32_t parent_slot,
+    uint32_t array_id,
+    uint32_t new_slot)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const result = api.slot_subarray(parent_slot, array_id, new_slot);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    slot_subfield,
+    uint32_t parent_slot,
+    uint32_t field_id,
+    uint32_t new_slot)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const result = api.slot_subfield(parent_slot, field_id, new_slot);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const result = api.slot_type(slot_no, flags);
+    if (!result)
+        return result.error();
+
+    if (flags == 0)
+    {
+        auto const base = std::get<0>(*result);
+        return static_cast<uint64_t>(base.getFName().fieldCode);
+    }
+    else
+    {
+        auto const amount = std::get<1>(*result);
+        return amount.native();
+    }
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, slot_float, uint32_t slot_no)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const result = api.slot_float(slot_no);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    util_keylet,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t keylet_type,
+    uint32_t a,
+    uint32_t b,
+    uint32_t c,
+    uint32_t d,
+    uint32_t e,
+    uint32_t f)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (write_len < 34)
+        return TOO_SMALL;
+
+    try
+    {
+        switch (keylet_type)
+        {
+            // keylets that take a keylet and an 8 byte uint
+            case keylet_code::QUALITY: {
+                if (a == 0 || b == 0)
+                    return INVALID_ARGUMENT;
+                if (e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t read_ptr = a, read_len = b;
+
+                if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (read_len != 34)
+                    return INVALID_ARGUMENT;
+
+                // ensure it's a dir keylet or we will fail an assertion
+                if (*(read_ptr + memory) != 0 ||
+                    *(read_ptr + memory + 1) != 0x64U)
+                    return INVALID_ARGUMENT;
+
+                std::optional<ripple::Keylet> kl =
+                    unserialize_keylet(memory + read_ptr, read_len);
+                if (!kl)
+                    return NO_SUCH_KEYLET;
+
+                uint64_t arg = (((uint64_t)c) << 32U) + ((uint64_t)d);
+
+                ripple::Keylet kl_out = ripple::keylet::quality(*kl, arg);
+
+                return serialize_keylet(kl_out, memory, write_ptr, write_len);
+            }
+
+            // keylets that take a 32 byte uint
+            case keylet_code::HOOK_DEFINITION:
+            case keylet_code::CHILD:
+            case keylet_code::EMITTED_TXN:
+            case keylet_code::UNCHECKED: {
+                if (a == 0 || b == 0)
+                    return INVALID_ARGUMENT;
+
+                if (c != 0 || d != 0 || e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t read_ptr = a, read_len = b;
+
+                if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (read_len != 32)
+                    return INVALID_ARGUMENT;
+
+                uint256 id = uint256::fromVoid(memory + read_ptr);
+
+                ripple::Keylet kl = keylet_type == keylet_code::CHILD
+                    ? ripple::keylet::child(id)
+                    : keylet_type == keylet_code::EMITTED_TXN
+                    ? ripple::keylet::emittedTxn(id)
+                    : keylet_type == keylet_code::HOOK_DEFINITION
+                    ? ripple::keylet::hookDefinition(id)
+                    : ripple::keylet::unchecked(id);
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // keylets that take a 20 byte account id
+            case keylet_code::OWNER_DIR:
+            case keylet_code::SIGNERS:
+            case keylet_code::ACCOUNT:
+            case keylet_code::HOOK:
+            case keylet_code::DID: {
+                if (keylet_type == keylet_code::DID)
+                {
+                    if (!applyCtx.view().rules().enabled(featureDID))
+                        return INVALID_ARGUMENT;
+                }
+                if (a == 0 || b == 0)
+                    return INVALID_ARGUMENT;
+
+                if (c != 0 || d != 0 || e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t read_ptr = a, read_len = b;
+
+                if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (read_len != 20)
+                    return INVALID_ARGUMENT;
+
+                ripple::AccountID id = AccountID::fromVoid(memory + read_ptr);
+
+                ripple::Keylet kl = keylet_type == keylet_code::HOOK
+                    ? ripple::keylet::hook(id)
+                    : keylet_type == keylet_code::SIGNERS
+                    ? ripple::keylet::signers(id)
+                    : keylet_type == keylet_code::OWNER_DIR
+                    ? ripple::keylet::ownerDir(id)
+                    : keylet_type == keylet_code::DID
+                    ? ripple::keylet::did(id)
+                    : ripple::keylet::account(id);
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+                // keylets that take 20 byte account id, and (4 byte uint for 32
+                // byte hash)
+            case keylet_code::ORACLE: {
+                if (!applyCtx.view().rules().enabled(featurePriceOracle))
+                    return INVALID_ARGUMENT;
+
+                if (a == 0 || b == 0)
+                    return INVALID_ARGUMENT;
+                if (d != 0 || e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t read_ptr = a, read_len = b;
+
+                if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (read_len != 20)
+                    return INVALID_ARGUMENT;
+
+                ripple::AccountID id = AccountID::fromVoid(memory + read_ptr);
+
+                uint32_t seqId = c;
+
+                ripple::Keylet kl = ripple::keylet::oracle(id, seqId);
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // keylets that take 20 byte account id, and UInt32or256 (4 byte
+            // uint or 32 byte hash)
+            case keylet_code::OFFER:
+            case keylet_code::CHECK:
+            case keylet_code::ESCROW:
+            case keylet_code::NFT_OFFER: {
+                if (a == 0 || b == 0)
+                    return INVALID_ARGUMENT;
+                if (e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t read_ptr = a, read_len = b;
+
+                if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (read_len != 20)
+                    return INVALID_ARGUMENT;
+
+                ripple::AccountID id = AccountID::fromVoid(memory + read_ptr);
+
+                std::variant<uint32_t, uint256> seq;
+                if (d == 0)
+                    seq = c;
+                else if (d != 32)
+                    return INVALID_ARGUMENT;
+                else
+                {
+                    if (NOT_IN_BOUNDS(c, 32, memory_length))
+                        return OUT_OF_BOUNDS;
+                    seq = uint256::fromVoid(memory + c);
+                }
+
+                ripple::Keylet kl = keylet_type == keylet_code::CHECK
+                    ? ripple::keylet::check(id, seq)
+                    : keylet_type == keylet_code::ESCROW
+                    ? ripple::keylet::escrow(id, seq)
+                    : keylet_type == keylet_code::NFT_OFFER
+                    ? ripple::keylet::nftoffer(id, seq)
+                    : ripple::keylet::offer(id, seq);
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+                // keylets that take 20 byte account id, and 4 byte uint
+            case keylet_code::CRON: {
+                if (!applyCtx.view().rules().enabled(featureCron))
+                    return INVALID_ARGUMENT;
+
+                if (a == 0 || b == 0)
+                    return INVALID_ARGUMENT;
+                if (e != 0 || f != 0 || d != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t read_ptr = a, read_len = b;
+
+                if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (read_len != 20)
+                    return INVALID_ARGUMENT;
+
+                ripple::AccountID id = AccountID::fromVoid(memory + read_ptr);
+
+                uint32_t seq = c;
+
+                ripple::Keylet kl = ripple::keylet::cron(seq, id);
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // keylets that take a 32 byte uint and an 8byte uint64
+            case keylet_code::PAGE: {
+                if (a == 0 || b == 0)
+                    return INVALID_ARGUMENT;
+
+                if (e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t kread_ptr = a, kread_len = b;
+
+                if (NOT_IN_BOUNDS(kread_ptr, kread_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (b != 32)
+                    return INVALID_ARGUMENT;
+
+                uint64_t index = (((uint64_t)c) << 32U) + ((uint64_t)d);
+                ripple::Keylet kl =
+                    ripple::keylet::page(uint256::fromVoid(memory + a), index);
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // keylets that take both a 20 byte account id and a 32 byte uint
+            case keylet_code::HOOK_STATE: {
+                if (a == 0 || b == 0 || c == 0 || d == 0 || e == 0 || f == 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t aread_ptr = a, aread_len = b, kread_ptr = c,
+                         kread_len = d, nread_ptr = e, nread_len = f;
+
+                if (NOT_IN_BOUNDS(aread_ptr, aread_len, memory_length) ||
+                    NOT_IN_BOUNDS(kread_ptr, kread_len, memory_length) ||
+                    NOT_IN_BOUNDS(nread_ptr, nread_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (aread_len != 20 || kread_len != 32 || nread_len != 32)
+                    return INVALID_ARGUMENT;
+
+                ripple::Keylet kl = ripple::keylet::hookState(
+                    AccountID::fromVoid(memory + aread_ptr),
+                    uint256::fromVoid(memory + kread_ptr),
+                    uint256::fromVoid(memory + nread_ptr));
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            case keylet_code::HOOK_STATE_DIR: {
+                if (!applyCtx.view().rules().enabled(featureHooksUpdate1))
+                    return INVALID_ARGUMENT;
+
+                if (a == 0 || b == 0 || c == 0 || d == 0)
+                    return INVALID_ARGUMENT;
+
+                if (e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t aread_ptr = a, aread_len = b, nread_ptr = c,
+                         nread_len = d;
+
+                if (NOT_IN_BOUNDS(aread_ptr, aread_len, memory_length) ||
+                    NOT_IN_BOUNDS(nread_ptr, nread_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (aread_len != 20 || nread_len != 32)
+                    return INVALID_ARGUMENT;
+
+                ripple::Keylet kl = ripple::keylet::hookStateDir(
+                    AccountID::fromVoid(memory + aread_ptr),
+                    uint256::fromVoid(memory + nread_ptr));
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // skip is overloaded, has a single, optional 4 byte argument
+            case keylet_code::SKIP: {
+                if (c != 0 || d != 0 || e != 0 || f != 0 || b > 1)
+                    return INVALID_ARGUMENT;
+
+                ripple::Keylet kl =
+                    (b == 0 ? ripple::keylet::skip() : ripple::keylet::skip(a));
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // no arguments
+            case keylet_code::AMENDMENTS:
+            case keylet_code::FEES:
+            case keylet_code::NEGATIVE_UNL:
+            case keylet_code::EMITTED_DIR: {
+                if (a != 0 || b != 0 || c != 0 || d != 0 || e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                auto makeKeyCache =
+                    [](ripple::Keylet kl) -> std::array<uint8_t, 34> {
+                    std::array<uint8_t, 34> d;
+
+                    d[0] = (kl.type >> 8) & 0xFFU;
+                    d[1] = (kl.type >> 0) & 0xFFU;
+                    for (int i = 0; i < 32; ++i)
+                        d[2 + i] = kl.key.data()[i];
+
+                    return d;
+                };
+
+                static std::array<uint8_t, 34> cAmendments =
+                    makeKeyCache(ripple::keylet::amendments());
+                static std::array<uint8_t, 34> cFees =
+                    makeKeyCache(ripple::keylet::fees());
+                static std::array<uint8_t, 34> cNegativeUNL =
+                    makeKeyCache(ripple::keylet::negativeUNL());
+                static std::array<uint8_t, 34> cEmittedDir =
+                    makeKeyCache(ripple::keylet::emittedDir());
+
+                WRITE_WASM_MEMORY_AND_RETURN(
+                    write_ptr,
+                    write_len,
+                    keylet_type == keylet_code::AMENDMENTS ? cAmendments.data()
+                        : keylet_type == keylet_code::FEES ? cFees.data()
+                        : keylet_type == keylet_code::NEGATIVE_UNL
+                        ? cNegativeUNL.data()
+                        : cEmittedDir.data(),
+                    34,
+                    memory,
+                    memory_length);
+            }
+
+            case keylet_code::LINE: {
+                if (a == 0 || b == 0 || c == 0 || d == 0 || e == 0 || f == 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t acc1_ptr = a, acc1_len = b, acc2_ptr = c, acc2_len = d,
+                         cu_ptr = e, cu_len = f;
+
+                if (NOT_IN_BOUNDS(acc1_ptr, acc1_len, memory_length) ||
+                    NOT_IN_BOUNDS(acc2_ptr, acc2_len, memory_length) ||
+                    NOT_IN_BOUNDS(cu_ptr, cu_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (acc1_len != 20 || acc2_len != 20)
+                    return INVALID_ARGUMENT;
+
+                std::optional<Currency> cur =
+                    parseCurrency(memory + cu_ptr, cu_len);
+                if (!cur)
+                    return INVALID_ARGUMENT;
+
+                auto kl = ripple::keylet::line(
+                    AccountID::fromVoid(memory + acc1_ptr),
+                    AccountID::fromVoid(memory + acc2_ptr),
+                    *cur);
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // keylets that take two 20 byte account ids
+            case keylet_code::DEPOSIT_PREAUTH: {
+                if (a == 0 || b == 0 || c == 0 || d == 0)
+                    return INVALID_ARGUMENT;
+
+                if (e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t aread_ptr = a, aread_len = b;
+                uint32_t bread_ptr = c, bread_len = d;
+
+                if (NOT_IN_BOUNDS(aread_ptr, aread_len, memory_length) ||
+                    NOT_IN_BOUNDS(bread_ptr, bread_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (aread_len != 20 || bread_len != 20)
+                    return INVALID_ARGUMENT;
+
+                ripple::AccountID aid = AccountID::fromVoid(memory + aread_ptr);
+                ripple::AccountID bid = AccountID::fromVoid(memory + bread_ptr);
+
+                ripple::Keylet kl = ripple::keylet::depositPreauth(aid, bid);
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // keylets that take two 20 byte account ids and a 4 byte uint
+            case keylet_code::PAYCHAN: {
+                if (a == 0 || b == 0 || c == 0 || d == 0 || e == 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t aread_ptr = a, aread_len = b;
+                uint32_t bread_ptr = c, bread_len = d;
+
+                if (NOT_IN_BOUNDS(aread_ptr, aread_len, memory_length) ||
+                    NOT_IN_BOUNDS(bread_ptr, bread_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (aread_len != 20 || bread_len != 20)
+                    return INVALID_ARGUMENT;
+
+                ripple::AccountID aid = AccountID::fromVoid(memory + aread_ptr);
+                ripple::AccountID bid = AccountID::fromVoid(memory + bread_ptr);
+
+                std::variant<uint32_t, uint256> seq;
+                if (f == 0)
+                    seq = e;
+                else if (f != 32)
+                    return INVALID_ARGUMENT;
+                else
+                {
+                    if (NOT_IN_BOUNDS(e, 32, memory_length))
+                        return OUT_OF_BOUNDS;
+                    seq = uint256::fromVoid(memory + e);
+                }
+
+                ripple::Keylet kl = ripple::keylet::payChan(aid, bid, seq);
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // keylets that take two 40 byte assets
+            case keylet_code::AMM: {
+                if (!applyCtx.view().rules().enabled(featureAMM))
+                    return INVALID_ARGUMENT;
+
+                if (a == 0 || b == 0 || c == 0 || d == 0)
+                    return INVALID_ARGUMENT;
+
+                if (e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t aread_ptr = a, aread_len = b;
+                uint32_t bread_ptr = c, bread_len = d;
+
+                if (NOT_IN_BOUNDS(aread_ptr, aread_len, memory_length) ||
+                    NOT_IN_BOUNDS(bread_ptr, bread_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (aread_len != 40 || bread_len != 40)
+                    return INVALID_ARGUMENT;
+
+                Currency aCur = Currency::fromVoid(memory + aread_ptr);
+                Currency bCur = Currency::fromVoid(memory + bread_ptr);
+
+                AccountID aAcc = AccountID::fromVoid(memory + aread_ptr + 20);
+                AccountID bAcc = AccountID::fromVoid(memory + bread_ptr + 20);
+
+                Issue aIss = Issue{aCur, aAcc};
+                Issue bIss = Issue{bCur, bAcc};
+
+                ripple::Keylet kl =
+                    ripple::keylet::amm(Asset{aIss}, Asset{bIss});
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+            // These keylet types are not yet implemented. Their
+            // corresponding amendments are not yet supported on the
+            // network. Each case needs a full implementation (see
+            // above cases for reference) before its amendment can be
+            // enabled.
+            // featureXChainBridge
+            case keylet_code::BRIDGE:
+            case keylet_code::XCHAIN_OWNED_CLAIM_ID:
+            case keylet_code::XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID:
+            // featureMPTokensV1
+            case keylet_code::MPTOKEN_ISSUANCE:
+            case keylet_code::MPTOKEN:
+            // featureCredentials
+            case keylet_code::CREDENTIAL:
+            // featurePermissionedDomains
+            case keylet_code::PERMISSIONED_DOMAIN:
+                return INVALID_ARGUMENT;
+        }
+    }
+    catch (std::exception& e)
+    {
+        JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: Keylet exception "
+                       << e.what();
+        return INTERNAL_ERROR;
+    }
+
+    return INVALID_ARGUMENT;
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    prepare,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    ripple::Slice txBlob{
+        reinterpret_cast<const void*>(memory + read_ptr), read_len};
+
+    auto const res = api.prepare(txBlob);
+    if (!res)
+        return res.error();
+
+    auto tx_blob = res.value();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        tx_blob.size(),
+        tx_blob.data(),
+        tx_blob.size(),
+        memory,
+        memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+/* Emit a transaction from this hook. Transaction must be in STObject form,
+ * fully formed and valid. XRPLD does not modify transactions it only checks
+ * them for validity. */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    emit,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    // Delegate to decoupled HookAPI for emit logic
+    ripple::Slice txBlob{
+        reinterpret_cast<const void*>(memory + read_ptr), read_len};
+
+    auto const res = api.emit(txBlob);
+
+    if (!res)
+        return res.error();
+
+    auto const& tpTrans = *res;  // 32 bytes
+    auto const& txID = tpTrans->getID();
+
+    if (txID.size() > write_len)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const write_txid =
+        [&]() -> std::variant<uint64_t, hook_api::hook_return_code> {
+        WRITE_WASM_MEMORY_AND_RETURN(
+            write_ptr,
+            txID.size(),
+            txID.data(),
+            txID.size(),
+            memory,
+            memory_length);
+    };
+
+    auto result = write_txid();
+    if (std::holds_alternative<hook_api::hook_return_code>(result))
+        return std::get<hook_api::hook_return_code>(result);
+
+    auto const value = std::get<uint64_t>(result);
+    if (value == 32)
+        hookCtx.result.emittedTxn.push(tpTrans);
+
+    return value;
+
+    HOOK_TEARDOWN();
+}
+
+// When implemented will return the hash of the current hook
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    hook_hash,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    int32_t hook_no)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const result = api.hook_hash(hook_no);
+    if (!result)
+        return result.error();
+    auto const& hash = result.value();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, write_len, hash.data(), hash.size(), memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+// Write the account id that the running hook is installed on into write_ptr
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    hook_account,
+    uint32_t write_ptr,
+    uint32_t ptr_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(write_ptr, ptr_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (ptr_len < 20)
+        return TOO_SMALL;
+
+    auto const result = api.hook_account();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, 20, result.data(), 20, memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+// Deterministic nonces (can be called multiple times)
+// Writes nonce into the write_ptr
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    etxn_nonce,
+    uint32_t write_ptr,
+    uint32_t write_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx, view on current stack
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    // It is also checked in api.etxn_nonce, but for backwards compatibility, it
+    // must be checked before the TOO_SMALL check.
+    if (hookCtx.emit_nonce_counter > hook_api::max_nonce)
+        return TOO_MANY_NONCES;
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    auto const result = api.etxn_nonce();
+    if (!result)
+        return result.error();
+    auto const& hash = result.value();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, 32, hash.data(), 32, memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    ledger_nonce,
+    uint32_t write_ptr,
+    uint32_t write_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx, view on current stack
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const result = api.ledger_nonce();
+    if (!result)
+        return result.error();
+    auto const& hash = result.value();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, 32, hash.data(), 32, memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    ledger_keylet,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t lread_ptr,
+    uint32_t lread_len,
+    uint32_t hread_ptr,
+    uint32_t hread_len)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length) ||
+        NOT_IN_BOUNDS(lread_ptr, lread_len, memory_length) ||
+        NOT_IN_BOUNDS(hread_ptr, hread_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (lread_len < 34U || hread_len < 34U || write_len < 34U)
+        return TOO_SMALL;
+    if (lread_len > 34U || hread_len > 34U || write_len > 34U)
+        return TOO_BIG;
+
+    std::optional<ripple::Keylet> klLo =
+        unserialize_keylet(memory + lread_ptr, lread_len);
+    if (!klLo)
+        return INVALID_ARGUMENT;
+
+    std::optional<ripple::Keylet> klHi =
+        unserialize_keylet(memory + hread_ptr, hread_len);
+    if (!klHi)
+        return INVALID_ARGUMENT;
+
+    auto const result = api.ledger_keylet(*klLo, *klHi);
+    if (!result)
+        return result.error();
+    auto kl_out = result.value();
+
+    return serialize_keylet(kl_out, memory, write_ptr, write_len);
+
+    HOOK_TEARDOWN();
+}
+
+// Reserve one or more transactions for emission from the running hook
+DEFINE_HOOK_FUNCTION(int64_t, etxn_reserve, uint32_t count)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const result = api.etxn_reserve(count);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+// Compute the burden of an emitted transaction based on a number of factors
+DEFINE_HOOK_FUNCTION(int64_t, etxn_burden)
+{
+    HOOK_SETUP();
+    auto const burden = api.etxn_burden();
+    if (!burden)
+        return burden.error();
+    return burden.value();
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    util_sha512h,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx, view on current stack
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length) ||
+        NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const hash =
+        api.util_sha512h(ripple::Slice{memory + read_ptr, read_len});
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, 32, hash.data(), 32, memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+// Given an serialized object in memory locate and return the offset and length
+// of the payload of a subfield of that object. Arrays are returned fully
+// formed. If successful returns offset and length joined as int64_t. Use
+// SUB_OFFSET and SUB_LENGTH to extract.
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    sto_subfield,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t field_id)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    Bytes data{memory + read_ptr, memory + read_ptr + read_len};
+    auto const result = api.sto_subfield(data, field_id);
+    if (!result)
+        return result.error();
+    auto const& pair = result.value();
+    return (uint64_t(pair.first) << 32U) + (uint32_t)pair.second;
+
+    HOOK_TEARDOWN();
+}
+
+// Same as subfield but indexes into a serialized array
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    sto_subarray,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t index_id)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    Bytes data{memory + read_ptr, memory + read_ptr + read_len};
+    auto const result = api.sto_subarray(data, index_id);
+    if (!result)
+        return result.error();
+    auto const& pair = result.value();
+    return (uint64_t(pair.first) << 32U) + (uint32_t)pair.second;
+
+    HOOK_TEARDOWN();
+}
+
+// Convert an account ID into a base58-check encoded r-address
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    util_raddr,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const result =
+        api.util_raddr(Bytes{memory + read_ptr, memory + read_ptr + read_len});
+    if (!result)
+        return result.error();
+    auto const& raddr = result.value();
+
+    if (write_len < raddr.size())
+        return TOO_SMALL;
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        write_len,
+        raddr.c_str(),
+        raddr.size(),
+        memory,
+        memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+// Convert a base58-check encoded r-address into a 20 byte account id
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    util_accid,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (write_len < 20)
+        return TOO_SMALL;
+
+    if (read_len > 49)
+        return TOO_BIG;
+
+    // RH TODO we shouldn't need to slice this input but the base58 routine
+    // fails if we dont... maybe some encoding or padding that shouldnt be there
+    // or maybe something that should be there
+
+    char buffer[50];
+    for (int i = 0; i < read_len; ++i)
+        buffer[i] = *(memory + read_ptr + i);
+    buffer[read_len] = 0;
+
+    std::string raddr{buffer};
+
+    auto const result = api.util_accid(raddr);
+    if (!result)
+        return result.error();
+    auto const& accountID = result.value();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, write_len, accountID.data(), 20, memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+/**
+ * Check if any of the integer intervals overlap
+ * [a,b,  c,d, ... ] ::== {a-b}, {c-d}, ...
+ * TODO: naive implementation consider revising if
+ * will be called with > 4 regions
+ */
+inline bool
+overlapping_memory(std::vector<uint64_t> regions)
+{
+    for (uint64_t i = 0; i < regions.size() - 2; i += 2)
+    {
+        uint64_t a = regions[i + 0];
+        uint64_t b = regions[i + 1];
+
+        for (uint64_t j = i + 2; j < regions.size(); j += 2)
+        {
+            uint64_t c = regions[j + 0];
+            uint64_t d = regions[j + 1];
+
+            // only valid ways not to overlap are
+            //
+            // |===|  |===|
+            // a   b  c   d
+            //
+            //      or
+            // |===|  |===|
+            // c   d  a   b
+
+            if (d <= a || b <= c)
+            {
+                // no collision
+                continue;
+            }
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Inject a field into an sto if there is sufficient space
+ * Field must be fully formed and wrapped (NOT JUST PAYLOAD)
+ * sread - source object
+ * fread - field to inject
+ */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    sto_emplace,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t sread_ptr,
+    uint32_t sread_len,
+    uint32_t fread_ptr,
+    uint32_t fread_len,
+    uint32_t field_id)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(sread_ptr, sread_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(fread_ptr, fread_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (write_len < sread_len + fread_len)
+        return TOO_SMALL;
+
+    // RH TODO: put these constants somewhere (votable?)
+    if (sread_len > 1024 * 16)
+        return TOO_BIG;
+
+    if (sread_len < 2)
+        return TOO_SMALL;
+
+    if (fread_len == 0 && fread_ptr == 0)
+    {
+        // this is a delete operation
+        if (overlapping_memory(
+                {write_ptr,
+                 write_ptr + write_len,
+                 sread_ptr,
+                 sread_ptr + sread_len}))
+            return MEM_OVERLAP;
+    }
+    else
+    {
+        if (fread_len > 4096)
+            return TOO_BIG;
+
+        if (fread_len < 2)
+            return TOO_SMALL;
+
+        // check for buffer overlaps
+        if (overlapping_memory(
+                {write_ptr,
+                 write_ptr + write_len,
+                 sread_ptr,
+                 sread_ptr + sread_len,
+                 fread_ptr,
+                 fread_ptr + fread_len}))
+            return MEM_OVERLAP;
+    }
+
+    Bytes source{memory + sread_ptr, memory + sread_ptr + sread_len};
+    std::optional<Bytes> field;
+    if (fread_len > 0 && fread_ptr > 0)
+        field = Bytes{memory + fread_ptr, memory + fread_ptr + fread_len};
+    auto const result = api.sto_emplace(source, field, field_id);
+    if (!result)
+        return result.error();
+    auto const& bytes = result.value();
+
+    if (bytes.size() > write_len)
+        return INTERNAL_ERROR;
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        write_len,
+        bytes.data(),
+        bytes.size(),
+        memory,
+        memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+/**
+ * Remove a field from an sto if the field is present
+ */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    sto_erase,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t field_id)
+{
+    // proxy only no setup or teardown
+    auto ret = sto_emplace(
+        hookCtx,
+        frameCtx,
+        write_ptr,
+        write_len,
+        read_ptr,
+        read_len,
+        0,
+        0,
+        field_id);
+
+    if (std::holds_alternative<uint64_t>(ret))
+    {
+        auto const value = std::get<uint64_t>(ret);
+        if (value > 0 && value == read_len)
+            return DOESNT_EXIST;
+    }
+
+    return ret;
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    sto_validate,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    // RH TODO: see if an internal ripple function/class would do this better
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    Bytes data{read_ptr + memory, read_ptr + read_len + memory};
+    auto const result = api.sto_validate(data);
+    if (!result)
+        return result.error();
+    return result.value() ? 1ULL : 0ULL;
+
+    HOOK_TEARDOWN();
+}
+
+// Validate either an secp256k1 signature or an ed25519 signature, using the
+// XRPLD convention for identifying the key type. Pointer prefixes: d = data, s
+// = signature, k = public key.
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    util_verify,
+    uint32_t dread_ptr,
+    uint32_t dread_len,
+    uint32_t sread_ptr,
+    uint32_t sread_len,
+    uint32_t kread_ptr,
+    uint32_t kread_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(dread_ptr, dread_len, memory_length) ||
+        NOT_IN_BOUNDS(sread_ptr, sread_len, memory_length) ||
+        NOT_IN_BOUNDS(kread_ptr, kread_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    ripple::Slice key{
+        reinterpret_cast<const void*>(kread_ptr + memory), kread_len};
+    ripple::Slice data{
+        reinterpret_cast<const void*>(dread_ptr + memory), dread_len};
+    ripple::Slice sig{
+        reinterpret_cast<const void*>(sread_ptr + memory), sread_len};
+
+    auto const result = api.util_verify(data, sig, key);
+    if (!result)
+        return result.error();
+    return result.value() ? 1ULL : 0ULL;
+
+    HOOK_TEARDOWN();
+}
+
+// Return the current fee base of the current ledger (multiplied by a margin)
+DEFINE_HOOK_FUNCTION(int64_t, fee_base)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    return api.fee_base();
+
+    HOOK_TEARDOWN();
+}
+
+// Return the fee base for a hypothetically emitted transaction from the current
+// hook based on byte count
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    etxn_fee_base,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+    ripple::Slice tx{
+        reinterpret_cast<const void*>(read_ptr + memory), read_len};
+    auto const fee_base = api.etxn_fee_base(tx);
+    if (!fee_base)
+        return fee_base.error();
+    return fee_base.value();
+    HOOK_TEARDOWN();
+}
+
+// Populate an sfEmitDetails field in a soon-to-be emitted transaction
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    etxn_details,
+    uint32_t write_ptr,
+    uint32_t write_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    int64_t expected_size = 138U;
+    if (!hookCtx.result.hasCallback)
+        expected_size -= 22U;
+
+    if (write_len < expected_size)
+        return TOO_SMALL;
+
+    auto const result = api.etxn_details(memory + write_ptr);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+// Guard function... very important. Enforced on SetHook transaction, keeps
+// track of how many times a runtime loop iterates and terminates the hook if
+// the iteration count rises above a preset number of iterations as determined
+// by the hook developer
+DEFINE_HOOK_FUNCTION(int32_t, _g, uint32_t id, uint32_t maxitr)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (hookCtx.guard_map.find(id) == hookCtx.guard_map.end())
+        hookCtx.guard_map[id] = 1;
+    else
+        hookCtx.guard_map[id]++;
+
+    if (hookCtx.guard_map[id] > maxitr)
+    {
+        if (id > 0xFFFFU)
+        {
+            JLOG(j.trace())
+                << "HookInfo[" << HC_ACC() << "]: Macro guard violation. "
+                << "Src line: " << (id & 0xFFFFU) << " "
+                << "Macro line: " << (id >> 16) << " "
+                << "Iterations: " << hookCtx.guard_map[id];
+        }
+        else
+        {
+            JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: Guard violation. "
+                            << "Src line: " << id << " "
+                            << "Iterations: " << hookCtx.guard_map[id];
+        }
+        hookCtx.result.exitType = hook_api::ExitType::ROLLBACK;
+        hookCtx.result.exitCode = (int64_t)GUARD_VIOLATION;
+        return RC_ROLLBACK;
+    }
+    return 1U;
+
+    HOOK_TEARDOWN();
+}
+
+#define RETURN_IF_INVALID_FLOAT(float1)                 \
+    {                                                   \
+        if (float1 < 0)                                 \
+            return INVALID_FLOAT;                       \
+        if (float1 != 0)                                \
+        {                                               \
+            auto const mantissa = get_mantissa(float1); \
+            auto const exponent = get_exponent(float1); \
+            if (!mantissa || !exponent)                 \
+                return INVALID_FLOAT;                   \
+            if (mantissa.value() < minMantissa ||       \
+                mantissa.value() > maxMantissa ||       \
+                exponent.value() > maxExponent ||       \
+                exponent.value() < minExponent)         \
+                return INVALID_FLOAT;                   \
+        }                                               \
+    }
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    trace_float,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    int64_t float1)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx on
+                   // current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (!j.trace())
+        return 0ULL;
+
+    if (read_len > 128)
+        read_len = 128;
+
+    // omit \0 if present
+    if (read_len > 0 &&
+        *((const char*)memory + read_ptr + read_len - 1) == '\0')
+        read_len--;
+
+    auto const messageKey = (read_len == 0)
+        ? ""
+        : std::string_view((const char*)memory + read_ptr, read_len);
+
+    if (float1 == 0)
+    {
+        j.trace() << "HookTrace[" << HC_ACC() << "]: " << messageKey
+                  << ": Float 0*10^(0) <ZERO>";
+        return 0ULL;
+    }
+
+    auto const man = get_mantissa(float1);
+    auto const exp = get_exponent(float1);
+    bool neg = is_negative(float1);
+    if (!man || !exp || man.value() < minMantissa ||
+        man.value() > maxMantissa || exp.value() < minExponent ||
+        exp.value() > maxExponent)
+    {
+        j.trace() << "HookTrace[" << HC_ACC() << "]: " << messageKey
+                  << ": Float <INVALID>";
+        return 0ULL;
+    }
+
+    j.trace() << "HookTrace[" << HC_ACC() << "]:" << messageKey << ": Float "
+              << (neg ? "-" : "") << man.value() << "*10^(" << exp.value()
+              << ")";
+    return 0ULL;
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, float_set, int32_t exp, int64_t mantissa)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const result = api.float_set(exp, mantissa);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    float_int,
+    int64_t float1,
+    uint32_t decimal_places,
+    uint32_t absolute)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    RETURN_IF_INVALID_FLOAT(float1);
+
+    auto const result = api.float_int(float1, decimal_places, absolute);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, float_multiply, int64_t float1, int64_t float2)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    RETURN_IF_INVALID_FLOAT(float1);
+    RETURN_IF_INVALID_FLOAT(float2);
+
+    auto const result = api.float_multiply(float1, float2);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    float_mulratio,
+    int64_t float1,
+    uint32_t round_up,
+    uint32_t numerator,
+    uint32_t denominator)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    RETURN_IF_INVALID_FLOAT(float1);
+
+    auto const result =
+        api.float_mulratio(float1, round_up, numerator, denominator);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, float_negate, int64_t float1)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    RETURN_IF_INVALID_FLOAT(float1);
+
+    return api.float_negate(float1);
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    float_compare,
+    int64_t float1,
+    int64_t float2,
+    uint32_t mode)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    RETURN_IF_INVALID_FLOAT(float1);
+    RETURN_IF_INVALID_FLOAT(float2);
+
+    auto const result = api.float_compare(float1, float2, mode);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, float_sum, int64_t float1, int64_t float2)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    RETURN_IF_INVALID_FLOAT(float1);
+    RETURN_IF_INVALID_FLOAT(float2);
+
+    auto const result = api.float_sum(float1, float2);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    float_sto,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t cread_ptr,
+    uint32_t cread_len,
+    uint32_t iread_ptr,
+    uint32_t iread_len,
+    int64_t float1,
+    uint32_t field_code)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    std::optional<Currency> currency;
+    std::optional<AccountID> issuer;
+
+    // bounds and argument checks
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (cread_len == 0)
+    {
+        if (cread_ptr != 0)
+            return INVALID_ARGUMENT;
+    }
+    else
+    {
+        if (cread_len != 20 && cread_len != 3)
+            return INVALID_ARGUMENT;
+
+        if (NOT_IN_BOUNDS(cread_ptr, cread_len, memory_length))
+            return OUT_OF_BOUNDS;
+
+        currency = parseCurrency(memory + cread_ptr, cread_len);
+
+        if (!currency)
+            return INVALID_ARGUMENT;
+    }
+
+    if (iread_len == 0)
+    {
+        if (iread_ptr != 0)
+            return INVALID_ARGUMENT;
+    }
+    else
+    {
+        if (iread_len != 20)
+            return INVALID_ARGUMENT;
+
+        if (NOT_IN_BOUNDS(iread_ptr, iread_len, memory_length))
+            return OUT_OF_BOUNDS;
+
+        issuer = AccountID::fromVoid(memory + iread_ptr);
+    }
+
+    RETURN_IF_INVALID_FLOAT(float1);
+
+    auto const result =
+        api.float_sto(currency, issuer, float1, field_code, write_len);
+    if (!result)
+        return result.error();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        write_len,
+        (*result).data(),
+        (*result).size(),
+        memory,
+        memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    float_sto_set,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (read_len < 8)
+        return NOT_AN_OBJECT;
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    Bytes data{read_ptr + memory, read_ptr + read_len + memory};
+
+    auto const result = api.float_sto_set(data);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, float_divide, int64_t float1, int64_t float2)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    RETURN_IF_INVALID_FLOAT(float1);
+    RETURN_IF_INVALID_FLOAT(float2);
+
+    auto const result = api.float_divide(float1, float2);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, float_one)
+{
+    return hookCtx.api().float_one();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, float_invert, int64_t float1)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    RETURN_IF_INVALID_FLOAT(float1);
+
+    auto const result = api.float_invert(float1);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, float_mantissa, int64_t float1)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    RETURN_IF_INVALID_FLOAT(float1);
+
+    auto const result = api.float_mantissa(float1);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, float_sign, int64_t float1)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    RETURN_IF_INVALID_FLOAT(float1);
+
+    return api.float_sign(float1);
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, float_log, int64_t float1)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    RETURN_IF_INVALID_FLOAT(float1);
+
+    auto const result = api.float_log(float1);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, float_root, int64_t float1, uint32_t n)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    RETURN_IF_INVALID_FLOAT(float1);
+
+    auto const result = api.float_root(float1, n);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    otxn_param,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    Bytes paramName{read_ptr + memory, read_ptr + read_len + memory};
+
+    auto const result = api.otxn_param(paramName);
+    if (!result)
+        return result.error();
+    auto const& val = result.value();
+
+    if (val.size() > write_len)
+        return TOO_SMALL;
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, write_len, val.data(), val.size(), memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    hook_param,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    Bytes paramName{read_ptr + memory, read_ptr + read_len + memory};
+
+    auto const result = api.hook_param(paramName);
+
+    if (!result)
+        return result.error();
+
+    auto const& val = result.value();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, write_len, val.data(), val.size(), memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    hook_param_set,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t kread_ptr,
+    uint32_t kread_len,
+    uint32_t hread_ptr,
+    uint32_t hread_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length) ||
+        NOT_IN_BOUNDS(kread_ptr, kread_len, memory_length) ||
+        NOT_IN_BOUNDS(hread_ptr, hread_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    {
+        // those checks are also done in the HookAPI
+        // but we need to check them here too for backwards compatibility
+        if (kread_len < 1)
+            return TOO_SMALL;
+
+        if (kread_len > hook::maxHookParameterKeySize())
+            return TOO_BIG;
+
+        if (hread_len != 32)
+            return INVALID_ARGUMENT;
+
+        if (read_len > hook::maxHookParameterValueSize())
+            return TOO_BIG;
+    }
+
+    Bytes paramName{kread_ptr + memory, kread_ptr + kread_len + memory};
+    Bytes paramValue{read_ptr + memory, read_ptr + read_len + memory};
+    ripple::uint256 hash = ripple::uint256::fromVoid(memory + hread_ptr);
+
+    auto const result = api.hook_param_set(hash, paramName, paramValue);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    hook_skip,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t flags)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (read_len != 32)
+        return INVALID_ARGUMENT;
+
+    ripple::uint256 hash = ripple::uint256::fromVoid(memory + read_ptr);
+
+    auto const result = api.hook_skip(hash, flags);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, hook_pos)
+{
+    return hookCtx.api().hook_pos();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, hook_again)
+{
+    HOOK_SETUP();
+
+    auto const result = api.hook_again();
+
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, meta_slot, uint32_t slot_into)
+{
+    HOOK_SETUP();
+
+    auto const result = api.meta_slot(slot_into);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    xpop_slot,
+    uint32_t slot_into_tx,
+    uint32_t slot_into_meta)
+{
+    HOOK_SETUP();
+
+    auto const result = api.xpop_slot(slot_into_tx, slot_into_meta);
+    if (!result)
+        return result.error();
+
+    return std::get<0>(result.value()) << 16U | std::get<1>(result.value());
+
+    HOOK_TEARDOWN();
+}
 /*
 
 DEFINE_HOOK_FUNCTION(

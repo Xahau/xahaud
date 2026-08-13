@@ -98,16 +98,18 @@
 
 #define UNSIGNED_TYPE(T) std::make_unsigned_t<T>
 
-#define DECLARE_HOOK_FUNCTION(R, F, ...)                                   \
-    std::variant<UNSIGNED_TYPE(R), hook_api::hook_return_code> F(          \
-        hook::HookContext& hookCtx,                                        \
-        hook::HookGuestMemory& guestMemory __VA_OPT__(COMMA __VA_ARGS__)); \
-    extern hook::HookHostCallStatus HostFunction##F(                       \
-        void* userData,                                                    \
-        hook::HookGuestMemory& guestMemory,                                \
-        hook::HookHostValue const* inputs,                                 \
-        std::size_t inputCount,                                            \
-        hook::HookHostValue* outputs,                                      \
+// Keep the legacy body-local frameCtx spelling; its type is now the
+// callback-scoped, engine-neutral guest-memory view.
+#define DECLARE_HOOK_FUNCTION(R, F, ...)                                \
+    std::variant<UNSIGNED_TYPE(R), hook_api::hook_return_code> F(       \
+        hook::HookContext& hookCtx,                                     \
+        hook::HookGuestMemory& frameCtx __VA_OPT__(COMMA __VA_ARGS__)); \
+    extern hook::HookHostCallStatus HostFunction##F(                    \
+        void* userData,                                                 \
+        hook::HookGuestMemory& guestMemory,                             \
+        hook::HookHostValue const* inputs,                              \
+        std::size_t inputCount,                                         \
+        hook::HookHostValue* outputs,                                   \
         std::size_t outputCount);
 
 #define DEFINE_HOOK_FUNCTION(R, F, ...)                                        \
@@ -140,7 +142,7 @@
     };                                                                         \
     std::variant<UNSIGNED_TYPE(R), hook_api::hook_return_code> hook_api::F(    \
         hook::HookContext& hookCtx,                                            \
-        hook::HookGuestMemory& guestMemory __VA_OPT__(COMMA __VA_ARGS__))
+        hook::HookGuestMemory& frameCtx __VA_OPT__(COMMA __VA_ARGS__))
 
 #define HOOK_SETUP()                                                        \
     using enum hook_api::hook_return_code;                                  \
@@ -149,6 +151,7 @@
         [[maybe_unused]] ApplyContext& applyCtx = hookCtx.applyCtx;         \
         [[maybe_unused]] auto& view = applyCtx.view();                      \
         [[maybe_unused]] auto j = applyCtx.app.journal("View");             \
+        [[maybe_unused]] auto& guestMemory = frameCtx;                      \
         [[maybe_unused]] unsigned char* memory = guestMemory.data();        \
         [[maybe_unused]] const uint64_t memory_length = guestMemory.size(); \
         [[maybe_unused]] auto& api = hookCtx.api();                         \
