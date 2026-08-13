@@ -163,7 +163,8 @@ makeStubHookContext(
                 .executeAgainAsWeak = result.executeAgainAsWeak,
                 .provisionalMeta = result.provisionalMeta,
             },
-        .emitFailure = stubHookContext.emitFailure};
+        .emitFailure = stubHookContext.emitFailure,
+        .module = nullptr};
 }
 
 // Original function - WARNING: stateMap reference may become dangling

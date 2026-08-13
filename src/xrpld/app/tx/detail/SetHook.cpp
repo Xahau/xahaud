@@ -19,7 +19,6 @@
 
 #include <xrpld/app/tx/detail/SetHook.h>
 
-#include <xrpld/app/hook/HookWasmEngine.h>
 #include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/Ledger.h>
@@ -506,6 +505,22 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             }
 
             auto version = hookSetObj.getFieldU16(sfHookApiVersion);
+            auto const hasCreateCode = hookSetObj.isFieldPresent(sfCreateCode);
+            Blob hook =
+                hasCreateCode ? hookSetObj.getFieldVL(sfCreateCode) : Blob{};
+            auto const artifact = hook::artifact::parse(makeSlice(hook));
+            if (artifact &&
+                artifact->kind == hook::artifact::Kind::legacyWasm &&
+                version != 0)
+            {
+                // Preserve the legacy C-Hook API-version check and its
+                // precedence over HookOn/name validation.
+                JLOG(ctx.j.trace())
+                    << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
+                    << "]: Malformed transaction: SetHook "
+                       "sfHook->sfHookApiVersion invalid. (Try 0).";
+                return false;
+            }
 
             // validate sfHookOn
             if (!hookSetObj.isFieldPresent(sfHookOn))
@@ -576,11 +591,9 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 
             // finally validate web assembly byte code
             {
-                if (!hookSetObj.isFieldPresent(sfCreateCode))
+                if (!hasCreateCode)
                     return {};
 
-                Blob hook = hookSetObj.getFieldVL(sfCreateCode);
-                auto const artifact = hook::artifact::parse(makeSlice(hook));
                 if (!artifact)
                 {
                     JLOG(ctx.j.trace())
@@ -689,9 +702,9 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     << "]: Trying to wasm instantiate proposed hook "
                     << "size = " << hook.size();
 
-                auto engine = hook::makeHookWasmEngine();
                 std::optional<std::string> result2 =
-                    engine->validate(hook.data(), (size_t)hook.size());
+                    hook::HookExecutor::validateWasm(
+                        artifact->payload.data(), artifact->payload.size());
 
                 if (result2)
                 {

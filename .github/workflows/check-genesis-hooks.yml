@@ -82,9 +82,6 @@ jobs:
           command -v clang-format || (echo "Error: clang-format not found" && exit 1)
           echo "All tools verified successfully"
 
-      - name: Verify raw Hook Wasmtime catalogue fixture
-        run: python3 src/test/app/jshooks/raw-catalogue/generate.py --check
-
       # Execute build script to regenerate xahau.h
       - name: Run build_xahau_h.sh
         run: |

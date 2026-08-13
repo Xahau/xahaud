@@ -5,7 +5,6 @@
 //==============================================================================
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
-#include <xrpld/app/hook/HookWasmEngine.h>
 #include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpl/beast/unit_test/suite.h>
@@ -515,21 +514,15 @@ void ledger.sequence;
             surfaceExecution.getFieldU64(sfHookInstructionCount) == 116108);
 
         //@@start jshooks-state-bridge
-        testcase("Execute a C Hook through Wasmtime and persist state");
+        testcase("Execute a C Hook through WasmEdge and persist state");
 
         auto seedHook = hso(stateSeedCode);
         seedHook[jss::Flags] = hsfOVERRIDE;
-        {
-            hook::ScopedHookWasmEngineForTests useWasmtime{
-                hook::HookWasmEngineKind::wasmtime};
-            env(jtx::hook(alice, {{seedHook}}, 0),
-                fee(XRP(10)),
-                ter(tesSUCCESS));
-            env.close();
+        env(jtx::hook(alice, {{seedHook}}, 0), fee(XRP(10)), ter(tesSUCCESS));
+        env.close();
 
-            env(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
-            env.close();
-        }
+        env(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
+        env.close();
 
         auto const stateKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -549,68 +542,23 @@ void ledger.sequence;
         BEAST_EXPECT(
             std::string(seededData.begin(), seededData.end()) == "from-c");
 
-        auto const wasmtimeMeta = env.meta();
-        BEAST_EXPECT(!!wasmtimeMeta);
-        if (!wasmtimeMeta || !wasmtimeMeta->isFieldPresent(sfHookExecutions))
+        auto const cHookMeta = env.meta();
+        BEAST_EXPECT(!!cHookMeta);
+        if (!cHookMeta || !cHookMeta->isFieldPresent(sfHookExecutions))
             return;
-        auto const wasmtimeExecutions =
-            wasmtimeMeta->getFieldArray(sfHookExecutions);
-        BEAST_EXPECT(wasmtimeExecutions.size() == 1);
-        if (wasmtimeExecutions.size() != 1)
+        auto const cHookExecutions = cHookMeta->getFieldArray(sfHookExecutions);
+        BEAST_EXPECT(cHookExecutions.size() == 1);
+        if (cHookExecutions.size() != 1)
             return;
-        auto const& wasmtimeExecution = wasmtimeExecutions[0];
+        auto const& cHookExecution = cHookExecutions[0];
         BEAST_EXPECT(
-            wasmtimeExecution.getFieldU8(sfHookResult) ==
+            cHookExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
-        BEAST_EXPECT(wasmtimeExecution.getFieldU64(sfHookInstructionCount) > 0);
+        BEAST_EXPECT(cHookExecution.getFieldU64(sfHookReturnCode) == 6);
+        BEAST_EXPECT(cHookExecution.getFieldVL(sfHookReturnString).empty());
+        BEAST_EXPECT(cHookExecution.getFieldU64(sfHookInstructionCount) > 0);
 
-        testcase("Match C Hook effects through WasmEdge and Wasmtime");
-        Env wasmEdgeEnv{*this, features | featureJSHooks};
-        wasmEdgeEnv.fund(XRP(10000), alice, bob);
-        wasmEdgeEnv.close();
-        {
-            hook::ScopedHookWasmEngineForTests useWasmEdge{
-                hook::HookWasmEngineKind::wasmEdge};
-            wasmEdgeEnv(
-                jtx::hook(alice, {{hso(stateSeedCode)}}, 0),
-                fee(XRP(10)),
-                ter(tesSUCCESS));
-            wasmEdgeEnv.close();
-
-            wasmEdgeEnv(
-                pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
-            wasmEdgeEnv.close();
-        }
-
-        auto const wasmEdgeMeta = wasmEdgeEnv.meta();
-        BEAST_EXPECT(!!wasmEdgeMeta);
-        if (!wasmEdgeMeta || !wasmEdgeMeta->isFieldPresent(sfHookExecutions))
-            return;
-        auto const wasmEdgeExecutions =
-            wasmEdgeMeta->getFieldArray(sfHookExecutions);
-        BEAST_EXPECT(wasmEdgeExecutions.size() == 1);
-        if (wasmEdgeExecutions.size() != 1)
-            return;
-        auto const& wasmEdgeExecution = wasmEdgeExecutions[0];
-
-        BEAST_EXPECT(
-            wasmEdgeExecution.getFieldU8(sfHookResult) ==
-            wasmtimeExecution.getFieldU8(sfHookResult));
-        BEAST_EXPECT(
-            wasmEdgeExecution.getFieldU64(sfHookReturnCode) ==
-            wasmtimeExecution.getFieldU64(sfHookReturnCode));
-        BEAST_EXPECT(
-            wasmEdgeExecution.getFieldVL(sfHookReturnString) ==
-            wasmtimeExecution.getFieldVL(sfHookReturnString));
-        BEAST_EXPECT(wasmEdgeExecution.getFieldU64(sfHookInstructionCount) > 0);
-
-        auto const wasmEdgeState = wasmEdgeEnv.le(stateKeylet);
-        BEAST_EXPECT(!!wasmEdgeState);
-        if (!wasmEdgeState)
-            return;
-        BEAST_EXPECT(wasmEdgeState->getFieldVL(sfHookStateData) == seededData);
-
-        testcase("Read Wasmtime C Hook state from TypeScript and replace it");
+        testcase("Read WasmEdge C Hook state from TypeScript and replace it");
 
         auto stateBridgeHook = hsoVersioned(stateBridgeCode, 1);
         stateBridgeHook[jss::Flags] = hsfOVERRIDE;

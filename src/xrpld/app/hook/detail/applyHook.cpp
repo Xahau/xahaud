@@ -1,5 +1,4 @@
 #include <xrpld/app/hook/HookAPI.h>
-#include <xrpld/app/hook/HookWasmEngine.h>
 #include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/OpenLedger.h>
@@ -17,7 +16,6 @@
 #include <xrpl/protocol/st.h>
 #include <xrpl/protocol/tokens.h>
 #include <boost/multiprecision/cpp_dec_float.hpp>
-#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -1100,25 +1098,17 @@ hook::apply(
         return hookCtx.result;
     }
 
+    std::optional<HookExecutor> executor;
     switch (artifact->kind)
     {
         case hook::artifact::Kind::legacyWasm: {
-            auto engine = makeHookWasmEngine();
-            auto const execution = engine->execute(
+            executor.emplace(hookCtx);
+            executor->executeWasm(
                 artifact->payload.data(),
                 artifact->payload.size(),
                 isCallback,
                 wasmParam,
-                hookCtx,
                 j);
-            hookCtx.result.instructionCount = execution.instructionCount;
-            if (!execution.ok)
-            {
-                hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
-                JLOG(j.warn())
-                    << "HookError[" << HC_ACC()
-                    << "]: " << execution.error.value_or("unknown WASM error");
-            }
             break;
         }
 
