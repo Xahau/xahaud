@@ -6,7 +6,7 @@
 #include <array>
 #include <optional>
 
-namespace hook::raw {
+namespace hook::raw::v1 {
 using enum hook_api::hook_return_code;
 namespace {
 
@@ -126,4 +126,4 @@ stateSet(
     return result.value();
 }
 
-}  // namespace hook::raw
+}  // namespace hook::raw::v1

@@ -14,7 +14,8 @@ hookAccountHandler(
     auto memory = call.memory();
     if (!memory)
         return hook_api::hook_return_code::INTERNAL_ERROR;
-    return raw::hookAccount(call.hookContext(), *memory, writePtr, writeLength);
+    return raw::v1::hookAccount(
+        call.hookContext(), *memory, writePtr, writeLength);
 }
 
 std::uint64_t
@@ -24,7 +25,7 @@ writeMeasure(std::uint32_t, std::uint32_t writeLength) noexcept
 }
 
 constexpr std::array bindings{makeBinding<
-    QuickJSImportId::hook_account,
+    QuickJSV1ImportId::hook_account,
     hookAccountHandler,
     writeMeasure>()};
 

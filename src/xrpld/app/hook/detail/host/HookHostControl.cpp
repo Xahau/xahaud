@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <string>
 
-namespace hook::raw {
+namespace hook::raw::v1 {
 using enum hook_api::hook_return_code;
 namespace {
 
@@ -73,4 +73,4 @@ rollback(
         hook_api::ExitType::ROLLBACK);
 }
 
-}  // namespace hook::raw
+}  // namespace hook::raw::v1

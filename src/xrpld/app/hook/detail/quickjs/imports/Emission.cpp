@@ -8,7 +8,7 @@ namespace {
 raw::Result
 etxnReserveHandler(QuickJSHostCall& call, std::uint32_t count)
 {
-    return raw::etxnReserve(call.hookContext(), count);
+    return raw::v1::etxnReserve(call.hookContext(), count);
 }
 
 std::uint64_t
@@ -28,7 +28,7 @@ prepareHandler(
     auto memory = call.memory();
     if (!memory)
         return hook_api::hook_return_code::INTERNAL_ERROR;
-    return raw::prepare(
+    return raw::v1::prepare(
         call.hookContext(),
         *memory,
         writePtr,
@@ -58,7 +58,7 @@ emitHandler(
     auto memory = call.memory();
     if (!memory)
         return hook_api::hook_return_code::INTERNAL_ERROR;
-    return raw::emit(
+    return raw::v1::emit(
         call.hookContext(),
         *memory,
         writePtr,
@@ -69,11 +69,11 @@ emitHandler(
 
 constexpr std::array bindings{
     makeBinding<
-        QuickJSImportId::etxn_reserve,
+        QuickJSV1ImportId::etxn_reserve,
         etxnReserveHandler,
         scalarMeasure>(),
-    makeBinding<QuickJSImportId::prepare, prepareHandler, prepareMeasure>(),
-    makeBinding<QuickJSImportId::emit, emitHandler, prepareMeasure>()};
+    makeBinding<QuickJSV1ImportId::prepare, prepareHandler, prepareMeasure>(),
+    makeBinding<QuickJSV1ImportId::emit, emitHandler, prepareMeasure>()};
 
 }  // namespace
 

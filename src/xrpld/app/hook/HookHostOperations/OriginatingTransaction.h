@@ -6,10 +6,10 @@
 namespace hook {
 struct HookContext;
 
-namespace raw {
+namespace raw::v1 {
 Result
 otxnType(HookContext& hookCtx);
-}  // namespace raw
+}  // namespace raw::v1
 }  // namespace hook
 
 #endif  // XRPLD_APP_HOOK_HOOKHOSTOPERATIONS_ORIGINATINGTRANSACTION_H_INCLUDED

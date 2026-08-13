@@ -16,16 +16,16 @@ takeError(wasmtime_error_t* error)
     return result;
 }
 
-std::array<ResolvedJSImport, quickJSImportCount> const&
+std::array<ResolvedJSImport, quickJSV1ImportCount> const&
 resolvedV1Imports()
 {
-    static std::array<ResolvedJSImport, quickJSImportCount> const resolved =
+    static std::array<ResolvedJSImport, quickJSV1ImportCount> const resolved =
         [] {
-            std::array<ResolvedJSImport, quickJSImportCount> result{};
-            auto const catalogue = importCatalogue();
-            for (std::size_t index = 0; index < catalogue.size(); ++index)
+            std::array<ResolvedJSImport, quickJSV1ImportCount> result{};
+            auto const snapshot = quickJSHostPolicyV1Snapshot();
+            for (std::size_t index = 0; index < snapshot.size(); ++index)
             {
-                auto const& descriptor = catalogue[index];
+                auto const& descriptor = snapshot[index];
                 result[index] = {
                     .descriptor = &descriptor,
                     .binding = findBinding(descriptor.id, descriptor.category)};
@@ -39,7 +39,11 @@ QuickJSHostAdapterPolicy const&
 v1Policy()
 {
     static QuickJSHostAdapterPolicy const policy{
-        .id = "xahau-raw-hook-host-v1", .imports = resolvedV1Imports()};
+        .id = "xahau-raw-hook-host-v1",
+        .hostWorkMeter = "base-plus-addressed-byte-v1",
+        .chargeOrder = HostChargeOrder::amendmentBeforeCharge,
+        .debitBehavior = HostDebitBehavior::saturatedBasePlusAddressedBytes,
+        .imports = resolvedV1Imports()};
     return policy;
 }
 
@@ -50,6 +54,12 @@ defineImport(
     std::string& error)
 {
     auto const& descriptor = *resolved.descriptor;
+    if (!resolved.binding)
+    {
+        error = std::string{"missing required v1 binding for "} +
+            std::string{descriptor.name};
+        return false;
+    }
     wasm_valtype_vec_t parameters;
     wasm_valtype_vec_new_uninitialized(&parameters, descriptor.parameterCount);
     for (std::size_t index = 0; index < descriptor.parameterCount; ++index)
@@ -69,8 +79,8 @@ defineImport(
 
     auto* defineError = wasmtime_linker_define_func(
         linker,
-        "env",
-        3,
+        descriptor.module.data(),
+        descriptor.module.size(),
         descriptor.name.data(),
         descriptor.name.size(),
         type,
@@ -88,6 +98,28 @@ defineImport(
 
 }  // namespace
 
+bool
+QuickJSHostAdapterPolicy::complete() const noexcept
+{
+    if (imports.size() != quickJSV1ImportCount)
+        return false;
+    for (std::size_t index = 0; index < imports.size(); ++index)
+    {
+        auto const& resolved = imports[index];
+        if (!resolved.descriptor || !resolved.binding ||
+            !resolved.binding->measure || !resolved.binding->invoke ||
+            static_cast<std::size_t>(resolved.descriptor->id) != index ||
+            resolved.binding->id != resolved.descriptor->id ||
+            resolved.binding->category != resolved.descriptor->category ||
+            resolved.binding->measureKind != resolved.descriptor->measure ||
+            resolved.binding->terminal != resolved.descriptor->terminal ||
+            resolved.binding->rawOperationVersion !=
+                resolved.descriptor->rawOperationVersion)
+            return false;
+    }
+    return true;
+}
+
 QuickJSHostAdapterPolicy const*
 findHostAdapterPolicy(std::string_view id) noexcept
 {
@@ -101,6 +133,11 @@ defineImports(
     QuickJSHostAdapterPolicy const& policy,
     std::string& error)
 {
+    if (!policy.complete())
+    {
+        error = "QuickJS host policy has a missing required v1 binding";
+        return false;
+    }
     for (auto const& resolved : policy.imports)
         if (!defineImport(linker, resolved, error))
             return false;

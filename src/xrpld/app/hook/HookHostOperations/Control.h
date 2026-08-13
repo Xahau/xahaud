@@ -8,7 +8,7 @@
 namespace hook {
 struct HookContext;
 
-namespace raw {
+namespace raw::v1 {
 Result
 accept(
     HookContext& hookCtx,
@@ -24,7 +24,7 @@ rollback(
     std::uint32_t readPtr,
     std::uint32_t readLength,
     std::int64_t code);
-}  // namespace raw
+}  // namespace raw::v1
 }  // namespace hook
 
 #endif  // XRPLD_APP_HOOK_HOOKHOSTOPERATIONS_CONTROL_H_INCLUDED

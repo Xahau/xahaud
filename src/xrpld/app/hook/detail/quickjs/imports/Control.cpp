@@ -15,7 +15,8 @@ acceptHandler(
     auto memory = call.memory();
     if (!memory)
         return hook_api::hook_return_code::INTERNAL_ERROR;
-    return raw::accept(call.hookContext(), *memory, readPtr, readLength, code);
+    return raw::v1::accept(
+        call.hookContext(), *memory, readPtr, readLength, code);
 }
 
 std::uint64_t
@@ -34,13 +35,16 @@ rollbackHandler(
     auto memory = call.memory();
     if (!memory)
         return hook_api::hook_return_code::INTERNAL_ERROR;
-    return raw::rollback(
+    return raw::v1::rollback(
         call.hookContext(), *memory, readPtr, readLength, code);
 }
 
 constexpr std::array bindings{
-    makeBinding<QuickJSImportId::accept, acceptHandler, terminalMeasure>(),
-    makeBinding<QuickJSImportId::rollback, rollbackHandler, terminalMeasure>()};
+    makeBinding<QuickJSV1ImportId::accept, acceptHandler, terminalMeasure>(),
+    makeBinding<
+        QuickJSV1ImportId::rollback,
+        rollbackHandler,
+        terminalMeasure>()};
 
 }  // namespace
 

@@ -2,7 +2,7 @@
 #include <xrpld/app/hook/applyHook.h>
 #include <algorithm>
 
-namespace hook::raw {
+namespace hook::raw::v1 {
 using enum hook_api::hook_return_code;
 
 Result
@@ -24,4 +24,4 @@ hookAccount(
     return std::uint64_t{20};
 }
 
-}  // namespace hook::raw
+}  // namespace hook::raw::v1

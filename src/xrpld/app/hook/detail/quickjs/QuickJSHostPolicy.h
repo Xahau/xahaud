@@ -1,0 +1,205 @@
+#ifndef XRPLD_APP_HOOK_DETAIL_QUICKJS_QUICKJSHOSTPOLICY_H_INCLUDED
+#define XRPLD_APP_HOOK_DETAIL_QUICKJS_QUICKJSHOSTPOLICY_H_INCLUDED
+
+#include <xrpld/app/hook/detail/quickjs/QuickJSImportCatalogue.h>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <string_view>
+#include <tuple>
+#include <type_traits>
+
+namespace hook::quickjs {
+
+/** Immutable import identity for the retained xahau-raw-hook-host-v1 policy.
+
+    This list is deliberately separate from the live 75-entry Hook catalogue.
+    Once the profile is activated, later catalogue growth or reordering must
+    not alter the policy selected by its retained runtime profile.
+*/
+enum class QuickJSV1ImportId : std::uint8_t {
+    accept,
+    rollback,
+    ledger_seq,
+    ledger_last_time,
+    ledger_last_hash,
+    otxn_type,
+    hook_account,
+    trace,
+    state,
+    state_set,
+    prepare,
+    etxn_reserve,
+    emit,
+    count
+};
+
+inline constexpr std::size_t quickJSV1ImportCount =
+    static_cast<std::size_t>(QuickJSV1ImportId::count);
+
+enum class TerminalBehavior : std::uint8_t { ordinaryStatus, hookTerminal };
+
+enum class HostWorkMeasureKind : std::uint8_t {
+    zeroV1,
+    argument1V1,
+    arguments1And3SaturatedV1
+};
+
+template <QuickJSV1ImportId>
+struct V1ImportTraits;
+
+#define QUICKJS_V1_EXPAND_PARAMS(...) __VA_ARGS__
+#define QUICKJS_V1_IMPORT_TRAITS(                                             \
+    ID, RETURN_TYPE, PARAMS_TUPLE, CATEGORY, AMENDMENT, MEASURE, TERMINAL)    \
+    template <>                                                               \
+    struct V1ImportTraits<QuickJSV1ImportId::ID>                              \
+    {                                                                         \
+        using Return = RETURN_TYPE;                                           \
+        using Parameters = std::tuple<QUICKJS_V1_EXPAND_PARAMS PARAMS_TUPLE>; \
+        static constexpr std::string_view module = "env";                     \
+        static constexpr std::string_view name = #ID;                         \
+        static constexpr ImportCategory category = ImportCategory::CATEGORY;  \
+        static ripple::uint256                                                \
+        amendment()                                                           \
+        {                                                                     \
+            return ripple::AMENDMENT;                                         \
+        }                                                                     \
+        static constexpr TerminalBehavior terminal =                          \
+            TerminalBehavior::TERMINAL;                                       \
+        static constexpr HostWorkMeasureKind measure =                        \
+            HostWorkMeasureKind::MEASURE;                                     \
+        static constexpr std::uint16_t rawOperationVersion = 1;               \
+    }
+
+QUICKJS_V1_IMPORT_TRAITS(
+    accept,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t, std::int64_t),
+    control,
+    uint256{},
+    argument1V1,
+    hookTerminal);
+QUICKJS_V1_IMPORT_TRAITS(
+    rollback,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t, std::int64_t),
+    control,
+    uint256{},
+    argument1V1,
+    hookTerminal);
+QUICKJS_V1_IMPORT_TRAITS(
+    ledger_seq,
+    std::int64_t,
+    (),
+    ledger,
+    uint256{},
+    zeroV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    ledger_last_time,
+    std::int64_t,
+    (),
+    ledger,
+    uint256{},
+    zeroV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    ledger_last_hash,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t),
+    ledger,
+    uint256{},
+    argument1V1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    otxn_type,
+    std::int64_t,
+    (),
+    originatingTransaction,
+    uint256{},
+    zeroV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    hook_account,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t),
+    hookContext,
+    uint256{},
+    argument1V1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    trace,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
+    trace,
+    uint256{},
+    arguments1And3SaturatedV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    state,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
+    state,
+    uint256{},
+    arguments1And3SaturatedV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    state_set,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
+    state,
+    uint256{},
+    arguments1And3SaturatedV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    prepare,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
+    emission,
+    featureHooksUpdate2,
+    arguments1And3SaturatedV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    etxn_reserve,
+    std::int64_t,
+    (std::uint32_t),
+    emission,
+    uint256{},
+    zeroV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    emit,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
+    emission,
+    uint256{},
+    arguments1And3SaturatedV1,
+    ordinaryStatus);
+
+#undef QUICKJS_V1_IMPORT_TRAITS
+#undef QUICKJS_V1_EXPAND_PARAMS
+
+struct QuickJSV1ImportDescriptor
+{
+    QuickJSV1ImportId id;
+    std::string_view module;
+    std::string_view name;
+    ImportCategory category;
+    ripple::uint256 amendment;
+    NativeScalarKind nativeResult;
+    std::array<NativeScalarKind, maxImportParameters> nativeParameters;
+    wasm_valkind_t resultKind;
+    std::array<wasm_valkind_t, maxImportParameters> parameterKinds;
+    std::uint8_t parameterCount;
+    HostWorkMeasureKind measure;
+    TerminalBehavior terminal;
+    std::uint16_t rawOperationVersion;
+};
+
+std::span<QuickJSV1ImportDescriptor const>
+quickJSHostPolicyV1Snapshot() noexcept;
+
+}  // namespace hook::quickjs
+
+#endif  // XRPLD_APP_HOOK_DETAIL_QUICKJS_QUICKJSHOSTPOLICY_H_INCLUDED

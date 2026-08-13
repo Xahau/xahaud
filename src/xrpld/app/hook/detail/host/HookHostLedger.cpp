@@ -2,7 +2,7 @@
 #include <xrpld/app/hook/applyHook.h>
 #include <algorithm>
 
-namespace hook::raw {
+namespace hook::raw::v1 {
 using enum hook_api::hook_return_code;
 
 Result
@@ -36,4 +36,4 @@ ledgerLastHash(
     return std::uint64_t{32};
 }
 
-}  // namespace hook::raw
+}  // namespace hook::raw::v1

@@ -17,7 +17,7 @@ traceHandler(
     auto memory = call.memory();
     if (!memory)
         return hook_api::hook_return_code::INTERNAL_ERROR;
-    return raw::trace(
+    return raw::v1::trace(
         call.hookContext(),
         *memory,
         messagePtr,
@@ -40,7 +40,7 @@ traceMeasure(
 }
 
 constexpr std::array bindings{
-    makeBinding<QuickJSImportId::trace, traceHandler, traceMeasure>()};
+    makeBinding<QuickJSV1ImportId::trace, traceHandler, traceMeasure>()};
 
 }  // namespace
 

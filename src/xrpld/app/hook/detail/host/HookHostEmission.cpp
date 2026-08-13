@@ -2,7 +2,7 @@
 #include <xrpld/app/hook/applyHook.h>
 #include <algorithm>
 
-namespace hook::raw {
+namespace hook::raw::v1 {
 using enum hook_api::hook_return_code;
 
 Result
@@ -81,4 +81,4 @@ emit(
     return static_cast<std::uint64_t>(id.size());
 }
 
-}  // namespace hook::raw
+}  // namespace hook::raw::v1

@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <span>
 
-namespace hook::raw::detail {
+namespace hook::raw::v1::detail {
 
 inline bool
 isUTF16LE(std::span<std::uint8_t const> bytes) noexcept
@@ -17,6 +17,6 @@ isUTF16LE(std::span<std::uint8_t const> bytes) noexcept
     return true;
 }
 
-}  // namespace hook::raw::detail
+}  // namespace hook::raw::v1::detail
 
 #endif  // XRPLD_APP_HOOK_DETAIL_HOST_HOOKHOSTTEXT_H_INCLUDED

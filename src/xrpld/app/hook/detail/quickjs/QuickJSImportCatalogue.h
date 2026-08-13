@@ -124,6 +124,23 @@ inline constexpr wasm_valkind_t wasmKind = [] {
         return WASM_I64;
 }();
 
+enum class NativeScalarKind : std::uint8_t { i32, u32, i64, u64 };
+
+template <class T>
+inline constexpr NativeScalarKind nativeScalarKind = [] {
+    if constexpr (std::is_same_v<T, std::int32_t>)
+        return NativeScalarKind::i32;
+    else if constexpr (std::is_same_v<T, std::uint32_t>)
+        return NativeScalarKind::u32;
+    else if constexpr (std::is_same_v<T, std::int64_t>)
+        return NativeScalarKind::i64;
+    else
+    {
+        static_assert(std::is_same_v<T, std::uint64_t>);
+        return NativeScalarKind::u64;
+    }
+}();
+
 inline constexpr std::size_t maxImportParameters = 9;
 
 struct QuickJSImportDescriptor
@@ -132,6 +149,8 @@ struct QuickJSImportDescriptor
     std::string_view name;
     ImportCategory category;
     ripple::uint256 amendment;
+    NativeScalarKind nativeResult;
+    std::array<NativeScalarKind, maxImportParameters> nativeParameters;
     wasm_valkind_t resultKind;
     std::array<wasm_valkind_t, maxImportParameters> parameterKinds;
     std::uint8_t parameterCount;
@@ -145,6 +164,9 @@ importCatalogue() noexcept;
 
 std::string_view
 categoryName(ImportCategory category) noexcept;
+
+std::string_view
+nativeScalarName(NativeScalarKind kind) noexcept;
 
 }  // namespace hook::quickjs
 

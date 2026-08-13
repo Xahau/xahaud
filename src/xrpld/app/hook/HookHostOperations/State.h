@@ -8,7 +8,7 @@
 namespace hook {
 struct HookContext;
 
-namespace raw {
+namespace raw::v1 {
 Result
 state(
     HookContext& hookCtx,
@@ -26,7 +26,7 @@ stateSet(
     std::uint32_t readLength,
     std::uint32_t keyPtr,
     std::uint32_t keyLength);
-}  // namespace raw
+}  // namespace raw::v1
 }  // namespace hook
 
 #endif  // XRPLD_APP_HOOK_HOOKHOSTOPERATIONS_STATE_H_INCLUDED

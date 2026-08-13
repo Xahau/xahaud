@@ -8,13 +8,13 @@ namespace {
 raw::Result
 ledgerSequenceHandler(QuickJSHostCall& call)
 {
-    return raw::ledgerSequence(call.hookContext());
+    return raw::v1::ledgerSequence(call.hookContext());
 }
 
 raw::Result
 ledgerLastTimeHandler(QuickJSHostCall& call)
 {
-    return raw::ledgerLastTime(call.hookContext());
+    return raw::v1::ledgerLastTime(call.hookContext());
 }
 
 raw::Result
@@ -26,7 +26,7 @@ ledgerLastHashHandler(
     auto memory = call.memory();
     if (!memory)
         return hook_api::hook_return_code::INTERNAL_ERROR;
-    return raw::ledgerLastHash(
+    return raw::v1::ledgerLastHash(
         call.hookContext(), *memory, writePtr, writeLength);
 }
 
@@ -44,15 +44,15 @@ writeMeasure(std::uint32_t, std::uint32_t writeLength) noexcept
 
 constexpr std::array bindings{
     makeBinding<
-        QuickJSImportId::ledger_seq,
+        QuickJSV1ImportId::ledger_seq,
         ledgerSequenceHandler,
         scalarMeasure>(),
     makeBinding<
-        QuickJSImportId::ledger_last_time,
+        QuickJSV1ImportId::ledger_last_time,
         ledgerLastTimeHandler,
         scalarMeasure>(),
     makeBinding<
-        QuickJSImportId::ledger_last_hash,
+        QuickJSV1ImportId::ledger_last_hash,
         ledgerLastHashHandler,
         writeMeasure>()};
 

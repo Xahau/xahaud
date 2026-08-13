@@ -8,6 +8,22 @@
 
 namespace hook::artifact::generated {
 
+struct ProviderImportSignature
+{
+    std::string_view module;
+    std::string_view name;
+    std::string_view parameters;
+    std::string_view results;
+};
+
+struct NativeImportSignature
+{
+    std::string_view name;
+    std::string_view result;
+    std::string_view parameters;
+    std::string_view amendment;
+};
+
 inline constexpr std::array<std::uint8_t, 32> providerSHA256 = {
     @XAHAU_QUICKJS_PROVIDER_SHA256_CPP@};
 inline constexpr std::array<std::uint8_t, 32> bytecodeABI = {
@@ -15,8 +31,7 @@ inline constexpr std::array<std::uint8_t, 32> bytecodeABI = {
 inline constexpr std::array<std::uint8_t, 32> runtimeProfile = {
     @XAHAU_QUICKJS_RUNTIME_PROFILE_ID_CPP@};
 inline constexpr std::size_t providerSize = @XAHAU_QUICKJS_PROVIDER_SIZE@;
-inline constexpr std::array<std::string_view, @XAHAU_QUICKJS_PROVIDER_IMPORT_COUNT@>
-    providerImports = {@XAHAU_QUICKJS_PROVIDER_IMPORT_NAMES_CPP@};
+#include "QuickJSProviderPolicy.inc"
 inline constexpr std::uint16_t hookApiVersion =
     @XAHAU_QUICKJS_HOOK_API_VERSION@;
 inline constexpr std::uint64_t initializationFuel =

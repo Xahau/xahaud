@@ -6,7 +6,7 @@ namespace {
 QuickJSImportBinding const*
 findIn(
     std::span<QuickJSImportBinding const> bindings,
-    QuickJSImportId id) noexcept
+    QuickJSV1ImportId id) noexcept
 {
     for (auto const& binding : bindings)
         if (binding.id == id)
@@ -17,7 +17,7 @@ findIn(
 }  // namespace
 
 QuickJSImportBinding const*
-findBinding(QuickJSImportId id, ImportCategory category) noexcept
+findBinding(QuickJSV1ImportId id, ImportCategory category) noexcept
 {
     switch (category)
     {

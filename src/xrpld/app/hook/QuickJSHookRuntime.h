@@ -35,6 +35,7 @@ struct QuickJSRuntimeProfile
     std::uint64_t hostWorkBudget;
     std::uint64_t hostWorkBasePerCall;
     std::uint64_t hostWorkPerAddressedByte;
+    std::string hostWorkMeter;
     std::string hostAdapterPolicy;
     std::uint32_t heapBytes;
     std::uint32_t stackBytes;
@@ -84,6 +85,19 @@ executeQuickJSBytecode(
     beast::Journal const& journal);
 
 #ifdef ENABLE_TESTS
+struct QuickJSValidationForTests
+{
+    std::optional<std::string> error;
+    bool hasCallback = false;
+    std::uint64_t invocationFuelConsumed = 0;
+};
+
+/** Validate through the production path while exposing its fuel delta. */
+QuickJSValidationForTests
+validateQuickJSBytecodeForTests(
+    QuickJSRuntimeHandle const& runtime,
+    std::span<std::uint8_t const> bytecode);
+
 /** Register the currently generated profile using a test-supplied provider. */
 std::optional<std::string>
 setQuickJSProviderForTests(ripple::Blob provider);

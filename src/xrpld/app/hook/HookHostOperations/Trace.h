@@ -9,7 +9,7 @@
 namespace hook {
 struct HookContext;
 
-namespace raw {
+namespace raw::v1 {
 Result
 trace(
     HookContext& hookCtx,
@@ -20,7 +20,7 @@ trace(
     std::uint32_t dataLength,
     std::uint32_t asHex,
     beast::Journal const& journal);
-}  // namespace raw
+}  // namespace raw::v1
 }  // namespace hook
 
 #endif  // XRPLD_APP_HOOK_HOOKHOSTOPERATIONS_TRACE_H_INCLUDED

@@ -5,7 +5,7 @@
 #include <array>
 #include <string_view>
 
-namespace hook::raw {
+namespace hook::raw::v1 {
 using enum hook_api::hook_return_code;
 
 Result
@@ -73,4 +73,4 @@ trace(
     return std::uint64_t{0};
 }
 
-}  // namespace hook::raw
+}  // namespace hook::raw::v1

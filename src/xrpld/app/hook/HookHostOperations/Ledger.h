@@ -8,7 +8,7 @@
 namespace hook {
 struct HookContext;
 
-namespace raw {
+namespace raw::v1 {
 Result
 ledgerSequence(HookContext& hookCtx);
 
@@ -21,7 +21,7 @@ ledgerLastHash(
     HookGuestMemory memory,
     std::uint32_t writePtr,
     std::uint32_t writeLength);
-}  // namespace raw
+}  // namespace raw::v1
 }  // namespace hook
 
 #endif  // XRPLD_APP_HOOK_HOOKHOSTOPERATIONS_LEDGER_H_INCLUDED

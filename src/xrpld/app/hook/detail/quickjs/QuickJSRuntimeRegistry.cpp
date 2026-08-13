@@ -73,6 +73,18 @@ compileRuntime(
         error = "runtime profile names an unknown host-adapter policy";
         return {};
     }
+    if (!hostPolicy->complete())
+    {
+        error = "runtime profile host policy has a missing required binding";
+        return {};
+    }
+    if (profile.hostWorkMeter != hostPolicy->hostWorkMeter)
+    {
+        error =
+            "runtime profile names the wrong host-work meter for its "
+            "host policy";
+        return {};
+    }
     if (provider.size() != profile.providerSize)
     {
         error = "provider size does not match its runtime profile";
@@ -140,6 +152,7 @@ currentQuickJSRuntimeProfile()
         .hostWorkBudget = artifact::quickJSHostWorkBudget,
         .hostWorkBasePerCall = artifact::quickJSHostWorkBasePerCall,
         .hostWorkPerAddressedByte = artifact::quickJSHostWorkPerAddressedByte,
+        .hostWorkMeter = std::string{artifact::quickJSHostWorkMeter},
         .hostAdapterPolicy = std::string{artifact::quickJSHostAdapterPolicy},
         .heapBytes = artifact::quickJSHeapBytes,
         .stackBytes = artifact::quickJSStackBytes};

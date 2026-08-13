@@ -175,6 +175,25 @@ export function hook(_reserved: number): never {
 }
 )[test.tshook]"));
 
+        auto const memoryGrowthCode =
+            packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
+export function hook(_reserved: number): never {
+  void _reserved;
+  const blocks: Uint8Array[] = [];
+  for (let i = 0; i < 6; ++i) blocks.push(new Uint8Array(1024 * 1024));
+  blocks[5][0] = 42;
+
+  const seeded = state.get("bridge");
+  if (!seeded.ok || seeded.value?.toHex() !== "66726F6D2D6A73") {
+    lifecycle.rollback("growth state read failed", -1);
+  }
+  const write = state.set("growth", "must-roll-back");
+  if (!write.ok) lifecycle.rollback("growth state write failed", write.code);
+  trace("growth-host-call", blocks[5].subarray(0, 1));
+  throw new Error("memory-growth-diagnostic");
+}
+)[test.tshook]"));
+
         auto const hostWorkExhaustionCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
 export function hook(_reserved: number): never {
@@ -185,6 +204,21 @@ export function hook(_reserved: number): never {
   const chunk = "x".repeat(1000);
   for (let i = 0; i < 1100; ++i) trace("meter", chunk);
   lifecycle.accept("host-work budget escaped", -1);
+}
+)[test.tshook]"));
+
+        auto const amendmentBeforeChargeCode =
+            packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
+export function hook(_reserved: number): never {
+  void _reserved;
+  const transaction = STBlob.from(new Uint8Array(0xffff));
+  for (let i = 0; i < 8; ++i) {
+    const unavailable = emit.prepare(transaction);
+    if (unavailable.ok || unavailable.code !== -14) {
+      lifecycle.rollback("prepare was not amendment-unavailable", -1);
+    }
+  }
+  lifecycle.accept("unavailable calls were not charged", 808);
 }
 )[test.tshook]"));
 
@@ -302,6 +336,12 @@ void ledger.sequence;
         auto const currentRuntime = hook::findQuickJSRuntime(*currentArtifact);
         BEAST_EXPECT(!!currentRuntime);
 
+        auto const successfulValidation =
+            hook::validateQuickJSBytecodeForTests(currentRuntime, hookBytecode);
+        BEAST_EXPECT(!successfulValidation.error);
+        BEAST_EXPECT(!successfulValidation.hasCallback);
+        BEAST_EXPECT(successfulValidation.invocationFuelConsumed == 48330);
+
         testcase("Bind API, profile, hash, dedup, and hash install");
         {
             Env identityEnv{*this, features | featureJSHooks};
@@ -328,6 +368,10 @@ void ledger.sequence;
 
             auto malformedBytecode = hookBytecode;
             malformedBytecode.resize(8);
+            auto const failedValidation = hook::validateQuickJSBytecodeForTests(
+                currentRuntime, malformedBytecode);
+            BEAST_EXPECT(!!failedValidation.error);
+            BEAST_EXPECT(failedValidation.invocationFuelConsumed == 12726);
             identityEnv(
                 jtx::hook(
                     alice,
@@ -435,7 +479,7 @@ void ledger.sequence;
         auto const message = execution.getFieldVL(sfHookReturnString);
         BEAST_EXPECT(
             std::string(message.begin(), message.end()) == "payment:0");
-        BEAST_EXPECT(execution.getFieldU64(sfHookInstructionCount) > 0);
+        BEAST_EXPECT(execution.getFieldU64(sfHookInstructionCount) == 55811);
 
         testcase("Bind ledger context and keep terminals uncatchable");
         auto surfaceProbeHook = hsoVersioned(surfaceProbeCode, 1);
@@ -467,7 +511,8 @@ void ledger.sequence;
         BEAST_EXPECT(
             std::string(surfaceMessage.begin(), surfaceMessage.end()) ==
             "surface:40");
-        BEAST_EXPECT(surfaceExecution.getFieldU64(sfHookInstructionCount) > 0);
+        BEAST_EXPECT(
+            surfaceExecution.getFieldU64(sfHookInstructionCount) == 116108);
 
         //@@start jshooks-state-bridge
         testcase("Execute a C Hook through Wasmtime and persist state");
@@ -621,6 +666,18 @@ void ledger.sequence;
 
         env(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tecHOOK_REJECTED));
 
+        auto const rollbackMeta = env.meta();
+        BEAST_EXPECT(!!rollbackMeta);
+        if (!rollbackMeta || !rollbackMeta->isFieldPresent(sfHookExecutions))
+            return;
+        auto const rollbackExecutions =
+            rollbackMeta->getFieldArray(sfHookExecutions);
+        BEAST_EXPECT(rollbackExecutions.size() == 1);
+        if (rollbackExecutions.size() != 1)
+            return;
+        BEAST_EXPECT(
+            rollbackExecutions[0].getFieldU64(sfHookInstructionCount) == 54296);
+
         stateEntry = env.le(stateKeylet);
         BEAST_EXPECT(!!stateEntry);
         if (!stateEntry)
@@ -630,6 +687,48 @@ void ledger.sequence;
             std::string(afterRollbackData.begin(), afterRollbackData.end()) ==
             "from-js");
         //@@end jshooks-rollback-atomicity
+
+        testcase("Reacquire provider memory after growth");
+
+        auto memoryGrowthHook = hsoVersioned(memoryGrowthCode, 1);
+        memoryGrowthHook[jss::Flags] = hsfOVERRIDE;
+        env(jtx::hook(alice, {{memoryGrowthHook}}, 0),
+            fee(XRP(10)),
+            ter(tesSUCCESS));
+        env.close();
+
+        env(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tecHOOK_REJECTED));
+        auto const memoryGrowthMeta = env.meta();
+        BEAST_EXPECT(!!memoryGrowthMeta);
+        if (!memoryGrowthMeta)
+            return;
+        auto const memoryGrowthExecutions =
+            memoryGrowthMeta->getFieldArray(sfHookExecutions);
+        BEAST_EXPECT(memoryGrowthExecutions.size() == 1);
+        if (memoryGrowthExecutions.size() != 1)
+            return;
+        auto const& memoryGrowthExecution = memoryGrowthExecutions[0];
+        BEAST_EXPECT(
+            memoryGrowthExecution.getFieldU64(sfHookInstructionCount) ==
+            6449373);
+        BEAST_EXPECT(
+            memoryGrowthExecution.getFieldU8(sfHookResult) ==
+            static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
+        auto const growthMessage =
+            memoryGrowthExecution.getFieldVL(sfHookReturnString);
+        BEAST_EXPECT(
+            std::string(growthMessage.begin(), growthMessage.end())
+                .find("memory-growth-diagnostic") != std::string::npos);
+
+        auto const growthKey = uint256::fromVoid(
+            (std::array<uint8_t, 32>{
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                 0x00U, 0x00U, 'g',   'r',   'o',   'w',   't',   'h'})
+                .data());
+        BEAST_EXPECT(!env.le(
+            keylet::hookState(alice.id(), growthKey, uint256{beast::zero})));
 
         //@@start jshooks-host-work-budget
         testcase("Exhaust host work before a call and roll back atomically");
@@ -655,6 +754,9 @@ void ledger.sequence;
         BEAST_EXPECT(
             hostWorkExecutions[0].getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
+        BEAST_EXPECT(
+            hostWorkExecutions[0].getFieldU64(sfHookInstructionCount) ==
+            11425847);
 
         auto const meterKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -666,6 +768,29 @@ void ledger.sequence;
         BEAST_EXPECT(!env.le(
             keylet::hookState(alice.id(), meterKey, uint256{beast::zero})));
         //@@end jshooks-host-work-budget
+
+        testcase("Reject unavailable imports before host-work charging");
+        Env gatedEnv{*this, (features | featureJSHooks) - featureHooksUpdate2};
+        gatedEnv.fund(XRP(10000), alice, bob);
+        gatedEnv.close();
+        gatedEnv(
+            jtx::hook(alice, {{hsoVersioned(amendmentBeforeChargeCode, 1)}}, 0),
+            fee(XRP(10)),
+            ter(tesSUCCESS));
+        gatedEnv.close();
+        gatedEnv(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
+        auto const gatedMeta = gatedEnv.meta();
+        BEAST_EXPECT(!!gatedMeta);
+        if (!gatedMeta)
+            return;
+        auto const gatedExecutions = gatedMeta->getFieldArray(sfHookExecutions);
+        BEAST_EXPECT(gatedExecutions.size() == 1);
+        if (gatedExecutions.size() != 1)
+            return;
+        BEAST_EXPECT(
+            gatedExecutions[0].getFieldU8(sfHookResult) ==
+            static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
+        BEAST_EXPECT(gatedExecutions[0].getFieldU64(sfHookReturnCode) == 808);
 
         testcase("Execute a TypeScript callback from an emitted transaction");
         Env callbackEnv{*this, features | featureJSHooks};
@@ -725,6 +850,8 @@ void ledger.sequence;
         if (callbackExecutions.size() != 1)
             return;
         auto const& callbackExecution = callbackExecutions[0];
+        BEAST_EXPECT(
+            callbackExecution.getFieldU64(sfHookInstructionCount) == 79075);
         BEAST_EXPECT(
             callbackExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));

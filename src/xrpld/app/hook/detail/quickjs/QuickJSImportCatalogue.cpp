@@ -13,6 +13,16 @@ parameterKinds(std::index_sequence<Indices...>) noexcept
     return result;
 }
 
+template <class Tuple, std::size_t... Indices>
+std::array<NativeScalarKind, maxImportParameters>
+nativeParameterKinds(std::index_sequence<Indices...>) noexcept
+{
+    std::array<NativeScalarKind, maxImportParameters> result{};
+    ((result[Indices] = nativeScalarKind<std::tuple_element_t<Indices, Tuple>>),
+     ...);
+    return result;
+}
+
 template <QuickJSImportId Id>
 QuickJSImportDescriptor
 makeDescriptor()
@@ -26,6 +36,9 @@ makeDescriptor()
         .name = Traits::name,
         .category = Traits::category,
         .amendment = Traits::amendment(),
+        .nativeResult = nativeScalarKind<typename Traits::Return>,
+        .nativeParameters = nativeParameterKinds<typename Traits::Parameters>(
+            std::make_index_sequence<parameterCount>{}),
         .resultKind = wasmKind<typename Traits::Return>,
         .parameterKinds = parameterKinds<typename Traits::Parameters>(
             std::make_index_sequence<parameterCount>{}),
@@ -87,6 +100,23 @@ categoryName(ImportCategory category) noexcept
             return "unknown";
     }
     return "unknown";
+}
+
+std::string_view
+nativeScalarName(NativeScalarKind kind) noexcept
+{
+    switch (kind)
+    {
+        case NativeScalarKind::i32:
+            return "int32_t";
+        case NativeScalarKind::u32:
+            return "uint32_t";
+        case NativeScalarKind::i64:
+            return "int64_t";
+        case NativeScalarKind::u64:
+            return "uint64_t";
+    }
+    return {};
 }
 
 }  // namespace hook::quickjs

@@ -8,7 +8,7 @@ namespace {
 raw::Result
 otxnTypeHandler(QuickJSHostCall& call)
 {
-    return raw::otxnType(call.hookContext());
+    return raw::v1::otxnType(call.hookContext());
 }
 
 std::uint64_t
@@ -17,8 +17,10 @@ scalarMeasure() noexcept
     return 0;
 }
 
-constexpr std::array bindings{
-    makeBinding<QuickJSImportId::otxn_type, otxnTypeHandler, scalarMeasure>()};
+constexpr std::array bindings{makeBinding<
+    QuickJSV1ImportId::otxn_type,
+    otxnTypeHandler,
+    scalarMeasure>()};
 
 }  // namespace
 

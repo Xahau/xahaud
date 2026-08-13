@@ -16,7 +16,7 @@ stateHandler(
     auto memory = call.memory();
     if (!memory)
         return hook_api::hook_return_code::INTERNAL_ERROR;
-    return raw::state(
+    return raw::v1::state(
         call.hookContext(), *memory, writePtr, writeLength, keyPtr, keyLength);
 }
 
@@ -31,7 +31,7 @@ stateSetHandler(
     auto memory = call.memory();
     if (!memory)
         return hook_api::hook_return_code::INTERNAL_ERROR;
-    return raw::stateSet(
+    return raw::v1::stateSet(
         call.hookContext(), *memory, readPtr, readLength, keyPtr, keyLength);
 }
 
@@ -46,9 +46,9 @@ bufferPairMeasure(
 }
 
 constexpr std::array bindings{
-    makeBinding<QuickJSImportId::state, stateHandler, bufferPairMeasure>(),
+    makeBinding<QuickJSV1ImportId::state, stateHandler, bufferPairMeasure>(),
     makeBinding<
-        QuickJSImportId::state_set,
+        QuickJSV1ImportId::state_set,
         stateSetHandler,
         bufferPairMeasure>()};
 

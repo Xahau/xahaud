@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  JSHOOKZ_REF: 4a62fc3ffcf1946fe01c54e3927ac667b0227a73
+  JSHOOKZ_REF: 3db266e5fd57b01bf0d0ef9fc03db77b33a50731
   HOOKZ_REF: 846f5f0f80861985dceb41ad6f02ff914f8a0c3d
   XAHAUD_SCRIPTS_REF: e41a712c68a613d95a8911cbf89711db2d95aa3b
   WASI_SDK_VERSION: "32"
@@ -137,6 +137,8 @@ jobs:
             "$JSHOOKZ_PROVIDER_BUNDLE/jshookz_provider.manifest.json"
           cmp external/quickjs-provider/jshookz_provider.manifest.cmake \
             "$JSHOOKZ_PROVIDER_BUNDLE/jshookz_provider.manifest.cmake"
+          cmp external/quickjs-provider/jshookz_provider.native-abi.json \
+            "$JSHOOKZ_PROVIDER_BUNDLE/jshookz_provider.native-abi.json"
           cp "$XAHAU_QJS_PROVIDER_WASM" \
             external/quickjs-provider/jshookz_provider.wasm
 
@@ -196,7 +198,7 @@ jobs:
             --ccache \
             -j 2 \
             -- \
-            ripple.app.JSHooks,ripple.app.HookGuestMemory,ripple.app.HookHostFunctionCatalogue,ripple.app.HookWasmtimeCatalogue
+            ripple.app.JSHooks,ripple.app.QuickJSImportCatalogue,ripple.app.HookGuestMemory,ripple.app.HookHostFunctionCatalogue,ripple.app.HookWasmtimeCatalogue
 
       - name: Upload JSHookz coverage
         uses: codecov/codecov-action@v5

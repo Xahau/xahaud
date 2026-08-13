@@ -9,10 +9,20 @@
 
 namespace hook::quickjs {
 
+enum class HostChargeOrder : std::uint8_t { amendmentBeforeCharge };
+
+enum class HostDebitBehavior : std::uint8_t { saturatedBasePlusAddressedBytes };
+
 struct QuickJSHostAdapterPolicy
 {
     std::string_view id;
+    std::string_view hostWorkMeter;
+    HostChargeOrder chargeOrder;
+    HostDebitBehavior debitBehavior;
     std::span<ResolvedJSImport const> imports;
+
+    bool
+    complete() const noexcept;
 };
 
 QuickJSHostAdapterPolicy const*

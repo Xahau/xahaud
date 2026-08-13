@@ -10,6 +10,8 @@ set(XAHAU_QUICKJS_PROVIDER_MANIFEST
   "${XAHAU_QUICKJS_PROVIDER_BUNDLE_DIR}/jshookz_provider.manifest.cmake")
 set(XAHAU_QUICKJS_PROVIDER_PROFILE_LOCK
   "${XAHAU_QUICKJS_PROVIDER_BUNDLE_DIR}/jshookz_provider.manifest.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${XAHAU_QUICKJS_PROVIDER_PROFILE_LOCK}")
 
 if(NOT EXISTS "${XAHAU_QUICKJS_PROVIDER_MANIFEST}")
   message(FATAL_ERROR
@@ -34,8 +36,30 @@ if(NOT XAHAU_QUICKJS_ACTUAL_MANIFEST_SHA256 STREQUAL
     "QuickJS provider JSON manifest does not match its CMake projection")
 endif()
 
-if(DEFINED wasmtime_VERSION_STRING AND
-   NOT wasmtime_VERSION_STRING VERSION_EQUAL XAHAU_QUICKJS_WASMTIME_VERSION)
+set(XAHAU_QUICKJS_NATIVE_ABI
+  "${XAHAU_QUICKJS_PROVIDER_BUNDLE_DIR}/${XAHAU_QUICKJS_NATIVE_ABI_FILE}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${XAHAU_QUICKJS_NATIVE_ABI}"
+  "${CMAKE_CURRENT_LIST_DIR}/GenerateQuickJSProviderPolicy.py")
+if(NOT EXISTS "${XAHAU_QUICKJS_NATIVE_ABI}")
+  message(FATAL_ERROR
+    "Missing frozen QuickJS native ABI snapshot: ${XAHAU_QUICKJS_NATIVE_ABI}")
+endif()
+file(SHA256
+  "${XAHAU_QUICKJS_NATIVE_ABI}"
+  XAHAU_QUICKJS_ACTUAL_NATIVE_ABI_SHA256)
+if(NOT XAHAU_QUICKJS_ACTUAL_NATIVE_ABI_SHA256 STREQUAL
+    XAHAU_QUICKJS_NATIVE_ABI_SHA256)
+  message(FATAL_ERROR
+    "QuickJS native ABI snapshot does not match its sealed digest")
+endif()
+
+if(NOT DEFINED wasmtime_VERSION_STRING OR
+   wasmtime_VERSION_STRING STREQUAL "")
+  message(FATAL_ERROR
+    "QuickJS provider requires an exact Wasmtime version, but the resolved "
+    "package did not publish one")
+elseif(NOT wasmtime_VERSION_STRING STREQUAL XAHAU_QUICKJS_WASMTIME_VERSION)
   message(FATAL_ERROR
     "QuickJS provider requires Wasmtime ${XAHAU_QUICKJS_WASMTIME_VERSION}, "
     "but CMake resolved ${wasmtime_VERSION_STRING}")
@@ -69,6 +93,27 @@ set(XAHAU_QUICKJS_GENERATED_INCLUDE_DIR
   "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY
   "${XAHAU_QUICKJS_GENERATED_INCLUDE_DIR}/xrpld/app/hook/detail")
+find_program(XAHAU_QUICKJS_PYTHON NAMES python3 python)
+if(NOT XAHAU_QUICKJS_PYTHON)
+  message(FATAL_ERROR
+    "Python is required to project the sealed QuickJS provider policy")
+endif()
+execute_process(
+  COMMAND
+    "${XAHAU_QUICKJS_PYTHON}"
+    "${CMAKE_CURRENT_LIST_DIR}/GenerateQuickJSProviderPolicy.py"
+    --profile "${XAHAU_QUICKJS_PROVIDER_PROFILE_LOCK}"
+    --native-abi "${XAHAU_QUICKJS_NATIVE_ABI}"
+    --expected-count "${XAHAU_QUICKJS_PROVIDER_IMPORT_COUNT}"
+    --output
+      "${XAHAU_QUICKJS_GENERATED_INCLUDE_DIR}/xrpld/app/hook/detail/QuickJSProviderPolicy.inc"
+  RESULT_VARIABLE XAHAU_QUICKJS_POLICY_RESULT
+  ERROR_VARIABLE XAHAU_QUICKJS_POLICY_ERROR)
+if(NOT XAHAU_QUICKJS_POLICY_RESULT EQUAL 0)
+  message(FATAL_ERROR
+    "Could not project the sealed QuickJS provider policy: "
+    "${XAHAU_QUICKJS_POLICY_ERROR}")
+endif()
 configure_file(
   "${CMAKE_CURRENT_LIST_DIR}/QuickJSProviderProfile.h.in"
   "${XAHAU_QUICKJS_GENERATED_INCLUDE_DIR}/xrpld/app/hook/detail/QuickJSProviderProfile.h"

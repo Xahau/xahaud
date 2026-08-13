@@ -4,7 +4,7 @@
 #include <xrpld/app/hook/HookGuestMemory.h>
 #include <xrpld/app/hook/HookHostOperationResult.h>
 #include <xrpld/app/hook/QuickJSHookRuntime.h>
-#include <xrpld/app/hook/detail/quickjs/QuickJSImportCatalogue.h>
+#include <xrpld/app/hook/detail/quickjs/QuickJSHostPolicy.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <cstdint>
 #include <optional>
@@ -18,6 +18,11 @@ namespace hook {
 struct HookContext;
 
 namespace quickjs {
+
+std::uint64_t
+quickJSHostWorkCost(
+    QuickJSRuntimeProfile const& profile,
+    std::uint64_t declaredBytes) noexcept;
 
 struct QuickJSInvocation
 {
@@ -63,11 +68,17 @@ private:
 
 using ErasedJSImportHandler =
     raw::Result (*)(QuickJSHostCall&, std::span<wasmtime_val_t const>);
+using ErasedJSImportMeasure =
+    std::uint64_t (*)(std::span<wasmtime_val_t const>) noexcept;
 
 struct QuickJSImportBinding
 {
-    QuickJSImportId id;
+    QuickJSV1ImportId id;
     ImportCategory category;
+    HostWorkMeasureKind measureKind;
+    TerminalBehavior terminal;
+    std::uint16_t rawOperationVersion;
+    ErasedJSImportMeasure measure;
     ErasedJSImportHandler invoke;
 };
 
@@ -108,33 +119,49 @@ decodeArguments(
         values[Indices])...};
 }
 
-template <QuickJSImportId Id, auto Handler, auto Measure>
-raw::Result
-invokeBinding(QuickJSHostCall& call, std::span<wasmtime_val_t const> values)
+template <QuickJSV1ImportId Id, auto Handler, auto Measure>
+std::uint64_t
+measureBinding(std::span<wasmtime_val_t const> values) noexcept
 {
-    using Parameters = typename ImportTraits<Id>::Parameters;
+    using Parameters = typename V1ImportTraits<Id>::Parameters;
     constexpr auto count = std::tuple_size_v<Parameters>;
     auto const arguments =
         decodeArguments<Parameters>(values, std::make_index_sequence<count>{});
-    auto const declaredBytes = std::apply(Measure, arguments);
+    return std::apply(Measure, arguments);
+}
+
+template <QuickJSV1ImportId Id, auto Handler, auto Measure>
+raw::Result
+invokeBinding(QuickJSHostCall& call, std::span<wasmtime_val_t const> values)
+{
+    using Parameters = typename V1ImportTraits<Id>::Parameters;
+    constexpr auto count = std::tuple_size_v<Parameters>;
+    auto const arguments =
+        decodeArguments<Parameters>(values, std::make_index_sequence<count>{});
+    auto const declaredBytes = measureBinding<Id, Handler, Measure>(values);
     if (!call.charge(declaredBytes))
         return hook_api::hook_return_code::INTERNAL_ERROR;
     return std::apply(
         [&](auto... args) { return Handler(call, args...); }, arguments);
 }
 
-template <QuickJSImportId Id, auto Handler, auto Measure>
+template <QuickJSV1ImportId Id, auto Handler, auto Measure>
 constexpr QuickJSImportBinding
 makeBinding() noexcept
 {
-    using Signatures = BindingSignatures<typename ImportTraits<Id>::Parameters>;
+    using Signatures =
+        BindingSignatures<typename V1ImportTraits<Id>::Parameters>;
     static_assert(
         std::is_same_v<decltype(Handler), typename Signatures::Handler>);
     static_assert(
         std::is_same_v<decltype(Measure), typename Signatures::Measure>);
     return {
         .id = Id,
-        .category = ImportTraits<Id>::category,
+        .category = V1ImportTraits<Id>::category,
+        .measureKind = V1ImportTraits<Id>::measure,
+        .terminal = V1ImportTraits<Id>::terminal,
+        .rawOperationVersion = V1ImportTraits<Id>::rawOperationVersion,
+        .measure = &measureBinding<Id, Handler, Measure>,
         .invoke = &invokeBinding<Id, Handler, Measure>};
 }
 
@@ -154,11 +181,11 @@ std::span<QuickJSImportBinding const>
 traceBindings() noexcept;
 
 QuickJSImportBinding const*
-findBinding(QuickJSImportId id, ImportCategory category) noexcept;
+findBinding(QuickJSV1ImportId id, ImportCategory category) noexcept;
 
 struct ResolvedJSImport
 {
-    QuickJSImportDescriptor const* descriptor;
+    QuickJSV1ImportDescriptor const* descriptor;
     QuickJSImportBinding const* binding;
 };
 

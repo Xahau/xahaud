@@ -8,7 +8,7 @@
 namespace hook {
 struct HookContext;
 
-namespace raw {
+namespace raw::v1 {
 Result
 etxnReserve(HookContext& hookCtx, std::uint32_t count);
 
@@ -29,7 +29,7 @@ emit(
     std::uint32_t writeLength,
     std::uint32_t readPtr,
     std::uint32_t readLength);
-}  // namespace raw
+}  // namespace raw::v1
 }  // namespace hook
 
 #endif  // XRPLD_APP_HOOK_HOOKHOSTOPERATIONS_EMISSION_H_INCLUDED

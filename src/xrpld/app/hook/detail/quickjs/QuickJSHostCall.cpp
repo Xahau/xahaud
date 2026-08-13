@@ -29,7 +29,7 @@ matchesKind(wasm_valkind_t expected, wasmtime_valkind_t actual) noexcept
 
 wasm_trap_t*
 ordinaryUnavailableResult(
-    QuickJSImportDescriptor const& descriptor,
+    QuickJSV1ImportDescriptor const& descriptor,
     wasmtime_val_t* results,
     std::size_t resultCount) noexcept
 {
@@ -56,7 +56,7 @@ ordinaryUnavailableResult(
 wasm_trap_t*
 finishCallback(
     QuickJSInvocation& invocation,
-    QuickJSImportDescriptor const& descriptor,
+    QuickJSV1ImportDescriptor const& descriptor,
     raw::Result const& result,
     wasmtime_val_t* results,
     std::size_t resultCount) noexcept
@@ -69,6 +69,9 @@ finishCallback(
         if (*code == hook_api::hook_return_code::RC_ACCEPT ||
             *code == hook_api::hook_return_code::RC_ROLLBACK)
         {
+            if (descriptor.terminal != TerminalBehavior::hookTerminal)
+                return callbackTrap(
+                    "ordinary Xahau Hook import returned a terminal code");
             auto const expected = *code == hook_api::hook_return_code::RC_ACCEPT
                 ? hook_api::ExitType::ACCEPT
                 : hook_api::ExitType::ROLLBACK;
@@ -114,6 +117,19 @@ finishCallback(
 }
 
 }  // namespace
+
+std::uint64_t
+quickJSHostWorkCost(
+    QuickJSRuntimeProfile const& profile,
+    std::uint64_t declaredBytes) noexcept
+{
+    return declaredBytes > (std::numeric_limits<std::uint64_t>::max() -
+                            profile.hostWorkBasePerCall) /
+                profile.hostWorkPerAddressedByte
+        ? std::numeric_limits<std::uint64_t>::max()
+        : profile.hostWorkBasePerCall +
+            declaredBytes * profile.hostWorkPerAddressedByte;
+}
 
 QuickJSInvocation::QuickJSInvocation(
     HookContext& hookCtx_,
@@ -162,13 +178,7 @@ bool
 QuickJSHostCall::charge(std::uint64_t declaredBytes) noexcept
 {
     auto const& profile = invocation_.profile;
-    auto const cost =
-        declaredBytes > (std::numeric_limits<std::uint64_t>::max() -
-                         profile.hostWorkBasePerCall) /
-                profile.hostWorkPerAddressedByte
-        ? std::numeric_limits<std::uint64_t>::max()
-        : profile.hostWorkBasePerCall +
-            declaredBytes * profile.hostWorkPerAddressedByte;
+    auto const cost = quickJSHostWorkCost(profile, declaredBytes);
     if (cost > invocation_.hostWorkRemaining)
     {
         fault_ = "Xahau Hook host-work budget exhausted";
@@ -217,7 +227,7 @@ rawHookCallback(
                 descriptor.amendment))
             return ordinaryUnavailableResult(descriptor, results, resultCount);
         if (!resolved->binding)
-            return ordinaryUnavailableResult(descriptor, results, resultCount);
+            return callbackTrap("missing required Xahau Hook v1 binding");
 
         QuickJSHostCall call{*invocation, caller};
         auto const result =
