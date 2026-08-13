@@ -913,7 +913,9 @@ class ValidatorIdentity_test : public beast::unit_test::suite
         env.fund(XRP(10000), carrier);
         advanceToCertValidity(env);
 
-        auto const [master, masterSecret] = makeMaster();
+        auto const keys = makeMaster();
+        PublicKey const master = keys.first;
+        SecretKey const masterSecret = keys.second;
         publishManifest(env, carrier, master, masterSecret);
 
         auto const domain = std::string{"a.example"};
@@ -1283,7 +1285,9 @@ class ValidatorIdentity_test : public beast::unit_test::suite
         env.fund(XRP(10000), carrier);
         advanceToCertValidity(env);
 
-        auto const [master, masterSecret] = makeMaster();
+        auto const keys = makeMaster();
+        PublicKey const master = keys.first;
+        SecretKey const masterSecret = keys.second;
         publishManifest(env, carrier, master, masterSecret);
 
         auto const domain = std::string{"a.example"};
