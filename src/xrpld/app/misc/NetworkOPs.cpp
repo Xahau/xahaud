@@ -1398,12 +1398,9 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 if (sttx->getTxnType() == ttVALIDATOR_MANIFEST_SET &&
                     isTesSuccess(e.result))
                 {
-                    // Manifest-first activation begins only after the carrier
-                    // transaction has passed normal admission and changed the
-                    // open ledger. The transaction remains the transport;
-                    // this updates the same bounded live cache used by legacy
-                    // manifest receipt and deliberately does not persist the
-                    // provisional observation.
+                    // Fast path for a successful open-ledger application.
+                    // Transactions first accepted in a closed ledger recover
+                    // the same manifest lazily from validated state.
                     if (auto manifest = deserializeManifest(
                             sttx->getFieldVL(sfManifest), m_journal))
                     {

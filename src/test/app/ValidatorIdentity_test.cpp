@@ -13,6 +13,7 @@
 #include <test/jtx.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/detail/ValidatorIdentity.h>
+#include <xrpl/basics/StringUtilities.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/SecretKey.h>
@@ -1047,8 +1048,108 @@ class ValidatorIdentity_test : public beast::unit_test::suite
             fee(XRP(101)),
             ter(tecNO_PERMISSION));
         expectUnchanged();
-        // Note: OpenSSL accepts leaf+trust-anchor chains; the prototype does
-        // not currently reject that shape, so it is not asserted here.
+
+        // Extra root in the presented chain is rejected (root is the trust
+        // anchor, not a transaction certificate).
+        {
+            auto chain = lengthPrefixedChain(asSlice(leafADer));
+            auto const root = asSlice(testRootDer);
+            chain.push_back(
+                static_cast<std::uint8_t>((root.size() >> 8) & 0xff));
+            chain.push_back(static_cast<std::uint8_t>(root.size() & 0xff));
+            chain.insert(chain.end(), root.begin(), root.end());
+            env(domainSetFor(
+                    env,
+                    carrier,
+                    master,
+                    masterSecret,
+                    domain,
+                    asSlice(leafADer),
+                    asSlice(leafAKeyDer),
+                    beast::zero,
+                    beast::zero,
+                    kNotBefore,
+                    kNotAfter,
+                    std::nullopt,
+                    chain),
+                fee(XRP(101)),
+                ter(tecNO_PERMISSION));
+            expectUnchanged();
+        }
+    }
+
+    void
+    testCarrierSignatureCoversProof()
+    {
+        testcase("carrier signature covers domain proof signatures");
+        using namespace jtx;
+
+        auto env = makeDomainEnv();
+        Account const carrier{"carrier"};
+        env.fund(XRP(10000), carrier);
+        advanceToCertValidity(env);
+
+        auto const [master, masterSecret] = makeMaster();
+        publishManifest(env, carrier, master, masterSecret);
+
+        auto const jv = domainSetFor(
+            env,
+            carrier,
+            master,
+            masterSecret,
+            std::string{"a.example"},
+            asSlice(leafADer),
+            asSlice(leafAKeyDer),
+            beast::zero,
+            beast::zero);
+
+        STTx tx{
+            ttVALIDATOR_DOMAIN_SET, [&](STObject& obj) {
+                obj[sfAccount] = carrier.id();
+                obj[sfFee] = STAmount{XRPAmount{1}};
+                obj[sfSequence] = env.seq(carrier);
+                obj.setFieldVL(sfSigningPubKey, carrier.pk().slice());
+                obj.setFieldVL(
+                    sfDomain,
+                    strUnHex(jv[sfDomain.jsonName].asString()).value());
+                obj.setFieldVL(
+                    sfValidatorPublicKey,
+                    strUnHex(jv[sfValidatorPublicKey.jsonName].asString())
+                        .value());
+                obj.setFieldVL(
+                    sfCertificateChain,
+                    strUnHex(jv[sfCertificateChain.jsonName].asString())
+                        .value());
+                obj.setFieldVL(
+                    sfDomainSignature,
+                    strUnHex(jv[sfDomainSignature.jsonName].asString())
+                        .value());
+                obj.setFieldVL(
+                    sfValidatorMasterSignature,
+                    strUnHex(jv[sfValidatorMasterSignature.jsonName].asString())
+                        .value());
+                uint256 rootSet;
+                BEAST_EXPECT(
+                    rootSet.parseHex(jv[sfRootSetID.jsonName].asString()));
+                obj.setFieldH256(sfRootSetID, rootSet);
+                obj.setFieldU64(sfNotBefore, kNotBefore);
+                obj.setFieldU64(sfNotAfter, kNotAfter);
+                obj.setFieldH256(sfExpectedDomainHash, beast::zero);
+                obj.setFieldH256(sfExpectedValidatorDomainHash, beast::zero);
+            }};
+        tx.sign(carrier.pk(), carrier.sk());
+        BEAST_EXPECT(tx.checkSign(
+            STTx::RequireFullyCanonicalSig::yes, env.current()->rules()));
+
+        auto mutated = tx.getFieldVL(sfDomainSignature);
+        BEAST_EXPECT(!mutated.empty());
+        if (!mutated.empty())
+        {
+            mutated[0] ^= 0x01;
+            tx.setFieldVL(sfDomainSignature, mutated);
+            BEAST_EXPECT(!tx.checkSign(
+                STTx::RequireFullyCanonicalSig::yes, env.current()->rules()));
+        }
     }
 
     void
@@ -1176,6 +1277,7 @@ public:
         testDomainTransfer();
         testDomainExpiry();
         testDomainNegativeVerifier();
+        testCarrierSignatureCoversProof();
         testDomainProofRejectedWithoutTestRoot();
         testDomainRejectedWhenRevoked();
     }

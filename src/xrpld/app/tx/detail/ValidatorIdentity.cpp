@@ -23,17 +23,22 @@
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/digest.h>
 
+#include <openssl/ec.h>
 #include <openssl/evp.h>
+#include <openssl/obj_mac.h>
+#include <openssl/opensslv.h>
 #include <openssl/x509.h>
-#include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <ctime>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ripple {
@@ -43,23 +48,160 @@ constexpr std::size_t maxCertificateChainBytes = 16 * 1024;
 constexpr std::size_t maxCertificateCount = 4;
 
 using X509Ptr = std::unique_ptr<X509, decltype(&X509_free)>;
-using X509StorePtr = std::unique_ptr<X509_STORE, decltype(&X509_STORE_free)>;
-using X509StoreCtxPtr =
-    std::unique_ptr<X509_STORE_CTX, decltype(&X509_STORE_CTX_free)>;
 using EVPKeyPtr = std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)>;
 using EVPMdCtxPtr = std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)>;
-using ASN1TimePtr = std::unique_ptr<ASN1_TIME, decltype(&ASN1_TIME_free)>;
+using GeneralNamesPtr =
+    std::unique_ptr<GENERAL_NAMES, decltype(&GENERAL_NAMES_free)>;
 
-struct X509StackDeleter
+struct ParsedCertificate
 {
-    void
-    operator()(STACK_OF(X509) * stack) const
-    {
-        sk_X509_free(stack);
-    }
+    X509Ptr cert{nullptr, X509_free};
+    Blob der;
 };
 
-using X509StackPtr = std::unique_ptr<STACK_OF(X509), X509StackDeleter>;
+bool
+sameCertificateDer(Slice a, Slice b)
+{
+    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
+}
+
+bool
+isAllowedSignatureNid(int nid)
+{
+    // Minimum algorithm set every node must implement. New NIDs need an
+    // amendment so verification does not depend on the linked OpenSSL.
+    return nid == NID_sha256WithRSAEncryption ||
+        nid == NID_sha384WithRSAEncryption || nid == NID_ecdsa_with_SHA256 ||
+        nid == NID_ecdsa_with_SHA384 || nid == NID_ED25519;
+}
+
+bool
+isAllowedPublicKey(EVP_PKEY* key)
+{
+    if (!key)
+        return false;
+    switch (EVP_PKEY_base_id(key))
+    {
+        case EVP_PKEY_RSA:
+            return EVP_PKEY_bits(key) >= 2048;
+        case EVP_PKEY_EC: {
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+            char name[64]{};
+            std::size_t len = 0;
+            if (EVP_PKEY_get_group_name(key, name, sizeof(name), &len) != 1)
+                return false;
+            auto const group = std::string_view{name, len};
+            auto const nid = OBJ_txt2nid(std::string{group}.c_str());
+            return nid == NID_X9_62_prime256v1 || nid == NID_secp384r1 ||
+                group == "P-256" || group == "P-384";
+#else
+            auto const* ec = EVP_PKEY_get0_EC_KEY(key);
+            if (!ec)
+                return false;
+            auto const nid = EC_GROUP_get_curve_name(EC_KEY_get0_group(ec));
+            return nid == NID_X9_62_prime256v1 || nid == NID_secp384r1;
+#endif
+        }
+        case EVP_PKEY_ED25519:
+            return true;
+        default:
+            return false;
+    }
+}
+
+std::optional<EVP_MD const*>
+statementDigest(EVP_PKEY* key)
+{
+    // Domain-proof signatures deliberately use SHA-256 for every allowed
+    // digest-then-sign key. This is independent of the digest the issuer used
+    // to sign the certificate. PureEdDSA takes no external digest.
+    switch (EVP_PKEY_base_id(key))
+    {
+        case EVP_PKEY_RSA:
+        case EVP_PKEY_EC:
+            return EVP_sha256();
+        case EVP_PKEY_ED25519:
+            return static_cast<EVP_MD const*>(nullptr);
+        default:
+            return std::nullopt;
+    }
+}
+
+std::int64_t
+daysFromCivil(int year, unsigned month, unsigned day)
+{
+    year -= month <= 2;
+    auto const era = (year >= 0 ? year : year - 399) / 400;
+    auto const yoe = static_cast<unsigned>(year - era * 400);
+    auto const shiftedMonth = month > 2 ? month - 3 : month + 9;
+    auto const doy = (153 * shiftedMonth + 2) / 5 + day - 1;
+    auto const doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return static_cast<std::int64_t>(era) * 146097 + doe - 719468;
+}
+
+std::optional<std::uint64_t>
+certificateNetTime(ASN1_TIME const* value)
+{
+    std::tm utc{};
+    if (!value || ASN1_TIME_to_tm(value, &utc) != 1 || utc.tm_mon < 0 ||
+        utc.tm_mon > 11 || utc.tm_mday < 1 || utc.tm_mday > 31 ||
+        utc.tm_hour < 0 || utc.tm_hour > 23 || utc.tm_min < 0 ||
+        utc.tm_min > 59 || utc.tm_sec < 0 || utc.tm_sec > 59)
+        return std::nullopt;
+
+    auto const unixSeconds =
+        daysFromCivil(utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday) * 86400 +
+        utc.tm_hour * 3600 + utc.tm_min * 60 + utc.tm_sec;
+    if (unixSeconds < epoch_offset.count())
+        return std::nullopt;
+    return static_cast<std::uint64_t>(unixSeconds - epoch_offset.count());
+}
+
+bool
+certificateValidAt(X509* certificate, std::uint64_t now)
+{
+    auto const notBefore = certificateNetTime(X509_get0_notBefore(certificate));
+    auto const notAfter = certificateNetTime(X509_get0_notAfter(certificate));
+    return notBefore && notAfter && *notBefore <= now && now < *notAfter;
+}
+
+bool
+hasExactDomainSan(X509* certificate, Slice domain)
+{
+    int critical = -1;
+    GeneralNamesPtr names{
+        static_cast<GENERAL_NAMES*>(X509_get_ext_d2i(
+            certificate, NID_subject_alt_name, &critical, nullptr)),
+        GENERAL_NAMES_free};
+    if (!names || critical == -2)
+        return false;
+
+    for (int i = 0; i < sk_GENERAL_NAME_num(names.get()); ++i)
+    {
+        auto const* name = sk_GENERAL_NAME_value(names.get(), i);
+        if (!name || name->type != GEN_DNS)
+            continue;
+        auto const* dns = name->d.dNSName;
+        auto const length = ASN1_STRING_length(dns);
+        auto const* bytes = ASN1_STRING_get0_data(dns);
+        if (length >= 0 && static_cast<std::size_t>(length) == domain.size() &&
+            std::equal(domain.begin(), domain.end(), bytes))
+            return true;
+    }
+    return false;
+}
+
+bool
+issuedBy(X509* child, X509* issuer)
+{
+    if (!child || !issuer)
+        return false;
+    if (X509_NAME_cmp(
+            X509_get_issuer_name(child), X509_get_subject_name(issuer)) != 0)
+        return false;
+    EVPKeyPtr issuerKey{X509_get_pubkey(issuer), EVP_PKEY_free};
+    return issuerKey && X509_verify(child, issuerKey.get()) == 1;
+}
 
 Slice
 pinnedRoot()
@@ -104,13 +246,12 @@ isNormalizedDomain(Slice domain)
     return true;
 }
 
-std::vector<X509Ptr>
+std::vector<ParsedCertificate>
 parseCertificateChain(Slice encoded)
 {
-    // The transaction encoding is leaf first, followed by intermediates. Each
-    // DER certificate has a two-byte big-endian length. The trust-anchor root
-    // is not carried in the transaction.
-    std::vector<X509Ptr> certificates;
+    // Leaf first, then each issuer. Two-byte big-endian length per DER
+    // certificate. The trust-anchor root is not carried in the transaction.
+    std::vector<ParsedCertificate> certificates;
     std::size_t offset = 0;
     while (offset < encoded.size())
     {
@@ -126,10 +267,13 @@ parseCertificateChain(Slice encoded)
         auto const* cursor =
             reinterpret_cast<unsigned char const*>(encoded.data() + offset);
         auto const* end = cursor + length;
-        X509Ptr certificate{d2i_X509(nullptr, &cursor, length), X509_free};
-        if (!certificate || cursor != end)
+        ParsedCertificate parsed;
+        parsed.cert.reset(d2i_X509(nullptr, &cursor, length));
+        if (!parsed.cert || cursor != end)
             return {};
-        certificates.push_back(std::move(certificate));
+        parsed.der.assign(
+            encoded.begin() + offset, encoded.begin() + offset + length);
+        certificates.push_back(std::move(parsed));
         offset += length;
     }
     return certificates;
@@ -195,8 +339,6 @@ verifyDomainProof(
     NetClock::time_point parentCloseTime,
     DomainTrustAnchor const& trustAnchor)
 {
-    // TODO: replace OpenSSL path-building policy with an amendment-versioned,
-    // version-independent certificate profile before activation.
     if (trustAnchor.der.empty() ||
         tx.getFieldH256(sfRootSetID) != trustAnchor.rootSetID)
         return false;
@@ -224,75 +366,75 @@ verifyDomainProof(
     if (!root || rootCursor != rootBytes.data() + rootBytes.size())
         return false;
 
-    X509StorePtr store{X509_STORE_new(), X509_STORE_free};
-    X509StoreCtxPtr storeCtx{X509_STORE_CTX_new(), X509_STORE_CTX_free};
-    X509StackPtr intermediates{sk_X509_new_null()};
-    if (!store || !storeCtx || !intermediates ||
-        X509_STORE_add_cert(store.get(), root.get()) != 1)
+    // Exact ordered path: presented certs are leaf then issuers. The compiled
+    // root is the trust anchor and must not appear in the transaction.
+    for (auto const& parsed : certificates)
+    {
+        if (sameCertificateDer(makeSlice(parsed.der), rootBytes))
+            return false;
+        if (!isAllowedSignatureNid(X509_get_signature_nid(parsed.cert.get())))
+            return false;
+        EVPKeyPtr subjectKey{X509_get_pubkey(parsed.cert.get()), EVP_PKEY_free};
+        if (!isAllowedPublicKey(subjectKey.get()))
+            return false;
+    }
+    if (!isAllowedSignatureNid(X509_get_signature_nid(root.get())))
         return false;
-    for (std::size_t i = 1; i < certificates.size(); ++i)
-        if (sk_X509_push(intermediates.get(), certificates[i].get()) == 0)
+    EVPKeyPtr rootKey{X509_get_pubkey(root.get()), EVP_PKEY_free};
+    if (X509_check_ca(root.get()) <= 0 || !isAllowedPublicKey(rootKey.get()))
+        return false;
+
+    auto const nowCount = parentCloseTime.time_since_epoch().count();
+    if (nowCount < 0)
+        return false;
+    auto const now = static_cast<std::uint64_t>(nowCount);
+    if (!certificateValidAt(root.get(), now))
+        return false;
+    for (auto const& parsed : certificates)
+        if (!certificateValidAt(parsed.cert.get(), now))
             return false;
 
-    if (X509_STORE_CTX_init(
-            storeCtx.get(),
-            store.get(),
-            certificates.front().get(),
-            intermediates.get()) != 1)
+    for (std::size_t i = 0; i + 1 < certificates.size(); ++i)
+    {
+        if (!issuedBy(
+                certificates[i].cert.get(), certificates[i + 1].cert.get()))
+            return false;
+        if (X509_check_ca(certificates[i + 1].cert.get()) <= 0)
+            return false;
+    }
+    if (!issuedBy(certificates.back().cert.get(), root.get()))
         return false;
 
-    auto* params = X509_STORE_CTX_get0_param(storeCtx.get());
-    auto const unixTime = static_cast<std::time_t>(
-        parentCloseTime.time_since_epoch().count() + epoch_offset.count());
-    X509_VERIFY_PARAM_set_time(params, unixTime);
-    X509_VERIFY_PARAM_set_hostflags(
-        params, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+    X509* const leaf = certificates.front().cert.get();
+    if (X509_check_ca(leaf) > 0)
+        return false;
+    if (X509_check_purpose(leaf, X509_PURPOSE_SSL_SERVER, 0) != 1)
+        return false;
     auto const domain = tx.getFieldVL(sfDomain);
-    if (X509_VERIFY_PARAM_set1_host(
-            params,
-            reinterpret_cast<char const*>(domain.data()),
-            domain.size()) != 1 ||
-        X509_VERIFY_PARAM_set_purpose(params, X509_PURPOSE_SSL_SERVER) != 1 ||
-        X509_verify_cert(storeCtx.get()) != 1)
+    if (!hasExactDomainSan(leaf, makeSlice(domain)))
         return false;
 
     auto const notBefore = tx.getFieldU64(sfNotBefore);
     auto const notAfter = tx.getFieldU64(sfNotAfter);
-    auto const now = parentCloseTime.time_since_epoch().count();
-    if (notBefore > now || notAfter <= now || notBefore >= notAfter ||
-        notAfter >
-            static_cast<std::uint64_t>(
-                std::numeric_limits<std::time_t>::max() - epoch_offset.count()))
+    if (notBefore > now || notAfter <= now || notBefore >= notAfter)
         return false;
 
-    auto const claimedBeforeUnix =
-        static_cast<std::time_t>(notBefore + epoch_offset.count());
-    auto const claimedAfterUnix =
-        static_cast<std::time_t>(notAfter + epoch_offset.count());
-    ASN1TimePtr claimedBefore{
-        ASN1_TIME_set(nullptr, claimedBeforeUnix), ASN1_TIME_free};
-    ASN1TimePtr claimedAfter{
-        ASN1_TIME_set(nullptr, claimedAfterUnix), ASN1_TIME_free};
-    if (!claimedBefore || !claimedAfter)
-        return false;
-    auto const beforeCmp = ASN1_TIME_compare(
-        X509_get0_notBefore(certificates.front().get()), claimedBefore.get());
-    auto const afterCmp = ASN1_TIME_compare(
-        X509_get0_notAfter(certificates.front().get()), claimedAfter.get());
-    if (beforeCmp == -2 || beforeCmp > 0 || afterCmp == -2 || afterCmp < 0)
+    auto const leafNotBefore = certificateNetTime(X509_get0_notBefore(leaf));
+    auto const leafNotAfter = certificateNetTime(X509_get0_notAfter(leaf));
+    if (!leafNotBefore || !leafNotAfter || *leafNotBefore > notBefore ||
+        *leafNotAfter < notAfter)
         return false;
 
-    EVPKeyPtr domainKey{
-        X509_get_pubkey(certificates.front().get()), EVP_PKEY_free};
+    EVPKeyPtr domainKey{X509_get_pubkey(leaf), EVP_PKEY_free};
+    auto const digest = statementDigest(domainKey.get());
+    if (!domainKey || !digest)
+        return false;
     EVPMdCtxPtr digestContext{EVP_MD_CTX_new(), EVP_MD_CTX_free};
     auto const domainSignature = tx.getFieldVL(sfDomainSignature);
-    return domainKey && digestContext &&
+    return digestContext &&
         EVP_DigestVerifyInit(
-            digestContext.get(),
-            nullptr,
-            EVP_sha256(),
-            nullptr,
-            domainKey.get()) == 1 &&
+            digestContext.get(), nullptr, *digest, nullptr, domainKey.get()) ==
+        1 &&
         EVP_DigestVerify(
             digestContext.get(),
             domainSignature.data(),
