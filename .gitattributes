@@ -11,3 +11,9 @@ LICENSE binary
 *.vcxproj   text eol=crlf
 *.props     text eol=crlf
 *.filters   text eol=crlf
+
+# JSHookz projections checked for freshness by the integration workflow.
+external/quickjs-provider/jshookz_provider.manifest.cmake linguist-generated=true
+external/quickjs-provider/jshookz_provider.manifest.json linguist-generated=true
+external/quickjs-provider/jshookz_provider.native-abi.json linguist-generated=true
+src/test/app/JSHooks_test_hooks.h linguist-generated=true
