@@ -24,6 +24,7 @@
 
 #include <array>
 #include <charconv>
+#include <initializer_list>
 #include <limits>
 #include <memory>
 #include <string>
@@ -53,14 +54,22 @@ asSlice(std::array<std::uint8_t, N> const& a)
 }
 
 Blob
-lengthPrefixedChain(Slice leafDer)
+lengthPrefixedChain(std::initializer_list<Slice> certificates)
 {
     Blob out;
-    out.reserve(2 + leafDer.size());
-    out.push_back(static_cast<std::uint8_t>((leafDer.size() >> 8) & 0xff));
-    out.push_back(static_cast<std::uint8_t>(leafDer.size() & 0xff));
-    out.insert(out.end(), leafDer.begin(), leafDer.end());
+    for (auto const cert : certificates)
+    {
+        out.push_back(static_cast<std::uint8_t>((cert.size() >> 8) & 0xff));
+        out.push_back(static_cast<std::uint8_t>(cert.size() & 0xff));
+        out.insert(out.end(), cert.begin(), cert.end());
+    }
     return out;
+}
+
+Blob
+lengthPrefixedChain(Slice leafDer)
+{
+    return lengthPrefixedChain({leafDer});
 }
 
 /** UINT64 fields without sMD_BaseTen are hex-encoded in JSON. */
@@ -271,7 +280,7 @@ class ValidatorIdentity_test : public beast::unit_test::suite
     }
 
     jtx::Env
-    makeDomainEnv()
+    makeDomainEnv(Slice rootDer = asSlice(testRootDer))
     {
         using namespace jtx;
         return Env{
@@ -280,7 +289,7 @@ class ValidatorIdentity_test : public beast::unit_test::suite
             supported_amendments() | featureOnlineValidatorIdentity,
             nullptr,
             beast::severities::kError,
-            asSlice(testRootDer)};
+            rootDer};
     }
 
     void
@@ -1263,6 +1272,132 @@ class ValidatorIdentity_test : public beast::unit_test::suite
                 ->getFieldH256(sfDigest) == digest);
     }
 
+    void
+    testDomainIntermediateConstraints()
+    {
+        testcase("domain intermediate CA constraints");
+        using namespace jtx;
+
+        auto env = makeDomainEnv(asSlice(icaRootDer));
+        Account const carrier{"carrier"};
+        env.fund(XRP(10000), carrier);
+        advanceToCertValidity(env);
+
+        auto const [master, masterSecret] = makeMaster();
+        publishManifest(env, carrier, master, masterSecret);
+
+        auto const domain = std::string{"a.example"};
+        auto const domainKey = keylet::validatorDomain(makeSlice(domain));
+
+        env(domainSetFor(
+                env,
+                carrier,
+                master,
+                masterSecret,
+                domain,
+                asSlice(leafViaIcaDer),
+                asSlice(leafViaIcaKeyDer),
+                beast::zero,
+                beast::zero,
+                kNotBefore,
+                kNotAfter,
+                std::nullopt,
+                lengthPrefixedChain(
+                    {asSlice(leafViaIcaDer), asSlice(icaGoodDer)})),
+            fee(XRP(101)),
+            ter(tesSUCCESS));
+        BEAST_EXPECT(env.current()->exists(domainKey));
+
+        // SAN DNS:A.EXAMPLE matches the normalized claimed domain.
+        env(domainSetFor(
+                env,
+                carrier,
+                master,
+                masterSecret,
+                domain,
+                asSlice(leafUpperSanDer),
+                asSlice(leafUpperSanKeyDer),
+                env.current()->read(domainKey)->getFieldH256(sfDigest),
+                domainKey.key,
+                kNotBefore,
+                kNotAfter,
+                std::nullopt,
+                lengthPrefixedChain(
+                    {asSlice(leafUpperSanDer), asSlice(icaGoodDer)})),
+            fee(XRP(101)),
+            ter(tesSUCCESS));
+
+        auto const expectNo = [&](Slice leaf, Slice key, Blob const& chain) {
+            env(domainSetFor(
+                    env,
+                    carrier,
+                    master,
+                    masterSecret,
+                    domain,
+                    leaf,
+                    key,
+                    env.current()->read(domainKey)->getFieldH256(sfDigest),
+                    domainKey.key,
+                    kNotBefore,
+                    kNotAfter,
+                    std::nullopt,
+                    chain),
+                fee(XRP(101)),
+                ter(tecNO_PERMISSION));
+            BEAST_EXPECT(
+                PublicKey{makeSlice(env.current()->read(domainKey)->getFieldVL(
+                    sfValidatorPublicKey))} == master);
+        };
+
+        expectNo(
+            asSlice(leafNcDer),
+            asSlice(leafNcKeyDer),
+            lengthPrefixedChain({asSlice(leafNcDer), asSlice(icaNcDenyDer)}));
+        expectNo(
+            asSlice(leafEkuDer),
+            asSlice(leafEkuKeyDer),
+            lengthPrefixedChain({asSlice(leafEkuDer), asSlice(icaBadEkuDer)}));
+        expectNo(
+            asSlice(leafCritDer),
+            asSlice(leafCritKeyDer),
+            lengthPrefixedChain({asSlice(leafCritDer), asSlice(icaCritDer)}));
+        expectNo(
+            asSlice(leafDeepDer),
+            asSlice(leafDeepKeyDer),
+            lengthPrefixedChain(
+                {asSlice(leafDeepDer),
+                 asSlice(icaChildDer),
+                 asSlice(icaPath0Der)}));
+        // Extra SAN is excluded by permitted-only NC; claimed domain is
+        // allowed, so this only fails once NAME_CONSTRAINTS_check sees SAN.
+        expectNo(
+            asSlice(leafExtraSanDer),
+            asSlice(leafExtraSanKeyDer),
+            lengthPrefixedChain(
+                {asSlice(leafExtraSanDer), asSlice(icaNcPermitADer)}));
+        // Excluded DNS is encoded A.EXAMPLE against claimed a.example.
+        expectNo(
+            asSlice(leafExcludeADer),
+            asSlice(leafExcludeAKeyDer),
+            lengthPrefixedChain(
+                {asSlice(leafExcludeADer), asSlice(icaNcExcludeADer)}));
+        // Leading-dot excluded .example matches a.example.
+        expectNo(
+            asSlice(leafDotDer),
+            asSlice(leafDotKeyDer),
+            lengthPrefixedChain({asSlice(leafDotDer), asSlice(icaNcDotDer)}));
+        // keyCertSign without basicConstraints is not a CA.
+        expectNo(
+            asSlice(leafNoBcDer),
+            asSlice(leafNoBcKeyDer),
+            lengthPrefixedChain({asSlice(leafNoBcDer), asSlice(icaNoBcDer)}));
+        // nameConstraints is a CA extension; reject it on the leaf.
+        expectNo(
+            asSlice(leafNcLeafDer),
+            asSlice(leafNcLeafKeyDer),
+            lengthPrefixedChain({asSlice(leafNcLeafDer), asSlice(icaGoodDer)}));
+    }
+
 public:
     void
     run() override
@@ -1280,6 +1415,7 @@ public:
         testCarrierSignatureCoversProof();
         testDomainProofRejectedWithoutTestRoot();
         testDomainRejectedWhenRevoked();
+        testDomainIntermediateConstraints();
     }
 };
 

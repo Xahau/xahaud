@@ -28,11 +28,13 @@
 #include <openssl/obj_mac.h>
 #include <openssl/opensslv.h>
 #include <openssl/x509.h>
+#include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>
 
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <ctime>
 #include <limits>
 #include <memory>
@@ -52,6 +54,19 @@ using EVPKeyPtr = std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)>;
 using EVPMdCtxPtr = std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)>;
 using GeneralNamesPtr =
     std::unique_ptr<GENERAL_NAMES, decltype(&GENERAL_NAMES_free)>;
+using BasicConstraintsPtr =
+    std::unique_ptr<BASIC_CONSTRAINTS, decltype(&BASIC_CONSTRAINTS_free)>;
+using NameConstraintsPtr =
+    std::unique_ptr<NAME_CONSTRAINTS, decltype(&NAME_CONSTRAINTS_free)>;
+
+void
+freeExtendedKeyUsage(EXTENDED_KEY_USAGE* eku)
+{
+    sk_ASN1_OBJECT_pop_free(eku, ASN1_OBJECT_free);
+}
+
+using ExtendedKeyUsagePtr =
+    std::unique_ptr<EXTENDED_KEY_USAGE, decltype(&freeExtendedKeyUsage)>;
 
 struct ParsedCertificate
 {
@@ -90,10 +105,16 @@ isAllowedPublicKey(EVP_PKEY* key)
             std::size_t len = 0;
             if (EVP_PKEY_get_group_name(key, name, sizeof(name), &len) != 1)
                 return false;
+            // OpenSSL 3 reports NIST or SECG names. Map the known strings
+            // onto the same NIDs the 1.1 path uses; do not call OBJ_txt2nid.
             auto const group = std::string_view{name, len};
-            auto const nid = OBJ_txt2nid(std::string{group}.c_str());
-            return nid == NID_X9_62_prime256v1 || nid == NID_secp384r1 ||
-                group == "P-256" || group == "P-384";
+            int nid = NID_undef;
+            if (group == "prime256v1" || group == "secp256r1" ||
+                group == "P-256")
+                nid = NID_X9_62_prime256v1;
+            else if (group == "secp384r1" || group == "P-384")
+                nid = NID_secp384r1;
+            return nid == NID_X9_62_prime256v1 || nid == NID_secp384r1;
 #else
             auto const* ec = EVP_PKEY_get0_EC_KEY(key);
             if (!ec)
@@ -165,6 +186,26 @@ certificateValidAt(X509* certificate, std::uint64_t now)
     return notBefore && notAfter && *notBefore <= now && now < *notAfter;
 }
 
+unsigned char
+asciiFold(unsigned char c)
+{
+    return (c >= 'A' && c <= 'Z') ? static_cast<unsigned char>(c - 'A' + 'a')
+                                  : c;
+}
+
+bool
+dnsEqual(Slice a, Slice b)
+{
+    if (a.size() != b.size())
+        return false;
+    for (std::size_t i = 0; i < a.size(); ++i)
+    {
+        if (asciiFold(a[i]) != asciiFold(b[i]))
+            return false;
+    }
+    return true;
+}
+
 bool
 hasExactDomainSan(X509* certificate, Slice domain)
 {
@@ -184,11 +225,171 @@ hasExactDomainSan(X509* certificate, Slice domain)
         auto const* dns = name->d.dNSName;
         auto const length = ASN1_STRING_length(dns);
         auto const* bytes = ASN1_STRING_get0_data(dns);
-        if (length >= 0 && static_cast<std::size_t>(length) == domain.size() &&
-            std::equal(domain.begin(), domain.end(), bytes))
+        if (length >= 0 &&
+            dnsEqual(domain, Slice{bytes, static_cast<std::size_t>(length)}))
             return true;
     }
     return false;
+}
+
+bool
+isKnownCriticalExtension(int nid)
+{
+    return nid == NID_basic_constraints || nid == NID_key_usage ||
+        nid == NID_ext_key_usage || nid == NID_subject_alt_name ||
+        nid == NID_name_constraints;
+}
+
+bool
+hasOnlyKnownCriticalExtensions(X509* certificate)
+{
+    auto const* exts = X509_get0_extensions(certificate);
+    if (!exts)
+        return true;
+    for (int i = 0; i < sk_X509_EXTENSION_num(exts); ++i)
+    {
+        auto const* ext = sk_X509_EXTENSION_value(exts, i);
+        if (!ext || X509_EXTENSION_get_critical(ext) <= 0)
+            continue;
+        auto const nid = OBJ_obj2nid(
+            X509_EXTENSION_get_object(const_cast<X509_EXTENSION*>(ext)));
+        if (!isKnownCriticalExtension(nid))
+            return false;
+    }
+    return true;
+}
+
+bool
+caAllowsServerAuth(X509* certificate)
+{
+    int critical = -1;
+    ExtendedKeyUsagePtr eku{
+        static_cast<EXTENDED_KEY_USAGE*>(X509_get_ext_d2i(
+            certificate, NID_ext_key_usage, &critical, nullptr)),
+        freeExtendedKeyUsage};
+    if (!eku)
+        return critical != -2;
+    for (int i = 0; i < sk_ASN1_OBJECT_num(eku.get()); ++i)
+    {
+        auto const nid = OBJ_obj2nid(sk_ASN1_OBJECT_value(eku.get(), i));
+        if (nid == NID_server_auth || nid == NID_anyExtendedKeyUsage)
+            return true;
+    }
+    return false;
+}
+
+bool
+caCanSignCertificates(X509* certificate)
+{
+    auto const usage = X509_get_key_usage(certificate);
+    return usage == UINT32_MAX || (usage & KU_KEY_CERT_SIGN) != 0;
+}
+
+std::optional<long>
+caPathLen(X509* certificate)
+{
+    int critical = -1;
+    BasicConstraintsPtr bc{
+        static_cast<BASIC_CONSTRAINTS*>(X509_get_ext_d2i(
+            certificate, NID_basic_constraints, &critical, nullptr)),
+        BASIC_CONSTRAINTS_free};
+    // Absent or unreadable basicConstraints is not a CA. OpenSSL
+    // X509_check_ca still accepts some keyCertSign-only legacy certs.
+    if (!bc)
+        return std::nullopt;
+    if (!bc->ca)
+        return std::nullopt;
+    if (!bc->pathlen)
+        return -1;
+    std::int64_t value = 0;
+    if (ASN1_INTEGER_get_int64(&value, bc->pathlen) != 1 || value < 0 ||
+        value > std::numeric_limits<long>::max())
+        return std::nullopt;
+    return static_cast<long>(value);
+}
+
+bool
+dnsMatchesConstraint(Slice name, Slice constraint)
+{
+    // RFC 5280 §4.2.1.10 / §7.2 and OpenSSL nc_dns: ASCII case-insensitive
+    // suffix match. An extra left-hand label is allowed when the constraint
+    // starts with '.' or the preceding name byte is '.'.
+    if (constraint.empty())
+        return true;
+    if (name.size() < constraint.size())
+        return false;
+    auto const offset = name.size() - constraint.size();
+    for (std::size_t i = 0; i < constraint.size(); ++i)
+    {
+        if (asciiFold(name[offset + i]) != asciiFold(constraint[i]))
+            return false;
+    }
+    if (name.size() == constraint.size())
+        return true;
+    return constraint[0] == '.' || name[offset - 1] == '.';
+}
+
+bool
+dnsSubtreeApplies(GENERAL_NAME const* base, Slice domain)
+{
+    if (!base || base->type != GEN_DNS || !base->d.dNSName)
+        return false;
+    auto const length = ASN1_STRING_length(base->d.dNSName);
+    auto const* bytes = ASN1_STRING_get0_data(base->d.dNSName);
+    if (length < 0)
+        return false;
+    return dnsMatchesConstraint(
+        domain, Slice{bytes, static_cast<std::size_t>(length)});
+}
+
+bool
+nameConstraintsPermitDomain(X509* ca, Slice domain)
+{
+    int critical = -1;
+    NameConstraintsPtr nc{
+        static_cast<NAME_CONSTRAINTS*>(
+            X509_get_ext_d2i(ca, NID_name_constraints, &critical, nullptr)),
+        NAME_CONSTRAINTS_free};
+    if (!nc)
+        return critical != -2;
+
+    if (nc->excludedSubtrees)
+    {
+        for (int i = 0; i < sk_GENERAL_SUBTREE_num(nc->excludedSubtrees); ++i)
+        {
+            auto const* tree =
+                sk_GENERAL_SUBTREE_value(nc->excludedSubtrees, i);
+            if (tree && dnsSubtreeApplies(tree->base, domain))
+                return false;
+        }
+    }
+    if (!nc->permittedSubtrees)
+        return true;
+
+    bool anyDns = false;
+    for (int i = 0; i < sk_GENERAL_SUBTREE_num(nc->permittedSubtrees); ++i)
+    {
+        auto const* tree = sk_GENERAL_SUBTREE_value(nc->permittedSubtrees, i);
+        if (!tree || !tree->base || tree->base->type != GEN_DNS)
+            continue;
+        anyDns = true;
+        if (dnsSubtreeApplies(tree->base, domain))
+            return true;
+    }
+    return !anyDns;
+}
+
+bool
+nameConstraintsPermit(X509* ca, X509* subsequent)
+{
+    int critical = -1;
+    NameConstraintsPtr nc{
+        static_cast<NAME_CONSTRAINTS*>(
+            X509_get_ext_d2i(ca, NID_name_constraints, &critical, nullptr)),
+        NAME_CONSTRAINTS_free};
+    if (!nc)
+        return critical != -2;
+    return NAME_CONSTRAINTS_check(subsequent, nc.get()) == X509_V_OK;
 }
 
 bool
@@ -384,6 +585,7 @@ verifyDomainProof(
     if (X509_check_ca(root.get()) <= 0 || !isAllowedPublicKey(rootKey.get()))
         return false;
 
+    auto const domain = tx.getFieldVL(sfDomain);
     auto const nowCount = parentCloseTime.time_since_epoch().count();
     if (nowCount < 0)
         return false;
@@ -394,23 +596,58 @@ verifyDomainProof(
         if (!certificateValidAt(parsed.cert.get(), now))
             return false;
 
+    // NAME_CONSTRAINTS_check only walks the cached SAN list. Cache every
+    // presented cert (including the leaf) before any NC walk.
+    (void)X509_get_extension_flags(root.get());
+    for (auto const& parsed : certificates)
+        (void)X509_get_extension_flags(parsed.cert.get());
+
+    auto checkCaConstraints = [](X509* ca, long followingCas) {
+        if (X509_check_ca(ca) <= 0 || !caCanSignCertificates(ca) ||
+            !caAllowsServerAuth(ca) || !hasOnlyKnownCriticalExtensions(ca))
+            return false;
+        auto const pathLen = caPathLen(ca);
+        return pathLen && (*pathLen < 0 || followingCas <= *pathLen);
+    };
+
     for (std::size_t i = 0; i + 1 < certificates.size(); ++i)
     {
         if (!issuedBy(
                 certificates[i].cert.get(), certificates[i + 1].cert.get()))
             return false;
-        if (X509_check_ca(certificates[i + 1].cert.get()) <= 0)
+        // Intermediates closer to the leaf count against this CA's pathLen.
+        if (!checkCaConstraints(
+                certificates[i + 1].cert.get(), static_cast<long>(i)))
+            return false;
+        for (std::size_t j = 0; j <= i; ++j)
+        {
+            if (!nameConstraintsPermit(
+                    certificates[i + 1].cert.get(), certificates[j].cert.get()))
+                return false;
+        }
+        if (!nameConstraintsPermitDomain(
+                certificates[i + 1].cert.get(), makeSlice(domain)))
             return false;
     }
     if (!issuedBy(certificates.back().cert.get(), root.get()))
         return false;
+    if (!checkCaConstraints(
+            root.get(), static_cast<long>(certificates.size() - 1)))
+        return false;
+    for (auto const& parsed : certificates)
+    {
+        if (!nameConstraintsPermit(root.get(), parsed.cert.get()))
+            return false;
+    }
+    if (!nameConstraintsPermitDomain(root.get(), makeSlice(domain)))
+        return false;
 
     X509* const leaf = certificates.front().cert.get();
-    if (X509_check_ca(leaf) > 0)
+    if (X509_check_ca(leaf) > 0 || !hasOnlyKnownCriticalExtensions(leaf) ||
+        X509_get_ext_by_NID(leaf, NID_name_constraints, -1) >= 0)
         return false;
     if (X509_check_purpose(leaf, X509_PURPOSE_SSL_SERVER, 0) != 1)
         return false;
-    auto const domain = tx.getFieldVL(sfDomain);
     if (!hasExactDomainSan(leaf, makeSlice(domain)))
         return false;
 
