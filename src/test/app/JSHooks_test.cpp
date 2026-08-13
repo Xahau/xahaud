@@ -16,6 +16,7 @@
 #include <array>
 #include <cstdlib>
 #include <fstream>
+#include <future>
 #include <iterator>
 #include <string>
 #include <vector>
@@ -340,6 +341,24 @@ void ledger.sequence;
         BEAST_EXPECT(!successfulValidation.error);
         BEAST_EXPECT(!successfulValidation.hasCallback);
         BEAST_EXPECT(successfulValidation.invocationFuelConsumed == 48330);
+
+        testcase("Validate one retained provider concurrently");
+        std::array<std::future<hook::QuickJSValidationForTests>, 4>
+            concurrentValidations;
+        for (auto& validation : concurrentValidations)
+        {
+            validation = std::async(std::launch::async, [&] {
+                return hook::validateQuickJSBytecodeForTests(
+                    currentRuntime, hookBytecode);
+            });
+        }
+        for (auto& validation : concurrentValidations)
+        {
+            auto result = validation.get();
+            BEAST_EXPECT(!result.error);
+            BEAST_EXPECT(!result.hasCallback);
+            BEAST_EXPECT(result.invocationFuelConsumed == 48330);
+        }
 
         testcase("Bind API, profile, hash, dedup, and hash install");
         {

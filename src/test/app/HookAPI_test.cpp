@@ -19,11 +19,14 @@
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/hook/HookHostOperations/Emission.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STAccount.h>
+#include <algorithm>
+#include <cstring>
 #include <limits>
 #include <tuple>
 #include <vector>
@@ -153,6 +156,51 @@ public:
             auto const result2 =
                 api.emit(Slice(result.value().data(), result.value().size()));
             BEAST_EXPECT(result2.has_value());
+
+            testcase("QuickJS prepare fixed buffer");
+            auto const source = s.slice();
+            auto const preparedSize = result.value().size();
+
+            auto invokeRawPrepare = [&](std::size_t writeLength) {
+                auto rawHookCtx = makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {
+                        .expected_etxn_count = 1,
+                    });
+                std::vector<std::uint8_t> memory(
+                    preparedSize + source.size(), 0xA5);
+                std::memcpy(
+                    memory.data() + preparedSize, source.data(), source.size());
+                auto const before = memory;
+                auto rawResult = hook::raw::v1::prepare(
+                    rawHookCtx,
+                    hook::HookGuestMemory{memory.data(), memory.size()},
+                    0,
+                    static_cast<std::uint32_t>(writeLength),
+                    static_cast<std::uint32_t>(preparedSize),
+                    static_cast<std::uint32_t>(source.size()));
+                return std::tuple{
+                    std::move(rawResult), std::move(memory), before};
+            };
+
+            auto [exactResult, exactMemory, exactBefore] =
+                invokeRawPrepare(preparedSize);
+            auto const* exactSize = std::get_if<std::uint64_t>(&exactResult);
+            BEAST_EXPECT(exactSize && *exactSize == preparedSize);
+            BEAST_EXPECT(exactMemory != exactBefore);
+            BEAST_EXPECT(std::equal(
+                result.value().begin(),
+                result.value().end(),
+                exactMemory.begin()));
+
+            auto [shortResult, shortMemory, shortBefore] =
+                invokeRawPrepare(preparedSize - 1);
+            auto const* shortCode =
+                std::get_if<hook_api::hook_return_code>(&shortResult);
+            BEAST_EXPECT(shortCode && *shortCode == TOO_SMALL);
+            BEAST_EXPECT(shortMemory == shortBefore);
         }
     }
 

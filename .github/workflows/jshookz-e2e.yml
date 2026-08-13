@@ -198,7 +198,7 @@ jobs:
             --ccache \
             -j 2 \
             -- \
-            ripple.app.JSHooks,ripple.app.QuickJSImportCatalogue,ripple.app.HookGuestMemory
+            ripple.app.JSHooks,ripple.app.QuickJSImportCatalogue,ripple.app.HookGuestMemory,ripple.app.HookAPI
 
       - name: Upload JSHookz coverage
         uses: codecov/codecov-action@v5
