@@ -1,5 +1,8 @@
 codecov:
   require_ci_to_pass: true
+  # This integration branch uploads the normal suite and JSHookz E2E coverage.
+  notify:
+    after_n_builds: 2
 
 comment:
   behavior: default
