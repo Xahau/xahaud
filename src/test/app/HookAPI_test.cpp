@@ -19,13 +19,16 @@
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <xrpld/app/hook/HookAPI.h>
-#include <xrpld/app/hook/HookHostOperations/Emission.h>
+#include <xrpld/app/hook/HookHostFunction.h>
+#include <xrpld/app/hook/applyHook.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STAccount.h>
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <cstring>
 #include <limits>
 #include <tuple>
@@ -161,46 +164,85 @@ public:
             auto const source = s.slice();
             auto const preparedSize = result.value().size();
 
-            auto invokeRawPrepare = [&](std::size_t writeLength) {
-                auto rawHookCtx = makeStubHookContext(
-                    applyCtx,
-                    alice.id(),
-                    alice.id(),
-                    {
-                        .expected_etxn_count = 1,
-                    });
-                std::vector<std::uint8_t> memory(
-                    preparedSize + source.size(), 0xA5);
-                std::memcpy(
-                    memory.data() + preparedSize, source.data(), source.size());
-                auto const before = memory;
-                auto rawResult = hook::raw::v1::prepare(
-                    rawHookCtx,
-                    hook::HookGuestMemory{memory.data(), memory.size()},
-                    0,
-                    static_cast<std::uint32_t>(writeLength),
-                    static_cast<std::uint32_t>(preparedSize),
-                    static_cast<std::uint32_t>(source.size()));
-                return std::tuple{
-                    std::move(rawResult), std::move(memory), before};
-            };
+            auto invokeHostPrepare =
+                [&](std::size_t writeLength,
+                    hook::HookGuestMemory::WriteContract contract =
+                        hook::HookGuestMemory::WriteContract::fixedBuffer) {
+                    auto rawHookCtx = makeStubHookContext(
+                        applyCtx,
+                        alice.id(),
+                        alice.id(),
+                        {
+                            .expected_etxn_count = 1,
+                        });
+                    std::vector<std::uint8_t> memory(
+                        preparedSize + source.size(), 0xA5);
+                    std::memcpy(
+                        memory.data() + preparedSize,
+                        source.data(),
+                        source.size());
+                    auto const before = memory;
+                    hook::HookGuestMemory guestMemory{
+                        memory.data(),
+                        memory.size(),
+                        nullptr,
+                        nullptr,
+                        contract};
+                    std::array<hook::HookHostValue, 4> inputs{
+                        hook::HookHostValue::u32(0),
+                        hook::HookHostValue::u32(
+                            static_cast<std::uint32_t>(writeLength)),
+                        hook::HookHostValue::u32(
+                            static_cast<std::uint32_t>(preparedSize)),
+                        hook::HookHostValue::u32(
+                            static_cast<std::uint32_t>(source.size()))};
+                    hook::HookHostValue output{};
+                    auto const* operation =
+                        hook::findHookHostFunction("prepare");
+                    auto const status = operation
+                        ? operation->function(
+                              &rawHookCtx,
+                              guestMemory,
+                              inputs.data(),
+                              inputs.size(),
+                              &output,
+                              1)
+                        : hook::HookHostCallStatus::trap;
+                    return std::tuple{
+                        status, output, std::move(memory), before};
+                };
 
-            auto [exactResult, exactMemory, exactBefore] =
-                invokeRawPrepare(preparedSize);
-            auto const* exactSize = std::get_if<std::uint64_t>(&exactResult);
-            BEAST_EXPECT(exactSize && *exactSize == preparedSize);
+            auto [exactStatus, exactResult, exactMemory, exactBefore] =
+                invokeHostPrepare(preparedSize);
+            BEAST_EXPECT(exactStatus == hook::HookHostCallStatus::success);
+            BEAST_EXPECT(exactResult.kind == hook::HookHostValueKind::i64);
+            BEAST_EXPECT(exactResult.asI64() == preparedSize);
             BEAST_EXPECT(exactMemory != exactBefore);
             BEAST_EXPECT(std::equal(
                 result.value().begin(),
                 result.value().end(),
                 exactMemory.begin()));
 
-            auto [shortResult, shortMemory, shortBefore] =
-                invokeRawPrepare(preparedSize - 1);
-            auto const* shortCode =
-                std::get_if<hook_api::hook_return_code>(&shortResult);
-            BEAST_EXPECT(shortCode && *shortCode == TOO_SMALL);
+            auto [shortStatus, shortResult, shortMemory, shortBefore] =
+                invokeHostPrepare(preparedSize - 1);
+            BEAST_EXPECT(shortStatus == hook::HookHostCallStatus::success);
+            BEAST_EXPECT(
+                std::bit_cast<std::int64_t>(shortResult.asI64()) ==
+                static_cast<std::int64_t>(TOO_SMALL));
             BEAST_EXPECT(shortMemory == shortBefore);
+
+            testcase("Legacy C prepare actual-size copy");
+            auto [legacyStatus, legacyResult, legacyMemory, legacyBefore] =
+                invokeHostPrepare(
+                    preparedSize - 1,
+                    hook::HookGuestMemory::WriteContract::legacyActualSize);
+            BEAST_EXPECT(legacyStatus == hook::HookHostCallStatus::success);
+            BEAST_EXPECT(legacyResult.asI64() == preparedSize);
+            BEAST_EXPECT(legacyMemory != legacyBefore);
+            BEAST_EXPECT(std::equal(
+                result.value().begin(),
+                result.value().end(),
+                legacyMemory.begin()));
         }
     }
 

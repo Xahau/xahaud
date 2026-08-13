@@ -19,7 +19,7 @@ struct QuickJSHostAdapterPolicy
     std::string_view hostWorkMeter;
     HostChargeOrder chargeOrder;
     HostDebitBehavior debitBehavior;
-    std::span<ResolvedJSImport const> imports;
+    std::span<WasmtimeHostBinding const> imports;
 
     bool
     complete() const noexcept;

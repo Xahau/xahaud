@@ -1,12 +1,12 @@
 #ifndef APPLY_HOOK_INCLUDED
 #define APPLY_HOOK_INCLUDED 1
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/hook/HookHostMacros.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
 #include <xrpl/basics/Blob.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/hook/Enum.h>
-#include <xrpl/hook/Macro.h>
 #include <xrpl/hook/Misc.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/TER.h>

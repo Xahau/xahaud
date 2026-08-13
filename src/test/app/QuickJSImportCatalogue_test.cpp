@@ -1,3 +1,4 @@
+#include <xrpld/app/hook/HookHostFunction.h>
 #include <xrpld/app/hook/detail/QuickJSProviderProfile.h>
 #include <xrpld/app/hook/detail/quickjs/QuickJSHostCall.h>
 #include <xrpld/app/hook/detail/quickjs/QuickJSLinker.h>
@@ -77,6 +78,37 @@ public:
             3, 5, 5, 8, 16, 6, 7, 11, 4, 3, 7, 0};
         BEAST_EXPECT(categoryCounts == expectedCategoryCounts);
 
+        auto const hostCatalogue = hook::hookHostFunctionCatalogue();
+        BEAST_EXPECT(hostCatalogue.size() == 75);
+        std::set<std::string_view> hostNames;
+        for (auto const& operation : hostCatalogue)
+        {
+            BEAST_EXPECT(operation.function != nullptr);
+            BEAST_EXPECT(operation.implementationVersion == 1);
+            BEAST_EXPECT(currentNames.contains(operation.name));
+            BEAST_EXPECT(hostNames.emplace(operation.name).second);
+            auto const current = std::find_if(
+                catalogue.begin(),
+                catalogue.end(),
+                [&](auto const& descriptor) {
+                    return descriptor.name == operation.name;
+                });
+            BEAST_EXPECT(current != catalogue.end());
+            if (current == catalogue.end())
+                continue;
+            BEAST_EXPECT(operation.result == current->nativeResult);
+            BEAST_EXPECT(
+                operation.parameters.size() == current->parameterCount);
+            BEAST_EXPECT(operation.declarationAmendment == current->amendment);
+            for (std::size_t parameter = 0;
+                 parameter < operation.parameters.size();
+                 ++parameter)
+                BEAST_EXPECT(
+                    operation.parameters[parameter] ==
+                    current->nativeParameters[parameter]);
+        }
+        BEAST_EXPECT(hostNames == currentNames);
+
         auto const guard = std::find_if(
             catalogue.begin(), catalogue.end(), [](auto const& descriptor) {
                 return descriptor.id == QuickJSImportId::_g;
@@ -114,24 +146,31 @@ public:
         for (std::size_t index = 0; index < snapshot.size(); ++index)
         {
             auto const& descriptor = snapshot[index];
-            auto const& resolved = policy->imports[index];
+            auto const& binding = policy->imports[index];
             BEAST_EXPECT(static_cast<std::size_t>(descriptor.id) == index);
             BEAST_EXPECT(descriptor.module == "env");
             BEAST_EXPECT(v1Names.emplace(descriptor.name).second);
             BEAST_EXPECT(currentNames.contains(descriptor.name));
-            BEAST_EXPECT(resolved.descriptor == &descriptor);
-            BEAST_EXPECT(resolved.binding != nullptr);
-            if (resolved.binding)
+            BEAST_EXPECT(binding.module == descriptor.module);
+            BEAST_EXPECT(binding.name == descriptor.name);
+            BEAST_EXPECT(binding.parameterCount == descriptor.parameterCount);
+            BEAST_EXPECT(binding.parameters == descriptor.nativeParameters);
+            BEAST_EXPECT(binding.result == descriptor.nativeResult);
+            BEAST_EXPECT(
+                binding.implementationVersion ==
+                descriptor.rawOperationVersion);
+            BEAST_EXPECT(binding.amendment == descriptor.amendment);
+            BEAST_EXPECT(binding.measure == descriptor.measure);
+            BEAST_EXPECT(binding.terminal == descriptor.terminal);
+            BEAST_EXPECT(
+                binding.charging == WasmtimeHostBinding::Charging::quickJSV1);
+            BEAST_EXPECT(binding.operation != nullptr);
+            if (binding.operation)
             {
-                BEAST_EXPECT(resolved.binding->id == descriptor.id);
-                BEAST_EXPECT(resolved.binding->category == descriptor.category);
                 BEAST_EXPECT(
-                    resolved.binding->measureKind == descriptor.measure);
-                BEAST_EXPECT(resolved.binding->terminal == descriptor.terminal);
-                BEAST_EXPECT(
-                    resolved.binding->rawOperationVersion ==
+                    binding.operation->implementationVersion ==
                     descriptor.rawOperationVersion);
-                BEAST_EXPECT(resolved.binding->measure != nullptr);
+                BEAST_EXPECT(binding.operation->name == descriptor.name);
             }
             BEAST_EXPECT(descriptor.rawOperationVersion == 1);
             BEAST_EXPECT(
@@ -224,34 +263,24 @@ public:
         }
         BEAST_EXPECT(nativeNames == v1Names);
 
-        testcase("Typed category bindings are unique");
-        std::array const categoryBindings = {
-            controlBindings(),
-            emissionBindings(),
-            hookContextBindings(),
-            ledgerBindings(),
-            originatingTransactionBindings(),
-            stateBindings(),
-            traceBindings()};
-        std::set<QuickJSV1ImportId> declaredBindings;
-        for (auto const bindings : categoryBindings)
+        testcase("Selected imports resolve unique neutral operations");
+        std::set<std::string_view> selectedOperations;
+        for (auto const& binding : policy->imports)
         {
-            for (auto const& binding : bindings)
-            {
-                auto const index = static_cast<std::size_t>(binding.id);
-                BEAST_EXPECT(index < snapshot.size());
-                if (index >= snapshot.size())
-                    continue;
-                BEAST_EXPECT(binding.category == snapshot[index].category);
-                BEAST_EXPECT(declaredBindings.emplace(binding.id).second);
-            }
+            BEAST_EXPECT(binding.operation != nullptr);
+            if (!binding.operation)
+                continue;
+            BEAST_EXPECT(
+                selectedOperations.emplace(binding.operation->name).second);
         }
-        BEAST_EXPECT(declaredBindings.size() == snapshot.size());
+        BEAST_EXPECT(selectedOperations.size() == snapshot.size());
 
         testcase("Frozen host-work measures and saturated debit");
-        for (auto const& resolved : policy->imports)
+        for (std::size_t bindingIndex = 0;
+             bindingIndex < policy->imports.size();
+             ++bindingIndex)
         {
-            auto const& descriptor = *resolved.descriptor;
+            auto const& descriptor = snapshot[bindingIndex];
             std::array<wasmtime_val_t, maxImportParameters> arguments{};
             for (std::size_t index = 0; index < descriptor.parameterCount;
                  ++index)
@@ -278,8 +307,10 @@ public:
                 return std::uint64_t{0};
             }();
             BEAST_EXPECT(
-                resolved.binding->measure(std::span{
-                    arguments.data(), descriptor.parameterCount}) == expected);
+                declaredHostWork(
+                    descriptor.measure,
+                    std::span{arguments.data(), descriptor.parameterCount}) ==
+                expected);
         }
         auto profile = hook::currentQuickJSRuntimeProfile();
         BEAST_EXPECT(quickJSHostWorkCost(profile, 0) == 1);
@@ -293,12 +324,12 @@ public:
 
         testcase("Missing required v1 binding fails closed");
         auto brokenImports =
-            std::array<ResolvedJSImport, quickJSV1ImportCount>{};
+            std::array<WasmtimeHostBinding, quickJSV1ImportCount>{};
         std::copy(
             policy->imports.begin(),
             policy->imports.end(),
             brokenImports.begin());
-        brokenImports.front().binding = nullptr;
+        brokenImports.front().operation = nullptr;
         auto broken = *policy;
         broken.imports = brokenImports;
         BEAST_EXPECT(!broken.complete());

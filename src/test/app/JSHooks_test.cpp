@@ -266,6 +266,49 @@ export function hook(_reserved: number): never {
 }
 void ledger.sequence;
 )[test.tshook]"));
+
+        // The C-Hook prepare contract predates fixed-buffer host reads: the
+        // declared length is bounds-checked, then the full prepared result is
+        // copied. QuickJS deliberately selects the safer fixed-buffer contract.
+        auto const& legacyPrepareCode = jshooks_test_wasm.at(R"[test.hook](
+#include <stdint.h>
+extern int32_t _g(uint32_t id, uint32_t maxiter);
+extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t code);
+extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t code);
+extern int64_t etxn_reserve(uint32_t count);
+extern int64_t prepare(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len);
+
+#define ASSERT(x) if (!(x)) return rollback(0, 0, __LINE__)
+
+int64_t hook(uint32_t reserved)
+{
+    _g(1, 1);
+    ASSERT(etxn_reserve(1) == 1);
+
+    uint8_t input[8] = {0x12, 0x00, 0x03, 0x22, 0x80, 0x00, 0x00, 0x00};
+    uint8_t exact[1024];
+    int64_t n = prepare(
+        (uint32_t)exact,
+        sizeof(exact),
+        (uint32_t)input,
+        sizeof(input));
+    ASSERT(n > 1 && n < sizeof(exact));
+
+    uint8_t short_buffer[1024];
+    short_buffer[n - 1] = exact[n - 1] ^ 0xFFU;
+    ASSERT(prepare(
+        (uint32_t)short_buffer,
+        (uint32_t)(n - 1),
+        (uint32_t)input,
+        sizeof(input)) == n);
+    ASSERT(short_buffer[n - 1] == exact[n - 1]);
+    return accept(0, 0, reserved);
+}
+)[test.hook]");
         //@@end jshooks-hook-fixtures
 
         using namespace jtx;
@@ -273,6 +316,23 @@ void ledger.sequence;
         auto const bob = Account{"bob"};
         auto const carol = Account{"carol"};
         auto const features = supported_amendments();
+
+        testcase("Preserve legacy C-Hook prepare copy semantics");
+        {
+            Env legacyEnv{*this, features};
+            legacyEnv.fund(XRP(10000), alice, bob);
+            legacyEnv.close();
+
+            auto prepareHook = hso(legacyPrepareCode);
+            prepareHook[jss::Flags] = hsfOVERRIDE;
+            legacyEnv(
+                jtx::hook(alice, {{prepareHook}}, 0),
+                fee(XRP(10)),
+                ter(tesSUCCESS));
+            legacyEnv.close();
+            legacyEnv(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
+            legacyEnv.close();
+        }
 
         //@@start jshooks-amendment-and-entry
         testcase("Validate QuickJS deployment identity and admission");

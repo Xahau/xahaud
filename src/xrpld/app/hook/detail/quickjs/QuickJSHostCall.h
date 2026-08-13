@@ -2,16 +2,15 @@
 #define XRPLD_APP_HOOK_DETAIL_QUICKJS_QUICKJSHOSTCALL_H_INCLUDED
 
 #include <xrpld/app/hook/HookGuestMemory.h>
-#include <xrpld/app/hook/HookHostOperationResult.h>
+#include <xrpld/app/hook/HookHostFunction.h>
 #include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/hook/detail/quickjs/QuickJSHostPolicy.h>
 #include <xrpl/beast/utility/Journal.h>
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <tuple>
-#include <type_traits>
-#include <utility>
+#include <string_view>
 #include <wasmtime.h>
 
 namespace hook {
@@ -66,128 +65,28 @@ private:
     char const* fault_ = nullptr;
 };
 
-using ErasedJSImportHandler =
-    raw::Result (*)(QuickJSHostCall&, std::span<wasmtime_val_t const>);
-using ErasedJSImportMeasure =
-    std::uint64_t (*)(std::span<wasmtime_val_t const>) noexcept;
-
-struct QuickJSImportBinding
+struct WasmtimeHostBinding
 {
-    QuickJSV1ImportId id;
-    ImportCategory category;
-    HostWorkMeasureKind measureKind;
+    std::string_view module;
+    std::string_view name;
+    std::array<HookHostValueKind, maxImportParameters> parameters;
+    std::uint8_t parameterCount;
+    HookHostValueKind result;
+    std::uint16_t implementationVersion;
+    HookHostFunctionDescriptor const* operation;
+    ripple::uint256 amendment;
+    HostWorkMeasureKind measure;
     TerminalBehavior terminal;
-    std::uint16_t rawOperationVersion;
-    ErasedJSImportMeasure measure;
-    ErasedJSImportHandler invoke;
+    enum class Charging : std::uint8_t { none, quickJSV1 } charging;
 };
 
-template <class Tuple>
-struct BindingSignatures;
+bool
+validWasmtimeHostBinding(WasmtimeHostBinding const& binding) noexcept;
 
-template <class... Args>
-struct BindingSignatures<std::tuple<Args...>>
-{
-    using Handler = raw::Result (*)(QuickJSHostCall&, Args...);
-    using Measure = std::uint64_t (*)(Args...) noexcept;
-};
-
-template <class T>
-T
-decodeArgument(wasmtime_val_t const& value) noexcept
-{
-    if constexpr (std::is_same_v<T, std::uint32_t>)
-        return static_cast<std::uint32_t>(value.of.i32);
-    else if constexpr (std::is_same_v<T, std::int32_t>)
-        return value.of.i32;
-    else if constexpr (std::is_same_v<T, std::uint64_t>)
-        return static_cast<std::uint64_t>(value.of.i64);
-    else
-    {
-        static_assert(std::is_same_v<T, std::int64_t>);
-        return value.of.i64;
-    }
-}
-
-template <class Tuple, std::size_t... Indices>
-Tuple
-decodeArguments(
-    std::span<wasmtime_val_t const> values,
-    std::index_sequence<Indices...>) noexcept
-{
-    return Tuple{decodeArgument<std::tuple_element_t<Indices, Tuple>>(
-        values[Indices])...};
-}
-
-template <QuickJSV1ImportId Id, auto Handler, auto Measure>
 std::uint64_t
-measureBinding(std::span<wasmtime_val_t const> values) noexcept
-{
-    using Parameters = typename V1ImportTraits<Id>::Parameters;
-    constexpr auto count = std::tuple_size_v<Parameters>;
-    auto const arguments =
-        decodeArguments<Parameters>(values, std::make_index_sequence<count>{});
-    return std::apply(Measure, arguments);
-}
-
-template <QuickJSV1ImportId Id, auto Handler, auto Measure>
-raw::Result
-invokeBinding(QuickJSHostCall& call, std::span<wasmtime_val_t const> values)
-{
-    using Parameters = typename V1ImportTraits<Id>::Parameters;
-    constexpr auto count = std::tuple_size_v<Parameters>;
-    auto const arguments =
-        decodeArguments<Parameters>(values, std::make_index_sequence<count>{});
-    auto const declaredBytes = measureBinding<Id, Handler, Measure>(values);
-    if (!call.charge(declaredBytes))
-        return hook_api::hook_return_code::INTERNAL_ERROR;
-    return std::apply(
-        [&](auto... args) { return Handler(call, args...); }, arguments);
-}
-
-template <QuickJSV1ImportId Id, auto Handler, auto Measure>
-constexpr QuickJSImportBinding
-makeBinding() noexcept
-{
-    using Signatures =
-        BindingSignatures<typename V1ImportTraits<Id>::Parameters>;
-    static_assert(
-        std::is_same_v<decltype(Handler), typename Signatures::Handler>);
-    static_assert(
-        std::is_same_v<decltype(Measure), typename Signatures::Measure>);
-    return {
-        .id = Id,
-        .category = V1ImportTraits<Id>::category,
-        .measureKind = V1ImportTraits<Id>::measure,
-        .terminal = V1ImportTraits<Id>::terminal,
-        .rawOperationVersion = V1ImportTraits<Id>::rawOperationVersion,
-        .measure = &measureBinding<Id, Handler, Measure>,
-        .invoke = &invokeBinding<Id, Handler, Measure>};
-}
-
-std::span<QuickJSImportBinding const>
-controlBindings() noexcept;
-std::span<QuickJSImportBinding const>
-emissionBindings() noexcept;
-std::span<QuickJSImportBinding const>
-hookContextBindings() noexcept;
-std::span<QuickJSImportBinding const>
-ledgerBindings() noexcept;
-std::span<QuickJSImportBinding const>
-originatingTransactionBindings() noexcept;
-std::span<QuickJSImportBinding const>
-stateBindings() noexcept;
-std::span<QuickJSImportBinding const>
-traceBindings() noexcept;
-
-QuickJSImportBinding const*
-findBinding(QuickJSV1ImportId id, ImportCategory category) noexcept;
-
-struct ResolvedJSImport
-{
-    QuickJSV1ImportDescriptor const* descriptor;
-    QuickJSImportBinding const* binding;
-};
+declaredHostWork(
+    HostWorkMeasureKind measure,
+    std::span<wasmtime_val_t const> values) noexcept;
 
 wasm_trap_t*
 rawHookCallback(

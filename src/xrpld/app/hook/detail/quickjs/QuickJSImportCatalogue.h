@@ -1,6 +1,7 @@
 #ifndef XRPLD_APP_HOOK_DETAIL_QUICKJS_QUICKJSIMPORTCATALOGUE_H_INCLUDED
 #define XRPLD_APP_HOOK_DETAIL_QUICKJS_QUICKJSIMPORTCATALOGUE_H_INCLUDED
 
+#include <xrpld/app/hook/HookHostFunction.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/protocol/Feature.h>
 #include <array>
@@ -124,7 +125,7 @@ inline constexpr wasm_valkind_t wasmKind = [] {
         return WASM_I64;
 }();
 
-enum class NativeScalarKind : std::uint8_t { i32, u32, i64, u64 };
+using NativeScalarKind = HookHostValueKind;
 
 template <class T>
 inline constexpr NativeScalarKind nativeScalarKind = [] {

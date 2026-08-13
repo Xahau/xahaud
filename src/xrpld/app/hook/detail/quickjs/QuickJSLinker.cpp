@@ -16,23 +16,33 @@ takeError(wasmtime_error_t* error)
     return result;
 }
 
-std::array<ResolvedJSImport, quickJSV1ImportCount> const&
-resolvedV1Imports()
+std::array<WasmtimeHostBinding, quickJSV1ImportCount> const&
+v1Bindings()
 {
-    static std::array<ResolvedJSImport, quickJSV1ImportCount> const resolved =
-        [] {
-            std::array<ResolvedJSImport, quickJSV1ImportCount> result{};
+    static std::array<WasmtimeHostBinding, quickJSV1ImportCount> const
+        bindings = [] {
+            std::array<WasmtimeHostBinding, quickJSV1ImportCount> result{};
             auto const snapshot = quickJSHostPolicyV1Snapshot();
             for (std::size_t index = 0; index < snapshot.size(); ++index)
             {
                 auto const& descriptor = snapshot[index];
                 result[index] = {
-                    .descriptor = &descriptor,
-                    .binding = findBinding(descriptor.id, descriptor.category)};
+                    .module = descriptor.module,
+                    .name = descriptor.name,
+                    .parameters = descriptor.nativeParameters,
+                    .parameterCount = descriptor.parameterCount,
+                    .result = descriptor.nativeResult,
+                    .implementationVersion = descriptor.rawOperationVersion,
+                    .operation = findHookHostFunction(
+                        descriptor.name, descriptor.rawOperationVersion),
+                    .amendment = descriptor.amendment,
+                    .measure = descriptor.measure,
+                    .terminal = descriptor.terminal,
+                    .charging = WasmtimeHostBinding::Charging::quickJSV1};
             }
             return result;
         }();
-    return resolved;
+    return bindings;
 }
 
 QuickJSHostAdapterPolicy const&
@@ -43,49 +53,49 @@ v1Policy()
         .hostWorkMeter = "base-plus-addressed-byte-v1",
         .chargeOrder = HostChargeOrder::amendmentBeforeCharge,
         .debitBehavior = HostDebitBehavior::saturatedBasePlusAddressedBytes,
-        .imports = resolvedV1Imports()};
+        .imports = v1Bindings()};
     return policy;
 }
 
 bool
 defineImport(
     wasmtime_linker_t* linker,
-    ResolvedJSImport const& resolved,
+    WasmtimeHostBinding const& binding,
     std::string& error)
 {
-    auto const& descriptor = *resolved.descriptor;
-    if (!resolved.binding)
+    if (!binding.operation)
     {
-        error = std::string{"missing required v1 binding for "} +
-            std::string{descriptor.name};
+        error = std::string{"missing required host binding for "} +
+            std::string{binding.name};
         return false;
     }
     wasm_valtype_vec_t parameters;
-    wasm_valtype_vec_new_uninitialized(&parameters, descriptor.parameterCount);
-    for (std::size_t index = 0; index < descriptor.parameterCount; ++index)
-        parameters.data[index] =
-            wasm_valtype_new(descriptor.parameterKinds[index]);
+    wasm_valtype_vec_new_uninitialized(&parameters, binding.parameterCount);
+    for (std::size_t index = 0; index < binding.parameterCount; ++index)
+        parameters.data[index] = wasm_valtype_new(
+            isI32(binding.parameters[index]) ? WASM_I32 : WASM_I64);
 
     wasm_valtype_vec_t results;
     wasm_valtype_vec_new_uninitialized(&results, 1);
-    results.data[0] = wasm_valtype_new(descriptor.resultKind);
+    results.data[0] =
+        wasm_valtype_new(isI32(binding.result) ? WASM_I32 : WASM_I64);
     auto* type = wasm_functype_new(&parameters, &results);
     if (!type)
     {
         error = std::string{"could not create import type for "} +
-            std::string{descriptor.name};
+            std::string{binding.name};
         return false;
     }
 
     auto* defineError = wasmtime_linker_define_func(
         linker,
-        descriptor.module.data(),
-        descriptor.module.size(),
-        descriptor.name.data(),
-        descriptor.name.size(),
+        binding.module.data(),
+        binding.module.size(),
+        binding.name.data(),
+        binding.name.size(),
         type,
         rawHookCallback,
-        const_cast<ResolvedJSImport*>(&resolved),
+        const_cast<WasmtimeHostBinding*>(&binding),
         nullptr);
     wasm_functype_delete(type);
     if (defineError)
@@ -101,21 +111,17 @@ defineImport(
 bool
 QuickJSHostAdapterPolicy::complete() const noexcept
 {
-    if (imports.size() != quickJSV1ImportCount)
+    if (imports.empty())
         return false;
     for (std::size_t index = 0; index < imports.size(); ++index)
     {
-        auto const& resolved = imports[index];
-        if (!resolved.descriptor || !resolved.binding ||
-            !resolved.binding->measure || !resolved.binding->invoke ||
-            static_cast<std::size_t>(resolved.descriptor->id) != index ||
-            resolved.binding->id != resolved.descriptor->id ||
-            resolved.binding->category != resolved.descriptor->category ||
-            resolved.binding->measureKind != resolved.descriptor->measure ||
-            resolved.binding->terminal != resolved.descriptor->terminal ||
-            resolved.binding->rawOperationVersion !=
-                resolved.descriptor->rawOperationVersion)
+        auto const& binding = imports[index];
+        if (!validWasmtimeHostBinding(binding))
             return false;
+        for (std::size_t prior = 0; prior < index; ++prior)
+            if (imports[prior].module == binding.module &&
+                imports[prior].name == binding.name)
+                return false;
     }
     return true;
 }
@@ -135,11 +141,11 @@ defineImports(
 {
     if (!policy.complete())
     {
-        error = "QuickJS host policy has a missing required v1 binding";
+        error = "QuickJS host policy has an invalid host binding";
         return false;
     }
-    for (auto const& resolved : policy.imports)
-        if (!defineImport(linker, resolved, error))
+    for (auto const& binding : policy.imports)
+        if (!defineImport(linker, binding, error))
             return false;
     return true;
 }

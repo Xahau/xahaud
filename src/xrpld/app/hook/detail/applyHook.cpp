@@ -2680,6 +2680,11 @@ DEFINE_HOOK_FUNCTION(
 
     auto tx_blob = res.value();
 
+    if (frameCtx.writeContract() ==
+            hook::HookGuestMemory::WriteContract::fixedBuffer &&
+        tx_blob.size() > write_len)
+        return TOO_SMALL;
+
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr,
         tx_blob.size(),

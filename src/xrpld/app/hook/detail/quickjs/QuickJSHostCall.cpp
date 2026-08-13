@@ -1,5 +1,6 @@
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/hook/detail/quickjs/QuickJSHostCall.h>
+#include <array>
 #include <bit>
 #include <limits>
 #include <string_view>
@@ -21,15 +22,15 @@ callbackTrap(std::string_view message) noexcept
 }
 
 bool
-matchesKind(wasm_valkind_t expected, wasmtime_valkind_t actual) noexcept
+matchesKind(HookHostValueKind expected, wasmtime_valkind_t actual) noexcept
 {
-    return (expected == WASM_I32 && actual == WASMTIME_I32) ||
-        (expected == WASM_I64 && actual == WASMTIME_I64);
+    return (isI32(expected) && actual == WASMTIME_I32) ||
+        (!isI32(expected) && actual == WASMTIME_I64);
 }
 
 wasm_trap_t*
 ordinaryUnavailableResult(
-    QuickJSV1ImportDescriptor const& descriptor,
+    HookHostFunctionDescriptor const& operation,
     wasmtime_val_t* results,
     std::size_t resultCount) noexcept
 {
@@ -37,14 +38,14 @@ ordinaryUnavailableResult(
         return callbackTrap("invalid Xahau Hook callback result shape");
     auto const status =
         static_cast<std::int64_t>(hook_api::hook_return_code::NOT_IMPLEMENTED);
-    if (descriptor.resultKind == WASM_I32)
+    if (isI32(operation.result))
     {
         results[0] = wasmtime_val_t{
             .kind = WASMTIME_I32,
             .of = {.i32 = static_cast<std::int32_t>(status)}};
         return nullptr;
     }
-    if (descriptor.resultKind == WASM_I64)
+    if (!isI32(operation.result))
     {
         results[0] =
             wasmtime_val_t{.kind = WASMTIME_I64, .of = {.i64 = status}};
@@ -56,61 +57,49 @@ ordinaryUnavailableResult(
 wasm_trap_t*
 finishCallback(
     QuickJSInvocation& invocation,
-    QuickJSV1ImportDescriptor const& descriptor,
-    raw::Result const& result,
+    WasmtimeHostBinding const& binding,
+    HookHostCallStatus status,
+    HookHostValue const& output,
     wasmtime_val_t* results,
     std::size_t resultCount) noexcept
 {
     if (resultCount != 1 || !results)
         return callbackTrap("invalid Xahau Hook callback result shape");
 
-    if (auto const* code = std::get_if<hook_api::hook_return_code>(&result))
+    if (status == HookHostCallStatus::accept ||
+        status == HookHostCallStatus::rollback)
     {
-        if (*code == hook_api::hook_return_code::RC_ACCEPT ||
-            *code == hook_api::hook_return_code::RC_ROLLBACK)
-        {
-            if (descriptor.terminal != TerminalBehavior::hookTerminal)
-                return callbackTrap(
-                    "ordinary Xahau Hook import returned a terminal code");
-            auto const expected = *code == hook_api::hook_return_code::RC_ACCEPT
-                ? hook_api::ExitType::ACCEPT
-                : hook_api::ExitType::ROLLBACK;
-            if (invocation.hookCtx.result.exitType != expected)
-                return callbackTrap(
-                    "Xahau Hook terminal lacks matching HookContext state");
-            invocation.terminal = true;
-            return callbackTrap("Xahau Hook terminal");
-        }
-        auto const status = static_cast<std::int64_t>(*code);
-        if (descriptor.resultKind == WASM_I32)
-        {
-            results[0] = wasmtime_val_t{
-                .kind = WASMTIME_I32,
-                .of = {.i32 = static_cast<std::int32_t>(status)}};
-            return nullptr;
-        }
-        results[0] =
-            wasmtime_val_t{.kind = WASMTIME_I64, .of = {.i64 = status}};
-        return nullptr;
+        if (binding.terminal != TerminalBehavior::hookTerminal)
+            return callbackTrap(
+                "ordinary Xahau Hook import returned a terminal code");
+        auto const expected = status == HookHostCallStatus::accept
+            ? hook_api::ExitType::ACCEPT
+            : hook_api::ExitType::ROLLBACK;
+        if (invocation.hookCtx.result.exitType != expected)
+            return callbackTrap(
+                "Xahau Hook terminal lacks matching HookContext state");
+        invocation.terminal = true;
+        return callbackTrap("Xahau Hook terminal");
     }
+    if (status == HookHostCallStatus::trap)
+        return callbackTrap("Xahau Hook host operation trapped");
 
-    auto const value = std::get<std::uint64_t>(result);
-    if (descriptor.resultKind == WASM_I32)
+    if (isI32(binding.operation->result))
     {
-        if (value > std::numeric_limits<std::uint32_t>::max())
-            return callbackTrap("Xahau Hook i32 result overflow");
+        if (output.kind != binding.operation->result)
+            return callbackTrap("Xahau Hook host result width mismatch");
         results[0] = wasmtime_val_t{
             .kind = WASMTIME_I32,
-            .of = {
-                .i32 = std::bit_cast<std::int32_t>(
-                    static_cast<std::uint32_t>(value))}};
+            .of = {.i32 = std::bit_cast<std::int32_t>(output.asI32())}};
         return nullptr;
     }
-    if (descriptor.resultKind == WASM_I64)
+    if (!isI32(binding.operation->result))
     {
+        if (output.kind != binding.operation->result)
+            return callbackTrap("Xahau Hook host result width mismatch");
         results[0] = wasmtime_val_t{
             .kind = WASMTIME_I64,
-            .of = {.i64 = std::bit_cast<std::int64_t>(value)}};
+            .of = {.i64 = std::bit_cast<std::int64_t>(output.asI64())}};
         return nullptr;
     }
     return callbackTrap("unsupported Xahau Hook callback result type");
@@ -194,6 +183,50 @@ QuickJSHostCall::fault() const noexcept
     return fault_;
 }
 
+std::uint64_t
+declaredHostWork(
+    HostWorkMeasureKind measure,
+    std::span<wasmtime_val_t const> values) noexcept
+{
+    switch (measure)
+    {
+        case HostWorkMeasureKind::zeroV1:
+            return 0;
+        case HostWorkMeasureKind::argument1V1:
+            return values.size() > 1
+                ? static_cast<std::uint32_t>(values[1].of.i32)
+                : std::numeric_limits<std::uint64_t>::max();
+        case HostWorkMeasureKind::arguments1And3SaturatedV1:
+            if (values.size() <= 3)
+                return std::numeric_limits<std::uint64_t>::max();
+            return static_cast<std::uint64_t>(
+                       static_cast<std::uint32_t>(values[1].of.i32)) +
+                static_cast<std::uint32_t>(values[3].of.i32);
+    }
+    return std::numeric_limits<std::uint64_t>::max();
+}
+
+bool
+validWasmtimeHostBinding(WasmtimeHostBinding const& binding) noexcept
+{
+    if (binding.module.empty() || binding.name.empty() ||
+        binding.parameterCount > maxImportParameters || !binding.operation ||
+        !binding.operation->function ||
+        binding.operation->name != binding.name ||
+        binding.operation->implementationVersion !=
+            binding.implementationVersion ||
+        binding.operation->parameters.size() != binding.parameterCount ||
+        binding.operation->result != binding.result)
+        return false;
+    for (std::size_t parameter = 0;
+         parameter < binding.operation->parameters.size();
+         ++parameter)
+        if (binding.operation->parameters[parameter] !=
+            binding.parameters[parameter])
+            return false;
+    return true;
+}
+
 wasm_trap_t*
 rawHookCallback(
     void* environment,
@@ -205,37 +238,68 @@ rawHookCallback(
 {
     try
     {
-        auto const* resolved =
-            static_cast<ResolvedJSImport const*>(environment);
-        if (!resolved || !resolved->descriptor)
+        auto const* binding =
+            static_cast<WasmtimeHostBinding const*>(environment);
+        if (!binding || !validWasmtimeHostBinding(*binding))
             return callbackTrap("missing Xahau Hook import descriptor");
-        auto const& descriptor = *resolved->descriptor;
-        if (argumentCount != descriptor.parameterCount ||
+        auto const& operation = *binding->operation;
+        if (argumentCount != operation.parameters.size() ||
             (argumentCount != 0 && !args))
             return callbackTrap("invalid Xahau Hook callback arguments");
         for (std::size_t index = 0; index < argumentCount; ++index)
-            if (!matchesKind(
-                    descriptor.parameterKinds[index], args[index].kind))
+            if (!matchesKind(operation.parameters[index], args[index].kind))
                 return callbackTrap(
                     "invalid Xahau Hook callback argument type");
 
         auto* invocation = invocationFrom(caller);
         if (!invocation)
             return callbackTrap("missing Xahau Hook invocation context");
-        if (descriptor.amendment != ripple::uint256{} &&
+        if (binding->amendment != ripple::uint256{} &&
             !invocation->hookCtx.applyCtx.view().rules().enabled(
-                descriptor.amendment))
-            return ordinaryUnavailableResult(descriptor, results, resultCount);
-        if (!resolved->binding)
-            return callbackTrap("missing required Xahau Hook v1 binding");
-
+                binding->amendment))
+            return ordinaryUnavailableResult(operation, results, resultCount);
         QuickJSHostCall call{*invocation, caller};
-        auto const result =
-            resolved->binding->invoke(call, std::span{args, argumentCount});
+        if (binding->charging == WasmtimeHostBinding::Charging::quickJSV1 &&
+            !call.charge(declaredHostWork(
+                binding->measure, std::span{args, argumentCount})))
+            return callbackTrap(call.fault());
+
+        constexpr std::size_t maxHostParameters = 12;
+        if (argumentCount > maxHostParameters)
+            return callbackTrap("too many Xahau Hook host arguments");
+        std::array<HookHostValue, maxHostParameters> neutralInputs{};
+        for (std::size_t index = 0; index < argumentCount; ++index)
+        {
+            auto const kind = operation.parameters[index];
+            if (kind == HookHostValueKind::i32)
+                neutralInputs[index] = HookHostValue::i32(
+                    static_cast<std::uint32_t>(args[index].of.i32));
+            else if (kind == HookHostValueKind::u32)
+                neutralInputs[index] = HookHostValue::u32(
+                    static_cast<std::uint32_t>(args[index].of.i32));
+            else if (kind == HookHostValueKind::i64)
+                neutralInputs[index] = HookHostValue::i64(
+                    static_cast<std::uint64_t>(args[index].of.i64));
+            else
+                neutralInputs[index] = HookHostValue::u64(
+                    static_cast<std::uint64_t>(args[index].of.i64));
+        }
+
+        auto memory = call.memory();
+        HookGuestMemory emptyMemory{nullptr, 0};
+        auto& guestMemory = memory ? *memory : emptyMemory;
+        HookHostValue output{};
+        auto const status = operation.function(
+            &invocation->hookCtx,
+            guestMemory,
+            neutralInputs.data(),
+            argumentCount,
+            &output,
+            1);
         if (call.fault())
             return callbackTrap(call.fault());
         return finishCallback(
-            *invocation, descriptor, result, results, resultCount);
+            *invocation, *binding, status, output, results, resultCount);
     }
     catch (...)
     {
