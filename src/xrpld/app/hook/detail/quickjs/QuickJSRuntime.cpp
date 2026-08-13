@@ -288,6 +288,11 @@ executeQuickJSBytecode(
         }
         auto const bytecodePointer =
             static_cast<std::uint32_t>(mallocResult[0].of.i32);
+        if (bytecodePointer == 0)
+        {
+            fail("QuickJS bytecode allocation failed", {});
+            return;
+        }
 
         wasmtime_extern_t memoryExport;
         if (!wasmtime_instance_export_get(

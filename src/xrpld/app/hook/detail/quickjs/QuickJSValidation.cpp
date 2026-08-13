@@ -218,6 +218,8 @@ validateQuickJSBytecode(
     if (!callExport("malloc", allocateArgument, 1, allocateResult, 1))
         return error;
     auto const pointer = static_cast<std::uint32_t>(allocateResult[0].of.i32);
+    if (pointer == 0)
+        return "QuickJS validation bytecode allocation failed";
 
     wasmtime_extern_t memoryExport;
     if (!wasmtime_instance_export_get(

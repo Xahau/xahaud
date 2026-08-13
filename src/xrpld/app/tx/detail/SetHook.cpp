@@ -92,10 +92,7 @@ artifactInstallability(
                 return ArtifactInstallability::apiMismatch;
             if (!rules.enabled(featureJSHooks))
                 return ArtifactInstallability::amendmentDisabled;
-            // Profile eligibility is consensus data and must not depend on
-            // ENABLE_TESTS or the mutable in-process runtime registry. The
-            // exact provider is resolved below for bytecode validation;
-            // production activation must register it on every node at startup.
+            // Consensus eligibility must not read the process-local registry.
             if (hook::artifact::isCurrentQuickJS(artifact))
                 return ArtifactInstallability::allowed;
             return ArtifactInstallability::unsupportedProfile;
