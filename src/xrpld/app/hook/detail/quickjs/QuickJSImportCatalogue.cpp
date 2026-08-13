@@ -34,7 +34,6 @@ makeDescriptor()
     return {
         .id = Id,
         .name = Traits::name,
-        .category = Traits::category,
         .amendment = Traits::amendment(),
         .nativeResult = nativeScalarKind<typename Traits::Return>,
         .nativeParameters = nativeParameterKinds<typename Traits::Parameters>(
@@ -67,39 +66,6 @@ std::span<QuickJSImportDescriptor const>
 importCatalogue() noexcept
 {
     return catalogueStorage();
-}
-
-std::string_view
-categoryName(ImportCategory category) noexcept
-{
-    switch (category)
-    {
-        case ImportCategory::control:
-            return "control";
-        case ImportCategory::util:
-            return "util";
-        case ImportCategory::serializedObject:
-            return "serialized-object";
-        case ImportCategory::emission:
-            return "emission";
-        case ImportCategory::floatingPoint:
-            return "float";
-        case ImportCategory::ledger:
-            return "ledger";
-        case ImportCategory::hookContext:
-            return "hook-context";
-        case ImportCategory::slot:
-            return "slot";
-        case ImportCategory::state:
-            return "state";
-        case ImportCategory::trace:
-            return "trace";
-        case ImportCategory::originatingTransaction:
-            return "originating-transaction";
-        case ImportCategory::unknown:
-            return "unknown";
-    }
-    return "unknown";
 }
 
 std::string_view

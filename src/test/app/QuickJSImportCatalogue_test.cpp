@@ -58,25 +58,19 @@ public:
         using namespace hook::quickjs;
         namespace generated = hook::artifact::generated;
 
-        testcase("Current macro catalogue classification");
+        testcase("Current macro catalogue");
         auto const catalogue = importCatalogue();
         BEAST_EXPECT(catalogue.size() == 75);
         BEAST_EXPECT(catalogue.size() == quickJSImportCount);
         BEAST_EXPECT(generated::nativeABICatalogueCount == 75);
         std::set<std::string_view> currentNames;
-        std::array<std::size_t, 12> categoryCounts{};
         for (std::size_t index = 0; index < catalogue.size(); ++index)
         {
             auto const& descriptor = catalogue[index];
             BEAST_EXPECT(static_cast<std::size_t>(descriptor.id) == index);
-            BEAST_EXPECT(descriptor.category != ImportCategory::unknown);
             BEAST_EXPECT(currentNames.emplace(descriptor.name).second);
             BEAST_EXPECT(descriptor.parameterCount <= maxImportParameters);
-            ++categoryCounts[static_cast<std::size_t>(descriptor.category)];
         }
-        constexpr std::array<std::size_t, 12> expectedCategoryCounts{
-            3, 5, 5, 8, 16, 6, 7, 11, 4, 3, 7, 0};
-        BEAST_EXPECT(categoryCounts == expectedCategoryCounts);
 
         auto const hostCatalogue = hook::hookHostFunctionCatalogue();
         BEAST_EXPECT(hostCatalogue.size() == 75);

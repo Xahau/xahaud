@@ -35,7 +35,6 @@ makeV1Descriptor()
         .id = Id,
         .module = Traits::module,
         .name = Traits::name,
-        .category = Traits::category,
         .amendment = Traits::amendment(),
         .nativeResult = nativeScalarKind<typename Traits::Return>,
         .nativeParameters = nativeParameterKinds<typename Traits::Parameters>(

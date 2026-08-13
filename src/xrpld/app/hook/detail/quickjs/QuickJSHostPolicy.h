@@ -51,7 +51,7 @@ struct V1ImportTraits;
 
 #define QUICKJS_V1_EXPAND_PARAMS(...) __VA_ARGS__
 #define QUICKJS_V1_IMPORT_TRAITS(                                             \
-    ID, RETURN_TYPE, PARAMS_TUPLE, CATEGORY, AMENDMENT, MEASURE, TERMINAL)    \
+    ID, RETURN_TYPE, PARAMS_TUPLE, AMENDMENT, MEASURE, TERMINAL)              \
     template <>                                                               \
     struct V1ImportTraits<QuickJSV1ImportId::ID>                              \
     {                                                                         \
@@ -59,7 +59,6 @@ struct V1ImportTraits;
         using Parameters = std::tuple<QUICKJS_V1_EXPAND_PARAMS PARAMS_TUPLE>; \
         static constexpr std::string_view module = "env";                     \
         static constexpr std::string_view name = #ID;                         \
-        static constexpr ImportCategory category = ImportCategory::CATEGORY;  \
         static ripple::uint256                                                \
         amendment()                                                           \
         {                                                                     \
@@ -76,7 +75,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     accept,
     std::int64_t,
     (std::uint32_t, std::uint32_t, std::int64_t),
-    control,
     uint256{},
     argument1V1,
     hookTerminal);
@@ -84,7 +82,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     rollback,
     std::int64_t,
     (std::uint32_t, std::uint32_t, std::int64_t),
-    control,
     uint256{},
     argument1V1,
     hookTerminal);
@@ -92,7 +89,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     ledger_seq,
     std::int64_t,
     (),
-    ledger,
     uint256{},
     zeroV1,
     ordinaryStatus);
@@ -100,7 +96,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     ledger_last_time,
     std::int64_t,
     (),
-    ledger,
     uint256{},
     zeroV1,
     ordinaryStatus);
@@ -108,7 +103,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     ledger_last_hash,
     std::int64_t,
     (std::uint32_t, std::uint32_t),
-    ledger,
     uint256{},
     argument1V1,
     ordinaryStatus);
@@ -116,7 +110,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     otxn_type,
     std::int64_t,
     (),
-    originatingTransaction,
     uint256{},
     zeroV1,
     ordinaryStatus);
@@ -124,7 +117,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     hook_account,
     std::int64_t,
     (std::uint32_t, std::uint32_t),
-    hookContext,
     uint256{},
     argument1V1,
     ordinaryStatus);
@@ -132,7 +124,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     trace,
     std::int64_t,
     (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
-    trace,
     uint256{},
     arguments1And3SaturatedV1,
     ordinaryStatus);
@@ -140,7 +131,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     state,
     std::int64_t,
     (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
-    state,
     uint256{},
     arguments1And3SaturatedV1,
     ordinaryStatus);
@@ -148,7 +138,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     state_set,
     std::int64_t,
     (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
-    state,
     uint256{},
     arguments1And3SaturatedV1,
     ordinaryStatus);
@@ -156,7 +145,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     prepare,
     std::int64_t,
     (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
-    emission,
     featureHooksUpdate2,
     arguments1And3SaturatedV1,
     ordinaryStatus);
@@ -164,7 +152,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     etxn_reserve,
     std::int64_t,
     (std::uint32_t),
-    emission,
     uint256{},
     zeroV1,
     ordinaryStatus);
@@ -172,7 +159,6 @@ QUICKJS_V1_IMPORT_TRAITS(
     emit,
     std::int64_t,
     (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
-    emission,
     uint256{},
     arguments1And3SaturatedV1,
     ordinaryStatus);
@@ -185,7 +171,6 @@ struct QuickJSV1ImportDescriptor
     QuickJSV1ImportId id;
     std::string_view module;
     std::string_view name;
-    ImportCategory category;
     ripple::uint256 amendment;
     NativeScalarKind nativeResult;
     std::array<NativeScalarKind, maxImportParameters> nativeParameters;
