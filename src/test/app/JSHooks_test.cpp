@@ -62,51 +62,60 @@ class JSHooks_test : public beast::unit_test::suite
         return result;
     }
 
+    void
+    expectFuel(std::uint64_t actual, std::uint64_t expected)
+    {
+        BEAST_EXPECTS(
+            actual == expected,
+            "actual fuel: " + std::to_string(actual) +
+                ", expected: " + std::to_string(expected));
+    }
+
 public:
     void
     run() override
     {
         //@@start jshooks-hook-fixtures
         auto const& hookBytecode = jshooks_test_wasm.at(R"[test.tshook](
-export function hook(_reserved: number): never {
+export function main(_reserved: number): never {
   void _reserved;
   const txType = otxn.type();
-  if (!txType.ok) lifecycle.rollback("otxn.type failed", txType.code);
+  if (!txType.ok) rollback("otxn.type failed", txType.code);
   if (txType.value !== TransactionType.Payment) {
-    lifecycle.rollback("expected Payment", txType.value);
+    rollback("expected Payment", txType.value);
   }
-  lifecycle.accept(`payment:${txType.value}`, 42);
+  accept(`payment:${txType.value}`, 42);
 }
 )[test.tshook]");
         auto const hookCode = packageCurrentQuickJS(hookBytecode);
 
         auto const surfaceProbeCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function hook(_reserved: number): never {
+export function main(_reserved: number): never {
   void _reserved;
-  const account = lifecycle.account();
-  if (!account.ok) lifecycle.rollback("lifecycle.account failed", account.code);
+  const account = hook.account();
+  if (!account.ok) rollback("hook.account failed", account.code);
   if (account.value.toHex().length !== 40) {
-    lifecycle.rollback("unexpected Hook account", -1);
+    rollback("unexpected Hook account", -1);
   }
   if (ledger.sequence <= 0 || ledger.lastHash.isZero()) {
-    lifecycle.rollback("invalid ledger context", -2);
+    rollback("invalid ledger context", -2);
   }
   const expectedNow = (946_684_800 + ledger.lastTime) * 1000;
   if (Date.now() !== expectedNow) {
-    lifecycle.rollback("Date clock disagrees with ledger", -3);
+    rollback("Date clock disagrees with ledger", -3);
   }
   const missing = state.get("surface-missing");
   if (!missing.ok || missing.value !== undefined) {
-    lifecycle.rollback("missing state was not ordinary absence", -4);
+    rollback("missing state was not ordinary absence", -4);
   }
 
   try {
-    lifecycle.accept(`surface:${account.value.toHex().length}`, 99);
+    accept(`surface:${account.value.toHex().length}`, 99);
   } catch {
-    lifecycle.rollback("terminal was catchable", -99);
+    rollback("terminal was catchable", -99);
   }
-  lifecycle.rollback("terminal returned", -98);
+  rollback("terminal returned", -98);
 }
 )[test.tshook]"));
 
@@ -145,39 +154,39 @@ int64_t hook(uint32_t reserved)
 
         auto const stateBridgeCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function hook(_reserved: number): never {
+export function main(_reserved: number): never {
   void _reserved;
   const seeded = state.get("bridge");
-  if (!seeded.ok) lifecycle.rollback("state read failed", seeded.code);
-  if (seeded.value === undefined) lifecycle.rollback("state missing", -1);
+  if (!seeded.ok) rollback("state read failed", seeded.code);
+  if (seeded.value === undefined) rollback("state missing", -1);
 
   const seededHex = seeded.value.toHex();
   trace("js-state-read", seededHex);
   if (seededHex !== "66726F6D2D63") {
-    lifecycle.rollback(`unexpected state:${seededHex}`, -2);
+    rollback(`unexpected state:${seededHex}`, -2);
   }
 
   const write = state.set("bridge", "from-js");
-  if (!write.ok) lifecycle.rollback("state write failed", write.code);
+  if (!write.ok) rollback("state write failed", write.code);
   trace("js-state-write", "from-js");
-  lifecycle.accept("state bridged", 84);
+  accept("state bridged", 84);
 }
 )[test.tshook]"));
 
         auto const stateRollbackCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function hook(_reserved: number): never {
+export function main(_reserved: number): never {
   void _reserved;
   const write = state.set("bridge", "must-not-stick");
-  if (!write.ok) lifecycle.rollback("state write failed", write.code);
+  if (!write.ok) rollback("state write failed", write.code);
   trace("js-state-rollback", "must-not-stick");
-  lifecycle.rollback("state rollback", -84);
+  rollback("state rollback", -84);
 }
 )[test.tshook]"));
 
         auto const memoryGrowthCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function hook(_reserved: number): never {
+export function main(_reserved: number): never {
   void _reserved;
   const blocks: Uint8Array[] = [];
   for (let i = 0; i < 6; ++i) blocks.push(new Uint8Array(1024 * 1024));
@@ -185,10 +194,10 @@ export function hook(_reserved: number): never {
 
   const seeded = state.get("bridge");
   if (!seeded.ok || seeded.value?.toHex() !== "66726F6D2D6A73") {
-    lifecycle.rollback("growth state read failed", -1);
+    rollback("growth state read failed", -1);
   }
   const write = state.set("growth", "must-roll-back");
-  if (!write.ok) lifecycle.rollback("growth state write failed", write.code);
+  if (!write.ok) rollback("growth state write failed", write.code);
   trace("growth-host-call", blocks[5].subarray(0, 1));
   throw new Error("memory-growth-diagnostic");
 }
@@ -196,73 +205,73 @@ export function hook(_reserved: number): never {
 
         auto const hostWorkExhaustionCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function hook(_reserved: number): never {
+export function main(_reserved: number): never {
   void _reserved;
   const write = state.set("meter", "must-not-stick");
-  if (!write.ok) lifecycle.rollback("state write failed", write.code);
+  if (!write.ok) rollback("state write failed", write.code);
 
   const chunk = "x".repeat(1000);
   for (let i = 0; i < 1100; ++i) trace("meter", chunk);
-  lifecycle.accept("host-work budget escaped", -1);
+  accept("host-work budget escaped", -1);
 }
 )[test.tshook]"));
 
         auto const amendmentBeforeChargeCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function hook(_reserved: number): never {
+export function main(_reserved: number): never {
   void _reserved;
   const transaction = STBlob.from(new Uint8Array(0xffff));
   for (let i = 0; i < 8; ++i) {
     const unavailable = emit.prepare(transaction);
     if (unavailable.ok || unavailable.code !== -14) {
-      lifecycle.rollback("prepare was not amendment-unavailable", -1);
+      rollback("prepare was not amendment-unavailable", -1);
     }
   }
-  lifecycle.accept("unavailable calls were not charged", 808);
+  accept("unavailable calls were not charged", 808);
 }
 )[test.tshook]"));
 
         auto const callbackCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function hook(_reserved: number): never {
+export function main(_reserved: number): never {
   void _reserved;
   const write = state.set("cbak", "pending");
-  if (!write.ok) lifecycle.rollback("callback seed failed", write.code);
+  if (!write.ok) rollback("callback seed failed", write.code);
   const reserve = emit.reserve(1);
-  if (!reserve.ok) lifecycle.rollback("emit.reserve failed", reserve.code);
+  if (!reserve.ok) rollback("emit.reserve failed", reserve.code);
   const prepared = emit.prepare(STBlob.from("1200032280000000"));
-  if (!prepared.ok) lifecycle.rollback("emit.prepare failed", prepared.code);
+  if (!prepared.ok) rollback("emit.prepare failed", prepared.code);
   const sent = emit.tx(prepared.value);
-  if (!sent.ok) lifecycle.rollback("emit.tx failed", sent.code);
-  lifecycle.accept("callback emitted", 101);
+  if (!sent.ok) rollback("emit.tx failed", sent.code);
+  accept("callback emitted", 101);
 }
 
-export function cbak(_reserved: number): never {
-  if (_reserved !== 0) lifecycle.rollback("emitted transaction failed", _reserved);
+export function callback(_reserved: number): never {
+  if (_reserved !== 0) rollback("emitted transaction failed", _reserved);
   const write = state.set("cbak", "called");
-  if (!write.ok) lifecycle.rollback("callback state failed", write.code);
-  lifecycle.accept("callback called", 202);
+  if (!write.ok) rollback("callback state failed", write.code);
+  accept("callback called", 202);
 }
 )[test.tshook]"));
 
-        auto const missingHookCode =
+        auto const missingMainCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function cbak(_reserved: number): never {
+export function callback(_reserved: number): never {
   void _reserved;
-  lifecycle.accept("cbak only", 1);
+  accept("callback only", 1);
 }
 )[test.tshook]"));
 
         auto const nonCallableEntriesCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export const hook = 1;
-export const cbak = 2;
+export const main = 1;
+export const callback = 2;
 )[test.tshook]"));
 
         auto const hostInitializingCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function hook(_reserved: number): never {
-  lifecycle.accept("entry", _reserved);
+export function main(_reserved: number): never {
+  accept("entry", _reserved);
 }
 void ledger.sequence;
 )[test.tshook]"));
@@ -400,7 +409,7 @@ int64_t hook(uint32_t reserved)
             hook::validateQuickJSBytecodeForTests(currentRuntime, hookBytecode);
         BEAST_EXPECT(!successfulValidation.error);
         BEAST_EXPECT(!successfulValidation.hasCallback);
-        BEAST_EXPECT(successfulValidation.invocationFuelConsumed == 48330);
+        expectFuel(successfulValidation.invocationFuelConsumed, 47901);
 
         testcase("Validate one retained provider concurrently");
         std::array<std::future<hook::QuickJSValidationForTests>, 4>
@@ -417,7 +426,7 @@ int64_t hook(uint32_t reserved)
             auto result = validation.get();
             BEAST_EXPECT(!result.error);
             BEAST_EXPECT(!result.hasCallback);
-            BEAST_EXPECT(result.invocationFuelConsumed == 48330);
+            expectFuel(result.invocationFuelConsumed, 47901);
         }
 
         testcase("Bind API, profile, hash, dedup, and hash install");
@@ -449,7 +458,7 @@ int64_t hook(uint32_t reserved)
             auto const failedValidation = hook::validateQuickJSBytecodeForTests(
                 currentRuntime, malformedBytecode);
             BEAST_EXPECT(!!failedValidation.error);
-            BEAST_EXPECT(failedValidation.invocationFuelConsumed == 12726);
+            expectFuel(failedValidation.invocationFuelConsumed, 12736);
             identityEnv(
                 jtx::hook(
                     alice,
@@ -459,7 +468,7 @@ int64_t hook(uint32_t reserved)
                 fee(XRP(10)),
                 ter(temMALFORMED));
             identityEnv(
-                jtx::hook(alice, {{hsoVersioned(missingHookCode, 1)}}, 0),
+                jtx::hook(alice, {{hsoVersioned(missingMainCode, 1)}}, 0),
                 fee(XRP(10)),
                 ter(temMALFORMED));
             identityEnv(
@@ -557,7 +566,7 @@ int64_t hook(uint32_t reserved)
         auto const message = execution.getFieldVL(sfHookReturnString);
         BEAST_EXPECT(
             std::string(message.begin(), message.end()) == "payment:0");
-        BEAST_EXPECT(execution.getFieldU64(sfHookInstructionCount) == 55811);
+        expectFuel(execution.getFieldU64(sfHookInstructionCount), 54998);
 
         testcase("Bind ledger context and keep terminals uncatchable");
         auto surfaceProbeHook = hsoVersioned(surfaceProbeCode, 1);
@@ -589,8 +598,8 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string(surfaceMessage.begin(), surfaceMessage.end()) ==
             "surface:40");
-        BEAST_EXPECT(
-            surfaceExecution.getFieldU64(sfHookInstructionCount) == 116108);
+        expectFuel(
+            surfaceExecution.getFieldU64(sfHookInstructionCount), 116164);
 
         //@@start jshooks-state-bridge
         testcase("Execute a C Hook through WasmEdge and persist state");
@@ -702,8 +711,8 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(rollbackExecutions.size() == 1);
         if (rollbackExecutions.size() != 1)
             return;
-        BEAST_EXPECT(
-            rollbackExecutions[0].getFieldU64(sfHookInstructionCount) == 54296);
+        expectFuel(
+            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 52974);
 
         stateEntry = env.le(stateKeylet);
         BEAST_EXPECT(!!stateEntry);
@@ -735,9 +744,8 @@ int64_t hook(uint32_t reserved)
         if (memoryGrowthExecutions.size() != 1)
             return;
         auto const& memoryGrowthExecution = memoryGrowthExecutions[0];
-        BEAST_EXPECT(
-            memoryGrowthExecution.getFieldU64(sfHookInstructionCount) ==
-            6449373);
+        expectFuel(
+            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 6448006);
         BEAST_EXPECT(
             memoryGrowthExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
@@ -781,9 +789,9 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             hostWorkExecutions[0].getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
-        BEAST_EXPECT(
-            hostWorkExecutions[0].getFieldU64(sfHookInstructionCount) ==
-            11425847);
+        expectFuel(
+            hostWorkExecutions[0].getFieldU64(sfHookInstructionCount),
+            11425302);
 
         auto const meterKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -877,8 +885,8 @@ int64_t hook(uint32_t reserved)
         if (callbackExecutions.size() != 1)
             return;
         auto const& callbackExecution = callbackExecutions[0];
-        BEAST_EXPECT(
-            callbackExecution.getFieldU64(sfHookInstructionCount) == 79075);
+        expectFuel(
+            callbackExecution.getFieldU64(sfHookInstructionCount), 78772);
         BEAST_EXPECT(
             callbackExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));

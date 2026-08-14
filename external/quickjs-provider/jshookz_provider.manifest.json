@@ -1,5 +1,5 @@
 {
-  "bytecode_abi_id": "2bad0879c48ec590a5587c191619502b831bb6b2b3f6cde8a5d930a20eb88f40",
+  "bytecode_abi_id": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
   "provider": {
     "exports": [
       {
@@ -355,10 +355,10 @@
         ]
       }
     ],
-    "sha256": "fb544a87204491b5e81ea0ebcb117ad6e03955674a6e31f0e21730aabd7bd086",
-    "size": 1005720
+    "sha256": "2b3c196f057932e450f599142eceaa75ae846ec32d49eedf920b0138578fb2fd",
+    "size": 1005820
   },
-  "runtime_profile_id": "a3619f29dbe5d3d3da332736cc56900b73a30ac24d593bba2f190bcc6f7893e5",
+  "runtime_profile_id": "ee0757217798ad7f384532721fdd8f5ef03b852adf473a6d3d5adf4f8526a7a8",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
@@ -367,6 +367,10 @@
       "kind": "quickjs-bytecode"
     },
     "bytecode_abi": {
+      "entry_exports": {
+        "callback": "optional-callable",
+        "main": "required-callable"
+      },
       "quickjs_bytecode_version": 5,
       "quickjs_version": "2025-09-13",
       "read_flags": [
@@ -398,6 +402,7 @@
       "initialization": "finite-cold-qjs-init-budget-before-invocation-fuel-reset",
       "ordinary_host_status": "returned-as-i64-never-trapped",
       "pending_jobs_after_entry": "not-drained",
+      "result_failure_policy": "rollback.onFail-preserves-coded-failure;rollback.require-collapses-failure-or-absence-to-explicit-message-and-code",
       "sfHookInstructionCount": "initial-wasmtime-invocation-fuel-minus-remaining-fuel",
       "terminals": "record-hook-result-and-uncatchable-wasmtime-trap"
     },
