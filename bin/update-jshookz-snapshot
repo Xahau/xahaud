@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""Build and import one committed jshookz provider snapshot into Xahau."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+from pathlib import Path
+
+
+SNAPSHOT_FILES = (
+    "jshookz_provider.manifest.cmake",
+    "jshookz_provider.manifest.json",
+    "jshookz_provider.native-abi.json",
+    "jshookz_provider.wasm",
+)
+
+
+def run(*args: str, cwd: Path, capture: bool = False) -> str:
+    completed = subprocess.run(
+        args,
+        cwd=cwd,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE if capture else None,
+    )
+    return completed.stdout.strip() if capture else ""
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Build a committed jshookz checkout, copy its sealed provider "
+            "bundle, and pin the Xahau end-to-end workflow to that commit."
+        )
+    )
+    parser.add_argument("jshookz_checkout", type=Path)
+    parser.add_argument(
+        "--no-build",
+        action="store_true",
+        help="import an already-built build/xahau-provider bundle",
+    )
+    args = parser.parse_args()
+
+    xahau_root = Path(__file__).resolve().parents[1]
+    jshookz_root = args.jshookz_checkout.expanduser().resolve()
+    cli = jshookz_root / "packages/jshookz/.venv/bin/jshookz"
+    bundle = jshookz_root / "build/xahau-provider"
+    destination = xahau_root / "external/quickjs-provider"
+    workflow = xahau_root / ".github/workflows/jshookz-e2e.yml"
+
+    if not cli.is_file():
+        parser.error(f"missing jshookz CLI: {cli}")
+
+    dirty = run(
+        "git",
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+        cwd=jshookz_root,
+        capture=True,
+    )
+    if dirty:
+        parser.error(
+            "jshookz checkout has uncommitted tracked changes; commit them "
+            "before creating a pinned snapshot"
+        )
+
+    commit = run("git", "rev-parse", "HEAD", cwd=jshookz_root, capture=True)
+    if not args.no_build:
+        run(str(cli), "build", "provider", cwd=jshookz_root)
+
+    missing = [name for name in SNAPSHOT_FILES if not (bundle / name).is_file()]
+    if missing:
+        parser.error(f"incomplete provider bundle: {', '.join(missing)}")
+
+    for name in SNAPSHOT_FILES:
+        shutil.copy2(bundle / name, destination / name)
+
+    workflow_text = workflow.read_text()
+    updated, replacements = re.subn(
+        r"(?m)^  JSHOOKZ_REF: [0-9a-f]{40}$",
+        f"  JSHOOKZ_REF: {commit}",
+        workflow_text,
+    )
+    if replacements != 1:
+        parser.error(
+            f"expected one JSHOOKZ_REF in {workflow.relative_to(xahau_root)}; "
+            f"found {replacements}"
+        )
+    if updated != workflow_text:
+        workflow.write_text(updated)
+
+    manifest = json.loads((bundle / "jshookz_provider.manifest.json").read_text())
+    wasi_sdk = os.environ.get("HOOKZ_WASI_SDK")
+    if not wasi_sdk:
+        try:
+            wasi_sdk = str(
+                Path(
+                    run(
+                        "mise",
+                        "where",
+                        "wasi-sdk",
+                        cwd=jshookz_root,
+                        capture=True,
+                    )
+                )
+                / "wasi-sdk"
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            wasi_sdk = "/path/to/wasi-sdk"
+
+    print(f"jshookz commit:     {commit}")
+    print(f"provider sha256:    {manifest['provider']['sha256']}")
+    print(f"bytecode ABI:       {manifest['bytecode_abi_id']}")
+    print(f"runtime profile:    {manifest['runtime_profile_id']}")
+    print("snapshot imported; regenerate fixtures and run the focused suite with:")
+    print(
+        "  env "
+        f"JSHOOKZ_HOOK_COMPILER={shlex.quote(f'{cli} compile-hook')} "
+        f"HOOKZ_WASI_SDK={shlex.quote(wasi_sdk)} "
+        f"XAHAU_QJS_PROVIDER_WASM={shlex.quote(str(bundle / 'jshookz_provider.wasm'))} "
+        "XAHAU_REQUIRE_QJS_PROVIDER_TESTS=1 "
+        "x-run-tests --compile-hooks src/test/app/JSHooks_test.cpp "
+        "--build-dir build --ccache -- "
+        "ripple.app.JSHooks,ripple.app.QuickJSHostPolicy,"
+        "ripple.app.HookGuestMemory,ripple.app.HookAPI"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
