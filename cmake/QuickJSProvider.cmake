@@ -145,6 +145,15 @@ if(EXISTS "${XAHAU_QUICKJS_PROVIDER_WASM}")
     message(FATAL_ERROR
       "QuickJS provider WASM does not match its generated manifest")
   endif()
+  # A stub written by an earlier bundle-less configure would be newer than
+  # the wasm and let ninja skip the embed; drop it so the command must run.
+  if(EXISTS "${XAHAU_QUICKJS_PROVIDER_EMBED_SOURCE}")
+    file(STRINGS "${XAHAU_QUICKJS_PROVIDER_EMBED_SOURCE}"
+      XAHAU_QUICKJS_EMBED_HEAD LIMIT_COUNT 2)
+    if(XAHAU_QUICKJS_EMBED_HEAD MATCHES "no provider binary was present")
+      file(REMOVE "${XAHAU_QUICKJS_PROVIDER_EMBED_SOURCE}")
+    endif()
+  endif()
   add_custom_command(
     OUTPUT "${XAHAU_QUICKJS_PROVIDER_EMBED_SOURCE}"
     COMMAND
@@ -174,6 +183,9 @@ else()
       "${XAHAU_QUICKJS_EMBED_ERROR}")
   endif()
   set(XAHAU_QUICKJS_PROVIDER_EMBEDDED OFF)
+  message(WARNING
+    "No QuickJS provider WASM at ${XAHAU_QUICKJS_PROVIDER_WASM}; nothing is "
+    "embedded and the daemon will not register a QuickJS runtime")
 endif()
 
 message(STATUS
