@@ -627,6 +627,9 @@ int64_t hook(uint32_t reserved)
                 currentRuntime, hookBytecode, 50);
             BEAST_EXPECTS(!cost.error, cost.error.value_or(""));
             BEAST_EXPECT(cost.iterations == 50);
+            BEAST_EXPECT(cost.createNanosMin > 0);
+            BEAST_EXPECT(cost.initializeNanosMin > 0);
+            BEAST_EXPECT(cost.validateNanosMin > 0);
             BEAST_EXPECT(cost.initializationFuelConsumed > 0);
             BEAST_EXPECT(cost.invocationFuelConsumed > 0);
             auto const perIteration = [&](std::uint64_t total) {

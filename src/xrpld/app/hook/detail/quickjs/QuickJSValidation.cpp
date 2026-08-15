@@ -172,6 +172,16 @@ measureQuickJSSessionCostForTests(
             return cost;
         }
         auto const validateNanos = nanosSince(validateStart);
+        if (result[0].of.i32 != 1 && result[0].of.i32 != 3)
+        {
+            // A cost sample from a session that rejected the bytecode is not
+            // the cost being measured.
+            detail = session->readDiagnostic();
+            cost.error = detail.empty()
+                ? "QuickJS Hook bytecode validation failed during measurement"
+                : detail;
+            return cost;
+        }
         if (auto const consumed = session->invocationFuelConsumed())
             cost.invocationFuelConsumed = *consumed;
 
