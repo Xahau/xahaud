@@ -3,10 +3,12 @@
 #include <xrpld/app/hook/detail/quickjs/QuickJSRuntimeInternal.h>
 #include <xrpl/hook/HookArtifact.h>
 #include <xrpl/protocol/digest.h>
+#include <future>
 #include <map>
 #include <mutex>
 #include <string>
 #include <tuple>
+#include <utility>
 
 namespace hook {
 namespace {
@@ -40,6 +42,34 @@ runtimeRegistry()
 {
     static std::map<RuntimeKey, QuickJSRuntimeHandle> runtimes;
     return runtimes;
+}
+
+// Launched (background) registrations, keyed like the registry. The future
+// settles when the compile thread has finished registering or failed; the
+// retained error string outlives the future so a failed identity stays
+// diagnosable for the life of the process.
+struct PendingRegistration
+{
+    std::shared_future<void> settled;
+    std::shared_ptr<std::optional<std::string>> error;
+};
+
+std::map<RuntimeKey, PendingRegistration>&
+pendingRegistrations()
+{
+    static std::map<RuntimeKey, PendingRegistration> pending;
+    return pending;
+}
+
+// Copy a pending entry under the registry lock, or nothing.
+std::optional<PendingRegistration>
+pendingFor(RuntimeKey const& key)
+{
+    std::lock_guard lock{runtimeRegistryMutex()};
+    auto const position = pendingRegistrations().find(key);
+    if (position == pendingRegistrations().end())
+        return std::nullopt;
+    return position->second;
 }
 
 std::string
@@ -177,13 +207,62 @@ registerQuickJSRuntime(
     return std::nullopt;
 }
 
+void
+launchQuickJSRuntimeRegistration(
+    QuickJSRuntimeProfile profile,
+    ripple::Blob provider)
+{
+    auto const key = keyFor(profile);
+    auto error = std::make_shared<std::optional<std::string>>();
+
+    std::lock_guard lock{runtimeRegistryMutex()};
+    if (runtimeRegistry().contains(key) ||
+        pendingRegistrations().contains(key))
+        return;
+
+    // std::async keeps the thread joinable through the shared state: the
+    // last holder of the future joins on destruction, so process teardown
+    // cannot abandon a half-registered compile.
+    std::shared_future<void> settled = std::async(
+        std::launch::async,
+        [profile = std::move(profile),
+         provider = std::move(provider),
+         error]() mutable {
+            *error = registerQuickJSRuntime(profile, provider);
+        });
+    pendingRegistrations().emplace(
+        key, PendingRegistration{std::move(settled), std::move(error)});
+}
+
+std::optional<std::string>
+quickJSRuntimeRegistrationError(QuickJSRuntimeProfile const& profile)
+{
+    auto pending = pendingFor(keyFor(profile));
+    if (!pending)
+        return std::nullopt;
+    pending->settled.wait();
+    return *pending->error;
+}
+
 QuickJSRuntimeHandle
 findQuickJSRuntime(artifact::View const& artifact)
 {
     if (artifact.kind != artifact::Kind::quickJSBytecode)
         return {};
+    auto const key = keyFor(artifact);
+    {
+        std::lock_guard lock{runtimeRegistryMutex()};
+        auto const position = runtimeRegistry().find(key);
+        if (position != runtimeRegistry().end())
+            return position->second;
+    }
+    // Not registered yet: a launched compile for this identity may still be
+    // running. Wait outside the lock (the compile thread needs the lock to
+    // publish), then answer from the settled registry state.
+    if (auto pending = pendingFor(key))
+        pending->settled.wait();
     std::lock_guard lock{runtimeRegistryMutex()};
-    auto const position = runtimeRegistry().find(keyFor(artifact));
+    auto const position = runtimeRegistry().find(key);
     return position == runtimeRegistry().end() ? QuickJSRuntimeHandle{}
                                                : position->second;
 }
