@@ -84,11 +84,11 @@ registerQuickJSRuntime(
       identity; a find that races the launch answers as if nothing was
       launched.
     - the compile thread is detached and nothing joins it at exit, so the
-      process must awaitQuickJSRuntimeRegistration before it shuts down;
-      the intended shape is: Application setup launches early, awaits
-      before start, and treats an error as fatal — a node that cannot
-      compile the sealed provider must not stay up, or it will disagree
-      with its peers on every QuickJS artifact.
+      process must awaitQuickJSRuntimeRegistration before it shuts down.
+      The daemon (Main.cpp) launches before Application::setup, awaits
+      after it and before start, and treats an error as fatal — a node
+      that cannot compile the sealed provider must not stay up, or it will
+      disagree with its peers on every QuickJS artifact.
 */
 std::optional<std::string>
 launchQuickJSRuntimeRegistration(
