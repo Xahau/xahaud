@@ -175,6 +175,7 @@ if(xrpld)
     "${CMAKE_CURRENT_SOURCE_DIR}/src/xrpld/*.cpp"
   )
   target_sources(rippled PRIVATE ${sources})
+  target_sources(rippled PRIVATE "${XAHAU_QUICKJS_PROVIDER_EMBED_SOURCE}")
 
   if(tests)
     file(GLOB_RECURSE sources CONFIGURE_DEPENDS

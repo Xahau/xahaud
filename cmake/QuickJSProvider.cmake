@@ -121,6 +121,16 @@ configure_file(
 
 set(XAHAU_QUICKJS_PROVIDER_WASM
   "${XAHAU_QUICKJS_PROVIDER_BUNDLE_DIR}/${XAHAU_QUICKJS_PROVIDER_FILE}")
+# The sealed provider is embedded into the binary when the bundle carries it,
+# so the daemon can register it at startup (hook::embeddedQuickJSProvider).
+# The generator re-verifies SHA-256 and size at build time; a bundle without
+# the binary embeds nothing and the daemon says so at startup.
+set(XAHAU_QUICKJS_PROVIDER_EMBED_SOURCE
+  "${XAHAU_QUICKJS_GENERATED_INCLUDE_DIR}/xrpld/app/hook/detail/QuickJSProviderEmbed.cpp")
+set(XAHAU_QUICKJS_EMBED_SCRIPT
+  "${CMAKE_CURRENT_LIST_DIR}/EmbedQuickJSProvider.py")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${XAHAU_QUICKJS_PROVIDER_WASM}")
 if(EXISTS "${XAHAU_QUICKJS_PROVIDER_WASM}")
   file(SHA256
     "${XAHAU_QUICKJS_PROVIDER_WASM}"
@@ -135,7 +145,38 @@ if(EXISTS "${XAHAU_QUICKJS_PROVIDER_WASM}")
     message(FATAL_ERROR
       "QuickJS provider WASM does not match its generated manifest")
   endif()
+  add_custom_command(
+    OUTPUT "${XAHAU_QUICKJS_PROVIDER_EMBED_SOURCE}"
+    COMMAND
+      "${XAHAU_QUICKJS_PYTHON}" "${XAHAU_QUICKJS_EMBED_SCRIPT}"
+      --provider "${XAHAU_QUICKJS_PROVIDER_WASM}"
+      --sha256 "${XAHAU_QUICKJS_PROVIDER_SHA256}"
+      --size "${XAHAU_QUICKJS_PROVIDER_SIZE}"
+      --output "${XAHAU_QUICKJS_PROVIDER_EMBED_SOURCE}"
+    DEPENDS
+      "${XAHAU_QUICKJS_PROVIDER_WASM}"
+      "${XAHAU_QUICKJS_EMBED_SCRIPT}"
+      "${XAHAU_QUICKJS_PROVIDER_MANIFEST}"
+    COMMENT "Embedding sealed QuickJS provider ${XAHAU_QUICKJS_PROVIDER_FILE}"
+    VERBATIM)
+  set(XAHAU_QUICKJS_PROVIDER_EMBEDDED ON)
+else()
+  execute_process(
+    COMMAND
+      "${XAHAU_QUICKJS_PYTHON}" "${XAHAU_QUICKJS_EMBED_SCRIPT}"
+      --absent
+      --output "${XAHAU_QUICKJS_PROVIDER_EMBED_SOURCE}"
+    RESULT_VARIABLE XAHAU_QUICKJS_EMBED_RESULT
+    ERROR_VARIABLE XAHAU_QUICKJS_EMBED_ERROR)
+  if(NOT XAHAU_QUICKJS_EMBED_RESULT EQUAL 0)
+    message(FATAL_ERROR
+      "Could not project the absent QuickJS provider: "
+      "${XAHAU_QUICKJS_EMBED_ERROR}")
+  endif()
+  set(XAHAU_QUICKJS_PROVIDER_EMBEDDED OFF)
 endif()
 
 message(STATUS
   "QuickJS runtime profile: ${XAHAU_QUICKJS_RUNTIME_PROFILE_ID}")
+message(STATUS
+  "QuickJS provider embedded: ${XAHAU_QUICKJS_PROVIDER_EMBEDDED}")
