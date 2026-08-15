@@ -359,7 +359,7 @@ ProviderSession::readDiagnostic() noexcept
 }
 
 std::optional<std::uint64_t>
-ProviderSession::invocationFuelConsumed() const noexcept
+ProviderSession::fuelConsumedFrom(std::uint64_t armed) const noexcept
 {
     std::uint64_t remaining = 0;
     if (auto* fuelError = wasmtime_context_get_fuel(context_, &remaining))
@@ -367,8 +367,19 @@ ProviderSession::invocationFuelConsumed() const noexcept
         wasmtime_error_delete(fuelError);
         return std::nullopt;
     }
-    return runtime_.profile.invocationFuel -
-        std::min(runtime_.profile.invocationFuel, remaining);
+    return armed - std::min(armed, remaining);
+}
+
+std::optional<std::uint64_t>
+ProviderSession::initializationFuelConsumed() const noexcept
+{
+    return fuelConsumedFrom(runtime_.profile.initializationFuel);
+}
+
+std::optional<std::uint64_t>
+ProviderSession::invocationFuelConsumed() const noexcept
+{
+    return fuelConsumedFrom(runtime_.profile.invocationFuel);
 }
 
 }  // namespace hook::quickjs

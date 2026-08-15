@@ -618,6 +618,35 @@ int64_t hook(uint32_t reserved)
         }
         //@@end jshooks-provider-launch
 
+        testcase("Measure per-session provider cost");
+        {
+            // Issue 0001 step 1: what one cold session costs on this tree,
+            // before any Wizer/AOT change to the provider bytes. Numbers are
+            // logged, not asserted; only the shape is checked.
+            auto const cost = hook::measureQuickJSSessionCostForTests(
+                currentRuntime, hookBytecode, 50);
+            BEAST_EXPECTS(!cost.error, cost.error.value_or(""));
+            BEAST_EXPECT(cost.iterations == 50);
+            BEAST_EXPECT(cost.initializationFuelConsumed > 0);
+            BEAST_EXPECT(cost.invocationFuelConsumed > 0);
+            auto const perIteration = [&](std::uint64_t total) {
+                return cost.iterations ? total / cost.iterations : 0;
+            };
+            log << "provider session cost over " << cost.iterations
+                << " cold sessions (mean/min microseconds): create "
+                << perIteration(cost.createNanosTotal) / 1000 << "/"
+                << cost.createNanosMin / 1000 << ", initialize "
+                << perIteration(cost.initializeNanosTotal) / 1000 << "/"
+                << cost.initializeNanosMin / 1000 << ", validate "
+                << perIteration(cost.validateNanosTotal) / 1000 << "/"
+                << cost.validateNanosMin / 1000 << "; fuel: initialization "
+                << cost.initializationFuelConsumed << " of "
+                << hook::currentQuickJSRuntimeProfile().initializationFuel
+                << ", invocation " << cost.invocationFuelConsumed << " of "
+                << hook::currentQuickJSRuntimeProfile().invocationFuel
+                << std::endl;
+        }
+
         testcase("Execute an enveloped TypeScript Hook transaction");
         Env env{*this, features | featureJSHooks};
         env.fund(XRP(10000), alice, bob);

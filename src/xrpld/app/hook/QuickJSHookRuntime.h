@@ -157,6 +157,34 @@ validateQuickJSBytecodeForTests(
 /** Register the currently generated profile using a test-supplied provider. */
 std::optional<std::string>
 setQuickJSProviderForTests(ripple::Blob provider);
+
+/** Per-session cost of the retained provider, measured cold N times.
+
+    Each iteration is one disposable session exactly as validation builds
+    it: create (Store, imports, instantiate) → initialize (`_initialize`,
+    `qjs_init`, limits) → arm invocation fuel → validate the given bytecode.
+    Wall times are summed over the iterations and the minimum per stage is
+    kept; fuel figures are from the last iteration (they are deterministic).
+*/
+struct QuickJSSessionCostForTests
+{
+    std::size_t iterations = 0;
+    std::uint64_t createNanosTotal = 0;
+    std::uint64_t createNanosMin = 0;
+    std::uint64_t initializeNanosTotal = 0;
+    std::uint64_t initializeNanosMin = 0;
+    std::uint64_t validateNanosTotal = 0;
+    std::uint64_t validateNanosMin = 0;
+    std::uint64_t initializationFuelConsumed = 0;
+    std::uint64_t invocationFuelConsumed = 0;
+    std::optional<std::string> error;
+};
+
+QuickJSSessionCostForTests
+measureQuickJSSessionCostForTests(
+    QuickJSRuntimeHandle const& runtime,
+    std::span<std::uint8_t const> bytecode,
+    std::size_t iterations);
 #endif
 
 }  // namespace hook

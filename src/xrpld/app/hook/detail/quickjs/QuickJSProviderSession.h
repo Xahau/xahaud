@@ -82,10 +82,18 @@ public:
     std::string
     readDiagnostic() noexcept;
 
+    /** Fuel spent so far against the initialization budget; meaningful
+        between create and resetInvocationFuel. */
+    std::optional<std::uint64_t>
+    initializationFuelConsumed() const noexcept;
+
     std::optional<std::uint64_t>
     invocationFuelConsumed() const noexcept;
 
 private:
+    std::optional<std::uint64_t>
+    fuelConsumedFrom(std::uint64_t armed) const noexcept;
+
     ProviderSession(
         QuickJSProviderRuntime const& runtime,
         StorePtr&& store,

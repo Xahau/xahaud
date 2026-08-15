@@ -1,6 +1,8 @@
 #include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/hook/detail/quickjs/QuickJSProviderSession.h>
 #include <xrpl/basics/scope.h>
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -90,6 +92,98 @@ validateQuickJSBytecodeForTests(
     result.error = validate(
         runtime, bytecode, result.hasCallback, &result.invocationFuelConsumed);
     return result;
+}
+
+QuickJSSessionCostForTests
+measureQuickJSSessionCostForTests(
+    QuickJSRuntimeHandle const& runtime,
+    std::span<std::uint8_t const> bytecode,
+    std::size_t iterations)
+{
+    using clock = std::chrono::steady_clock;
+    auto const nanosSince = [](clock::time_point const& start) {
+        return static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                clock::now() - start)
+                .count());
+    };
+    auto const keepMin = [](std::uint64_t& slot, std::uint64_t sample) {
+        slot = slot == 0 ? sample : std::min(slot, sample);
+    };
+
+    QuickJSSessionCostForTests cost;
+    if (!runtime)
+    {
+        cost.error = "QuickJS runtime profile is not registered";
+        return cost;
+    }
+    for (std::size_t iteration = 0; iteration < iterations; ++iteration)
+    {
+        quickjs::ProviderStage stage = quickjs::ProviderStage::none;
+        std::string detail;
+        auto const failure = [&]() {
+            return detail.empty()
+                ? std::string{quickjs::providerStageName(stage)}
+                : detail;
+        };
+
+        auto const createStart = clock::now();
+        auto session =
+            quickjs::ProviderSession::create(*runtime, nullptr, stage, detail);
+        auto const createNanos = nanosSince(createStart);
+        if (!session)
+        {
+            cost.error = failure();
+            return cost;
+        }
+
+        auto const initializeStart = clock::now();
+        if (!session->initialize(stage, detail))
+        {
+            cost.error = failure();
+            return cost;
+        }
+        auto const initializeNanos = nanosSince(initializeStart);
+        if (auto const consumed = session->initializationFuelConsumed())
+            cost.initializationFuelConsumed = *consumed;
+        if (!session->resetInvocationFuel(stage, detail))
+        {
+            cost.error = failure();
+            return cost;
+        }
+
+        auto const validateStart = clock::now();
+        auto const pointer = session->allocateAndCopy(bytecode, stage, detail);
+        if (!pointer)
+        {
+            cost.error = failure();
+            return cost;
+        }
+        wasmtime_val_t arguments[2] = {
+            {.kind = WASMTIME_I32,
+             .of = {.i32 = static_cast<std::int32_t>(*pointer)}},
+            {.kind = WASMTIME_I32,
+             .of = {.i32 = static_cast<std::int32_t>(bytecode.size())}}};
+        wasmtime_val_t result[1];
+        if (!session->callExport(
+                "qjs_validate_hook_module", arguments, 2, result, 1, detail))
+        {
+            cost.error = detail;
+            return cost;
+        }
+        auto const validateNanos = nanosSince(validateStart);
+        if (auto const consumed = session->invocationFuelConsumed())
+            cost.invocationFuelConsumed = *consumed;
+
+        ++cost.iterations;
+        cost.createNanosTotal += createNanos;
+        keepMin(cost.createNanosMin, createNanos);
+        cost.initializeNanosTotal += initializeNanos;
+        keepMin(cost.initializeNanosMin, initializeNanos);
+        cost.validateNanosTotal += validateNanos;
+        keepMin(cost.validateNanosMin, validateNanos);
+    }
+    return cost;
 }
 #endif
 
