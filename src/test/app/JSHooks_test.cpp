@@ -399,7 +399,7 @@ int64_t hook(uint32_t reserved)
         }
 
         auto const providerError = hook::setQuickJSProviderForTests(provider);
-        BEAST_EXPECT(!providerError);
+        BEAST_EXPECTS(!providerError, providerError.value_or(""));
         if (providerError)
             return;
         auto const currentRuntime = hook::findQuickJSRuntime(*currentArtifact);
@@ -533,6 +533,90 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             !!hook::registerQuickJSRuntime(conflictingProfile, provider));
         //@@end jshooks-provider-fixture
+
+        //@@start jshooks-provider-launch
+        testcase("Launch a background provider registration");
+        {
+            auto launchedProfile = hook::currentQuickJSRuntimeProfile();
+            launchedProfile.runtimeProfile[1] ^= 0xffU;
+            auto launchedArtifact = *currentArtifact;
+            launchedArtifact.runtimeProfile = launchedProfile.runtimeProfile;
+
+            // Never launched: resolution and await answer without waiting.
+            BEAST_EXPECT(!hook::findQuickJSRuntime(launchedArtifact));
+            BEAST_EXPECT(
+                !!hook::awaitQuickJSRuntimeRegistration(launchedProfile));
+
+            BEAST_EXPECT(!hook::launchQuickJSRuntimeRegistration(
+                launchedProfile, provider));
+
+            // Concurrent resolution blocks on the compile, then agrees.
+            std::array<std::future<hook::QuickJSRuntimeHandle>, 4>
+                concurrentFinds;
+            for (auto& find : concurrentFinds)
+            {
+                find = std::async(std::launch::async, [&] {
+                    return hook::findQuickJSRuntime(launchedArtifact);
+                });
+            }
+            auto const launchedRuntime =
+                hook::findQuickJSRuntime(launchedArtifact);
+            BEAST_EXPECT(!!launchedRuntime);
+            for (auto& find : concurrentFinds)
+                BEAST_EXPECT(find.get() == launchedRuntime);
+            BEAST_EXPECT(
+                !hook::awaitQuickJSRuntimeRegistration(launchedProfile));
+            BEAST_EXPECT(launchedRuntime != currentRuntime);
+            BEAST_EXPECT(
+                hook::findQuickJSRuntime(*currentArtifact) == currentRuntime);
+
+            // A same-profile relaunch is a no-op; a mismatched one is
+            // refused and leaves the registered runtime alone.
+            BEAST_EXPECT(!hook::launchQuickJSRuntimeRegistration(
+                launchedProfile, provider));
+            BEAST_EXPECT(
+                hook::findQuickJSRuntime(launchedArtifact) == launchedRuntime);
+            auto mismatchedProfile = launchedProfile;
+            ++mismatchedProfile.invocationFuel;
+            BEAST_EXPECT(!!hook::launchQuickJSRuntimeRegistration(
+                mismatchedProfile, provider));
+            BEAST_EXPECT(
+                !!hook::awaitQuickJSRuntimeRegistration(mismatchedProfile));
+            BEAST_EXPECT(
+                hook::findQuickJSRuntime(launchedArtifact) == launchedRuntime);
+        }
+
+        testcase("Retain a failed background registration");
+        {
+            auto failedProfile = hook::currentQuickJSRuntimeProfile();
+            failedProfile.runtimeProfile[2] ^= 0xffU;
+            auto failedArtifact = *currentArtifact;
+            failedArtifact.runtimeProfile = failedProfile.runtimeProfile;
+            auto corruptedLaunchProvider = provider;
+            corruptedLaunchProvider[0] ^= 0xff;
+
+            BEAST_EXPECT(!hook::launchQuickJSRuntimeRegistration(
+                failedProfile, std::move(corruptedLaunchProvider)));
+            auto const failure =
+                hook::awaitQuickJSRuntimeRegistration(failedProfile);
+            BEAST_EXPECTS(
+                failure &&
+                    *failure ==
+                        "provider SHA-256 does not match its runtime profile",
+                failure ? *failure : "no retained error");
+            BEAST_EXPECT(!hook::findQuickJSRuntime(failedArtifact));
+
+            // Failure is terminal: relaunching with good bytes is refused
+            // with the retained error and still resolves nothing.
+            BEAST_EXPECT(
+                hook::launchQuickJSRuntimeRegistration(
+                    failedProfile, provider) == failure);
+            BEAST_EXPECT(!hook::findQuickJSRuntime(failedArtifact));
+            BEAST_EXPECT(
+                hook::awaitQuickJSRuntimeRegistration(failedProfile) ==
+                failure);
+        }
+        //@@end jshooks-provider-launch
 
         testcase("Execute an enveloped TypeScript Hook transaction");
         Env env{*this, features | featureJSHooks};

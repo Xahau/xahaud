@@ -3,10 +3,14 @@
 #include <xrpld/app/hook/detail/quickjs/QuickJSRuntimeInternal.h>
 #include <xrpl/hook/HookArtifact.h>
 #include <xrpl/protocol/digest.h>
+#include <chrono>
+#include <exception>
 #include <future>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <utility>
 
@@ -30,44 +34,45 @@ keyFor(artifact::View const& artifact)
         artifact.hookApiVersion, artifact.bytecodeABI, artifact.runtimeProfile};
 }
 
-std::mutex&
-runtimeRegistryMutex()
-{
-    static std::mutex mutex;
-    return mutex;
-}
-
-std::map<RuntimeKey, QuickJSRuntimeHandle>&
-runtimeRegistry()
-{
-    static std::map<RuntimeKey, QuickJSRuntimeHandle> runtimes;
-    return runtimes;
-}
-
-// Launched (background) registrations, keyed like the registry. The future
+// A launched (background) registration, keyed like the registry. The future
 // settles when the compile thread has finished registering or failed; the
-// retained error string outlives the future so a failed identity stays
-// diagnosable for the life of the process.
+// launched profile lets a mismatched relaunch be refused, and the retained
+// error string keeps a failed identity diagnosable for the life of the
+// process. Entries are never erased: launch is at most once per identity.
 struct PendingRegistration
 {
+    QuickJSRuntimeProfile profile;
     std::shared_future<void> settled;
     std::shared_ptr<std::optional<std::string>> error;
 };
 
-std::map<RuntimeKey, PendingRegistration>&
-pendingRegistrations()
+// One static holds the mutex, the registry, and the pending map so their
+// lifetimes do not depend on which accessor a process happens to touch
+// first. Nothing here joins a compile thread: the thread is detached, its
+// future is promise-backed, and the process must await settlement before
+// shutdown (see the header contract).
+struct RegistryState
 {
-    static std::map<RuntimeKey, PendingRegistration> pending;
-    return pending;
+    std::mutex mutex;
+    std::map<RuntimeKey, QuickJSRuntimeHandle> runtimes;
+    std::map<RuntimeKey, PendingRegistration> pending;
+};
+
+RegistryState&
+registryState()
+{
+    static RegistryState state;
+    return state;
 }
 
 // Copy a pending entry under the registry lock, or nothing.
 std::optional<PendingRegistration>
 pendingFor(RuntimeKey const& key)
 {
-    std::lock_guard lock{runtimeRegistryMutex()};
-    auto const position = pendingRegistrations().find(key);
-    if (position == pendingRegistrations().end())
+    auto& state = registryState();
+    std::lock_guard lock{state.mutex};
+    auto const position = state.pending.find(key);
+    if (position == state.pending.end())
         return std::nullopt;
     return position->second;
 }
@@ -198,50 +203,111 @@ registerQuickJSRuntime(
     if (!candidate)
         return error;
 
-    std::lock_guard lock{runtimeRegistryMutex()};
+    auto& state = registryState();
+    std::lock_guard lock{state.mutex};
     auto const [position, inserted] =
-        runtimeRegistry().emplace(keyFor(profile), std::move(candidate));
+        state.runtimes.emplace(keyFor(profile), std::move(candidate));
     if (!inserted && position->second->profile != profile)
         return "runtime profile identity is already registered with different "
                "consensus limits or host policy";
     return std::nullopt;
 }
 
-void
+std::optional<std::string>
 launchQuickJSRuntimeRegistration(
     QuickJSRuntimeProfile profile,
     ripple::Blob provider)
 {
     auto const key = keyFor(profile);
     auto error = std::make_shared<std::optional<std::string>>();
+    auto settled = std::make_shared<std::promise<void>>();
+    {
+        auto& state = registryState();
+        std::lock_guard lock{state.mutex};
+        if (auto const registered = state.runtimes.find(key);
+            registered != state.runtimes.end())
+        {
+            if (registered->second->profile == profile)
+                return std::nullopt;
+            return "runtime profile identity is already registered with "
+                   "different consensus limits or host policy";
+        }
+        if (auto const launched = state.pending.find(key);
+            launched != state.pending.end())
+        {
+            if (launched->second.profile != profile)
+                return "runtime profile identity was already launched with "
+                       "different consensus limits or host policy";
+            // Same identity, same limits: still compiling, already
+            // registered, or terminally failed. Only the failure is loud.
+            if (launched->second.settled.wait_for(std::chrono::seconds{0}) ==
+                std::future_status::ready)
+                return *launched->second.error;
+            return std::nullopt;
+        }
+        // Reserve the entry before any thread exists, so nothing below can
+        // wait on the compile while holding the registry lock, and so a
+        // find/await that observes the entry always has a valid future.
+        state.pending.emplace(
+            key,
+            PendingRegistration{profile, settled->get_future().share(), error});
+    }
 
-    std::lock_guard lock{runtimeRegistryMutex()};
-    if (runtimeRegistry().contains(key) ||
-        pendingRegistrations().contains(key))
-        return;
-
-    // std::async keeps the thread joinable through the shared state: the
-    // last holder of the future joins on destruction, so process teardown
-    // cannot abandon a half-registered compile.
-    std::shared_future<void> settled = std::async(
-        std::launch::async,
-        [profile = std::move(profile),
-         provider = std::move(provider),
-         error]() mutable {
-            *error = registerQuickJSRuntime(profile, provider);
-        });
-    pendingRegistrations().emplace(
-        key, PendingRegistration{std::move(settled), std::move(error)});
+    try
+    {
+        std::thread{[profile = std::move(profile),
+                     provider = std::move(provider),
+                     error,
+                     settled]() mutable {
+            try
+            {
+                *error = registerQuickJSRuntime(profile, provider);
+            }
+            catch (std::exception const& e)
+            {
+                *error =
+                    std::string{"provider registration threw: "} + e.what();
+            }
+            catch (...)
+            {
+                *error = "provider registration threw an unknown exception";
+            }
+            settled->set_value();
+        }}.detach();
+    }
+    catch (std::exception const& e)
+    {
+        // No thread runs the lambda when its constructor throws; settle the
+        // reserved entry so waiters see the failure instead of blocking.
+        *error = std::string{"could not start the provider compile thread: "} +
+            e.what();
+        settled->set_value();
+        return *error;
+    }
+    return std::nullopt;
 }
 
 std::optional<std::string>
-quickJSRuntimeRegistrationError(QuickJSRuntimeProfile const& profile)
+awaitQuickJSRuntimeRegistration(QuickJSRuntimeProfile const& profile)
 {
-    auto pending = pendingFor(keyFor(profile));
-    if (!pending)
+    auto const key = keyFor(profile);
+    // Wait outside the lock: the compile thread needs it to publish.
+    if (auto pending = pendingFor(key))
+        pending->settled.wait();
+
+    auto& state = registryState();
+    std::lock_guard lock{state.mutex};
+    auto const registered = state.runtimes.find(key);
+    if (registered != state.runtimes.end() &&
+        registered->second->profile == profile)
         return std::nullopt;
-    pending->settled.wait();
-    return *pending->error;
+    if (auto const launched = state.pending.find(key);
+        launched != state.pending.end() && *launched->second.error)
+        return *launched->second.error;
+    if (registered != state.runtimes.end())
+        return "runtime profile identity is registered with different "
+               "consensus limits or host policy";
+    return "no runtime was registered or launched for this profile identity";
 }
 
 QuickJSRuntimeHandle
@@ -250,10 +316,11 @@ findQuickJSRuntime(artifact::View const& artifact)
     if (artifact.kind != artifact::Kind::quickJSBytecode)
         return {};
     auto const key = keyFor(artifact);
+    auto& state = registryState();
     {
-        std::lock_guard lock{runtimeRegistryMutex()};
-        auto const position = runtimeRegistry().find(key);
-        if (position != runtimeRegistry().end())
+        std::lock_guard lock{state.mutex};
+        auto const position = state.runtimes.find(key);
+        if (position != state.runtimes.end())
             return position->second;
     }
     // Not registered yet: a launched compile for this identity may still be
@@ -261,10 +328,10 @@ findQuickJSRuntime(artifact::View const& artifact)
     // publish), then answer from the settled registry state.
     if (auto pending = pendingFor(key))
         pending->settled.wait();
-    std::lock_guard lock{runtimeRegistryMutex()};
-    auto const position = runtimeRegistry().find(key);
-    return position == runtimeRegistry().end() ? QuickJSRuntimeHandle{}
-                                               : position->second;
+    std::lock_guard lock{state.mutex};
+    auto const position = state.runtimes.find(key);
+    return position == state.runtimes.end() ? QuickJSRuntimeHandle{}
+                                            : position->second;
 }
 
 #ifdef ENABLE_TESTS

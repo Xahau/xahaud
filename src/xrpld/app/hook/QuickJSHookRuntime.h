@@ -65,26 +65,48 @@ registerQuickJSRuntime(
     thrown away with it — no serialization, no on-disk cache, nothing new is
     consensus-visible (the input is still the SHA-verified provider bytes).
 
-    Resolution through findQuickJSRuntime WAITS for a pending registration
-    of the same identity, so an artifact arriving before the compile
-    finishes blocks briefly instead of failing to resolve. A failed
-    registration resolves to an empty handle; its error is retained per
-    identity and readable via quickJSRuntimeRegistrationError.
+    Returns immediately. nullopt means the identity is registered, still
+    compiling, or was just started; otherwise the reason the launch was
+    refused: the identity is already registered or launched with a
+    different profile, an earlier launch of it failed (the retained error;
+    failure is terminal, there is no relaunch), or no thread could be
+    started. A same-profile relaunch is a no-op.
+
+    Contract for callers:
+    - launch must return before any findQuickJSRuntime or await for the
+      identity; a find that races the launch answers as if nothing was
+      launched.
+    - the compile thread is detached and nothing joins it at exit, so the
+      process must awaitQuickJSRuntimeRegistration before it shuts down;
+      the intended shape is: Application setup launches early, awaits
+      before start, and treats an error as fatal — a node that cannot
+      compile the sealed provider must not stay up, or it will disagree
+      with its peers on every QuickJS artifact.
 */
-void
+std::optional<std::string>
 launchQuickJSRuntimeRegistration(
     QuickJSRuntimeProfile profile,
     ripple::Blob provider);
 
-/** The retained error from a launched registration, if it failed. */
+/** Wait for a launched registration of this identity to settle.
+
+    Returns nullopt once the identity is registered with this profile —
+    by the launched compile or by a synchronous registerQuickJSRuntime —
+    otherwise why it is not: the retained compile failure, a registration
+    of the same identity with a different profile, or, when nothing was
+    launched or registered, a message saying so. A startup that forgets to
+    launch therefore does not look healthy.
+*/
 std::optional<std::string>
-quickJSRuntimeRegistrationError(QuickJSRuntimeProfile const& profile);
+awaitQuickJSRuntimeRegistration(QuickJSRuntimeProfile const& profile);
 
 /** Resolve the exact historical runtime selected by a deployment envelope.
 
     Waits for a launched registration of the same identity to settle before
     answering, so background compilation is invisible to resolution except
-    as startup latency. */
+    as latency; the startup barrier is awaitQuickJSRuntimeRegistration, and
+    this wait is only the safety net for a caller that races a
+    still-compiling process. */
 QuickJSRuntimeHandle
 findQuickJSRuntime(artifact::View const& artifact);
 
