@@ -3010,14 +3010,22 @@ NetworkOPsImp::reportFeeChange()
         app_.getTxQ().getMetrics(*app_.openLedger().current()),
         app_.getFeeTrack()};
 
-    // only schedule the job if something has changed
-    if (f != mLastFeeSummary)
-    {
-        m_job_queue.addJob(
-            jtCLIENT_FEE_CHANGE, "reportFeeChange->pubServer", [this]() {
-                pubServer();
-            });
-    }
+    // Guard mLastFeeSummary under mSubLock to prevent concurrent threads
+    // from simultaneously passing the check and queuing duplicate
+    // jtCLIENT_FEE_CHANGE jobs (data race fix).
+    // Also fixes the no-subscriber case where mLastFeeSummary was
+    // never updated by pubServer(), causing endless job queuing.
+    // Lock is released before addJob to avoid holding mSubLock
+    // across the job queue mutex (per nbougalis review suggestion).
+    if (std::lock_guard sl(mSubLock); f != mLastFeeSummary)
+        mLastFeeSummary = f;
+    else
+        return;
+
+    m_job_queue.addJob(
+        jtCLIENT_FEE_CHANGE, "reportFeeChange->pubServer", [this]() {
+            pubServer();
+        });
 }
 
 void
