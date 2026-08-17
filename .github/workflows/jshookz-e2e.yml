@@ -22,6 +22,8 @@ env:
   WASI_SDK_SHA256: 55fc523ebfbc98f69d1034fcfcb83d1ff5610cd9ab7eceef6cd097a30ba4ef93
   BINARYEN_VERSION: "128"
   BINARYEN_SHA256: 4ce79586d1c4762502eebe9a1db071fa5e446ef8897f2f766eb1cce5ec6dee9e
+  WIZER_VERSION: "10.0.0"
+  WIZER_SHA256: 1e9dfaa2f6c436ca7acfdbb82c166f5b8a0062068f12916a554e82c97ca8d371
   WASI_SDK_PATH: ${{ github.workspace }}/.tools/wasi-sdk
   HOOKZ_WASI_SDK: ${{ github.workspace }}/.tools/wasi-sdk
   BINARYEN_HOME: ${{ github.workspace }}/.tools/binaryen
@@ -115,6 +117,15 @@ jobs:
           tar -xzf /tmp/binaryen.tar.gz -C .tools
           mv ".tools/binaryen-version_${BINARYEN_VERSION}" "$BINARYEN_HOME"
           echo "$BINARYEN_HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Install Wizer
+        run: |
+          curl --fail --location --retry 3 \
+            --output /tmp/wizer.tar.xz \
+            "https://github.com/bytecodealliance/wizer/releases/download/v${WIZER_VERSION}/wizer-v${WIZER_VERSION}-x86_64-linux.tar.xz"
+          echo "$WIZER_SHA256  /tmp/wizer.tar.xz" | sha256sum --check
+          tar -xJf /tmp/wizer.tar.xz -C .tools
+          echo "$GITHUB_WORKSPACE/.tools/wizer-v${WIZER_VERSION}-x86_64-linux" >> "$GITHUB_PATH"
 
       - name: Install the Hook toolchain
         run: |

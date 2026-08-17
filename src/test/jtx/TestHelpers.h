@@ -35,20 +35,20 @@
     Beast's BEAST_EXPECT only reports file:line. Use this when the
     interesting part is the mismatch itself.
 */
-#define BEAST_EXPECT_EQ(actual, expected)                                 \
-    [&]() -> bool {                                                       \
-        auto const& beastExpectEqActual = (actual);                       \
-        auto const& beastExpectEqExpected = (expected);                   \
-        if (beastExpectEqActual == beastExpectEqExpected)                 \
-        {                                                                 \
-            pass();                                                       \
-            return true;                                                  \
-        }                                                                 \
-        std::ostringstream beastExpectEqWhy;                              \
-        beastExpectEqWhy << #actual " = " << beastExpectEqActual          \
-                         << ", expected " << beastExpectEqExpected;       \
-        fail(beastExpectEqWhy.str(), __FILE__, __LINE__);                 \
-        return false;                                                     \
+#define BEAST_EXPECT_EQ(actual, expected)                           \
+    [&]() -> bool {                                                 \
+        auto const& beastExpectEqActual = (actual);                 \
+        auto const& beastExpectEqExpected = (expected);             \
+        if (beastExpectEqActual == beastExpectEqExpected)           \
+        {                                                           \
+            pass();                                                 \
+            return true;                                            \
+        }                                                           \
+        std::ostringstream beastExpectEqWhy;                        \
+        beastExpectEqWhy << #actual " = " << beastExpectEqActual    \
+                         << ", expected " << beastExpectEqExpected; \
+        fail(beastExpectEqWhy.str(), __FILE__, __LINE__);           \
+        return false;                                               \
     }()
 
 namespace ripple {

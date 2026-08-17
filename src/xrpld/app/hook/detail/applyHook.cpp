@@ -3490,8 +3490,8 @@ DEFINE_HOOK_FUNCTION(
     }
 
     JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]:" << messageKey
-                     << ": Float " << (neg ? "-" : "") << man.value()
-                     << "*10^(" << exp.value() << ")";
+                     << ": Float " << (neg ? "-" : "") << man.value() << "*10^("
+                     << exp.value() << ")";
     return 0ULL;
 
     HOOK_TEARDOWN();

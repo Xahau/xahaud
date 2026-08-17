@@ -710,8 +710,7 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string(surfaceMessage.begin(), surfaceMessage.end()) ==
             "surface:40");
-        expectFuel(
-            surfaceExecution.getFieldU64(sfHookInstructionCount), 93471);
+        expectFuel(surfaceExecution.getFieldU64(sfHookInstructionCount), 93471);
 
         //@@start jshooks-state-bridge
         testcase("Execute a C Hook through WasmEdge and persist state");

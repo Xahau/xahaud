@@ -104,8 +104,10 @@ private:
             auto const eq = pair.find('=');
             if (eq == std::string::npos)
                 continue;
-            app().logs().get(pair.substr(0, eq)).threshold(
-                parseSeverity(pair.substr(eq + 1)));
+            app()
+                .logs()
+                .get(pair.substr(0, eq))
+                .threshold(parseSeverity(pair.substr(eq + 1)));
         }
     }
 

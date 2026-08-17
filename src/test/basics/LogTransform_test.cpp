@@ -20,9 +20,8 @@ class LogTransform_test : public beast::unit_test::suite
         Logs logs{beast::severities::kError};
         BEAST_EXPECT(!logs.hasTransform());
         BEAST_EXPECT(logs.applyTransform("alice") == "alice");
-        logs.setTransform([](std::string const& text) {
-            return "Account(" + text + ")";
-        });
+        logs.setTransform(
+            [](std::string const& text) { return "Account(" + text + ")"; });
         BEAST_EXPECT(logs.hasTransform());
         BEAST_EXPECT(logs.applyTransform("alice") == "Account(alice)");
         logs.setTransform(nullptr);
