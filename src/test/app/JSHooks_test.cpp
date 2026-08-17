@@ -65,10 +65,7 @@ class JSHooks_test : public beast::unit_test::suite
     void
     expectFuel(std::uint64_t actual, std::uint64_t expected)
     {
-        BEAST_EXPECTS(
-            actual == expected,
-            "actual fuel: " + std::to_string(actual) +
-                ", expected: " + std::to_string(expected));
+        BEAST_EXPECT_EQ(actual, expected);
     }
 
 public:
@@ -79,12 +76,11 @@ public:
         auto const& hookBytecode = jshooks_test_wasm.at(R"[test.tshook](
 export function main(_reserved: number): never {
   void _reserved;
-  const txType = otxn.type();
-  if (!txType.ok) rollback("otxn.type failed", txType.code);
-  if (txType.value !== TransactionType.Payment) {
-    rollback("expected Payment", txType.value);
+  const txType = rollback.onFail(otxn.type(), "otxn.type failed");
+  if (txType !== TransactionType.Payment) {
+    rollback("expected Payment", txType);
   }
-  accept(`payment:${txType.value}`, 42);
+  accept(`payment:${txType}`, 42);
 }
 )[test.tshook]");
         auto const hookCode = packageCurrentQuickJS(hookBytecode);
@@ -94,8 +90,7 @@ export function main(_reserved: number): never {
 export function main(_reserved: number): never {
   void _reserved;
   const account = hook.account();
-  if (!account.ok) rollback("hook.account failed", account.code);
-  if (account.value.toHex().length !== 40) {
+  if (account.toHex().length !== 40) {
     rollback("unexpected Hook account", -1);
   }
   if (ledger.sequence <= 0 || ledger.lastHash.isZero()) {
@@ -105,13 +100,16 @@ export function main(_reserved: number): never {
   if (Date.now() !== expectedNow) {
     rollback("Date clock disagrees with ledger", -3);
   }
-  const missing = state.get("surface-missing");
-  if (!missing.ok || missing.value !== undefined) {
+  const missing = rollback.onFail(
+    state.get("surface-missing"),
+    "missing state was not ordinary absence",
+  );
+  if (missing !== undefined) {
     rollback("missing state was not ordinary absence", -4);
   }
 
   try {
-    accept(`surface:${account.value.toHex().length}`, 99);
+    accept(`surface:${account.toHex().length}`, 99);
   } catch {
     rollback("terminal was catchable", -99);
   }
@@ -156,18 +154,16 @@ int64_t hook(uint32_t reserved)
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
 export function main(_reserved: number): never {
   void _reserved;
-  const seeded = state.get("bridge");
-  if (!seeded.ok) rollback("state read failed", seeded.code);
-  if (seeded.value === undefined) rollback("state missing", -1);
+  const seeded = rollback.onFail(state.get("bridge"), "state read failed");
+  if (seeded === undefined) rollback("state missing", -1);
 
-  const seededHex = seeded.value.toHex();
+  const seededHex = seeded.toHex();
   trace("js-state-read", seededHex);
   if (seededHex !== "66726F6D2D63") {
     rollback(`unexpected state:${seededHex}`, -2);
   }
 
-  const write = state.set("bridge", "from-js");
-  if (!write.ok) rollback("state write failed", write.code);
+  rollback.onFail(state.set("bridge", "from-js"), "state write failed");
   trace("js-state-write", "from-js");
   accept("state bridged", 84);
 }
@@ -177,8 +173,7 @@ export function main(_reserved: number): never {
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
 export function main(_reserved: number): never {
   void _reserved;
-  const write = state.set("bridge", "must-not-stick");
-  if (!write.ok) rollback("state write failed", write.code);
+  rollback.onFail(state.set("bridge", "must-not-stick"), "state write failed");
   trace("js-state-rollback", "must-not-stick");
   rollback("state rollback", -84);
 }
@@ -192,12 +187,11 @@ export function main(_reserved: number): never {
   for (let i = 0; i < 6; ++i) blocks.push(new Uint8Array(1024 * 1024));
   blocks[5][0] = 42;
 
-  const seeded = state.get("bridge");
-  if (!seeded.ok || seeded.value?.toHex() !== "66726F6D2D6A73") {
+  const seeded = rollback.onFail(state.get("bridge"), "growth state read failed");
+  if (seeded?.toHex() !== "66726F6D2D6A73") {
     rollback("growth state read failed", -1);
   }
-  const write = state.set("growth", "must-roll-back");
-  if (!write.ok) rollback("growth state write failed", write.code);
+  rollback.onFail(state.set("growth", "must-roll-back"), "growth state write failed");
   trace("growth-host-call", blocks[5].subarray(0, 1));
   throw new Error("memory-growth-diagnostic");
 }
@@ -207,8 +201,7 @@ export function main(_reserved: number): never {
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
 export function main(_reserved: number): never {
   void _reserved;
-  const write = state.set("meter", "must-not-stick");
-  if (!write.ok) rollback("state write failed", write.code);
+  rollback.onFail(state.set("meter", "must-not-stick"), "state write failed");
 
   const chunk = "x".repeat(1000);
   for (let i = 0; i < 1100; ++i) trace("meter", chunk);
@@ -223,7 +216,9 @@ export function main(_reserved: number): never {
   const transaction = STBlob.from(new Uint8Array(0xffff));
   for (let i = 0; i < 8; ++i) {
     const unavailable = emit.prepare(transaction);
-    if (unavailable.ok || unavailable.code !== -14) {
+    if (unavailable.ok) {
+      rollback("prepare was not amendment-unavailable", -1);
+    } else if (unavailable.error.code !== HookReturnCode.NOT_IMPLEMENTED) {
       rollback("prepare was not amendment-unavailable", -1);
     }
   }
@@ -235,41 +230,42 @@ export function main(_reserved: number): never {
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
 export function main(_reserved: number): never {
   void _reserved;
-  const write = state.set("cbak", "pending");
-  if (!write.ok) rollback("callback seed failed", write.code);
-  const reserve = emit.reserve(1);
-  if (!reserve.ok) rollback("emit.reserve failed", reserve.code);
-  const prepared = emit.prepare(STBlob.from("1200032280000000"));
-  if (!prepared.ok) rollback("emit.prepare failed", prepared.code);
-  const sent = emit.tx(prepared.value);
-  if (!sent.ok) rollback("emit.tx failed", sent.code);
+  rollback.onFail(state.set("cbak", "pending"), "callback seed failed");
+  rollback.onFail(emit.reserve(1), "emit.reserve failed");
+  const prepared = rollback.onFail(
+    emit.prepare(STBlob.fromHex("1200032280000000")),
+    "emit.prepare failed",
+  );
+  rollback.onFail(emit.tx(prepared), "emit.tx failed");
   accept("callback emitted", 101);
 }
 
-export function callback(_reserved: number): never {
-  if (_reserved !== 0) rollback("emitted transaction failed", _reserved);
-  const write = state.set("cbak", "called");
-  if (!write.ok) rollback("callback state failed", write.code);
+export function callback(info: CallbackInfo): never {
+  if (info.failed) rollback("emitted transaction failed", info.rawFlags);
+  rollback.onFail(state.set("cbak", "called"), "callback state failed");
   accept("callback called", 202);
 }
 )[test.tshook]"));
 
         auto const missingMainCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function callback(_reserved: number): never {
-  void _reserved;
+// @jshookz-allow-malformed
+export function callback(info: CallbackInfo): never {
+  void info;
   accept("callback only", 1);
 }
 )[test.tshook]"));
 
         auto const nonCallableEntriesCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
+// @jshookz-allow-malformed
 export const main = 1;
 export const callback = 2;
 )[test.tshook]"));
 
         auto const hostInitializingCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
+// @jshookz-allow-malformed
 export function main(_reserved: number): never {
   accept("entry", _reserved);
 }
@@ -409,7 +405,7 @@ int64_t hook(uint32_t reserved)
             hook::validateQuickJSBytecodeForTests(currentRuntime, hookBytecode);
         BEAST_EXPECT(!successfulValidation.error);
         BEAST_EXPECT(!successfulValidation.hasCallback);
-        expectFuel(successfulValidation.invocationFuelConsumed, 47901);
+        expectFuel(successfulValidation.invocationFuelConsumed, 49481);
 
         testcase("Validate one retained provider concurrently");
         std::array<std::future<hook::QuickJSValidationForTests>, 4>
@@ -426,7 +422,7 @@ int64_t hook(uint32_t reserved)
             auto result = validation.get();
             BEAST_EXPECT(!result.error);
             BEAST_EXPECT(!result.hasCallback);
-            expectFuel(result.invocationFuelConsumed, 47901);
+            expectFuel(result.invocationFuelConsumed, 49481);
         }
 
         testcase("Bind API, profile, hash, dedup, and hash install");
@@ -458,7 +454,7 @@ int64_t hook(uint32_t reserved)
             auto const failedValidation = hook::validateQuickJSBytecodeForTests(
                 currentRuntime, malformedBytecode);
             BEAST_EXPECT(!!failedValidation.error);
-            expectFuel(failedValidation.invocationFuelConsumed, 12736);
+            expectFuel(failedValidation.invocationFuelConsumed, 12943);
             identityEnv(
                 jtx::hook(
                     alice,
@@ -682,7 +678,7 @@ int64_t hook(uint32_t reserved)
         auto const message = execution.getFieldVL(sfHookReturnString);
         BEAST_EXPECT(
             std::string(message.begin(), message.end()) == "payment:0");
-        expectFuel(execution.getFieldU64(sfHookInstructionCount), 54998);
+        expectFuel(execution.getFieldU64(sfHookInstructionCount), 58851);
 
         testcase("Bind ledger context and keep terminals uncatchable");
         auto surfaceProbeHook = hsoVersioned(surfaceProbeCode, 1);
@@ -715,7 +711,7 @@ int64_t hook(uint32_t reserved)
             std::string(surfaceMessage.begin(), surfaceMessage.end()) ==
             "surface:40");
         expectFuel(
-            surfaceExecution.getFieldU64(sfHookInstructionCount), 116164);
+            surfaceExecution.getFieldU64(sfHookInstructionCount), 93471);
 
         //@@start jshooks-state-bridge
         testcase("Execute a C Hook through WasmEdge and persist state");
@@ -828,7 +824,7 @@ int64_t hook(uint32_t reserved)
         if (rollbackExecutions.size() != 1)
             return;
         expectFuel(
-            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 52974);
+            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 74328);
 
         stateEntry = env.le(stateKeylet);
         BEAST_EXPECT(!!stateEntry);
@@ -861,7 +857,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& memoryGrowthExecution = memoryGrowthExecutions[0];
         expectFuel(
-            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 6448006);
+            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7052053);
         BEAST_EXPECT(
             memoryGrowthExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
@@ -907,7 +903,7 @@ int64_t hook(uint32_t reserved)
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
         expectFuel(
             hostWorkExecutions[0].getFieldU64(sfHookInstructionCount),
-            11425302);
+            29894828);
 
         auto const meterKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -1002,16 +998,18 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& callbackExecution = callbackExecutions[0];
         expectFuel(
-            callbackExecution.getFieldU64(sfHookInstructionCount), 78772);
-        BEAST_EXPECT(
-            callbackExecution.getFieldU8(sfHookResult) ==
+            callbackExecution.getFieldU64(sfHookInstructionCount), 85392);
+        BEAST_EXPECT_EQ(
+            callbackExecution.getFieldU8(sfHookResult),
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
-        BEAST_EXPECT(callbackExecution.getFieldU64(sfHookReturnCode) == 202);
+        BEAST_EXPECT_EQ(
+            callbackExecution.getFieldU64(sfHookReturnCode),
+            std::uint64_t{202});
         auto const callbackMessage =
             callbackExecution.getFieldVL(sfHookReturnString);
-        BEAST_EXPECT(
-            std::string(callbackMessage.begin(), callbackMessage.end()) ==
-            "callback called");
+        BEAST_EXPECT_EQ(
+            std::string(callbackMessage.begin(), callbackMessage.end()),
+            std::string("callback called"));
 
         auto const callbackKey = uint256::fromVoid(
             (std::array<std::uint8_t, 32>{
@@ -1026,8 +1024,9 @@ int64_t hook(uint32_t reserved)
         if (!callbackState)
             return;
         auto const callbackData = callbackState->getFieldVL(sfHookStateData);
-        BEAST_EXPECT(
-            std::string(callbackData.begin(), callbackData.end()) == "called");
+        BEAST_EXPECT_EQ(
+            std::string(callbackData.begin(), callbackData.end()),
+            std::string("called"));
     }
 };
 

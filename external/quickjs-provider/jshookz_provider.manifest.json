@@ -1,5 +1,12 @@
 {
   "bytecode_abi_id": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
+  "javascript_surface": {
+    "declaration": "packages/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
+    "declaration_sha256": "376121ca3f04376fff8af79897bf688bf4121349379c6537d1fda8c167772513",
+    "manifest": "packages/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
+    "schema": "jshookz.javascript-surface.v1",
+    "sha256": "7b266e1c10b92d5939c7b7e1773bd34c7ad394c2111ef6da89985df3407be808"
+  },
   "provider": {
     "exports": [
       {
@@ -355,10 +362,10 @@
         ]
       }
     ],
-    "sha256": "2b3c196f057932e450f599142eceaa75ae846ec32d49eedf920b0138578fb2fd",
-    "size": 1005820
+    "sha256": "95c40c7b2672bb7ebf25b8112dc6953111f7285274465f3d5f4e27515421dc5c",
+    "size": 852299
   },
-  "runtime_profile_id": "ee0757217798ad7f384532721fdd8f5ef03b852adf473a6d3d5adf4f8526a7a8",
+  "runtime_profile_id": "5f6c45c52f4d79fb92a87a2c1a789a7e15a952cd0e520bfad9ba1834f5c490a4",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
@@ -392,7 +399,7 @@
         "wasm_tail_call": false,
         "wasm_threads": false
       },
-      "implementation": "wasmtime",
+      "implementation": "wasmtime-native-c-api",
       "module_lifecycle": "compile-once-fresh-store-and-instance-per-invocation",
       "version": "47.0.3"
     },
@@ -402,11 +409,50 @@
       "initialization": "finite-cold-qjs-init-budget-before-invocation-fuel-reset",
       "ordinary_host_status": "returned-as-i64-never-trapped",
       "pending_jobs_after_entry": "not-drained",
-      "result_failure_policy": "rollback.onFail-preserves-coded-failure;rollback.require-collapses-failure-or-absence-to-explicit-message-and-code",
+      "result_failure_policy": "rollback.onFail-preserves-coded-failure;rollback.require-collapses-failure-or-absence-to-explicit-message-and-optional-code-default-zero",
       "sfHookInstructionCount": "initial-wasmtime-invocation-fuel-minus-remaining-fuel",
       "terminals": "record-hook-result-and-uncatchable-wasmtime-trap"
     },
+    "javascript_surface": {
+      "declaration": "packages/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
+      "manifest": "packages/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
+      "schema": "jshookz.javascript-surface.v1"
+    },
     "limits": {
+      "host_work_addressed_length_indices": {
+        "accept": [
+          1
+        ],
+        "emit": [
+          1,
+          3
+        ],
+        "hook_account": [
+          1
+        ],
+        "ledger_last_hash": [
+          1
+        ],
+        "prepare": [
+          1,
+          3
+        ],
+        "rollback": [
+          1
+        ],
+        "state": [
+          1,
+          3
+        ],
+        "state_set": [
+          1,
+          3
+        ],
+        "trace": [
+          1,
+          3
+        ]
+      },
       "host_work_base_per_call": 1,
       "host_work_budget": 1000000,
       "host_work_meter": "base-plus-addressed-byte-v1",
