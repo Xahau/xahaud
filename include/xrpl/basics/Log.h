@@ -166,7 +166,8 @@ private:
     beast::severities::Severity thresh_;
     File file_;
     bool silent_ = false;
-    std::function<std::string(std::string const&)> transform_;
+    using Transform = std::function<std::string(std::string const&)>;
+    Transform transform_;
 
 public:
     Logs(beast::severities::Severity level);
@@ -205,28 +206,28 @@ public:
         std::string const& text,
         bool console);
 
-    /** Rewrite every log line before it is written.
-     *  Tests use this to replace r-addresses with Account(name) and
-     *  to prefix a phase label. Pass nullptr to clear.
+    /** Rewrite test log lines. Not synchronized.
+     *
+     *  TestEnv installs this in the constructor and clears it in the
+     *  destructor. The empty path is a null check; do not call
+     *  setTransform concurrently with applyTransform.
      */
     void
-    setTransform(std::function<std::string(std::string const&)> fn)
+    setTransform(Transform fn)
     {
-        std::lock_guard lock(mutex_);
         transform_ = std::move(fn);
+    }
+
+    bool
+    hasTransform() const
+    {
+        return static_cast<bool>(transform_);
     }
 
     std::string
     applyTransform(std::string const& text) const
     {
-        std::function<std::string(std::string const&)> fn;
-        {
-            std::lock_guard lock(mutex_);
-            fn = transform_;
-        }
-        if (!fn)
-            return text;
-        return fn(text);
+        return transform_ ? transform_(text) : text;
     }
 
     std::string

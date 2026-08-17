@@ -103,12 +103,15 @@ SuiteJournalSink::writeAlways(
     // Only write the string if the level at least equals the threshold.
     if (level >= threshold())
     {
-        std::string const output = logs_ ? logs_->applyTransform(text) : text;
         // std::endl flushes → sync() → str()/str("") race in shared buffer →
         // crashes
         static std::mutex log_mutex;
         std::lock_guard lock(log_mutex);
-        suite_.log << s << partition_ << output << std::endl;
+        if (logs_ && logs_->hasTransform())
+            suite_.log << s << partition_ << logs_->applyTransform(text)
+                       << std::endl;
+        else
+            suite_.log << s << partition_ << text << std::endl;
     }
 }
 
