@@ -37,7 +37,7 @@
         "kind": "memory",
         "maximum_pages": 512,
         "memory64": false,
-        "minimum_pages": 4,
+        "minimum_pages": 6,
         "name": "memory",
         "shared": false
       },
@@ -206,12 +206,6 @@
         "results": [
           "i32"
         ]
-      },
-      {
-        "kind": "function",
-        "name": "wizer.initialize",
-        "params": [],
-        "results": []
       }
     ],
     "imports": [
@@ -362,10 +356,10 @@
         ]
       }
     ],
-    "sha256": "9a0ff77139b08ed2bb965c538b7cb14af23022db65274b1d6a92fba7733af50c",
-    "size": 852299
+    "sha256": "6cbe9383b62a4c172aa4708e8ac4a373d6aea704bded34a2884f9160fe53b410",
+    "size": 941701
   },
-  "runtime_profile_id": "f606dec61d98e3baac50f3706eaab731e2ab40f182cddcc22d519f79472db521",
+  "runtime_profile_id": "c6f49bc5c2d629e51ff5dd7f4d6597fe47a1a444be6b40b15fe6813703f386f2",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
@@ -651,7 +645,7 @@
           "kind": "memory",
           "maximum_pages": 512,
           "memory64": false,
-          "minimum_pages": 4,
+          "minimum_pages": 6,
           "name": "memory",
           "shared": false
         },
