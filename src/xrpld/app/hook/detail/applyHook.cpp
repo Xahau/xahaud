@@ -785,21 +785,44 @@ hook::removeHookNamespaceEntry(ripple::SLE& sleAccount, ripple::uint256 ns)
 // transactions. If you wish to set a hook that has control over ttHOOK_SET then
 // set bit 1U<<22.
 bool
-hook::canHook(ripple::TxType txType, ripple::uint256 hookOn)
+canHookTT(ripple::TxType const& txType, ripple::uint256 const& hookOn)
 {
+    uint256 hookOnCopy = hookOn;
+
     // invert ttHOOK_SET bit
-    hookOn ^= UINT256_BIT[ttHOOK_SET];
+    hookOnCopy ^= UINT256_BIT[ttHOOK_SET];
 
     // invert entire field
-    hookOn = ~hookOn;
+    hookOnCopy = ~hookOnCopy;
 
-    return (hookOn & UINT256_BIT[txType]) != beast::zero;
+    return (hookOnCopy & UINT256_BIT[txType]) != beast::zero;
 }
 
 bool
-hook::canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit)
+hook::canEmit(ripple::TxType const& txType, ripple::uint256 const& hookCanEmit)
 {
-    return hook::canHook(txType, hookCanEmit);
+    return canHookTT(txType, hookCanEmit);
+}
+
+bool
+hook::canHook(
+    STTx const& tx,
+    ripple::uint256 const& hookOn,
+    std::optional<ripple::Blob> const& hookName)
+{
+    if (!canHookTT(tx.getTxnType(), hookOn))
+        return false;
+
+    if (!hookName)
+        // no hook name specified to hook, so we can always hook
+        return true;
+
+    if (!tx.isFieldPresent(sfHookName))
+        // hook name specified hook, but no hook name specified in the
+        // transaction, so we can't hook without the hook name
+        return false;
+
+    return tx.getFieldVL(sfHookName) == hookName;
 }
 
 ripple::uint256

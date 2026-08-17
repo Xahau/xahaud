@@ -82,10 +82,13 @@ namespace hook_api {
 namespace hook {
 
 bool
-canHook(ripple::TxType txType, ripple::uint256 hookOn);
+canHook(
+    STTx const& tx,
+    ripple::uint256 const& hookOn,
+    std::optional<ripple::Blob> const& hookName);
 
 bool
-canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit);
+canEmit(ripple::TxType const& txType, ripple::uint256 const& hookCanEmit);
 
 ripple::uint256
 getHookCanEmit(ripple::STObject const& hookObj, SLE::pointer const& hookDef);

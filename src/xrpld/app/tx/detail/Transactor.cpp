@@ -287,19 +287,10 @@ Transactor::calculateHookChainFee(
             // LCOV_EXCL_STOP
         }
 
-        std::optional<Blob> requiredHookName;
+        std::optional<Blob> hookName;
         if (hookObj.isFieldPresent(sfHookName) &&
             hookObj.getFieldVL(sfHookName).size() > 0)
-            requiredHookName = hookObj.getFieldVL(sfHookName);
-
-        if (requiredHookName)
-        {
-            // need to specify same hook name in the transaction
-            if (!tx.isFieldPresent(sfHookName))
-                continue;
-            if (*requiredHookName != tx.getFieldVL(sfHookName))
-                continue;
-        }
+            hookName = hookObj.getFieldVL(sfHookName);
 
         uint32_t flags = 0;
         if (hookObj.isFieldPresent(sfFlags))
@@ -311,7 +302,7 @@ Transactor::calculateHookChainFee(
         uint256 hookOn = hook::getHookOn(
             hookObj, hookDef, isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming);
 
-        if (hook::canHook(tx.getTxnType(), hookOn) &&
+        if (hook::canHook(tx, hookOn, hookName) &&
             (!collectCallsOnly || (flags & hook::hsfCOLLECT)))
         {
             XRPAmount const toAdd{hookDef->getFieldAmount(sfFee).xrp().drops()};
@@ -1381,25 +1372,16 @@ Transactor::executeHookChain(
             // LCOV_EXCL_STOP
         }
 
-        std::optional<Blob> requiredHookName;
+        std::optional<Blob> hookName;
         if (hookObj.isFieldPresent(sfHookName) &&
             hookObj.getFieldVL(sfHookName).size() > 0)
-            requiredHookName = hookObj.getFieldVL(sfHookName);
-
-        if (requiredHookName)
-        {
-            // need to specify same hook name in the transaction
-            if (!ctx_.tx.isFieldPresent(sfHookName))
-                continue;
-            if (*requiredHookName != ctx_.tx.getFieldVL(sfHookName))
-                continue;
-        }
+            hookName = hookObj.getFieldVL(sfHookName);
 
         // check if the hook can fire
         uint256 hookOn = hook::getHookOn(
             hookObj, hookDef, isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming);
 
-        if (!hook::canHook(ctx_.tx.getTxnType(), hookOn))
+        if (!hook::canHook(ctx_.tx, hookOn, hookName))
             continue;  // skip if it can't
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
