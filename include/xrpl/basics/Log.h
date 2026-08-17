@@ -25,6 +25,7 @@
 #include <boost/beast/core/string.hpp>
 #include <boost/filesystem.hpp>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -165,6 +166,7 @@ private:
     beast::severities::Severity thresh_;
     File file_;
     bool silent_ = false;
+    std::function<std::string(std::string const&)> transform_;
 
 public:
     Logs(beast::severities::Severity level);
@@ -202,6 +204,30 @@ public:
         std::string const& partition,
         std::string const& text,
         bool console);
+
+    /** Rewrite every log line before it is written.
+     *  Tests use this to replace r-addresses with Account(name) and
+     *  to prefix a phase label. Pass nullptr to clear.
+     */
+    void
+    setTransform(std::function<std::string(std::string const&)> fn)
+    {
+        std::lock_guard lock(mutex_);
+        transform_ = std::move(fn);
+    }
+
+    std::string
+    applyTransform(std::string const& text) const
+    {
+        std::function<std::string(std::string const&)> fn;
+        {
+            std::lock_guard lock(mutex_);
+            fn = transform_;
+        }
+        if (!fn)
+            return text;
+        return fn(text);
+    }
 
     std::string
     rotate();

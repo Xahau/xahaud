@@ -1157,7 +1157,7 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (!j.trace())
+    if (!jh.trace())
         return 0ULL;
 
     if (read_len > 128)
@@ -1171,16 +1171,16 @@ DEFINE_HOOK_FUNCTION(
 
         if (read_len > 0)
         {
-            j.trace() << "HookTrace[" << HC_ACC() << "]: "
-                      << std::string_view(
-                             (const char*)memory + read_ptr, read_len)
-                      << ": " << number;
+            JLOG(jh.trace())
+                << "HookTrace[" << HC_ACC() << "]: "
+                << std::string_view((const char*)memory + read_ptr, read_len)
+                << ": " << number;
 
             return 0ULL;
         }
     }
 
-    j.trace() << "HookTrace[" << HC_ACC() << "]: " << number;
+    JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]: " << number;
     return 0ULL;
     HOOK_TEARDOWN();
 }
@@ -1200,7 +1200,7 @@ DEFINE_HOOK_FUNCTION(
         NOT_IN_BOUNDS(dread_ptr, dread_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (!j.trace())
+    if (!jh.trace())
         return 0ULL;
 
     if (mread_len > 128)
@@ -1260,8 +1260,9 @@ DEFINE_HOOK_FUNCTION(
 
     if (out_len > 0)
     {
-        j.trace() << "HookTrace[" << HC_ACC() << "]: "
-                  << std::string_view((const char*)output_storage, out_len);
+        JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]: "
+                         << std::string_view(
+                                (const char*)output_storage, out_len);
     }
 
     return 0ULL;
@@ -3454,7 +3455,7 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (!j.trace())
+    if (!jh.trace())
         return 0ULL;
 
     if (read_len > 128)
@@ -3471,8 +3472,8 @@ DEFINE_HOOK_FUNCTION(
 
     if (float1 == 0)
     {
-        j.trace() << "HookTrace[" << HC_ACC() << "]: " << messageKey
-                  << ": Float 0*10^(0) <ZERO>";
+        JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]: " << messageKey
+                         << ": Float 0*10^(0) <ZERO>";
         return 0ULL;
     }
 
@@ -3483,14 +3484,14 @@ DEFINE_HOOK_FUNCTION(
         man.value() > maxMantissa || exp.value() < minExponent ||
         exp.value() > maxExponent)
     {
-        j.trace() << "HookTrace[" << HC_ACC() << "]: " << messageKey
-                  << ": Float <INVALID>";
+        JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]: " << messageKey
+                         << ": Float <INVALID>";
         return 0ULL;
     }
 
-    j.trace() << "HookTrace[" << HC_ACC() << "]:" << messageKey << ": Float "
-              << (neg ? "-" : "") << man.value() << "*10^(" << exp.value()
-              << ")";
+    JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]:" << messageKey
+                     << ": Float " << (neg ? "-" : "") << man.value()
+                     << "*10^(" << exp.value() << ")";
     return 0ULL;
 
     HOOK_TEARDOWN();

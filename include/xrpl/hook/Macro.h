@@ -157,6 +157,7 @@
         [[maybe_unused]] ApplyContext& applyCtx = hookCtx.applyCtx;  \
         [[maybe_unused]] auto& view = applyCtx.view();               \
         [[maybe_unused]] auto j = applyCtx.app.journal("View");      \
+        [[maybe_unused]] auto jh = applyCtx.app.journal("HooksTrace"); \
         [[maybe_unused]] WasmEdge_MemoryInstanceContext* memoryCtx = \
             WasmEdge_CallingFrameGetMemoryInstance(&frameCtx, 0);    \
         [[maybe_unused]] unsigned char* memory =                     \

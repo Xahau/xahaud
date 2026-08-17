@@ -106,7 +106,8 @@ public:
         std::string const& partition,
         beast::severities::Severity threshold) override
     {
-        return std::make_unique<SuiteJournalSink>(partition, threshold, suite_);
+        return std::make_unique<SuiteJournalSink>(
+            partition, threshold, suite_, this);
     }
 };
 

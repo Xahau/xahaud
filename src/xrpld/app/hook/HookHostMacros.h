@@ -184,6 +184,7 @@ wasmEdgeGuestMemory(WasmEdge_CallingFrameContext const& frame) noexcept
         [[maybe_unused]] ApplyContext& applyCtx = hookCtx.applyCtx;         \
         [[maybe_unused]] auto& view = applyCtx.view();                      \
         [[maybe_unused]] auto j = applyCtx.app.journal("View");             \
+        [[maybe_unused]] auto jh = applyCtx.app.journal("HooksTrace");      \
         frameCtx.resolve();                                                 \
         [[maybe_unused]] auto& guestMemory = frameCtx;                      \
         [[maybe_unused]] unsigned char* memory = guestMemory.data();        \

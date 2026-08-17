@@ -181,7 +181,92 @@ if(xrpld)
     file(GLOB_RECURSE sources CONFIGURE_DEPENDS
       "${CMAKE_CURRENT_SOURCE_DIR}/src/test/*.cpp"
     )
+    if(HOOKS_TEST_ONLY OR DEFINED ENV{HOOKS_TEST_ONLY})
+      list(FILTER sources EXCLUDE REGEX "_test\\.cpp$")
+      message(STATUS "HOOKS_TEST_ONLY: excluded *_test.cpp from src/test/")
+    endif()
     target_sources(rippled PRIVATE ${sources})
+
+    # External Env tests live next to the producer. Point at a directory of
+    # *_test.cpp files (typically jshookz/env-tests). hookz build-test-hooks
+    # must be on PATH. Coverage is not wired here.
+    if(NOT HOOKS_TEST_DIR AND DEFINED ENV{HOOKS_TEST_DIR})
+      set(HOOKS_TEST_DIR $ENV{HOOKS_TEST_DIR})
+    endif()
+    if(NOT HOOKS_SOURCE_DIR AND DEFINED ENV{HOOKS_SOURCE_DIR})
+      set(HOOKS_SOURCE_DIR $ENV{HOOKS_SOURCE_DIR})
+    endif()
+    if(HOOKS_TEST_DIR AND EXISTS "${HOOKS_TEST_DIR}")
+      file(GLOB EXTERNAL_HOOK_TESTS CONFIGURE_DEPENDS
+        "${HOOKS_TEST_DIR}/*_test.cpp"
+      )
+      if(EXTERNAL_HOOK_TESTS)
+        set(_hooks_extra_args "")
+        set(_hooks_source_deps "")
+        if(HOOKS_SOURCE_DIR)
+          foreach(_dir ${HOOKS_SOURCE_DIR})
+            list(APPEND _hooks_extra_args "--hooks-c-dir" "${_dir}")
+            string(REGEX REPLACE "^[^=]+=" "" _hook_dir "${_dir}")
+            if(EXISTS "${_hook_dir}")
+              file(GLOB_RECURSE _hook_dir_deps CONFIGURE_DEPENDS
+                "${_hook_dir}/*.c"
+                "${_hook_dir}/*.h"
+                "${_hook_dir}/*.ts"
+                "${_hook_dir}/*.js"
+              )
+              if(HOOKS_TEST_DIR)
+                list(FILTER _hook_dir_deps EXCLUDE REGEX "^${HOOKS_TEST_DIR}/")
+              endif()
+              list(APPEND _hooks_source_deps ${_hook_dir_deps})
+            endif()
+          endforeach()
+          list(REMOVE_DUPLICATES _hooks_source_deps)
+        endif()
+        set(_hooks_always_run OFF)
+        if(HOOKS_FORCE_RECOMPILE OR DEFINED ENV{HOOKS_FORCE_RECOMPILE})
+          list(APPEND _hooks_extra_args "--force-write" "--no-cache")
+          set(_hooks_always_run ON)
+          message(STATUS "Hook force recompile enabled (cache bypassed)")
+        endif()
+        foreach(_test_file ${EXTERNAL_HOOK_TESTS})
+          get_filename_component(_stem ${_test_file} NAME_WE)
+          set(_hooks_header "${HOOKS_TEST_DIR}/${_stem}_hooks.h")
+          if(_hooks_always_run)
+            add_custom_target(compile_hooks_${_stem} ALL
+              COMMAND hookz build-test-hooks "${_test_file}" ${_hooks_extra_args}
+              WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+              COMMENT "Compiling hooks for ${_stem} (forced)"
+              VERBATIM
+            )
+            list(APPEND EXTERNAL_HOOK_TARGETS compile_hooks_${_stem})
+          else()
+            add_custom_command(
+              OUTPUT "${_hooks_header}"
+              COMMAND hookz build-test-hooks "${_test_file}" ${_hooks_extra_args}
+              DEPENDS "${_test_file}" ${_hooks_source_deps}
+              WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+              COMMENT "Compiling hooks for ${_stem}"
+              VERBATIM
+            )
+            list(APPEND EXTERNAL_HOOK_HEADERS "${_hooks_header}")
+          endif()
+        endforeach()
+        if(_hooks_always_run)
+          foreach(_tgt ${EXTERNAL_HOOK_TARGETS})
+            add_dependencies(rippled ${_tgt})
+          endforeach()
+        else()
+          add_custom_target(compile_external_hooks DEPENDS ${EXTERNAL_HOOK_HEADERS})
+          add_dependencies(rippled compile_external_hooks)
+        endif()
+        target_sources(rippled PRIVATE ${EXTERNAL_HOOK_TESTS})
+        set_property(
+          SOURCE ${EXTERNAL_HOOK_TESTS}
+          APPEND PROPERTY INCLUDE_DIRECTORIES "${HOOKS_TEST_DIR}"
+        )
+        message(STATUS "Including external hook tests from: ${HOOKS_TEST_DIR}")
+      endif()
+    endif()
   endif()
 
   target_link_libraries(rippled
