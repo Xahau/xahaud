@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  JSHOOKZ_REF: 5d00e6674b463b04db2f9ef91b977d08ece04d77
+  JSHOOKZ_REF: main
   HOOKZ_REF: 846f5f0f80861985dceb41ad6f02ff914f8a0c3d
   XAHAUD_SCRIPTS_REF: e41a712c68a613d95a8911cbf89711db2d95aa3b
   WASI_SDK_VERSION: "32"

@@ -16,9 +16,10 @@ command:
 bin/update-jshookz-snapshot /path/to/jshookz
 ```
 
-That builds and imports the sealed bundle and pins the end-to-end workflow to
-the exact producer commit. It then prints a self-contained `x-run-tests`
-command that regenerates the embedded Hook fixtures and verifies the cut.
+That builds and imports the sealed lock files. CI checks out jshookz
+`main` and fails if `build provider` does not reproduce that lock. The
+importer then prints a self-contained `x-run-tests` command that
+regenerates the embedded Hook fixtures and verifies the cut.
 
 `jshookz_provider.manifest.json` is the verified runtime-profile lock.
 `jshookz_provider.manifest.cmake` is its minimal CMake projection. Xahau checks

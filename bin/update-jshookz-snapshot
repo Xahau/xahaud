@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import shlex
 import shutil
 import subprocess
@@ -35,8 +34,9 @@ def run(*args: str, cwd: Path, capture: bool = False) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Build a committed jshookz checkout, copy its sealed provider "
-            "bundle, and pin the Xahau end-to-end workflow to that commit."
+            "Build a committed jshookz checkout and copy its sealed "
+            "provider lock into Xahau. CI tracks jshookz main; the lock "
+            "is what must match."
         )
     )
     parser.add_argument("jshookz_checkout", type=Path)
@@ -67,7 +67,6 @@ def main() -> int:
         )
     bundle = jshookz_root / "build/xahau-provider"
     destination = xahau_root / "external/quickjs-provider"
-    workflow = xahau_root / ".github/workflows/jshookz-e2e.yml"
 
     dirty = run(
         "git",
@@ -93,20 +92,6 @@ def main() -> int:
 
     for name in SNAPSHOT_FILES:
         shutil.copy2(bundle / name, destination / name)
-
-    workflow_text = workflow.read_text()
-    updated, replacements = re.subn(
-        r"(?m)^  JSHOOKZ_REF: [0-9a-f]{40}$",
-        f"  JSHOOKZ_REF: {commit}",
-        workflow_text,
-    )
-    if replacements != 1:
-        parser.error(
-            f"expected one JSHOOKZ_REF in {workflow.relative_to(xahau_root)}; "
-            f"found {replacements}"
-        )
-    if updated != workflow_text:
-        workflow.write_text(updated)
 
     manifest = json.loads((bundle / "jshookz_provider.manifest.json").read_text())
     wasi_sdk = os.environ.get("HOOKZ_WASI_SDK")
