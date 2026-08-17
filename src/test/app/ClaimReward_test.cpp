@@ -563,6 +563,20 @@ public:
                 env(reward::claim(alice),
                     reward::issuer(issuer),
                     ter(tecNO_TARGET));
+                env.close();
+            }
+            // Invalid HookName
+            {
+                auto hookObj = hso(jtx::genesis::AcceptHook, overrideFlag);
+                hookObj[jss::HookOn] = to_string(~UINT256_BIT[ttCLAIM_REWARD]);
+                hookObj[jss::HookName] = "4142434445";
+                env(hook(issuer, {{hookObj}}, 0), fee(XRP(1)));
+                env.close();
+
+                env(reward::claim(alice),
+                    reward::issuer(issuer),
+                    ter(tecNO_TARGET));
+                env.close();
             }
             // Vaild HookOn
             {
