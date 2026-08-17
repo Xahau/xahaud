@@ -49,13 +49,25 @@ def main() -> int:
 
     xahau_root = Path(__file__).resolve().parents[1]
     jshookz_root = args.jshookz_checkout.expanduser().resolve()
-    cli = jshookz_root / "packages/jshookz/.venv/bin/jshookz"
+    cli = next(
+        (
+            candidate
+            for candidate in (
+                jshookz_root / "python/jshookz/.venv/bin/jshookz",
+                jshookz_root / "packages/jshookz/.venv/bin/jshookz",
+            )
+            if candidate.is_file()
+        ),
+        None,
+    )
+    if cli is None:
+        parser.error(
+            "missing jshookz CLI under python/jshookz/.venv or "
+            "packages/jshookz/.venv"
+        )
     bundle = jshookz_root / "build/xahau-provider"
     destination = xahau_root / "external/quickjs-provider"
     workflow = xahau_root / ".github/workflows/jshookz-e2e.yml"
-
-    if not cli.is_file():
-        parser.error(f"missing jshookz CLI: {cli}")
 
     dirty = run(
         "git",

@@ -3,8 +3,10 @@
 These files are generated together by a jshookz source checkout:
 
 ```sh
-uv sync --project packages/jshookz --locked --group dev
-packages/jshookz/.venv/bin/jshookz build provider
+# Current layout (cpp/provider, python/jshookz). Older checkouts used
+# packages/jshookz; bin/update-jshookz-snapshot accepts either CLI path.
+uv sync --project python/jshookz --locked --group dev
+python/jshookz/.venv/bin/jshookz build provider
 ```
 
 Update this Xahau branch from a clean, committed jshookz checkout with one
@@ -35,5 +37,7 @@ cmake -S . -B build \
   -DXAHAU_QUICKJS_PROVIDER_BUNDLE_DIR=/path/to/jshookz/build/xahau-provider
 ```
 
-CMake reads both generated manifests and, when the provider is present,
-verifies its size and SHA-256 before generating the native profile constants.
+A build-time generator writes `QuickJSProviderValues.cpp` from those
+locks and, if present, the gitignored wasm. Configure only checks that
+the three lock files exist. Changing the bundle rebuilds that one
+translation unit; hash, Wasmtime, and optional-wasm checks run then.

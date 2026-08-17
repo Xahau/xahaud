@@ -49,7 +49,7 @@ currentQuickJSRuntimeProfile();
 
 /** The sealed provider projected into this binary at build time, or empty
     when the build's bundle directory carried no provider binary. Defined by
-    the generated QuickJSProviderEmbed.cpp; the bytes are still SHA-verified
+    the generated QuickJSProviderValues.cpp; the bytes are still SHA-verified
     against the current profile when registered. */
 std::span<std::uint8_t const>
 embeddedQuickJSProvider();

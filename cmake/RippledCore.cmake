@@ -168,14 +168,14 @@ if(xrpld)
   target_include_directories(rippled
     PRIVATE
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
-      $<BUILD_INTERFACE:${XAHAU_QUICKJS_GENERATED_INCLUDE_DIR}>
   )
 
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/xrpld/*.cpp"
   )
   target_sources(rippled PRIVATE ${sources})
-  target_sources(rippled PRIVATE "${XAHAU_QUICKJS_PROVIDER_EMBED_SOURCE}")
+  add_dependencies(rippled xahau_quickjs_refresh_provider)
+  target_sources(rippled PRIVATE "${XAHAU_QUICKJS_PROVIDER_VALUES_SOURCE}")
 
   if(tests)
     file(GLOB_RECURSE sources CONFIGURE_DEPENDS
