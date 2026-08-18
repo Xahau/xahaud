@@ -823,7 +823,7 @@ int64_t hook(uint32_t reserved)
         if (rollbackExecutions.size() != 1)
             return;
         expectFuel(
-            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 74328);
+            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 74329);
 
         stateEntry = env.le(stateKeylet);
         BEAST_EXPECT(!!stateEntry);
@@ -856,7 +856,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& memoryGrowthExecution = memoryGrowthExecutions[0];
         expectFuel(
-            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7052053);
+            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7052054);
         BEAST_EXPECT(
             memoryGrowthExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
@@ -902,7 +902,7 @@ int64_t hook(uint32_t reserved)
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
         expectFuel(
             hostWorkExecutions[0].getFieldU64(sfHookInstructionCount),
-            29894828);
+            29894829);
 
         auto const meterKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -997,7 +997,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& callbackExecution = callbackExecutions[0];
         expectFuel(
-            callbackExecution.getFieldU64(sfHookInstructionCount), 85392);
+            callbackExecution.getFieldU64(sfHookInstructionCount), 85393);
         BEAST_EXPECT_EQ(
             callbackExecution.getFieldU8(sfHookResult),
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
