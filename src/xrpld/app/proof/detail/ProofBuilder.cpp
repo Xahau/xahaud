@@ -99,25 +99,6 @@ struct TrieNode
     uint256 key;
     std::array<std::unique_ptr<TrieNode>, 16> children;
     bool isLeaf{false};
-
-    bool
-    hasChildren() const
-    {
-        for (auto const& c : children)
-            if (c)
-                return true;
-        return false;
-    }
-
-    int
-    childCount() const
-    {
-        int count = 0;
-        for (auto const& c : children)
-            if (c)
-                ++count;
-        return count;
-    }
 };
 
 /// Get the nibble at position `depth` in a 256-bit key.
