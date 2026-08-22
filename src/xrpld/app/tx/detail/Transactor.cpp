@@ -898,6 +898,12 @@ Transactor::checkSign(PreclaimContext const& ctx)
         ctx.tx.getTxnType() == ttIMPORT)
         return tesSUCCESS;
 
+    // pass ttMANIFEST_SETs, their signatures are checked in preflight against
+    // the manifest's internal key logic
+    if (ctx.view.rules().enabled(featureOnChainManifests) &&
+        ctx.tx.getTxnType() == ttMANIFEST_SET)
+        return tesSUCCESS;
+
     if (ctx.flags & tapDRY_RUN)
     {
         // This code must be different for `simulate`
