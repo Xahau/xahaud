@@ -500,7 +500,7 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
 
-TRANSACTION(ttMANIFEST_SET, 91, ManifestSet, ({
+TRANSACTION(ttMANIFEST_SET, 91, SetManifest, ({
     {sfAccount, soeREQUIRED},
     {sfManifest, soeREQUIRED},
 }))

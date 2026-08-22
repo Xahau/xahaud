@@ -27,7 +27,7 @@
 #include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
-#include <xrpl/app/misc/Manifest.h>
+#include <xrpld/app/misc/Manifest.h>
 
 namespace ripple {
 
@@ -65,7 +65,7 @@ SetManifest::preflight(PreflightContext const& ctx)
                                   .downcast<STObject>();
 
     // 1. sfManifest must match the manifest template and be validly signed
-    auto manifest = Manifest::deserializeManifest(obj, j);
+    auto manifest = deserializeManifest(obj, j);
     
     if (!manifest.has_value())
     {
@@ -118,10 +118,10 @@ SetManifest::preclaim(PreclaimContext const& ctx)
                                   .getField(sfManifest)
                                   .downcast<STObject>();
 
-    auto newManifest = Manifest::deserializeManifest(newObj, j);
+    auto newManifest = deserializeManifest(newObj, ctx.j);
 
 
-    auto const sleOld = view.read(Keylet{ltMANIFEST, sle->getFieldH256(sfManifestID));
+    auto const sleOld = ctx.view.read(Keylet{ltMANIFEST, sle->getFieldH256(sfManifestID)});
 
     if (!sleOld)
     {
@@ -166,7 +166,7 @@ SetManifest::doApply()
         auto sleMan1 = view().peek(Keylet{ltMANIFEST, firstID});
         if (!sleMan1)
         {
-            JLOG(ctx.j.error())
+            JLOG(j_.error())
                     << "SetManifest: Old manifest object referenced but missing (ID1) !! " << strHex(firstID);
             return tefBAD_LEDGER;
         }
@@ -174,7 +174,7 @@ SetManifest::doApply()
         uint256 const secondID = sle->getFieldH256(sfManifestID);
         if (secondID == firstID)
         {
-            JLOG(ctx.j.error())
+            JLOG(j_.error())
                 << "SetManifest: Manifest second ID references first object!! " << strHex(firstID);
             return tefBAD_LEDGER;
         }
@@ -182,7 +182,7 @@ SetManifest::doApply()
         auto sleMan2 = view().peek(Keylet{ltMANIFEST, secondID});
         if (!sleMan2)
         {
-            JLOG(ctx.j.error())
+            JLOG(j_.error())
                     << "SetManifest: Old manifest object referenced but missing (ID2) !! " << strHex(secondID);
             return tefBAD_LEDGER;
         }
@@ -190,7 +190,7 @@ SetManifest::doApply()
         if (sleMan1->getAccountID(sfAccount) != account_ ||
             sleMan2->getAccountID(sfAccount) != account_)
         {
-            JLOG(ctx.j.error())
+            JLOG(j_.error())
                     << "SetManifest: One or more manifest IDs point at incorrect account!!";
             return tefBAD_LEDGER;
         }
@@ -206,21 +206,21 @@ SetManifest::doApply()
                                   .getField(sfManifest)
                                   .downcast<STObject>();
 
-    auto manifest = Manifest::deserializeManifest(obj, j);
+    auto manifest = deserializeManifest(obj, j_);
     
     if (!manifest.has_value())
     {
-        JLOG(j.warn()) << "SetManifest: invalid manifest passed (parseManifest failed).";
+        JLOG(j_.warn()) << "SetManifest: invalid manifest passed (parseManifest failed).";
         return temMALFORMED;
     }
 
     if (calcAccountID(manifest->masterKey) != account_)
         return tefINTERNAL;
 
-    Keylet klMan1 = Keylet::manifest(manifest->masterKey);
+    Keylet klMan1 = keylet::manifest(manifest->masterKey);
     std::optional<Keylet> klMan2;
     if (!manifest->revoked() && manifest->signingKey.has_value())
-        klMan2 = Keylet::manifest(manifest->signingKey);
+        klMan2 = keylet::manifest(*manifest->signingKey);
 
     auto setManifest = [&](std::shared_ptr<SLE>& sle, std::optional<uint256> otherKey) -> void
     {
@@ -230,19 +230,19 @@ SetManifest::doApply()
             sle->setFieldVL(sfSigningPubKey, *(manifest->signingKey));
         sle->setFieldU32(sfSequence, manifest->sequence);
         sle->setFieldU16(sfVersion, 0);
-        if (manifest->domain.has_value() && manifest->domain != "")
-            sle->setFieldVL(sfDomain, manifest->domain);
+        if (manifest->domain != "")
+            sle->setFieldVL(sfDomain, makeSlice(manifest->domain));
         if (otherKey.has_value())
-            sle>setFieldH256(sfManifestID, *otherKey);
+            sle->setFieldH256(sfManifestID, *otherKey);
     };
 
-    std::shared_ptr<SLE> sleMan1 = std::make_shared<SLE>(klMan1);
-    setManifest(sleMan1, klMan2);
+    auto sleMan1 = std::make_shared<SLE>(klMan1);
+    setManifest(sleMan1, klMan2->key);
     
     if (klMan2.has_value())
     {
-        sleMan2 = std::make_shared<SLE>(*klMan2);
-        setManifest(sleMan2, klMan1);
+        auto sleMan2 = std::make_shared<SLE>(*klMan2);
+        setManifest(sleMan2, klMan1.key);
         view().insert(sleMan2);
     }
     
@@ -264,6 +264,8 @@ SetManifest::calculateBaseFee(ReadView const& view, STTx const& tx)
         STObject const& newObj = const_cast<ripple::STTx&>(tx)
                                   .getField(sfManifest)
                                   .downcast<STObject>();
+
+
 
         // one drop per byte
         manifestFee = XRPAmount { newObj.getSerializer().getDataLength() };

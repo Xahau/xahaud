@@ -30,6 +30,8 @@
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/resource/Fees.h>
+#include <xrpl/basics/strHex.h>
+#include <xrpld/app/ledger/OpenLedger.h>
 
 namespace ripple {
 
@@ -94,7 +96,7 @@ doSubmit(RPC::JsonContext& context)
 
     context.loadType = Resource::feeMediumBurdenRPC;
 
-    bool const hasManifest = context.params.isMemeber(jss::manifest);
+    bool const hasManifest = context.params.isMember(jss::manifest);
     bool const hasTxBlob = context.params.isMember(jss::tx_blob);
 
     if (hasManifest && hasTxBlob)
@@ -143,7 +145,7 @@ doSubmit(RPC::JsonContext& context)
 
         try
         {
-            man = deserializeManifest(makeSlice(*ret), context.app.journal("Submit"));
+            man = deserializeManifest(makeSlice(*raw), context.app.journal("Submit"));
         }
         catch (std::exception& e)
         {
@@ -174,17 +176,17 @@ doSubmit(RPC::JsonContext& context)
         // forward compatible with a future manifest format change, even if that change is into a PQ opaque blob.
 
         STTx tx = STTx(ttMANIFEST_SET, [&](STObject& obj) {
-            obj.setAccountID(sfAccount, calcAccountID(manifest->masterKey));
+            obj.setAccountID(sfAccount, calcAccountID(man->masterKey));
             obj.setFieldU32(sfSequence, 0);
-            obj.setFieldU32(sfNetworkID, context.app.overlay().networkID());
+            obj.setFieldU32(sfNetworkID, context.app.config().NETWORK_ID);
             obj.setFieldAmount(sfFee, XRPAmount{0});
-            obj.setFieldVL(sfSigningPubkey, std::vector<std::uint8_t>{});
+            obj.setFieldVL(sfSigningPubKey, std::vector<std::uint8_t>{});
             obj.setFieldVL(sfTxnSignature, std::vector<std::uint8_t>{});
         });
             
         std::string const manifestHex = 
             + "E05A" /* object marker for sfManfiest ... this goes at the end of the tx canonically */
-            + strHex(raw) /* re-encode the original slice as fresh hex to match case etc */
+            + strHex(*raw) /* re-encode the original slice as fresh hex to match case etc */
             + "E1"; /* object end marker for sfManifest */
 
         std::string const txHex = serializeHex(tx) + manifestHex; 

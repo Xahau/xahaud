@@ -22,6 +22,7 @@
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpld/app/misc/Manifest.h>
 
 namespace ripple {
 
@@ -74,7 +75,7 @@ checkValidity(
     }
 
     if (rules.enabled(featureOnChainManifests) &&
-            tx.getTxType() == ttMANIFEST_SET &&
+            tx.getTxnType() == ttMANIFEST_SET &&
             tx.isFieldPresent(sfTxnSignature) && 
             tx.getFieldVL(sfTxnSignature).empty() && 
             tx.isFieldPresent(sfSigningPubKey) &&
@@ -82,12 +83,12 @@ checkValidity(
             tx.isFieldPresent(sfManifest))
     {
         // perform alternative signature check over manifest
-        STObject const& man = const_cast<ripple::STTx&>(ctx.tx)
+        STObject const& manObj = const_cast<ripple::STTx&>(tx)
                                   .getField(sfManifest)
                                   .downcast<STObject>();
 
-        auto man = Manifest::deserializeManifest(newObj, j);
-        if (!man->valid())
+        auto man = deserializeManifest(manObj);
+        if (!man.has_value() || !man->verify())
             return {
                 Validity::SigBad,
                 "Manifest signature is bad"};

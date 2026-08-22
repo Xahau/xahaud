@@ -173,6 +173,16 @@ deserializeManifest(
     return deserializeManifest(makeSlice(s), journal);
 }
 
+inline std::optional<Manifest>
+deserializeManifest(
+    STObject const& st,
+    beast::Journal journal = beast::Journal(beast::Journal::getNullSink()))
+{
+        Serializer s;                                                                                                  
+        st.add(s);
+        return deserializeManifest(makeSlice(s.peekData()), journal);
+}
+
 template <
     class T,
     class = std::enable_if_t<

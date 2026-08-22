@@ -8445,6 +8445,11 @@ private:
         }
     }
 
+    void testSetManifestTSH(FeatureBitset features)
+    {
+        // RH TODO
+    }
+
     void
     testTSH(FeatureBitset features)
     {
