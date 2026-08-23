@@ -27,6 +27,35 @@
 
 namespace ripple {
 
+/** Encode the transaction that publishes `manifest` on-ledger.
+
+    A manifest transaction carries no account signature, so the protocol pins
+    the whole envelope: Sequence must be 0, SigningPubKey and TxnSignature must
+    be empty, and Fee must fall between the computed base fee and a ceiling
+    above it. SetManifest::preflight and SetManifest::checkFee reject anything
+    else. Every caller that submits a manifest builds it here so those rules
+    cannot drift apart from the ones the transactor enforces.
+
+    Returns hex rather than an STTx because the manifest is appended to the
+    encoded transaction verbatim, behind its object marker, instead of being
+    parsed and re-emitted: the bytes the master key signed survive untouched,
+    and a future change to the manifest format needs no change here.
+
+    @param manifest Serialized manifest
+    @param networkID Network the transaction is for
+    @param openView Ledger the fee is priced against
+    @param j Journal
+
+    @return the hex-encoded transaction, or nullopt if the manifest does not
+        parse or does not verify
+*/
+std::optional<std::string>
+makeSetManifestTx(
+    Slice const& manifest,
+    std::uint32_t networkID,
+    ReadView const& openView,
+    beast::Journal j);
+
 class SetManifest : public Transactor
 {
 public:

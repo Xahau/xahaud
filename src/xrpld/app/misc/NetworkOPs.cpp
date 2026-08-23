@@ -42,6 +42,7 @@
 #include <xrpld/app/misc/detail/AccountTxPaging.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/SetManifest.h>  // makeSetManifestTx
 #include <xrpld/consensus/Consensus.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/overlay/Cluster.h>
@@ -311,6 +312,8 @@ private:
     switchLastClosedLedger(std::shared_ptr<Ledger const> const& newLCL);
     bool
     checkLastClosedLedger(const Overlay::PeerSequence&, uint256& networkClosed);
+    void
+    publishNewerManifests(ReadView const& ledger);
 
 public:
     bool
@@ -1157,6 +1160,71 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
 }
 
 void
+NetworkOPsImp::publishNewerManifests(ReadView const& ledger)
+{
+    for (auto const& pk : app_.validators().getTrustedMasterKeys())
+    {
+        // Only for validators that have opted in by publishing on-ledger
+        // already. Submitting spends the master key account's balance, so an
+        // account that has never used the feature is left alone.
+        auto const sleMan = ledger.read(keylet::manifest(pk));
+        if (!sleMan)
+            continue;
+
+        auto const held = app_.validatorManifests().getRawManifest(pk);
+        if (!held || held->first <= sleMan->getFieldU32(sfSequence))
+            continue;
+
+        auto const hex = makeSetManifestTx(
+            makeSlice(held->second),
+            app_.config().NETWORK_ID,
+            *app_.openLedger().current(),
+            app_.journal("Manifest"));
+
+        auto const blob = hex ? strUnHex(*hex) : std::nullopt;
+        if (!blob || blob->empty())
+            continue;
+
+        std::shared_ptr<STTx const> stTx;
+        std::string reason;
+        std::shared_ptr<Transaction> tx;
+        try
+        {
+            SerialIter sit{makeSlice(*blob)};
+            stTx = std::make_shared<STTx const>(std::ref(sit));
+            tx = std::make_shared<Transaction>(stTx, reason, app_);
+        }
+        catch (std::exception const& e)
+        {
+            JLOG(m_journal.warn())
+                << "publishNewerManifests: " << e.what() << " " << reason;
+            continue;
+        }
+
+        if (tx->getStatus() != NEW)
+            continue;
+
+        // The master key account pays. Skip rather than submit something that
+        // can only fail: this runs every ledger, so an unfunded validator
+        // would otherwise be retried forever.
+        auto const sleAcct = ledger.read(keylet::account(calcAccountID(pk)));
+        if (!sleAcct || sleAcct->getFieldAmount(sfBalance).xrp() < (*stTx)[sfFee].xrp())
+            continue;
+
+        JLOG(m_journal.info())
+            << "publishNewerManifests: publishing manifest seq " << held->first
+            << " for " << toBase58(TokenType::NodePublic, pk);
+
+        // Submitted from the job queue because this runs on the consensus
+        // thread, which must not block on transaction processing.
+        m_job_queue.addJob(jtTRANSACTION, "publishManifest", [this, tx]() {
+            auto t = tx;
+            processTransaction(t, false, false, FailHard::no);
+        });
+    }
+}
+
+void
 NetworkOPsImp::processTransaction(
     std::shared_ptr<Transaction>& transaction,
     bool bUnlimited,
@@ -1880,8 +1948,16 @@ NetworkOPsImp::beginConsensus(
     // from the published lists, so this needs no bootstrap: only the ephemeral
     // half of the mapping ever comes from a manifest.
     if (prevLedger->rules().enabled(featureOnChainManifests))
+    {
         app_.validatorManifests().applyLedger(
             *prevLedger, app_.validators().getTrustedMasterKeys());
+
+        // The reverse of applyLedger above. Manifests reach us by peer gossip
+        // and in published validator lists, both of which can arrive before
+        // the validator gets around to publishing on-chain, so the cache may
+        // hold something newer than the ledger does.
+        publishNewerManifests(*prevLedger);
+    }
 
     TrustChanges const changes = app_.validators().updateTrusted(
         app_.getValidations().getCurrentNodeIDs(),
@@ -1889,6 +1965,10 @@ NetworkOPsImp::beginConsensus(
         *this,
         app_.overlay(),
         app_.getHashRouter());
+
+    // Pin the trusted master keys so they are always offered to a new peer and
+    // cannot be crowded out of the gossip set by more recently used manifests.
+    app_.validatorManifests().pin(app_.validators().getTrustedMasterKeys());
 
     if (!changes.added.empty() || !changes.removed.empty())
     {

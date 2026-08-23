@@ -134,102 +134,26 @@ doSubmit(RPC::JsonContext& context)
 
     if (hasManifest)
     {
-        // OnChainManifests amendment accepts a manifest submission here,
-        // we need to modify it a bit before it drops through to below however.
-        
-        auto raw = strUnHex(context.params[jss::manifest].asString());
-        if (!raw || !raw->size())
+        // OnChainManifests amendment accepts a manifest submission here; turn
+        // it into the transaction that carries it and drop through to normal
+        // tx_blob processing below.
+        auto const raw = strUnHex(context.params[jss::manifest].asString());
+        if (!raw || raw->empty())
             return rpcError(rpcINVALID_PARAMS);
-    
-        std::optional<Manifest> man;
 
-        try
-        {
-            man = deserializeManifest(makeSlice(*raw), context.app.journal("Submit"));
-        }
-        catch (std::exception& e)
-        {
-            jvResult[jss::error] = "invalidManifest";
-            jvResult[jss::error_exception] = e.what();
+        auto const hex = makeSetManifestTx(
+            makeSlice(*raw),
+            context.app.config().NETWORK_ID,
+            *(context.app.openLedger().current()),
+            context.app.journal("Submit"));
 
-            return jvResult;
-        }
-   
-        if (!man.has_value() || !man->verify())
+        if (!hex)
         {
             jvResult[jss::error] = "invalidManifest";
             return jvResult;
         }
 
-
-        // to construct the manifest transaction we need to add:
-        // sfTransactionType = ttMANIFEST_SET (91)
-        // sfAccount = raddr of master key
-        // sfSequence = 0, 
-        // sfNetworkID
-        // sfFee
-        // sfSigningPubkey = "",
-        // sfTxnSignature = ""
-
-        // to avoid inadvertantly decanonicalizing the manifest we'll construct the transaction, encode it,
-        // then append the manifest with the object marker... this also makes the on-chain manifests
-        // forward compatible with a future manifest format change, even if that change is into a PQ opaque blob.
-
-        STTx tx = STTx(ttMANIFEST_SET, [&](STObject& obj) {
-            obj.setAccountID(sfAccount, calcAccountID(man->masterKey));
-            obj.setFieldU32(sfSequence, 0);
-            obj.setFieldU32(sfNetworkID, context.app.config().NETWORK_ID);
-            obj.setFieldAmount(sfFee, XRPAmount{0});
-            obj.setFieldVL(sfSigningPubKey, std::vector<std::uint8_t>{});
-            obj.setFieldVL(sfTxnSignature, std::vector<std::uint8_t>{});
-        });
-            
-        std::string const manifestHex =
-            std::string("E05A") /* sfManifest object marker: STI_OBJECT (14)
-                                   in the high nibble, field code 90 in the
-                                   trailing byte. Type 14 sorts after every
-                                   other field in the txn, so appending is
-                                   canonical. */
-            + strHex(*raw) /* re-encode the original slice as fresh hex to match case etc */
-            + "E1"; /* object end marker for sfManifest */
-
-        std::string const txHex = serializeHex(tx) + manifestHex; 
-
-        // we still need to compute fee
-        
-        try 
-        {
-        
-            auto ret = strUnHex(txHex);
-
-            if (!ret || !ret->size())
-                throw std::invalid_argument("Invalid tx_blob (from manifest)");
-
-            SerialIter sitTrans(makeSlice(*ret));
-
-            std::unique_ptr<STTx const> stpTrans;
-            stpTrans = std::make_unique<STTx const>(std::ref(sitTrans));
-            XRPAmount proposedFee = invoke_calculateBaseFee(
-                *(context.app.openLedger().current()), *stpTrans);
-
-            // add 20% to the proposed fee because we'd really prefer
-            // submitting manifests works everytime. This is exactly the
-            // ceiling SetManifest::checkFee enforces -- keep the two in step.
-            XRPAmount finalFee = mulRatio(proposedFee, 12, 10, true);
-
-            tx.setFieldAmount(sfFee, finalFee);
-
-            txBlob = serializeHex(tx) + manifestHex;
-
-            // drop through to normal tx_blob processing below
-        }
-        catch (std::exception& e)
-        {
-            Json::Value jvResult;
-            jvResult[jss::error] = "invalidTransaction (manifest fee error)";
-            jvResult[jss::error_exception] = e.what();
-            return jvResult;
-        }
+        txBlob = *hex;
     }
 
     auto ret = strUnHex(txBlob);

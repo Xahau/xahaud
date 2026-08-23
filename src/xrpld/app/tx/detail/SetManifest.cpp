@@ -27,6 +27,7 @@
 #include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/XRPAmount.h>  // mulRatio
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/serialize.h>
 #include <xrpl/protocol/st.h>
 #include <xrpld/app/misc/Manifest.h>
 
@@ -336,6 +337,62 @@ SetManifest::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
 
     // Floor and balance are the ordinary rules.
     return Transactor::checkFee(ctx, baseFee);
+}
+
+std::optional<std::string>
+makeSetManifestTx(
+    Slice const& manifest,
+    std::uint32_t networkID,
+    ReadView const& openView,
+    beast::Journal j)
+{
+    try
+    {
+        auto const man = deserializeManifest(manifest, j);
+        if (!man || !man->verify())
+            return std::nullopt;
+
+        // sfManifest object marker: STI_OBJECT (14) in the high nibble, field
+        // code 90 in the trailing byte. Type 14 sorts after every other field
+        // in the txn, so appending is canonical.
+        std::string const suffix =
+            std::string("E05A") + strHex(manifest) + "E1";
+
+        auto const encode = [&](XRPAmount fee) {
+            return serializeHex(STTx(ttMANIFEST_SET, [&](STObject& obj) {
+                       obj.setAccountID(sfAccount, calcAccountID(man->masterKey));
+                       obj.setFieldU32(sfSequence, 0);
+                       obj.setFieldU32(sfNetworkID, networkID);
+                       obj.setFieldAmount(sfFee, fee);
+                       obj.setFieldVL(sfSigningPubKey, std::vector<std::uint8_t>{});
+                       obj.setFieldVL(sfTxnSignature, std::vector<std::uint8_t>{});
+                   })) +
+                suffix;
+        };
+
+        // calculateBaseFee() takes a parsed transaction, so encode once with a
+        // placeholder fee purely to have something to price. The resulting fee
+        // does not depend on the placeholder: it is derived from the length of
+        // the manifest object and the ledger's base fee.
+        auto const priced = strUnHex(encode(XRPAmount{0}));
+        if (!priced || priced->empty())
+            return std::nullopt;
+
+        SerialIter sit{makeSlice(*priced)};
+        STTx const probe{std::ref(sit)};
+
+        // Submit the ceiling exactly. preclaim rejects anything above it, and
+        // the floor rises with network load, so the ceiling is both always
+        // acceptable and the value most likely to still clear the floor by the
+        // time the transaction is applied.
+        return encode(
+            manifestFeeCeiling(SetManifest::calculateBaseFee(openView, probe)));
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j.warn()) << "makeSetManifestTx: " << e.what();
+        return std::nullopt;
+    }
 }
 
 }  // namespace ripple

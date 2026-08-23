@@ -303,7 +303,10 @@ ManifestCache::getSigningKey(PublicKey const& pk) const
     auto const iter = map_.find(pk);
 
     if (iter != map_.end() && !iter->second.revoked())
+    {
+        touch(pk);
         return iter->second.signingKey;
+    }
 
     return pk;
 }
@@ -315,7 +318,10 @@ ManifestCache::getMasterKey(PublicKey const& pk) const
 
     if (auto const iter = signingToMasterKeys_.find(pk);
         iter != signingToMasterKeys_.end())
+    {
+        touch(iter->second);
         return iter->second;
+    }
 
     return pk;
 }
@@ -351,7 +357,10 @@ ManifestCache::getManifest(PublicKey const& pk) const
     auto const iter = map_.find(pk);
 
     if (iter != map_.end() && !iter->second.revoked())
+    {
+        touch(pk);
         return iter->second.serialized;
+    }
 
     return std::nullopt;
 }
@@ -363,9 +372,52 @@ ManifestCache::revoked(PublicKey const& pk) const
     auto const iter = map_.find(pk);
 
     if (iter != map_.end())
+    {
+        touch(pk);
         return iter->second.revoked();
+    }
 
     return false;
+}
+
+std::optional<std::pair<std::uint32_t, std::string>>
+ManifestCache::getRawManifest(PublicKey const& pk) const
+{
+    std::shared_lock lock{mutex_};
+
+    if (auto const iter = map_.find(pk); iter != map_.end())
+    {
+        touch(pk);
+        return std::make_pair(iter->second.sequence, iter->second.serialized);
+    }
+
+    return std::nullopt;
+}
+
+void
+ManifestCache::touch(PublicKey const& masterKey) const
+{
+    // find() rather than operator[]: inserting here would be a structural
+    // modification, and callers hold mutex_ only in shared mode. The entry is
+    // created in applyManifest() alongside the manifest itself, so a lookup
+    // that hit map_ always finds one here too.
+    if (auto const iter = lastUsed_.find(masterKey); iter != lastUsed_.end())
+        iter->second.store(++tick_, std::memory_order_relaxed);
+}
+
+void
+ManifestCache::pin(hash_set<PublicKey> keys)
+{
+    std::lock_guard lock{mutex_};
+
+    if (keys == pinned_)
+        return;
+
+    pinned_ = std::move(keys);
+
+    // The pinned set is part of what a gossip message contains, so a change to
+    // it has to invalidate any message cached against this sequence.
+    ++seq_;
 }
 
 std::size_t
@@ -544,6 +596,10 @@ ManifestCache::applyManifest(Manifest m)
 
         if (!revoked)
             signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);
+
+        // Kept in step with map_ so touch() never has to insert; see
+        // lastUsed_.
+        lastUsed_.try_emplace(m.masterKey, 0);
 
         auto masterKey = m.masterKey;
         map_.emplace(std::move(masterKey), std::move(m));
