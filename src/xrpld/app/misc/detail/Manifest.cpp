@@ -20,6 +20,8 @@
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/rdb/Wallet.h>
 #include <xrpld/core/DatabaseCon.h>
+#include <xrpld/ledger/ReadView.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/base64.h>
@@ -364,6 +366,50 @@ ManifestCache::revoked(PublicKey const& pk) const
         return iter->second.revoked();
 
     return false;
+}
+
+std::size_t
+ManifestCache::applyLedger(
+    ReadView const& view,
+    hash_set<PublicKey> const& masterKeys)
+{
+    std::size_t accepted = 0;
+
+    for (auto const& pk : masterKeys)
+    {
+        auto const sle = view.read(keylet::manifest(pk));
+        if (!sle)
+            continue;
+
+        // Cheap reject before rebuilding: applyManifest() would call this
+        // stale anyway, and the signature check is the expensive part.
+        if (auto const seq = getSequence(pk);
+            seq && *seq >= sle->getFieldU32(sfSequence))
+            continue;
+
+        // Rebuild the manifest exactly as it was signed. The ledger object is a
+        // lossless mirror written by SetManifest::doApply, so this round-trip
+        // is byte-identical to the blob the master key signed and verify()
+        // succeeds or the manifest is discarded. Presence matters: sfVersion is
+        // soeDEFAULT in the manifest format and must not be materialised.
+        STObject st{sfGeneric};
+        st.setFieldU32(sfSequence, sle->getFieldU32(sfSequence));
+        st.setFieldVL(sfPublicKey, sle->getFieldVL(sfPublicKey));
+        st.setFieldVL(sfMasterSignature, sle->getFieldVL(sfMasterSignature));
+        for (auto const& sf : {std::cref(sfSigningPubKey),
+                               std::cref(sfSignature),
+                               std::cref(sfDomain)})
+            if (sle->isFieldPresent(sf.get()))
+                st.setFieldVL(sf.get(), sle->getFieldVL(sf.get()));
+        if (sle->isFieldPresent(sfVersion))
+            st.setFieldU16(sfVersion, sle->getFieldU16(sfVersion));
+
+        if (auto mo = deserializeManifest(st, j_); mo &&
+            applyManifest(std::move(*mo)) == ManifestDisposition::accepted)
+            ++accepted;
+    }
+
+    return accepted;
 }
 
 ManifestDisposition

@@ -39,6 +39,10 @@ public:
     static XRPAmount
     calculateBaseFee(ReadView const& view, STTx const& tx);
 
+    // Hides Transactor::checkFee; applySteps dispatches this as T::checkFee.
+    static TER
+    checkFee(PreclaimContext const& ctx, XRPAmount baseFee);
+
     static TxConsequences
     makeTxConsequences(PreflightContext const& ctx);
 

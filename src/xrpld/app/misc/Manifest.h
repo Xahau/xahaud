@@ -31,6 +31,8 @@
 
 namespace ripple {
 
+class ReadView;
+
 /*
     Validator key manifests
     -----------------------
@@ -365,6 +367,31 @@ public:
     */
     ManifestDisposition
     applyManifest(Manifest m);
+
+    /** Ingest manifests published on-ledger.
+
+        Reads keylet::manifest() for each supplied master key, reconstructs any
+        manifest found and feeds it through applyManifest(), so an on-chain
+        manifest is subject to exactly the same staleness, revocation and
+        key-reuse rules -- and the same signature check -- as one arriving by
+        peer gossip or in a published list. It is a third source of manifests,
+        not a more trusted one.
+
+        Probes a known key set rather than scanning the ledger's transactions:
+        this costs one SHAMap read per key, and picks up manifests published in
+        ledgers this node never saw.
+
+        @param view Ledger to read from
+        @param masterKeys Master public keys to probe for
+
+        @return the number of manifests newly accepted
+
+        @par Thread Safety
+
+        May be called concurrently
+    */
+    std::size_t
+    applyLedger(ReadView const& view, hash_set<PublicKey> const& masterKeys);
 
     /** Populate manifest cache with manifests in database and config.
 

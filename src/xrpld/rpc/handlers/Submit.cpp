@@ -184,8 +184,12 @@ doSubmit(RPC::JsonContext& context)
             obj.setFieldVL(sfTxnSignature, std::vector<std::uint8_t>{});
         });
             
-        std::string const manifestHex = 
-            + "E05A" /* object marker for sfManfiest ... this goes at the end of the tx canonically */
+        std::string const manifestHex =
+            std::string("E05A") /* sfManifest object marker: STI_OBJECT (14)
+                                   in the high nibble, field code 90 in the
+                                   trailing byte. Type 14 sorts after every
+                                   other field in the txn, so appending is
+                                   canonical. */
             + strHex(*raw) /* re-encode the original slice as fresh hex to match case etc */
             + "E1"; /* object end marker for sfManifest */
 
@@ -205,11 +209,12 @@ doSubmit(RPC::JsonContext& context)
 
             std::unique_ptr<STTx const> stpTrans;
             stpTrans = std::make_unique<STTx const>(std::ref(sitTrans));
-            XRPAmount proposedFee = 
-                invoke_calculateBaseFee(
-                    *(context.app.openLedger().current()), *stpTrans);
+            XRPAmount proposedFee = invoke_calculateBaseFee(
+                *(context.app.openLedger().current()), *stpTrans);
 
-            // add 20% to the proposed fee because we'd really prefer submitting manifests works everytime.
+            // add 20% to the proposed fee because we'd really prefer
+            // submitting manifests works everytime. This is exactly the
+            // ceiling SetManifest::checkFee enforces -- keep the two in step.
             XRPAmount finalFee = mulRatio(proposedFee, 12, 10, true);
 
             tx.setFieldAmount(sfFee, finalFee);

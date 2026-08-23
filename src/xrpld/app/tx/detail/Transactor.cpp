@@ -604,6 +604,13 @@ Transactor::checkSeqProxy(
         return terNO_ACCOUNT;
     }
 
+    // A manifest txn is derived deterministically from the manifest alone, so
+    // it cannot depend on account state: preflight pins sfSequence to 0 and the
+    // account sequence is neither checked here nor consumed below.
+    if (view.rules().enabled(featureOnChainManifests) &&
+        tx.getTxnType() == ttMANIFEST_SET)
+        return tesSUCCESS;
+
     SeqProxy const a_seq = SeqProxy::sequence((*sle)[sfSequence]);
 
     // pass all emitted tx provided their seq is 0
@@ -753,6 +760,17 @@ Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
 
     // do not update sequence of sfAccountTxnID for emitted tx
     if (ctx_.isEmittedTxn())
+        return tesSUCCESS;
+
+    // Manifest txns get the same treatment: pinned to sfSequence 0 and not
+    // signed by the account, so they neither consume nor reset its sequence.
+    // Doing so would be actively harmful -- the write below is
+    // seqProx.value() + 1, which for a seq-0 txn sets the account sequence to
+    // 1 and makes every previously used sequence replayable. Handling it here
+    // rather than in apply() also covers reset(), which re-consumes on the
+    // tec / failed-invariant path.
+    if (view().rules().enabled(featureOnChainManifests) &&
+        ctx_.tx.getTxnType() == ttMANIFEST_SET)
         return tesSUCCESS;
 
     SeqProxy const seqProx = ctx_.tx.getSeqProxy();

@@ -25,6 +25,7 @@
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/Quality.h>
+#include <xrpl/protocol/XRPAmount.h>  // mulRatio
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
 #include <xrpld/app/misc/Manifest.h>
@@ -89,8 +90,22 @@ SetManifest::preflight(PreflightContext const& ctx)
 
     // 3. not already revoked will be checked in preclaim because it depends on lgr state
 
+    // 4. the envelope carries no account signature: authority comes solely
+    // from the manifest's own master/ephemeral signatures, which do not cover
+    // the envelope. Pin every envelope field a relayer could otherwise choose.
+    // The shape below must match the one checkValidity() recognises, or the
+    // txn falls through to the ordinary signature path and is rejected there.
+    // sfFee cannot be bounded here because the computed base fee is not in
+    // scope until preclaim; checkFee() bounds it instead.
+    if (!tx.isFieldPresent(sfSigningPubKey) || !tx.getSigningPubKey().empty() ||
+        !tx.isFieldPresent(sfTxnSignature) || !tx.getSignature().empty() ||
+        tx.isFieldPresent(sfSigners) || tx.isFieldPresent(sfAccountTxnID) ||
+        tx.isFieldPresent(sfTicketSequence) || tx.getFieldU32(sfSequence) != 0)
+    {
+        JLOG(j.warn()) << "SetManifest: envelope must be unsigned with Sequence 0.";
+        return temMALFORMED;
+    }
 
-    // TODO: seq=0, signingpubkey =0
     return preflight2(ctx);
 }
 
@@ -100,49 +115,70 @@ SetManifest::preclaim(PreclaimContext const& ctx)
     if (!ctx.view.rules().enabled(featureOnChainManifests))
         return temDISABLED;
 
-    // RH UPTO: check if revoked already, check if existing manifest seq >= new one, check fee?, 
-    
     auto const id = ctx.tx[sfAccount];
 
+    // The account must exist: it pays the fee and anchors sfManifestID.
     auto const sle = ctx.view.read(keylet::account(id));
     if (!sle)
         return terNO_ACCOUNT;
-
-    if (!sle->isFieldPresent(sfManifestID))
-    {
-        // pass, no special conditions if they've never set a manifest
-        return tesSUCCESS;
-    }
 
     STObject const& newObj = const_cast<ripple::STTx&>(ctx.tx)
                                   .getField(sfManifest)
                                   .downcast<STObject>();
 
-    auto newManifest = deserializeManifest(newObj, ctx.j);
+    auto const newManifest = deserializeManifest(newObj, ctx.j);
+    if (!newManifest)
+        return tefINTERNAL;  // preflight already parsed this successfully
 
-
-    auto const sleOld = ctx.view.read(Keylet{ltMANIFEST, sle->getFieldH256(sfManifestID)});
-
-    if (!sleOld)
+    // Replay protection. A byte-identical resubmission is rejected as
+    // tefALREADY by checkPriorTxAndLastLedger, but sfFee may vary within the
+    // band checkFee() allows, so the same manifest can also arrive under a
+    // different txid. The strictly-increasing sequence test below is what
+    // covers that, both within this ledger and in every later one. Either
+    // result is tef, so a replay is never included and never claims a fee.
+    if (sle->isFieldPresent(sfManifestID))
     {
-        // this is actually a nasty error but it's handled with a tefBAD_LEDGER in apply
-        return tesSUCCESS;
-    }
-    
-    if (sleOld->getFieldU32(sfSequence) == std::numeric_limits<std::uint32_t>::max())
-    {
-        JLOG(ctx.j.warn())  
-                << "SetManifest: New manifest submitted for revoked master. " << id;
-        return tefREVOKED_MANIFEST;
+        // A dangling sfManifestID is a corrupt ledger; doApply reports it.
+        if (auto const sleOld = ctx.view.read(
+                Keylet{ltMANIFEST, sle->getFieldH256(sfManifestID)}))
+        {
+            if (sleOld->getFieldU32(sfSequence) ==
+                std::numeric_limits<std::uint32_t>::max())
+            {
+                JLOG(ctx.j.warn()) << "SetManifest: New manifest submitted for "
+                                      "revoked master. "
+                                   << id;
+                return tefREVOKED_MANIFEST;
+            }
+
+            if (newManifest->sequence <= sleOld->getFieldU32(sfSequence))
+            {
+                JLOG(ctx.j.warn())
+                    << "SetManifest: Manifest sequence already passed. " << id;
+                return tefPAST_MANIFEST_SEQ;
+            }
+        }
     }
 
-    if (newManifest->sequence <= sleOld->getFieldU32(sfSequence))
+    // On-chain equivalent of the badMasterKey/badEphemeralKey sanity checks in
+    // ManifestCache::applyManifest. keylet::manifest(masterKey) is 1:1 with the
+    // account, but keylet::manifest(signingKey) is not: without this, a
+    // manifest naming another validator's key as its ephemeral key would
+    // collide with -- and clobber -- that validator's object.
+    if (newManifest->signingKey)
     {
-        JLOG(ctx.j.warn())
-                << "SetManifest: Manifest sequence already passed. " << id;
-        return tefPAST_MANIFEST_SEQ;
+        auto const sleEph =
+            ctx.view.read(keylet::manifest(*newManifest->signingKey));
+        if (sleEph && sleEph->getAccountID(sfAccount) != id)
+        {
+            JLOG(ctx.j.warn())
+                << "SetManifest: Ephemeral key already claimed by another "
+                   "account. "
+                << id;
+            return tecDUPLICATE;
+        }
     }
-    
+
     return tesSUCCESS;
 }
 
@@ -153,103 +189,100 @@ SetManifest::doApply()
     if (!sle)
         return tefINTERNAL;
 
-    if (sle->isFieldPresent(sfManifestID))
-    {
-        // there's an existing manifest on the account
-        // all manifests have two identical objects for ease of lookup
-        // keylet(ephemeral key) -> obj1
-        // keylet(master key) -> obj2
-        // we need to remove and re-create both objects each time the manifest
-        // is updated to keep them in sync
-
-        uint256 const firstID = sle->getFieldH256(sfManifestID);
-        auto sleMan1 = view().peek(Keylet{ltMANIFEST, firstID});
-        if (!sleMan1)
-        {
-            JLOG(j_.error())
-                    << "SetManifest: Old manifest object referenced but missing (ID1) !! " << strHex(firstID);
-            return tefBAD_LEDGER;
-        }
-
-        uint256 const secondID = sle->getFieldH256(sfManifestID);
-        if (secondID == firstID)
-        {
-            JLOG(j_.error())
-                << "SetManifest: Manifest second ID references first object!! " << strHex(firstID);
-            return tefBAD_LEDGER;
-        }
-
-        auto sleMan2 = view().peek(Keylet{ltMANIFEST, secondID});
-        if (!sleMan2)
-        {
-            JLOG(j_.error())
-                    << "SetManifest: Old manifest object referenced but missing (ID2) !! " << strHex(secondID);
-            return tefBAD_LEDGER;
-        }
-
-        if (sleMan1->getAccountID(sfAccount) != account_ ||
-            sleMan2->getAccountID(sfAccount) != account_)
-        {
-            JLOG(j_.error())
-                    << "SetManifest: One or more manifest IDs point at incorrect account!!";
-            return tefBAD_LEDGER;
-        }
-    
-        // remove both manifests so they can be recreated by the code path below
-
-        view().erase(sleMan1);
-        view().erase(sleMan2);
-    }
-
-
     STObject const& obj = const_cast<ripple::STTx&>(ctx_.tx)
-                                  .getField(sfManifest)
-                                  .downcast<STObject>();
+                              .getField(sfManifest)
+                              .downcast<STObject>();
 
-    auto manifest = deserializeManifest(obj, j_);
-    
-    if (!manifest.has_value())
-    {
-        JLOG(j_.warn()) << "SetManifest: invalid manifest passed (parseManifest failed).";
-        return temMALFORMED;
-    }
+    auto const manifest = deserializeManifest(obj, j_);
 
-    if (calcAccountID(manifest->masterKey) != account_)
+    // Both of these were established in preflight.
+    if (!manifest || calcAccountID(manifest->masterKey) != account_)
         return tefINTERNAL;
 
-    Keylet klMan1 = keylet::manifest(manifest->masterKey);
+    // A manifest is stored twice so it can be found from either key:
+    //   keylet::manifest(masterKey)  -> obj1, sfManifestID -> obj2
+    //   keylet::manifest(signingKey) -> obj2, sfManifestID -> obj1
+    // A revoked manifest has no signing key, so it exists only as obj1 with no
+    // sfManifestID. Both copies are erased and rewritten on every update so
+    // they can never drift apart.
+    if (sle->isFieldPresent(sfManifestID))
+    {
+        uint256 const firstID = sle->getFieldH256(sfManifestID);
+        auto const sleMan1 = view().peek(Keylet{ltMANIFEST, firstID});
+        if (!sleMan1 || sleMan1->getAccountID(sfAccount) != account_)
+        {
+            JLOG(j_.error()) << "SetManifest: Old manifest object missing or "
+                                "misowned (ID1) !! "
+                             << strHex(firstID);
+            return tefBAD_LEDGER;
+        }
+
+        // Absent when the previous manifest was a revocation.
+        if (sleMan1->isFieldPresent(sfManifestID))
+        {
+            uint256 const secondID = sleMan1->getFieldH256(sfManifestID);
+            auto const sleMan2 = view().peek(Keylet{ltMANIFEST, secondID});
+            if (secondID == firstID || !sleMan2 ||
+                sleMan2->getAccountID(sfAccount) != account_)
+            {
+                JLOG(j_.error())
+                    << "SetManifest: Old manifest object missing, misowned or "
+                       "self-referential (ID2) !! "
+                    << strHex(secondID);
+                return tefBAD_LEDGER;
+            }
+            view().erase(sleMan2);
+        }
+
+        view().erase(sleMan1);
+    }
+
+    Keylet const klMan1 = keylet::manifest(manifest->masterKey);
     std::optional<Keylet> klMan2;
-    if (!manifest->revoked() && manifest->signingKey.has_value())
+    if (!manifest->revoked() && manifest->signingKey)
         klMan2 = keylet::manifest(*manifest->signingKey);
 
-    auto setManifest = [&](std::shared_ptr<SLE>& sle, std::optional<uint256> otherKey) -> void
+    // Neither key may still be occupied: preclaim rejects an ephemeral key held
+    // by another account, and the block above cleared this account's own copies.
+    if (view().exists(klMan1) || (klMan2 && view().exists(*klMan2)))
     {
-        sle->setAccountID(sfAccount, account_);
-        sle->setFieldVL(sfPublicKey, manifest->masterKey);
-        if (manifest->signingKey.has_value())
-            sle->setFieldVL(sfSigningPubKey, *(manifest->signingKey));
-        sle->setFieldU32(sfSequence, manifest->sequence);
-        sle->setFieldU16(sfVersion, 0);
-        if (manifest->domain != "")
-            sle->setFieldVL(sfDomain, makeSlice(manifest->domain));
-        if (otherKey.has_value())
-            sle->setFieldH256(sfManifestID, *otherKey);
+        JLOG(j_.error()) << "SetManifest: Manifest keylet already occupied !! "
+                         << strHex(klMan1.key);
+        return tefBAD_LEDGER;
+    }
+
+    // Mirror the manifest losslessly, signatures included, so any node can
+    // reconstruct and independently verify it (ManifestCache::applyLedger).
+    // Field *presence* is copied faithfully: sfVersion is soeDEFAULT in the
+    // manifest format, so materialising an absent one would alter the signed
+    // payload and break verification.
+    auto const write = [&](Keylet const& kl,
+                           std::optional<uint256> const& other) {
+        auto sleMan = std::make_shared<SLE>(kl);
+        sleMan->setAccountID(sfAccount, account_);
+        sleMan->setFieldU32(sfSequence, obj.getFieldU32(sfSequence));
+        sleMan->setFieldVL(sfPublicKey, obj.getFieldVL(sfPublicKey));
+        sleMan->setFieldVL(
+            sfMasterSignature, obj.getFieldVL(sfMasterSignature));
+        if (obj.isFieldPresent(sfVersion))
+            sleMan->setFieldU16(sfVersion, obj.getFieldU16(sfVersion));
+        if (obj.isFieldPresent(sfSigningPubKey))
+            sleMan->setFieldVL(
+                sfSigningPubKey, obj.getFieldVL(sfSigningPubKey));
+        if (obj.isFieldPresent(sfSignature))
+            sleMan->setFieldVL(sfSignature, obj.getFieldVL(sfSignature));
+        if (obj.isFieldPresent(sfDomain))
+            sleMan->setFieldVL(sfDomain, obj.getFieldVL(sfDomain));
+        if (other)
+            sleMan->setFieldH256(sfManifestID, *other);
+        view().insert(sleMan);
     };
 
-    auto sleMan1 = std::make_shared<SLE>(klMan1);
-    setManifest(sleMan1, klMan2->key);
-    
-    if (klMan2.has_value())
-    {
-        auto sleMan2 = std::make_shared<SLE>(*klMan2);
-        setManifest(sleMan2, klMan1.key);
-        view().insert(sleMan2);
-    }
-    
-    view().insert(sleMan1);
+    write(klMan1, klMan2 ? std::optional<uint256>{klMan2->key} : std::nullopt);
+    if (klMan2)
+        write(*klMan2, klMan1.key);
 
     sle->setFieldH256(sfManifestID, klMan1.key);
-
     view().update(sle);
 
     return tesSUCCESS;
@@ -261,17 +294,48 @@ SetManifest::calculateBaseFee(ReadView const& view, STTx const& tx)
     XRPAmount manifestFee{0};
     if (tx.isFieldPresent(sfManifest))
     {
-        STObject const& newObj = const_cast<ripple::STTx&>(tx)
+        STObject const& obj = const_cast<ripple::STTx&>(tx)
                                   .getField(sfManifest)
                                   .downcast<STObject>();
 
-
-
         // one drop per byte
-        manifestFee = XRPAmount { newObj.getSerializer().getDataLength() };
+        manifestFee = XRPAmount{obj.getSerializer().getDataLength()};
     }
-    auto fee = Transactor::calculateBaseFee(view, tx);
-    return fee + manifestFee;
+
+    return Transactor::calculateBaseFee(view, tx) + manifestFee;
+}
+
+/** The most sfFee may be: the same 1.2x headroom Submit applies.
+
+    Kept in one place so the value Submit writes and the value preclaim will
+    accept cannot drift apart.
+*/
+static XRPAmount
+manifestFeeCeiling(XRPAmount baseFee)
+{
+    return mulRatio(baseFee, 12, 10, /*roundUp*/ true);
+}
+
+TER
+SetManifest::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
+{
+    // A ceiling is required because the envelope carries no account signature,
+    // so sfFee is chosen by whoever relays the txn -- and manifests are public:
+    // they are gossiped over the peer protocol and embedded in published UNLs,
+    // so the relayer need not be the master key holder. Uncapped, any observer
+    // of a not-yet-recorded manifest could wrap it with sfFee set to that
+    // validator's entire balance. The 20% band is headroom against a fee floor
+    // that has risen since the txn was built, and bounds what an attacker can
+    // burn to the same 20%.
+    if (ctx.tx[sfFee].xrp() > manifestFeeCeiling(baseFee))
+    {
+        JLOG(ctx.j.trace()) << "SetManifest: fee above ceiling: "
+                            << to_string(ctx.tx[sfFee].xrp());
+        return temBAD_FEE;
+    }
+
+    // Floor and balance are the ordinary rules.
+    return Transactor::checkFee(ctx, baseFee);
 }
 
 }  // namespace ripple

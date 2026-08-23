@@ -1874,6 +1874,15 @@ NetworkOPsImp::beginConsensus(
 
     if (prevLedger->rules().enabled(featureNegativeUNL))
         app_.validators().setNegativeUNL(prevLedger->negativeUNL());
+    // Pull in any manifests published on-ledger before the trusted set is
+    // recomputed, so a validator that rotated its ephemeral key on-chain is
+    // resolved to the new signing key in this same round. The master keys come
+    // from the published lists, so this needs no bootstrap: only the ephemeral
+    // half of the mapping ever comes from a manifest.
+    if (prevLedger->rules().enabled(featureOnChainManifests))
+        app_.validatorManifests().applyLedger(
+            *prevLedger, app_.validators().getTrustedMasterKeys());
+
     TrustChanges const changes = app_.validators().updateTrusted(
         app_.getValidations().getCurrentNodeIDs(),
         closingInfo.parentCloseTime,
