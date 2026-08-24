@@ -145,16 +145,12 @@ public:
                 hook::artifact::quickJSProviderMemoryMinimumPages == 6);
             BEAST_EXPECT(
                 hook::artifact::quickJSProviderMemoryMaximumPages == 512);
-            BEAST_EXPECT(
-                !hook::artifact::generated::providerMemory64);
-            BEAST_EXPECT(
-                !hook::artifact::generated::providerMemoryShared);
+            BEAST_EXPECT(!hook::artifact::generated::providerMemory64);
+            BEAST_EXPECT(!hook::artifact::generated::providerMemoryShared);
             BEAST_EXPECT(
                 hook::artifact::quickJSProviderWasmStackBytes == 131'072);
-            BEAST_EXPECT(
-                hook::artifact::generated::wasmStackBytes == 131'072);
-            constexpr auto exportCount =
-                sizeof(expectedProviderExports) /
+            BEAST_EXPECT(hook::artifact::generated::wasmStackBytes == 131'072);
+            constexpr auto exportCount = sizeof(expectedProviderExports) /
                 sizeof(expectedProviderExports[0]);
             BEAST_EXPECT(
                 hook::artifact::generated::providerExportSignatures.size() ==
@@ -164,18 +160,15 @@ public:
             {
                 for (std::size_t index = 0; index < exportCount; ++index)
                 {
-                    auto const& actual =
-                        hook::artifact::generated::providerExportSignatures
-                            [index];
+                    auto const& actual = hook::artifact::generated::
+                        providerExportSignatures[index];
                     auto const& expected = expectedProviderExports[index];
                     BEAST_EXPECT(actual.kind == expected.kind);
                     BEAST_EXPECT(actual.name == expected.name);
                     BEAST_EXPECT(actual.parameters == expected.parameters);
                     BEAST_EXPECT(actual.results == expected.results);
-                    BEAST_EXPECT(
-                        actual.minimumPages == expected.minimumPages);
-                    BEAST_EXPECT(
-                        actual.maximumPages == expected.maximumPages);
+                    BEAST_EXPECT(actual.minimumPages == expected.minimumPages);
+                    BEAST_EXPECT(actual.maximumPages == expected.maximumPages);
                     BEAST_EXPECT(actual.memory64 == expected.memory64);
                     BEAST_EXPECT(actual.shared == expected.shared);
                     BEAST_EXPECT(

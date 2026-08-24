@@ -38,9 +38,7 @@ def run(command: list[str]) -> subprocess.CompletedProcess[str]:
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
-        raise SystemExit(
-            "command failed: " + " ".join(command) + "\n" + result.stderr
-        )
+        raise SystemExit("command failed: " + " ".join(command) + "\n" + result.stderr)
     return result
 
 
@@ -186,11 +184,7 @@ def sha256(data: bytes) -> str:
 
 def compiler_identity(command: str) -> str:
     probe = run([command, "-v", "-E", "-x", "c", "/dev/null"])
-    return next(
-        line
-        for line in probe.stderr.splitlines()
-        if "clang version" in line
-    )
+    return next(line for line in probe.stderr.splitlines() if "clang version" in line)
 
 
 def generate(clang: str, wasmcc: str) -> dict[Path, bytes]:

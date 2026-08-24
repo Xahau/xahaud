@@ -600,20 +600,20 @@ int64_t hook(uint32_t reserved)
             !!hook::registerQuickJSRuntime(conflictingProfile, provider));
         auto conflictingObjectLimits = hook::currentQuickJSRuntimeProfile();
         ++conflictingObjectLimits.serializedObjectMaxBytes;
-        BEAST_EXPECT(!!hook::registerQuickJSRuntime(
-            conflictingObjectLimits, provider));
+        BEAST_EXPECT(
+            !!hook::registerQuickJSRuntime(conflictingObjectLimits, provider));
         conflictingObjectLimits = hook::currentQuickJSRuntimeProfile();
         ++conflictingObjectLimits.serializedObjectMaxFields;
-        BEAST_EXPECT(!!hook::registerQuickJSRuntime(
-            conflictingObjectLimits, provider));
+        BEAST_EXPECT(
+            !!hook::registerQuickJSRuntime(conflictingObjectLimits, provider));
         conflictingObjectLimits = hook::currentQuickJSRuntimeProfile();
         ++conflictingObjectLimits.serializedObjectMaxScopes;
-        BEAST_EXPECT(!!hook::registerQuickJSRuntime(
-            conflictingObjectLimits, provider));
+        BEAST_EXPECT(
+            !!hook::registerQuickJSRuntime(conflictingObjectLimits, provider));
         conflictingObjectLimits = hook::currentQuickJSRuntimeProfile();
         conflictingObjectLimits.serializedObjectMaxDepth = 0;
-        BEAST_EXPECT(!!hook::registerQuickJSRuntime(
-            conflictingObjectLimits, provider));
+        BEAST_EXPECT(
+            !!hook::registerQuickJSRuntime(conflictingObjectLimits, provider));
         auto conflictingMemory = hook::currentQuickJSRuntimeProfile();
         ++conflictingMemory.providerMemoryMinimumPages;
         BEAST_EXPECT(
@@ -809,7 +809,8 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string(surfaceMessage.begin(), surfaceMessage.end()) ==
             "surface:40");
-        expectFuel(surfaceExecution.getFieldU64(sfHookInstructionCount), 101078);
+        expectFuel(
+            surfaceExecution.getFieldU64(sfHookInstructionCount), 101078);
 
         testcase("Execute accepted STObject and STArray on Wasmtime");
         auto stObjectHook = hsoVersioned(stObjectArrayCode, 1);
