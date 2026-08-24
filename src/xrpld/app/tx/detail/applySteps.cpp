@@ -64,6 +64,7 @@
 #include <xrpld/app/tx/detail/Remit.h>
 #include <xrpld/app/tx/detail/SetAccount.h>
 #include <xrpld/app/tx/detail/SetHook.h>
+#include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpld/app/tx/detail/SetOracle.h>
 #include <xrpld/app/tx/detail/SetRegularKey.h>
 #include <xrpld/app/tx/detail/SetRemarks.h>
@@ -72,7 +73,6 @@
 #include <xrpld/app/tx/detail/URIToken.h>
 #include <xrpld/app/tx/detail/XChainBridge.h>
 #include <xrpld/app/tx/detail/XahauGenesis.h>
-#include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpl/protocol/TxFormats.h>
 
 #include <stdexcept>

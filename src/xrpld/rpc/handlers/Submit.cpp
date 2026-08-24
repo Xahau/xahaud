@@ -18,21 +18,21 @@
 //==============================================================================
 
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/SetManifest.h>  // makeSetManifestTx
-#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
+#include <xrpl/basics/strHex.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/resource/Fees.h>
-#include <xrpl/basics/strHex.h>
-#include <xrpld/app/ledger/OpenLedger.h>
 
 namespace ripple {
 
@@ -103,7 +103,8 @@ doSubmit(RPC::JsonContext& context)
     if (hasManifest && hasTxBlob)
     {
         return RPC::make_error(
-                rpcINVALID_PARAMS, "Specify exactly one of either `tx_blob` or `manifest`");
+            rpcINVALID_PARAMS,
+            "Specify exactly one of either `tx_blob` or `manifest`");
     }
     else if (!hasTxBlob && !hasManifest)
     {
@@ -131,7 +132,8 @@ doSubmit(RPC::JsonContext& context)
         return ret;
     }
 
-    std::string txBlob = hasTxBlob ? context.params[jss::tx_blob].asString() : "";
+    std::string txBlob =
+        hasTxBlob ? context.params[jss::tx_blob].asString() : "";
 
     if (hasManifest)
     {

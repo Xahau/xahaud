@@ -21,11 +21,11 @@
 #include <xrpld/app/rdb/Wallet.h>
 #include <xrpld/core/DatabaseCon.h>
 #include <xrpld/ledger/ReadView.h>
-#include <xrpl/protocol/Indexes.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/json/json_reader.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/Sign.h>
 
@@ -81,12 +81,11 @@ deserializeManifest(Slice s, beast::Journal journal)
         {sfSignature, soeOPTIONAL},
     };
 
-
     try
     {
         SerialIter sit{s};
         STObject st{sit, sfGeneric};
-        
+
         st.applyTemplate(manifestFormat);
 
         // We only understand "version 0" manifests at this time:
@@ -448,9 +447,10 @@ ManifestCache::applyLedger(
         st.setFieldU32(sfSequence, sle->getFieldU32(sfSequence));
         st.setFieldVL(sfPublicKey, sle->getFieldVL(sfPublicKey));
         st.setFieldVL(sfMasterSignature, sle->getFieldVL(sfMasterSignature));
-        for (auto const& sf : {std::cref(sfSigningPubKey),
-                               std::cref(sfSignature),
-                               std::cref(sfDomain)})
+        for (auto const& sf :
+             {std::cref(sfSigningPubKey),
+              std::cref(sfSignature),
+              std::cref(sfDomain)})
             if (sle->isFieldPresent(sf.get()))
                 st.setFieldVL(sf.get(), sle->getFieldVL(sf.get()));
         if (sle->isFieldPresent(sfVersion))

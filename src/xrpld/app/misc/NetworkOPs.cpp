@@ -32,8 +32,8 @@
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/DeliverMax.h>
 #include <xrpld/app/misc/HashRouter.h>
-#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/StateAccounting.h>
 #include <xrpld/app/misc/Transaction.h>
@@ -1211,7 +1211,8 @@ NetworkOPsImp::publishNewerManifests(ReadView const& ledger)
         // can only fail: this runs every ledger, so an unfunded validator
         // would otherwise be retried forever.
         auto const sleAcct = ledger.read(keylet::account(calcAccountID(pk)));
-        if (!sleAcct || sleAcct->getFieldAmount(sfBalance).xrp() < (*stTx)[sfFee].xrp())
+        if (!sleAcct ||
+            sleAcct->getFieldAmount(sfBalance).xrp() < (*stTx)[sfFee].xrp())
             continue;
 
         JLOG(m_journal.info())

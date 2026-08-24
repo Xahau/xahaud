@@ -524,9 +524,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             if (!tx.isFieldPresent(sfManifest))
                 break;
 
-            STObject const& man = const_cast<STTx&>(tx)
-                                      .getField(sfManifest)
-                                      .downcast<STObject>();
+            STObject const& man =
+                const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
 
             if (!man.isFieldPresent(sfSigningPubKey))
                 break;

@@ -85,7 +85,6 @@ class ReadView;
 
 struct Manifest
 {
-
     /// The manifest in serialized form.
     std::string serialized;
 
@@ -184,9 +183,9 @@ deserializeManifest(
     STObject const& st,
     beast::Journal journal = beast::Journal(beast::Journal::getNullSink()))
 {
-        Serializer s;                                                                                                  
-        st.add(s);
-        return deserializeManifest(makeSlice(s.peekData()), journal);
+    Serializer s;
+    st.add(s);
+    return deserializeManifest(makeSlice(s.peekData()), journal);
 }
 
 template <

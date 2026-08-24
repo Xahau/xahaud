@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/View.h>
@@ -26,11 +27,10 @@
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/Quality.h>
-#include <xrpl/protocol/XRPAmount.h>  // mulRatio
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/XRPAmount.h>  // mulRatio
 #include <xrpl/protocol/serialize.h>
 #include <xrpl/protocol/st.h>
-#include <xrpld/app/misc/Manifest.h>
 
 namespace ripple {
 
@@ -63,22 +63,23 @@ SetManifest::preflight(PreflightContext const& ctx)
     // 2. the signingpubkey must match the master r-address
     // 3. manifest must not be already revoked
 
-    STObject const& obj = const_cast<ripple::STTx&>(tx)
-                                  .getField(sfManifest)
-                                  .downcast<STObject>();
+    STObject const& obj =
+        const_cast<ripple::STTx&>(tx).getField(sfManifest).downcast<STObject>();
 
     // 1. sfManifest must match the manifest template and be validly signed
     auto manifest = deserializeManifest(obj, j);
-    
+
     if (!manifest.has_value())
     {
-        JLOG(j.warn()) << "SetManifest: invalid manifest passed (parseManifest failed).";
+        JLOG(j.warn())
+            << "SetManifest: invalid manifest passed (parseManifest failed).";
         return temMALFORMED;
     }
 
     if (!manifest->verify())
     {
-        JLOG(j.warn()) << "SetManifest: invalid manifest passed (manifest.verify failed).";
+        JLOG(j.warn())
+            << "SetManifest: invalid manifest passed (manifest.verify failed).";
         return temMALFORMED;
     }
 
@@ -86,11 +87,13 @@ SetManifest::preflight(PreflightContext const& ctx)
     auto wantID = calcAccountID(manifest->masterKey);
     if (ctx.tx.getAccountID(sfAccount) != wantID)
     {
-        JLOG(j.warn()) << "SetManifest: master key must match sfAccount (r-address).";
+        JLOG(j.warn())
+            << "SetManifest: master key must match sfAccount (r-address).";
         return temMALFORMED;
     }
 
-    // 3. not already revoked will be checked in preclaim because it depends on lgr state
+    // 3. not already revoked will be checked in preclaim because it depends on
+    // lgr state
 
     // 4. the envelope carries no account signature: authority comes solely
     // from the manifest's own master/ephemeral signatures, which do not cover
@@ -104,7 +107,8 @@ SetManifest::preflight(PreflightContext const& ctx)
         tx.isFieldPresent(sfSigners) || tx.isFieldPresent(sfAccountTxnID) ||
         tx.isFieldPresent(sfTicketSequence) || tx.getFieldU32(sfSequence) != 0)
     {
-        JLOG(j.warn()) << "SetManifest: envelope must be unsigned with Sequence 0.";
+        JLOG(j.warn())
+            << "SetManifest: envelope must be unsigned with Sequence 0.";
         return temMALFORMED;
     }
 
@@ -125,8 +129,8 @@ SetManifest::preclaim(PreclaimContext const& ctx)
         return terNO_ACCOUNT;
 
     STObject const& newObj = const_cast<ripple::STTx&>(ctx.tx)
-                                  .getField(sfManifest)
-                                  .downcast<STObject>();
+                                 .getField(sfManifest)
+                                 .downcast<STObject>();
 
     auto const newManifest = deserializeManifest(newObj, ctx.j);
     if (!newManifest)
@@ -245,7 +249,8 @@ SetManifest::doApply()
         klMan2 = keylet::manifest(*manifest->signingKey);
 
     // Neither key may still be occupied: preclaim rejects an ephemeral key held
-    // by another account, and the block above cleared this account's own copies.
+    // by another account, and the block above cleared this account's own
+    // copies.
     if (view().exists(klMan1) || (klMan2 && view().exists(*klMan2)))
     {
         JLOG(j_.error()) << "SetManifest: Manifest keylet already occupied !! "
@@ -360,14 +365,19 @@ makeSetManifestTx(
             std::string("E05A") + strHex(manifest) + "E1";
 
         auto const encode = [&](XRPAmount fee) {
-            return serializeHex(STTx(ttMANIFEST_SET, [&](STObject& obj) {
-                       obj.setAccountID(sfAccount, calcAccountID(man->masterKey));
-                       obj.setFieldU32(sfSequence, 0);
-                       obj.setFieldU32(sfNetworkID, networkID);
-                       obj.setFieldAmount(sfFee, fee);
-                       obj.setFieldVL(sfSigningPubKey, std::vector<std::uint8_t>{});
-                       obj.setFieldVL(sfTxnSignature, std::vector<std::uint8_t>{});
-                   })) +
+            return serializeHex(STTx(
+                       ttMANIFEST_SET,
+                       [&](STObject& obj) {
+                           obj.setAccountID(
+                               sfAccount, calcAccountID(man->masterKey));
+                           obj.setFieldU32(sfSequence, 0);
+                           obj.setFieldU32(sfNetworkID, networkID);
+                           obj.setFieldAmount(sfFee, fee);
+                           obj.setFieldVL(
+                               sfSigningPubKey, std::vector<std::uint8_t>{});
+                           obj.setFieldVL(
+                               sfTxnSignature, std::vector<std::uint8_t>{});
+                       })) +
                 suffix;
         };
 
