@@ -152,6 +152,7 @@
 #define sfEscrowID ((5U << 16U) + 35U)
 #define sfURITokenID ((5U << 16U) + 36U)
 #define sfDomainID ((5U << 16U) + 37U)
+#define sfManifestID ((5U << 16U) + 91U)
 #define sfHookOnOutgoing ((5U << 16U) + 93U)
 #define sfHookOnIncoming ((5U << 16U) + 94U)
 #define sfCron ((5U << 16U) + 95U)
