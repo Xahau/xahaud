@@ -2,9 +2,9 @@ name: Build using Docker
 
 on:
   push:
-    branches: ["dev", "candidate", "release", "jshooks", "jshookz"]
+    branches: ["dev", "candidate", "release", "jshooks"]
   pull_request:
-    branches: ["dev", "candidate", "release", "jshooks", "jshookz"]
+    branches: ["dev", "candidate", "release", "jshooks"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -33,6 +33,7 @@ jobs:
           fetch-depth: 2 # Only get the last 2 commits, to avoid fetching all history
 
   build:
+    if: github.head_ref != 'jshookz'
     runs-on: [self-hosted, xahaud-build]
     needs: [checkout]
     defaults:
