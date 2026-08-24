@@ -635,7 +635,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 
                     // Bill the armed invocation-fuel ceiling; host-work
                     // pricing is a later consensus change.
-                    auto const units = runtime->profile.invocationFuel;
+                    auto const units =
+                        hook::currentQuickJSRuntimeProfile().invocationFuel;
                     return std::pair<uint64_t, uint64_t>{
                         units, hasCallback ? units : 0};
                 }
