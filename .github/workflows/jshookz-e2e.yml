@@ -4,8 +4,8 @@ name: JSHookz end to end
 on:
   push:
     branches: [jshookz]
-  pull_request:
-    branches: [jshookz, dev]
+  # PRs targeting jshookz/dev currently duplicate the branch-push e2e
+  # (different github.ref, so concurrency does not cancel). Re-enable later.
   workflow_dispatch:
 
 permissions:
