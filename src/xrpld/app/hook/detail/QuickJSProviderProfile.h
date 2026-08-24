@@ -17,6 +17,18 @@ struct ProviderImportSignature
     std::string_view results;
 };
 
+struct ProviderExportSignature
+{
+    std::string_view kind;
+    std::string_view name;
+    std::string_view parameters;
+    std::string_view results;
+    std::uint32_t minimumPages;
+    std::uint32_t maximumPages;
+    bool memory64;
+    bool shared;
+};
+
 struct NativeImportSignature
 {
     std::string_view name;
@@ -39,6 +51,7 @@ extern std::uint64_t const hostWorkPerAddressedByte;
 extern std::string_view const hostAdapterPolicy;
 extern std::uint32_t const heapBytes;
 extern std::uint32_t const stackBytes;
+extern std::uint32_t const wasmStackBytes;
 extern std::uint32_t const serializedObjectMaxBytes;
 extern std::uint32_t const serializedObjectMaxFields;
 extern std::uint32_t const serializedObjectMaxScopes;
@@ -53,6 +66,7 @@ extern std::string_view const javascriptSurfaceSHA256;
 extern std::span<std::string_view const> const providerImports;
 extern std::span<std::string_view const> const providerExports;
 extern std::span<ProviderImportSignature const> const providerImportSignatures;
+extern std::span<ProviderExportSignature const> const providerExportSignatures;
 extern std::span<NativeImportSignature const> const nativeImportSignatures;
 extern std::string_view const nativeABISourceRepository;
 extern std::string_view const nativeABISourceCommit;

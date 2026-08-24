@@ -11,10 +11,55 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 namespace ripple::test {
 namespace {
+
+struct ExpectedProviderExport
+{
+    std::string_view kind;
+    std::string_view name;
+    std::string_view parameters;
+    std::string_view results;
+    std::uint32_t minimumPages;
+    std::uint32_t maximumPages;
+    bool memory64;
+    bool shared;
+};
+
+constexpr ExpectedProviderExport expectedProviderExports[] = {
+    {"function", "_initialize", "", "", 0, 0, false, false},
+    {"function", "free", "i32", "", 0, 0, false, false},
+    {"function", "malloc", "i32", "i32", 0, 0, false, false},
+    {"memory", "memory", "", "", 6, 512, false, false},
+    {"function", "qjs_cbak", "i32,i32,i32", "i32", 0, 0, false, false},
+    {"function", "qjs_compile", "i32,i32", "i32", 0, 0, false, false},
+    {"function", "qjs_compile_module", "i32,i32", "i32", 0, 0, false, false},
+    {"function", "qjs_destroy", "", "", 0, 0, false, false},
+    {"function", "qjs_enable_coverage", "i32", "", 0, 0, false, false},
+    {"function", "qjs_eval", "i32,i32", "i32", 0, 0, false, false},
+    {"function", "qjs_eval_bytecode", "i32,i32", "i32", 0, 0, false, false},
+    {"function", "qjs_eval_module", "i32,i32", "i32", 0, 0, false, false},
+    {"function", "qjs_get_bytecode_len", "", "i32", 0, 0, false, false},
+    {"function", "qjs_get_bytecode_ptr", "", "i32", 0, 0, false, false},
+    {"function", "qjs_get_result_len", "", "i32", 0, 0, false, false},
+    {"function", "qjs_get_result_ptr", "", "i32", 0, 0, false, false},
+    {"function", "qjs_hook", "i32,i32,i32", "i32", 0, 0, false, false},
+    {"function", "qjs_init", "", "", 0, 0, false, false},
+    {"function", "qjs_set_max_stack_size", "i32", "", 0, 0, false, false},
+    {"function", "qjs_set_memory_limit", "i32", "", 0, 0, false, false},
+    {"function", "qjs_set_seed", "i32", "", 0, 0, false, false},
+    {"function",
+     "qjs_validate_hook_module",
+     "i32,i32",
+     "i32",
+     0,
+     0,
+     false,
+     false},
+};
 
 std::vector<std::uint8_t>
 quickJSArtifact(std::vector<std::uint8_t> const& payload = {'a', 'b', 'c'})
@@ -94,6 +139,9 @@ public:
             BEAST_EXPECT(
                 hook::artifact::generated::providerExports.size() == 22);
             BEAST_EXPECT(
+                hook::artifact::generated::providerExportSignatures.size() ==
+                22);
+            BEAST_EXPECT(
                 hook::artifact::quickJSProviderMemoryMinimumPages == 6);
             BEAST_EXPECT(
                 hook::artifact::quickJSProviderMemoryMaximumPages == 512);
@@ -101,6 +149,40 @@ public:
                 !hook::artifact::generated::providerMemory64);
             BEAST_EXPECT(
                 !hook::artifact::generated::providerMemoryShared);
+            BEAST_EXPECT(
+                hook::artifact::quickJSProviderWasmStackBytes == 131'072);
+            BEAST_EXPECT(
+                hook::artifact::generated::wasmStackBytes == 131'072);
+            constexpr auto exportCount =
+                sizeof(expectedProviderExports) /
+                sizeof(expectedProviderExports[0]);
+            BEAST_EXPECT(
+                hook::artifact::generated::providerExportSignatures.size() ==
+                exportCount);
+            if (hook::artifact::generated::providerExportSignatures.size() ==
+                exportCount)
+            {
+                for (std::size_t index = 0; index < exportCount; ++index)
+                {
+                    auto const& actual =
+                        hook::artifact::generated::providerExportSignatures
+                            [index];
+                    auto const& expected = expectedProviderExports[index];
+                    BEAST_EXPECT(actual.kind == expected.kind);
+                    BEAST_EXPECT(actual.name == expected.name);
+                    BEAST_EXPECT(actual.parameters == expected.parameters);
+                    BEAST_EXPECT(actual.results == expected.results);
+                    BEAST_EXPECT(
+                        actual.minimumPages == expected.minimumPages);
+                    BEAST_EXPECT(
+                        actual.maximumPages == expected.maximumPages);
+                    BEAST_EXPECT(actual.memory64 == expected.memory64);
+                    BEAST_EXPECT(actual.shared == expected.shared);
+                    BEAST_EXPECT(
+                        hook::artifact::generated::providerExports[index] ==
+                        expected.name);
+                }
+            }
             BEAST_EXPECT(
                 hook::artifact::generated::javascriptSurfaceDeclarationSHA256 ==
                 "56b4b2974b8a63a550721abd60350e392990762e76666f050b1a7c810e5849"

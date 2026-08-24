@@ -40,6 +40,7 @@ std::uint32_t const quickJSProviderMemoryMinimumPages =
     generated::providerMemoryMinimumPages;
 std::uint32_t const quickJSProviderMemoryMaximumPages =
     generated::providerMemoryMaximumPages;
+std::uint32_t const quickJSProviderWasmStackBytes = generated::wasmStackBytes;
 
 namespace {
 

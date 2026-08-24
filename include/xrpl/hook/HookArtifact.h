@@ -92,6 +92,7 @@ extern std::uint32_t const quickJSSerializedObjectMaxScopes;
 extern std::uint32_t const quickJSSerializedObjectMaxDepth;
 extern std::uint32_t const quickJSProviderMemoryMinimumPages;
 extern std::uint32_t const quickJSProviderMemoryMaximumPages;
+extern std::uint32_t const quickJSProviderWasmStackBytes;
 
 bool
 isCurrentQuickJS(View const& artifact) noexcept;

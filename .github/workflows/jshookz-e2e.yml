@@ -161,6 +161,9 @@ jobs:
           cp "$XAHAU_QJS_PROVIDER_WASM" \
             external/quickjs-provider/jshookz_provider.wasm
 
+      - name: Prove generator-lock mutation reds
+        run: python3 cmake/test_generate_quickjs_provider_bundle.py
+
       - name: Configure Conan for Xahau
         run: |
           mkdir -p \
