@@ -8445,9 +8445,132 @@ private:
         }
     }
 
-    void testSetManifestTSH(FeatureBitset features)
+    // Builds a manifest signed by `master`, nominating `ephemeral` as the
+    // signing key. A sequence of UINT32_MAX makes it a revocation, which by
+    // definition carries no signing key.
+    static std::string
+    makeManifestString(
+        jtx::Account const& master,
+        jtx::Account const& ephemeral,
+        std::uint32_t seq)
     {
-        // RH TODO
+        STObject st(sfGeneric);
+        st[sfSequence] = seq;
+        st[sfPublicKey] = master.pk();
+
+        if (seq != std::numeric_limits<std::uint32_t>::max())
+        {
+            st[sfSigningPubKey] = ephemeral.pk();
+            sign(
+                st,
+                HashPrefix::manifest,
+                *publicKeyType(ephemeral.pk()),
+                ephemeral.sk());
+        }
+
+        sign(
+            st,
+            HashPrefix::manifest,
+            *publicKeyType(master.pk()),
+            master.sk(),
+            sfMasterSignature);
+
+        Serializer s;
+        st.add(s);
+        return std::string(static_cast<char const*>(s.data()), s.size());
+    }
+
+    // A manifest transaction carries no account signature, so it cannot be
+    // submitted through env() the way a signed transaction can. Returns the
+    // resulting transaction id so the caller can inspect its metadata.
+    uint256
+    submitManifest(jtx::Env& env, std::string const& manifest)
+    {
+        Json::Value params;
+        params[jss::manifest] = strHex(manifest);
+        auto const jrr = env.rpc("json", "submit", to_string(params));
+
+        BEAST_EXPECT(
+            jrr[jss::result][jss::engine_result].asString() == "tesSUCCESS");
+
+        auto const hashStr =
+            jrr[jss::result][jss::tx_json][jss::hash].asString();
+        return uint256::fromVoid(strUnHex(hashStr)->data());
+    }
+
+    // SetManifest
+    // | otxn | tsh | manifest |
+    // |   M  |  M  |   N/A    |
+    // |   M  |  E  |    W     |  ephemeral key's logical account
+    void
+    testSetManifestTSH(FeatureBitset features)
+    {
+        using namespace test::jtx;
+        using namespace std::literals;
+        testcase("set manifest TSH");
+
+        if (!features[featureOnChainManifests])
+            return;
+
+        // otxn: master
+        // tsh: ephemeral
+        // w/s: weak
+        //
+        // The ephemeral account is only named by the manifest, so it may
+        // observe the transaction but not rollback it. It therefore fires only
+        // when it has asked to collect.
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const master = Account("master", KeyType::ed25519);
+            auto const ephemeral = Account("ephemeral", KeyType::ed25519);
+            env.fund(XRP(1000), master, ephemeral);
+            env.close();
+
+            if (!testStrong)
+                addWeakTSH(env, ephemeral);
+
+            setTSHHook(env, ephemeral, testStrong);
+
+            auto const txHash =
+                submitManifest(env, makeManifestString(master, ephemeral, 1));
+            env.close();
+
+            // A strong hook on a weak stake holder is never reached.
+            auto const expected = testStrong ? tshNONE : tshWEAK;
+            testTSHStrongWeak(env, txHash, expected, __LINE__);
+        }
+
+        // A revocation names no signing key, so there is no ephemeral stake
+        // holder to notify at all.
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const master = Account("master", KeyType::ed25519);
+            auto const ephemeral = Account("ephemeral", KeyType::ed25519);
+            env.fund(XRP(1000), master, ephemeral);
+            env.close();
+
+            addWeakTSH(env, ephemeral);
+            setTSHHook(env, ephemeral, false);
+
+            auto const txHash = submitManifest(
+                env,
+                makeManifestString(
+                    master,
+                    ephemeral,
+                    std::numeric_limits<std::uint32_t>::max()));
+            env.close();
+
+            testTSHStrongWeak(env, txHash, tshNONE, __LINE__);
+        }
     }
 
     void

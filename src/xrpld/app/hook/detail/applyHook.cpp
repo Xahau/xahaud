@@ -9,7 +9,9 @@
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
+#include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
 #include <xrpl/protocol/tokens.h>
@@ -511,6 +513,27 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
 
         case ttCRON_SET: {
+            break;
+        }
+        case ttMANIFEST_SET: {
+            // The ephemeral key's logical account, meaning the r-address its
+            // public key hashes to, is a weak stake holder: the manifest names
+            // that key but nothing is done to the account, so it may observe
+            // but not rollback. Usually no such account exists, in which case
+            // nothing executes.
+            if (!tx.isFieldPresent(sfManifest))
+                break;
+
+            STObject const& man = const_cast<STTx&>(tx)
+                                      .getField(sfManifest)
+                                      .downcast<STObject>();
+
+            if (!man.isFieldPresent(sfSigningPubKey))
+                break;
+
+            auto const spk = man.getFieldVL(sfSigningPubKey);
+            if (publicKeyType(makeSlice(spk)))
+                ADD_TSH(calcAccountID(PublicKey(makeSlice(spk))), tshWEAK);
             break;
         }
         case ttAMM_CREATE:
