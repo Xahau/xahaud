@@ -29,6 +29,33 @@
 
 namespace ripple {
 
+TER
+checkBroker(
+    ReadView const& view,
+    AccountID const& broker,
+    AccountID const& owner,
+    STAmount const& saleAmount,
+    STAmount const& purchaseAmount)
+{
+    auto const sleBroker = view.read(keylet::account(broker));
+    if (!sleBroker)
+        return tecNO_TARGET;
+
+    if (sleBroker->isFieldPresent(sfAMMID))
+        return tecNO_PERMISSION;
+
+    if (broker == owner || saleAmount == beast::zero ||
+        purchaseAmount == saleAmount)
+        return tecNO_PERMISSION;
+
+    if (!purchaseAmount.native() && broker != purchaseAmount.getIssuer() &&
+        !view.exists(keylet::line(
+            broker, purchaseAmount.getIssuer(), purchaseAmount.getCurrency())))
+        return tecNO_LINE;
+
+    return tesSUCCESS;
+}
+
 NotTEC
 URIToken::preflight(PreflightContext const& ctx)
 {
@@ -138,6 +165,23 @@ URIToken::preflight(PreflightContext const& ctx)
         ctx.tx.getAccountID(sfAccount) == ctx.tx.getAccountID(sfDestination))
         return temREDUNDANT;
 
+    if (ctx.tx.isFieldPresent(sfBrokerAccount))
+    {
+        if (tt != ttURITOKEN_BUY)
+            return temMALFORMED;
+
+        if (!ctx.rules.enabled(featureURITokenBroker) ||
+            !ctx.rules.enabled(fixXahauV1))
+            return temDISABLED;
+
+        auto const broker = ctx.tx.getAccountID(sfBrokerAccount);
+        if (broker == beast::zero)
+            return temMALFORMED;
+
+        if (broker == ctx.tx.getAccountID(sfAccount))
+            return temREDUNDANT;
+    }
+
     return preflight2(ctx);
 }
 
@@ -234,6 +278,21 @@ URIToken::preclaim(PreclaimContext const& ctx)
 
             if (purchaseAmount < saleAmount)
                 return tecINSUFFICIENT_PAYMENT;
+
+            if (ctx.tx.isFieldPresent(sfBrokerAccount))
+            {
+                if (!ctx.view.rules().enabled(featureURITokenBroker) || !fixV1)
+                    return temDISABLED;
+
+                if (TER const result = checkBroker(
+                        ctx.view,
+                        ctx.tx.getAccountID(sfBrokerAccount),
+                        *owner,
+                        *saleAmount,
+                        purchaseAmount);
+                    !isTesSuccess(result))
+                    return result;
+            }
 
             if (fixV1)
             {
@@ -483,12 +542,25 @@ URIToken::doApply()
             if (purchaseAmount.issue() != saleAmount->issue())
                 return temBAD_CURRENCY;
 
+            std::optional<AccountID> const broker = ctx_.tx[~sfBrokerAccount];
+            if (broker &&
+                (!sb.rules().enabled(featureURITokenBroker) || !fixV1))
+                return temDISABLED;
+
             if (fixV1)
             {
                 // this is the reworked version of the buy routine
 
                 if (purchaseAmount < saleAmount)
                     return tecINSUFFICIENT_PAYMENT;
+
+                if (broker)
+                {
+                    if (TER const result = checkBroker(
+                            sb, *broker, *owner, *saleAmount, purchaseAmount);
+                        !isTesSuccess(result))
+                        return result;
+                }
 
                 // if it's an xrp sale/purchase then no trustline needed
                 if (purchaseAmount.native())
@@ -525,6 +597,23 @@ URIToken::doApply()
                         return result;
                     }
 
+                    if (broker)
+                    {
+                        if (TER result = trustTransferAllowed(
+                                sb,
+                                {account_, *broker},
+                                purchaseAmount.issue(),
+                                j);
+                            !isTesSuccess(result))
+                        {
+                            JLOG(j.trace()) << "URIToken::doApply broker "
+                                               "trustTransferAllowed result="
+                                            << result;
+
+                            return result;
+                        }
+                    }
+
                     if (STAmount availableFunds{accountFunds(
                             sb, account_, purchaseAmount, fhZERO_IF_FROZEN, j)};
                         purchaseAmount > availableFunds)
@@ -536,12 +625,30 @@ URIToken::doApply()
                         sb,
                         account_,
                         *owner,
-                        purchaseAmount,
+                        broker ? *saleAmount : purchaseAmount,
                         j,
                         WaiveTransferFee::No,
                         false);
                     !isTesSuccess(result))
                     return result;
+
+                if (broker)
+                {
+                    STAmount const spread = purchaseAmount - *saleAmount;
+                    if (spread <= beast::zero)
+                        return tecINTERNAL;  // LCOV_EXCL_LINE
+
+                    if (TER result = accountSend(
+                            sb,
+                            account_,
+                            *broker,
+                            spread,
+                            j,
+                            WaiveTransferFee::No,
+                            false);
+                        !isTesSuccess(result))
+                        return result;
+                }
 
                 // add token to new owner dir
                 auto const newPage = sb.dirInsert(

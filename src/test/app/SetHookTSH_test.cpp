@@ -7033,6 +7033,130 @@ private:
                 testTSHStrongWeak(env, tshNONE, __LINE__);
             }
         }
+
+        // A broker is an explicitly discovered weak TSH. This is required for
+        // XAH sales because native balance changes are not found by the generic
+        // balance-based weak-TSH discovery.
+        if (features[featureURITokenBroker] && features[fixXahauV1])
+        {
+            for (bool const collectEnabled : {false, true})
+            {
+                test::jtx::Env env{
+                    *this,
+                    network::makeNetworkConfig(
+                        21337, "10", "1000000", "200000"),
+                    features};
+
+                auto const issuer = Account("alice");
+                auto const owner = Account("bob");
+                auto const buyer = Account("carol");
+                auto const broker = Account("dave");
+                env.fund(XRP(1000), issuer, owner, buyer, broker);
+                env.close();
+
+                std::string const uri =
+                    collectEnabled ? "broker-collect" : "broker-no-collect";
+                auto const tid = uritoken::tokenid(issuer, uri);
+                std::string const hexid{strHex(tid)};
+
+                env(uritoken::mint(issuer, uri),
+                    uritoken::dest(owner),
+                    uritoken::amt(XRP(1)),
+                    ter(tesSUCCESS));
+                env.close();
+                env(uritoken::buy(owner, hexid),
+                    uritoken::amt(XRP(1)),
+                    fee(XRP(1)),
+                    ter(tesSUCCESS));
+                env.close();
+                env(uritoken::sell(owner, hexid),
+                    uritoken::dest(buyer),
+                    uritoken::amt(XRP(1)),
+                    ter(tesSUCCESS));
+                env.close();
+
+                if (collectEnabled)
+                    addWeakTSH(env, broker);
+                setTSHHook(env, broker, false);
+
+                auto buy = uritoken::buy(buyer, hexid);
+                buy[sfAmount.jsonName] =
+                    XRP(2).value().getJson(JsonOptions::none);
+                buy[sfBrokerAccount.jsonName] = broker.human();
+                env(buy, fee(XRP(1)), ter(tesSUCCESS));
+                env.close();
+
+                testTSHStrongWeak(
+                    env, collectEnabled ? tshWEAK : tshNONE, __LINE__);
+            }
+        }
+
+        // If the token issuer is also the broker, TSH strengths are ORed and
+        // the account executes exactly once: weak for a non-burnable token and
+        // strong for a burnable token.
+        if (features[featureURITokenBroker] && features[fixXahauV1])
+        {
+            for (bool const burnable : {false, true})
+            {
+                test::jtx::Env env{
+                    *this,
+                    network::makeNetworkConfig(
+                        21337, "10", "1000000", "200000"),
+                    features};
+
+                auto const issuer = Account("alice");
+                auto const owner = Account("bob");
+                auto const buyer = Account("carol");
+                env.fund(XRP(1000), issuer, owner, buyer);
+                env.close();
+
+                std::string const uri =
+                    burnable ? "broker-issuer-burnable" : "broker-issuer";
+                auto const tid = uritoken::tokenid(issuer, uri);
+                std::string const hexid{strHex(tid)};
+
+                env(uritoken::mint(issuer, uri),
+                    uritoken::dest(owner),
+                    uritoken::amt(XRP(1)),
+                    txflags(burnable ? tfBurnable : 0),
+                    ter(tesSUCCESS));
+                env.close();
+
+                env(uritoken::buy(owner, hexid),
+                    uritoken::amt(XRP(1)),
+                    fee(XRP(1)),
+                    ter(tesSUCCESS));
+                env.close();
+
+                env(uritoken::sell(owner, hexid),
+                    uritoken::dest(buyer),
+                    uritoken::amt(XRP(1)),
+                    ter(tesSUCCESS));
+                env.close();
+
+                if (!burnable)
+                    addWeakTSH(env, issuer);
+                setTSHHook(env, issuer, burnable);
+
+                auto buy = uritoken::buy(buyer, hexid);
+                buy[sfAmount.jsonName] =
+                    XRP(2).value().getJson(JsonOptions::none);
+                buy[sfBrokerAccount.jsonName] = issuer.human();
+                env(buy, fee(XRP(1)), ter(tesSUCCESS));
+                env.close();
+
+                testTSHStrongWeak(
+                    env, burnable ? tshSTRONG : tshWEAK, __LINE__);
+
+                Json::Value params;
+                params[jss::transaction] =
+                    env.tx()->getJson(JsonOptions::none)[jss::hash];
+                auto const result = env.rpc("json", "tx", to_string(params));
+                auto const executions =
+                    result[jss::result][jss::meta][sfHookExecutions.jsonName];
+                BEAST_EXPECT(executions.size() == 1);
+            }
+        }
     }
 
     void

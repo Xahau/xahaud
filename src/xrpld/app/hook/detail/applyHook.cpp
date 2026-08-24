@@ -200,6 +200,10 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                     issuer,
                     (ut->getFlags() & lsfBurnable) ? tshSTRONG : tshWEAK);
 
+            if (rv.rules().enabled(featureURITokenBroker) &&
+                tx.isFieldPresent(sfBrokerAccount))
+                ADD_TSH(tx.getAccountID(sfBrokerAccount), tshWEAK);
+
             break;
         }
 

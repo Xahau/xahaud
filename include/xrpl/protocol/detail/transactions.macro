@@ -314,6 +314,7 @@ TRANSACTION(ttURITOKEN_BURN, 46, URITokenBurn, ({
 TRANSACTION(ttURITOKEN_BUY, 47, URITokenBuy, ({
     {sfURITokenID, soeREQUIRED},
     {sfAmount, soeREQUIRED},
+    {sfBrokerAccount, soeOPTIONAL},
 }))
 
 TRANSACTION(ttURITOKEN_CREATE_SELL_OFFER, 48, URITokenCreateSellOffer, ({
