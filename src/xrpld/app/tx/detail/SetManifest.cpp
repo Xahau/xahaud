@@ -21,6 +21,7 @@
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/basics/StringUtilities.h>  // strUnHex
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
