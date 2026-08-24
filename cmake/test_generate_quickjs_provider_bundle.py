@@ -150,6 +150,11 @@ def pin_holds(returncode: int, cpp: str) -> bool:
         hex_bytes(PIN["bytecode_abi"]),
         f'"{PIN["native_abi"]}"',
         f"std::uint32_t const wasmStackBytes = {PIN['wasm_stack_bytes']}U;",
+        "std::uint32_t const serializedObjectMaxBytes =\n    1048576U;",
+        "std::uint32_t const serializedObjectMaxFields =\n    32768U;",
+        "std::uint32_t const serializedObjectMaxScopes =\n    32769U;",
+        "std::uint32_t const serializedObjectMaxDepth =\n    10U;",
+        "constexpr char const sealedProvider[] =",
     ]
     if any(item not in cpp for item in required):
         return False
@@ -187,10 +192,6 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
         self.assertNotEqual(returncode, 0, stderr)
         self.assertIn(fragment, stderr)
         self.assertFalse(pin_holds(returncode, cpp), stderr)
-
-    def assert_checker_red(self, mutator) -> None:
-        returncode, stderr, cpp = self.mutate(mutator)
-        self.assertFalse(pin_holds(returncode, cpp), stderr or cpp[:200])
 
     def test_unmutated_lock_projects_pin_and_typed_exports(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -254,7 +255,7 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             write_json(bundle, data)
             rehash_manifest(bundle)
 
-        self.assert_checker_red(mutate)
+        self.assert_generator_red(mutate, "declaration SHA-256 disagrees")
 
     def test_surface_sha_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -263,7 +264,7 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             write_json(bundle, data)
             rehash_manifest(bundle)
 
-        self.assert_checker_red(mutate)
+        self.assert_generator_red(mutate, "surface SHA-256 disagrees")
 
     def test_bytecode_abi_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -297,6 +298,51 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             rehash_manifest(bundle)
 
         self.assert_generator_red(mutate, "export signatures disagree")
+
+    def test_coordinated_export_signature_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            for collection in (
+                data["provider"]["exports"],
+                data["source"]["provider"]["allowed_exports"],
+            ):
+                for item in collection:
+                    if item["name"] == "qjs_hook":
+                        item["params"].append("i32")
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+
+        self.assert_generator_red(mutate, "sealed Receipt-A table")
+
+    def test_coordinated_import_module_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            for collection in (
+                data["provider"]["imports"],
+                data["source"]["provider"]["imports"],
+            ):
+                for item in collection:
+                    if item["name"] == "accept":
+                        item["module"] = "env2"
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+
+        self.assert_generator_red(mutate, "sealed Receipt-A table")
+
+    def test_export_extra_key_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            for collection in (
+                data["provider"]["exports"],
+                data["source"]["provider"]["allowed_exports"],
+            ):
+                for item in collection:
+                    if item["name"] == "qjs_init":
+                        item["note"] = "extra"
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+
+        self.assert_generator_red(mutate, "extra or missing keys")
 
     def test_memory_shape_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -335,6 +381,36 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             set_cmake(bundle, "SERIALIZED_OBJECT_MAX_DEPTH", "11")
 
         self.assert_generator_red(mutate, "serialized_object_max_depth")
+
+    def _coordinated_limit(self, json_key: str, cmake_key: str, value: int) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            data["source"]["limits"][json_key] = value
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+            set_cmake(bundle, cmake_key, str(value))
+
+        self.assert_generator_red(mutate, "sealed Receipt-A table")
+
+    def test_coordinated_serialized_object_max_bytes_mutation(self) -> None:
+        self._coordinated_limit(
+            "serialized_object_max_bytes", "SERIALIZED_OBJECT_MAX_BYTES", 1048578
+        )
+
+    def test_coordinated_serialized_object_max_fields_mutation(self) -> None:
+        self._coordinated_limit(
+            "serialized_object_max_fields", "SERIALIZED_OBJECT_MAX_FIELDS", 1
+        )
+
+    def test_coordinated_serialized_object_max_scopes_mutation(self) -> None:
+        self._coordinated_limit(
+            "serialized_object_max_scopes", "SERIALIZED_OBJECT_MAX_SCOPES", 1
+        )
+
+    def test_coordinated_serialized_object_max_depth_mutation(self) -> None:
+        self._coordinated_limit(
+            "serialized_object_max_depth", "SERIALIZED_OBJECT_MAX_DEPTH", 1
+        )
 
     def test_wasm_stack_bytes_mutation(self) -> None:
         def mutate(bundle: Path) -> None:

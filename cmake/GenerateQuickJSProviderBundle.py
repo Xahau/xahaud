@@ -20,6 +20,79 @@ WASM_PAGE_BYTES = 65536
 PROVIDER_MEMORY_MINIMUM_PAGES = 6
 PROVIDER_MEMORY_MAXIMUM_PAGES = 512
 PROVIDER_MEMORY_MAX_BYTES = PROVIDER_MEMORY_MAXIMUM_PAGES * WASM_PAGE_BYTES
+SEALED_DECLARATION_SHA256 = (
+    "56b4b2974b8a63a550721abd60350e392990762e76666f050b1a7c810e584957"
+)
+SEALED_SURFACE_SHA256 = (
+    "b112346b95da74d04930ba86bd597e56a428e41e11581804ccc49907ae206eb0"
+)
+SEALED_OBJECT_LIMITS = {
+    "serialized_object_max_bytes": 1048576,
+    "serialized_object_max_fields": 32768,
+    "serialized_object_max_scopes": 32769,
+    "serialized_object_max_depth": 10,
+}
+IMPORT_KEYS = frozenset({"module", "name", "params", "results"})
+FUNCTION_EXPORT_KEYS = frozenset({"kind", "name", "params", "results"})
+MEMORY_EXPORT_KEYS = frozenset(
+    {"kind", "name", "minimum_pages", "maximum_pages", "memory64", "shared"}
+)
+
+
+def _import_row(name: str, params: list[str], results: list[str]) -> dict[str, Any]:
+    return {"module": "env", "name": name, "params": params, "results": results}
+
+
+def _function_export(name: str, params: list[str], results: list[str]) -> dict[str, Any]:
+    return {"kind": "function", "name": name, "params": params, "results": results}
+
+
+SEALED_IMPORTS = [
+    _import_row("accept", ["i32", "i32", "i64"], ["i64"]),
+    _import_row("emit", ["i32", "i32", "i32", "i32"], ["i64"]),
+    _import_row("etxn_reserve", ["i32"], ["i64"]),
+    _import_row("hook_account", ["i32", "i32"], ["i64"]),
+    _import_row("ledger_last_hash", ["i32", "i32"], ["i64"]),
+    _import_row("ledger_last_time", [], ["i64"]),
+    _import_row("ledger_seq", [], ["i64"]),
+    _import_row("otxn_type", [], ["i64"]),
+    _import_row("prepare", ["i32", "i32", "i32", "i32"], ["i64"]),
+    _import_row("rollback", ["i32", "i32", "i64"], ["i64"]),
+    _import_row("state", ["i32", "i32", "i32", "i32"], ["i64"]),
+    _import_row("state_set", ["i32", "i32", "i32", "i32"], ["i64"]),
+    _import_row("trace", ["i32", "i32", "i32", "i32", "i32"], ["i64"]),
+]
+SEALED_EXPORTS = [
+    _function_export("_initialize", [], []),
+    _function_export("free", ["i32"], []),
+    _function_export("malloc", ["i32"], ["i32"]),
+    {
+        "kind": "memory",
+        "maximum_pages": 512,
+        "memory64": False,
+        "minimum_pages": 6,
+        "name": "memory",
+        "shared": False,
+    },
+    _function_export("qjs_cbak", ["i32", "i32", "i32"], ["i32"]),
+    _function_export("qjs_compile", ["i32", "i32"], ["i32"]),
+    _function_export("qjs_compile_module", ["i32", "i32"], ["i32"]),
+    _function_export("qjs_destroy", [], []),
+    _function_export("qjs_enable_coverage", ["i32"], []),
+    _function_export("qjs_eval", ["i32", "i32"], ["i32"]),
+    _function_export("qjs_eval_bytecode", ["i32", "i32"], ["i32"]),
+    _function_export("qjs_eval_module", ["i32", "i32"], ["i32"]),
+    _function_export("qjs_get_bytecode_len", [], ["i32"]),
+    _function_export("qjs_get_bytecode_ptr", [], ["i32"]),
+    _function_export("qjs_get_result_len", [], ["i32"]),
+    _function_export("qjs_get_result_ptr", [], ["i32"]),
+    _function_export("qjs_hook", ["i32", "i32", "i32"], ["i32"]),
+    _function_export("qjs_init", [], []),
+    _function_export("qjs_set_max_stack_size", ["i32"], []),
+    _function_export("qjs_set_memory_limit", ["i32"], []),
+    _function_export("qjs_set_seed", ["i32"], []),
+    _function_export("qjs_validate_hook_module", ["i32", "i32"], ["i32"]),
+]
 
 
 class LockError(ValueError):
@@ -165,14 +238,13 @@ def require_typed_exports(exports: object, label: str) -> list[dict[str, Any]]:
         if not isinstance(kind, str) or not isinstance(name, str) or not name:
             raise LockError(f"{label} row is missing kind/name: {item!r}")
         if kind == "function":
+            if set(item) != FUNCTION_EXPORT_KEYS:
+                raise LockError(f"{label} function {name} has extra or missing keys")
             join_types(item.get("params"), f"{label} {name} params")
             join_types(item.get("results"), f"{label} {name} results")
-            if any(
-                key in item
-                for key in ("minimum_pages", "maximum_pages", "memory64", "shared")
-            ):
-                raise LockError(f"{label} function {name} carries memory fields")
         elif kind == "memory":
+            if set(item) != MEMORY_EXPORT_KEYS:
+                raise LockError(f"{label} memory row has extra or missing keys")
             for key in ("minimum_pages", "maximum_pages"):
                 if not isinstance(item.get(key), int):
                     raise LockError(f"{label} memory row missing integer {key}")
@@ -180,8 +252,6 @@ def require_typed_exports(exports: object, label: str) -> list[dict[str, Any]]:
                 raise LockError(
                     f"{label} memory row is not memory64=false / shared=false"
                 )
-            if "params" in item or "results" in item:
-                raise LockError(f"{label} memory row must not carry params/results")
             memory_rows.append(item)
         else:
             raise LockError(f"{label} has unsupported export kind {kind!r}")
@@ -204,6 +274,8 @@ def require_typed_imports(imports: object, label: str) -> list[dict[str, Any]]:
         name = item.get("name")
         if not isinstance(module, str) or not isinstance(name, str) or not name:
             raise LockError(f"{label} row is missing module/name: {item!r}")
+        if set(item) != IMPORT_KEYS:
+            raise LockError(f"{label} {name} has extra or missing keys")
         wasm_signature(item.get("params"), item.get("results"), f"{label} {name}")
         names.append(name)
     if len(names) != len(set(names)):
@@ -301,6 +373,12 @@ def validate_lock(
         cmake, "SERIALIZED_OBJECT_MAX_DEPTH", limits.get("serialized_object_max_depth"),
         "serialized_object_max_depth",
     )
+    for key, expected in SEALED_OBJECT_LIMITS.items():
+        if limits.get(key) != expected:
+            raise LockError(
+                f"{key} disagrees with the sealed Receipt-A table: "
+                f"{limits.get(key)!r} != {expected!r}"
+            )
     cross_compare_int(cmake, "HEAP_BYTES", limits.get("quickjs_heap_bytes"), "quickjs_heap_bytes")
     cross_compare_int(cmake, "STACK_BYTES", limits.get("quickjs_stack_bytes"), "quickjs_stack_bytes")
     cross_compare_int(
@@ -349,6 +427,10 @@ def validate_lock(
         raise LockError("native ABI snapshot is missing selected imports")
     if provider_imports != source_imports:
         raise LockError("provider import signatures disagree between JSON copies")
+    if provider_imports != SEALED_IMPORTS:
+        raise LockError(
+            "provider import signatures disagree with the sealed Receipt-A table"
+        )
     if (
         len(provider_imports) != expected_import_count
         or len(native_imports) != expected_import_count
@@ -391,6 +473,10 @@ def validate_lock(
             "QuickJS provider memory shape is not min 6 / max 512 / "
             "memory64=false / shared=false"
         )
+    if provider_exports != SEALED_EXPORTS:
+        raise LockError(
+            "provider export signatures disagree with the sealed Receipt-A table"
+        )
 
     surface = profile.get("javascript_surface")
     nested_surface = profile.get("source", {}).get("javascript_surface")
@@ -400,6 +486,15 @@ def validate_lock(
         surface.get("declaration_sha256"), "javascript surface declaration SHA-256"
     )
     surface_sha = require_hex(surface.get("sha256"), "javascript surface SHA-256")
+    if declaration_sha != SEALED_DECLARATION_SHA256:
+        raise LockError(
+            "javascript surface declaration SHA-256 disagrees with the sealed "
+            "Receipt-A table"
+        )
+    if surface_sha != SEALED_SURFACE_SHA256:
+        raise LockError(
+            "javascript surface SHA-256 disagrees with the sealed Receipt-A table"
+        )
     for key in ("declaration", "manifest", "schema"):
         if surface.get(key) != nested_surface.get(key):
             raise LockError(f"javascript_surface.{key} disagrees between JSON copies")

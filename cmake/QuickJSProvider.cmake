@@ -64,3 +64,11 @@ add_custom_target(xahau_quickjs_refresh_provider
 
 message(STATUS
   "QuickJS provider values: ${XAHAU_QUICKJS_PROVIDER_VALUES_SOURCE}")
+
+add_custom_target(xahau_quickjs_lock_mutations
+  COMMAND
+    "${XAHAU_QUICKJS_PYTHON}"
+    "${CMAKE_CURRENT_LIST_DIR}/test_generate_quickjs_provider_bundle.py"
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMENT "Proving sealed QuickJS lock mutation reds"
+  VERBATIM)
