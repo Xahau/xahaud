@@ -87,6 +87,11 @@ executeQuickJSBytecode(
             fail("QuickJS entry invocation trapped", detail);
             return;
         }
+        if (result[0].kind != WASMTIME_I32)
+        {
+            fail("QuickJS entry invocation returned a non-i32", {});
+            return;
+        }
 
         if (result[0].of.i32 != 0)
         {

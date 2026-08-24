@@ -35,7 +35,7 @@ See [System Requirements](https://xrpl.org/system-requirements.html).
 
 Building rippled generally requires git, Python, Conan, CMake, and a C++ compiler. Some guidance on setting up such a [C++ development environment can be found here](./docs/build/environment.md).
 
-- [Python 3.7](https://www.python.org/downloads/)
+- [Python 3.7](https://www.python.org/downloads/) (configure also uses it to project the QuickJS provider)
 - [Conan 2.x](https://conan.io/downloads)
 - [CMake 3.16](https://cmake.org/download/)
 

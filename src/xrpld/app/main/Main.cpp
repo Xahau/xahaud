@@ -846,12 +846,11 @@ run(int argc, char** argv)
         auto const quickJSLaunched = std::chrono::steady_clock::now();
         if (quickJSProvider.empty())
         {
-            JLOG(quickJSJournal.warn())
-                << "No QuickJS provider is embedded in this build; QuickJS "
-                   "artifacts will not resolve on this node";
+            JLOG(quickJSJournal.fatal())
+                << "No QuickJS provider is embedded in this build";
+            return -1;
         }
-        else if (
-            auto const refused = hook::launchQuickJSRuntimeRegistration(
+        if (auto const refused = hook::launchQuickJSRuntimeRegistration(
                 quickJSProfile,
                 Blob{quickJSProvider.begin(), quickJSProvider.end()}))
         {
@@ -862,24 +861,21 @@ run(int argc, char** argv)
 
         auto const setupComplete = app->setup(vm);
 
-        if (!quickJSProvider.empty())
+        if (auto const error =
+                hook::awaitQuickJSRuntimeRegistration(quickJSProfile))
         {
-            if (auto const error =
-                    hook::awaitQuickJSRuntimeRegistration(quickJSProfile))
-            {
-                JLOG(quickJSJournal.fatal())
-                    << "QuickJS provider registration failed: " << *error;
-                return -1;
-            }
-            JLOG(quickJSJournal.info())
-                << "QuickJS provider registered: " << quickJSProvider.size()
-                << " bytes, runtime profile "
-                << strHex(quickJSProfile.runtimeProfile) << ", awaited "
-                << std::chrono::duration_cast<std::chrono::milliseconds>(
-                       std::chrono::steady_clock::now() - quickJSLaunched)
-                       .count()
-                << " ms after launch";
+            JLOG(quickJSJournal.fatal())
+                << "QuickJS provider registration failed: " << *error;
+            return -1;
         }
+        JLOG(quickJSJournal.info())
+            << "QuickJS provider registered: " << quickJSProvider.size()
+            << " bytes, runtime profile "
+            << strHex(quickJSProfile.runtimeProfile) << ", awaited "
+            << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - quickJSLaunched)
+                   .count()
+            << " ms after launch";
 
         if (!setupComplete)
             return -1;

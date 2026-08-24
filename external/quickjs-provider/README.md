@@ -27,8 +27,8 @@ the JSON hash before generating the C++ profile constants, and the runtime
 checks any supplied provider WASM against the projected size and SHA-256.
 
 The provider binary is not vendored in this integration slice. Tests inject
-the exact built artifact; the production artifact registry will embed or fetch
-the same sealed bundle before the JSHooks amendment can be enabled.
+the exact built artifact. Configure needs python3 to project these lock files.
+A daemon whose embed is empty will not start.
 
 For a local producer-to-consumer build, point Xahau straight at the emitted
 bundle instead of copying it:

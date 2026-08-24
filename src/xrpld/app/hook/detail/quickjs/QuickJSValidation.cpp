@@ -59,6 +59,8 @@ validate(
     if (!session->callExport(
             "qjs_validate_hook_module", arguments, 2, result, 1, detail))
         return detail;
+    if (result[0].kind != WASMTIME_I32)
+        return "QuickJS provider export returned a non-i32";
 
     auto const flags = result[0].of.i32;
     if (flags != 1 && flags != 3)
@@ -169,6 +171,11 @@ measureQuickJSSessionCostForTests(
                 "qjs_validate_hook_module", arguments, 2, result, 1, detail))
         {
             cost.error = detail;
+            return cost;
+        }
+        if (result[0].kind != WASMTIME_I32)
+        {
+            cost.error = "QuickJS provider export returned a non-i32";
             return cost;
         }
         auto const validateNanos = nanosSince(validateStart);

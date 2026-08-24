@@ -208,9 +208,7 @@ public:
 
     /** Rewrite test log lines. Not synchronized.
      *
-     *  TestEnv installs this in the constructor and clears it in the
-     *  destructor. The empty path is a null check; do not call
-     *  setTransform concurrently with applyTransform.
+     *  Test-only. Installed once for the life of Logs. Empty is a null check.
      */
     void
     setTransform(Transform fn)

@@ -102,9 +102,7 @@ struct HookHostFunctionDescriptor
     std::uint16_t implementationVersion;
 };
 
-// Version 1 is a pre-activation identity for the current shared bodies. Before
-// featureJSHooks becomes supported, activation must freeze genuinely retained
-// versioned bodies; changing this tag alone is not historical retention.
+// v1 is pre-activation; freeze bodies before featureJSHooks is supported.
 
 std::span<HookHostFunctionDescriptor const>
 hookHostFunctionCatalogue() noexcept;

@@ -6,6 +6,7 @@
 #include <xrpl/protocol/AccountID.h>
 #include <cstdlib>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -29,8 +30,14 @@ namespace jtx {
 */
 class TestEnv : public Env
 {
-    std::map<std::string, Account> accounts_;
-    std::string prefix_;
+    // Logs owns the rewriter until it dies after the app thread joins.
+    // Capturing this table (not TestEnv) keeps late log lines from UAF.
+    struct Rewrite
+    {
+        std::string prefix;
+        std::map<std::string, Account> accounts;
+    };
+    std::shared_ptr<Rewrite> rewrite_ = std::make_shared<Rewrite>();
 
 public:
     TestEnv(beast::unit_test::suite& suite, FeatureBitset features)
@@ -52,21 +59,16 @@ public:
         applyLoggingEnv();
     }
 
-    ~TestEnv()
-    {
-        app().logs().setTransform(nullptr);
-    }
-
     Account const&
     account(std::string const& name)
     {
-        return accounts_.try_emplace(name, name).first->second;
+        return rewrite_->accounts.try_emplace(name, name).first->second;
     }
 
     void
     setPrefix(std::string const& prefix)
     {
-        prefix_ = prefix.empty() ? "" : "[" + prefix + "] ";
+        rewrite_->prefix = prefix.empty() ? "" : "[" + prefix + "] ";
     }
 
 private:
@@ -114,21 +116,22 @@ private:
     void
     installTransform()
     {
-        app().logs().setTransform([this](std::string const& text) {
-            std::string out = prefix_ + text;
-            for (auto const& [name, acc] : accounts_)
-            {
-                auto const raddr = toBase58(acc.id());
-                std::string::size_type pos = 0;
-                std::string const replacement = "Account(" + name + ")";
-                while ((pos = out.find(raddr, pos)) != std::string::npos)
+        app().logs().setTransform(
+            [rewrite = rewrite_](std::string const& text) {
+                std::string out = rewrite->prefix + text;
+                for (auto const& [name, acc] : rewrite->accounts)
                 {
-                    out.replace(pos, raddr.size(), replacement);
-                    pos += replacement.size();
+                    auto const raddr = toBase58(acc.id());
+                    std::string::size_type pos = 0;
+                    std::string const replacement = "Account(" + name + ")";
+                    while ((pos = out.find(raddr, pos)) != std::string::npos)
+                    {
+                        out.replace(pos, raddr.size(), replacement);
+                        pos += replacement.size();
+                    }
                 }
-            }
-            return out;
-        });
+                return out;
+            });
     }
 };
 

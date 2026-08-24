@@ -91,84 +91,6 @@
 
 #define UNSIGNED_TYPE(T) std::make_unsigned_t<T>
 
-#define DECLARE_HOOK_FUNCTION(R, F, ...)                          \
-    std::variant<UNSIGNED_TYPE(R), hook_api::hook_return_code> F( \
-        hook::HookContext& hookCtx,                               \
-        WasmEdge_CallingFrameContext const& frameCtx __VA_OPT__(  \
-            COMMA __VA_ARGS__));                                  \
-    extern WasmEdge_Result WasmFunction##F(                       \
-        void* data_ptr,                                           \
-        const WasmEdge_CallingFrameContext* frameCtx,             \
-        const WasmEdge_Value* in,                                 \
-        WasmEdge_Value* out);                                     \
-    extern WasmEdge_ValType WasmFunctionParams##F[];              \
-    extern WasmEdge_ValType WasmFunctionResult##F[];              \
-    extern WasmEdge_FunctionTypeContext* WasmFunctionType##F;     \
-    extern WasmEdge_String WasmFunctionName##F;
-
-#define DEFINE_HOOK_FUNCTION(R, F, ...)                                        \
-    WasmEdge_Result hook_api::WasmFunction##F(                                 \
-        void* data_ptr,                                                        \
-        const WasmEdge_CallingFrameContext* frameCtx,                          \
-        const WasmEdge_Value* in,                                              \
-        WasmEdge_Value* out)                                                   \
-    {                                                                          \
-        __VA_OPT__(int _stack = 0;)                                            \
-        __VA_OPT__(FOR_VARS(VAR_ASSIGN, 2, __VA_ARGS__);)                      \
-        hook::HookContext* hookCtx =                                           \
-            reinterpret_cast<hook::HookContext*>(data_ptr);                    \
-        auto const& return_code = hook_api::F(                                 \
-            *hookCtx,                                                          \
-            *const_cast<WasmEdge_CallingFrameContext*>(frameCtx)               \
-                __VA_OPT__(COMMA STRIP_TYPES(__VA_ARGS__)));                   \
-        if (std::holds_alternative<hook_api::hook_return_code>(return_code) && \
-            (std::get<hook_api::hook_return_code>(return_code) ==              \
-                 RC_ROLLBACK ||                                                \
-             std::get<hook_api::hook_return_code>(return_code) == RC_ACCEPT))  \
-            return WasmEdge_Result_Terminate;                                  \
-        out[0] = RET_ASSIGN(                                                   \
-            R,                                                                 \
-            std::holds_alternative<UNSIGNED_TYPE(R)>(return_code)              \
-                ? std::get<UNSIGNED_TYPE(R)>(return_code)                      \
-                : R(std::get<hook_api::hook_return_code>(return_code)));       \
-        return WasmEdge_Result_Success;                                        \
-    };                                                                         \
-    WasmEdge_ValType hook_api::WasmFunctionParams##F[] = {                     \
-        __VA_OPT__(FOR_VARS(WASM_VAL_TYPE, 0, __VA_ARGS__))};                  \
-    WasmEdge_ValType hook_api::WasmFunctionResult##F[1] = {                    \
-        WASM_VAL_TYPE(R, dummy)};                                              \
-    WasmEdge_FunctionTypeContext* hook_api::WasmFunctionType##F =              \
-        WasmEdge_FunctionTypeCreate(                                           \
-            WasmFunctionParams##F,                                             \
-            VA_NARGS(NULL __VA_OPT__(, __VA_ARGS__)),                          \
-            WasmFunctionResult##F,                                             \
-            1);                                                                \
-    WasmEdge_String hook_api::WasmFunctionName##F =                            \
-        WasmEdge_StringCreateByCString(#F);                                    \
-    std::variant<UNSIGNED_TYPE(R), hook_api::hook_return_code> hook_api::F(    \
-        hook::HookContext& hookCtx,                                            \
-        WasmEdge_CallingFrameContext const& frameCtx __VA_OPT__(               \
-            COMMA __VA_ARGS__))
-
-#define HOOK_SETUP()                                                   \
-    using enum hook_api::hook_return_code;                             \
-    try                                                                \
-    {                                                                  \
-        [[maybe_unused]] ApplyContext& applyCtx = hookCtx.applyCtx;    \
-        [[maybe_unused]] auto& view = applyCtx.view();                 \
-        [[maybe_unused]] auto j = applyCtx.app.journal("View");        \
-        [[maybe_unused]] auto jh = applyCtx.app.journal("HooksTrace"); \
-        [[maybe_unused]] WasmEdge_MemoryInstanceContext* memoryCtx =   \
-            WasmEdge_CallingFrameGetMemoryInstance(&frameCtx, 0);      \
-        [[maybe_unused]] unsigned char* memory =                       \
-            WasmEdge_MemoryInstanceGetPointer(memoryCtx, 0, 0);        \
-        [[maybe_unused]] const uint64_t memory_length =                \
-            WasmEdge_MemoryInstanceGetPageSize(memoryCtx) *            \
-            WasmEdge_kPageSize;                                        \
-        [[maybe_unused]] auto& api = hookCtx.api();                    \
-        if (!memoryCtx || !memory || !memory_length)                   \
-            return INTERNAL_ERROR;
-
 #define HOOK_TEARDOWN()                                        \
     }                                                          \
     catch (const std::exception& e)                            \
@@ -177,54 +99,6 @@
             << "HookError[" << HC_ACC() << "]: " << __func__   \
             << " threw uncaught exception, what=" << e.what(); \
         return INTERNAL_ERROR;                                 \
-    }
-
-#define WRITE_WASM_MEMORY(                                                  \
-    bytes_written,                                                          \
-    guest_dst_ptr,                                                          \
-    guest_dst_len,                                                          \
-    host_src_ptr,                                                           \
-    host_src_len,                                                           \
-    host_memory_ptr,                                                        \
-    guest_memory_length)                                                    \
-    {                                                                       \
-        int64_t bytes_to_write = std::min(                                  \
-            static_cast<int64_t>(host_src_len),                             \
-            static_cast<int64_t>(guest_dst_len));                           \
-        if (guest_dst_ptr + bytes_to_write > guest_memory_length)           \
-        {                                                                   \
-            JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: " << __func__ \
-                           << " tried to retreive blob of " << host_src_len \
-                           << " bytes past end of wasm memory";             \
-            return OUT_OF_BOUNDS;                                           \
-        }                                                                   \
-        if (!WasmEdge_ResultOK(WasmEdge_MemoryInstanceSetData(              \
-                memoryCtx,                                                  \
-                reinterpret_cast<const uint8_t*>(host_src_ptr),             \
-                guest_dst_ptr,                                              \
-                bytes_to_write)))                                           \
-            return INTERNAL_ERROR;                                          \
-        bytes_written += bytes_to_write;                                    \
-    }
-
-#define WRITE_WASM_MEMORY_AND_RETURN( \
-    guest_dst_ptr,                    \
-    guest_dst_len,                    \
-    host_src_ptr,                     \
-    host_src_len,                     \
-    host_memory_ptr,                  \
-    guest_memory_length)              \
-    {                                 \
-        uint64_t bytes_written = 0;   \
-        WRITE_WASM_MEMORY(            \
-            bytes_written,            \
-            guest_dst_ptr,            \
-            guest_dst_len,            \
-            host_src_ptr,             \
-            host_src_len,             \
-            host_memory_ptr,          \
-            guest_memory_length);     \
-        return bytes_written;         \
     }
 
 // ptr = pointer inside the wasm memory space

@@ -1,8 +1,10 @@
 #include <xrpld/app/hook/HookGuestMemory.h>
 #include <xrpld/app/hook/detail/quickjs/QuickJSProviderSession.h>
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <limits>
+#include <string>
 #include <string_view>
 
 namespace hook::quickjs {
@@ -84,6 +86,18 @@ call(
         detail = takeTrap(trap);
         return false;
     }
+    return true;
+}
+
+bool
+asI32(wasmtime_val_t const& value, std::int32_t& out, std::string& detail)
+{
+    if (value.kind != WASMTIME_I32)
+    {
+        detail = "QuickJS provider export returned a non-i32";
+        return false;
+    }
+    out = value.of.i32;
     return true;
 }
 
@@ -299,7 +313,13 @@ ProviderSession::allocateAndCopy(
         stage = ProviderStage::bytecodeAllocation;
         return std::nullopt;
     }
-    auto const pointer = static_cast<std::uint32_t>(result[0].of.i32);
+    std::int32_t mallocResult = 0;
+    if (!asI32(result[0], mallocResult, detail))
+    {
+        stage = ProviderStage::bytecodeAllocation;
+        return std::nullopt;
+    }
+    auto const pointer = static_cast<std::uint32_t>(mallocResult);
     if (pointer == 0)
     {
         stage = ProviderStage::bytecodeAllocation;
@@ -335,11 +355,14 @@ ProviderSession::readDiagnostic() noexcept
                 "qjs_get_result_len", nullptr, 0, lengthResult, 1, ignored))
             return {};
 
-        auto const pointer =
-            static_cast<std::uint32_t>(pointerResult[0].of.i32);
+        std::int32_t pointerBits = 0;
+        std::int32_t lengthBits = 0;
+        if (!asI32(pointerResult[0], pointerBits, ignored) ||
+            !asI32(lengthResult[0], lengthBits, ignored))
+            return {};
+        auto const pointer = static_cast<std::uint32_t>(pointerBits);
         auto const length = std::min<std::uint32_t>(
-            static_cast<std::uint32_t>(lengthResult[0].of.i32),
-            maxDiagnosticLength);
+            static_cast<std::uint32_t>(lengthBits), maxDiagnosticLength);
         if (length == 0)
             return {};
 

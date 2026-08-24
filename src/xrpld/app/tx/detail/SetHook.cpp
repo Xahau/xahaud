@@ -513,8 +513,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 artifact->kind == hook::artifact::Kind::legacyWasm &&
                 version != 0)
             {
-                // Preserve the legacy C-Hook API-version check and its
-                // precedence over HookOn/name validation.
+                // Reject version != 0 before HookOn so tesMALFORMED codes stay
+                // stable.
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
                     << "]: Malformed transaction: SetHook "
@@ -623,20 +623,21 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                         std::span{
                             artifact->payload.data(), artifact->payload.size()},
                         hasCallback);
-                    if (validationError)
+                    if (validationError || !runtime)
                     {
                         JLOG(ctx.j.trace())
                             << "HookSet(" << hook::log::WASM_INVALID << ")["
                             << HS_ACC() << "]: Invalid QuickJS Hook bytecode: "
-                            << *validationError;
+                            << (validationError ? *validationError
+                                                : "runtime is not registered");
                         return false;
                     }
 
-                    // Profile v1 intentionally keeps placeholder admission
-                    // units until Wasmtime fuel and host-work pricing are
-                    // activated as a separate consensus change.
+                    // Bill the armed invocation-fuel ceiling; host-work
+                    // pricing is a later consensus change.
+                    auto const units = runtime->profile.invocationFuel;
                     return std::pair<uint64_t, uint64_t>{
-                        1, hasCallback ? 1 : 0};
+                        units, hasCallback ? units : 0};
                 }
 
                 // RH NOTE: validateGuards has a generic non-rippled specific
@@ -1724,10 +1725,8 @@ SetHook::setHook()
                 if (!oldDefSLE || !oldHook)
                     return tecNO_ENTRY;
 
-                // Updating parameters/routing on an already-installed Hook is
-                // deliberately permitted after its profile stops accepting
-                // new installs. Execution still resolves the profile pinned
-                // by its existing HookDefinition; removal must remain possible.
+                // Installed hooks may still be updated after their profile
+                // stops accepting CREATE.
 
                 // initially carry over the prior non-array values, whatever
                 // those were
@@ -2074,10 +2073,8 @@ SetHook::setHook()
                     return tecNO_ENTRY;
                 }
 
-                // Hash INSTALL and CREATE-dedup share this stored-definition
-                // check. Preclaim/preflight enforce current authorization;
-                // disagreement here means ledger corruption or an impossible
-                // hash collision, not a reason to reinterpret the bytes.
+                // CREATE-dedup and hash INSTALL must see a still-installable
+                // definition.
                 if (!newDefSLE->isFieldPresent(sfCreateCode) ||
                     !newDefSLE->isFieldPresent(sfHookApiVersion))
                     return tefBAD_LEDGER;

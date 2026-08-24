@@ -178,7 +178,7 @@ def main() -> int:
     if wasm_bytes is None:
         print(
             f"No QuickJS provider WASM at {wasm_path}; nothing is embedded "
-            "and the daemon will not register a QuickJS runtime",
+            "and the daemon will refuse to start",
             file=sys.stderr,
         )
 
