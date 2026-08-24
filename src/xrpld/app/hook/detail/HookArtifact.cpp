@@ -28,6 +28,18 @@ std::uint64_t const quickJSHostWorkPerAddressedByte =
 std::string_view const quickJSHostAdapterPolicy = generated::hostAdapterPolicy;
 std::uint32_t const quickJSHeapBytes = generated::heapBytes;
 std::uint32_t const quickJSStackBytes = generated::stackBytes;
+std::uint32_t const quickJSSerializedObjectMaxBytes =
+    generated::serializedObjectMaxBytes;
+std::uint32_t const quickJSSerializedObjectMaxFields =
+    generated::serializedObjectMaxFields;
+std::uint32_t const quickJSSerializedObjectMaxScopes =
+    generated::serializedObjectMaxScopes;
+std::uint32_t const quickJSSerializedObjectMaxDepth =
+    generated::serializedObjectMaxDepth;
+std::uint32_t const quickJSProviderMemoryMinimumPages =
+    generated::providerMemoryMinimumPages;
+std::uint32_t const quickJSProviderMemoryMaximumPages =
+    generated::providerMemoryMaximumPages;
 
 namespace {
 

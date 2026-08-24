@@ -141,12 +141,48 @@ def main() -> int:
         print("QuickJS provider/native ABI import sets differ", file=sys.stderr)
         return 1
 
+    expected_export_count = int(require(cmake, "PROVIDER_EXPORT_COUNT"))
+    provider_exports = profile["provider"]["exports"]
+    if len(provider_exports) != expected_export_count:
+        print(
+            "QuickJS provider export count disagrees with its CMake lock",
+            file=sys.stderr,
+        )
+        return 1
+    memory_exports = [
+        item
+        for item in provider_exports
+        if item.get("kind") == "memory" and item.get("name") == "memory"
+    ]
+    if len(memory_exports) != 1:
+        print("QuickJS provider must export exactly one memory", file=sys.stderr)
+        return 1
+    memory = memory_exports[0]
+    if (
+        int(memory.get("minimum_pages", -1)) != 6
+        or int(memory.get("maximum_pages", -1)) != 512
+        or memory.get("memory64") is not False
+        or memory.get("shared") is not False
+    ):
+        print(
+            "QuickJS provider memory shape is not min 6 / max 512 / "
+            "memory64=false / shared=false",
+            file=sys.stderr,
+        )
+        return 1
+    surface = profile["javascript_surface"]
+    declaration_sha = str(surface["declaration_sha256"]).lower()
+    surface_sha = str(surface["sha256"]).lower()
+    if len(declaration_sha) != 64 or len(surface_sha) != 64:
+        print("QuickJS javascript surface hashes are malformed", file=sys.stderr)
+        return 1
+
     wasm_name = require(cmake, "PROVIDER_FILE")
     wasm_path = bundle / wasm_name
     expected_sha = require(cmake, "PROVIDER_SHA256").lower()
     expected_size = int(require(cmake, "PROVIDER_SIZE"))
     fingerprint = hashlib.sha256()
-    for path in (profile_path, cmake_path, native_path):
+    for path in (profile_path, cmake_path, native_path, Path(__file__)):
         fingerprint.update(path.read_bytes())
     fingerprint.update(args.wasmtime_version.encode())
     wasm_bytes: bytes | None = None
@@ -245,11 +281,28 @@ std::uint64_t const hostWorkPerAddressedByte =
 std::string_view const hostAdapterPolicy = {quote(require(cmake, "HOST_ADAPTER_POLICY"))};
 std::uint32_t const heapBytes = {require(cmake, "HEAP_BYTES")}U;
 std::uint32_t const stackBytes = {require(cmake, "STACK_BYTES")}U;
+std::uint32_t const serializedObjectMaxBytes =
+    {require(cmake, "SERIALIZED_OBJECT_MAX_BYTES")}U;
+std::uint32_t const serializedObjectMaxFields =
+    {require(cmake, "SERIALIZED_OBJECT_MAX_FIELDS")}U;
+std::uint32_t const serializedObjectMaxScopes =
+    {require(cmake, "SERIALIZED_OBJECT_MAX_SCOPES")}U;
+std::uint32_t const serializedObjectMaxDepth =
+    {require(cmake, "SERIALIZED_OBJECT_MAX_DEPTH")}U;
+std::uint32_t const providerMemoryMinimumPages = {int(memory["minimum_pages"])}U;
+std::uint32_t const providerMemoryMaximumPages = {int(memory["maximum_pages"])}U;
+bool const providerMemory64 = false;
+bool const providerMemoryShared = false;
+std::string_view const javascriptSurfaceDeclarationSHA256 =
+    {quote(declaration_sha)};
+std::string_view const javascriptSurfaceSHA256 = {quote(surface_sha)};
 
 namespace {{
 
 std::string_view const providerImportNames[] = {{
     {", ".join(quote(name) for name in provider_names)}}};
+std::string_view const providerExportNames[] = {{
+    {", ".join(quote(item["name"]) for item in provider_exports)}}};
 ProviderImportSignature const providerImportSignatureData[] = {{
     {provider_rows}}};
 NativeImportSignature const nativeImportSignatureData[] = {{
@@ -258,6 +311,7 @@ NativeImportSignature const nativeImportSignatureData[] = {{
 }}  // namespace
 
 std::span<std::string_view const> const providerImports{{providerImportNames}};
+std::span<std::string_view const> const providerExports{{providerExportNames}};
 std::span<ProviderImportSignature const> const providerImportSignatures{{
     providerImportSignatureData}};
 std::span<NativeImportSignature const> const nativeImportSignatures{{

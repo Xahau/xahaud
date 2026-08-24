@@ -117,6 +117,76 @@ export function main(_reserved: number): never {
 }
 )[test.tshook]"));
 
+        auto const stObjectArrayCode =
+            packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
+export function main(_reserved: number): never {
+  void _reserved;
+  const ordered = util.decodeObject(
+    Uint8Array.from([
+      0x24, 0x00, 0x00, 0x00, 0x07, 0x22, 0x00, 0x00, 0x00, 0x09,
+    ]),
+  );
+  const flags = ordered.get(Field.Flags);
+  const flagsAgain = ordered.get(Field.Flags);
+  if (flags === undefined || flags !== flagsAgain || flags.toNumber() !== 9) {
+    rollback("repeated Flags identity", -1);
+  }
+  const canonical = Array.from(ordered.toBytes());
+  if (canonical.join(",") !== "34,0,0,0,9,36,0,0,0,7") {
+    rollback("canonical bytes", -2);
+  }
+  const json = JSON.stringify(ordered.toJSON());
+  if (json !== '{"Flags":9,"Sequence":7}') {
+    rollback("canonical json", -3);
+  }
+
+  const amountRoot = util.decodeObject(
+    Uint8Array.from([0x61, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2a]),
+  );
+  const amount = amountRoot.get(Field.Amount);
+  if (amount === undefined || amount.kind !== "native" || amount.drops !== 42n) {
+    rollback("native amount", -4);
+  }
+  const issue = amount.issue;
+  const currency = issue.currency;
+  if (currency === undefined || currency !== issue.currency) {
+    rollback("amount.issue.currency identity", -5);
+  }
+  if (!currency.isNative || currency.toString() !== "XAH") {
+    rollback("native currency", -6);
+  }
+
+  const root = util.decodeObject(
+    Uint8Array.from([
+      0xf9, 0xea, 0x22, 0x00, 0x00, 0x00, 0x01, 0xe1, 0xea, 0x22, 0x00, 0x00,
+      0x00, 0x02, 0xe1, 0xf1,
+    ]),
+  );
+  const memos = root.get(Field.Memos);
+  if (memos === undefined || memos.length !== 2) {
+    rollback("STArray length", -7);
+  }
+  const first = memos.at(0);
+  if (first === undefined || first !== memos[0] || first !== memos.at(0)) {
+    rollback("STArray element identity", -8);
+  }
+  const firstFlags = first.get(Field.Flags);
+  const secondFlags = memos.at(1)?.get(Field.Flags);
+  if (
+    firstFlags === undefined ||
+    secondFlags === undefined ||
+    firstFlags.toNumber() !== 1 ||
+    secondFlags.toNumber() !== 2
+  ) {
+    rollback("STArray element flags", -9);
+  }
+  if (memos.at(99) !== undefined) {
+    rollback("STArray out of range", -10);
+  }
+  accept("stobject-starray", 77);
+}
+)[test.tshook]"));
+
         auto const& stateSeedCode = jshooks_test_wasm.at(R"[test.hook](
 #include <stdint.h>
 extern int32_t _g(uint32_t id, uint32_t maxiter);
@@ -241,7 +311,7 @@ export function main(_reserved: number): never {
 }
 
 export function callback(info: CallbackInfo): never {
-  if (info.failed) rollback("emitted transaction failed", info.rawFlags);
+  if (info.failureBitSet) rollback("emitted transaction failed", info.rawFlags);
   rollback.onFail(state.set("cbak", "called"), "callback state failed");
   accept("callback called", 202);
 }
@@ -405,7 +475,7 @@ int64_t hook(uint32_t reserved)
             hook::validateQuickJSBytecodeForTests(currentRuntime, hookBytecode);
         BEAST_EXPECT(!successfulValidation.error);
         BEAST_EXPECT(!successfulValidation.hasCallback);
-        expectFuel(successfulValidation.invocationFuelConsumed, 49481);
+        expectFuel(successfulValidation.invocationFuelConsumed, 54534);
 
         testcase("Validate one retained provider concurrently");
         std::array<std::future<hook::QuickJSValidationForTests>, 4>
@@ -422,7 +492,7 @@ int64_t hook(uint32_t reserved)
             auto result = validation.get();
             BEAST_EXPECT(!result.error);
             BEAST_EXPECT(!result.hasCallback);
-            expectFuel(result.invocationFuelConsumed, 49481);
+            expectFuel(result.invocationFuelConsumed, 54534);
         }
 
         testcase("Bind API, profile, hash, dedup, and hash install");
@@ -454,7 +524,7 @@ int64_t hook(uint32_t reserved)
             auto const failedValidation = hook::validateQuickJSBytecodeForTests(
                 currentRuntime, malformedBytecode);
             BEAST_EXPECT(!!failedValidation.error);
-            expectFuel(failedValidation.invocationFuelConsumed, 12943);
+            expectFuel(failedValidation.invocationFuelConsumed, 14029);
             identityEnv(
                 jtx::hook(
                     alice,
@@ -528,6 +598,31 @@ int64_t hook(uint32_t reserved)
         ++conflictingProfile.invocationFuel;
         BEAST_EXPECT(
             !!hook::registerQuickJSRuntime(conflictingProfile, provider));
+        auto conflictingObjectLimits = hook::currentQuickJSRuntimeProfile();
+        ++conflictingObjectLimits.serializedObjectMaxBytes;
+        BEAST_EXPECT(!!hook::registerQuickJSRuntime(
+            conflictingObjectLimits, provider));
+        conflictingObjectLimits = hook::currentQuickJSRuntimeProfile();
+        ++conflictingObjectLimits.serializedObjectMaxFields;
+        BEAST_EXPECT(!!hook::registerQuickJSRuntime(
+            conflictingObjectLimits, provider));
+        conflictingObjectLimits = hook::currentQuickJSRuntimeProfile();
+        ++conflictingObjectLimits.serializedObjectMaxScopes;
+        BEAST_EXPECT(!!hook::registerQuickJSRuntime(
+            conflictingObjectLimits, provider));
+        conflictingObjectLimits = hook::currentQuickJSRuntimeProfile();
+        conflictingObjectLimits.serializedObjectMaxDepth = 0;
+        BEAST_EXPECT(!!hook::registerQuickJSRuntime(
+            conflictingObjectLimits, provider));
+        auto conflictingMemory = hook::currentQuickJSRuntimeProfile();
+        ++conflictingMemory.providerMemoryMinimumPages;
+        BEAST_EXPECT(
+            !!hook::registerQuickJSRuntime(conflictingMemory, provider));
+        conflictingMemory = hook::currentQuickJSRuntimeProfile();
+        conflictingMemory.providerMemoryMaximumPages =
+            conflictingMemory.providerMemoryMinimumPages - 1;
+        BEAST_EXPECT(
+            !!hook::registerQuickJSRuntime(conflictingMemory, provider));
         //@@end jshooks-provider-fixture
 
         //@@start jshooks-provider-launch
@@ -574,6 +669,10 @@ int64_t hook(uint32_t reserved)
                 hook::findQuickJSRuntime(launchedArtifact) == launchedRuntime);
             auto mismatchedProfile = launchedProfile;
             ++mismatchedProfile.invocationFuel;
+            BEAST_EXPECT(!!hook::launchQuickJSRuntimeRegistration(
+                mismatchedProfile, provider));
+            mismatchedProfile = launchedProfile;
+            ++mismatchedProfile.serializedObjectMaxFields;
             BEAST_EXPECT(!!hook::launchQuickJSRuntimeRegistration(
                 mismatchedProfile, provider));
             BEAST_EXPECT(
@@ -678,7 +777,7 @@ int64_t hook(uint32_t reserved)
         auto const message = execution.getFieldVL(sfHookReturnString);
         BEAST_EXPECT(
             std::string(message.begin(), message.end()) == "payment:0");
-        expectFuel(execution.getFieldU64(sfHookInstructionCount), 58851);
+        expectFuel(execution.getFieldU64(sfHookInstructionCount), 64518);
 
         testcase("Bind ledger context and keep terminals uncatchable");
         auto surfaceProbeHook = hsoVersioned(surfaceProbeCode, 1);
@@ -710,7 +809,35 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string(surfaceMessage.begin(), surfaceMessage.end()) ==
             "surface:40");
-        expectFuel(surfaceExecution.getFieldU64(sfHookInstructionCount), 93471);
+        expectFuel(surfaceExecution.getFieldU64(sfHookInstructionCount), 101078);
+
+        testcase("Execute accepted STObject and STArray on Wasmtime");
+        auto stObjectHook = hsoVersioned(stObjectArrayCode, 1);
+        stObjectHook[jss::Flags] = hsfOVERRIDE;
+        env(jtx::hook(alice, {{stObjectHook}}, 0),
+            fee(XRP(10)),
+            ter(tesSUCCESS));
+        env.close();
+        env(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
+        env.close();
+        auto const stObjectMeta = env.meta();
+        BEAST_EXPECT(!!stObjectMeta);
+        if (!stObjectMeta)
+            return;
+        auto const stObjectExecutions =
+            stObjectMeta->getFieldArray(sfHookExecutions);
+        BEAST_EXPECT(stObjectExecutions.size() == 1);
+        if (stObjectExecutions.size() != 1)
+            return;
+        BEAST_EXPECT(
+            stObjectExecutions[0].getFieldU8(sfHookResult) ==
+            static_cast<uint8_t>(hook_api::ExitType::ACCEPT));
+        BEAST_EXPECT(stObjectExecutions[0].getFieldU64(sfHookReturnCode) == 77);
+        auto const stObjectMessage =
+            stObjectExecutions[0].getFieldVL(sfHookReturnString);
+        BEAST_EXPECT(
+            std::string(stObjectMessage.begin(), stObjectMessage.end()) ==
+            "stobject-starray");
 
         //@@start jshooks-state-bridge
         testcase("Execute a C Hook through WasmEdge and persist state");
@@ -823,7 +950,7 @@ int64_t hook(uint32_t reserved)
         if (rollbackExecutions.size() != 1)
             return;
         expectFuel(
-            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 74329);
+            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 80256);
 
         stateEntry = env.le(stateKeylet);
         BEAST_EXPECT(!!stateEntry);
@@ -856,7 +983,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& memoryGrowthExecution = memoryGrowthExecutions[0];
         expectFuel(
-            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7052054);
+            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7251198);
         BEAST_EXPECT(
             memoryGrowthExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
@@ -902,7 +1029,7 @@ int64_t hook(uint32_t reserved)
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
         expectFuel(
             hostWorkExecutions[0].getFieldU64(sfHookInstructionCount),
-            29894829);
+            30502768);
 
         auto const meterKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -997,7 +1124,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& callbackExecution = callbackExecutions[0];
         expectFuel(
-            callbackExecution.getFieldU64(sfHookInstructionCount), 85393);
+            callbackExecution.getFieldU64(sfHookInstructionCount), 136305);
         BEAST_EXPECT_EQ(
             callbackExecution.getFieldU8(sfHookResult),
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));

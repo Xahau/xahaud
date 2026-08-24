@@ -39,6 +39,12 @@ struct QuickJSRuntimeProfile
     std::string hostAdapterPolicy;
     std::uint32_t heapBytes;
     std::uint32_t stackBytes;
+    std::uint32_t serializedObjectMaxBytes;
+    std::uint32_t serializedObjectMaxFields;
+    std::uint32_t serializedObjectMaxScopes;
+    std::uint32_t serializedObjectMaxDepth;
+    std::uint32_t providerMemoryMinimumPages;
+    std::uint32_t providerMemoryMaximumPages;
 
     bool
     operator==(QuickJSRuntimeProfile const&) const = default;

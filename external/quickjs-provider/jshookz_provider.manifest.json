@@ -2,12 +2,16 @@
   "bytecode_abi_id": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
   "javascript_surface": {
     "declaration": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "declaration_sha256": "376121ca3f04376fff8af79897bf688bf4121349379c6537d1fda8c167772513",
+    "declaration_sha256": "56b4b2974b8a63a550721abd60350e392990762e76666f050b1a7c810e584957",
     "manifest": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
     "schema": "jshookz.javascript-surface.v1",
-    "sha256": "525b15c0b614ff352d2b0170e568008fcf03c3960acb6b5ad9bf856b47128e62"
+    "sha256": "b112346b95da74d04930ba86bd597e56a428e41e11581804ccc49907ae206eb0"
   },
   "provider": {
+    "build": {
+      "wasm_memory_max_bytes": 33554432,
+      "wasm_stack_bytes": 131072
+    },
     "exports": [
       {
         "kind": "function",
@@ -356,10 +360,10 @@
         ]
       }
     ],
-    "sha256": "6d05e793278af127a91f595a89321692be8cde9d2f73dfdb74d3fa85857788e7",
-    "size": 941714
+    "sha256": "40f9ac0203afa9296196c627bc94e669ad789322ddc1e4ab58ba0cf6d32a5e21",
+    "size": 1101461
   },
-  "runtime_profile_id": "fa502756abc080c606e1cd72c5ca6bf9fa0f0383177210b570937dbb78745411",
+  "runtime_profile_id": "60950ca8b6fe4dd2a35559367051998bc04f75e8aa41934dd4caad0de5a1c3ba",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
@@ -403,7 +407,7 @@
       "initialization": "finite-cold-qjs-init-budget-before-invocation-fuel-reset",
       "ordinary_host_status": "returned-as-i64-never-trapped",
       "pending_jobs_after_entry": "not-drained",
-      "result_failure_policy": "rollback.onFail-preserves-coded-failure;rollback.require-collapses-failure-or-absence-to-explicit-message-and-optional-code-default-zero",
+      "result_failure_policy": "rollback.onFail-preserves-coded-failure;rollback.requirePresent-requires-success-and-non-nullish-value;rollback.requireTruthy-requires-success-and-truthy-value;accept.unlessPresent-accepts-on-failure-or-nullish-value;accept.unlessTruthy-accepts-on-failure-or-falsy-value;guards-use-explicit-message-and-optional-code-default-zero",
       "sfHookInstructionCount": "initial-wasmtime-invocation-fuel-minus-remaining-fuel",
       "terminals": "record-hook-result-and-uncatchable-wasmtime-trap"
     },
@@ -453,11 +457,215 @@
       "host_work_per_addressed_byte": 1,
       "quickjs_heap_bytes": 16777216,
       "quickjs_stack_bytes": 65536,
+      "serialized_object_max_bytes": 1048576,
+      "serialized_object_max_depth": 10,
+      "serialized_object_max_fields": 32768,
+      "serialized_object_max_scopes": 32769,
       "wasmtime_fuel_per_initialization": 5000000,
       "wasmtime_fuel_per_invocation": 50000000
     },
     "name": "xahau-quickjs-v1",
     "provider": {
+      "allowed_exports": [
+        {
+          "kind": "function",
+          "name": "_initialize",
+          "params": [],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "free",
+          "params": [
+            "i32"
+          ],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "malloc",
+          "params": [
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "memory",
+          "maximum_pages": 512,
+          "memory64": false,
+          "minimum_pages": 6,
+          "name": "memory",
+          "shared": false
+        },
+        {
+          "kind": "function",
+          "name": "qjs_cbak",
+          "params": [
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_compile",
+          "params": [
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_compile_module",
+          "params": [
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_destroy",
+          "params": [],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "qjs_enable_coverage",
+          "params": [
+            "i32"
+          ],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "qjs_eval",
+          "params": [
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_eval_bytecode",
+          "params": [
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_eval_module",
+          "params": [
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_get_bytecode_len",
+          "params": [],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_get_bytecode_ptr",
+          "params": [],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_get_result_len",
+          "params": [],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_get_result_ptr",
+          "params": [],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_hook",
+          "params": [
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "qjs_init",
+          "params": [],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "qjs_set_max_stack_size",
+          "params": [
+            "i32"
+          ],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "qjs_set_memory_limit",
+          "params": [
+            "i32"
+          ],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "qjs_set_seed",
+          "params": [
+            "i32"
+          ],
+          "results": []
+        },
+        {
+          "kind": "function",
+          "name": "qjs_validate_hook_module",
+          "params": [
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i32"
+          ]
+        }
+      ],
       "build": {
         "c_flags": [
           "-fwrapv",
@@ -639,141 +847,7 @@
         "shared_array_buffer": false,
         "timezone": "UTC",
         "weak_ref": false
-      },
-      "required_exports": [
-        {
-          "kind": "memory",
-          "maximum_pages": 512,
-          "memory64": false,
-          "minimum_pages": 6,
-          "name": "memory",
-          "shared": false
-        },
-        {
-          "kind": "function",
-          "name": "_initialize",
-          "params": [],
-          "results": []
-        },
-        {
-          "kind": "function",
-          "name": "malloc",
-          "params": [
-            "i32"
-          ],
-          "results": [
-            "i32"
-          ]
-        },
-        {
-          "kind": "function",
-          "name": "free",
-          "params": [
-            "i32"
-          ],
-          "results": []
-        },
-        {
-          "kind": "function",
-          "name": "qjs_init",
-          "params": [],
-          "results": []
-        },
-        {
-          "kind": "function",
-          "name": "qjs_set_memory_limit",
-          "params": [
-            "i32"
-          ],
-          "results": []
-        },
-        {
-          "kind": "function",
-          "name": "qjs_set_max_stack_size",
-          "params": [
-            "i32"
-          ],
-          "results": []
-        },
-        {
-          "kind": "function",
-          "name": "qjs_compile_module",
-          "params": [
-            "i32",
-            "i32"
-          ],
-          "results": [
-            "i32"
-          ]
-        },
-        {
-          "kind": "function",
-          "name": "qjs_get_bytecode_ptr",
-          "params": [],
-          "results": [
-            "i32"
-          ]
-        },
-        {
-          "kind": "function",
-          "name": "qjs_get_bytecode_len",
-          "params": [],
-          "results": [
-            "i32"
-          ]
-        },
-        {
-          "kind": "function",
-          "name": "qjs_hook",
-          "params": [
-            "i32",
-            "i32",
-            "i32"
-          ],
-          "results": [
-            "i32"
-          ]
-        },
-        {
-          "kind": "function",
-          "name": "qjs_cbak",
-          "params": [
-            "i32",
-            "i32",
-            "i32"
-          ],
-          "results": [
-            "i32"
-          ]
-        },
-        {
-          "kind": "function",
-          "name": "qjs_validate_hook_module",
-          "params": [
-            "i32",
-            "i32"
-          ],
-          "results": [
-            "i32"
-          ]
-        },
-        {
-          "kind": "function",
-          "name": "qjs_get_result_ptr",
-          "params": [],
-          "results": [
-            "i32"
-          ]
-        },
-        {
-          "kind": "function",
-          "name": "qjs_get_result_len",
-          "params": [],
-          "results": [
-            "i32"
-          ]
-        }
-      ]
+      }
     },
     "schema": "xahau.quickjs.runtime-profile-source.v1"
   }

@@ -4,6 +4,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/hook/detail/QuickJSProviderProfile.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/hook/HookArtifact.h>
 #include <algorithm>
@@ -76,6 +77,38 @@ public:
             BEAST_EXPECT(parsed->kind == hook::artifact::Kind::quickJSBytecode);
             BEAST_EXPECT(parsed->hookApiVersion == 1);
             BEAST_EXPECT(hook::artifact::isCurrentQuickJS(*parsed));
+            BEAST_EXPECT(
+                hook::artifact::quickJSSerializedObjectMaxBytes == 1'048'576);
+            BEAST_EXPECT(
+                hook::artifact::quickJSSerializedObjectMaxFields == 32'768);
+            BEAST_EXPECT(
+                hook::artifact::quickJSSerializedObjectMaxScopes == 32'769);
+            BEAST_EXPECT(hook::artifact::quickJSSerializedObjectMaxDepth == 10);
+            BEAST_EXPECT(hook::artifact::quickJSProviderSize == 1'101'461);
+            BEAST_EXPECT(
+                hook::artifact::generated::nativeABISHA256 ==
+                "328ec938dcad875f3bdf25b8d779dd77f3571589818ca9271cb98c64c7018f"
+                "99");
+            BEAST_EXPECT(
+                hook::artifact::generated::providerImports.size() == 13);
+            BEAST_EXPECT(
+                hook::artifact::generated::providerExports.size() == 22);
+            BEAST_EXPECT(
+                hook::artifact::quickJSProviderMemoryMinimumPages == 6);
+            BEAST_EXPECT(
+                hook::artifact::quickJSProviderMemoryMaximumPages == 512);
+            BEAST_EXPECT(
+                !hook::artifact::generated::providerMemory64);
+            BEAST_EXPECT(
+                !hook::artifact::generated::providerMemoryShared);
+            BEAST_EXPECT(
+                hook::artifact::generated::javascriptSurfaceDeclarationSHA256 ==
+                "56b4b2974b8a63a550721abd60350e392990762e76666f050b1a7c810e5849"
+                "57");
+            BEAST_EXPECT(
+                hook::artifact::generated::javascriptSurfaceSHA256 ==
+                "b112346b95da74d04930ba86bd597e56a428e41e11581804ccc49907ae206e"
+                "b0");
             BEAST_EXPECT(parsed->payload.size() == 3);
             BEAST_EXPECT(parsed->payload[0] == 'a');
         }

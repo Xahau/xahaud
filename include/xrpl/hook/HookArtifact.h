@@ -86,6 +86,12 @@ extern std::uint64_t const quickJSHostWorkPerAddressedByte;
 extern std::string_view const quickJSHostAdapterPolicy;
 extern std::uint32_t const quickJSHeapBytes;
 extern std::uint32_t const quickJSStackBytes;
+extern std::uint32_t const quickJSSerializedObjectMaxBytes;
+extern std::uint32_t const quickJSSerializedObjectMaxFields;
+extern std::uint32_t const quickJSSerializedObjectMaxScopes;
+extern std::uint32_t const quickJSSerializedObjectMaxDepth;
+extern std::uint32_t const quickJSProviderMemoryMinimumPages;
+extern std::uint32_t const quickJSProviderMemoryMaximumPages;
 
 bool
 isCurrentQuickJS(View const& artifact) noexcept;

@@ -96,7 +96,13 @@ compileRuntime(
 {
     if (profile.initializationFuel == 0 || profile.invocationFuel == 0 ||
         profile.hostWorkBudget == 0 || profile.hostWorkPerAddressedByte == 0 ||
-        profile.heapBytes == 0 || profile.stackBytes == 0)
+        profile.heapBytes == 0 || profile.stackBytes == 0 ||
+        profile.serializedObjectMaxBytes == 0 ||
+        profile.serializedObjectMaxFields == 0 ||
+        profile.serializedObjectMaxScopes == 0 ||
+        profile.serializedObjectMaxDepth == 0 ||
+        profile.providerMemoryMinimumPages == 0 ||
+        profile.providerMemoryMaximumPages < profile.providerMemoryMinimumPages)
     {
         error = "runtime profile has an invalid zero execution limit";
         return {};
@@ -190,7 +196,15 @@ currentQuickJSRuntimeProfile()
         .hostWorkMeter = std::string{artifact::quickJSHostWorkMeter},
         .hostAdapterPolicy = std::string{artifact::quickJSHostAdapterPolicy},
         .heapBytes = artifact::quickJSHeapBytes,
-        .stackBytes = artifact::quickJSStackBytes};
+        .stackBytes = artifact::quickJSStackBytes,
+        .serializedObjectMaxBytes = artifact::quickJSSerializedObjectMaxBytes,
+        .serializedObjectMaxFields = artifact::quickJSSerializedObjectMaxFields,
+        .serializedObjectMaxScopes = artifact::quickJSSerializedObjectMaxScopes,
+        .serializedObjectMaxDepth = artifact::quickJSSerializedObjectMaxDepth,
+        .providerMemoryMinimumPages =
+            artifact::quickJSProviderMemoryMinimumPages,
+        .providerMemoryMaximumPages =
+            artifact::quickJSProviderMemoryMaximumPages};
 }
 
 std::optional<std::string>
