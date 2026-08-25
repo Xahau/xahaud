@@ -40,6 +40,7 @@ struct NativeImportSignature
 extern std::array<std::uint8_t, 32> const providerSHA256;
 extern std::array<std::uint8_t, 32> const bytecodeABI;
 extern std::array<std::uint8_t, 32> const runtimeProfile;
+extern std::string_view const providerManifestSHA256;
 extern std::size_t const providerSize;
 extern std::uint16_t const hookApiVersion;
 extern std::uint64_t const initializationFuel;
@@ -60,8 +61,10 @@ extern std::uint32_t const providerMemoryMinimumPages;
 extern std::uint32_t const providerMemoryMaximumPages;
 extern bool const providerMemory64;
 extern bool const providerMemoryShared;
-extern std::string_view const javascriptSurfaceDeclarationSHA256;
+extern std::string_view const javascriptBroadDeclarationSHA256;
+extern std::string_view const javascriptExactV1DeclarationSHA256;
 extern std::string_view const javascriptSurfaceSHA256;
+extern std::string_view const javascriptAPIArtifactManifestSHA256;
 
 extern std::span<std::string_view const> const providerImports;
 extern std::span<std::string_view const> const providerExports;

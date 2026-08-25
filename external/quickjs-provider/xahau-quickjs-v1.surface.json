@@ -1,0 +1,581 @@
+{
+  "byte_policies": {
+    "AccountID.from": {
+      "0": "bytesLike"
+    },
+    "AccountID.fromHex": {
+      "0": "hexString"
+    },
+    "Hash256.from": {
+      "0": "bytesLike"
+    },
+    "Hash256.fromHex": {
+      "0": "hexString"
+    },
+    "STBlob.equals": {
+      "0": "bytesLikeOrSTBlob"
+    },
+    "STBlob.from": {
+      "0": "bytesLike"
+    },
+    "STBlob.fromHex": {
+      "0": "hexString"
+    },
+    "accept": {
+      "0": "lifecycleMessage"
+    },
+    "emit.prepare": {
+      "0": "bytesLikeOrSTBlob"
+    },
+    "emit.tx": {
+      "0": "bytesLikeOrSTBlob"
+    },
+    "rollback": {
+      "0": "lifecycleMessage"
+    },
+    "state.get": {
+      "0": "stateKeyLike"
+    },
+    "state.set": {
+      "0": "stateKeyLike",
+      "1": "stateValueLike"
+    }
+  },
+  "declaration": {
+    "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
+    "sha256": "20881232f0602e35de0fcbb8b5a3c1511606392749a0f79daebb386204f4f4da"
+  },
+  "globals": {
+    "AccountID": "object",
+    "Amount": "object",
+    "Currency": "object",
+    "Field": "object",
+    "Hash": "object",
+    "Hash128": "object",
+    "Hash160": "object",
+    "Hash192": "object",
+    "Hash256": "object",
+    "IOUAmount": "object",
+    "Issue": "object",
+    "MPTAmount": "object",
+    "NativeAmount": "object",
+    "Path": "object",
+    "PathHop": "object",
+    "PathSet": "object",
+    "Result": "object",
+    "STArray": "object",
+    "STBlob": "object",
+    "STObject": "object",
+    "SerializedField": "object",
+    "UInt": "object",
+    "UInt16": "object",
+    "UInt32": "object",
+    "UInt64": "object",
+    "UInt8": "object",
+    "Vector256": "object",
+    "VoidResult": "object",
+    "XChainBridge": "object",
+    "XFLDecimal": "object",
+    "accept": "function",
+    "emit": "object",
+    "hook": "object",
+    "ledger": "object",
+    "otxn": "object",
+    "rollback": "function",
+    "state": "object",
+    "trace": "function",
+    "util": "object"
+  },
+  "namespaces": {
+    "accept": {
+      "unlessPresent": "function",
+      "unlessTruthy": "function",
+      "when": "function"
+    },
+    "emit": {
+      "prepare": "function",
+      "reserve": "function",
+      "tx": "function"
+    },
+    "hook": {
+      "account": "function"
+    },
+    "ledger": {
+      "lastHash": "value",
+      "lastTime": "value",
+      "sequence": "value"
+    },
+    "otxn": {
+      "type": "function"
+    },
+    "rollback": {
+      "onAllFail": "function",
+      "onAnyFail": "function",
+      "onFail": "function",
+      "requirePresent": "function",
+      "requireTruthy": "function",
+      "when": "function"
+    },
+    "state": {
+      "get": "function",
+      "set": "function"
+    },
+    "util": {
+      "decodeObject": "function",
+      "safeDecodeObject": "function",
+      "validateObject": "function"
+    }
+  },
+  "prototypes": {
+    "AccountID": {
+      "members": {
+        "equals": "function",
+        "isZero": "function",
+        "toBytes": "function",
+        "toHex": "function"
+      },
+      "own": [
+        "equals",
+        "isZero",
+        "toBytes",
+        "toHex"
+      ],
+      "probe": "AccountID.from(new Uint8Array(20))"
+    },
+    "Amount": {
+      "members": {
+        "asIOU": "function",
+        "asMPT": "function",
+        "asNative": "function",
+        "byteLength": "value",
+        "compare": "function",
+        "currency": "value",
+        "drops": "value",
+        "equals": "function",
+        "isIOU": "function",
+        "isMPT": "function",
+        "isNative": "function",
+        "issue": "value",
+        "issuer": "value",
+        "kind": "value",
+        "mptIssuanceId": "value",
+        "toBytes": "function",
+        "toString": "function",
+        "toXFL": "function",
+        "value": "value"
+      },
+      "own": [
+        "asIOU",
+        "asMPT",
+        "asNative",
+        "byteLength",
+        "compare",
+        "currency",
+        "drops",
+        "equals",
+        "isIOU",
+        "isMPT",
+        "isNative",
+        "issue",
+        "issuer",
+        "kind",
+        "mptIssuanceId",
+        "toBytes",
+        "toString",
+        "toXFL",
+        "value"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('61D4838D7EA4C680000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8')).Amount"
+    },
+    "Currency": {
+      "members": {
+        "byteLength": "value",
+        "equals": "function",
+        "isNative": "value",
+        "toBytes": "function",
+        "toHex": "function",
+        "toString": "function"
+      },
+      "own": [
+        "byteLength",
+        "equals",
+        "isNative",
+        "toBytes",
+        "toHex",
+        "toString"
+      ],
+      "probe": "util.decodeObject(new Uint8Array()).withField('BaseAsset', new Uint8Array(20)).BaseAsset"
+    },
+    "Hash128": {
+      "members": {
+        "byteLength": "value",
+        "compare": "function",
+        "equals": "function",
+        "isZero": "function",
+        "toBytes": "function",
+        "toHex": "function"
+      },
+      "own": [
+        "byteLength",
+        "compare",
+        "equals",
+        "isZero",
+        "toBytes",
+        "toHex"
+      ],
+      "probe": "util.decodeObject(new Uint8Array()).withField('EmailHash', new Uint8Array(16)).EmailHash"
+    },
+    "Hash160": {
+      "members": {
+        "byteLength": "value",
+        "compare": "function",
+        "equals": "function",
+        "isZero": "function",
+        "toBytes": "function",
+        "toHex": "function"
+      },
+      "own": [
+        "byteLength",
+        "compare",
+        "equals",
+        "isZero",
+        "toBytes",
+        "toHex"
+      ],
+      "probe": "util.decodeObject(new Uint8Array()).withField('TakerPaysCurrency', new Uint8Array(20)).TakerPaysCurrency"
+    },
+    "Hash192": {
+      "members": {
+        "byteLength": "value",
+        "compare": "function",
+        "equals": "function",
+        "isZero": "function",
+        "toBytes": "function",
+        "toHex": "function"
+      },
+      "own": [
+        "byteLength",
+        "compare",
+        "equals",
+        "isZero",
+        "toBytes",
+        "toHex"
+      ],
+      "probe": "util.decodeObject(new Uint8Array()).withField('MPTokenIssuanceID', new Uint8Array(24)).MPTokenIssuanceID"
+    },
+    "Hash256": {
+      "members": {
+        "byteLength": "value",
+        "compare": "function",
+        "equals": "function",
+        "isZero": "function",
+        "toBytes": "function",
+        "toHex": "function"
+      },
+      "own": [
+        "byteLength",
+        "compare",
+        "equals",
+        "isZero",
+        "toBytes",
+        "toHex"
+      ],
+      "probe": "Hash256.from(new Uint8Array(32))"
+    },
+    "Issue": {
+      "members": {
+        "currency": "value",
+        "equals": "function",
+        "issuer": "value",
+        "kind": "value",
+        "mptIssuanceId": "value",
+        "toBytes": "function"
+      },
+      "own": [
+        "currency",
+        "equals",
+        "issuer",
+        "kind",
+        "mptIssuanceId",
+        "toBytes"
+      ],
+      "probe": "util.decodeObject(new Uint8Array()).withField('LockingChainIssue', new Uint8Array(20)).LockingChainIssue"
+    },
+    "Path": {
+      "members": {
+        "[Symbol.iterator]": "function",
+        "at": "function",
+        "length": "value"
+      },
+      "own": [
+        "[Symbol.iterator]",
+        "at",
+        "length"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('011201B5F762798A53D543A014CAF8B297CFF8F2F937E800')).Paths.at(0)"
+    },
+    "PathHop": {
+      "members": {
+        "account": "value",
+        "currency": "value",
+        "issuer": "value"
+      },
+      "own": [
+        "account",
+        "currency",
+        "issuer"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('011201B5F762798A53D543A014CAF8B297CFF8F2F937E800')).Paths.at(0).at(0)"
+    },
+    "PathSet": {
+      "members": {
+        "[Symbol.iterator]": "function",
+        "at": "function",
+        "length": "value",
+        "toBytes": "function"
+      },
+      "own": [
+        "[Symbol.iterator]",
+        "at",
+        "length",
+        "toBytes"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('011201B5F762798A53D543A014CAF8B297CFF8F2F937E800')).Paths"
+    },
+    "Result": {
+      "frozen": true,
+      "members": {
+        "okMapOr": "function",
+        "okOr": "function",
+        "okOrHandle": "function"
+      },
+      "own": [
+        "okMapOr",
+        "okOr",
+        "okOrHandle"
+      ],
+      "probe": "UInt64.from(0n)"
+    },
+    "STArray": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "0"
+        ],
+        "extensible": false,
+        "own": [
+          "0",
+          "length"
+        ]
+      },
+      "members": {
+        "[Symbol.iterator]": "function",
+        "at": "function",
+        "length": "value",
+        "toJSON": "function"
+      },
+      "own": [
+        "[Symbol.iterator]",
+        "at",
+        "toJSON"
+      ],
+      "probe": "util.decodeObject(new Uint8Array([0xF9, 0xEA, 0x22, 0, 0, 0, 1, 0xE1, 0xF1])).Memos"
+    },
+    "STBlob": {
+      "members": {
+        "byteAt": "function",
+        "byteLength": "value",
+        "equals": "function",
+        "toBytes": "function",
+        "toHex": "function"
+      },
+      "own": [
+        "byteAt",
+        "byteLength",
+        "equals",
+        "toBytes",
+        "toHex"
+      ],
+      "probe": "STBlob.from(new Uint8Array(0))"
+    },
+    "STObject": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "Flags"
+        ],
+        "extensible": false,
+        "own": [
+          "Flags"
+        ]
+      },
+      "members": {
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "fieldBytes",
+        "get",
+        "has",
+        "toBytes",
+        "toJSON",
+        "withField",
+        "withoutField"
+      ],
+      "probe": "util.decodeObject(new Uint8Array([0x22, 0, 0, 0, 9]))"
+    },
+    "UInt": {
+      "members": {
+        "add": "function",
+        "bits": "value",
+        "byteLength": "value",
+        "compare": "function",
+        "equals": "function",
+        "isZero": "function",
+        "saturatingAdd": "function",
+        "saturatingSubtract": "function",
+        "subtract": "function",
+        "toBigInt": "function",
+        "toNumber": "function",
+        "toString": "function",
+        "wrappingAdd": "function",
+        "wrappingMultiply": "function",
+        "wrappingSubtract": "function"
+      },
+      "own": [
+        "add",
+        "bits",
+        "byteLength",
+        "compare",
+        "equals",
+        "isZero",
+        "saturatingAdd",
+        "saturatingSubtract",
+        "subtract",
+        "toBigInt",
+        "toNumber",
+        "toString",
+        "wrappingAdd",
+        "wrappingMultiply",
+        "wrappingSubtract"
+      ],
+      "probe": "UInt8.zero"
+    },
+    "Vector256": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "0"
+        ],
+        "extensible": false,
+        "own": [
+          "0",
+          "length"
+        ]
+      },
+      "members": {
+        "[Symbol.iterator]": "function",
+        "at": "function",
+        "length": "value",
+        "toBytes": "function"
+      },
+      "own": [
+        "[Symbol.iterator]",
+        "at",
+        "toBytes"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('011320000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F')).Indexes"
+    },
+    "VoidResult": {
+      "frozen": true,
+      "members": {
+        "moot": "function",
+        "okMapOr": "function",
+        "okOr": "function",
+        "okOrHandle": "function"
+      },
+      "own": [
+        "moot"
+      ],
+      "probe": "state.set('surface-probe', new Uint8Array(0))"
+    },
+    "XChainBridge": {
+      "members": {
+        "IssuingChainDoor": "value",
+        "IssuingChainIssue": "value",
+        "LockingChainDoor": "value",
+        "LockingChainIssue": "value",
+        "equals": "function",
+        "toBytes": "function"
+      },
+      "own": [
+        "IssuingChainDoor",
+        "IssuingChainIssue",
+        "LockingChainDoor",
+        "LockingChainIssue",
+        "equals",
+        "toBytes"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('011914B5F762798A53D543A014CAF8B297CFF8F2F937E8000000000000000000000000000000000000000014B5F762798A53D543A014CAF8B297CFF8F2F937E80000000000000000000000000000000000000000')).XChainBridge"
+    },
+    "XFLDecimal": {
+      "members": {
+        "isNegative": "function",
+        "isZero": "function"
+      },
+      "own": [
+        "isNegative",
+        "isZero"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('61D4838D7EA4C680000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8')).Amount.toXFL()"
+    }
+  },
+  "schema": "jshookz.javascript-surface.v1",
+  "statics": {
+    "AccountID": {
+      "from": "function",
+      "fromHex": "function",
+      "one": "value",
+      "zero": "value"
+    },
+    "Hash256": {
+      "from": "function",
+      "fromHex": "function",
+      "zero": "value"
+    },
+    "STBlob": {
+      "from": "function",
+      "fromHex": "function"
+    },
+    "UInt16": {
+      "from": "function",
+      "max": "value",
+      "mulDiv": "function",
+      "zero": "value"
+    },
+    "UInt32": {
+      "from": "function",
+      "max": "value",
+      "mulDiv": "function",
+      "zero": "value"
+    },
+    "UInt64": {
+      "from": "function",
+      "max": "value",
+      "mulDiv": "function",
+      "mulDivXfl": "function",
+      "zero": "value"
+    },
+    "UInt8": {
+      "from": "function",
+      "max": "value",
+      "mulDiv": "function",
+      "zero": "value"
+    }
+  }
+}

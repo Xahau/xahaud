@@ -187,6 +187,377 @@ export function main(_reserved: number): never {
 }
 )[test.tshook]"));
 
+        auto const f0NativeMatrixCode =
+            packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
+type UIntType<Bits extends UIntWidth> = RuntimeType<UInt<Bits>> & {
+  readonly zero: UInt<Bits>;
+  readonly max: UInt<Bits>;
+  from(value: bigint | number): UIntResult<UInt<Bits>>;
+};
+
+function proveWrapping<Bits extends UIntWidth>(
+  Type: UIntType<Bits>,
+  bits: Bits,
+  siblingType: RuntimeType<unknown>,
+  siblingValue: UInt,
+): void {
+  const one = rollback.onFail(Type.from(1), `UInt${bits}.one`, -100 - bits);
+  const two = rollback.onFail(Type.from(2), `UInt${bits}.two`, -200 - bits);
+  const high = rollback.onFail(
+    Type.from(1n << BigInt(bits - 1)),
+    `UInt${bits}.high`,
+    -300 - bits,
+  );
+  const vectors: readonly [string, UInt<Bits>][] = [
+    ["add", Type.max.wrappingAdd(one)],
+    ["subtract", Type.zero.wrappingSubtract(one)],
+    ["multiply", Type.max.wrappingMultiply(two)],
+    ["high-bit", high.wrappingAdd(high)],
+  ];
+  const expected = [0n, Type.max.toBigInt(), Type.max.toBigInt() - 1n, 0n];
+  for (let index = 0; index < vectors.length; ++index) {
+    const [name, value] = vectors[index];
+    if (
+      value.toBigInt() !== expected[index] ||
+      value.bits !== bits ||
+      !(value instanceof UInt) ||
+      !(value instanceof Type) ||
+      value instanceof siblingType
+    ) {
+      rollback(`UInt${bits}.${name}`, -400 - bits - index);
+    }
+  }
+  let wrongWidthRejected = false;
+  try {
+    Type.max.wrappingAdd(siblingValue as UInt<Bits>);
+  } catch (error) {
+    wrongWidthRejected = error instanceof RangeError;
+  }
+  let primitiveRejected = false;
+  try {
+    Type.max.wrappingAdd(1n as unknown as UInt<Bits>);
+  } catch (error) {
+    primitiveRejected = error instanceof TypeError;
+  }
+  if (!wrongWidthRejected || !primitiveRejected) {
+    rollback(`UInt${bits}.operand admission`, -500 - bits);
+  }
+}
+
+export function main(_reserved: number): never {
+  void _reserved;
+
+  proveWrapping(UInt8, 8, UInt16, UInt16.zero);
+  proveWrapping(UInt16, 16, UInt8, UInt8.zero);
+  proveWrapping(UInt32, 32, UInt8, UInt8.zero);
+  proveWrapping(UInt64, 64, UInt32, UInt32.zero);
+
+  const mulDivSuccess = rollback.onFail(
+    UInt64.mulDivXfl(UInt64.from(21n).okOr(UInt64.zero), 2n, 4n),
+    "mulDivXfl success",
+    -600,
+  );
+  const mulDivFloor = rollback.onFail(
+    UInt64.mulDivXfl(10n, 1n, 3n),
+    "mulDivXfl floor",
+    -601,
+  );
+  const mulDivNormalization = rollback.onFail(
+    UInt64.mulDivXfl(5n, 2n, 1n),
+    "mulDivXfl normalization",
+    -602,
+  );
+  const mulDivZeroIssue = UInt64.mulDivXfl(
+    0n,
+    UInt64.max,
+    0n,
+  ).okOrHandle((error) => error.issue);
+  if (
+    mulDivSuccess.toBigInt() !== 10n ||
+    !(mulDivSuccess instanceof UInt64) ||
+    mulDivFloor.toBigInt() !== 3n ||
+    mulDivNormalization.toBigInt() !== 9n
+  ) {
+    rollback("UInt64.mulDivXfl values", -603);
+  }
+  if (mulDivZeroIssue !== "division-by-zero") {
+    rollback("UInt64.mulDivXfl zero error", -604);
+  }
+
+  const empty = util.decodeObject(new Uint8Array());
+  const hash128Value = rollback.requirePresent(
+    empty.withField(Field.EmailHash, new Uint8Array(16)).get(Field.EmailHash),
+    "Hash128 value",
+    -610,
+  );
+  const lowBytes = new Uint8Array(32);
+  lowBytes[0] = 1;
+  lowBytes[31] = 255;
+  const highBytes = new Uint8Array(32);
+  highBytes[0] = 2;
+  const lowHash = Hash256.from(lowBytes);
+  const equalHash = Hash256.from(lowBytes);
+  const highHash = Hash256.from(highBytes);
+  let wrongHashBrandRejected = false;
+  try {
+    lowHash.compare(hash128Value as unknown as Hash256);
+  } catch (error) {
+    wrongHashBrandRejected = error instanceof TypeError;
+  }
+  const hashLookalike = { byteLength: 32, compare: () => 0 };
+  if (
+    lowHash.byteLength !== 32 ||
+    lowHash.compare(equalHash) !== 0 ||
+    lowHash.compare(highHash) !== -1 ||
+    highHash.compare(lowHash) !== 1 ||
+    !lowHash.equals(equalHash) ||
+    !wrongHashBrandRejected ||
+    !(lowHash instanceof Hash) ||
+    !(lowHash instanceof Hash256) ||
+    hash128Value instanceof Hash256 ||
+    hashLookalike instanceof Hash ||
+    hashLookalike instanceof Hash256
+  ) {
+    rollback("Hash256 matrix", -611);
+  }
+
+  const ordered = util.decodeObject(
+    Uint8Array.from([
+      0x24, 0x00, 0x00, 0x00, 0x07, 0x22, 0x00, 0x00, 0x00, 0x09,
+    ]),
+  );
+  const flagsBytes = rollback.requirePresent(
+    ordered.fieldBytes(Field.Flags),
+    "Flags bytes",
+    -620,
+  );
+  const publicKeyRoot = util.decodeObject(
+    Uint8Array.from([0x71, 0x03, 0xaa, 0xbb, 0xcc]),
+  );
+  const publicKeyBytes = rollback.requirePresent(
+    publicKeyRoot.fieldBytes(Field.PublicKey),
+    "PublicKey bytes",
+    -621,
+  );
+  const nestedRoot = util.decodeObject(
+    Uint8Array.from([0xea, 0x22, 0x00, 0x00, 0x00, 0x09, 0xe1]),
+  );
+  const memoBytes = rollback.requirePresent(
+    nestedRoot.fieldBytes(Field.Memo),
+    "Memo bytes",
+    -622,
+  );
+  if (
+    flagsBytes.toHex() !== "00000009" ||
+    publicKeyBytes.toHex() !== "AABBCC" ||
+    memoBytes.toHex() !== "2200000009E1"
+  ) {
+    rollback("STObject.fieldBytes boundary", -623);
+  }
+
+  const accountIDValue = AccountID.from(new Uint8Array(20));
+  const hash160Value = rollback.requirePresent(
+    empty
+      .withField(Field.TakerPaysCurrency, new Uint8Array(20))
+      .get(Field.TakerPaysCurrency),
+    "Hash160 value",
+    -630,
+  );
+  const hash192Value = rollback.requirePresent(
+    empty
+      .withField(Field.MPTokenIssuanceID, new Uint8Array(24))
+      .get(Field.MPTokenIssuanceID),
+    "Hash192 value",
+    -631,
+  );
+  const currencyValue = rollback.requirePresent(
+    empty.withField(Field.BaseAsset, new Uint8Array(20)).get(Field.BaseAsset),
+    "Currency value",
+    -632,
+  );
+  const issueValue = rollback.requirePresent(
+    empty
+      .withField(Field.LockingChainIssue, new Uint8Array(20))
+      .get(Field.LockingChainIssue),
+    "Issue value",
+    -633,
+  );
+  const vectorValue = rollback.requirePresent(
+    util
+      .decodeObject(
+        STBlob.fromHex(
+          "011320000102030405060708090A0B0C0D0E0F" +
+            "101112131415161718191A1B1C1D1E1F",
+        ),
+      )
+      .get(Field.Indexes),
+    "Vector256 value",
+    -634,
+  );
+  const bridgeValue = rollback.requirePresent(
+    util
+      .decodeObject(
+        STBlob.fromHex(
+          "011914B5F762798A53D543A014CAF8B297CFF8F2F937E8" +
+            "0000000000000000000000000000000000000000" +
+            "14B5F762798A53D543A014CAF8B297CFF8F2F937E8" +
+            "0000000000000000000000000000000000000000",
+        ),
+      )
+      .get(Field.XChainBridge),
+    "XChainBridge value",
+    -635,
+  );
+  const nativeAmountValue = rollback.requirePresent(
+    util.decodeObject(STBlob.fromHex("61400000000000002A")).get(Field.Amount),
+    "NativeAmount value",
+    -636,
+  );
+  const iouAmountValue = rollback.requirePresent(
+    util
+      .decodeObject(
+        STBlob.fromHex(
+          "61D4838D7EA4C680000000000000000000000000005553440000000000" +
+            "B5F762798A53D543A014CAF8B297CFF8F2F937E8",
+        ),
+      )
+      .get(Field.Amount),
+    "IOUAmount value",
+    -637,
+  );
+  const mptAmountValue = rollback.requirePresent(
+    util
+      .decodeObject(
+        STBlob.fromHex(
+          "61600000000000000001000102030405060708090A0B0C0D0E0F" +
+            "1011121314151617",
+        ),
+      )
+      .get(Field.Amount),
+    "MPTAmount value",
+    -638,
+  );
+  const pathSetValue = rollback.requirePresent(
+    util
+      .decodeObject(
+        STBlob.fromHex(
+          "011201B5F762798A53D543A014CAF8B297CFF8F2F937E800",
+        ),
+      )
+      .get(Field.Paths),
+    "PathSet value",
+    -639,
+  );
+  const pathValue = rollback.requirePresent(pathSetValue.at(0), "Path value", -640);
+  const pathHopValue = rollback.requirePresent(pathValue.at(0), "PathHop value", -641);
+  const stArrayValue = rollback.requirePresent(
+    util
+      .decodeObject(
+        Uint8Array.from([
+          0xf9, 0xea, 0x22, 0x00, 0x00, 0x00, 0x01, 0xe1, 0xf1,
+        ]),
+      )
+      .get(Field.Memos),
+    "STArray value",
+    -642,
+  );
+  const stObjectValue = util.decodeObject(
+    Uint8Array.from([0x22, 0x00, 0x00, 0x00, 0x09]),
+  );
+  const resultValue = UInt8.from(7);
+  const voidResultValue = state.set("f0-native-matrix", Uint8Array.from([1]));
+  const xflValue = rollback.requirePresent(
+    iouAmountValue.asIOU(),
+    "IOU narrowing",
+    -643,
+  ).toXFL();
+  const resultBehavior = resultValue.okMapOr(
+    (value) => value.toBigInt(),
+    -1n,
+  );
+  rollback.onFail(voidResultValue, "state.set failed");
+  const voidResultBehavior = true;
+
+  const nounChecks: readonly [string, boolean][] = [
+    ["AccountID", accountIDValue instanceof AccountID],
+    ["Amount", nativeAmountValue instanceof Amount],
+    ["Currency", currencyValue instanceof Currency],
+    ["Hash", lowHash instanceof Hash],
+    ["Hash128", hash128Value instanceof Hash128],
+    ["Hash160", hash160Value instanceof Hash160],
+    ["Hash192", hash192Value instanceof Hash192],
+    ["Hash256", lowHash instanceof Hash256],
+    ["IOUAmount", iouAmountValue instanceof IOUAmount],
+    ["Issue", issueValue instanceof Issue],
+    ["MPTAmount", mptAmountValue instanceof MPTAmount],
+    ["NativeAmount", nativeAmountValue instanceof NativeAmount],
+    ["Path", pathValue instanceof Path],
+    ["PathHop", pathHopValue instanceof PathHop],
+    ["PathSet", pathSetValue instanceof PathSet],
+    ["Result", resultBehavior === 7n && !(UInt8.zero instanceof Result)],
+    ["STArray", stArrayValue instanceof STArray],
+    ["STBlob", STBlob.from(new Uint8Array()) instanceof STBlob],
+    ["STObject", stObjectValue instanceof STObject],
+    ["SerializedField", Field.Flags instanceof SerializedField],
+    ["UInt", UInt8.zero instanceof UInt],
+    ["UInt8", UInt8.zero instanceof UInt8],
+    ["UInt16", UInt16.zero instanceof UInt16],
+    ["UInt32", UInt32.zero instanceof UInt32],
+    ["UInt64", UInt64.zero instanceof UInt64],
+    ["Vector256", vectorValue instanceof Vector256],
+    [
+      "VoidResult",
+      voidResultBehavior && !(UInt8.zero instanceof VoidResult),
+    ],
+    ["XChainBridge", bridgeValue instanceof XChainBridge],
+    ["XFLDecimal", xflValue instanceof XFLDecimal],
+  ];
+  if (
+    nounChecks.length !== 29 ||
+    new Set(nounChecks.map(([name]) => name)).size !== 29
+  ) {
+    rollback("29-noun matrix shape", -650);
+  }
+  for (const [name, passed] of nounChecks) {
+    if (!passed) rollback(`29-noun matrix:${name}`, -651);
+  }
+  if (
+    !(iouAmountValue instanceof Amount) ||
+    !(mptAmountValue instanceof Amount) ||
+    nativeAmountValue instanceof IOUAmount
+  ) {
+    rollback("noun subtype separation", -652);
+  }
+
+  if (
+    resultBehavior !== 7n ||
+    UInt8.from(256).okOr(UInt8.max) !== UInt8.max ||
+    rollback.requirePresent(0, "present zero", -660) !== 0 ||
+    rollback.requireTruthy(true, "truthy", -661) !== true ||
+    accept.unlessPresent(1, "present value", -662) !== 1 ||
+    accept.unlessTruthy(true, "truthy value", -663) !== true ||
+    rollback.onFail(UInt8.from(3), "onFail", -664).toBigInt() !== 3n ||
+    rollback.onAnyFail(
+      [UInt8.from(4), UInt8.from(5)],
+      "onAnyFail",
+      -665,
+    ).length !== 2 ||
+    rollback.onAllFail(
+      [UInt8.from(256), UInt8.from(6)],
+      "onAllFail",
+      -666,
+    )[0].toBigInt() !== 6n
+  ) {
+    rollback("Result/control verbs", -667);
+  }
+  const mootResult = state.set("f0-native-moot", Uint8Array.from([2]));
+  mootResult.moot();
+  rollback.when(false, "rollback.when", -669);
+  accept.when(false, "accept.when", -670);
+  accept("f0-native-matrix", 88);
+}
+)[test.tshook]"));
+
         auto const& stateSeedCode = jshooks_test_wasm.at(R"[test.hook](
 #include <stdint.h>
 extern int32_t _g(uint32_t id, uint32_t maxiter);
@@ -475,7 +846,7 @@ int64_t hook(uint32_t reserved)
             hook::validateQuickJSBytecodeForTests(currentRuntime, hookBytecode);
         BEAST_EXPECT(!successfulValidation.error);
         BEAST_EXPECT(!successfulValidation.hasCallback);
-        expectFuel(successfulValidation.invocationFuelConsumed, 54534);
+        expectFuel(successfulValidation.invocationFuelConsumed, 54589);
 
         testcase("Validate one retained provider concurrently");
         std::array<std::future<hook::QuickJSValidationForTests>, 4>
@@ -492,7 +863,7 @@ int64_t hook(uint32_t reserved)
             auto result = validation.get();
             BEAST_EXPECT(!result.error);
             BEAST_EXPECT(!result.hasCallback);
-            expectFuel(result.invocationFuelConsumed, 54534);
+            expectFuel(result.invocationFuelConsumed, 54589);
         }
 
         testcase("Bind API, profile, hash, dedup, and hash install");
@@ -524,7 +895,7 @@ int64_t hook(uint32_t reserved)
             auto const failedValidation = hook::validateQuickJSBytecodeForTests(
                 currentRuntime, malformedBytecode);
             BEAST_EXPECT(!!failedValidation.error);
-            expectFuel(failedValidation.invocationFuelConsumed, 14029);
+            expectFuel(failedValidation.invocationFuelConsumed, 14143);
             identityEnv(
                 jtx::hook(
                     alice,
@@ -777,7 +1148,7 @@ int64_t hook(uint32_t reserved)
         auto const message = execution.getFieldVL(sfHookReturnString);
         BEAST_EXPECT(
             std::string(message.begin(), message.end()) == "payment:0");
-        expectFuel(execution.getFieldU64(sfHookInstructionCount), 64518);
+        expectFuel(execution.getFieldU64(sfHookInstructionCount), 64512);
 
         testcase("Bind ledger context and keep terminals uncatchable");
         auto surfaceProbeHook = hsoVersioned(surfaceProbeCode, 1);
@@ -810,7 +1181,7 @@ int64_t hook(uint32_t reserved)
             std::string(surfaceMessage.begin(), surfaceMessage.end()) ==
             "surface:40");
         expectFuel(
-            surfaceExecution.getFieldU64(sfHookInstructionCount), 101078);
+            surfaceExecution.getFieldU64(sfHookInstructionCount), 141220);
 
         testcase("Execute accepted STObject and STArray on Wasmtime");
         auto stObjectHook = hsoVersioned(stObjectArrayCode, 1);
@@ -839,6 +1210,40 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string(stObjectMessage.begin(), stObjectMessage.end()) ==
             "stobject-starray");
+
+        testcase("Execute the sealed F0 native API matrix on Wasmtime");
+        auto f0NativeMatrixHook = hsoVersioned(f0NativeMatrixCode, 1);
+        f0NativeMatrixHook[jss::Flags] = hsfOVERRIDE;
+        env(jtx::hook(alice, {{f0NativeMatrixHook}}, 0),
+            fee(XRP(100)),
+            ter(tesSUCCESS));
+        env.close();
+        env(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
+        env.close();
+        auto const f0NativeMatrixMeta = env.meta();
+        BEAST_EXPECT(!!f0NativeMatrixMeta);
+        if (!f0NativeMatrixMeta)
+            return;
+        auto const f0NativeMatrixExecutions =
+            f0NativeMatrixMeta->getFieldArray(sfHookExecutions);
+        BEAST_EXPECT(f0NativeMatrixExecutions.size() == 1);
+        if (f0NativeMatrixExecutions.size() != 1)
+            return;
+        auto const& f0NativeMatrixExecution = f0NativeMatrixExecutions[0];
+        BEAST_EXPECT(
+            f0NativeMatrixExecution.getFieldU8(sfHookResult) ==
+            static_cast<uint8_t>(hook_api::ExitType::ACCEPT));
+        BEAST_EXPECT(
+            f0NativeMatrixExecution.getFieldU64(sfHookReturnCode) == 88);
+        auto const f0NativeMatrixMessage =
+            f0NativeMatrixExecution.getFieldVL(sfHookReturnString);
+        BEAST_EXPECT(
+            std::string(
+                f0NativeMatrixMessage.begin(), f0NativeMatrixMessage.end()) ==
+            "f0-native-matrix");
+        expectFuel(
+            f0NativeMatrixExecution.getFieldU64(sfHookInstructionCount),
+            2195935);
 
         //@@start jshooks-state-bridge
         testcase("Execute a C Hook through WasmEdge and persist state");
@@ -951,7 +1356,7 @@ int64_t hook(uint32_t reserved)
         if (rollbackExecutions.size() != 1)
             return;
         expectFuel(
-            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 80256);
+            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 80247);
 
         stateEntry = env.le(stateKeylet);
         BEAST_EXPECT(!!stateEntry);
@@ -984,7 +1389,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& memoryGrowthExecution = memoryGrowthExecutions[0];
         expectFuel(
-            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7251198);
+            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7373429);
         BEAST_EXPECT(
             memoryGrowthExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
@@ -1030,7 +1435,7 @@ int64_t hook(uint32_t reserved)
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
         expectFuel(
             hostWorkExecutions[0].getFieldU64(sfHookInstructionCount),
-            30502768);
+            30502795);
 
         auto const meterKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -1125,7 +1530,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& callbackExecution = callbackExecutions[0];
         expectFuel(
-            callbackExecution.getFieldU64(sfHookInstructionCount), 136305);
+            callbackExecution.getFieldU64(sfHookInstructionCount), 135951);
         BEAST_EXPECT_EQ(
             callbackExecution.getFieldU8(sfHookResult),
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));

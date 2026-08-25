@@ -20,22 +20,48 @@ WASM_VERSION = "47.0.3"
 CMAKE_SET = re.compile(r'^set\(XAHAU_QUICKJS_([A-Z0-9_]+) "([^"]*)"\)\s*$')
 
 PIN = {
-    "provider_sha256": "40f9ac0203afa9296196c627bc94e669ad789322ddc1e4ab58ba0cf6d32a5e21",
-    "provider_size": "1101461",
-    "manifest_sha256": "dce4535b8c9063ee4244c8ac7781d8d17f73fa5443c9724476c4bdb0a5a77f4b",
-    "runtime_profile_id": "60950ca8b6fe4dd2a35559367051998bc04f75e8aa41934dd4caad0de5a1c3ba",
-    "declaration_sha256": "56b4b2974b8a63a550721abd60350e392990762e76666f050b1a7c810e584957",
-    "surface_sha256": "b112346b95da74d04930ba86bd597e56a428e41e11581804ccc49907ae206eb0",
+    "provider_sha256": "f60ab333acb547e50d7d087960839bd11833cb133d496af98e0b72a1bb3b84df",
+    "provider_size": "1116638",
+    "manifest_sha256": "1673b27d21063957cece9095cceb7e2dbfa53b6f49a5b7f824a486d7d90b2391",
+    "runtime_profile_id": "29acf12e170436e5ccadfbc118d02a60909f86a88262106652b2f71994b0ea25",
+    "broad_declaration_sha256": "649079b831bc68eff0f440644649a505addafb08a3f5174e4031c8de6aedffa0",
+    "exact_v1_declaration_sha256": "20881232f0602e35de0fcbb8b5a3c1511606392749a0f79daebb386204f4f4da",
+    "surface_sha256": "96a9218bf38abbf1bc9f2839408700d03572e0b065d625263f70477bc32597ac",
+    "api_artifact_manifest_sha256": "95babf622bf5edff76fdcbd9746bad8f1f8b275a3d4bacdc320ff4deae543eba",
     "bytecode_abi": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
     "native_abi": "328ec938dcad875f3bdf25b8d779dd77f3571589818ca9271cb98c64c7018f99",
     "wasm_stack_bytes": "131072",
 }
 
+RECEIPT_B = {
+    "provider_sha256": "40f9ac0203afa9296196c627bc94e669ad789322ddc1e4ab58ba0cf6d32a5e21",
+    "provider_size": "1101461",
+    "runtime_profile_id": "60950ca8b6fe4dd2a35559367051998bc04f75e8aa41934dd4caad0de5a1c3ba",
+    "declaration_sha256": "56b4b2974b8a63a550721abd60350e392990762e76666f050b1a7c810e584957",
+    "surface_sha256": "b112346b95da74d04930ba86bd597e56a428e41e11581804ccc49907ae206eb0",
+}
+
+TYPED_IMPORT_ROWS = (
+    '{"env", "accept", "i32,i32,i64", "i64"}',
+    '{"env", "emit", "i32,i32,i32,i32", "i64"}',
+    '{"env", "etxn_reserve", "i32", "i64"}',
+    '{"env", "hook_account", "i32,i32", "i64"}',
+    '{"env", "ledger_last_hash", "i32,i32", "i64"}',
+    '{"env", "ledger_last_time", "", "i64"}',
+    '{"env", "ledger_seq", "", "i64"}',
+    '{"env", "otxn_type", "", "i64"}',
+    '{"env", "prepare", "i32,i32,i32,i32", "i64"}',
+    '{"env", "rollback", "i32,i32,i64", "i64"}',
+    '{"env", "state", "i32,i32,i32,i32", "i64"}',
+    '{"env", "state_set", "i32,i32,i32,i32", "i64"}',
+    '{"env", "trace", "i32,i32,i32,i32,i32", "i64"}',
+)
+
 TYPED_EXPORT_ROWS = (
     '{"function", "_initialize", "", "", 0U, 0U, false, false}',
     '{"function", "free", "i32", "", 0U, 0U, false, false}',
     '{"function", "malloc", "i32", "i32", 0U, 0U, false, false}',
-    '{"memory", "memory", "", "", 6U, 512U, false, false}',
+    '{"memory", "memory", "", "", 7U, 512U, false, false}',
     '{"function", "qjs_cbak", "i32,i32,i32", "i32", 0U, 0U, false, false}',
     '{"function", "qjs_compile", "i32,i32", "i32", 0U, 0U, false, false}',
     '{"function", "qjs_compile_module", "i32,i32", "i32", 0U, 0U, false, false}',
@@ -73,6 +99,22 @@ def wasm_path(bundle: Path) -> Path:
     return bundle / "jshookz_provider.wasm"
 
 
+def api_manifest_path(bundle: Path) -> Path:
+    return bundle / "api-artifacts.json"
+
+
+def broad_declaration_path(bundle: Path) -> Path:
+    return bundle / "hooks-api.d.ts"
+
+
+def exact_v1_declaration_path(bundle: Path) -> Path:
+    return bundle / "xahau-quickjs-v1.d.ts"
+
+
+def surface_path(bundle: Path) -> Path:
+    return bundle / "xahau-quickjs-v1.surface.json"
+
+
 def load_json(bundle: Path) -> dict:
     return json.loads(json_path(bundle).read_text())
 
@@ -107,13 +149,23 @@ def rehash_native(bundle: Path) -> None:
     set_cmake(bundle, "NATIVE_ABI_SHA256", digest)
 
 
+def load_api_manifest(bundle: Path) -> dict:
+    return json.loads(api_manifest_path(bundle).read_text())
+
+
+def write_api_manifest(bundle: Path, data: dict) -> None:
+    api_manifest_path(bundle).write_text(json.dumps(data, indent=2) + "\n")
+
+
 def clone_bundle(root: Path) -> Path:
     dest = root / "bundle"
     shutil.copytree(BUNDLE, dest, ignore=shutil.ignore_patterns("README.md"))
     return dest
 
 
-def generate(bundle: Path, work: Path) -> tuple[int, str, str]:
+def generate(
+    bundle: Path, work: Path, wasmtime_version: str = WASM_VERSION
+) -> tuple[int, str, str]:
     output = work / "QuickJSProviderValues.cpp"
     completed = subprocess.run(
         [
@@ -122,7 +174,7 @@ def generate(bundle: Path, work: Path) -> tuple[int, str, str]:
             "--bundle-dir",
             str(bundle),
             "--wasmtime-version",
-            WASM_VERSION,
+            wasmtime_version,
             "--output",
             str(output),
         ],
@@ -144,9 +196,12 @@ def pin_holds(returncode: int, cpp: str) -> bool:
     required = [
         hex_bytes(PIN["provider_sha256"]),
         f"std::size_t const providerSize = {PIN['provider_size']};",
+        f'"{PIN["manifest_sha256"]}"',
         hex_bytes(PIN["runtime_profile_id"]),
-        f'"{PIN["declaration_sha256"]}"',
+        f'"{PIN["broad_declaration_sha256"]}"',
+        f'"{PIN["exact_v1_declaration_sha256"]}"',
         f'"{PIN["surface_sha256"]}"',
+        f'"{PIN["api_artifact_manifest_sha256"]}"',
         hex_bytes(PIN["bytecode_abi"]),
         f'"{PIN["native_abi"]}"',
         f"std::uint32_t const wasmStackBytes = {PIN['wasm_stack_bytes']}U;",
@@ -154,11 +209,14 @@ def pin_holds(returncode: int, cpp: str) -> bool:
         "std::uint32_t const serializedObjectMaxFields =\n    32768U;",
         "std::uint32_t const serializedObjectMaxScopes =\n    32769U;",
         "std::uint32_t const serializedObjectMaxDepth =\n    10U;",
+        "std::uint32_t const providerMemoryMinimumPages = 7U;",
+        "std::uint32_t const providerMemoryMaximumPages = 512U;",
         "constexpr char const sealedProvider[] =",
+        f"sizeof(sealedProvider) - 1 == {PIN['provider_size']}",
     ]
     if any(item not in cpp for item in required):
         return False
-    return all(row in cpp for row in TYPED_EXPORT_ROWS)
+    return all(row in cpp for row in (*TYPED_IMPORT_ROWS, *TYPED_EXPORT_ROWS))
 
 
 class GenerateQuickJSProviderBundleTest(unittest.TestCase):
@@ -171,6 +229,10 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
                 cmake_path(BUNDLE),
                 native_path(BUNDLE),
                 wasm_path(BUNDLE),
+                api_manifest_path(BUNDLE),
+                broad_declaration_path(BUNDLE),
+                exact_v1_declaration_path(BUNDLE),
+                surface_path(BUNDLE),
                 SCRIPT,
             )
             if not path.is_file()
@@ -180,15 +242,19 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
                 "sealed QuickJS bundle is incomplete: " + ", ".join(missing)
             )
 
-    def mutate(self, mutator) -> tuple[int, str, str]:
+    def mutate(
+        self, mutator, wasmtime_version: str = WASM_VERSION
+    ) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             bundle = clone_bundle(work)
             mutator(bundle)
-            return generate(bundle, work / "out")
+            return generate(bundle, work / "out", wasmtime_version)
 
-    def assert_generator_red(self, mutator, fragment: str) -> None:
-        returncode, stderr, cpp = self.mutate(mutator)
+    def assert_generator_red(
+        self, mutator, fragment: str, wasmtime_version: str = WASM_VERSION
+    ) -> None:
+        returncode, stderr, cpp = self.mutate(mutator, wasmtime_version)
         self.assertNotEqual(returncode, 0, stderr)
         self.assertIn(fragment, stderr)
         self.assertFalse(pin_holds(returncode, cpp), stderr)
@@ -212,9 +278,20 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
 
     def test_provider_size_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
-            set_cmake(bundle, "PROVIDER_SIZE", "1101460")
+            set_cmake(bundle, "PROVIDER_SIZE", "1116637")
 
         self.assert_generator_red(mutate, "provider size disagrees")
+
+    def test_coordinated_provider_size_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            value = 1116637
+            data = load_json(bundle)
+            data["provider"]["size"] = value
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+            set_cmake(bundle, "PROVIDER_SIZE", str(value))
+
+        self.assert_generator_red(mutate, "provider size disagrees with the sealed F0")
 
     def test_provider_sha_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -226,6 +303,17 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
 
         self.assert_generator_red(mutate, "provider sha256 disagrees")
 
+    def test_coordinated_provider_sha_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            value = "00" + PIN["provider_sha256"][2:]
+            data = load_json(bundle)
+            data["provider"]["sha256"] = value
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+            set_cmake(bundle, "PROVIDER_SHA256", value)
+
+        self.assert_generator_red(mutate, "provider SHA-256 disagrees with the sealed F0")
+
     def test_manifest_sha_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
             set_cmake(
@@ -235,6 +323,15 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             )
 
         self.assert_generator_red(mutate, "JSON manifest does not match")
+
+    def test_coordinated_manifest_identity_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            data["diagnostic_note"] = "not F0"
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+
+        self.assert_generator_red(mutate, "provider manifest SHA-256")
 
     def test_runtime_profile_id_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -246,11 +343,64 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
 
         self.assert_generator_red(mutate, "runtime-profile ID disagrees")
 
+    def test_coordinated_runtime_profile_id_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            value = "00" + PIN["runtime_profile_id"][2:]
+            data = load_json(bundle)
+            data["runtime_profile_id"] = value
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+            set_cmake(bundle, "RUNTIME_PROFILE_ID", value)
+
+        self.assert_generator_red(mutate, "runtime-profile ID disagrees with the sealed F0")
+
+    def _coordinated_api_artifact_mutation(
+        self, source_path: str, local_path, fragment: str
+    ) -> None:
+        def mutate(bundle: Path) -> None:
+            path = local_path(bundle)
+            path.write_bytes(path.read_bytes() + b"\n")
+            manifest = load_api_manifest(bundle)
+            manifest["artifacts"][source_path] = hashlib.sha256(
+                path.read_bytes()
+            ).hexdigest()
+            write_api_manifest(bundle, manifest)
+
+        self.assert_generator_red(mutate, fragment)
+
+    def test_broad_declaration_identity_mutation(self) -> None:
+        self._coordinated_api_artifact_mutation(
+            "python/jshookz/src/jshookz/types/hooks-api.d.ts",
+            broad_declaration_path,
+            "hooks-api.d.ts disagrees with the sealed F0 table",
+        )
+
+    def test_exact_v1_declaration_identity_mutation(self) -> None:
+        self._coordinated_api_artifact_mutation(
+            "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
+            exact_v1_declaration_path,
+            "xahau-quickjs-v1.d.ts disagrees with the sealed F0 table",
+        )
+
+    def test_selected_surface_identity_mutation(self) -> None:
+        self._coordinated_api_artifact_mutation(
+            "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
+            surface_path,
+            "xahau-quickjs-v1.surface.json disagrees with the sealed F0 table",
+        )
+
+    def test_api_artifact_manifest_identity_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_api_manifest(bundle)
+            api_manifest_path(bundle).write_text(json.dumps(data, indent=4) + "\n")
+
+        self.assert_generator_red(mutate, "API artifact manifest SHA-256")
+
     def test_declaration_sha_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
             data = load_json(bundle)
             data["javascript_surface"]["declaration_sha256"] = (
-                "00" + PIN["declaration_sha256"][2:]
+                "00" + PIN["exact_v1_declaration_sha256"][2:]
             )
             write_json(bundle, data)
             rehash_manifest(bundle)
@@ -272,11 +422,30 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
 
         self.assert_generator_red(mutate, "bytecode ABI disagrees")
 
+    def test_coordinated_bytecode_abi_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            value = "00" + PIN["bytecode_abi"][2:]
+            data = load_json(bundle)
+            data["bytecode_abi_id"] = value
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+            set_cmake(bundle, "BYTECODE_ABI_ID", value)
+
+        self.assert_generator_red(mutate, "bytecode ABI disagrees with the sealed F0")
+
     def test_native_abi_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
             set_cmake(bundle, "NATIVE_ABI_SHA256", "00" + PIN["native_abi"][2:])
 
         self.assert_generator_red(mutate, "native ABI snapshot does not match")
+
+    def test_coordinated_native_abi_identity_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            path = native_path(bundle)
+            path.write_bytes(path.read_bytes() + b"\n")
+            rehash_native(bundle)
+
+        self.assert_generator_red(mutate, "native ABI SHA-256")
 
     def test_import_signature_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -312,9 +481,9 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             write_json(bundle, data)
             rehash_manifest(bundle)
 
-        self.assert_generator_red(mutate, "sealed Receipt-A table")
+        self.assert_generator_red(mutate, "sealed F0 table")
 
-    def test_coordinated_import_module_mutation(self) -> None:
+    def test_coordinated_wasi_import_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
             data = load_json(bundle)
             for collection in (
@@ -323,11 +492,26 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             ):
                 for item in collection:
                     if item["name"] == "accept":
-                        item["module"] = "env2"
+                        item["module"] = "wasi_snapshot_preview1"
             write_json(bundle, data)
             rehash_manifest(bundle)
 
-        self.assert_generator_red(mutate, "sealed Receipt-A table")
+        self.assert_generator_red(mutate, "sealed F0 table")
+
+    def test_coordinated_import_signature_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            for collection in (
+                data["provider"]["imports"],
+                data["source"]["provider"]["imports"],
+            ):
+                for item in collection:
+                    if item["name"] == "accept":
+                        item["params"].append("i32")
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+
+        self.assert_generator_red(mutate, "sealed F0 table")
 
     def test_export_extra_key_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -344,19 +528,32 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
 
         self.assert_generator_red(mutate, "extra or missing keys")
 
-    def test_memory_shape_mutation(self) -> None:
+    def _memory_shape_mutation(self, key: str, value) -> None:
         def mutate(bundle: Path) -> None:
             data = load_json(bundle)
-            for item in data["provider"]["exports"]:
-                if item["kind"] == "memory":
-                    item["minimum_pages"] = 7
-            for item in data["source"]["provider"]["allowed_exports"]:
-                if item["kind"] == "memory":
-                    item["minimum_pages"] = 7
+            for collection in (
+                data["provider"]["exports"],
+                data["source"]["provider"]["allowed_exports"],
+            ):
+                for item in collection:
+                    if item["kind"] == "memory":
+                        item[key] = value
             write_json(bundle, data)
             rehash_manifest(bundle)
 
-        self.assert_generator_red(mutate, "memory shape")
+        self.assert_generator_red(mutate, "memory")
+
+    def test_memory_minimum_shape_mutation(self) -> None:
+        self._memory_shape_mutation("minimum_pages", 6)
+
+    def test_memory_maximum_shape_mutation(self) -> None:
+        self._memory_shape_mutation("maximum_pages", 511)
+
+    def test_memory64_shape_mutation(self) -> None:
+        self._memory_shape_mutation("memory64", True)
+
+    def test_shared_memory_shape_mutation(self) -> None:
+        self._memory_shape_mutation("shared", True)
 
     def test_serialized_object_max_bytes_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -390,7 +587,7 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             rehash_manifest(bundle)
             set_cmake(bundle, cmake_key, str(value))
 
-        self.assert_generator_red(mutate, "sealed Receipt-A table")
+        self.assert_generator_red(mutate, "sealed F0 table")
 
     def test_coordinated_serialized_object_max_bytes_mutation(self) -> None:
         self._coordinated_limit(
@@ -412,6 +609,109 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             "serialized_object_max_depth", "SERIALIZED_OBJECT_MAX_DEPTH", 1
         )
 
+    def test_coordinated_heap_limit_mutation(self) -> None:
+        self._coordinated_limit("quickjs_heap_bytes", "HEAP_BYTES", 16777215)
+
+    def test_coordinated_stack_limit_mutation(self) -> None:
+        self._coordinated_limit("quickjs_stack_bytes", "STACK_BYTES", 65535)
+
+    def test_coordinated_initialization_fuel_mutation(self) -> None:
+        self._coordinated_limit(
+            "wasmtime_fuel_per_initialization", "INITIALIZATION_FUEL", 4999999
+        )
+
+    def test_coordinated_invocation_fuel_mutation(self) -> None:
+        self._coordinated_limit(
+            "wasmtime_fuel_per_invocation", "INVOCATION_FUEL", 49999999
+        )
+
+    def test_coordinated_host_work_budget_mutation(self) -> None:
+        self._coordinated_limit("host_work_budget", "HOST_WORK_BUDGET", 999999)
+
+    def test_coordinated_host_work_base_mutation(self) -> None:
+        self._coordinated_limit(
+            "host_work_base_per_call", "HOST_WORK_BASE_PER_CALL", 2
+        )
+
+    def test_coordinated_host_work_per_byte_mutation(self) -> None:
+        self._coordinated_limit(
+            "host_work_per_addressed_byte", "HOST_WORK_PER_ADDRESSED_BYTE", 2
+        )
+
+    def test_coordinated_host_work_meter_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            data["source"]["limits"]["host_work_meter"] = "other-meter"
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+            set_cmake(bundle, "HOST_WORK_METER", "other-meter")
+
+        self.assert_generator_red(mutate, "host_work_meter")
+
+    def test_host_work_address_mapping_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            data["source"]["limits"]["host_work_addressed_length_indices"][
+                "accept"
+            ] = [0]
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+
+        self.assert_generator_red(mutate, "host_work_addressed_length_indices")
+
+    def test_coordinated_host_adapter_policy_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            data["source"]["execution"]["host_adapter_policy"] = "other-policy"
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+            set_cmake(bundle, "HOST_ADAPTER_POLICY", "other-policy")
+
+        self.assert_generator_red(mutate, "host_adapter_policy")
+
+    def test_coordinated_hook_api_version_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            data["source"]["artifact"]["hook_api_version"] = 2
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+            set_cmake(bundle, "HOOK_API_VERSION", "2")
+
+        self.assert_generator_red(mutate, "hook_api_version")
+
+    def test_wasmtime_engine_configuration_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            data["source"]["engine"]["configuration"]["wasi"] = True
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+
+        self.assert_generator_red(mutate, "Wasmtime engine configuration")
+
+    def test_coordinated_wasmtime_version_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            data["source"]["engine"]["version"] = "48.0.0"
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+            set_cmake(bundle, "WASMTIME_VERSION", "48.0.0")
+
+        self.assert_generator_red(
+            mutate, "Wasmtime version disagrees with the sealed F0", "48.0.0"
+        )
+
+    def test_provider_memory_max_bytes_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            data["provider"]["build"]["wasm_memory_max_bytes"] = 33554431
+            data["source"]["provider"]["build"][
+                "wasm_memory_max_bytes"
+            ] = 33554431
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+
+        self.assert_generator_red(mutate, "wasm_memory_max_bytes")
+
     def test_wasm_stack_bytes_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
             data = load_json(bundle)
@@ -421,6 +721,35 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             rehash_manifest(bundle)
 
         self.assert_generator_red(mutate, "wasm_stack_bytes")
+
+    def test_stale_receipt_b_lock_control(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            data["provider"]["sha256"] = RECEIPT_B["provider_sha256"]
+            data["provider"]["size"] = int(RECEIPT_B["provider_size"])
+            data["runtime_profile_id"] = RECEIPT_B["runtime_profile_id"]
+            data["javascript_surface"]["declaration_sha256"] = RECEIPT_B[
+                "declaration_sha256"
+            ]
+            data["javascript_surface"]["sha256"] = RECEIPT_B["surface_sha256"]
+            for collection in (
+                data["provider"]["exports"],
+                data["source"]["provider"]["allowed_exports"],
+            ):
+                for item in collection:
+                    if item["kind"] == "memory":
+                        item["minimum_pages"] = 6
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+            set_cmake(bundle, "PROVIDER_SHA256", RECEIPT_B["provider_sha256"])
+            set_cmake(bundle, "PROVIDER_SIZE", RECEIPT_B["provider_size"])
+            set_cmake(
+                bundle, "RUNTIME_PROFILE_ID", RECEIPT_B["runtime_profile_id"]
+            )
+
+        self.assert_generator_red(
+            mutate, "provider SHA-256 disagrees with the sealed F0"
+        )
 
 
 if __name__ == "__main__":

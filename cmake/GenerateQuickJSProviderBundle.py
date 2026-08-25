@@ -17,26 +17,102 @@ WASM_VALTYPE = {"i32", "i64"}
 WASM_BYTE = {"i32": "0x7f", "i64": "0x7e"}
 WASM_STACK_BYTES = 131072
 WASM_PAGE_BYTES = 65536
-PROVIDER_MEMORY_MINIMUM_PAGES = 6
+PROVIDER_MEMORY_MINIMUM_PAGES = 7
 PROVIDER_MEMORY_MAXIMUM_PAGES = 512
 PROVIDER_MEMORY_MAX_BYTES = PROVIDER_MEMORY_MAXIMUM_PAGES * WASM_PAGE_BYTES
-SEALED_DECLARATION_SHA256 = (
-    "56b4b2974b8a63a550721abd60350e392990762e76666f050b1a7c810e584957"
+SEALED_MANIFEST_SHA256 = (
+    "1673b27d21063957cece9095cceb7e2dbfa53b6f49a5b7f824a486d7d90b2391"
+)
+SEALED_PROVIDER_SHA256 = (
+    "f60ab333acb547e50d7d087960839bd11833cb133d496af98e0b72a1bb3b84df"
+)
+SEALED_PROVIDER_SIZE = 1116638
+SEALED_NATIVE_ABI_SHA256 = (
+    "328ec938dcad875f3bdf25b8d779dd77f3571589818ca9271cb98c64c7018f99"
+)
+SEALED_BYTECODE_ABI_ID = (
+    "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e"
+)
+SEALED_RUNTIME_PROFILE_ID = (
+    "29acf12e170436e5ccadfbc118d02a60909f86a88262106652b2f71994b0ea25"
+)
+SEALED_WASMTIME_VERSION = "47.0.3"
+SEALED_HOOK_API_VERSION = 1
+SEALED_HOST_ADAPTER_POLICY = "xahau-raw-hook-host-v1"
+SEALED_BROAD_DECLARATION_SHA256 = (
+    "649079b831bc68eff0f440644649a505addafb08a3f5174e4031c8de6aedffa0"
+)
+SEALED_EXACT_V1_DECLARATION_SHA256 = (
+    "20881232f0602e35de0fcbb8b5a3c1511606392749a0f79daebb386204f4f4da"
 )
 SEALED_SURFACE_SHA256 = (
-    "b112346b95da74d04930ba86bd597e56a428e41e11581804ccc49907ae206eb0"
+    "96a9218bf38abbf1bc9f2839408700d03572e0b065d625263f70477bc32597ac"
 )
-SEALED_OBJECT_LIMITS = {
+SEALED_API_ARTIFACT_MANIFEST_SHA256 = (
+    "95babf622bf5edff76fdcbd9746bad8f1f8b275a3d4bacdc320ff4deae543eba"
+)
+API_ARTIFACT_SCHEMA = "jshookz.api-artifacts.v1"
+SEALED_API_ARTIFACTS = {
+    "python/jshookz/src/jshookz/types/hooks-api.d.ts": (
+        "broad_declaration",
+        "hooks-api.d.ts",
+        SEALED_BROAD_DECLARATION_SHA256,
+    ),
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts": (
+        "exact_v1_declaration",
+        "xahau-quickjs-v1.d.ts",
+        SEALED_EXACT_V1_DECLARATION_SHA256,
+    ),
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json": (
+        "selected_surface",
+        "xahau-quickjs-v1.surface.json",
+        SEALED_SURFACE_SHA256,
+    ),
+}
+SEALED_LIMITS = {
+    "host_work_base_per_call": 1,
+    "host_work_budget": 1000000,
+    "host_work_meter": "base-plus-addressed-byte-v1",
+    "host_work_per_addressed_byte": 1,
+    "quickjs_heap_bytes": 16777216,
+    "quickjs_stack_bytes": 65536,
     "serialized_object_max_bytes": 1048576,
     "serialized_object_max_fields": 32768,
     "serialized_object_max_scopes": 32769,
     "serialized_object_max_depth": 10,
+    "wasmtime_fuel_per_initialization": 5000000,
+    "wasmtime_fuel_per_invocation": 50000000,
+}
+SEALED_HOST_WORK_ADDRESSED_LENGTH_INDICES = {
+    "accept": [1],
+    "emit": [1, 3],
+    "hook_account": [1],
+    "ledger_last_hash": [1],
+    "prepare": [1, 3],
+    "rollback": [1],
+    "state": [1, 3],
+    "state_set": [1, 3],
+    "trace": [1, 3],
+}
+SEALED_ENGINE_CONFIGURATION = {
+    "consume_fuel": True,
+    "cranelift_nan_canonicalization": True,
+    "wasi": False,
+    "wasm_memory64": False,
+    "wasm_multi_memory": False,
+    "wasm_relaxed_simd": False,
+    "wasm_tail_call": False,
+    "wasm_threads": False,
 }
 IMPORT_KEYS = frozenset({"module", "name", "params", "results"})
 FUNCTION_EXPORT_KEYS = frozenset({"kind", "name", "params", "results"})
 MEMORY_EXPORT_KEYS = frozenset(
     {"kind", "name", "minimum_pages", "maximum_pages", "memory64", "shared"}
 )
+SURFACE_KEYS = frozenset(
+    {"declaration", "declaration_sha256", "manifest", "schema", "sha256"}
+)
+NESTED_SURFACE_KEYS = frozenset({"declaration", "manifest", "schema"})
 
 
 def _import_row(name: str, params: list[str], results: list[str]) -> dict[str, Any]:
@@ -70,7 +146,7 @@ SEALED_EXPORTS = [
         "kind": "memory",
         "maximum_pages": 512,
         "memory64": False,
-        "minimum_pages": 6,
+        "minimum_pages": 7,
         "name": "memory",
         "shared": False,
     },
@@ -135,6 +211,49 @@ def require_hex(value: object, label: str) -> str:
     if len(text) != 64 or any(c not in "0123456789abcdef" for c in text):
         raise LockError(f"{label} is not a SHA-256 hex digest: {value!r}")
     return text
+
+
+def require_sealed(actual: object, expected: object, label: str) -> None:
+    if actual != expected:
+        raise LockError(
+            f"{label} disagrees with the sealed F0 table: "
+            f"{actual!r} != {expected!r}"
+        )
+
+
+def validate_api_artifacts(bundle: Path) -> dict[str, str]:
+    manifest_path = bundle / "api-artifacts.json"
+    manifest = json.loads(manifest_path.read_text())
+    if not isinstance(manifest, dict) or set(manifest) != {"artifacts", "schema"}:
+        raise LockError("API artifact manifest has extra or missing keys")
+    if manifest.get("schema") != API_ARTIFACT_SCHEMA:
+        raise LockError("API artifact manifest schema disagrees with the sealed F0 table")
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict) or set(artifacts) != set(SEALED_API_ARTIFACTS):
+        raise LockError("API artifact manifest file set disagrees with the sealed F0 table")
+
+    identities: dict[str, str] = {}
+    for source_path, artifact in SEALED_API_ARTIFACTS.items():
+        identity_name, local_name, sealed_digest = artifact
+        actual_digest = hashlib.sha256((bundle / local_name).read_bytes()).hexdigest()
+        declared_digest = require_hex(
+            artifacts.get(source_path), f"API artifact {source_path} SHA-256"
+        )
+        if actual_digest != declared_digest:
+            raise LockError(
+                f"API artifact {source_path} disagrees with its manifest digest"
+            )
+        require_sealed(actual_digest, sealed_digest, f"API artifact {source_path}")
+        identities[identity_name] = actual_digest
+
+    actual_manifest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    require_sealed(
+        actual_manifest,
+        SEALED_API_ARTIFACT_MANIFEST_SHA256,
+        "API artifact manifest SHA-256",
+    )
+    identities["api_artifact_manifest"] = actual_manifest
+    return identities
 
 
 def cpp_bool(value: object) -> str:
@@ -323,6 +442,7 @@ def validate_lock(
     native: dict[str, Any],
     cmake: dict[str, str],
     wasmtime_version: str,
+    api_identities: dict[str, str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], str, str, int]:
     schema = require(cmake, "MANIFEST_SCHEMA")
     if schema != "xahau.quickjs.runtime-profile-lock.v1" or profile.get("schema") != schema:
@@ -332,27 +452,40 @@ def validate_lock(
     json_sha = require_hex(profile.get("provider", {}).get("sha256"), "JSON provider SHA-256")
     if json_sha != expected_sha:
         raise LockError("provider sha256 disagrees between JSON lock and cmake")
+    require_sealed(expected_sha, SEALED_PROVIDER_SHA256, "provider SHA-256")
     expected_size = require_int(cmake, "PROVIDER_SIZE")
     json_size = profile.get("provider", {}).get("size")
     if json_size != expected_size:
         raise LockError("provider size disagrees between JSON lock and cmake")
+    require_sealed(expected_size, SEALED_PROVIDER_SIZE, "provider size")
 
     bytecode = require_hex(require(cmake, "BYTECODE_ABI_ID"), "CMake bytecode ABI")
     if require_hex(profile.get("bytecode_abi_id"), "JSON bytecode ABI") != bytecode:
         raise LockError("bytecode ABI disagrees between JSON lock and cmake")
+    require_sealed(bytecode, SEALED_BYTECODE_ABI_ID, "bytecode ABI")
     runtime_profile = require_hex(
         require(cmake, "RUNTIME_PROFILE_ID"), "CMake runtime-profile ID"
     )
     if require_hex(profile.get("runtime_profile_id"), "JSON runtime-profile ID") != runtime_profile:
         raise LockError("runtime-profile ID disagrees between JSON lock and cmake")
+    require_sealed(
+        runtime_profile, SEALED_RUNTIME_PROFILE_ID, "runtime-profile ID"
+    )
 
     pinned_wasmtime = require(cmake, "WASMTIME_VERSION")
-    engine_version = profile.get("source", {}).get("engine", {}).get("version")
+    engine = profile.get("source", {}).get("engine", {})
+    engine_version = engine.get("version")
     if wasmtime_version != pinned_wasmtime or engine_version != pinned_wasmtime:
         raise LockError(
             f"QuickJS provider requires Wasmtime {pinned_wasmtime}, "
             f"but CMake resolved {wasmtime_version} and JSON has {engine_version!r}"
         )
+    require_sealed(pinned_wasmtime, SEALED_WASMTIME_VERSION, "Wasmtime version")
+    require_sealed(
+        engine.get("configuration"),
+        SEALED_ENGINE_CONFIGURATION,
+        "Wasmtime engine configuration",
+    )
 
     limits = profile.get("source", {}).get("limits")
     if not isinstance(limits, dict):
@@ -373,12 +506,13 @@ def validate_lock(
         cmake, "SERIALIZED_OBJECT_MAX_DEPTH", limits.get("serialized_object_max_depth"),
         "serialized_object_max_depth",
     )
-    for key, expected in SEALED_OBJECT_LIMITS.items():
-        if limits.get(key) != expected:
-            raise LockError(
-                f"{key} disagrees with the sealed Receipt-A table: "
-                f"{limits.get(key)!r} != {expected!r}"
-            )
+    for key, expected in SEALED_LIMITS.items():
+        require_sealed(limits.get(key), expected, key)
+    require_sealed(
+        limits.get("host_work_addressed_length_indices"),
+        SEALED_HOST_WORK_ADDRESSED_LENGTH_INDICES,
+        "host_work_addressed_length_indices",
+    )
     cross_compare_int(cmake, "HEAP_BYTES", limits.get("quickjs_heap_bytes"), "quickjs_heap_bytes")
     cross_compare_int(cmake, "STACK_BYTES", limits.get("quickjs_stack_bytes"), "quickjs_stack_bytes")
     cross_compare_int(
@@ -399,16 +533,20 @@ def validate_lock(
         "host_work_per_addressed_byte",
     )
     cross_compare_str(cmake, "HOST_WORK_METER", limits.get("host_work_meter"), "host_work_meter")
-    cross_compare_str(
+    host_adapter_policy = cross_compare_str(
         cmake, "HOST_ADAPTER_POLICY",
         profile.get("source", {}).get("execution", {}).get("host_adapter_policy"),
         "host_adapter_policy",
     )
-    cross_compare_int(
+    require_sealed(
+        host_adapter_policy, SEALED_HOST_ADAPTER_POLICY, "host_adapter_policy"
+    )
+    hook_api_version = cross_compare_int(
         cmake, "HOOK_API_VERSION",
         profile.get("source", {}).get("artifact", {}).get("hook_api_version"),
         "hook_api_version",
     )
+    require_sealed(hook_api_version, SEALED_HOOK_API_VERSION, "hook_api_version")
 
     provider = profile.get("provider")
     source_provider = profile.get("source", {}).get("provider")
@@ -416,6 +554,11 @@ def validate_lock(
         raise LockError("JSON lock is missing provider or source.provider")
     require_build(provider.get("build"), "provider.build")
     require_build(source_provider.get("build"), "source.provider.build")
+    require_sealed(
+        source_provider.get("forbidden_import_modules"),
+        ["wasi_snapshot_preview1"],
+        "forbidden provider import modules",
+    )
 
     expected_import_count = require_int(cmake, "PROVIDER_IMPORT_COUNT")
     provider_imports = require_typed_imports(provider.get("imports"), "provider.imports")
@@ -429,7 +572,7 @@ def validate_lock(
         raise LockError("provider import signatures disagree between JSON copies")
     if provider_imports != SEALED_IMPORTS:
         raise LockError(
-            "provider import signatures disagree with the sealed Receipt-A table"
+            "provider import signatures disagree with the sealed F0 table"
         )
     if (
         len(provider_imports) != expected_import_count
@@ -470,31 +613,32 @@ def validate_lock(
         or memory["shared"] is not False
     ):
         raise LockError(
-            "QuickJS provider memory shape is not min 6 / max 512 / "
+            "QuickJS provider memory shape is not min 7 / max 512 / "
             "memory64=false / shared=false"
         )
     if provider_exports != SEALED_EXPORTS:
         raise LockError(
-            "provider export signatures disagree with the sealed Receipt-A table"
+            "provider export signatures disagree with the sealed F0 table"
         )
 
     surface = profile.get("javascript_surface")
     nested_surface = profile.get("source", {}).get("javascript_surface")
     if not isinstance(surface, dict) or not isinstance(nested_surface, dict):
         raise LockError("JSON lock is missing javascript_surface")
+    if set(surface) != SURFACE_KEYS or set(nested_surface) != NESTED_SURFACE_KEYS:
+        raise LockError("javascript_surface has extra or missing keys")
     declaration_sha = require_hex(
         surface.get("declaration_sha256"), "javascript surface declaration SHA-256"
     )
     surface_sha = require_hex(surface.get("sha256"), "javascript surface SHA-256")
-    if declaration_sha != SEALED_DECLARATION_SHA256:
-        raise LockError(
-            "javascript surface declaration SHA-256 disagrees with the sealed "
-            "Receipt-A table"
-        )
-    if surface_sha != SEALED_SURFACE_SHA256:
-        raise LockError(
-            "javascript surface SHA-256 disagrees with the sealed Receipt-A table"
-        )
+    require_sealed(
+        declaration_sha,
+        api_identities["exact_v1_declaration"],
+        "exact-v1 declaration SHA-256",
+    )
+    require_sealed(
+        surface_sha, api_identities["selected_surface"], "selected surface SHA-256"
+    )
     for key in ("declaration", "manifest", "schema"):
         if surface.get(key) != nested_surface.get(key):
             raise LockError(f"javascript_surface.{key} disagrees between JSON copies")
@@ -519,6 +663,9 @@ def render_source(
     native_imports: list[dict[str, Any]],
     declaration_sha: str,
     surface_sha: str,
+    broad_declaration_sha: str,
+    api_artifact_manifest_sha: str,
+    manifest_sha: str,
     expected_sha: str,
     expected_size: int,
     wasm_bytes: bytes | None,
@@ -571,6 +718,7 @@ std::array<std::uint8_t, 32> const bytecodeABI = {{
     {hex_bytes(require(cmake, "BYTECODE_ABI_ID"))}}};
 std::array<std::uint8_t, 32> const runtimeProfile = {{
     {hex_bytes(require(cmake, "RUNTIME_PROFILE_ID"))}}};
+std::string_view const providerManifestSHA256 = {quote(manifest_sha)};
 std::size_t const providerSize = {expected_size};
 std::uint16_t const hookApiVersion = {require(cmake, "HOOK_API_VERSION")};
 std::uint64_t const initializationFuel = {require(cmake, "INITIALIZATION_FUEL")}ULL;
@@ -596,9 +744,13 @@ std::uint32_t const providerMemoryMinimumPages = {int(memory["minimum_pages"])}U
 std::uint32_t const providerMemoryMaximumPages = {int(memory["maximum_pages"])}U;
 bool const providerMemory64 = false;
 bool const providerMemoryShared = false;
-std::string_view const javascriptSurfaceDeclarationSHA256 =
+std::string_view const javascriptBroadDeclarationSHA256 =
+    {quote(broad_declaration_sha)};
+std::string_view const javascriptExactV1DeclarationSHA256 =
     {quote(declaration_sha)};
 std::string_view const javascriptSurfaceSHA256 = {quote(surface_sha)};
+std::string_view const javascriptAPIArtifactManifestSHA256 =
+    {quote(api_artifact_manifest_sha)};
 
 namespace {{
 
@@ -642,7 +794,12 @@ def project_bundle(bundle: Path, wasmtime_version: str, output: Path) -> int:
     profile_path = bundle / "jshookz_provider.manifest.json"
     cmake_path = bundle / "jshookz_provider.manifest.cmake"
     native_path = bundle / "jshookz_provider.native-abi.json"
-    for path in (profile_path, cmake_path, native_path):
+    api_manifest_path = bundle / "api-artifacts.json"
+    api_paths = tuple(
+        bundle / local_name
+        for _, local_name, _ in SEALED_API_ARTIFACTS.values()
+    )
+    for path in (profile_path, cmake_path, native_path, api_manifest_path, *api_paths):
         if not path.is_file():
             print(f"missing sealed QuickJS bundle file: {path}", file=sys.stderr)
             return 1
@@ -667,6 +824,7 @@ def project_bundle(bundle: Path, wasmtime_version: str, output: Path) -> int:
     try:
         profile = json.loads(profile_path.read_text())
         native = json.loads(native_path.read_text())
+        api_identities = validate_api_artifacts(bundle)
         (
             provider_imports,
             provider_exports,
@@ -674,7 +832,15 @@ def project_bundle(bundle: Path, wasmtime_version: str, output: Path) -> int:
             declaration_sha,
             surface_sha,
             expected_size,
-        ) = validate_lock(profile, native, cmake, wasmtime_version)
+        ) = validate_lock(
+            profile, native, cmake, wasmtime_version, api_identities
+        )
+        require_sealed(
+            actual_manifest, SEALED_MANIFEST_SHA256, "provider manifest SHA-256"
+        )
+        require_sealed(
+            actual_native, SEALED_NATIVE_ABI_SHA256, "native ABI SHA-256"
+        )
     except LockError as error:
         print(str(error), file=sys.stderr)
         return 1
@@ -683,7 +849,14 @@ def project_bundle(bundle: Path, wasmtime_version: str, output: Path) -> int:
     wasm_path = bundle / wasm_name
     expected_sha = require(cmake, "PROVIDER_SHA256").lower()
     fingerprint = hashlib.sha256()
-    for path in (profile_path, cmake_path, native_path, Path(__file__)):
+    for path in (
+        profile_path,
+        cmake_path,
+        native_path,
+        api_manifest_path,
+        *api_paths,
+        Path(__file__),
+    ):
         fingerprint.update(path.read_bytes())
     fingerprint.update(wasmtime_version.encode())
     wasm_bytes: bytes | None = None
@@ -724,6 +897,9 @@ def project_bundle(bundle: Path, wasmtime_version: str, output: Path) -> int:
         native_imports=native_imports,
         declaration_sha=declaration_sha,
         surface_sha=surface_sha,
+        broad_declaration_sha=api_identities["broad_declaration"],
+        api_artifact_manifest_sha=api_identities["api_artifact_manifest"],
+        manifest_sha=actual_manifest,
         expected_sha=expected_sha,
         expected_size=expected_size,
         wasm_bytes=wasm_bytes,

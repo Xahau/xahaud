@@ -2,10 +2,10 @@
   "bytecode_abi_id": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
   "javascript_surface": {
     "declaration": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "declaration_sha256": "56b4b2974b8a63a550721abd60350e392990762e76666f050b1a7c810e584957",
+    "declaration_sha256": "20881232f0602e35de0fcbb8b5a3c1511606392749a0f79daebb386204f4f4da",
     "manifest": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
     "schema": "jshookz.javascript-surface.v1",
-    "sha256": "b112346b95da74d04930ba86bd597e56a428e41e11581804ccc49907ae206eb0"
+    "sha256": "96a9218bf38abbf1bc9f2839408700d03572e0b065d625263f70477bc32597ac"
   },
   "provider": {
     "build": {
@@ -41,7 +41,7 @@
         "kind": "memory",
         "maximum_pages": 512,
         "memory64": false,
-        "minimum_pages": 6,
+        "minimum_pages": 7,
         "name": "memory",
         "shared": false
       },
@@ -360,10 +360,10 @@
         ]
       }
     ],
-    "sha256": "40f9ac0203afa9296196c627bc94e669ad789322ddc1e4ab58ba0cf6d32a5e21",
-    "size": 1101461
+    "sha256": "f60ab333acb547e50d7d087960839bd11833cb133d496af98e0b72a1bb3b84df",
+    "size": 1116638
   },
-  "runtime_profile_id": "60950ca8b6fe4dd2a35559367051998bc04f75e8aa41934dd4caad0de5a1c3ba",
+  "runtime_profile_id": "29acf12e170436e5ccadfbc118d02a60909f86a88262106652b2f71994b0ea25",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
@@ -495,7 +495,7 @@
           "kind": "memory",
           "maximum_pages": 512,
           "memory64": false,
-          "minimum_pages": 6,
+          "minimum_pages": 7,
           "name": "memory",
           "shared": false
         },

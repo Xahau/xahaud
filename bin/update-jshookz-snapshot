@@ -18,6 +18,14 @@ SNAPSHOT_FILES = (
     "jshookz_provider.native-abi.json",
     "jshookz_provider.wasm",
 )
+API_SNAPSHOT_FILES = {
+    "python/jshookz/src/jshookz/types/api-artifacts.json": "api-artifacts.json",
+    "python/jshookz/src/jshookz/types/hooks-api.d.ts": "hooks-api.d.ts",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts":
+        "xahau-quickjs-v1.d.ts",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json":
+        "xahau-quickjs-v1.surface.json",
+}
 
 
 def run(*args: str, cwd: Path, capture: bool = False) -> str:
@@ -87,11 +95,16 @@ def main() -> int:
         run(str(cli), "build", "provider", cwd=jshookz_root)
 
     missing = [name for name in SNAPSHOT_FILES if not (bundle / name).is_file()]
+    missing.extend(
+        source for source in API_SNAPSHOT_FILES if not (jshookz_root / source).is_file()
+    )
     if missing:
         parser.error(f"incomplete provider bundle: {', '.join(missing)}")
 
     for name in SNAPSHOT_FILES:
         shutil.copy2(bundle / name, destination / name)
+    for source, name in API_SNAPSHOT_FILES.items():
+        shutil.copy2(jshookz_root / source, destination / name)
 
     manifest = json.loads((bundle / "jshookz_provider.manifest.json").read_text())
     wasi_sdk = os.environ.get("HOOKZ_WASI_SDK")

@@ -1,6 +1,6 @@
 # QuickJS provider manifest
 
-These files are generated together by a jshookz source checkout:
+These files are generated or sealed together by a jshookz source checkout:
 
 ```sh
 # Current layout (cpp/provider, python/jshookz). Older checkouts used
@@ -16,7 +16,8 @@ command:
 bin/update-jshookz-snapshot /path/to/jshookz
 ```
 
-That builds and imports the sealed lock files. CI checks out jshookz
+That builds and imports the sealed lock files plus the broad/exact-v1
+declarations, selected-surface manifest, and API-artifact manifest. CI checks out jshookz
 `main` and fails if `build provider` does not reproduce that lock. The
 importer then prints a self-contained `x-run-tests` command that
 regenerates the embedded Hook fixtures and verifies the cut.
@@ -25,6 +26,9 @@ regenerates the embedded Hook fixtures and verifies the cut.
 `jshookz_provider.manifest.cmake` is its minimal CMake projection. Xahau checks
 the JSON hash before generating the C++ profile constants, and the runtime
 checks any supplied provider WASM against the projected size and SHA-256.
+`api-artifacts.json` closes the three tracked API artifacts; Xahau verifies its
+own digest and every named artifact before projecting their identities. These
+files add no parallel CMake lock-value fields.
 
 The provider binary is not vendored in this integration slice. Tests inject
 the exact built artifact. Configure needs python3 to project these lock files.
