@@ -465,7 +465,6 @@ export function main(_reserved: number): never {
     Uint8Array.from([0x22, 0x00, 0x00, 0x00, 0x09]),
   );
   const resultValue = UInt8.from(7);
-  const voidResultValue = state.set("f0-native-matrix", Uint8Array.from([1]));
   const xflValue = rollback.requirePresent(
     iouAmountValue.asIOU(),
     "IOU narrowing",
@@ -475,58 +474,89 @@ export function main(_reserved: number): never {
     (value) => value.toBigInt(),
     -1n,
   );
-  rollback.onFail(voidResultValue, "state.set failed");
-  const voidResultBehavior = true;
 
-  const nounChecks: readonly [string, boolean][] = [
-    ["AccountID", accountIDValue instanceof AccountID],
-    ["Amount", nativeAmountValue instanceof Amount],
-    ["Currency", currencyValue instanceof Currency],
-    ["Hash", lowHash instanceof Hash],
-    ["Hash128", hash128Value instanceof Hash128],
-    ["Hash160", hash160Value instanceof Hash160],
-    ["Hash192", hash192Value instanceof Hash192],
-    ["Hash256", lowHash instanceof Hash256],
-    ["IOUAmount", iouAmountValue instanceof IOUAmount],
-    ["Issue", issueValue instanceof Issue],
-    ["MPTAmount", mptAmountValue instanceof MPTAmount],
-    ["NativeAmount", nativeAmountValue instanceof NativeAmount],
-    ["Path", pathValue instanceof Path],
-    ["PathHop", pathHopValue instanceof PathHop],
-    ["PathSet", pathSetValue instanceof PathSet],
-    ["Result", resultBehavior === 7n && !(UInt8.zero instanceof Result)],
-    ["STArray", stArrayValue instanceof STArray],
-    ["STBlob", STBlob.from(new Uint8Array()) instanceof STBlob],
-    ["STObject", stObjectValue instanceof STObject],
-    ["SerializedField", Field.Flags instanceof SerializedField],
-    ["UInt", UInt8.zero instanceof UInt],
-    ["UInt8", UInt8.zero instanceof UInt8],
-    ["UInt16", UInt16.zero instanceof UInt16],
-    ["UInt32", UInt32.zero instanceof UInt32],
-    ["UInt64", UInt64.zero instanceof UInt64],
-    ["Vector256", vectorValue instanceof Vector256],
-    [
-      "VoidResult",
-      voidResultBehavior && !(UInt8.zero instanceof VoidResult),
-    ],
-    ["XChainBridge", bridgeValue instanceof XChainBridge],
-    ["XFLDecimal", xflValue instanceof XFLDecimal],
+  // Result ownership is enforced statically, so the provider-owned dynamic
+  // evaluation surface keeps each Result inside one create-observe-consume
+  // scope while exercising the exact provider F0 nominal-membership grid.
+  const nounMatrixFailures = eval(`
+(() => {
+  const resultValue = UInt8.from(7);
+  const voidResultValue = state.set("f0-native-matrix", Uint8Array.from([1]));
+  const nouns = [
+    "AccountID", "Amount", "Currency", "Hash", "Hash128", "Hash160",
+    "Hash192", "Hash256", "IOUAmount", "Issue", "MPTAmount",
+    "NativeAmount", "Path", "PathHop", "PathSet", "Result", "STArray",
+    "STBlob", "STObject", "SerializedField", "UInt", "UInt8", "UInt16",
+    "UInt32", "UInt64", "Vector256", "VoidResult", "XChainBridge",
+    "XFLDecimal",
   ];
-  if (
-    nounChecks.length !== 29 ||
-    new Set(nounChecks.map(([name]) => name)).size !== 29
-  ) {
-    rollback("29-noun matrix shape", -650);
+  const cases = [
+    ["AccountID", accountIDValue, ["AccountID"]],
+    ["native amount", nativeAmountValue, ["Amount", "NativeAmount"]],
+    ["IOU amount", iouAmountValue, ["Amount", "IOUAmount"]],
+    ["MPT amount", mptAmountValue, ["Amount", "MPTAmount"]],
+    ["Currency", currencyValue, ["Currency"]],
+    ["Hash128", hash128Value, ["Hash", "Hash128"]],
+    ["Hash160", hash160Value, ["Hash", "Hash160"]],
+    ["Hash192", hash192Value, ["Hash", "Hash192"]],
+    ["Hash256", lowHash, ["Hash", "Hash256"]],
+    ["Issue", issueValue, ["Issue"]],
+    ["Path", pathValue, ["Path"]],
+    ["PathHop", pathHopValue, ["PathHop"]],
+    ["PathSet", pathSetValue, ["PathSet"]],
+    ["Result", resultValue, ["Result"]],
+    ["STArray", stArrayValue, ["STArray"]],
+    ["STBlob", STBlob.from(new Uint8Array()), ["STBlob"]],
+    ["STObject", stObjectValue, ["STObject"]],
+    ["SerializedField", Field.Flags, ["SerializedField"]],
+    ["UInt8", UInt8.zero, ["UInt", "UInt8"]],
+    ["UInt16", UInt16.zero, ["UInt", "UInt16"]],
+    ["UInt32", UInt32.zero, ["UInt", "UInt32"]],
+    ["UInt64", UInt64.zero, ["UInt", "UInt64"]],
+    ["Vector256", vectorValue, ["Vector256"]],
+    ["VoidResult", voidResultValue, ["VoidResult"]],
+    ["XChainBridge", bridgeValue, ["XChainBridge"]],
+    ["XFLDecimal", xflValue, ["XFLDecimal"]],
+  ];
+  const failures = [];
+  const fail = (where) => failures.push(where);
+  if (nouns.length !== 29 || new Set(nouns).size !== 29 || cases.length !== 26)
+    fail("matrix:shape");
+  for (const [label, instance, positives] of cases) {
+    const expected = new Set(positives);
+    for (const name of nouns) {
+      if ((instance instanceof globalThis[name]) !== expected.has(name))
+        fail("matrix:" + label + ":" + name);
+    }
   }
-  for (const [name, passed] of nounChecks) {
-    if (!passed) rollback(`29-noun matrix:${name}`, -651);
-  }
+
+  const resultNominal = resultValue instanceof Result;
+  const voidResultNominal = voidResultValue instanceof VoidResult;
+  if (!resultNominal || resultValue instanceof VoidResult)
+    fail("matrix:Result:explicit-control");
+  if (!voidResultNominal || voidResultValue instanceof Result)
+    fail("matrix:VoidResult:explicit-control");
+  if (UInt8.zero instanceof Result || UInt8.zero instanceof VoidResult)
+    fail("matrix:non-result:explicit-control");
+
+  const matrixResultBehavior = resultValue.okMapOr(
+    (value) => value.toBigInt(),
+    -1n,
+  );
+  rollback.onFail(voidResultValue, "state.set failed");
+  if (matrixResultBehavior !== 7n) fail("matrix:Result:behavior");
+  return failures;
+})()
+`) as unknown;
   if (
-    !(iouAmountValue instanceof Amount) ||
-    !(mptAmountValue instanceof Amount) ||
-    nativeAmountValue instanceof IOUAmount
+    !Array.isArray(nounMatrixFailures) ||
+    nounMatrixFailures.some((failure) => typeof failure !== "string") ||
+    nounMatrixFailures.length !== 0
   ) {
-    rollback("noun subtype separation", -652);
+    const detail = Array.isArray(nounMatrixFailures)
+      ? nounMatrixFailures.join(",")
+      : "invalid-result";
+    rollback(`29-noun exact matrix:${detail}`, -650);
   }
 
   if (
@@ -1243,7 +1273,7 @@ int64_t hook(uint32_t reserved)
             "f0-native-matrix");
         expectFuel(
             f0NativeMatrixExecution.getFieldU64(sfHookInstructionCount),
-            2195935);
+            6889214);
 
         //@@start jshooks-state-bridge
         testcase("Execute a C Hook through WasmEdge and persist state");
