@@ -8493,12 +8493,28 @@ private:
         params[jss::manifest] = strHex(manifest);
         auto const jrr = env.rpc("json", "submit", to_string(params));
 
-        BEAST_EXPECT(
-            jrr[jss::result][jss::engine_result].asString() == "tesSUCCESS");
+        auto const& result = jrr[jss::result];
 
-        auto const hashStr =
-            jrr[jss::result][jss::tx_json][jss::hash].asString();
-        return uint256::fromVoid(strUnHex(hashStr)->data());
+        if (!BEAST_EXPECT(
+                result[jss::engine_result].asString() == "tesSUCCESS"))
+        {
+            log << "submitManifest: " << to_string(jrr) << std::endl;
+            return beast::zero;
+        }
+
+        // An error response carries no tx_json, and strUnHex("") yields an
+        // engaged but empty Blob, so fromVoid() would memcpy from nullptr.
+        auto const blob = strUnHex(result[jss::tx_json][jss::hash].asString());
+        auto const hash =
+            blob ? uint256::fromVoidChecked(*blob) : std::optional<uint256>{};
+
+        if (!BEAST_EXPECT(hash.has_value()))
+        {
+            log << "submitManifest: " << to_string(jrr) << std::endl;
+            return beast::zero;
+        }
+
+        return *hash;
     }
 
     // SetManifest
