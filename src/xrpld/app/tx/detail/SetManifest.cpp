@@ -358,27 +358,22 @@ makeSetManifestTx(
         if (!man || !man->verify())
             return std::nullopt;
 
-        // sfManifest object marker: STI_OBJECT (14) in the high nibble, field
-        // code 90 in the trailing byte. Type 14 sorts after every other field
-        // in the txn, so appending is canonical.
-        std::string const suffix =
-            std::string("E05A") + strHex(manifest) + "E1";
-
         auto const encode = [&](XRPAmount fee) {
-            return serializeHex(STTx(
-                       ttMANIFEST_SET,
-                       [&](STObject& obj) {
-                           obj.setAccountID(
-                               sfAccount, calcAccountID(man->masterKey));
-                           obj.setFieldU32(sfSequence, 0);
-                           obj.setFieldU32(sfNetworkID, networkID);
-                           obj.setFieldAmount(sfFee, fee);
-                           obj.setFieldVL(
-                               sfSigningPubKey, std::vector<std::uint8_t>{});
-                           obj.setFieldVL(
-                               sfTxnSignature, std::vector<std::uint8_t>{});
-                       })) +
-                suffix;
+            return serializeHex(STTx(ttMANIFEST_SET, [&](STObject& obj) {
+                obj.setAccountID(sfAccount, calcAccountID(man->masterKey));
+                obj.setFieldU32(sfSequence, 0);
+                obj.setFieldU32(sfNetworkID, networkID);
+                obj.setFieldAmount(sfFee, fee);
+                obj.setFieldVL(sfSigningPubKey, std::vector<std::uint8_t>{});
+                obj.setFieldVL(sfTxnSignature, std::vector<std::uint8_t>{});
+
+                // sfManifest is soeREQUIRED, so STObject::set(SOTemplate) has
+                // already materialised it as a present, empty object. Fill
+                // that one in: emitting a second is a duplicate field, which
+                // STObject::set(SerialIter&) rejects on the way back in.
+                SerialIter mit{manifest};
+                obj.peekFieldObject(sfManifest).set(mit);
+            }));
         };
 
         // calculateBaseFee() takes a parsed transaction, so encode once with a
