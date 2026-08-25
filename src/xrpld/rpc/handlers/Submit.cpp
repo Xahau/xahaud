@@ -31,6 +31,7 @@
 #include <xrpld/rpc/detail/TransactionSign.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/resource/Fees.h>
 
@@ -140,6 +141,21 @@ doSubmit(RPC::JsonContext& context)
         // OnChainManifests amendment accepts a manifest submission here; turn
         // it into the transaction that carries it and drop through to normal
         // tx_blob processing below.
+        auto const view = context.app.openLedger().current();
+
+        // The transaction built below carries no account signature; its
+        // authority is the manifest's own master and ephemeral signatures,
+        // which checkValidity() only honours once the amendment is active.
+        // Without this the submitter is told their transaction is unsigned,
+        // which reads as their mistake. It isn't -- the feature is not live
+        // yet -- so say so before touching the manifest at all.
+        if (!view->rules().enabled(featureOnChainManifests))
+            return RPC::make_error(
+                rpcNOT_ENABLED,
+                "The OnChainManifests amendment is not enabled on this "
+                "network. Manifest submission will work once it activates; "
+                "nothing is wrong with this request.");
+
         auto const raw = strUnHex(context.params[jss::manifest].asString());
         if (!raw || raw->empty())
             return rpcError(rpcINVALID_PARAMS);
@@ -147,7 +163,7 @@ doSubmit(RPC::JsonContext& context)
         auto const hex = makeSetManifestTx(
             makeSlice(*raw),
             context.app.config().NETWORK_ID,
-            *(context.app.openLedger().current()),
+            *view,
             context.app.journal("Submit"));
 
         if (!hex)

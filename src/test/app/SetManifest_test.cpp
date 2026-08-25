@@ -367,9 +367,13 @@ struct SetManifest_test : public beast::unit_test::suite
         env.fund(XRP(1000), master);
         env.close();
 
-        BEAST_EXPECT(
-            engineResult(submit(env, makeManifest(master, ephemeral, 1))) ==
-            "temDISABLED");
+        // The submitted transaction carries no account signature, so with the
+        // amendment off it would otherwise be rejected as unsigned and never
+        // reach preflight's temDISABLED. The RPC therefore refuses it up
+        // front, and says why.
+        auto const result = submit(env, makeManifest(master, ephemeral, 1));
+        BEAST_EXPECT(result[jss::error].asString() == "notEnabled");
+        BEAST_EXPECT(!result.isMember(jss::engine_result));
         env.close();
 
         BEAST_EXPECT(!env.le(keylet::manifest(master.pk())));
