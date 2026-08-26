@@ -849,6 +849,9 @@ Config::loadFromString(std::string const& fileContents)
     if (getSingleSection(secConfig, SECTION_BETA_RPC_API, strTemp, j_))
         BETA_RPC_API = beast::lexicalCastThrow<bool>(strTemp);
 
+    if (getSingleSection(secConfig, SECTION_PWA, strTemp, j_))
+        PWA_ENABLED = beast::lexicalCastThrow<bool>(strTemp);
+
     // Do not load trusted validator configuration for standalone mode
     do
     {

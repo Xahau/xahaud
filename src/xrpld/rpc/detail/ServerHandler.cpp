@@ -19,6 +19,7 @@
 
 #include <xrpld/rpc/ServerHandler.h>
 
+#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/ConfigSections.h>
@@ -37,7 +38,9 @@
 #include <xrpl/beast/rfc2616.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/to_string.h>
+#include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/resource/Fees.h>
 #include <xrpl/resource/ResourceManager.h>
@@ -50,7 +53,10 @@
 #include <boost/beast/http/string_body.hpp>
 
 #include <algorithm>
+#include <optional>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace ripple {
 
@@ -294,6 +300,118 @@ buffers_to_string(ConstBufferSequence const& bs)
     return s;
 }
 
+// Parse "/pwa/<account>" and return the account, or nullopt if the target is
+// not a PWA request or the account is unparseable. A trailing slash and any
+// query string or fragment are ignored, so /pwa/rXXX/?v=2 resolves the same
+// as /pwa/rXXX.
+static std::optional<AccountID>
+parsePWATarget(boost::beast::string_view target)
+{
+    static constexpr char prefix[] = "/pwa/";
+    static constexpr std::size_t prefixLen = sizeof(prefix) - 1;
+
+    if (target.size() <= prefixLen || target.substr(0, prefixLen) != prefix)
+        return std::nullopt;
+
+    std::string rest{target.substr(prefixLen)};
+
+    if (auto const cut = rest.find_first_of("?#"); cut != std::string::npos)
+        rest.erase(cut);
+
+    while (!rest.empty() && rest.back() == '/')
+        rest.pop_back();
+
+    // A base58 r-address contains no path separators; reject anything with
+    // further path structure rather than silently taking the first segment.
+    if (rest.empty() || rest.find('/') != std::string::npos)
+        return std::nullopt;
+
+    return parseBase58<AccountID>(rest);
+}
+
+void
+ServerHandler::processPWARequest(
+    std::shared_ptr<Session> const& session,
+    AccountID const& account)
+{
+    auto const j = app_.journal("PWA");
+    auto out = makeOutput(*session);
+
+    // Serving third-party HTML from the same origin as the JSON-RPC endpoint
+    // is dangerous: script in the document could POST commands back to the
+    // node. Two things guard against that.
+    //
+    // First, refuse outright if this connection would be granted elevated
+    // privileges, or if the port is password protected (in which case a
+    // browser would attach the credentials to same-origin requests).
+    if (!session->port().user.empty() || !session->port().password.empty())
+    {
+        HTTPReply(403, "Forbidden", out, j);
+        session->close(true);
+        return;
+    }
+
+    if (isUnlimited(requestRole(
+            Role::GUEST,
+            session->port(),
+            Json::objectValue,
+            session->remoteAddress().at_port(0),
+            "")))
+    {
+        JLOG(j.debug()) << "refusing to serve PWA content to a privileged "
+                        << "connection from "
+                        << session->remoteAddress().to_string();
+        HTTPReply(403, "Forbidden", out, j);
+        session->close(true);
+        return;
+    }
+
+    // Second, sandbox the document. "sandbox allow-scripts" without
+    // allow-same-origin puts the page in an opaque origin, so its scripts
+    // cannot reach this node's RPC endpoint at all. Note the trade-off: an
+    // opaque origin has no storage and no service workers, so a document
+    // served this way is not a fully functional PWA. Hosting one properly
+    // needs an origin per account, which is out of scope here.
+    static std::vector<std::string> const securityHeaders{
+        "Content-Security-Policy: sandbox allow-scripts allow-forms "
+        "allow-popups",
+        "X-Content-Type-Options: nosniff",
+        "X-Frame-Options: DENY",
+        "Referrer-Policy: no-referrer",
+        "Cross-Origin-Resource-Policy: same-origin"};
+
+    auto const ledger = app_.getLedgerMaster().getClosedLedger();
+    if (!ledger)
+    {
+        HTTPReply(503, "Service Unavailable", out, j);
+        session->close(true);
+        return;
+    }
+
+    auto const sle = ledger->read(keylet::appLoader(account));
+    if (!sle || !sle->isFieldPresent(sfAppLoader))
+    {
+        HTTPReply(404, "Not Found", out, j);
+        session->close(true);
+        return;
+    }
+
+    Blob const blob = sle->getFieldVL(sfAppLoader);
+
+    JLOG(j.trace()) << "serving AppLoader for " << toBase58(account) << " ("
+                    << blob.size() << " bytes) from ledger " << ledger->seq();
+
+    HTTPReply(
+        200,
+        std::string(blob.begin(), blob.end()),
+        out,
+        j,
+        "text/html; charset=utf-8",
+        securityHeaders);
+
+    session->close(true);
+}
+
 void
 ServerHandler::onRequest(Session& session)
 {
@@ -304,6 +422,35 @@ ServerHandler::onRequest(Session& session)
         HTTPReply(403, "Forbidden", makeOutput(session), app_.journal("RPC"));
         session.close(true);
         return;
+    }
+
+    // PWA content: GET /pwa/<account>. Handled ahead of the RPC path because
+    // it is a plain document request, not a JSON-RPC call.
+    if (app_.config().PWA_ENABLED &&
+        session.request().method() == boost::beast::http::verb::get)
+    {
+        if (auto const account = parsePWATarget(session.request().target()))
+        {
+            std::shared_ptr<Session> detachedSession = session.detach();
+            auto const postResult = m_jobQueue.postCoro(
+                jtCLIENT_RPC,
+                "PWA-Client",
+                [this, detachedSession, account = *account](
+                    std::shared_ptr<JobQueue::Coro>) {
+                    processPWARequest(detachedSession, account);
+                });
+
+            if (postResult == nullptr)
+            {
+                HTTPReply(
+                    503,
+                    "Service Unavailable",
+                    makeOutput(*detachedSession),
+                    app_.journal("PWA"));
+                detachedSession->close(true);
+            }
+            return;
+        }
     }
 
     // Check user/password authorization

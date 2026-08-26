@@ -217,6 +217,16 @@ private:
         std::shared_ptr<Session> const&,
         std::shared_ptr<JobQueue::Coro> coro);
 
+    /** Serve an account's on-ledger AppLoader document as HTML.
+
+        Only reached when PWA_ENABLED is set and the request was a GET of
+        /pwa/<account>. Runs on the job queue because it reads the ledger.
+    */
+    void
+    processPWARequest(
+        std::shared_ptr<Session> const& session,
+        AccountID const& account);
+
     void
     processRequest(
         Port const& port,

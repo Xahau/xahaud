@@ -309,6 +309,12 @@ public:
     // Enable the beta API version
     bool BETA_RPC_API = false;
 
+    // Serve on-ledger AppLoader documents as HTML from the http/https ports
+    // under /pwa/<account>. Off by default: it turns the node into a web
+    // host for content it does not control. See ServerHandler for the
+    // restrictions that apply when it is on.
+    bool PWA_ENABLED = false;
+
     // First, attempt to load the latest ledger directly from disk.
     bool FAST_LOAD = false;
     // When starting rippled with existing database it do not know it has those

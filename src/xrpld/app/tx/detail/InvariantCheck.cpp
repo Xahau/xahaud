@@ -612,6 +612,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltMPTOKEN:
             case ltCREDENTIAL:
             case ltPERMISSIONED_DOMAIN:
+            case ltAPP_LOADER:
                 break;
             default:
                 invalidTypeAdded_ = true;

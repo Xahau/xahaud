@@ -223,6 +223,29 @@ LEDGER_ENTRY(ltURI_TOKEN, 0x0055, URIToken, uri_token, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
+/** A ledger object holding the bootstrap document of a Progressive Web App.
+
+    There is at most one of these per account, keyed on the owner's AccountID.
+    It is linked directly from the owning AccountRoot via sfAppLoaderID and is
+    deliberately NOT placed in the owner directory: it takes no owner reserve
+    and contributes nothing to OwnerCount, because its storage is paid for by
+    a per-byte fee on the AccountSet that publishes it.
+
+    Two consequences follow from staying out of the directory. It is invisible
+    to account_objects, so it must be reached via sfAppLoaderID (or by
+    recomputing the keylet). And DeleteAccount's directory walk cannot find
+    it, so DeleteAccount erases it explicitly; without that, account deletion
+    would orphan it and trip AccountRootsDeletedClean.
+
+    \sa keylet::appLoader
+ */
+LEDGER_ENTRY(ltAPP_LOADER, 'L', AppLoader, app_loader, ({
+    {sfOwner,                soeREQUIRED},
+    {sfAppLoader,            soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
 /** A ledger object which describes an account.
 
     \sa keylet::account
@@ -262,6 +285,7 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfHookStateScale,       soeOPTIONAL},
     {sfCron,                 soeOPTIONAL},
     {sfAMMID,                soeOPTIONAL},
+    {sfAppLoaderID,          soeOPTIONAL},
 }))
 
 /** A ledger object which contains a list of object identifiers.

@@ -103,7 +103,7 @@ URIToken::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        if (!validateUTF8(uri))
+        if (!validateUTF8(uri, ctx.rules.enabled(featurePWALoader)))
         {
             JLOG(ctx.j.warn()) << "Malformed transaction. URI must be a "
                                   "valid utf-8 string.";

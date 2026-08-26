@@ -81,6 +81,7 @@ enum class LedgerNameSpace : std::uint16_t {
     IMPORT_VLSEQ = 'I',
     UNL_REPORT = 'R',
     CRON = 'L',
+    APP_LOADER = 'W',
     AMM = 'A',
     BRIDGE = LEDGER_NAMESPACE2(0x01, 'H'),
     XCHAIN_CLAIM_ID = 'Q',
@@ -610,6 +611,12 @@ Keylet
 did(AccountID const& account) noexcept
 {
     return {ltDID, indexHash(LedgerNameSpace::DID, account)};
+}
+
+Keylet
+appLoader(AccountID const& account) noexcept
+{
+    return {ltAPP_LOADER, indexHash(LedgerNameSpace::APP_LOADER, account)};
 }
 
 Keylet

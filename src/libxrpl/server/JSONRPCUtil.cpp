@@ -25,6 +25,9 @@
 #include <xrpl/server/detail/JSONRPCUtil.h>
 #include <boost/algorithm/string.hpp>
 
+#include <string>
+#include <vector>
+
 namespace ripple {
 
 std::string
@@ -57,7 +60,9 @@ HTTPReply(
     int nStatus,
     std::string const& content,
     Json::Output const& output,
-    beast::Journal j)
+    beast::Journal j,
+    std::string const& contentType,
+    std::vector<std::string> const& extraHeaders)
 {
     JLOG(j.trace()) << "HTTP Reply " << nStatus << " " << content;
 
@@ -143,9 +148,11 @@ HTTPReply(
     //    output ("Access-Control-Allow-Origin: *\r\n");
 
     output(std::to_string(content.size() + 2));
-    output(
-        "\r\n"
-        "Content-Type: application/json; charset=UTF-8\r\n");
+    output("\r\n");
+    output("Content-Type: " + contentType + "\r\n");
+
+    for (auto const& h : extraHeaders)
+        output(h + "\r\n");
 
     output("Server: " + systemName() + "-json-rpc/");
     output(BuildInfo::getFullVersionString());
