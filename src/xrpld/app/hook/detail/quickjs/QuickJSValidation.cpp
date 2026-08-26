@@ -33,14 +33,13 @@ decodeModuleValidationResult(
         return "QuickJS provider module-validation result has an unsupported "
                "layout version";
 
-    auto const entries =
-        value & artifact::generated::moduleValidationEntryMask;
+    auto const entries = value & artifact::generated::moduleValidationEntryMask;
     if ((entries & artifact::generated::moduleValidationMainBit) == 0)
         return "QuickJS provider module-validation result has no callable "
                "main entry";
     auto const mainOnly = artifact::generated::moduleValidationMainBit;
-    auto const mainAndCallback = mainOnly |
-        artifact::generated::moduleValidationCallbackBit;
+    auto const mainAndCallback =
+        mainOnly | artifact::generated::moduleValidationCallbackBit;
     if (entries != mainOnly && entries != mainAndCallback)
         return "QuickJS provider module-validation result has invalid entry "
                "bits";
@@ -48,27 +47,25 @@ decodeModuleValidationResult(
     auto const profileCode =
         (value & artifact::generated::moduleValidationProfileMask) >>
         artifact::generated::moduleValidationProfileShift;
-    switch (profileCode)
+    if (profileCode == artifact::generated::xflArithmeticProfileNone)
     {
-        case static_cast<std::uint32_t>(
-            artifact::XFLArithmeticProfile::none):
-            validation.xflArithmeticProfile =
-                artifact::XFLArithmeticProfile::none;
-            break;
-        case static_cast<std::uint32_t>(
-            artifact::XFLArithmeticProfile::xahauFloatV1):
-            validation.xflArithmeticProfile =
-                artifact::XFLArithmeticProfile::xahauFloatV1;
-            break;
-        case static_cast<std::uint32_t>(
-            artifact::XFLArithmeticProfile::nearestEvenV1):
-            validation.xflArithmeticProfile =
-                artifact::XFLArithmeticProfile::nearestEvenV1;
-            break;
-        default:
-            return "QuickJS provider module-validation result has an unknown "
-                   "XFL arithmetic profile";
+        validation.xflArithmeticProfile = artifact::XFLArithmeticProfile::none;
     }
+    else if (
+        profileCode == artifact::generated::xflArithmeticProfileXahauFloatV1)
+    {
+        validation.xflArithmeticProfile =
+            artifact::XFLArithmeticProfile::xahauFloatV1;
+    }
+    else if (
+        profileCode == artifact::generated::xflArithmeticProfileNearestEvenV1)
+    {
+        validation.xflArithmeticProfile =
+            artifact::XFLArithmeticProfile::nearestEvenV1;
+    }
+    else
+        return "QuickJS provider module-validation result has an unknown "
+               "XFL arithmetic profile";
     validation.hasCallback =
         (entries & artifact::generated::moduleValidationCallbackBit) != 0;
     return std::nullopt;
@@ -153,8 +150,8 @@ validateQuickJSBytecodeForTests(
     std::span<std::uint8_t const> bytecode)
 {
     QuickJSValidationForTests result;
-    result.error = validate(
-        runtime, bytecode, result, &result.invocationFuelConsumed);
+    result.error =
+        validate(runtime, bytecode, result, &result.invocationFuelConsumed);
     return result;
 }
 

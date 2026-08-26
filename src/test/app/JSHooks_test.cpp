@@ -7,6 +7,7 @@
 #include <test/jtx/hook.h>
 #include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/hook/applyHook.h>
+#include <xrpld/app/hook/detail/QuickJSProviderProfile.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/hook/HookArtifact.h>
 #include <xrpl/protocol/Keylet.h>
@@ -26,6 +27,23 @@ namespace test {
 
 class JSHooks_test : public beast::unit_test::suite
 {
+    static std::uint16_t
+    xflProfileCode(hook::artifact::XFLArithmeticProfile profile)
+    {
+        switch (profile)
+        {
+            case hook::artifact::XFLArithmeticProfile::none:
+                return hook::artifact::generated::xflArithmeticProfileNone;
+            case hook::artifact::XFLArithmeticProfile::xahauFloatV1:
+                return hook::artifact::generated::
+                    xflArithmeticProfileXahauFloatV1;
+            case hook::artifact::XFLArithmeticProfile::nearestEvenV1:
+                return hook::artifact::generated::
+                    xflArithmeticProfileNearestEvenV1;
+        }
+        return hook::artifact::generated::xflArithmeticProfileNone;
+    }
+
     static Blob
     readBinary(char const* path)
     {
@@ -34,7 +52,10 @@ class JSHooks_test : public beast::unit_test::suite
     }
 
     static Blob
-    packageCurrentQuickJS(Blob const& bytecode)
+    packageCurrentQuickJS(
+        Blob const& bytecode,
+        hook::artifact::XFLArithmeticProfile profile =
+            hook::artifact::XFLArithmeticProfile::none)
     {
         Blob result(hook::artifact::quickJSHeaderSize + bytecode.size(), 0);
         std::copy(
@@ -45,6 +66,9 @@ class JSHooks_test : public beast::unit_test::suite
         result[5] = hook::artifact::quickJSBytecodeKind;
         result[7] = hook::artifact::quickJSHeaderSize;
         result[9] = 1;
+        auto const profileCode = xflProfileCode(profile);
+        result[10] = static_cast<std::uint8_t>(profileCode >> 8);
+        result[11] = static_cast<std::uint8_t>(profileCode);
         auto const size = static_cast<std::uint32_t>(bytecode.size());
         result[12] = static_cast<std::uint8_t>(size >> 24);
         result[13] = static_cast<std::uint8_t>(size >> 16);
@@ -85,6 +109,16 @@ export function main(_reserved: number): never {
 )[test.tshook]");
         auto const hookCode = packageCurrentQuickJS(hookBytecode);
 
+        auto const& xahauProfileBytecode = jshooks_test_wasm.at(R"[test.tshook](
+export const hookConfig = defineHookConfig({
+  xflArithmetic: XFLProfile.xahauFloatV1,
+});
+
+export function main(_reserved: number): never {
+  void _reserved;
+  accept("xahau profile configured", 301);
+}
+)[test.tshook]");
         auto const surfaceProbeCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
 export function main(_reserved: number): never {
@@ -697,8 +731,11 @@ export function main(_reserved: number): never {
 }
 )[test.tshook]"));
 
-        auto const callbackCode =
-            packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
+        auto const& callbackBytecode = jshooks_test_wasm.at(R"[test.tshook](
+export const hookConfig = defineHookConfig({
+  xflArithmetic: XFLProfile.nearestEvenV1,
+});
+
 export function main(_reserved: number): never {
   void _reserved;
   rollback.onFail(state.set("cbak", "pending"), "callback seed failed");
@@ -716,7 +753,10 @@ export function callback(info: CallbackInfo): never {
   rollback.onFail(state.set("cbak", "called"), "callback state failed");
   accept("callback called", 202);
 }
-)[test.tshook]"));
+)[test.tshook]");
+        auto const callbackCode = packageCurrentQuickJS(
+            callbackBytecode,
+            hook::artifact::XFLArithmeticProfile::nearestEvenV1);
 
         auto const missingMainCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
@@ -876,7 +916,26 @@ int64_t hook(uint32_t reserved)
             hook::validateQuickJSBytecodeForTests(currentRuntime, hookBytecode);
         BEAST_EXPECT(!successfulValidation.error);
         BEAST_EXPECT(!successfulValidation.hasCallback);
-        expectFuel(successfulValidation.invocationFuelConsumed, 54589);
+        BEAST_EXPECT(
+            successfulValidation.xflArithmeticProfile ==
+            hook::artifact::XFLArithmeticProfile::none);
+        expectFuel(successfulValidation.invocationFuelConsumed, 96373);
+
+        auto const xahauValidation = hook::validateQuickJSBytecodeForTests(
+            currentRuntime, xahauProfileBytecode);
+        BEAST_EXPECT(!xahauValidation.error);
+        BEAST_EXPECT(!xahauValidation.hasCallback);
+        BEAST_EXPECT(
+            xahauValidation.xflArithmeticProfile ==
+            hook::artifact::XFLArithmeticProfile::xahauFloatV1);
+
+        auto const callbackValidation = hook::validateQuickJSBytecodeForTests(
+            currentRuntime, callbackBytecode);
+        BEAST_EXPECT(!callbackValidation.error);
+        BEAST_EXPECT(callbackValidation.hasCallback);
+        BEAST_EXPECT(
+            callbackValidation.xflArithmeticProfile ==
+            hook::artifact::XFLArithmeticProfile::nearestEvenV1);
 
         testcase("Validate one retained provider concurrently");
         std::array<std::future<hook::QuickJSValidationForTests>, 4>
@@ -893,7 +952,71 @@ int64_t hook(uint32_t reserved)
             auto result = validation.get();
             BEAST_EXPECT(!result.error);
             BEAST_EXPECT(!result.hasCallback);
-            expectFuel(result.invocationFuelConsumed, 54589);
+            BEAST_EXPECT(
+                result.xflArithmeticProfile ==
+                hook::artifact::XFLArithmeticProfile::none);
+            expectFuel(result.invocationFuelConsumed, 96373);
+        }
+
+        testcase("Bind XFL profile at QuickJS CREATE admission");
+        {
+            Env profileEnv{*this, features | featureJSHooks};
+            profileEnv.fund(XRP(10000), alice, bob, carol);
+            profileEnv.close();
+
+            struct ProfileModule
+            {
+                Blob const& bytecode;
+                hook::artifact::XFLArithmeticProfile profile;
+                Account const& account;
+            };
+            std::array<ProfileModule, 3> const modules = {{
+                {hookBytecode,
+                 hook::artifact::XFLArithmeticProfile::none,
+                 alice},
+                {xahauProfileBytecode,
+                 hook::artifact::XFLArithmeticProfile::xahauFloatV1,
+                 bob},
+                {callbackBytecode,
+                 hook::artifact::XFLArithmeticProfile::nearestEvenV1,
+                 carol},
+            }};
+            constexpr std::array profiles = {
+                hook::artifact::XFLArithmeticProfile::none,
+                hook::artifact::XFLArithmeticProfile::xahauFloatV1,
+                hook::artifact::XFLArithmeticProfile::nearestEvenV1,
+            };
+
+            for (auto const& module : modules)
+            {
+                for (auto const headerProfile : profiles)
+                {
+                    if (headerProfile == module.profile)
+                        continue;
+                    auto const candidate =
+                        packageCurrentQuickJS(module.bytecode, headerProfile);
+                    auto const candidateHash =
+                        sha512Half_s(makeSlice(candidate));
+                    profileEnv(
+                        jtx::hook(
+                            module.account, {{hsoVersioned(candidate, 1)}}, 0),
+                        fee(XRP(10)),
+                        ter(temMALFORMED));
+                    BEAST_EXPECT(
+                        !profileEnv.le(keylet::hookDefinition(candidateHash)));
+                }
+
+                auto const matching =
+                    packageCurrentQuickJS(module.bytecode, module.profile);
+                auto const matchingHash = sha512Half_s(makeSlice(matching));
+                profileEnv(
+                    jtx::hook(module.account, {{hsoVersioned(matching, 1)}}, 0),
+                    fee(XRP(10)),
+                    ter(tesSUCCESS));
+                profileEnv.close();
+                BEAST_EXPECT(
+                    !!profileEnv.le(keylet::hookDefinition(matchingHash)));
+            }
         }
 
         testcase("Bind API, profile, hash, dedup, and hash install");
@@ -925,7 +1048,7 @@ int64_t hook(uint32_t reserved)
             auto const failedValidation = hook::validateQuickJSBytecodeForTests(
                 currentRuntime, malformedBytecode);
             BEAST_EXPECT(!!failedValidation.error);
-            expectFuel(failedValidation.invocationFuelConsumed, 14143);
+            expectFuel(failedValidation.invocationFuelConsumed, 14062);
             identityEnv(
                 jtx::hook(
                     alice,
@@ -1178,7 +1301,7 @@ int64_t hook(uint32_t reserved)
         auto const message = execution.getFieldVL(sfHookReturnString);
         BEAST_EXPECT(
             std::string(message.begin(), message.end()) == "payment:0");
-        expectFuel(execution.getFieldU64(sfHookInstructionCount), 64512);
+        expectFuel(execution.getFieldU64(sfHookInstructionCount), 106282);
 
         testcase("Bind ledger context and keep terminals uncatchable");
         auto surfaceProbeHook = hsoVersioned(surfaceProbeCode, 1);
@@ -1211,7 +1334,7 @@ int64_t hook(uint32_t reserved)
             std::string(surfaceMessage.begin(), surfaceMessage.end()) ==
             "surface:40");
         expectFuel(
-            surfaceExecution.getFieldU64(sfHookInstructionCount), 141220);
+            surfaceExecution.getFieldU64(sfHookInstructionCount), 142546);
 
         testcase("Execute accepted STObject and STArray on Wasmtime");
         auto stObjectHook = hsoVersioned(stObjectArrayCode, 1);
@@ -1273,7 +1396,7 @@ int64_t hook(uint32_t reserved)
             "f0-native-matrix");
         expectFuel(
             f0NativeMatrixExecution.getFieldU64(sfHookInstructionCount),
-            6889214);
+            6890542);
 
         //@@start jshooks-state-bridge
         testcase("Execute a C Hook through WasmEdge and persist state");
@@ -1386,7 +1509,7 @@ int64_t hook(uint32_t reserved)
         if (rollbackExecutions.size() != 1)
             return;
         expectFuel(
-            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 80247);
+            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 122143);
 
         stateEntry = env.le(stateKeylet);
         BEAST_EXPECT(!!stateEntry);
@@ -1419,7 +1542,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& memoryGrowthExecution = memoryGrowthExecutions[0];
         expectFuel(
-            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7373429);
+            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7385275);
         BEAST_EXPECT(
             memoryGrowthExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
@@ -1465,7 +1588,7 @@ int64_t hook(uint32_t reserved)
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
         expectFuel(
             hostWorkExecutions[0].getFieldU64(sfHookInstructionCount),
-            30502795);
+            30566313);
 
         auto const meterKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -1560,7 +1683,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& callbackExecution = callbackExecutions[0];
         expectFuel(
-            callbackExecution.getFieldU64(sfHookInstructionCount), 135951);
+            callbackExecution.getFieldU64(sfHookInstructionCount), 158222);
         BEAST_EXPECT_EQ(
             callbackExecution.getFieldU8(sfHookResult),
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));

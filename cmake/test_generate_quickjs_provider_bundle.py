@@ -20,14 +20,15 @@ WASM_VERSION = "47.0.3"
 CMAKE_SET = re.compile(r'^set\(XAHAU_QUICKJS_([A-Z0-9_]+) "([^"]*)"\)\s*$')
 
 PIN = {
-    "provider_sha256": "f60ab333acb547e50d7d087960839bd11833cb133d496af98e0b72a1bb3b84df",
-    "provider_size": "1116638",
-    "manifest_sha256": "1673b27d21063957cece9095cceb7e2dbfa53b6f49a5b7f824a486d7d90b2391",
-    "runtime_profile_id": "29acf12e170436e5ccadfbc118d02a60909f86a88262106652b2f71994b0ea25",
-    "broad_declaration_sha256": "649079b831bc68eff0f440644649a505addafb08a3f5174e4031c8de6aedffa0",
-    "exact_v1_declaration_sha256": "20881232f0602e35de0fcbb8b5a3c1511606392749a0f79daebb386204f4f4da",
-    "surface_sha256": "96a9218bf38abbf1bc9f2839408700d03572e0b065d625263f70477bc32597ac",
-    "api_artifact_manifest_sha256": "95babf622bf5edff76fdcbd9746bad8f1f8b275a3d4bacdc320ff4deae543eba",
+    "provider_sha256": "6dcb4445c580fd4ee1365a57ad17e4cac3227fa2bbcfb95182e47231e7f8d92f",
+    "provider_size": "1122108",
+    "manifest_sha256": "1b05e8aca5f0dfd29511700e554bff0f5eb10ae1e4db5cafb987a31f5f5e4f8c",
+    "runtime_profile_id": "80450df03ed380be7b936a56ce30571f32a23eb5995340909cafd5dac4d32e4a",
+    "broad_declaration_sha256": "c83351e646c85dfa14ba478bbf0074bf9fd6fcbe6c74bd95ac0a024a185f0b4d",
+    "exact_v1_declaration_sha256": "f69fabc3912ced6e1f6f2cdf3bc9fa8882302fc28079f6019d1c05715341211e",
+    "surface_sha256": "046b487c8e374770e4f216b5ad2c60eca05de50cf65b4bb2242e381eb6d2e331",
+    "xfl_profile_ledger_sha256": "39263a9726085a36d584a81b4503ed01dc2266c4f43b0603f043cfc54beaf052",
+    "api_artifact_manifest_sha256": "b1d1c24dd711ec69c3a13198e3fe13ad8577dd27d25f2c6de2ae0c2887f0d3c9",
     "bytecode_abi": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
     "native_abi": "328ec938dcad875f3bdf25b8d779dd77f3571589818ca9271cb98c64c7018f99",
     "wasm_stack_bytes": "131072",
@@ -113,6 +114,10 @@ def exact_v1_declaration_path(bundle: Path) -> Path:
 
 def surface_path(bundle: Path) -> Path:
     return bundle / "xahau-quickjs-v1.surface.json"
+
+
+def xfl_profile_ledger_path(bundle: Path) -> Path:
+    return bundle / "xfl-profile-ledger.ts"
 
 
 def load_json(bundle: Path) -> dict:
@@ -201,6 +206,7 @@ def pin_holds(returncode: int, cpp: str) -> bool:
         f'"{PIN["broad_declaration_sha256"]}"',
         f'"{PIN["exact_v1_declaration_sha256"]}"',
         f'"{PIN["surface_sha256"]}"',
+        f'"{PIN["xfl_profile_ledger_sha256"]}"',
         f'"{PIN["api_artifact_manifest_sha256"]}"',
         hex_bytes(PIN["bytecode_abi"]),
         f'"{PIN["native_abi"]}"',
@@ -213,6 +219,20 @@ def pin_holds(returncode: int, cpp: str) -> bool:
         "std::uint32_t const providerMemoryMaximumPages = 512U;",
         "constexpr char const sealedProvider[] =",
         f"sizeof(sealedProvider) - 1 == {PIN['provider_size']}",
+        "std::uint8_t const xqjsEnvelopeVersion = 1U;",
+        "std::uint16_t const xflArithmeticProfileNone =\n    0U;",
+        "std::uint16_t const xflArithmeticProfileXahauFloatV1 =\n    1U;",
+        "std::uint16_t const xflArithmeticProfileNearestEvenV1 =\n    2U;",
+        "std::uint32_t const moduleValidationLayoutVersion =\n    1U;",
+        "std::int32_t const moduleValidationFailureSentinel =\n    -1;",
+        "std::uint32_t const moduleValidationMainBit =\n    1U;",
+        "std::uint32_t const moduleValidationCallbackBit =\n    2U;",
+        "std::uint32_t const moduleValidationEntryMask =\n    3U;",
+        "std::uint32_t const moduleValidationReservedMask =\n    2147483900U;",
+        "std::uint32_t const moduleValidationProfileMask =\n    16776960U;",
+        "std::uint32_t const moduleValidationProfileShift =\n    8U;",
+        "std::uint32_t const moduleValidationVersionMask =\n    2130706432U;",
+        "std::uint32_t const moduleValidationVersionShift =\n    24U;",
     ]
     if any(item not in cpp for item in required):
         return False
@@ -233,6 +253,7 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
                 broad_declaration_path(BUNDLE),
                 exact_v1_declaration_path(BUNDLE),
                 surface_path(BUNDLE),
+                xfl_profile_ledger_path(BUNDLE),
                 SCRIPT,
             )
             if not path.is_file()
@@ -278,13 +299,13 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
 
     def test_provider_size_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
-            set_cmake(bundle, "PROVIDER_SIZE", "1116637")
+            set_cmake(bundle, "PROVIDER_SIZE", "1122107")
 
         self.assert_generator_red(mutate, "provider size disagrees")
 
     def test_coordinated_provider_size_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
-            value = 1116637
+            value = 1122107
             data = load_json(bundle)
             data["provider"]["size"] = value
             write_json(bundle, data)
@@ -387,6 +408,13 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
             surface_path,
             "xahau-quickjs-v1.surface.json disagrees with the sealed F0 table",
+        )
+
+    def test_xfl_profile_ledger_identity_mutation(self) -> None:
+        self._coordinated_api_artifact_mutation(
+            "python/jshookz/src/jshookz/xfl_profile_ledger.ts",
+            xfl_profile_ledger_path,
+            "xfl_profile_ledger.ts disagrees with the sealed F0 table",
         )
 
     def test_api_artifact_manifest_identity_mutation(self) -> None:
@@ -678,6 +706,96 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             set_cmake(bundle, "HOOK_API_VERSION", "2")
 
         self.assert_generator_red(mutate, "hook_api_version")
+
+    def test_artifact_envelope_version_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            data["source"]["artifact"]["envelope_version"] = 2
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+
+        self.assert_generator_red(mutate, "artifact activation contract")
+
+    def test_artifact_profile_code_mutations(self) -> None:
+        mutations = {
+            "none": 7,
+            "xahauFloatV1": 7,
+            "nearestEvenV1": 7,
+        }
+        for name, value in mutations.items():
+            with self.subTest(name=name):
+                def mutate(bundle: Path, name=name, value=value) -> None:
+                    data = load_json(bundle)
+                    data["source"]["artifact"][
+                        "xfl_arithmetic_profile_codes"
+                    ][name] = value
+                    write_json(bundle, data)
+                    rehash_manifest(bundle)
+
+                self.assert_generator_red(mutate, "artifact activation contract")
+
+    def test_artifact_profile_table_schema_mutations(self) -> None:
+        for operation in ("missing", "extra"):
+            with self.subTest(operation=operation):
+                def mutate(bundle: Path, operation=operation) -> None:
+                    data = load_json(bundle)
+                    table = data["source"]["artifact"][
+                        "xfl_arithmetic_profile_codes"
+                    ]
+                    if operation == "missing":
+                        del table["nearestEvenV1"]
+                    else:
+                        table["future"] = 3
+                    write_json(bundle, data)
+                    rehash_manifest(bundle)
+
+                self.assert_generator_red(mutate, "artifact activation contract")
+
+    def test_module_validation_layout_mutations(self) -> None:
+        mutations = {
+            "layout_version": 2,
+            "failure_sentinel": -2,
+            "main_bit": 4,
+            "callback_bit": 4,
+            "entry_mask": 7,
+            "reserved_mask": 0,
+            "profile_mask": 0x0000FF00,
+            "profile_shift": 9,
+            "version_mask": 0xFF000000,
+            "version_shift": 23,
+        }
+        for name, value in mutations.items():
+            with self.subTest(name=name):
+                def mutate(bundle: Path, name=name, value=value) -> None:
+                    data = load_json(bundle)
+                    data["source"]["provider"]["module_validation_result"][
+                        name
+                    ] = value
+                    write_json(bundle, data)
+                    rehash_manifest(bundle)
+
+                self.assert_generator_red(
+                    mutate, "module-validation result layout"
+                )
+
+    def test_module_validation_layout_schema_mutations(self) -> None:
+        for operation in ("missing", "extra"):
+            with self.subTest(operation=operation):
+                def mutate(bundle: Path, operation=operation) -> None:
+                    data = load_json(bundle)
+                    layout = data["source"]["provider"][
+                        "module_validation_result"
+                    ]
+                    if operation == "missing":
+                        del layout["version_shift"]
+                    else:
+                        layout["future"] = 1
+                    write_json(bundle, data)
+                    rehash_manifest(bundle)
+
+                self.assert_generator_red(
+                    mutate, "module-validation result layout"
+                )
 
     def test_wasmtime_engine_configuration_mutation(self) -> None:
         def mutate(bundle: Path) -> None:

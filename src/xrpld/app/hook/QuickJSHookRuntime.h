@@ -134,8 +134,8 @@ struct QuickJSModuleValidation
 
     Module initialization runs in a bounded, disposable Store with no Hook
     invocation context, so it must be synchronous and host-free. The entry
-    points are not invoked. On success, reports whether initialized cbak is
-    callable.
+    points are not invoked. On success, reports the observed immutable module
+    profile and whether initialized cbak is callable.
 */
 std::optional<std::string>
 validateQuickJSBytecode(

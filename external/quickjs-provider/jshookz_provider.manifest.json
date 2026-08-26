@@ -363,11 +363,11 @@
     "sha256": "6dcb4445c580fd4ee1365a57ad17e4cac3227fa2bbcfb95182e47231e7f8d92f",
     "size": 1122108
   },
-  "runtime_profile_id": "084607de2439eedc10ed3481f098593e2d1c9438493d696f3346610c70389156",
+  "runtime_profile_id": "80450df03ed380be7b936a56ce30571f32a23eb5995340909cafd5dac4d32e4a",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
-      "envelope_version": 2,
+      "envelope_version": 1,
       "hook_api_version": 1,
       "kind": "quickjs-bytecode",
       "xfl_arithmetic_profile_codes": {

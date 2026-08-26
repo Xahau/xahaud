@@ -4,6 +4,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/hook/detail/QuickJSProviderProfile.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/hook/HookArtifact.h>
@@ -61,13 +62,26 @@ constexpr ExpectedProviderExport expectedProviderExports[] = {
      false},
 };
 
+std::uint16_t
+xflProfileCode(hook::artifact::XFLArithmeticProfile profile)
+{
+    switch (profile)
+    {
+        case hook::artifact::XFLArithmeticProfile::none:
+            return hook::artifact::generated::xflArithmeticProfileNone;
+        case hook::artifact::XFLArithmeticProfile::xahauFloatV1:
+            return hook::artifact::generated::xflArithmeticProfileXahauFloatV1;
+        case hook::artifact::XFLArithmeticProfile::nearestEvenV1:
+            return hook::artifact::generated::xflArithmeticProfileNearestEvenV1;
+    }
+    return hook::artifact::generated::xflArithmeticProfileNone;
+}
+
 std::vector<std::uint8_t>
 quickJSArtifact(
     std::vector<std::uint8_t> const& payload = {'a', 'b', 'c'},
     hook::artifact::XFLArithmeticProfile profile =
-        hook::artifact::XFLArithmeticProfile::none,
-    std::uint8_t envelopeVersion =
-        hook::artifact::quickJSCurrentEnvelopeVersion)
+        hook::artifact::XFLArithmeticProfile::none)
 {
     std::vector<std::uint8_t> result(
         hook::artifact::quickJSHeaderSize + payload.size(), 0);
@@ -75,13 +89,13 @@ quickJSArtifact(
         hook::artifact::quickJSMagic.begin(),
         hook::artifact::quickJSMagic.end(),
         result.begin());
-    result[4] = envelopeVersion;
+    result[4] = hook::artifact::quickJSEnvelopeVersion;
     result[5] = hook::artifact::quickJSBytecodeKind;
     result[6] = 0;
     result[7] = hook::artifact::quickJSHeaderSize;
     result[8] = 0;
     result[9] = 1;
-    auto const profileCode = static_cast<std::uint16_t>(profile);
+    auto const profileCode = xflProfileCode(profile);
     result[10] = static_cast<std::uint8_t>(profileCode >> 8);
     result[11] = static_cast<std::uint8_t>(profileCode);
     auto const length = static_cast<std::uint32_t>(payload.size());
@@ -121,16 +135,13 @@ public:
             BEAST_EXPECT(legacy->payload == makeSlice(wasm));
         }
 
-        testcase("QuickJS v1 and v2 wire contract");
+        testcase("QuickJS v1 wire contract");
         auto encoded = quickJSArtifact();
         auto parsed = hook::artifact::parse(makeSlice(encoded));
         BEAST_EXPECT(parsed);
         if (parsed)
         {
             BEAST_EXPECT(parsed->kind == hook::artifact::Kind::quickJSBytecode);
-            BEAST_EXPECT(
-                parsed->envelopeVersion ==
-                hook::artifact::quickJSCurrentEnvelopeVersion);
             BEAST_EXPECT(parsed->hookApiVersion == 1);
             BEAST_EXPECT(
                 parsed->xflArithmeticProfile ==
@@ -146,8 +157,8 @@ public:
             BEAST_EXPECT(hook::artifact::quickJSProviderSize == 1'122'108);
             BEAST_EXPECT(
                 hook::artifact::generated::providerManifestSHA256 ==
-                "08d288f2e0ccc1e232f5dacdbed02ec92b45e1425b82b39fef4214bdd11e7"
-                "217");
+                "1b05e8aca5f0dfd29511700e554bff0f5eb10ae1e4db5cafb987a31f5f5e4"
+                "f8c");
             BEAST_EXPECT(
                 hook::artifact::generated::nativeABISHA256 ==
                 "328ec938dcad875f3bdf25b8d779dd77f3571589818ca9271cb98c64c7018f"
@@ -215,16 +226,18 @@ public:
                     javascriptAPIArtifactManifestSHA256 ==
                 "b1d1c24dd711ec69c3a13198e3fe13ad8577dd27d25f2c6de2ae0c2887f0"
                 "d3c9");
+            BEAST_EXPECT(hook::artifact::generated::xqjsEnvelopeVersion == 1);
             BEAST_EXPECT(
-                hook::artifact::generated::xqjsEnvelopeVersion == 2);
+                hook::artifact::quickJSEnvelopeVersion ==
+                hook::artifact::generated::xqjsEnvelopeVersion);
             BEAST_EXPECT(
                 hook::artifact::generated::xflArithmeticProfileNone == 0);
             BEAST_EXPECT(
                 hook::artifact::generated::xflArithmeticProfileXahauFloatV1 ==
                 1);
             BEAST_EXPECT(
-                hook::artifact::generated::
-                    xflArithmeticProfileNearestEvenV1 == 2);
+                hook::artifact::generated::xflArithmeticProfileNearestEvenV1 ==
+                2);
             BEAST_EXPECT(
                 hook::artifact::generated::moduleValidationLayoutVersion == 1);
             BEAST_EXPECT(
@@ -253,27 +266,10 @@ public:
             BEAST_EXPECT(parsed->payload[0] == 'a');
         }
 
-        auto const v1Encoded = quickJSArtifact(
-            {'a', 'b', 'c'},
-            hook::artifact::XFLArithmeticProfile::none,
-            hook::artifact::quickJSLegacyEnvelopeVersion);
-        auto const v1Parsed = hook::artifact::parse(makeSlice(v1Encoded));
-        BEAST_EXPECT(v1Parsed);
-        if (v1Parsed)
-        {
-            BEAST_EXPECT(
-                v1Parsed->envelopeVersion ==
-                hook::artifact::quickJSLegacyEnvelopeVersion);
-            BEAST_EXPECT(
-                v1Parsed->xflArithmeticProfile ==
-                hook::artifact::XFLArithmeticProfile::none);
-            BEAST_EXPECT(v1Parsed->payload.size() == 3);
-        }
-
-        for (auto const profile : {
-                 hook::artifact::XFLArithmeticProfile::none,
-                 hook::artifact::XFLArithmeticProfile::xahauFloatV1,
-                 hook::artifact::XFLArithmeticProfile::nearestEvenV1})
+        for (auto const profile :
+             {hook::artifact::XFLArithmeticProfile::none,
+              hook::artifact::XFLArithmeticProfile::xahauFloatV1,
+              hook::artifact::XFLArithmeticProfile::nearestEvenV1})
         {
             auto const profiled = quickJSArtifact({'x'}, profile);
             auto const profiledView =
@@ -283,7 +279,7 @@ public:
                 BEAST_EXPECT(profiledView->xflArithmeticProfile == profile);
         }
 
-        testcase("QuickJS v1 and v2 corruption rejection");
+        testcase("QuickJS v1 corruption rejection");
         auto expectError = [this](
                                std::vector<std::uint8_t> bytes,
                                hook::artifact::Error expected) {
@@ -294,7 +290,11 @@ public:
         };
 
         auto corrupted = encoded;
-        corrupted[4] = 3;
+        corrupted[4] = 0;
+        expectError(
+            corrupted, hook::artifact::Error::unsupportedEnvelopeVersion);
+        corrupted = encoded;
+        corrupted[4] = 2;
         expectError(
             corrupted, hook::artifact::Error::unsupportedEnvelopeVersion);
         corrupted = encoded;
@@ -303,20 +303,19 @@ public:
         corrupted = encoded;
         corrupted[7] = 81;
         expectError(corrupted, hook::artifact::Error::nonCanonicalHeaderSize);
-        corrupted = v1Encoded;
-        corrupted[11] = 1;
-        expectError(corrupted, hook::artifact::Error::nonZeroReserved);
         corrupted = encoded;
         corrupted[11] = 3;
         expectError(
-            corrupted,
-            hook::artifact::Error::unsupportedXFLArithmeticProfile);
+            corrupted, hook::artifact::Error::unsupportedXFLArithmeticProfile);
+        corrupted = encoded;
+        corrupted[10] = 1;
+        expectError(
+            corrupted, hook::artifact::Error::unsupportedXFLArithmeticProfile);
         corrupted = encoded;
         corrupted[10] = 0xff;
         corrupted[11] = 0xff;
         expectError(
-            corrupted,
-            hook::artifact::Error::unsupportedXFLArithmeticProfile);
+            corrupted, hook::artifact::Error::unsupportedXFLArithmeticProfile);
         corrupted = encoded;
         corrupted[15] = 4;
         expectError(corrupted, hook::artifact::Error::lengthMismatch);
@@ -326,6 +325,72 @@ public:
         corrupted = encoded;
         std::fill(corrupted.begin() + 48, corrupted.begin() + 80, 0);
         expectError(corrupted, hook::artifact::Error::zeroRuntimeProfile);
+
+        testcase("QuickJS module validation result ABI");
+        struct LegalValidationWord
+        {
+            std::int32_t word;
+            bool hasCallback;
+            hook::artifact::XFLArithmeticProfile profile;
+        };
+        constexpr LegalValidationWord legalWords[] = {
+            {0x01000001, false, hook::artifact::XFLArithmeticProfile::none},
+            {0x01000003, true, hook::artifact::XFLArithmeticProfile::none},
+            {0x01000101,
+             false,
+             hook::artifact::XFLArithmeticProfile::xahauFloatV1},
+            {0x01000103,
+             true,
+             hook::artifact::XFLArithmeticProfile::xahauFloatV1},
+            {0x01000201,
+             false,
+             hook::artifact::XFLArithmeticProfile::nearestEvenV1},
+            {0x01000203,
+             true,
+             hook::artifact::XFLArithmeticProfile::nearestEvenV1},
+        };
+        for (auto const& expected : legalWords)
+        {
+            hook::QuickJSModuleValidation validation;
+            auto const error = hook::decodeQuickJSModuleValidationForTests(
+                expected.word, validation);
+            BEAST_EXPECT(!error);
+            BEAST_EXPECT(validation.hasCallback == expected.hasCallback);
+            BEAST_EXPECT(validation.xflArithmeticProfile == expected.profile);
+        }
+
+        constexpr std::int32_t malformedWords[] = {
+            -2,
+            -1,
+            0,
+            1,
+            3,
+            0x00000001,
+            0x02000001,
+            0x01000000,
+            0x01000002,
+            0x01000005,
+            0x01000041,
+            0x01000301,
+            0x0100FF01,
+            0x01010001,
+            0x017FFF01,
+            static_cast<std::int32_t>(0x81000001U),
+        };
+        for (auto const word : malformedWords)
+        {
+            hook::QuickJSModuleValidation validation{
+                .hasCallback = true,
+                .xflArithmeticProfile =
+                    hook::artifact::XFLArithmeticProfile::nearestEvenV1};
+            auto const error =
+                hook::decodeQuickJSModuleValidationForTests(word, validation);
+            BEAST_EXPECT(error);
+            BEAST_EXPECT(!validation.hasCallback);
+            BEAST_EXPECT(
+                validation.xflArithmeticProfile ==
+                hook::artifact::XFLArithmeticProfile::none);
+        }
 
         testcase("Raw QuickJS bytecode is not deployable");
         std::vector<std::uint8_t> rawBytecode = {0x05, 0x0D, 0x14, 0x3C};
