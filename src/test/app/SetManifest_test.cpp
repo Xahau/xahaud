@@ -19,8 +19,12 @@
 
 #include <test/jtx.h>
 #include <test/jtx/network.h>
+#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpld/core/Config.h>
+#include <xrpld/ledger/OpenView.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/json/to_string.h>
@@ -29,10 +33,14 @@
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/Sign.h>
+#include <xrpl/protocol/XRPAmount.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/protocol/st.h>
 
+#include <functional>
 #include <limits>
+#include <utility>
+#include <vector>
 
 namespace ripple {
 namespace test {
@@ -107,6 +115,115 @@ struct SetManifest_test : public beast::unit_test::suite
     engineResult(Json::Value const& result)
     {
         return result[jss::engine_result].asString();
+    }
+
+    /** A well formed STObject that is not a well formed manifest.
+
+        The manifest format requires sfPublicKey and sfMasterSignature, so this
+        parses as an object and then fails applyTemplate.
+    */
+    static std::string
+    makeUnparseableManifest()
+    {
+        STObject st(sfGeneric);
+        st[sfSequence] = 1;
+
+        Serializer s;
+        st.add(s);
+        return std::string(static_cast<char const*>(s.data()), s.size());
+    }
+
+    /** The envelope Submit would build for `manifest`, optionally tweaked.
+
+        makeSetManifestTx() rejects any manifest the transactor would reject,
+        and checkValidity() rejects any envelope whose signatures do not check
+        out, so several of the transactor's own rejections cannot be provoked
+        through the submit RPC at all. Building the envelope here and applying
+        it straight to the open view reaches them.
+    */
+    static std::shared_ptr<STTx const>
+    envelope(
+        jtx::Env& env,
+        std::string const& manifest,
+        AccountID const& account,
+        std::function<void(STObject&)> const& tweak = {})
+    {
+        auto const build = [&](XRPAmount fee, bool tweaked) {
+            return std::make_shared<STTx const>(
+                ttMANIFEST_SET, [&](STObject& obj) {
+                    obj.setAccountID(sfAccount, account);
+                    obj.setFieldU32(sfSequence, 0);
+                    obj.setFieldU32(sfNetworkID, env.app().config().NETWORK_ID);
+                    obj.setFieldAmount(sfFee, fee);
+                    obj.setFieldVL(sfSigningPubKey, Blob{});
+                    obj.setFieldVL(sfTxnSignature, Blob{});
+
+                    SerialIter mit{makeSlice(manifest)};
+                    obj.peekFieldObject(sfManifest).set(mit);
+
+                    if (tweaked && tweak)
+                        tweak(obj);
+                });
+        };
+
+        // The same two-pass pricing makeSetManifestTx() does: encode once with
+        // a placeholder purely to have something to measure, then encode at the
+        // ceiling checkFee() will accept.
+        auto const base = SetManifest::calculateBaseFee(
+            *env.current(), *build(XRPAmount{0}, false));
+
+        return build(mulRatio(base, 12, 10, /*roundUp*/ true), true);
+    }
+
+    /** A mutable copy of a ledger object, suitable for the RawView interface.
+
+        Round-tripped through the wire format rather than copy constructed.
+        applyTemplate() rejects an object carrying a materialised soeDEFAULT
+        field that holds its default value, and that is exactly what reading one
+        out of a view hands back: an AccountRoot arrives with sfMintedNFTokens
+        present and zero. Serializing omits those fields and deserializing
+        re-materialises them.
+    */
+    static std::shared_ptr<SLE>
+    rawCopy(std::shared_ptr<SLE const> const& sle)
+    {
+        Serializer s;
+        sle->add(s);
+        SerialIter sit{s.slice()};
+        return std::make_shared<SLE>(sit, sle->key());
+    }
+
+    /** Removes a ledger object from a view, if present.
+
+        OpenView exposes only the RawView interface, so the entry has to be
+        copied off the read side before it can be handed back to rawErase.
+    */
+    static void
+    rawErase(OpenView& view, Keylet const& kl)
+    {
+        if (auto const sle = view.read(kl))
+            view.rawErase(rawCopy(sle));
+    }
+
+    /** Applies `tx` to a throwaway copy of the open ledger and reports the TER.
+
+        `prepare` runs against the same view first, so a test can corrupt state
+        that no ordinary transaction could produce. Nothing is retained.
+    */
+    TER
+    applyDirect(
+        jtx::Env& env,
+        std::shared_ptr<STTx const> const& tx,
+        std::function<void(OpenView&)> const& prepare = {})
+    {
+        TER ret = tesSUCCESS;
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal j) {
+            if (prepare)
+                prepare(view);
+            ret = ripple::apply(env.app(), view, *tx, tapNONE, j).ter;
+            return false;  // discard, corrupt or otherwise
+        });
+        return ret;
     }
 
     void
@@ -355,6 +472,228 @@ struct SetManifest_test : public beast::unit_test::suite
     }
 
     void
+    testEnvelopeRejections(FeatureBitset features)
+    {
+        testcase("envelope rejections");
+        using namespace jtx;
+
+        Env env{*this, makeConfig(), features};
+
+        auto const master = Account("master", KeyType::ed25519);
+        auto const other = Account("other", KeyType::ed25519);
+        auto const ephemeral = Account("ephemeral", KeyType::ed25519);
+        env.fund(XRP(1000), master, other);
+        env.close();
+
+        auto const good = makeManifest(master, ephemeral, 1);
+
+        // Sanity check: the unmodified envelope is the one Submit builds, so
+        // every rejection below is attributable to the tweak and nothing else.
+        BEAST_EXPECT(
+            applyDirect(env, envelope(env, good, master.id())) == tesSUCCESS);
+
+        // Any bit but tfFullyCanonicalSig (0x80000000), which is tfUniversal
+        // and so permitted on every transaction.
+        BEAST_EXPECT(
+            applyDirect(
+                env, envelope(env, good, master.id(), [](STObject& obj) {
+                    obj.setFieldU32(sfFlags, 0x00000001);
+                })) == temINVALID_FLAG);
+
+        // sfManifest parses as an object but not as a manifest.
+        BEAST_EXPECT(
+            applyDirect(
+                env, envelope(env, makeUnparseableManifest(), master.id())) ==
+            temMALFORMED);
+
+        // A manifest whose signatures do not check out. checkValidity() would
+        // stop this before preflight, so only a direct apply reaches the
+        // transactor's own verify() call.
+        {
+            auto bad = good;
+            bad[bad.size() - 1] ^= 0xFF;
+            BEAST_EXPECT(
+                applyDirect(env, envelope(env, bad, master.id())) ==
+                temMALFORMED);
+        }
+
+        // The envelope's account must be the manifest's master key.
+        BEAST_EXPECT(
+            applyDirect(env, envelope(env, good, other.id())) == temMALFORMED);
+
+        // Every envelope field a relayer could otherwise choose is pinned.
+        for (auto const& [name, tweak] : std::vector<
+                 std::pair<char const*, std::function<void(STObject&)>>>{
+                 {"Sequence",
+                  [](STObject& obj) { obj.setFieldU32(sfSequence, 1); }},
+                 {"AccountTxnID",
+                  [](STObject& obj) {
+                      obj.setFieldH256(sfAccountTxnID, uint256{1});
+                  }},
+                 {"TicketSequence",
+                  [](STObject& obj) { obj.setFieldU32(sfTicketSequence, 1); }},
+                 {"SigningPubKey", [&](STObject& obj) {
+                      obj.setFieldVL(sfSigningPubKey, master.pk().slice());
+                  }}})
+        {
+            BEAST_EXPECTS(
+                applyDirect(env, envelope(env, good, master.id(), tweak)) ==
+                    temMALFORMED,
+                name);
+        }
+
+        // sfFee is the one envelope field preflight cannot bound, because the
+        // base fee is not in scope until preclaim. checkFee() caps it instead.
+        auto const priced = envelope(env, good, master.id());
+        auto const ceiling = priced->getFieldAmount(sfFee).xrp();
+
+        BEAST_EXPECT(
+            applyDirect(
+                env, envelope(env, good, master.id(), [&](STObject& obj) {
+                    obj.setFieldAmount(sfFee, ceiling + XRPAmount{1});
+                })) == temBAD_FEE);
+
+        // At the ceiling exactly, which is what Submit sends.
+        BEAST_EXPECT(
+            applyDirect(
+                env, envelope(env, good, master.id(), [&](STObject& obj) {
+                    obj.setFieldAmount(sfFee, ceiling);
+                })) == tesSUCCESS);
+    }
+
+    void
+    testCorruptLedger(FeatureBitset features)
+    {
+        testcase("corrupt manifest state");
+        using namespace jtx;
+
+        Env env{*this, makeConfig(), features};
+
+        auto const master = Account("master", KeyType::ed25519);
+        auto const eph1 = Account("eph1", KeyType::ed25519);
+        auto const eph2 = Account("eph2", KeyType::ed25519);
+        env.fund(XRP(1000), master);
+        env.close();
+
+        BEAST_EXPECT(
+            engineResult(submit(env, makeManifest(master, eph1, 1))) ==
+            "tesSUCCESS");
+        env.close();
+
+        auto const update =
+            envelope(env, makeManifest(master, eph2, 2), master.id());
+
+        // sfManifestID on the account root points at nothing.
+        BEAST_EXPECT(applyDirect(env, update, [&](OpenView& view) {
+                         rawErase(view, keylet::manifest(master.pk()));
+                     }) == tefBAD_LEDGER);
+
+        // The master copy survives but the ephemeral copy it points at is
+        // gone.
+        BEAST_EXPECT(applyDirect(env, update, [&](OpenView& view) {
+                         rawErase(view, keylet::manifest(eph1.pk()));
+                     }) == tefBAD_LEDGER);
+
+        // The reverse: the account root has forgotten its manifest, so the
+        // erase pass is skipped and the keylet is found occupied.
+        BEAST_EXPECT(applyDirect(env, update, [&](OpenView& view) {
+                         auto replacement =
+                             rawCopy(view.read(keylet::account(master.id())));
+                         replacement->makeFieldAbsent(sfManifestID);
+                         view.rawReplace(replacement);
+                     }) == tefBAD_LEDGER);
+
+        // None of the above was retained, so the ledger is still intact and an
+        // ordinary update still works.
+        BEAST_EXPECT(applyDirect(env, update) == tesSUCCESS);
+    }
+
+    void
+    testGossipSelection(FeatureBitset features)
+    {
+        testcase("gossip selection");
+        using namespace jtx;
+
+        Env env{*this, makeConfig(), features};
+
+        std::vector<Account> masters;
+        for (int i = 0; i < 4; ++i)
+            masters.emplace_back("gm" + std::to_string(i), KeyType::ed25519);
+
+        auto const ephemeral = Account("gossipeph", KeyType::ed25519);
+
+        for (auto const& m : masters)
+            env.fund(XRP(1000), m);
+        env.close();
+
+        // Each master needs its own ephemeral key: preclaim rejects a key
+        // already claimed by another account.
+        std::vector<Account> ephs;
+        for (int i = 0; i < 4; ++i)
+            ephs.emplace_back("ge" + std::to_string(i), KeyType::ed25519);
+
+        for (int i = 0; i < 4; ++i)
+        {
+            BEAST_EXPECT(
+                engineResult(
+                    submit(env, makeManifest(masters[i], ephs[i], 1))) ==
+                "tesSUCCESS");
+            env.close();
+        }
+
+        ManifestCache cache;
+
+        hash_set<PublicKey> all;
+        for (auto const& m : masters)
+            all.insert(m.pk());
+
+        BEAST_EXPECT(cache.applyLedger(*env.closed(), all) == 4);
+
+        // The raw form is what a republishing node needs: the exact bytes the
+        // master key signed, plus the sequence to compare against the ledger.
+        auto const raw = cache.getRawManifest(masters[0].pk());
+        if (BEAST_EXPECT(raw))
+        {
+            BEAST_EXPECT(raw->first == 1);
+            BEAST_EXPECT(!raw->second.empty());
+        }
+        BEAST_EXPECT(!cache.getRawManifest(ephemeral.pk()));
+
+        // Pinning bumps the sequence so a cached gossip message is rebuilt,
+        // and pinning the same set again does not.
+        auto const seq = cache.sequence();
+        cache.pin({masters[0].pk(), masters[1].pk()});
+        BEAST_EXPECT(cache.sequence() > seq);
+
+        auto const seq2 = cache.sequence();
+        cache.pin({masters[0].pk(), masters[1].pk()});
+        BEAST_EXPECT(cache.sequence() == seq2);
+
+        // Everything is offered: two pinned plus two under the gossip limit.
+        std::size_t reserved = 0;
+        std::vector<PublicKey> offered;
+        cache.for_each_gossip_manifest(
+            [&](std::size_t n) { reserved = n; },
+            [&](Manifest const& m) { offered.push_back(m.masterKey); });
+
+        BEAST_EXPECT(reserved == 4);
+        BEAST_EXPECT(offered.size() == 4);
+        BEAST_EXPECT(
+            hash_set<PublicKey>(offered.begin(), offered.end()) == all);
+
+        // A pinned key with no manifest is counted in the reservation but not
+        // offered, since the reservation is only an upper bound.
+        cache.pin({masters[0].pk(), ephemeral.pk()});
+        offered.clear();
+        cache.for_each_gossip_manifest(
+            [&](std::size_t n) { reserved = n; },
+            [&](Manifest const& m) { offered.push_back(m.masterKey); });
+
+        BEAST_EXPECT(reserved == 5);
+        BEAST_EXPECT(offered.size() == 4);
+    }
+
+    void
     testDisabled(FeatureBitset features)
     {
         testcase("amendment gate");
@@ -390,6 +729,9 @@ public:
         testRevocation(sa);
         testRetrieval(sa);
         testMalformed(sa);
+        testEnvelopeRejections(sa);
+        testCorruptLedger(sa);
+        testGossipSelection(sa);
         testDisabled(sa);
     }
 };
