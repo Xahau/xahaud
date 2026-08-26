@@ -1,4 +1,5 @@
 #include <xrpld/app/hook/QuickJSHookRuntime.h>
+#include <xrpld/app/hook/detail/QuickJSProviderProfile.h>
 #include <xrpld/app/hook/detail/quickjs/QuickJSProviderSession.h>
 #include <xrpl/basics/scope.h>
 #include <algorithm>
@@ -12,13 +13,75 @@ namespace hook {
 namespace {
 
 std::optional<std::string>
+decodeModuleValidationResult(
+    std::int32_t word,
+    QuickJSModuleValidation& validation)
+{
+    validation = {};
+    if (word <= 0)
+        return "QuickJS provider returned an invalid module-validation "
+               "success word";
+
+    auto const value = static_cast<std::uint32_t>(word);
+    if ((value & artifact::generated::moduleValidationReservedMask) != 0)
+        return "QuickJS provider module-validation result has reserved bits";
+
+    auto const version =
+        (value & artifact::generated::moduleValidationVersionMask) >>
+        artifact::generated::moduleValidationVersionShift;
+    if (version != artifact::generated::moduleValidationLayoutVersion)
+        return "QuickJS provider module-validation result has an unsupported "
+               "layout version";
+
+    auto const entries =
+        value & artifact::generated::moduleValidationEntryMask;
+    if ((entries & artifact::generated::moduleValidationMainBit) == 0)
+        return "QuickJS provider module-validation result has no callable "
+               "main entry";
+    auto const mainOnly = artifact::generated::moduleValidationMainBit;
+    auto const mainAndCallback = mainOnly |
+        artifact::generated::moduleValidationCallbackBit;
+    if (entries != mainOnly && entries != mainAndCallback)
+        return "QuickJS provider module-validation result has invalid entry "
+               "bits";
+
+    auto const profileCode =
+        (value & artifact::generated::moduleValidationProfileMask) >>
+        artifact::generated::moduleValidationProfileShift;
+    switch (profileCode)
+    {
+        case static_cast<std::uint32_t>(
+            artifact::XFLArithmeticProfile::none):
+            validation.xflArithmeticProfile =
+                artifact::XFLArithmeticProfile::none;
+            break;
+        case static_cast<std::uint32_t>(
+            artifact::XFLArithmeticProfile::xahauFloatV1):
+            validation.xflArithmeticProfile =
+                artifact::XFLArithmeticProfile::xahauFloatV1;
+            break;
+        case static_cast<std::uint32_t>(
+            artifact::XFLArithmeticProfile::nearestEvenV1):
+            validation.xflArithmeticProfile =
+                artifact::XFLArithmeticProfile::nearestEvenV1;
+            break;
+        default:
+            return "QuickJS provider module-validation result has an unknown "
+                   "XFL arithmetic profile";
+    }
+    validation.hasCallback =
+        (entries & artifact::generated::moduleValidationCallbackBit) != 0;
+    return std::nullopt;
+}
+
+std::optional<std::string>
 validate(
     QuickJSRuntimeHandle const& runtime,
     std::span<std::uint8_t const> bytecode,
-    bool& hasCallback,
+    QuickJSModuleValidation& validation,
     std::uint64_t* invocationFuelConsumed)
 {
-    hasCallback = false;
+    validation = {};
     if (!runtime)
         return "QuickJS runtime profile is not registered";
     if (bytecode.empty() ||
@@ -62,15 +125,14 @@ validate(
     if (result[0].kind != WASMTIME_I32)
         return "QuickJS provider export returned a non-i32";
 
-    auto const flags = result[0].of.i32;
-    if (flags != 1 && flags != 3)
+    auto const word = result[0].of.i32;
+    if (word == artifact::generated::moduleValidationFailureSentinel)
     {
         detail = session->readDiagnostic();
         return detail.empty() ? "QuickJS Hook bytecode validation failed"
                               : detail;
     }
-    hasCallback = (flags & 2) != 0;
-    return std::nullopt;
+    return decodeModuleValidationResult(word, validation);
 }
 
 }  // namespace
@@ -79,9 +141,9 @@ std::optional<std::string>
 validateQuickJSBytecode(
     QuickJSRuntimeHandle const& runtime,
     std::span<std::uint8_t const> bytecode,
-    bool& hasCallback)
+    QuickJSModuleValidation& validation)
 {
-    return validate(runtime, bytecode, hasCallback, nullptr);
+    return validate(runtime, bytecode, validation, nullptr);
 }
 
 #ifdef ENABLE_TESTS
@@ -92,8 +154,16 @@ validateQuickJSBytecodeForTests(
 {
     QuickJSValidationForTests result;
     result.error = validate(
-        runtime, bytecode, result.hasCallback, &result.invocationFuelConsumed);
+        runtime, bytecode, result, &result.invocationFuelConsumed);
     return result;
+}
+
+std::optional<std::string>
+decodeQuickJSModuleValidationForTests(
+    std::int32_t word,
+    QuickJSModuleValidation& validation)
+{
+    return decodeModuleValidationResult(word, validation);
 }
 
 QuickJSSessionCostForTests
@@ -179,7 +249,8 @@ measureQuickJSSessionCostForTests(
             return cost;
         }
         auto const validateNanos = nanosSince(validateStart);
-        if (result[0].of.i32 != 1 && result[0].of.i32 != 3)
+        auto const word = result[0].of.i32;
+        if (word == artifact::generated::moduleValidationFailureSentinel)
         {
             // A cost sample from a session that rejected the bytecode is not
             // the cost being measured.
@@ -187,6 +258,13 @@ measureQuickJSSessionCostForTests(
             cost.error = detail.empty()
                 ? "QuickJS Hook bytecode validation failed during measurement"
                 : detail;
+            return cost;
+        }
+        QuickJSModuleValidation validation;
+        if (auto const decodeError =
+                decodeModuleValidationResult(word, validation))
+        {
+            cost.error = *decodeError;
             return cost;
         }
         if (auto const consumed = session->invocationFuelConsumed())

@@ -81,6 +81,17 @@ interface __VoidResultOps<Error> {
 }
 
 
+/**
+ * Member inventory of the frozen `XFLProfile` enum namespace. The public
+ * value is the `XFLProfile` global; the literal member types are the one
+ * profile-code table shared by source, runtime, provider validation, and
+ * the XQJS artifact (0 means absence only and is never declarable).
+ */
+interface XFLProfileEnum {
+  readonly xahauFloatV1: 1;
+  readonly nearestEvenV1: 2;
+}
+
 declare global {
   /**
    * The one shape of a provider value's public runtime noun (0085:780-…):
@@ -1061,21 +1072,35 @@ declare global {
   type XFLResult<T> = Result<T, XFLError>;
 
   /**
-   * Artifact-declared last-digit rule for unmarked `XFLDecimal` arithmetic.
+   * Artifact-declared last-digit rule for profile-sensitive `XFLDecimal`
+   * arithmetic. A frozen enum namespace: two literal profile codes, no
+   * constructor, no instances.
    *
-   * `xahauFloatV1` matches live C-hook `float_*` numbers at the pin (Results,
-   * not poison). `nearestEvenV1` is the 16-digit XFL-domain projection of
-   * pinned `ripple::Number`.
+   * `xahauFloatV1` (code 1) matches live C-hook `float_*` numbers at the
+   * pin (Results, not poison). `nearestEvenV1` (code 2) is the 16-digit
+   * XFL-domain projection of pinned `ripple::Number`. Code 0 means "no
+   * profile declared" and is not a declarable value.
    */
-  const enum XFLProfile {
-    xahauFloatV1 = 0,
-    nearestEvenV1 = 1,
-  }
+  const XFLProfile: XFLProfileEnum;
+  /** The two declarable profile codes: `1 | 2`. */
+  type XFLProfile = (typeof XFLProfile)[keyof typeof XFLProfile];
 
+  /**
+   * The one-member artifact configuration: which arithmetic profile this
+   * Hook's unmarked profile-sensitive operations use. Declared once, in
+   * the source entry file, as
+   * `export const hookConfig = defineHookConfig({ xflArithmetic: ... })`.
+   */
   interface HookConfig {
     readonly xflArithmetic: XFLProfile;
   }
 
+  /**
+   * Freeze a Hook's immutable configuration. The compiler requires the
+   * exported source-entry `hookConfig` to be a direct call of this
+   * function with one exact canonical profile member; the provider
+   * validates the evaluated export by mint identity, not shape.
+   */
   function defineHookConfig<const C extends HookConfig>(config: C): C;
 
   /**
@@ -1130,20 +1155,17 @@ declare global {
   }
 
   /**
-   * XFLDecimal — the bounded decimal value used for issued amounts on Xahau.
+   * XFLDecimal — the bounded decimal value used for issued amounts on
+   * Xahau: sign × mantissa × 10^exponent, 16 significant digits, exponent
+   * −96..80, one canonical zero. Every instance is a valid number. There
+   * is no raw word, mantissa, or exponent accessor here; ABI poison is a
+   * Result, never an `XFLDecimal`.
    *
-   * In C Hook material "an XFL" is a packed signed 64-bit word. That word is
-   * `XFLWord`. This type is the value it encodes: sign × mantissa × 10^exponent,
-   * 16 significant digits, exponent −96..80, one canonical zero. Every instance
-   * is a valid number. There is no raw word, mantissa, or exponent accessor
-   * here; ABI poison is a Result, never an `XFLDecimal`.
+   * Profile-sensitive arithmetic is declared-then-bare: it exists only
+   * under an explicit source-entry `hookConfig` profile (`XFLProfile`).
+   * The value kernel — `sign`, `negate`, `equals`, `compare` — is
+   * profile-independent.
    *
-   * Unmarked `add` / `multiply` / `divide` take last-digit semantics from
-   * `hookConfig.xflArithmetic`. They are not aliases of C `float_*`. Local
-   * override is `XFLMath`. Negate and compare stay on the scalar.
-   *
-   * @see XFLWord
-   * @see XFLMath
    * @see XFLProfile
    * @inner-rich-type XFLDecimal
    */
@@ -1177,8 +1199,8 @@ declare global {
      */
     toInt(decimalPlaces?: number): XFLResult<bigint>;
     toString(): string;
-    equals(other: XFLDecimal): boolean;
-    compare(other: XFLDecimal): number;
+    equals(other: unknown): boolean;
+    compare(other: XFLDecimal): -1 | 0 | 1;
   }
 
   interface XFLDecimalFactory extends RuntimeType<XFLDecimal> {

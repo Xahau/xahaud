@@ -101,7 +101,9 @@ parse(ripple::Slice code) noexcept
     {
         return View{
             .kind = Kind::legacyWasm,
+            .envelopeVersion = 0,
             .hookApiVersion = 0,
+            .xflArithmeticProfile = XFLArithmeticProfile::none,
             .bytecodeABI = {},
             .runtimeProfile = {},
             .payload = code};
@@ -113,14 +115,42 @@ parse(ripple::Slice code) noexcept
         return ripple::Unexpected(Error::truncatedQuickJSHeader);
 
     auto const* bytes = code.data();
-    if (bytes[4] != quickJSEnvelopeVersion)
+    auto const envelopeVersion = bytes[4];
+    if (envelopeVersion != quickJSLegacyEnvelopeVersion &&
+        envelopeVersion != quickJSCurrentEnvelopeVersion)
         return ripple::Unexpected(Error::unsupportedEnvelopeVersion);
     if (bytes[5] != quickJSBytecodeKind)
         return ripple::Unexpected(Error::unsupportedArtifactKind);
     if (readU16BE(bytes + 6) != quickJSHeaderSize)
         return ripple::Unexpected(Error::nonCanonicalHeaderSize);
-    if (readU16BE(bytes + 10) != 0)
-        return ripple::Unexpected(Error::nonZeroReserved);
+    auto const profileCode = readU16BE(bytes + 10);
+    XFLArithmeticProfile xflArithmeticProfile;
+    if (envelopeVersion == quickJSLegacyEnvelopeVersion)
+    {
+        if (profileCode != 0)
+            return ripple::Unexpected(Error::nonZeroReserved);
+        xflArithmeticProfile = XFLArithmeticProfile::none;
+    }
+    else
+    {
+        switch (profileCode)
+        {
+            case static_cast<std::uint16_t>(XFLArithmeticProfile::none):
+                xflArithmeticProfile = XFLArithmeticProfile::none;
+                break;
+            case static_cast<std::uint16_t>(
+                XFLArithmeticProfile::xahauFloatV1):
+                xflArithmeticProfile = XFLArithmeticProfile::xahauFloatV1;
+                break;
+            case static_cast<std::uint16_t>(
+                XFLArithmeticProfile::nearestEvenV1):
+                xflArithmeticProfile = XFLArithmeticProfile::nearestEvenV1;
+                break;
+            default:
+                return ripple::Unexpected(
+                    Error::unsupportedXFLArithmeticProfile);
+        }
+    }
 
     auto const payloadSize = readU32BE(bytes + 12);
     if (payloadSize == 0)
@@ -140,7 +170,9 @@ parse(ripple::Slice code) noexcept
 
     return View{
         .kind = Kind::quickJSBytecode,
+        .envelopeVersion = envelopeVersion,
         .hookApiVersion = readU16BE(bytes + 8),
+        .xflArithmeticProfile = xflArithmeticProfile,
         .bytecodeABI = bytecodeABI,
         .runtimeProfile = runtimeProfile,
         .payload = ripple::Slice{bytes + quickJSHeaderSize, payloadSize}};
@@ -164,9 +196,11 @@ toString(Error error) noexcept
         case Error::unsupportedArtifactKind:
             return "QuickJS artifact kind is unsupported";
         case Error::nonCanonicalHeaderSize:
-            return "QuickJS v1 header size is non-canonical";
+            return "QuickJS artifact header size is non-canonical";
         case Error::nonZeroReserved:
             return "QuickJS v1 reserved bytes are nonzero";
+        case Error::unsupportedXFLArithmeticProfile:
+            return "QuickJS v2 XFL arithmetic profile is unsupported";
         case Error::emptyPayload:
             return "QuickJS artifact payload is empty";
         case Error::lengthMismatch:

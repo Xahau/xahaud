@@ -62,7 +62,12 @@ constexpr ExpectedProviderExport expectedProviderExports[] = {
 };
 
 std::vector<std::uint8_t>
-quickJSArtifact(std::vector<std::uint8_t> const& payload = {'a', 'b', 'c'})
+quickJSArtifact(
+    std::vector<std::uint8_t> const& payload = {'a', 'b', 'c'},
+    hook::artifact::XFLArithmeticProfile profile =
+        hook::artifact::XFLArithmeticProfile::none,
+    std::uint8_t envelopeVersion =
+        hook::artifact::quickJSCurrentEnvelopeVersion)
 {
     std::vector<std::uint8_t> result(
         hook::artifact::quickJSHeaderSize + payload.size(), 0);
@@ -70,12 +75,15 @@ quickJSArtifact(std::vector<std::uint8_t> const& payload = {'a', 'b', 'c'})
         hook::artifact::quickJSMagic.begin(),
         hook::artifact::quickJSMagic.end(),
         result.begin());
-    result[4] = hook::artifact::quickJSEnvelopeVersion;
+    result[4] = envelopeVersion;
     result[5] = hook::artifact::quickJSBytecodeKind;
     result[6] = 0;
     result[7] = hook::artifact::quickJSHeaderSize;
     result[8] = 0;
     result[9] = 1;
+    auto const profileCode = static_cast<std::uint16_t>(profile);
+    result[10] = static_cast<std::uint8_t>(profileCode >> 8);
+    result[11] = static_cast<std::uint8_t>(profileCode);
     auto const length = static_cast<std::uint32_t>(payload.size());
     result[12] = static_cast<std::uint8_t>(length >> 24);
     result[13] = static_cast<std::uint8_t>(length >> 16);
@@ -113,14 +121,20 @@ public:
             BEAST_EXPECT(legacy->payload == makeSlice(wasm));
         }
 
-        testcase("QuickJS v1 wire contract");
+        testcase("QuickJS v1 and v2 wire contract");
         auto encoded = quickJSArtifact();
         auto parsed = hook::artifact::parse(makeSlice(encoded));
         BEAST_EXPECT(parsed);
         if (parsed)
         {
             BEAST_EXPECT(parsed->kind == hook::artifact::Kind::quickJSBytecode);
+            BEAST_EXPECT(
+                parsed->envelopeVersion ==
+                hook::artifact::quickJSCurrentEnvelopeVersion);
             BEAST_EXPECT(parsed->hookApiVersion == 1);
+            BEAST_EXPECT(
+                parsed->xflArithmeticProfile ==
+                hook::artifact::XFLArithmeticProfile::none);
             BEAST_EXPECT(hook::artifact::isCurrentQuickJS(*parsed));
             BEAST_EXPECT(
                 hook::artifact::quickJSSerializedObjectMaxBytes == 1'048'576);
@@ -129,11 +143,11 @@ public:
             BEAST_EXPECT(
                 hook::artifact::quickJSSerializedObjectMaxScopes == 32'769);
             BEAST_EXPECT(hook::artifact::quickJSSerializedObjectMaxDepth == 10);
-            BEAST_EXPECT(hook::artifact::quickJSProviderSize == 1'116'638);
+            BEAST_EXPECT(hook::artifact::quickJSProviderSize == 1'122'108);
             BEAST_EXPECT(
                 hook::artifact::generated::providerManifestSHA256 ==
-                "1673b27d21063957cece9095cceb7e2dbfa53b6f49a5b7f824a486d7d90b2"
-                "391");
+                "08d288f2e0ccc1e232f5dacdbed02ec92b45e1425b82b39fef4214bdd11e7"
+                "217");
             BEAST_EXPECT(
                 hook::artifact::generated::nativeABISHA256 ==
                 "328ec938dcad875f3bdf25b8d779dd77f3571589818ca9271cb98c64c7018f"
@@ -182,28 +196,94 @@ public:
             }
             BEAST_EXPECT(
                 hook::artifact::generated::javascriptBroadDeclarationSHA256 ==
-                "649079b831bc68eff0f440644649a505addafb08a3f5174e4031c8de6aedff"
-                "a0");
+                "c83351e646c85dfa14ba478bbf0074bf9fd6fcbe6c74bd95ac0a024a185f0"
+                "b4d");
             BEAST_EXPECT(
                 hook::artifact::generated::javascriptExactV1DeclarationSHA256 ==
-                "20881232f0602e35de0fcbb8b5a3c1511606392749a0f79daebb386204f4f4"
-                "da");
+                "f69fabc3912ced6e1f6f2cdf3bc9fa8882302fc28079f6019d1c0571534121"
+                "1e");
             BEAST_EXPECT(
                 hook::artifact::generated::javascriptSurfaceSHA256 ==
-                "96a9218bf38abbf1bc9f2839408700d03572e0b065d625263f70477bc32597"
-                "a"
-                "c");
+                "046b487c8e374770e4f216b5ad2c60eca05de50cf65b4bb2242e381eb6d2e"
+                "331");
+            BEAST_EXPECT(
+                hook::artifact::generated::javascriptXFLProfileLedgerSHA256 ==
+                "39263a9726085a36d584a81b4503ed01dc2266c4f43b0603f043cfc54beaf0"
+                "52");
             BEAST_EXPECT(
                 hook::artifact::generated::
                     javascriptAPIArtifactManifestSHA256 ==
-                "95babf622bf5edff76fdcbd9746bad8f1f8b275a3d4bacdc320ff4deae543e"
-                "b"
-                "a");
+                "b1d1c24dd711ec69c3a13198e3fe13ad8577dd27d25f2c6de2ae0c2887f0"
+                "d3c9");
+            BEAST_EXPECT(
+                hook::artifact::generated::xqjsEnvelopeVersion == 2);
+            BEAST_EXPECT(
+                hook::artifact::generated::xflArithmeticProfileNone == 0);
+            BEAST_EXPECT(
+                hook::artifact::generated::xflArithmeticProfileXahauFloatV1 ==
+                1);
+            BEAST_EXPECT(
+                hook::artifact::generated::
+                    xflArithmeticProfileNearestEvenV1 == 2);
+            BEAST_EXPECT(
+                hook::artifact::generated::moduleValidationLayoutVersion == 1);
+            BEAST_EXPECT(
+                hook::artifact::generated::moduleValidationFailureSentinel ==
+                -1);
+            BEAST_EXPECT(
+                hook::artifact::generated::moduleValidationMainBit == 1);
+            BEAST_EXPECT(
+                hook::artifact::generated::moduleValidationCallbackBit == 2);
+            BEAST_EXPECT(
+                hook::artifact::generated::moduleValidationEntryMask == 3);
+            BEAST_EXPECT(
+                hook::artifact::generated::moduleValidationReservedMask ==
+                0x800000FCU);
+            BEAST_EXPECT(
+                hook::artifact::generated::moduleValidationProfileMask ==
+                0x00FFFF00U);
+            BEAST_EXPECT(
+                hook::artifact::generated::moduleValidationProfileShift == 8);
+            BEAST_EXPECT(
+                hook::artifact::generated::moduleValidationVersionMask ==
+                0x7F000000U);
+            BEAST_EXPECT(
+                hook::artifact::generated::moduleValidationVersionShift == 24);
             BEAST_EXPECT(parsed->payload.size() == 3);
             BEAST_EXPECT(parsed->payload[0] == 'a');
         }
 
-        testcase("QuickJS v1 corruption rejection");
+        auto const v1Encoded = quickJSArtifact(
+            {'a', 'b', 'c'},
+            hook::artifact::XFLArithmeticProfile::none,
+            hook::artifact::quickJSLegacyEnvelopeVersion);
+        auto const v1Parsed = hook::artifact::parse(makeSlice(v1Encoded));
+        BEAST_EXPECT(v1Parsed);
+        if (v1Parsed)
+        {
+            BEAST_EXPECT(
+                v1Parsed->envelopeVersion ==
+                hook::artifact::quickJSLegacyEnvelopeVersion);
+            BEAST_EXPECT(
+                v1Parsed->xflArithmeticProfile ==
+                hook::artifact::XFLArithmeticProfile::none);
+            BEAST_EXPECT(v1Parsed->payload.size() == 3);
+        }
+
+        for (auto const profile : {
+                 hook::artifact::XFLArithmeticProfile::none,
+                 hook::artifact::XFLArithmeticProfile::xahauFloatV1,
+                 hook::artifact::XFLArithmeticProfile::nearestEvenV1})
+        {
+            auto const profiled = quickJSArtifact({'x'}, profile);
+            auto const profiledView =
+                hook::artifact::parse(makeSlice(profiled));
+            BEAST_EXPECT(profiledView);
+            if (profiledView)
+                BEAST_EXPECT(profiledView->xflArithmeticProfile == profile);
+        }
+
+        testcase("QuickJS v1 and v2 corruption rejection");
         auto expectError = [this](
                                std::vector<std::uint8_t> bytes,
                                hook::artifact::Error expected) {
@@ -214,7 +294,7 @@ public:
         };
 
         auto corrupted = encoded;
-        corrupted[4] = 2;
+        corrupted[4] = 3;
         expectError(
             corrupted, hook::artifact::Error::unsupportedEnvelopeVersion);
         corrupted = encoded;
@@ -223,9 +303,20 @@ public:
         corrupted = encoded;
         corrupted[7] = 81;
         expectError(corrupted, hook::artifact::Error::nonCanonicalHeaderSize);
-        corrupted = encoded;
+        corrupted = v1Encoded;
         corrupted[11] = 1;
         expectError(corrupted, hook::artifact::Error::nonZeroReserved);
+        corrupted = encoded;
+        corrupted[11] = 3;
+        expectError(
+            corrupted,
+            hook::artifact::Error::unsupportedXFLArithmeticProfile);
+        corrupted = encoded;
+        corrupted[10] = 0xff;
+        corrupted[11] = 0xff;
+        expectError(
+            corrupted,
+            hook::artifact::Error::unsupportedXFLArithmeticProfile);
         corrupted = encoded;
         corrupted[15] = 4;
         expectError(corrupted, hook::artifact::Error::lengthMismatch);

@@ -25,6 +25,8 @@ API_SNAPSHOT_FILES = {
         "xahau-quickjs-v1.d.ts",
     "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json":
         "xahau-quickjs-v1.surface.json",
+    "python/jshookz/src/jshookz/xfl_profile_ledger.ts":
+        "xfl-profile-ledger.ts",
 }
 
 

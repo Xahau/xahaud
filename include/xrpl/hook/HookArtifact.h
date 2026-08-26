@@ -28,7 +28,10 @@ inline constexpr std::array<std::uint8_t, 4> quickJSMagic = {
     'Q',
     'J',
     'S'};
-inline constexpr std::uint8_t quickJSEnvelopeVersion = 1;
+inline constexpr std::uint8_t quickJSLegacyEnvelopeVersion = 1;
+inline constexpr std::uint8_t quickJSCurrentEnvelopeVersion = 2;
+inline constexpr std::uint8_t quickJSEnvelopeVersion =
+    quickJSCurrentEnvelopeVersion;
 inline constexpr std::uint8_t quickJSBytecodeKind = 1;
 
 using Identity = std::array<std::uint8_t, identitySize>;
@@ -36,6 +39,12 @@ using Identity = std::array<std::uint8_t, identitySize>;
 enum class Kind : std::uint8_t {
     legacyWasm,
     quickJSBytecode,
+};
+
+enum class XFLArithmeticProfile : std::uint16_t {
+    none = 0,
+    xahauFloatV1 = 1,
+    nearestEvenV1 = 2,
 };
 
 enum class Error : std::uint8_t {
@@ -47,6 +56,7 @@ enum class Error : std::uint8_t {
     unsupportedArtifactKind,
     nonCanonicalHeaderSize,
     nonZeroReserved,
+    unsupportedXFLArithmeticProfile,
     emptyPayload,
     lengthMismatch,
     zeroBytecodeABI,
@@ -56,7 +66,9 @@ enum class Error : std::uint8_t {
 struct View
 {
     Kind kind;
+    std::uint8_t envelopeVersion;
     std::uint16_t hookApiVersion;
+    XFLArithmeticProfile xflArithmeticProfile;
     Identity bytecodeABI;
     Identity runtimeProfile;
     ripple::Slice payload;

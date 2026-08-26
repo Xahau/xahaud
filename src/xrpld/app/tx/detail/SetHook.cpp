@@ -617,12 +617,12 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 if (artifact->kind == hook::artifact::Kind::quickJSBytecode)
                 {
                     auto const runtime = hook::findQuickJSRuntime(*artifact);
-                    bool hasCallback = false;
+                    hook::QuickJSModuleValidation validation;
                     auto const validationError = hook::validateQuickJSBytecode(
                         runtime,
                         std::span{
                             artifact->payload.data(), artifact->payload.size()},
-                        hasCallback);
+                        validation);
                     if (validationError || !runtime)
                     {
                         JLOG(ctx.j.trace())
@@ -632,13 +632,23 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                                                 : "runtime is not registered");
                         return false;
                     }
+                    if (validation.xflArithmeticProfile !=
+                        artifact->xflArithmeticProfile)
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::WASM_INVALID << ")["
+                            << HS_ACC()
+                            << "]: QuickJS Hook XFL arithmetic profile "
+                               "disagrees between envelope and module";
+                        return false;
+                    }
 
                     // Bill the armed invocation-fuel ceiling; host-work
                     // pricing is a later consensus change.
                     auto const units =
                         hook::currentQuickJSRuntimeProfile().invocationFuel;
                     return std::pair<uint64_t, uint64_t>{
-                        units, hasCallback ? units : 0};
+                        units, validation.hasCallback ? units : 0};
                 }
 
                 // RH NOTE: validateGuards has a generic non-rippled specific

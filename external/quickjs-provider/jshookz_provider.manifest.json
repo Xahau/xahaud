@@ -2,10 +2,10 @@
   "bytecode_abi_id": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
   "javascript_surface": {
     "declaration": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "declaration_sha256": "20881232f0602e35de0fcbb8b5a3c1511606392749a0f79daebb386204f4f4da",
+    "declaration_sha256": "f69fabc3912ced6e1f6f2cdf3bc9fa8882302fc28079f6019d1c05715341211e",
     "manifest": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
     "schema": "jshookz.javascript-surface.v1",
-    "sha256": "96a9218bf38abbf1bc9f2839408700d03572e0b065d625263f70477bc32597ac"
+    "sha256": "046b487c8e374770e4f216b5ad2c60eca05de50cf65b4bb2242e381eb6d2e331"
   },
   "provider": {
     "build": {
@@ -360,16 +360,21 @@
         ]
       }
     ],
-    "sha256": "f60ab333acb547e50d7d087960839bd11833cb133d496af98e0b72a1bb3b84df",
-    "size": 1116638
+    "sha256": "6dcb4445c580fd4ee1365a57ad17e4cac3227fa2bbcfb95182e47231e7f8d92f",
+    "size": 1122108
   },
-  "runtime_profile_id": "29acf12e170436e5ccadfbc118d02a60909f86a88262106652b2f71994b0ea25",
+  "runtime_profile_id": "084607de2439eedc10ed3481f098593e2d1c9438493d696f3346610c70389156",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
-      "envelope_version": 1,
+      "envelope_version": 2,
       "hook_api_version": 1,
-      "kind": "quickjs-bytecode"
+      "kind": "quickjs-bytecode",
+      "xfl_arithmetic_profile_codes": {
+        "nearestEvenV1": 2,
+        "none": 0,
+        "xahauFloatV1": 1
+      }
     },
     "bytecode_abi": {
       "entry_exports": {
@@ -847,6 +852,18 @@
         "shared_array_buffer": false,
         "timezone": "UTC",
         "weak_ref": false
+      },
+      "module_validation_result": {
+        "callback_bit": 2,
+        "entry_mask": 3,
+        "failure_sentinel": -1,
+        "layout_version": 1,
+        "main_bit": 1,
+        "profile_mask": 16776960,
+        "profile_shift": 8,
+        "reserved_mask": 2147483900,
+        "version_mask": 2130706432,
+        "version_shift": 24
       }
     },
     "schema": "xahau.quickjs.runtime-profile-source.v1"

@@ -123,6 +123,13 @@ awaitQuickJSRuntimeRegistration(QuickJSRuntimeProfile const& profile);
 QuickJSRuntimeHandle
 findQuickJSRuntime(artifact::View const& artifact);
 
+struct QuickJSModuleValidation
+{
+    bool hasCallback = false;
+    artifact::XFLArithmeticProfile xflArithmeticProfile =
+        artifact::XFLArithmeticProfile::none;
+};
+
 /** Validate payload bytecode in the exact retained provider.
 
     Module initialization runs in a bounded, disposable Store with no Hook
@@ -134,7 +141,7 @@ std::optional<std::string>
 validateQuickJSBytecode(
     QuickJSRuntimeHandle const& runtime,
     std::span<std::uint8_t const> bytecode,
-    bool& hasCallback);
+    QuickJSModuleValidation& validation);
 
 /** Execute payload-only bytecode with a previously registered runtime. */
 void
@@ -147,12 +154,17 @@ executeQuickJSBytecode(
     beast::Journal const& journal);
 
 #ifdef ENABLE_TESTS
-struct QuickJSValidationForTests
+struct QuickJSValidationForTests : QuickJSModuleValidation
 {
     std::optional<std::string> error;
-    bool hasCallback = false;
     std::uint64_t invocationFuelConsumed = 0;
 };
+
+/** Decode one raw provider validation word through the production decoder. */
+std::optional<std::string>
+decodeQuickJSModuleValidationForTests(
+    std::int32_t word,
+    QuickJSModuleValidation& validation);
 
 /** Validate through the production path while exposing its fuel delta. */
 QuickJSValidationForTests

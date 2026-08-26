@@ -80,6 +80,17 @@ interface __VoidResultOps<Error> {
   ): Value | Fallback;
 }
 
+/**
+ * Member inventory of the frozen `XFLProfile` enum namespace. The public
+ * value is the `XFLProfile` global; the literal member types are the one
+ * profile-code table shared by source, runtime, provider validation, and
+ * the XQJS artifact (0 means absence only and is never declarable).
+ */
+interface XFLProfileEnum {
+  readonly xahauFloatV1: 1;
+  readonly nearestEvenV1: 2;
+}
+
 declare global {
   /**
    * Exact JavaScript surface implemented by the sealed xahau-quickjs-v1
@@ -621,20 +632,50 @@ declare global {
   }
 
   /**
-   * XFLDecimal — the bounded decimal value used for issued amounts on Xahau.
+   * Artifact-declared last-digit rule for profile-sensitive `XFLDecimal`
+   * arithmetic. A frozen enum namespace: two literal profile codes, no
+   * constructor, no instances.
    *
-   * In C Hook material "an XFL" is a packed signed 64-bit word. That word is
-   * `XFLWord`. This type is the value it encodes: sign × mantissa × 10^exponent,
-   * 16 significant digits, exponent −96..80, one canonical zero. Every instance
-   * is a valid number. There is no raw word, mantissa, or exponent accessor
-   * here; ABI poison is a Result, never an `XFLDecimal`.
+   * `xahauFloatV1` (code 1) matches live C-hook `float_*` numbers at the
+   * pin (Results, not poison). `nearestEvenV1` (code 2) is the 16-digit
+   * XFL-domain projection of pinned `ripple::Number`. Code 0 means "no
+   * profile declared" and is not a declarable value.
+   */
+  const XFLProfile: XFLProfileEnum;
+
+  /** The two declarable profile codes: `1 | 2`. */
+  type XFLProfile = (typeof XFLProfile)[keyof typeof XFLProfile];
+
+  /**
+   * The one-member artifact configuration: which arithmetic profile this
+   * Hook's unmarked profile-sensitive operations use. Declared once, in
+   * the source entry file, as
+   * `export const hookConfig = defineHookConfig({ xflArithmetic: ... })`.
+   */
+  interface HookConfig {
+    readonly xflArithmetic: XFLProfile;
+  }
+
+  /**
+   * Freeze a Hook's immutable configuration. The compiler requires the
+   * exported source-entry `hookConfig` to be a direct call of this
+   * function with one exact canonical profile member; the provider
+   * validates the evaluated export by mint identity, not shape.
+   */
+  function defineHookConfig<const C extends HookConfig>(config: C): C;
+
+  /**
+   * XFLDecimal — the bounded decimal value used for issued amounts on
+   * Xahau: sign × mantissa × 10^exponent, 16 significant digits, exponent
+   * −96..80, one canonical zero. Every instance is a valid number. There
+   * is no raw word, mantissa, or exponent accessor here; ABI poison is a
+   * Result, never an `XFLDecimal`.
    *
-   * Unmarked `add` / `multiply` / `divide` take last-digit semantics from
-   * `hookConfig.xflArithmetic`. They are not aliases of C `float_*`. Local
-   * override is `XFLMath`. Negate and compare stay on the scalar.
+   * Profile-sensitive arithmetic is declared-then-bare: it exists only
+   * under an explicit source-entry `hookConfig` profile (`XFLProfile`).
+   * The value kernel — `sign`, `negate`, `equals`, `compare` — is
+   * profile-independent.
    *
-   * @see XFLWord
-   * @see XFLMath
    * @see XFLProfile
    * @inner-rich-type XFLDecimal
    */
@@ -642,6 +683,10 @@ declare global {
     readonly [__providerValueBrand]: "XFLDecimal";
     isNegative(): boolean;
     isZero(): boolean;
+    sign(): -1 | 0 | 1;
+    negate(): XFLDecimal;
+    equals(other: unknown): boolean;
+    compare(other: XFLDecimal): -1 | 0 | 1;
   }
 
   const XFLDecimal: RuntimeType<XFLDecimal>;

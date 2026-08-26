@@ -21,12 +21,12 @@ PROVIDER_MEMORY_MINIMUM_PAGES = 7
 PROVIDER_MEMORY_MAXIMUM_PAGES = 512
 PROVIDER_MEMORY_MAX_BYTES = PROVIDER_MEMORY_MAXIMUM_PAGES * WASM_PAGE_BYTES
 SEALED_MANIFEST_SHA256 = (
-    "1673b27d21063957cece9095cceb7e2dbfa53b6f49a5b7f824a486d7d90b2391"
+    "08d288f2e0ccc1e232f5dacdbed02ec92b45e1425b82b39fef4214bdd11e7217"
 )
 SEALED_PROVIDER_SHA256 = (
-    "f60ab333acb547e50d7d087960839bd11833cb133d496af98e0b72a1bb3b84df"
+    "6dcb4445c580fd4ee1365a57ad17e4cac3227fa2bbcfb95182e47231e7f8d92f"
 )
-SEALED_PROVIDER_SIZE = 1116638
+SEALED_PROVIDER_SIZE = 1122108
 SEALED_NATIVE_ABI_SHA256 = (
     "328ec938dcad875f3bdf25b8d779dd77f3571589818ca9271cb98c64c7018f99"
 )
@@ -34,22 +34,25 @@ SEALED_BYTECODE_ABI_ID = (
     "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e"
 )
 SEALED_RUNTIME_PROFILE_ID = (
-    "29acf12e170436e5ccadfbc118d02a60909f86a88262106652b2f71994b0ea25"
+    "084607de2439eedc10ed3481f098593e2d1c9438493d696f3346610c70389156"
 )
 SEALED_WASMTIME_VERSION = "47.0.3"
 SEALED_HOOK_API_VERSION = 1
 SEALED_HOST_ADAPTER_POLICY = "xahau-raw-hook-host-v1"
 SEALED_BROAD_DECLARATION_SHA256 = (
-    "649079b831bc68eff0f440644649a505addafb08a3f5174e4031c8de6aedffa0"
+    "c83351e646c85dfa14ba478bbf0074bf9fd6fcbe6c74bd95ac0a024a185f0b4d"
 )
 SEALED_EXACT_V1_DECLARATION_SHA256 = (
-    "20881232f0602e35de0fcbb8b5a3c1511606392749a0f79daebb386204f4f4da"
+    "f69fabc3912ced6e1f6f2cdf3bc9fa8882302fc28079f6019d1c05715341211e"
 )
 SEALED_SURFACE_SHA256 = (
-    "96a9218bf38abbf1bc9f2839408700d03572e0b065d625263f70477bc32597ac"
+    "046b487c8e374770e4f216b5ad2c60eca05de50cf65b4bb2242e381eb6d2e331"
 )
 SEALED_API_ARTIFACT_MANIFEST_SHA256 = (
-    "95babf622bf5edff76fdcbd9746bad8f1f8b275a3d4bacdc320ff4deae543eba"
+    "b1d1c24dd711ec69c3a13198e3fe13ad8577dd27d25f2c6de2ae0c2887f0d3c9"
+)
+SEALED_XFL_PROFILE_LEDGER_SHA256 = (
+    "39263a9726085a36d584a81b4503ed01dc2266c4f43b0603f043cfc54beaf052"
 )
 API_ARTIFACT_SCHEMA = "jshookz.api-artifacts.v1"
 SEALED_API_ARTIFACTS = {
@@ -68,6 +71,33 @@ SEALED_API_ARTIFACTS = {
         "xahau-quickjs-v1.surface.json",
         SEALED_SURFACE_SHA256,
     ),
+    "python/jshookz/src/jshookz/xfl_profile_ledger.ts": (
+        "xfl_profile_ledger",
+        "xfl-profile-ledger.ts",
+        SEALED_XFL_PROFILE_LEDGER_SHA256,
+    ),
+}
+SEALED_ARTIFACT = {
+    "envelope_version": 2,
+    "hook_api_version": 1,
+    "kind": "quickjs-bytecode",
+    "xfl_arithmetic_profile_codes": {
+        "none": 0,
+        "xahauFloatV1": 1,
+        "nearestEvenV1": 2,
+    },
+}
+SEALED_MODULE_VALIDATION_RESULT = {
+    "layout_version": 1,
+    "failure_sentinel": -1,
+    "main_bit": 1,
+    "callback_bit": 2,
+    "entry_mask": 3,
+    "reserved_mask": 0x800000FC,
+    "profile_mask": 0x00FFFF00,
+    "profile_shift": 8,
+    "version_mask": 0x7F000000,
+    "version_shift": 24,
 }
 SEALED_LIMITS = {
     "host_work_base_per_call": 1,
@@ -541,9 +571,13 @@ def validate_lock(
     require_sealed(
         host_adapter_policy, SEALED_HOST_ADAPTER_POLICY, "host_adapter_policy"
     )
+    artifact = profile.get("source", {}).get("artifact")
+    if not isinstance(artifact, dict):
+        raise LockError("JSON runtime-profile source is missing artifact metadata")
+    require_sealed(artifact, SEALED_ARTIFACT, "artifact activation contract")
     hook_api_version = cross_compare_int(
         cmake, "HOOK_API_VERSION",
-        profile.get("source", {}).get("artifact", {}).get("hook_api_version"),
+        artifact.get("hook_api_version"),
         "hook_api_version",
     )
     require_sealed(hook_api_version, SEALED_HOOK_API_VERSION, "hook_api_version")
@@ -552,6 +586,11 @@ def validate_lock(
     source_provider = profile.get("source", {}).get("provider")
     if not isinstance(provider, dict) or not isinstance(source_provider, dict):
         raise LockError("JSON lock is missing provider or source.provider")
+    require_sealed(
+        source_provider.get("module_validation_result"),
+        SEALED_MODULE_VALIDATION_RESULT,
+        "module-validation result layout",
+    )
     require_build(provider.get("build"), "provider.build")
     require_build(source_provider.get("build"), "source.provider.build")
     require_sealed(
@@ -664,6 +703,7 @@ def render_source(
     declaration_sha: str,
     surface_sha: str,
     broad_declaration_sha: str,
+    xfl_profile_ledger_sha: str,
     api_artifact_manifest_sha: str,
     manifest_sha: str,
     expected_sha: str,
@@ -749,8 +789,37 @@ std::string_view const javascriptBroadDeclarationSHA256 =
 std::string_view const javascriptExactV1DeclarationSHA256 =
     {quote(declaration_sha)};
 std::string_view const javascriptSurfaceSHA256 = {quote(surface_sha)};
+std::string_view const javascriptXFLProfileLedgerSHA256 =
+    {quote(xfl_profile_ledger_sha)};
 std::string_view const javascriptAPIArtifactManifestSHA256 =
     {quote(api_artifact_manifest_sha)};
+std::uint8_t const xqjsEnvelopeVersion = {SEALED_ARTIFACT["envelope_version"]}U;
+std::uint16_t const xflArithmeticProfileNone =
+    {SEALED_ARTIFACT["xfl_arithmetic_profile_codes"]["none"]}U;
+std::uint16_t const xflArithmeticProfileXahauFloatV1 =
+    {SEALED_ARTIFACT["xfl_arithmetic_profile_codes"]["xahauFloatV1"]}U;
+std::uint16_t const xflArithmeticProfileNearestEvenV1 =
+    {SEALED_ARTIFACT["xfl_arithmetic_profile_codes"]["nearestEvenV1"]}U;
+std::uint32_t const moduleValidationLayoutVersion =
+    {SEALED_MODULE_VALIDATION_RESULT["layout_version"]}U;
+std::int32_t const moduleValidationFailureSentinel =
+    {SEALED_MODULE_VALIDATION_RESULT["failure_sentinel"]};
+std::uint32_t const moduleValidationMainBit =
+    {SEALED_MODULE_VALIDATION_RESULT["main_bit"]}U;
+std::uint32_t const moduleValidationCallbackBit =
+    {SEALED_MODULE_VALIDATION_RESULT["callback_bit"]}U;
+std::uint32_t const moduleValidationEntryMask =
+    {SEALED_MODULE_VALIDATION_RESULT["entry_mask"]}U;
+std::uint32_t const moduleValidationReservedMask =
+    {SEALED_MODULE_VALIDATION_RESULT["reserved_mask"]}U;
+std::uint32_t const moduleValidationProfileMask =
+    {SEALED_MODULE_VALIDATION_RESULT["profile_mask"]}U;
+std::uint32_t const moduleValidationProfileShift =
+    {SEALED_MODULE_VALIDATION_RESULT["profile_shift"]}U;
+std::uint32_t const moduleValidationVersionMask =
+    {SEALED_MODULE_VALIDATION_RESULT["version_mask"]}U;
+std::uint32_t const moduleValidationVersionShift =
+    {SEALED_MODULE_VALIDATION_RESULT["version_shift"]}U;
 
 namespace {{
 
@@ -898,6 +967,7 @@ def project_bundle(bundle: Path, wasmtime_version: str, output: Path) -> int:
         declaration_sha=declaration_sha,
         surface_sha=surface_sha,
         broad_declaration_sha=api_identities["broad_declaration"],
+        xfl_profile_ledger_sha=api_identities["xfl_profile_ledger"],
         api_artifact_manifest_sha=api_identities["api_artifact_manifest"],
         manifest_sha=actual_manifest,
         expected_sha=expected_sha,

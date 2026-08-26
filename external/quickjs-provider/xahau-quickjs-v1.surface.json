@@ -43,7 +43,7 @@
   },
   "declaration": {
     "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "sha256": "20881232f0602e35de0fcbb8b5a3c1511606392749a0f79daebb386204f4f4da"
+    "sha256": "f69fabc3912ced6e1f6f2cdf3bc9fa8882302fc28079f6019d1c05715341211e"
   },
   "globals": {
     "AccountID": "object",
@@ -76,7 +76,9 @@
     "VoidResult": "object",
     "XChainBridge": "object",
     "XFLDecimal": "object",
+    "XFLProfile": "object",
     "accept": "function",
+    "defineHookConfig": "function",
     "emit": "object",
     "hook": "object",
     "ledger": "object",
@@ -525,12 +527,20 @@
     },
     "XFLDecimal": {
       "members": {
+        "compare": "function",
+        "equals": "function",
         "isNegative": "function",
-        "isZero": "function"
+        "isZero": "function",
+        "negate": "function",
+        "sign": "function"
       },
       "own": [
+        "compare",
+        "equals",
         "isNegative",
-        "isZero"
+        "isZero",
+        "negate",
+        "sign"
       ],
       "probe": "util.decodeObject(STBlob.fromHex('61D4838D7EA4C680000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8')).Amount.toXFL()"
     }
@@ -576,6 +586,10 @@
       "max": "value",
       "mulDiv": "function",
       "zero": "value"
+    },
+    "XFLProfile": {
+      "nearestEvenV1": "value",
+      "xahauFloatV1": "value"
     }
   }
 }

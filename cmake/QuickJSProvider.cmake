@@ -21,6 +21,8 @@ set(XAHAU_QUICKJS_EXACT_V1_DECLARATION
   "${XAHAU_QUICKJS_PROVIDER_BUNDLE_DIR}/xahau-quickjs-v1.d.ts")
 set(XAHAU_QUICKJS_SELECTED_SURFACE
   "${XAHAU_QUICKJS_PROVIDER_BUNDLE_DIR}/xahau-quickjs-v1.surface.json")
+set(XAHAU_QUICKJS_XFL_PROFILE_LEDGER
+  "${XAHAU_QUICKJS_PROVIDER_BUNDLE_DIR}/xfl-profile-ledger.ts")
 
 foreach(_bundle_file
     "${XAHAU_QUICKJS_PROVIDER_MANIFEST}"
@@ -29,7 +31,8 @@ foreach(_bundle_file
     "${XAHAU_QUICKJS_API_ARTIFACT_MANIFEST}"
     "${XAHAU_QUICKJS_BROAD_DECLARATION}"
     "${XAHAU_QUICKJS_EXACT_V1_DECLARATION}"
-    "${XAHAU_QUICKJS_SELECTED_SURFACE}")
+    "${XAHAU_QUICKJS_SELECTED_SURFACE}"
+    "${XAHAU_QUICKJS_XFL_PROFILE_LEDGER}")
   if(NOT EXISTS "${_bundle_file}")
     message(FATAL_ERROR
       "Missing sealed QuickJS provider bundle file: ${_bundle_file}")
@@ -74,6 +77,7 @@ add_custom_target(xahau_quickjs_refresh_provider
     "${XAHAU_QUICKJS_BROAD_DECLARATION}"
     "${XAHAU_QUICKJS_EXACT_V1_DECLARATION}"
     "${XAHAU_QUICKJS_SELECTED_SURFACE}"
+    "${XAHAU_QUICKJS_XFL_PROFILE_LEDGER}"
     "${XAHAU_QUICKJS_BUNDLE_SCRIPT}"
   COMMENT "Projecting sealed QuickJS provider values"
   VERBATIM)
