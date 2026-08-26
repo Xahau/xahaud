@@ -20,15 +20,15 @@ WASM_VERSION = "47.0.3"
 CMAKE_SET = re.compile(r'^set\(XAHAU_QUICKJS_([A-Z0-9_]+) "([^"]*)"\)\s*$')
 
 PIN = {
-    "provider_sha256": "6dcb4445c580fd4ee1365a57ad17e4cac3227fa2bbcfb95182e47231e7f8d92f",
-    "provider_size": "1122108",
-    "manifest_sha256": "1b05e8aca5f0dfd29511700e554bff0f5eb10ae1e4db5cafb987a31f5f5e4f8c",
-    "runtime_profile_id": "80450df03ed380be7b936a56ce30571f32a23eb5995340909cafd5dac4d32e4a",
+    "provider_sha256": "47e7003a0f4ee8f79fd529d4960aadc2ca58ac718afa4ebf2eededc169bcd13f",
+    "provider_size": "1124251",
+    "manifest_sha256": "4f88c9943d55f24a4667b082e0adcbd89c9033256c90a6d0556443ff725e8cff",
+    "runtime_profile_id": "e73c4faf5d1ecaacbf7e7401bbacec8f9c88b2a4dea45bac3cae75af62f35516",
     "broad_declaration_sha256": "c83351e646c85dfa14ba478bbf0074bf9fd6fcbe6c74bd95ac0a024a185f0b4d",
-    "exact_v1_declaration_sha256": "f69fabc3912ced6e1f6f2cdf3bc9fa8882302fc28079f6019d1c05715341211e",
-    "surface_sha256": "046b487c8e374770e4f216b5ad2c60eca05de50cf65b4bb2242e381eb6d2e331",
-    "xfl_profile_ledger_sha256": "39263a9726085a36d584a81b4503ed01dc2266c4f43b0603f043cfc54beaf052",
-    "api_artifact_manifest_sha256": "b1d1c24dd711ec69c3a13198e3fe13ad8577dd27d25f2c6de2ae0c2887f0d3c9",
+    "exact_v1_declaration_sha256": "f4d421731be028556e41c86eee284788383f84600219b69bcdb46b60be7911e0",
+    "surface_sha256": "8d36b218aefdb363adbe3a38e3505dba92db8d946ea92f211d6b5fbd96a9c232",
+    "xfl_profile_ledger_sha256": "94441fdceb731b3e92126b12435f45f1c797248c268b40504eddd58da6dffdb8",
+    "api_artifact_manifest_sha256": "3d140bf697e28ee1cf2b159f49bf0972f1bb0ae8519a5d835083647fb7f2bad0",
     "bytecode_abi": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
     "native_abi": "328ec938dcad875f3bdf25b8d779dd77f3571589818ca9271cb98c64c7018f99",
     "wasm_stack_bytes": "131072",
@@ -299,13 +299,13 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
 
     def test_provider_size_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
-            set_cmake(bundle, "PROVIDER_SIZE", "1122107")
+            set_cmake(bundle, "PROVIDER_SIZE", str(int(PIN["provider_size"]) - 1))
 
         self.assert_generator_red(mutate, "provider size disagrees")
 
     def test_coordinated_provider_size_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
-            value = 1122107
+            value = int(PIN["provider_size"]) - 1
             data = load_json(bundle)
             data["provider"]["size"] = value
             write_json(bundle, data)
@@ -746,6 +746,41 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
                         del table["nearestEvenV1"]
                     else:
                         table["future"] = 3
+                    write_json(bundle, data)
+                    rehash_manifest(bundle)
+
+                self.assert_generator_red(mutate, "artifact activation contract")
+
+    def test_artifact_profile_implementation_mutations(self) -> None:
+        mutations = {
+            "none": ["XFLDecimal.add"],
+            "xahauFloatV1": ["XFLDecimal.subtract"],
+            "nearestEvenV1": ["XFLDecimal.add"],
+        }
+        for name, value in mutations.items():
+            with self.subTest(name=name):
+                def mutate(bundle: Path, name=name, value=value) -> None:
+                    data = load_json(bundle)
+                    data["source"]["artifact"][
+                        "xfl_arithmetic_profile_implementations"
+                    ][name] = value
+                    write_json(bundle, data)
+                    rehash_manifest(bundle)
+
+                self.assert_generator_red(mutate, "artifact activation contract")
+
+    def test_artifact_profile_implementation_schema_mutations(self) -> None:
+        for operation in ("missing", "extra"):
+            with self.subTest(operation=operation):
+                def mutate(bundle: Path, operation=operation) -> None:
+                    data = load_json(bundle)
+                    table = data["source"]["artifact"][
+                        "xfl_arithmetic_profile_implementations"
+                    ]
+                    if operation == "missing":
+                        del table["nearestEvenV1"]
+                    else:
+                        table["future"] = []
                     write_json(bundle, data)
                     rehash_manifest(bundle)
 

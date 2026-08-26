@@ -43,7 +43,7 @@
   },
   "declaration": {
     "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "sha256": "f69fabc3912ced6e1f6f2cdf3bc9fa8882302fc28079f6019d1c05715341211e"
+    "sha256": "f4d421731be028556e41c86eee284788383f84600219b69bcdb46b60be7911e0"
   },
   "globals": {
     "AccountID": "object",
@@ -527,20 +527,24 @@
     },
     "XFLDecimal": {
       "members": {
+        "add": "function",
         "compare": "function",
         "equals": "function",
         "isNegative": "function",
         "isZero": "function",
         "negate": "function",
-        "sign": "function"
+        "sign": "function",
+        "subtract": "function"
       },
       "own": [
+        "add",
         "compare",
         "equals",
         "isNegative",
         "isZero",
         "negate",
-        "sign"
+        "sign",
+        "subtract"
       ],
       "probe": "util.decodeObject(STBlob.fromHex('61D4838D7EA4C680000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8')).Amount.toXFL()"
     }

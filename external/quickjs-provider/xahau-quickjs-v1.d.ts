@@ -631,6 +631,19 @@ declare global {
     equals(other: XChainBridge): boolean;
   }
 
+  /** Failure from constructing or operating on an `XFLDecimal`. */
+  interface XFLError {
+    readonly domain: "xfl";
+    readonly issue:
+      | "overflow"
+      | "underflow"
+      | "division-by-zero"
+      | "out-of-range"
+      | "invalid";
+  }
+
+  type XFLResult<T> = Result<T, XFLError>;
+
   /**
    * Artifact-declared last-digit rule for profile-sensitive `XFLDecimal`
    * arithmetic. A frozen enum namespace: two literal profile codes, no
@@ -684,6 +697,8 @@ declare global {
     isNegative(): boolean;
     isZero(): boolean;
     sign(): -1 | 0 | 1;
+    add(other: XFLDecimal): XFLResult<XFLDecimal>;
+    subtract(other: XFLDecimal): XFLResult<XFLDecimal>;
     negate(): XFLDecimal;
     equals(other: unknown): boolean;
     compare(other: XFLDecimal): -1 | 0 | 1;

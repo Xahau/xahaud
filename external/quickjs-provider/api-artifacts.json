@@ -1,9 +1,9 @@
 {
   "artifacts": {
     "python/jshookz/src/jshookz/types/hooks-api.d.ts": "c83351e646c85dfa14ba478bbf0074bf9fd6fcbe6c74bd95ac0a024a185f0b4d",
-    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts": "f69fabc3912ced6e1f6f2cdf3bc9fa8882302fc28079f6019d1c05715341211e",
-    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json": "046b487c8e374770e4f216b5ad2c60eca05de50cf65b4bb2242e381eb6d2e331",
-    "python/jshookz/src/jshookz/xfl_profile_ledger.ts": "39263a9726085a36d584a81b4503ed01dc2266c4f43b0603f043cfc54beaf052"
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts": "f4d421731be028556e41c86eee284788383f84600219b69bcdb46b60be7911e0",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json": "8d36b218aefdb363adbe3a38e3505dba92db8d946ea92f211d6b5fbd96a9c232",
+    "python/jshookz/src/jshookz/xfl_profile_ledger.ts": "94441fdceb731b3e92126b12435f45f1c797248c268b40504eddd58da6dffdb8"
   },
   "schema": "jshookz.api-artifacts.v1"
 }

@@ -8,3 +8,9 @@ export const XFL_PROFILE_SENSITIVE_MEMBERS = [
   "XFLDecimal.multiply",
   "XFLDecimal.subtract",
 ] as const;
+
+export const XFL_PROFILE_IMPLEMENTATIONS = {
+  "none": [],
+  "xahauFloatV1": ["XFLDecimal.add", "XFLDecimal.subtract"],
+  "nearestEvenV1": [],
+} as const;
