@@ -26,6 +26,8 @@
 #include <xrpl/json/json_value.h>
 #include <xrpl/protocol/PublicKey.h>
 
+#include <string_view>
+
 namespace ripple {
 
 namespace Resource {
@@ -38,6 +40,24 @@ enum class ProtocolFeature {
     LedgerReplay,
     ConsensusEntropy,
 };
+
+/** Stable diagnostic name for a negotiated peer-protocol feature. */
+constexpr std::string_view
+protocolFeatureName(ProtocolFeature feature)
+{
+    switch (feature)
+    {
+        case ProtocolFeature::ValidatorListPropagation:
+            return "validator-list-propagation";
+        case ProtocolFeature::ValidatorList2Propagation:
+            return "validator-list-2-propagation";
+        case ProtocolFeature::LedgerReplay:
+            return "ledger-replay";
+        case ProtocolFeature::ConsensusEntropy:
+            return "xahau-consensus-entropy";
+    }
+    return "unknown";
+}
 
 /** Represents a peer connection in the overlay. */
 class Peer

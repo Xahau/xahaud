@@ -118,6 +118,7 @@ private:
     std::atomic<uint64_t> jqTransOverflow_{0};
     std::atomic<uint64_t> peerDisconnects_{0};
     std::atomic<uint64_t> peerDisconnectsCharges_{0};
+    std::atomic<std::uint32_t> requiredProtocolFeatures_{0};
 
     reduce_relay::Slots<UptimeClock> slots_;
 
@@ -221,6 +222,12 @@ public:
     findPeerByPublicKey(PublicKey const& pubKey) override;
 
     void
+    requireProtocolFeature(ProtocolFeature feature) override;
+
+    bool
+    isProtocolFeatureRequired(ProtocolFeature feature) const override;
+
+    void
     broadcast(protocol::TMProposeSet& m) override;
 
     void
@@ -269,6 +276,21 @@ public:
     void
     add_active(std::shared_ptr<PeerImp> const& peer);
 
+    /** Return the first mandatory feature missing from handshake headers. */
+    template <class Headers>
+    std::optional<ProtocolFeature>
+    missingRequiredProtocolFeatureInHandshake(Headers const& headers) const
+    {
+        if (isProtocolFeatureRequired(ProtocolFeature::ConsensusEntropy) &&
+            !peerFeatureEnabled(headers, FEATURE_CONSENSUS_ENTROPY, true))
+            return ProtocolFeature::ConsensusEntropy;
+        return std::nullopt;
+    }
+
+    /** Return the first mandatory feature missing from a negotiated peer. */
+    std::optional<ProtocolFeature>
+    missingRequiredProtocolFeature(Peer const& peer) const;
+
     void
     remove(std::shared_ptr<PeerFinder::Slot> const& slot);
 
@@ -277,7 +299,7 @@ public:
         peer activation. At this point, the peer address and the public key
         are known.
     */
-    void
+    bool
     activate(std::shared_ptr<PeerImp> const& peer);
 
     // Called when an active peer is destroyed.

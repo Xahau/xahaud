@@ -21,6 +21,9 @@ is locked but *before* normal execution — with **bounded, labeled** manipulati
 and **graceful degradation**, and **without ever weakening base-consensus
 determinism or liveness.**
 
+The amendment's peer-protocol compatibility boundary is specified separately
+in [Amendment-gated peer protocol features](../../overlay/ProtocolFeatureRequirements.md).
+
 ## Invariants
 
 **INV-1 — Determinism of the injected object.**

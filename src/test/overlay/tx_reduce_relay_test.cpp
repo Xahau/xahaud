@@ -241,11 +241,46 @@ private:
     }
 
     void
+    testProtocolFeatureGate()
+    {
+        testcase("required protocol feature gate");
+        jtx::Env env(*this);
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+
+        boost::beast::http::fields legacy;
+        boost::beast::http::fields capable;
+        capable.set(
+            "X-Protocol-Ctl",
+            makeFeaturesRequestHeader(false, false, false, false));
+
+        BEAST_EXPECT(!overlay.isProtocolFeatureRequired(
+            ProtocolFeature::ConsensusEntropy));
+        BEAST_EXPECT(!overlay.missingRequiredProtocolFeatureInHandshake(
+            legacy));
+
+        overlay.requireProtocolFeature(ProtocolFeature::ConsensusEntropy);
+
+        BEAST_EXPECT(overlay.isProtocolFeatureRequired(
+            ProtocolFeature::ConsensusEntropy));
+        BEAST_EXPECT(
+            overlay.missingRequiredProtocolFeatureInHandshake(legacy) ==
+            ProtocolFeature::ConsensusEntropy);
+        BEAST_EXPECT(!overlay.missingRequiredProtocolFeatureInHandshake(
+            capable));
+
+        // Requiring an already-required feature is intentionally idempotent.
+        overlay.requireProtocolFeature(ProtocolFeature::ConsensusEntropy);
+        BEAST_EXPECT(overlay.isProtocolFeatureRequired(
+            ProtocolFeature::ConsensusEntropy));
+    }
+
+    void
     run() override
     {
         bool log = false;
         std::set<Peer::id_t> skip = {0, 1, 2, 3, 4};
         testConfig(log);
+        testProtocolFeatureGate();
         // relay to all peers, no hash queue
         testRelay("feature disabled", false, 10, 0, 10, 25, 10, 0);
         // relay to nPeers - skip (10-5=5)

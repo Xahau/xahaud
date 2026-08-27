@@ -147,6 +147,19 @@ public:
     virtual std::shared_ptr<Peer>
     findPeerByPublicKey(PublicKey const& pubKey) = 0;
 
+    /** Make a negotiated protocol feature mandatory for peer sessions.
+
+        The requirement is monotonic for the lifetime of this process. Existing
+        incompatible sessions are disconnected and future handshakes are
+        rejected.
+    */
+    virtual void
+    requireProtocolFeature(ProtocolFeature feature) = 0;
+
+    /** Return whether a protocol feature is mandatory for peer sessions. */
+    virtual bool
+    isProtocolFeatureRequired(ProtocolFeature feature) const = 0;
+
     /** Broadcast a proposal. */
     virtual void
     broadcast(protocol::TMProposeSet& m) = 0;

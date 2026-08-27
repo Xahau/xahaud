@@ -4,7 +4,7 @@ Topology (ALL start on @release, a build with NO CE support):
   n0-n4  5 UNL validators   (quorum 4)
   n5     tracker (non-UNL)  -> WILL be upgraded; keeps working after activation
   n6     tracker (non-UNL)  -> NOT upgraded (the straggler); becomes
-                               amendment-blocked after activation but does NOT crash
+                               amendment-blocked, then protocol-isolated
 
 TOPOLOGY-AWARE RESTARTS: the suite starts without fixed peers and this scenario
 forms a directed ring over 127.0.0.1. A seven-node ring remains connected while
@@ -20,7 +20,7 @@ prepare_genesis_file() in testnet/config.py.
 
 Arc: all-old healthy + mesh formed -> rolling-upgrade 5 validators + 1 tracker
 (mesh re-forms between each) -> vote CE -> activation at the flag ledger ->
-n5 (upgraded) keeps tracking, n6 (straggler) amendment-blocked but not crashed.
+n5 (upgraded) keeps tracking, while every upgraded peer drops/rejects n6.
 
 Run: x-testnet --rippled-path @release suite \\
        .testnet/scenarios/rollout/rollout-suite.yml --stop-on-fail
@@ -38,7 +38,6 @@ ALL_NODES = VALIDATORS + [UPGRADED_TRACKER, STRAGGLER_TRACKER]
 MESH_MIN = 2
 PROTOCOL = "XRPL/2.2"
 CONSENSUS_ENTROPY_CAPABILITY = "xahau-consensus-entropy"
-GENESIS_ACCOUNT = "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh"
 RING_EDGES = {(nid, (nid + 1) % len(ALL_NODES)) for nid in ALL_NODES}
 
 
@@ -52,6 +51,11 @@ def _blocked(ctx, nid):
 
 def _peers(ctx, nid):
     return int(_info(ctx, nid).get("peers") or 0)
+
+
+def _peer_public_keys(ctx, nid):
+    result = ctx.rpc.peers(nid) or []
+    return {peer.get("public_key") for peer in result if peer.get("public_key")}
 
 
 def _assert_capability_matrix(ctx, log, *, upgraded, phase):
@@ -102,6 +106,34 @@ def _assert_capability_matrix(ctx, log, *, upgraded, phase):
         f"{phase}: {PROTOCOL} throughout; CE capability on "
         f"{len(capable_edges)} upgraded-upgraded directed edges and off on "
         f"{len(legacy_edges)} upgraded-old directed edges"
+    )
+
+
+def _straggler_is_isolated(ctx):
+    """The old process is alive, but no upgraded node has an active session to it."""
+    old_key = _info(ctx, STRAGGLER_TRACKER).get("pubkey_node")
+    if not old_key or _peers(ctx, STRAGGLER_TRACKER) != 0:
+        return False
+    return all(old_key not in _peer_public_keys(ctx, nid) for nid in ALL_NODES[:-1])
+
+
+async def _wait_for_stable_straggler_isolation(ctx, log, *, timeout=180):
+    await ctx.wait_for(
+        lambda: _straggler_is_isolated(ctx),
+        timeout=timeout,
+        poll_interval=1,
+        name="legacy-straggler-isolated",
+    )
+    # Make the assertion survive PeerFinder's immediate reconnect cycle rather
+    # than observing only the instant between two attempts.
+    for _ in range(5):
+        await asyncio.sleep(1)
+        assert _straggler_is_isolated(ctx), (
+            f"n{STRAGGLER_TRACKER} regained an incompatible active session"
+        )
+    log(
+        f"n{STRAGGLER_TRACKER} remains RPC-alive but protocol-isolated: "
+        f"peers={_peers(ctx, STRAGGLER_TRACKER)}"
     )
 
 
@@ -223,121 +255,6 @@ async def _wait_for_entropy_ledger(ctx, log, *, node_id, timeout=180):
     )
 
 
-async def _probe_straggler_rpc(ctx, log, *, ledger_index):
-    """Exercise old-node read APIs after it becomes amendment-blocked.
-
-    Expanded transaction and JSON ledger-data requests intentionally force the
-    old binary to decode objects containing post-upgrade transaction/SLE fields.
-    After every request, independently check that the process still answers RPC.
-    """
-
-    probes = [
-        (
-            "account_info",
-            "account_info",
-            {"account": GENESIS_ACCOUNT, "ledger_index": ledger_index},
-        ),
-        (
-            "ledger header",
-            "ledger",
-            {
-                "ledger_index": ledger_index,
-                "transactions": False,
-                "expand": False,
-            },
-        ),
-        (
-            "ledger transaction hashes",
-            "ledger",
-            {
-                "ledger_index": ledger_index,
-                "transactions": True,
-                "expand": False,
-            },
-        ),
-        (
-            "ledger fully expanded transactions",
-            "ledger",
-            {
-                "ledger_index": ledger_index,
-                "transactions": True,
-                "expand": True,
-            },
-        ),
-        (
-            "ledger_data binary",
-            "ledger_data",
-            {"ledger_index": ledger_index, "binary": True, "limit": 256},
-        ),
-        (
-            "ledger_data JSON",
-            "ledger_data",
-            {"ledger_index": ledger_index, "binary": False, "limit": 256},
-        ),
-    ]
-
-    log(
-        f"probing amendment-blocked n{STRAGGLER_TRACKER} at ledger {ledger_index} "
-        f"(upgraded node saw ConsensusEntropy in this ledger)"
-    )
-    results = {}
-    for label, method, params in probes:
-        result = ctx.rpc.request(STRAGGLER_TRACKER, method, params)
-        results[label] = result
-        # Catch a delayed abort after the HTTP response has already been sent.
-        await asyncio.sleep(0.5)
-        alive = bool(ctx.rpc.server_info(STRAGGLER_TRACKER))
-        log(f"n{STRAGGLER_TRACKER} RPC {label}: {_rpc_summary(result)}; alive={alive}")
-        assert alive, f"n{STRAGGLER_TRACKER} crashed after RPC probe: {label}"
-
-    # LedgerToJson on the old binary catches its unknown-field exception around
-    # the complete transaction loop. The RPC therefore reports success but
-    # silently returns an empty array for a ledger that the upgraded node proved
-    # contains ConsensusEntropy. Ledger-data's SLE walk propagates the same
-    # schema mismatch to the RPC boundary as `internal`.
-    for label in ("ledger transaction hashes", "ledger fully expanded transactions"):
-        result = results[label]
-        assert result is not None and not result.get("error"), (
-            f"n{STRAGGLER_TRACKER} {label} should return a caught success: {result}"
-        )
-        assert not _ledger_transactions(result), (
-            f"n{STRAGGLER_TRACKER} unexpectedly decoded CE ledger transactions "
-            f"for {label}: {_rpc_summary(result)}"
-        )
-    log(
-        f"n{STRAGGLER_TRACKER} ledger transaction views returned caught success "
-        "with empty arrays as expected"
-    )
-    for label in ("ledger_data binary", "ledger_data JSON"):
-        result = results[label]
-        assert result is not None and result.get("error") == "internal", (
-            f"n{STRAGGLER_TRACKER} {label} should expose unknown SLE field as "
-            f"internal: {result}"
-        )
-
-
-def _report_straggler_proposals(ctx, log, *, since):
-    """Copy focused old-node proposal handling evidence into scenario output."""
-    proposals = ctx.search_logs(
-        r"Proposal:", since=since, nodes=[STRAGGLER_TRACKER], limit=500
-    )
-    rejected = [
-        entry
-        for entry in proposals.matches
-        if any(
-            token in entry.line.lower()
-            for token in ("drop", "malformed", "disabled", "reject")
-        )
-    ]
-    log(
-        f"n{STRAGGLER_TRACKER} Protocol trace captured {proposals.count} proposal "
-        f"events since vote, including {len(rejected)} drop/reject events"
-    )
-    selected = rejected if rejected else proposals.matches[-20:]
-    for entry in selected[:50]:
-        log(f"n{STRAGGLER_TRACKER} proposal trace: {entry.line}")
-
-
 async def scenario(ctx, log):
     # 1. all-old net healthy AND the ring has formed before we touch it
     await _restore_ring(ctx, log)
@@ -375,11 +292,7 @@ async def scenario(ctx, log):
     )
 
     # 3. vote CE up on the validators (real vote; the seed only pre-satisfied the hold)
-    assert ctx.rpc.log_level(STRAGGLER_TRACKER, "Protocol", "trace"), (
-        f"failed to enable Protocol trace on n{STRAGGLER_TRACKER}"
-    )
-    proposal_trace_start = ctx.mark("straggler-protocol-trace")
-    log(f"enabled Protocol trace on old straggler n{STRAGGLER_TRACKER}")
+    gate_start = ctx.mark("ce-protocol-gate")
     ctx.feature(CONSENSUS_ENTROPY_FEATURE, vetoed=False, nodes=VALIDATORS)
     log("voted ConsensusEntropy accept on n0-n4; crossing the flag ledger...")
 
@@ -392,17 +305,39 @@ async def scenario(ctx, log):
     )
     log("ConsensusEntropy ENABLED on the upgraded quorum")
 
-    # 5. upgraded tracker keeps working; straggler is amendment-blocked (not crashed)
+    # 5. The amendment-blocked behavior remains visible on the old process, but
+    #    the upgraded overlay now makes the incompatibility fail fast.
     await ctx.wait_for_nodes(
         lambda x: _blocked(ctx, x), nodes=[STRAGGLER_TRACKER], timeout=180
     )
     ctx.assert_log("server blocked", nodes=[STRAGGLER_TRACKER])
-    _assert_capability_matrix(
-        ctx,
-        log,
-        upgraded=upgraded,
-        phase="after ConsensusEntropy activation",
+    for nid in sorted(upgraded):
+        ctx.assert_log(
+            r"Peer protocol feature now required: xahau-consensus-entropy",
+            since=gate_start,
+            nodes=[nid],
+        )
+    for nid in (VALIDATORS[0], UPGRADED_TRACKER):
+        ctx.assert_log(
+            r"Missing required protocol feature xahau-consensus-entropy",
+            since=gate_start,
+            nodes=[nid],
+        )
+    await _wait_for_stable_straggler_isolation(ctx, log)
+
+    # Exercise both admission directions after the initial eviction. The RPC
+    # only schedules a connection attempt; the invariant is that neither
+    # attempt becomes an active peer session.
+    old_node = ctx._node_info(STRAGGLER_TRACKER)
+    new_node = ctx._node_info(VALIDATORS[0])
+    new_to_old = ctx.rpc.connect(UPGRADED_TRACKER, "127.0.0.1", old_node.port_peer)
+    old_to_new = ctx.rpc.connect(STRAGGLER_TRACKER, "127.0.0.1", new_node.port_peer)
+    log(
+        "forced reconnect attempts in both directions: "
+        f"new->old={new_to_old}; old->new={old_to_new}"
     )
+    await _wait_for_stable_straggler_isolation(ctx, log, timeout=60)
+
     assert not _blocked(ctx, UPGRADED_TRACKER), (
         f"n{UPGRADED_TRACKER} (upgraded tracker) should NOT be amendment-blocked"
     )
@@ -413,15 +348,19 @@ async def scenario(ctx, log):
         f"n{UPGRADED_TRACKER} has ConsensusEntropy at ledger {probe_ledger}: "
         f"types={ce_types}"
     )
-    await ctx.wait_for_ledger(probe_ledger, node_id=STRAGGLER_TRACKER, timeout=60)
-    await _probe_straggler_rpc(ctx, log, ledger_index=probe_ledger)
-    _report_straggler_proposals(ctx, log, since=proposal_trace_start)
-    snapshot = ctx._network.snapshot("ce-old-straggler-probe", keep_db=False)
-    log(f"captured old-straggler Protocol trace and logs at {snapshot}")
+
+    target = (await ctx.wait_for_ledgers(2, node_id=VALIDATORS[0], timeout=180)).result
+    for nid in sorted(upgraded):
+        await ctx.wait_for_ledger(target, node_id=nid, timeout=180)
+    log(f"capable six-node component continued through ledger {target}")
+
+    snapshot = ctx._network.snapshot("ce-required-protocol-gate", keep_db=False)
+    log(f"captured protocol-gate and reconnect evidence at {snapshot}")
     for nid in (UPGRADED_TRACKER, STRAGGLER_TRACKER):
         assert ctx.rpc.server_info(nid), f"n{nid} RPC down (crashed?)"
     log(
         f"PASS: rolling upgrade preserved quorum 4 (mesh-gated); CE activated; "
         f"n{UPGRADED_TRACKER} (upgraded tracker) still tracking; "
-        f"n{STRAGGLER_TRACKER} (@release straggler) amendment-blocked and still running"
+        f"n{STRAGGLER_TRACKER} (@release straggler) amendment-blocked, still "
+        "running for RPC observation, and rejected from the peer protocol"
     )

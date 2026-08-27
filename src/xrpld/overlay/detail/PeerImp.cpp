@@ -865,7 +865,8 @@ PeerImp::doAccept()
         JLOG(journal_.info()) << "Cluster name: " << *member;
     }
 
-    overlay_.activate(shared_from_this());
+    if (!overlay_.activate(shared_from_this()))
+        return fail("Missing required protocol feature");
 
     // XXX Set timer: connection is in grace period to be useful.
     // XXX Set timer: connection idle (idle may vary depending on connection

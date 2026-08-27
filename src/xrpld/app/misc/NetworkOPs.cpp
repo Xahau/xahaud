@@ -1930,6 +1930,14 @@ NetworkOPsImp::beginConsensus(
 
     if (prevLedger->rules().enabled(featureNegativeUNL))
         app_.validators().setNegativeUNL(prevLedger->negativeUNL());
+
+    // The accepted enable-amendment ledger carries the new rules. Install the
+    // peer-protocol gate before startRound so no legacy session can receive or
+    // contribute proposals built under those rules.
+    if (prevLedger->rules().enabled(featureConsensusEntropy))
+        app_.overlay().requireProtocolFeature(
+            ProtocolFeature::ConsensusEntropy);
+
     TrustChanges const changes = app_.validators().updateTrusted(
         app_.getValidations().getCurrentNodeIDs(),
         closingInfo.parentCloseTime,

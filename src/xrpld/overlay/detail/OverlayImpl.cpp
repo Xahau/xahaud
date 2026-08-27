@@ -43,6 +43,16 @@
 
 namespace ripple {
 
+namespace {
+
+constexpr std::uint32_t
+protocolFeatureMask(ProtocolFeature feature)
+{
+    return std::uint32_t{1} << static_cast<unsigned>(feature);
+}
+
+}  // namespace
+
 namespace CrawlOptions {
 enum {
     Disabled = 0,
@@ -262,6 +272,12 @@ OverlayImpl::onHandoff(
             remote_endpoint.address(),
             app_);
 
+        if (auto const missing =
+                missingRequiredProtocolFeatureInHandshake(request))
+            throw std::runtime_error(
+                "Handshake missing required protocol feature " +
+                std::string(protocolFeatureName(*missing)));
+
         {
             // The node gets a reserved slot if it is in our cluster
             // or if it has a reservation.
@@ -462,6 +478,16 @@ OverlayImpl::add_active(std::shared_ptr<PeerImp> const& peer)
                                   TokenType::NodePublic, peer->getNodePublic())
                            << ")";
 
+    // Close the admission race where the requirement changes after the HTTP
+    // response was checked but before this peer is added to the active set.
+    if (auto const missing = missingRequiredProtocolFeature(*peer))
+    {
+        peer->fail(
+            "Missing required protocol feature " +
+            std::string(protocolFeatureName(*missing)));
+        return;
+    }
+
     // As we are not on the strand, run() must be called
     // while holding the lock, otherwise new I/O can be
     // queued after a call to stop().
@@ -595,9 +621,20 @@ OverlayImpl::onWrite(beast::PropertyStream::Map& stream)
     peer activation. At this point, the peer address and the public key
     are known.
 */
-void
+bool
 OverlayImpl::activate(std::shared_ptr<PeerImp> const& peer)
 {
+    // Close the admission race where the requirement changes after the HTTP
+    // request was checked but before an inbound peer enters the active set.
+    if (auto const missing = missingRequiredProtocolFeature(*peer))
+    {
+        JLOG(journal_.warn())
+            << "Rejected active peer missing required protocol feature "
+            << protocolFeatureName(*missing) << " from "
+            << peer->getRemoteAddress();
+        return false;
+    }
+
     // Now track this peer
     {
         std::lock_guard lock(mutex_);
@@ -619,6 +656,7 @@ OverlayImpl::activate(std::shared_ptr<PeerImp> const& peer)
 
     // We just accepted this peer so we have non-zero active peers
     XRPL_ASSERT(size(), "ripple::OverlayImpl::activate : nonzero peers");
+    return true;
 }
 
 void
@@ -1126,6 +1164,42 @@ OverlayImpl::findPeerByPublicKey(PublicKey const& pubKey)
         }
     }
     return {};
+}
+
+void
+OverlayImpl::requireProtocolFeature(ProtocolFeature feature)
+{
+    auto const mask = protocolFeatureMask(feature);
+    auto const previous = requiredProtocolFeatures_.fetch_or(
+        mask, std::memory_order_acq_rel);
+    if ((previous & mask) != 0)
+        return;
+
+    JLOG(journal_.warn()) << "Peer protocol feature now required: "
+                          << protocolFeatureName(feature);
+
+    for_each([feature](std::shared_ptr<PeerImp>&& peer) {
+        if (!peer->supportsFeature(feature))
+            peer->fail(
+                "Missing required protocol feature " +
+                std::string(protocolFeatureName(feature)));
+    });
+}
+
+bool
+OverlayImpl::isProtocolFeatureRequired(ProtocolFeature feature) const
+{
+    return (requiredProtocolFeatures_.load(std::memory_order_acquire) &
+            protocolFeatureMask(feature)) != 0;
+}
+
+std::optional<ProtocolFeature>
+OverlayImpl::missingRequiredProtocolFeature(Peer const& peer) const
+{
+    if (isProtocolFeatureRequired(ProtocolFeature::ConsensusEntropy) &&
+        !peer.supportsFeature(ProtocolFeature::ConsensusEntropy))
+        return ProtocolFeature::ConsensusEntropy;
+    return std::nullopt;
 }
 
 void
