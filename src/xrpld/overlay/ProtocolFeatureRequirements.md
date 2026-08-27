@@ -94,7 +94,7 @@ Calling `requireProtocolFeature` again is harmless. Requirements do not clear
 during the process lifetime because amendments do not deactivate on a ledger's
 descendant chain.
 
-## Why disconnect instead of filtering only CE messages
+## Why disconnect instead of filtering only extension messages
 
 After activation, the peer and ledger protocols are one compatibility unit.
 An old peer can remain TCP-connected and answer some RPCs while silently
