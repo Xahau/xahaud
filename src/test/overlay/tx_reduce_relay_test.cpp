@@ -320,8 +320,8 @@ private:
         auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
         BEAST_EXPECT(overlay.isProtocolFeatureRequired(
             ProtocolFeature::ConsensusEntropy));
-        BEAST_EXPECT(overlay.isProtocolFeatureRequired(
-            ProtocolFeature::ExportShares));
+        BEAST_EXPECT(
+            overlay.isProtocolFeatureRequired(ProtocolFeature::ExportShares));
     }
 
     void
@@ -337,8 +337,8 @@ private:
         capable.set("X-Protocol-Ctl", capableCtl);
 
         overlay.requireProtocolFeature(ProtocolFeature::ExportShares);
-        BEAST_EXPECT(overlay.isProtocolFeatureRequired(
-            ProtocolFeature::ExportShares));
+        BEAST_EXPECT(
+            overlay.isProtocolFeatureRequired(ProtocolFeature::ExportShares));
         BEAST_EXPECT(
             overlay.missingRequiredProtocolFeatureInHandshake(
                 empty, make_protocol(2, 2)) == ProtocolFeature::ExportShares);
@@ -357,8 +357,7 @@ private:
         overlay.requireProtocolFeature(ProtocolFeature::LedgerReplay);
         BEAST_EXPECT(
             overlay.missingRequiredProtocolFeatureInHandshake(
-                capable, make_protocol(2, 2)) ==
-            ProtocolFeature::LedgerReplay);
+                capable, make_protocol(2, 2)) == ProtocolFeature::LedgerReplay);
         boost::beast::http::fields withReplay;
         withReplay.set(
             "X-Protocol-Ctl", capableCtl + std::string("ledgerreplay=1;"));

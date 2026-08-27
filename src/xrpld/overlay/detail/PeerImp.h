@@ -737,8 +737,8 @@ PeerImp::PeerImp(
                           << " consensus entropy capability negotiated "
                           << consensusEntropyCapable_
                           << " export shares capability negotiated "
-                          << exportSharesCapable_ << " on "
-                          << remote_address_ << " " << id_;
+                          << exportSharesCapable_ << " on " << remote_address_
+                          << " " << id_;
 }
 
 template <class FwdIt, class>

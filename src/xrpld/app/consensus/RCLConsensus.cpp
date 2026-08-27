@@ -679,8 +679,7 @@ RCLConsensus::Adaptor::doAccept(
         app_.overlay().requireProtocolFeature(
             ProtocolFeature::ConsensusEntropy);
     if (built.ledger_->rules().enabled(featureExport))
-        app_.overlay().requireProtocolFeature(
-            ProtocolFeature::ExportShares);
+        app_.overlay().requireProtocolFeature(ProtocolFeature::ExportShares);
 
     // Tell directly connected peers that we have a new LCL
     notify(protocol::neACCEPTED_LEDGER, built, haveCorrectLCL);
