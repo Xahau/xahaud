@@ -1,7 +1,8 @@
 # Rolling binary upgrade -> ConsensusEntropy activation.
 #
 # All nodes start on @release (set via `--rippled-path @release` on the CLI); the
-# scenario rolling-restarts them to @export-rng, then casts a REAL vote. The
+# scenario rolling-restarts them to the immutable @export-rng-gate snapshot,
+# then casts a REAL vote. The
 # --seed-majority (majority_features) only pre-satisfies the amendment hold time
 # so activation lands at ONE flag ledger instead of two -- it is NOT a vote, and
 # is cleared (tfLostMajority) if the validators don't vote yes before the flag

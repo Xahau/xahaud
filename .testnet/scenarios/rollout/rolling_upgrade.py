@@ -24,6 +24,8 @@ n5 (upgraded) keeps tracking, while every upgraded peer drops/rejects n6.
 
 Run: x-testnet --rippled-path @release suite \\
        .testnet/scenarios/rollout/rollout-suite.yml --stop-on-fail
+
+The upgrade target is the immutable saved-binary alias `@export-rng-gate`.
 """
 
 import asyncio
@@ -38,6 +40,7 @@ ALL_NODES = VALIDATORS + [UPGRADED_TRACKER, STRAGGLER_TRACKER]
 MESH_MIN = 2
 PROTOCOL = "XRPL/2.2"
 CONSENSUS_ENTROPY_CAPABILITY = "xahau-consensus-entropy"
+UPGRADE_BINARY = "@export-rng-gate"
 RING_EDGES = {(nid, (nid + 1) % len(ALL_NODES)) for nid in ALL_NODES}
 
 
@@ -272,8 +275,8 @@ async def scenario(ctx, log):
     for nid in [*VALIDATORS, UPGRADED_TRACKER]:
         ref = next(v for v in VALIDATORS if v != nid)
         role = "validator" if nid in VALIDATORS else "tracker"
-        log(f"rolling upgrade: n{nid} ({role}) -> @export-rng")
-        await ctx.restart_node_with_binary(nid, "@export-rng", delay=3)
+        log(f"rolling upgrade: n{nid} ({role}) -> {UPGRADE_BINARY}")
+        await ctx.restart_node_with_binary(nid, UPGRADE_BINARY, delay=3)
         upgraded.add(nid)
         await _restore_ring(ctx, log)
         await _wait_mesh(ctx, log, timeout=180)  # mesh re-formed before next roll
@@ -287,7 +290,7 @@ async def scenario(ctx, log):
         )
         log(f"n{nid} rejoined; mesh re-formed; quorum advanced to {target}")
     log(
-        f"validators + n{UPGRADED_TRACKER} on @export-rng; "
+        f"validators + n{UPGRADED_TRACKER} on {UPGRADE_BINARY}; "
         f"n{STRAGGLER_TRACKER} left on @release; CE still inactive"
     )
 
