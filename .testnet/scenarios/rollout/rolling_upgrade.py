@@ -139,6 +139,25 @@ async def _restore_ring(ctx, log, *, timeout=90):
     log(f"ring topology restored ({len(RING_EDGES)} directed edges)")
 
 
+def _ledger_transactions(result):
+    """Return the transactions array from a ledger RPC result."""
+    if not result:
+        return []
+    ledger = result.get("ledger") or {}
+    return ledger.get("transactions") or result.get("transactions") or []
+
+
+def _tx_types(result):
+    """Return TransactionType (or 'hash') for each tx in a ledger RPC result."""
+    types = []
+    for tx in _ledger_transactions(result):
+        if isinstance(tx, dict):
+            types.append(str(tx.get("TransactionType", "<unnamed>")))
+        else:
+            types.append("hash")
+    return types
+
+
 def _rpc_summary(result):
     """Return a compact, log-safe summary of an RPC result."""
     if result is None:
@@ -147,14 +166,9 @@ def _rpc_summary(result):
         return f"error={result.get('error')} message={result.get('error_message')}"
 
     ledger = result.get("ledger") or {}
-    transactions = ledger.get("transactions") or result.get("transactions") or []
+    transactions = _ledger_transactions(result)
+    tx_types = _tx_types(result)
     state = result.get("state") or []
-    tx_types = []
-    for tx in transactions:
-        if isinstance(tx, dict):
-            tx_types.append(str(tx.get("TransactionType", "<unnamed>")))
-        else:
-            tx_types.append("hash")
     entry_types = sorted(
         {
             str(entry.get("LedgerEntryType", "<unnamed>"))
@@ -165,15 +179,48 @@ def _rpc_summary(result):
     details = ["success"]
     if ledger:
         details.append(f"ledger={ledger.get('ledger_index')}")
-    if transactions:
-        details.append(f"txs={len(transactions)} types={tx_types}")
+    details.append(f"txs={len(transactions)} types={tx_types}")
     if state:
         details.append(f"state={len(state)} types={entry_types}")
     if result.get("account_data"):
         details.append(f"account_seq={result['account_data'].get('Sequence')}")
     if result.get("marker"):
         details.append("marker=yes")
+    if not ledger and not transactions and not state and not result.get("account_data"):
+        details.append(f"keys={sorted(result)}")
     return "; ".join(details)
+
+
+async def _wait_for_entropy_ledger(ctx, log, *, node_id, timeout=180):
+    """Wait until node_id's closed ledger expands with a ConsensusEntropy tx."""
+    deadline = asyncio.get_event_loop().time() + timeout
+    last = None
+    while asyncio.get_event_loop().time() < deadline:
+        info = _info(ctx, node_id)
+        seq = info.get("validated_ledger", {}).get("seq") or info.get("ledger_index")
+        if seq and seq != last:
+            last = seq
+            result = ctx.rpc.request(
+                node_id,
+                "ledger",
+                {
+                    "ledger_index": seq,
+                    "transactions": True,
+                    "expand": True,
+                },
+            )
+            types = _tx_types(result)
+            log(
+                f"n{node_id} closed/validated ledger {seq} expanded: "
+                f"{_rpc_summary(result)}"
+            )
+            if "ConsensusEntropy" in types:
+                return seq, types
+        await asyncio.sleep(1)
+    raise TimeoutError(
+        f"n{node_id} did not close a ledger containing ConsensusEntropy "
+        f"within {timeout}s (last={last})"
+    )
 
 
 async def _probe_straggler_rpc(ctx, log, *, ledger_index):
@@ -229,14 +276,44 @@ async def _probe_straggler_rpc(ctx, log, *, ledger_index):
         ),
     ]
 
-    log(f"probing amendment-blocked n{STRAGGLER_TRACKER} at ledger {ledger_index}")
+    log(
+        f"probing amendment-blocked n{STRAGGLER_TRACKER} at ledger {ledger_index} "
+        f"(upgraded node saw ConsensusEntropy in this ledger)"
+    )
+    results = {}
     for label, method, params in probes:
         result = ctx.rpc.request(STRAGGLER_TRACKER, method, params)
+        results[label] = result
         # Catch a delayed abort after the HTTP response has already been sent.
         await asyncio.sleep(0.5)
         alive = bool(ctx.rpc.server_info(STRAGGLER_TRACKER))
         log(f"n{STRAGGLER_TRACKER} RPC {label}: {_rpc_summary(result)}; alive={alive}")
         assert alive, f"n{STRAGGLER_TRACKER} crashed after RPC probe: {label}"
+
+    # LedgerToJson on the old binary catches its unknown-field exception around
+    # the complete transaction loop. The RPC therefore reports success but
+    # silently returns an empty array for a ledger that the upgraded node proved
+    # contains ConsensusEntropy. Ledger-data's SLE walk propagates the same
+    # schema mismatch to the RPC boundary as `internal`.
+    for label in ("ledger transaction hashes", "ledger fully expanded transactions"):
+        result = results[label]
+        assert result is not None and not result.get("error"), (
+            f"n{STRAGGLER_TRACKER} {label} should return a caught success: {result}"
+        )
+        assert not _ledger_transactions(result), (
+            f"n{STRAGGLER_TRACKER} unexpectedly decoded CE ledger transactions "
+            f"for {label}: {_rpc_summary(result)}"
+        )
+    log(
+        f"n{STRAGGLER_TRACKER} ledger transaction views returned caught success "
+        "with empty arrays as expected"
+    )
+    for label in ("ledger_data binary", "ledger_data JSON"):
+        result = results[label]
+        assert result is not None and result.get("error") == "internal", (
+            f"n{STRAGGLER_TRACKER} {label} should expose unknown SLE field as "
+            f"internal: {result}"
+        )
 
 
 def _report_straggler_proposals(ctx, log, *, since):
@@ -329,9 +406,13 @@ async def scenario(ctx, log):
     assert not _blocked(ctx, UPGRADED_TRACKER), (
         f"n{UPGRADED_TRACKER} (upgraded tracker) should NOT be amendment-blocked"
     )
-    probe_ledger = (
-        await ctx.wait_for_ledgers(2, node_id=UPGRADED_TRACKER, timeout=120)
-    ).result
+    probe_ledger, ce_types = await _wait_for_entropy_ledger(
+        ctx, log, node_id=UPGRADED_TRACKER, timeout=180
+    )
+    log(
+        f"n{UPGRADED_TRACKER} has ConsensusEntropy at ledger {probe_ledger}: "
+        f"types={ce_types}"
+    )
     await ctx.wait_for_ledger(probe_ledger, node_id=STRAGGLER_TRACKER, timeout=60)
     await _probe_straggler_rpc(ctx, log, ledger_index=probe_ledger)
     _report_straggler_proposals(ctx, log, since=proposal_trace_start)
