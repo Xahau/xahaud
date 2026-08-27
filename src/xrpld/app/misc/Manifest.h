@@ -302,6 +302,18 @@ private:
     hash_map<PublicKey, std::atomic<std::uint64_t>> mutable lastUsed_;
     std::atomic<std::uint64_t> mutable tick_{0};
 
+    /** Ephemeral keys already probed against the ledger, and where.
+
+        Bounds the reads driven by incoming validations to one per key per
+        ledger. A key that resolves does not come back here: the mapping then
+        lives in signingToMasterKeys_ and applyLedgerSigningKey() answers from
+        it before reaching this map.
+
+        Unlike lastUsed_ this is written structurally, so it is guarded by
+        mutex_ in exclusive mode.
+    */
+    hash_map<PublicKey, std::uint32_t> probed_;
+
     /** Record that a manifest was looked up.
 
         @pre The caller holds mutex_, shared or exclusive.
@@ -314,6 +326,13 @@ private:
 public:
     /** Ceiling on the unpinned manifests offered to a newly connected peer. */
     static constexpr std::size_t gossipLimit = 64;
+
+    /** Ceiling on remembered ephemeral key probes before they are dropped.
+
+        A cache of negatives, so dropping it costs at most one extra ledger
+        read per key.
+    */
+    static constexpr std::size_t probeLimit = 4096;
 
     explicit ManifestCache(
         beast::Journal j = beast::Journal(beast::Journal::getNullSink()))
@@ -457,6 +476,35 @@ public:
     */
     std::size_t
     applyLedger(ReadView const& view, hash_set<PublicKey> const& masterKeys);
+
+    /** Resolve an ephemeral signing key against a manifest published on-ledger.
+
+        applyLedger() probes a known master key set, which cannot help a key
+        this node has no manifest for: the master key is exactly what is
+        missing. SetManifest writes a second copy of every manifest keyed by
+        its ephemeral key, so that case is one read rather than a search.
+
+        Anything found is fed through applyManifest(), so an on-chain manifest
+        faces the same signature check and the same staleness, revocation and
+        key-reuse rules as one arriving by gossip. The ledger is a transport
+        here, not an authority: the answer is read back out of the cache rather
+        than taken from the ledger object, because applyManifest() may decline
+        it.
+
+        A key is probed at most once per ledger, and a key that resolves is
+        answered from the cache thereafter without any ledger read.
+
+        @param view Ledger to read from
+        @param signingKey Ephemeral public key to resolve
+
+        @return the master key now associated with signingKey, if any
+
+        @par Thread Safety
+
+        May be called concurrently
+    */
+    std::optional<PublicKey>
+    applyLedgerSigningKey(ReadView const& view, PublicKey const& signingKey);
 
     /** Populate manifest cache with manifests in database and config.
 

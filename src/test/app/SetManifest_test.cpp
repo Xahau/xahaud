@@ -428,6 +428,82 @@ struct SetManifest_test : public beast::unit_test::suite
     }
 
     void
+    testSigningKeyRetrieval(FeatureBitset features)
+    {
+        testcase("retrieval by ephemeral key");
+        using namespace jtx;
+
+        Env env{*this, makeConfig(), features};
+
+        auto const master = Account("master", KeyType::ed25519);
+        auto const eph1 = Account("eph1", KeyType::ed25519);
+        auto const eph2 = Account("eph2", KeyType::ed25519);
+        auto const stranger = Account("stranger", KeyType::ed25519);
+        env.fund(XRP(1000), master);
+        env.close();
+
+        submit(env, makeManifest(master, eph1, 1));
+        env.close();
+
+        auto& cache = env.app().validatorManifests();
+
+        // The situation applyLedger() cannot serve: a validation arrives
+        // signed by eph1 and the node holds no manifest naming it, so the
+        // master key to probe for is exactly what is missing.
+        BEAST_EXPECT(cache.getMasterKey(eph1.pk()) == eph1.pk());
+
+        BEAST_EXPECT(
+            cache.applyLedgerSigningKey(*env.closed(), eph1.pk()) ==
+            master.pk());
+        BEAST_EXPECT(cache.getMasterKey(eph1.pk()) == master.pk());
+        BEAST_EXPECT(cache.getSigningKey(master.pk()) == eph1.pk());
+        BEAST_EXPECT(cache.getSequence(master.pk()) == 1);
+
+        // A key with no manifest on-ledger resolves to nothing and leaves the
+        // cache untouched.
+        BEAST_EXPECT(
+            !cache.applyLedgerSigningKey(*env.closed(), stranger.pk()));
+        BEAST_EXPECT(cache.getMasterKey(stranger.pk()) == stranger.pk());
+
+        // A rotation is recovered from the new ephemeral key alone, and the
+        // superseded key stops resolving because its object is gone.
+        submit(env, makeManifest(master, eph2, 2));
+        env.close();
+
+        BEAST_EXPECT(
+            cache.applyLedgerSigningKey(*env.closed(), eph2.pk()) ==
+            master.pk());
+        BEAST_EXPECT(cache.getSigningKey(master.pk()) == eph2.pk());
+        BEAST_EXPECT(cache.getMasterKey(eph1.pk()) == eph1.pk());
+        BEAST_EXPECT(!env.le(keylet::manifest(eph1.pk())));
+        BEAST_EXPECT(!cache.applyLedgerSigningKey(*env.closed(), eph1.pk()));
+
+        // Asking again is answered from the cache, ahead of the per-ledger
+        // probe bookkeeping.
+        BEAST_EXPECT(
+            cache.applyLedgerSigningKey(*env.closed(), eph2.pk()) ==
+            master.pk());
+
+        // A master key is not a signing key. The object at its keylet is a
+        // perfectly good manifest and is ingested, but it binds eph2, not the
+        // master key, so nothing is reported for the key asked about.
+        BEAST_EXPECT(!cache.applyLedgerSigningKey(*env.closed(), master.pk()));
+
+        // A revoked master publishes no ephemeral object at all, so this
+        // direction goes quiet. The revocation still reaches the cache by
+        // master key, which is what applyLedger() is for.
+        submit(
+            env,
+            makeManifest(
+                master, eph2, std::numeric_limits<std::uint32_t>::max()));
+        env.close();
+
+        BEAST_EXPECT(!env.le(keylet::manifest(eph2.pk())));
+        BEAST_EXPECT(cache.applyLedger(*env.closed(), {master.pk()}) == 1);
+        BEAST_EXPECT(cache.revoked(master.pk()));
+    }
+
+    void
     testMalformed(FeatureBitset features)
     {
         testcase("malformed submissions");
@@ -728,6 +804,7 @@ public:
         testUpdate(sa);
         testRevocation(sa);
         testRetrieval(sa);
+        testSigningKeyRetrieval(sa);
         testMalformed(sa);
         testEnvelopeRejections(sa);
         testCorruptLedger(sa);
