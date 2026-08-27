@@ -20,6 +20,7 @@ defaults:
     node_count: 7        # n0-n4 validators, n5/n6 non-UNL trackers
     validators: 5
     quorum: 4            # 80%: a restart leaves exactly quorum on the peers up
+    fixed_peers: false   # scenario forms a restart-safe ring on 127.0.0.1
     find_ports: true
     start_ledger: 210    # measured: the mesh-gated upgrade+vote is ~23 ledgers, so
                          # the vote lands ~233 with a ~23-ledger margin before flag
@@ -32,10 +33,9 @@ defaults:
     log_levels:
       LedgerConsensus: debug
       NetworkOPs: info
-    # Dense localhost mesh (needed for rolling restarts): the generator gives each
-    # peer a distinct 127.0.0.<id+1> in [ips_fixed] (rippled dedups fixed peers by
-    # IP, ignoring port). On macOS bring those aliases up first (see below); Linux
-    # routes all of 127/8 already. Works with stock binaries -- no rebuild.
+    # The scenario connects a seven-node ring through each node's distinct peer
+    # port. This remains connected while one node rolls and works on macOS without
+    # privileged 127.0.0.2+ aliases.
 
 tests:
   - name: rolling_upgrade_ce

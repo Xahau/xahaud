@@ -36,6 +36,7 @@ enum class ProtocolFeature {
     ValidatorListPropagation,
     ValidatorList2Propagation,
     LedgerReplay,
+    ConsensusEntropy,
 };
 
 /** Represents a peer connection in the overlay. */

@@ -141,6 +141,8 @@ PeerImp::PeerImp(
           headers_,
           FEATURE_LEDGER_REPLAY,
           app_.config().LEDGER_REPLAY))
+    , consensusEntropyCapable_(
+          peerFeatureEnabled(headers_, FEATURE_CONSENSUS_ENTROPY, true))
     , ledgerReplayMsgHandler_(app, app.getLedgerReplayer())
 {
     JLOG(journal_.info()) << "compression enabled "
@@ -148,8 +150,10 @@ PeerImp::PeerImp(
                           << " vp reduce-relay enabled "
                           << vpReduceRelayEnabled_
                           << " tx reduce-relay enabled "
-                          << txReduceRelayEnabled_ << " on " << remote_address_
-                          << " " << id_;
+                          << txReduceRelayEnabled_
+                          << " consensus entropy capability negotiated "
+                          << consensusEntropyCapable_ << " on "
+                          << remote_address_ << " " << id_;
 }
 
 PeerImp::~PeerImp()
@@ -483,6 +487,7 @@ PeerImp::json()
         ret[jss::version] = std::string{version};
 
     ret[jss::protocol] = to_string(protocol_);
+    ret["capabilities"][FEATURE_CONSENSUS_ENTROPY] = consensusEntropyCapable_;
 
     {
         std::lock_guard sl(recentLock_);
@@ -580,6 +585,8 @@ PeerImp::supportsFeature(ProtocolFeature f) const
             return protocol_ >= make_protocol(2, 2);
         case ProtocolFeature::LedgerReplay:
             return ledgerReplayEnabled_;
+        case ProtocolFeature::ConsensusEntropy:
+            return consensusEntropyCapable_;
     }
     return false;
 }

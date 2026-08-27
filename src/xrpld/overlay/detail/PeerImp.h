@@ -194,6 +194,7 @@ private:
     // on the peer.
     bool vpReduceRelayEnabled_ = false;
     bool ledgerReplayEnabled_ = false;
+    bool consensusEntropyCapable_ = false;
     LedgerReplayMsgHandler ledgerReplayMsgHandler_;
 
     friend class OverlayImpl;
@@ -718,6 +719,8 @@ PeerImp::PeerImp(
           headers_,
           FEATURE_LEDGER_REPLAY,
           app_.config().LEDGER_REPLAY))
+    , consensusEntropyCapable_(
+          peerFeatureEnabled(headers_, FEATURE_CONSENSUS_ENTROPY, true))
     , ledgerReplayMsgHandler_(app, app.getLedgerReplayer())
 {
     read_buffer_.commit(boost::asio::buffer_copy(
@@ -727,8 +730,10 @@ PeerImp::PeerImp(
                           << " vp reduce-relay enabled "
                           << vpReduceRelayEnabled_
                           << " tx reduce-relay enabled "
-                          << txReduceRelayEnabled_ << " on " << remote_address_
-                          << " " << id_;
+                          << txReduceRelayEnabled_
+                          << " consensus entropy capability negotiated "
+                          << consensusEntropyCapable_ << " on "
+                          << remote_address_ << " " << id_;
 }
 
 template <class FwdIt, class>
