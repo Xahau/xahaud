@@ -11,6 +11,6 @@ export const XFL_PROFILE_SENSITIVE_MEMBERS = [
 
 export const XFL_PROFILE_IMPLEMENTATIONS = {
   "none": [],
-  "xahauFloatV1": ["XFLDecimal.add", "XFLDecimal.subtract"],
+  "xahauFloatV1": ["XFLDecimal.add", "XFLDecimal.divide", "XFLDecimal.multiply", "XFLDecimal.subtract"],
   "nearestEvenV1": [],
 } as const;

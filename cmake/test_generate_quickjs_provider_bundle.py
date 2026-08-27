@@ -20,15 +20,15 @@ WASM_VERSION = "47.0.3"
 CMAKE_SET = re.compile(r'^set\(XAHAU_QUICKJS_([A-Z0-9_]+) "([^"]*)"\)\s*$')
 
 PIN = {
-    "provider_sha256": "47e7003a0f4ee8f79fd529d4960aadc2ca58ac718afa4ebf2eededc169bcd13f",
-    "provider_size": "1124251",
-    "manifest_sha256": "4f88c9943d55f24a4667b082e0adcbd89c9033256c90a6d0556443ff725e8cff",
-    "runtime_profile_id": "e73c4faf5d1ecaacbf7e7401bbacec8f9c88b2a4dea45bac3cae75af62f35516",
-    "broad_declaration_sha256": "c83351e646c85dfa14ba478bbf0074bf9fd6fcbe6c74bd95ac0a024a185f0b4d",
-    "exact_v1_declaration_sha256": "f4d421731be028556e41c86eee284788383f84600219b69bcdb46b60be7911e0",
-    "surface_sha256": "8d36b218aefdb363adbe3a38e3505dba92db8d946ea92f211d6b5fbd96a9c232",
-    "xfl_profile_ledger_sha256": "94441fdceb731b3e92126b12435f45f1c797248c268b40504eddd58da6dffdb8",
-    "api_artifact_manifest_sha256": "3d140bf697e28ee1cf2b159f49bf0972f1bb0ae8519a5d835083647fb7f2bad0",
+    "provider_sha256": "dfacd07fde57ca5cd82c7ddafbe0d28f617ea2122c93d09e243609801c7fb7b1",
+    "provider_size": "1167329",
+    "manifest_sha256": "91c189b0546aad4afe195cf9d58b55449a42087e1a5e53e1f3f4d78fa9e7490f",
+    "runtime_profile_id": "86d24362423db9e7120cc6a45b98d8cf8792f3b0600fe925ce984e7d32703a7b",
+    "broad_declaration_sha256": "65fba837cb07147feaee68c66bf44a020f2bce5f3db2b9613dcd9624e406aab2",
+    "exact_v1_declaration_sha256": "24c9f5ef6b4f54746755f428db526cd2cd15c65417c94e7bb87bb341f4afce05",
+    "surface_sha256": "860699834e0689aa61c73145e00a861452caa8a4b686eacc4f384416b8844645",
+    "xfl_profile_ledger_sha256": "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056fd80",
+    "api_artifact_manifest_sha256": "7235d4de6642cd55717aa90ca579ca655f1503934e6be6471971c660c6c5a1f0",
     "bytecode_abi": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
     "native_abi": "328ec938dcad875f3bdf25b8d779dd77f3571589818ca9271cb98c64c7018f99",
     "wasm_stack_bytes": "131072",
@@ -192,7 +192,7 @@ def generate(
 
 
 def hex_bytes(value: str) -> str:
-    return ", ".join(f"0x{value[i:i + 2]}" for i in range(0, 64, 2))
+    return ", ".join(f"0x{value[i : i + 2]}" for i in range(0, 64, 2))
 
 
 def pin_holds(returncode: int, cpp: str) -> bool:
@@ -333,7 +333,9 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             rehash_manifest(bundle)
             set_cmake(bundle, "PROVIDER_SHA256", value)
 
-        self.assert_generator_red(mutate, "provider SHA-256 disagrees with the sealed F0")
+        self.assert_generator_red(
+            mutate, "provider SHA-256 disagrees with the sealed F0"
+        )
 
     def test_manifest_sha_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -373,7 +375,9 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             rehash_manifest(bundle)
             set_cmake(bundle, "RUNTIME_PROFILE_ID", value)
 
-        self.assert_generator_red(mutate, "runtime-profile ID disagrees with the sealed F0")
+        self.assert_generator_red(
+            mutate, "runtime-profile ID disagrees with the sealed F0"
+        )
 
     def _coordinated_api_artifact_mutation(
         self, source_path: str, local_path, fragment: str
@@ -657,9 +661,7 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
         self._coordinated_limit("host_work_budget", "HOST_WORK_BUDGET", 999999)
 
     def test_coordinated_host_work_base_mutation(self) -> None:
-        self._coordinated_limit(
-            "host_work_base_per_call", "HOST_WORK_BASE_PER_CALL", 2
-        )
+        self._coordinated_limit("host_work_base_per_call", "HOST_WORK_BASE_PER_CALL", 2)
 
     def test_coordinated_host_work_per_byte_mutation(self) -> None:
         self._coordinated_limit(
@@ -679,9 +681,9 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
     def test_host_work_address_mapping_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
             data = load_json(bundle)
-            data["source"]["limits"]["host_work_addressed_length_indices"][
-                "accept"
-            ] = [0]
+            data["source"]["limits"]["host_work_addressed_length_indices"]["accept"] = [
+                0
+            ]
             write_json(bundle, data)
             rehash_manifest(bundle)
 
@@ -724,11 +726,12 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
         }
         for name, value in mutations.items():
             with self.subTest(name=name):
+
                 def mutate(bundle: Path, name=name, value=value) -> None:
                     data = load_json(bundle)
-                    data["source"]["artifact"][
-                        "xfl_arithmetic_profile_codes"
-                    ][name] = value
+                    data["source"]["artifact"]["xfl_arithmetic_profile_codes"][name] = (
+                        value
+                    )
                     write_json(bundle, data)
                     rehash_manifest(bundle)
 
@@ -737,11 +740,10 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
     def test_artifact_profile_table_schema_mutations(self) -> None:
         for operation in ("missing", "extra"):
             with self.subTest(operation=operation):
+
                 def mutate(bundle: Path, operation=operation) -> None:
                     data = load_json(bundle)
-                    table = data["source"]["artifact"][
-                        "xfl_arithmetic_profile_codes"
-                    ]
+                    table = data["source"]["artifact"]["xfl_arithmetic_profile_codes"]
                     if operation == "missing":
                         del table["nearestEvenV1"]
                     else:
@@ -754,16 +756,50 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
     def test_artifact_profile_implementation_mutations(self) -> None:
         mutations = {
             "none": ["XFLDecimal.add"],
-            "xahauFloatV1": ["XFLDecimal.subtract"],
             "nearestEvenV1": ["XFLDecimal.add"],
+            "xahauFloatV1 missing add": [
+                "XFLDecimal.divide",
+                "XFLDecimal.multiply",
+                "XFLDecimal.subtract",
+            ],
+            "xahauFloatV1 missing divide": [
+                "XFLDecimal.add",
+                "XFLDecimal.multiply",
+                "XFLDecimal.subtract",
+            ],
+            "xahauFloatV1 missing multiply": [
+                "XFLDecimal.add",
+                "XFLDecimal.divide",
+                "XFLDecimal.subtract",
+            ],
+            "xahauFloatV1 missing subtract": [
+                "XFLDecimal.add",
+                "XFLDecimal.divide",
+                "XFLDecimal.multiply",
+            ],
+            "xahauFloatV1 reordered": [
+                "XFLDecimal.add",
+                "XFLDecimal.multiply",
+                "XFLDecimal.divide",
+                "XFLDecimal.subtract",
+            ],
+            "xahauFloatV1 extra": [
+                "XFLDecimal.add",
+                "XFLDecimal.divide",
+                "XFLDecimal.invert",
+                "XFLDecimal.multiply",
+                "XFLDecimal.subtract",
+            ],
         }
         for name, value in mutations.items():
             with self.subTest(name=name):
+
                 def mutate(bundle: Path, name=name, value=value) -> None:
                     data = load_json(bundle)
+                    profile = name.split(" ", 1)[0]
                     data["source"]["artifact"][
                         "xfl_arithmetic_profile_implementations"
-                    ][name] = value
+                    ][profile] = value
                     write_json(bundle, data)
                     rehash_manifest(bundle)
 
@@ -772,6 +808,7 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
     def test_artifact_profile_implementation_schema_mutations(self) -> None:
         for operation in ("missing", "extra"):
             with self.subTest(operation=operation):
+
                 def mutate(bundle: Path, operation=operation) -> None:
                     data = load_json(bundle)
                     table = data["source"]["artifact"][
@@ -801,26 +838,22 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
         }
         for name, value in mutations.items():
             with self.subTest(name=name):
+
                 def mutate(bundle: Path, name=name, value=value) -> None:
                     data = load_json(bundle)
-                    data["source"]["provider"]["module_validation_result"][
-                        name
-                    ] = value
+                    data["source"]["provider"]["module_validation_result"][name] = value
                     write_json(bundle, data)
                     rehash_manifest(bundle)
 
-                self.assert_generator_red(
-                    mutate, "module-validation result layout"
-                )
+                self.assert_generator_red(mutate, "module-validation result layout")
 
     def test_module_validation_layout_schema_mutations(self) -> None:
         for operation in ("missing", "extra"):
             with self.subTest(operation=operation):
+
                 def mutate(bundle: Path, operation=operation) -> None:
                     data = load_json(bundle)
-                    layout = data["source"]["provider"][
-                        "module_validation_result"
-                    ]
+                    layout = data["source"]["provider"]["module_validation_result"]
                     if operation == "missing":
                         del layout["version_shift"]
                     else:
@@ -828,9 +861,7 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
                     write_json(bundle, data)
                     rehash_manifest(bundle)
 
-                self.assert_generator_red(
-                    mutate, "module-validation result layout"
-                )
+                self.assert_generator_red(mutate, "module-validation result layout")
 
     def test_wasmtime_engine_configuration_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -857,9 +888,7 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
         def mutate(bundle: Path) -> None:
             data = load_json(bundle)
             data["provider"]["build"]["wasm_memory_max_bytes"] = 33554431
-            data["source"]["provider"]["build"][
-                "wasm_memory_max_bytes"
-            ] = 33554431
+            data["source"]["provider"]["build"]["wasm_memory_max_bytes"] = 33554431
             write_json(bundle, data)
             rehash_manifest(bundle)
 
@@ -896,9 +925,7 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             rehash_manifest(bundle)
             set_cmake(bundle, "PROVIDER_SHA256", RECEIPT_B["provider_sha256"])
             set_cmake(bundle, "PROVIDER_SIZE", RECEIPT_B["provider_size"])
-            set_cmake(
-                bundle, "RUNTIME_PROFILE_ID", RECEIPT_B["runtime_profile_id"]
-            )
+            set_cmake(bundle, "RUNTIME_PROFILE_ID", RECEIPT_B["runtime_profile_id"])
 
         self.assert_generator_red(
             mutate, "provider SHA-256 disagrees with the sealed F0"

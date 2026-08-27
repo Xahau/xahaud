@@ -92,6 +92,356 @@ interface XFLProfileEnum {
   readonly nearestEvenV1: 2;
 }
 
+/**
+ * Every transaction type a Hook can observe or emit.
+ *
+ * Hidden module-scope inventory for the frozen TransactionType runtime namespace.
+ * Consumers use the same-named global value and derived union type.
+ */
+interface TransactionTypeEnum {
+  readonly Payment: 0;
+  readonly Invoke: 99;
+  readonly GenesisMint: 96;
+  readonly Import: 97;
+  readonly ClaimReward: 98;
+  readonly SetHook: 22;
+  readonly TrustSet: 20;
+  readonly Remit: 95;
+  readonly NFTokenBurn: 26;
+  readonly URITokenMint: 45;
+  readonly UNLReport: 104;
+  readonly EmitFailure: 103;
+  readonly UNLModify: 102;
+  readonly SetFee: 101;
+  readonly EnableAmendment: 100;
+  readonly SetRemarks: 94;
+  readonly CronSet: 93;
+  readonly Cron: 92;
+  readonly PermissionedDomainDelete: 72;
+  readonly PermissionedDomainSet: 71;
+  readonly NFTokenModify: 70;
+  readonly CredentialDelete: 69;
+  readonly CredentialAccept: 68;
+  readonly CredentialCreate: 67;
+  readonly MPTokenAuthorize: 66;
+  readonly MPTokenIssuanceSet: 65;
+  readonly MPTokenIssuanceDestroy: 64;
+  readonly MPTokenIssuanceCreate: 63;
+  readonly LedgerStateFix: 62;
+  readonly OracleDelete: 61;
+  readonly OracleSet: 60;
+  readonly DIDDelete: 59;
+  readonly DIDSet: 58;
+  readonly XChainCreateBridge: 57;
+  readonly XChainModifyBridge: 56;
+  readonly XChainAddAccountCreateAttestation: 55;
+  readonly XChainAddClaimAttestation: 54;
+  readonly XChainAccountCreateCommit: 53;
+  readonly XChainClaim: 52;
+  readonly XChainCommit: 51;
+  readonly XChainCreateClaimID: 50;
+  readonly URITokenCancelSellOffer: 49;
+  readonly URITokenCreateSellOffer: 48;
+  readonly URITokenBuy: 47;
+  readonly URITokenBurn: 46;
+  readonly AMMDelete: 40;
+  readonly AMMBid: 39;
+  readonly AMMVote: 38;
+  readonly AMMWithdraw: 37;
+  readonly AMMDeposit: 36;
+  readonly AMMCreate: 35;
+  readonly AMMClawback: 31;
+  readonly Clawback: 30;
+  readonly NFTokenAcceptOffer: 29;
+  readonly NFTokenCancelOffer: 28;
+  readonly NFTokenCreateOffer: 27;
+  readonly NFTokenMint: 25;
+  readonly AccountDelete: 21;
+  readonly DepositPreauth: 19;
+  readonly CheckCancel: 18;
+  readonly CheckCash: 17;
+  readonly CheckCreate: 16;
+  readonly PaymentChannelClaim: 15;
+  readonly PaymentChannelFund: 14;
+  readonly PaymentChannelCreate: 13;
+  readonly SignerListSet: 12;
+  readonly SpinalTap: 11;
+  readonly TicketCreate: 10;
+  readonly Contract: 9;
+  readonly OfferCancel: 8;
+  readonly OfferCreate: 7;
+  readonly NicknameSet: 6;
+  readonly SetRegularKey: 5;
+  readonly EscrowCancel: 4;
+  readonly AccountSet: 3;
+  readonly EscrowFinish: 2;
+  readonly EscrowCreate: 1;
+}
+
+/**
+ * Every transaction-engine result a Hook can observe.
+ *
+ * Hidden module-scope inventory for the frozen TransactionResult runtime namespace.
+ * Consumers use the same-named global value and derived union type.
+ */
+interface TransactionResultEnum {
+  readonly tesSUCCESS: 0;
+  readonly tecLAST_POSSIBLE_ENTRY: 255;
+  readonly tecBAD_CREDENTIALS: 199;
+  readonly tecLOCKED: 198;
+  readonly tecARRAY_TOO_LARGE: 197;
+  readonly tecARRAY_EMPTY: 196;
+  readonly tecTOKEN_PAIR_NOT_FOUND: 195;
+  readonly tecINVALID_UPDATE_TIME: 194;
+  readonly tecEMPTY_DID: 193;
+  readonly tecXCHAIN_BAD_PUBLIC_KEY_ACCOUNT_PAIR: 192;
+  readonly tecINCOMPLETE: 191;
+  readonly tecHAS_HOOK_STATE: 190;
+  readonly tecTOO_MANY_REMARKS: 189;
+  readonly tecIMMUTABLE: 188;
+  readonly tecINSUF_RESERVE_SELLER: 187;
+  readonly tecXCHAIN_CREATE_ACCOUNT_DISABLED: 186;
+  readonly tecXCHAIN_SELF_COMMIT: 185;
+  readonly tecXCHAIN_PAYMENT_FAILED: 184;
+  readonly tecXCHAIN_ACCOUNT_CREATE_TOO_MANY: 183;
+  readonly tecXCHAIN_ACCOUNT_CREATE_PAST: 182;
+  readonly tecXCHAIN_INSUFF_CREATE_AMOUNT: 181;
+  readonly tecXCHAIN_SENDING_ACCOUNT_MISMATCH: 180;
+  readonly tecXCHAIN_NO_SIGNERS_LIST: 179;
+  readonly tecXCHAIN_REWARD_MISMATCH: 178;
+  readonly tecXCHAIN_WRONG_CHAIN: 177;
+  readonly tecXCHAIN_CREATE_ACCOUNT_NONXRP_ISSUE: 176;
+  readonly tecXCHAIN_PROOF_UNKNOWN_KEY: 175;
+  readonly tecXCHAIN_CLAIM_NO_QUORUM: 174;
+  readonly tecXCHAIN_BAD_CLAIM_ID: 173;
+  readonly tecXCHAIN_NO_CLAIM_ID: 172;
+  readonly tecXCHAIN_BAD_TRANSFER_ISSUE: 171;
+  readonly tecPRECISION_LOSS: 170;
+  readonly tecREQUIRES_FLAG: 169;
+  readonly tecAMM_ACCOUNT: 168;
+  readonly tecAMM_NOT_EMPTY: 167;
+  readonly tecAMM_EMPTY: 166;
+  readonly tecAMM_INVALID_TOKENS: 165;
+  readonly tecAMM_FAILED: 164;
+  readonly tecAMM_BALANCE: 163;
+  readonly tecUNFUNDED_AMM: 162;
+  readonly tecINSUFFICIENT_PAYMENT: 161;
+  readonly tecOBJECT_NOT_FOUND: 160;
+  readonly tecINSUFFICIENT_FUNDS: 159;
+  readonly tecCANT_ACCEPT_OWN_NFTOKEN_OFFER: 158;
+  readonly tecNFTOKEN_OFFER_TYPE_MISMATCH: 157;
+  readonly tecNFTOKEN_BUY_SELL_MISMATCH: 156;
+  readonly tecNO_SUITABLE_NFTOKEN_PAGE: 155;
+  readonly tecMAX_SEQUENCE_REACHED: 154;
+  readonly tecHOOK_REJECTED: 153;
+  readonly tecTOO_SOON: 152;
+  readonly tecHAS_OBLIGATIONS: 151;
+  readonly tecKILLED: 150;
+  readonly tecDUPLICATE: 149;
+  readonly tecEXPIRED: 148;
+  readonly tecINVARIANT_FAILED: 147;
+  readonly tecCRYPTOCONDITION_ERROR: 146;
+  readonly tecOVERSIZE: 145;
+  readonly tecINTERNAL: 144;
+  readonly tecDST_TAG_NEEDED: 143;
+  readonly tecNEED_MASTER_KEY: 142;
+  readonly tecINSUFFICIENT_RESERVE: 141;
+  readonly tecNO_ENTRY: 140;
+  readonly tecNO_PERMISSION: 139;
+  readonly tecNO_TARGET: 138;
+  readonly tecFROZEN: 137;
+  readonly tecINSUFF_FEE: 136;
+  readonly tecNO_LINE: 135;
+  readonly tecNO_AUTH: 134;
+  readonly tecNO_ISSUER: 133;
+  readonly tecOWNERS: 132;
+  readonly tecNO_REGULAR_KEY: 131;
+  readonly tecNO_ALTERNATIVE_KEY: 130;
+  readonly tecUNFUNDED: 129;
+  readonly tecPATH_DRY: 128;
+  readonly tecNO_LINE_REDUNDANT: 127;
+  readonly tecNO_LINE_INSUF_RESERVE: 126;
+  readonly tecNO_DST_INSUF_NATIVE: 125;
+  readonly tecNO_DST: 124;
+  readonly tecINSUF_RESERVE_OFFER: 123;
+  readonly tecINSUF_RESERVE_LINE: 122;
+  readonly tecDIR_FULL: 121;
+  readonly tecFAILED_PROCESSING: 105;
+  readonly tecUNFUNDED_PAYMENT: 104;
+  readonly tecUNFUNDED_OFFER: 103;
+  readonly tecUNFUNDED_ADD: 102;
+  readonly tecPATH_PARTIAL: 101;
+  readonly tecCLAIM: 100;
+  readonly tesPARTIAL: 1;
+  readonly terNO_HOOK: -86;
+  readonly terNO_AMM: -87;
+  readonly terPRE_TICKET: -88;
+  readonly terQUEUED: -89;
+  readonly terNO_RIPPLE: -90;
+  readonly terLAST: -91;
+  readonly terPRE_SEQ: -92;
+  readonly terOWNERS: -93;
+  readonly terNO_LINE: -94;
+  readonly terNO_AUTH: -95;
+  readonly terNO_ACCOUNT: -96;
+  readonly terINSUF_FEE_B: -97;
+  readonly terFUNDS_SPENT: -98;
+  readonly terRETRY: -99;
+  readonly tefINVALID_LEDGER_FIX_TYPE: -174;
+  readonly tefIMPORT_BLACKHOLED: -175;
+  readonly tefNONDIR_EMIT: -176;
+  readonly tefPAST_IMPORT_VL_SEQ: -177;
+  readonly tefPAST_IMPORT_SEQ: -178;
+  readonly tefNFTOKEN_IS_NOT_TRANSFERABLE: -179;
+  readonly tefNO_TICKET: -180;
+  readonly tefTOO_BIG: -181;
+  readonly tefINVARIANT_FAILED: -182;
+  readonly tefBAD_AUTH_MASTER: -183;
+  readonly tefNOT_MULTI_SIGNING: -184;
+  readonly tefBAD_QUORUM: -185;
+  readonly tefBAD_SIGNATURE: -186;
+  readonly tefMAX_LEDGER: -187;
+  readonly tefMASTER_DISABLED: -188;
+  readonly tefWRONG_PRIOR: -189;
+  readonly tefPAST_SEQ: -190;
+  readonly tefNO_AUTH_REQUIRED: -191;
+  readonly tefINTERNAL: -192;
+  readonly tefEXCEPTION: -193;
+  readonly tefCREATED: -194;
+  readonly tefBAD_LEDGER: -195;
+  readonly tefBAD_AUTH: -196;
+  readonly tefBAD_ADD_AUTH: -197;
+  readonly tefALREADY: -198;
+  readonly tefFAILURE: -199;
+  readonly temBAD_TRANSFER_FEE: -249;
+  readonly temARRAY_TOO_LARGE: -250;
+  readonly temARRAY_EMPTY: -251;
+  readonly temEMPTY_DID: -252;
+  readonly temHOOK_DATA_TOO_LARGE: -253;
+  readonly temXCHAIN_TOO_MANY_ATTESTATIONS: -254;
+  readonly temXCHAIN_BRIDGE_BAD_REWARD_AMOUNT: -255;
+  readonly temXCHAIN_BRIDGE_BAD_MIN_ACCOUNT_CREATE_AMOUNT: -256;
+  readonly temXCHAIN_BRIDGE_NONDOOR_OWNER: -257;
+  readonly temXCHAIN_BRIDGE_BAD_ISSUES: -258;
+  readonly temXCHAIN_BAD_PROOF: -259;
+  readonly temXCHAIN_EQUAL_DOOR_ACCOUNTS: -260;
+  readonly temBAD_AMM_TOKENS: -261;
+  readonly temBAD_NFTOKEN_TRANSFER_FEE: -262;
+  readonly temSEQ_AND_TICKET: -263;
+  readonly temUNKNOWN: -264;
+  readonly temUNCERTAIN: -265;
+  readonly temINVALID_COUNT: -266;
+  readonly temCANNOT_PREAUTH_SELF: -267;
+  readonly temINVALID_ACCOUNT_ID: -268;
+  readonly temBAD_TICK_SIZE: -269;
+  readonly temBAD_WEIGHT: -270;
+  readonly temBAD_QUORUM: -271;
+  readonly temBAD_SIGNER: -272;
+  readonly temDISABLED: -273;
+  readonly temRIPPLE_EMPTY: -274;
+  readonly temREDUNDANT: -275;
+  readonly temINVALID_FLAG: -276;
+  readonly temINVALID: -277;
+  readonly temDST_NEEDED: -278;
+  readonly temDST_IS_SRC: -279;
+  readonly temBAD_TRANSFER_RATE: -280;
+  readonly temBAD_SRC_ACCOUNT: -281;
+  readonly temBAD_SIGNATURE: -282;
+  readonly temBAD_SEQUENCE: -283;
+  readonly temBAD_SEND_NATIVE_PATHS: -284;
+  readonly temBAD_SEND_NATIVE_PARTIAL: -285;
+  readonly temBAD_SEND_NATIVE_NO_DIRECT: -286;
+  readonly temBAD_SEND_NATIVE_MAX: -287;
+  readonly temBAD_SEND_NATIVE_LIMIT: -288;
+  readonly temBAD_REGKEY: -289;
+  readonly temBAD_PATH_LOOP: -290;
+  readonly temBAD_PATH: -291;
+  readonly temBAD_OFFER: -292;
+  readonly temBAD_LIMIT: -293;
+  readonly temBAD_ISSUER: -294;
+  readonly temBAD_FEE: -295;
+  readonly temBAD_EXPIRATION: -296;
+  readonly temBAD_CURRENCY: -297;
+  readonly temBAD_AMOUNT: -298;
+  readonly temMALFORMED: -299;
+  readonly telENV_RPC_FAILED: -380;
+  readonly telCAN_NOT_QUEUE_IMPORT: -381;
+  readonly telIMPORT_VL_KEY_NOT_RECOGNISED: -382;
+  readonly telNON_LOCAL_EMITTED_TXN: -383;
+  readonly telNETWORK_ID_MAKES_TX_NON_CANONICAL: -384;
+  readonly telREQUIRES_NETWORK_ID: -385;
+  readonly telWRONG_NETWORK: -386;
+  readonly telCAN_NOT_QUEUE_FULL: -387;
+  readonly telCAN_NOT_QUEUE_FEE: -388;
+  readonly telCAN_NOT_QUEUE_BLOCKED: -389;
+  readonly telCAN_NOT_QUEUE_BLOCKS: -390;
+  readonly telCAN_NOT_QUEUE_BALANCE: -391;
+  readonly telCAN_NOT_QUEUE: -392;
+  readonly telNO_DST_PARTIAL: -393;
+  readonly telINSUF_FEE_P: -394;
+  readonly telFAILED_PROCESSING: -395;
+  readonly telBAD_PUBLIC_KEY: -396;
+  readonly telBAD_PATH_COUNT: -397;
+  readonly telBAD_DOMAIN: -398;
+  readonly telLOCAL_ERROR: -399;
+}
+
+/**
+ * Negative values returned by Hook host functions on failure.
+ *
+ * Hidden module-scope inventory for the frozen HookReturnCode runtime namespace.
+ * Consumers use the same-named global value and derived union type.
+ */
+interface HookReturnCodeEnum {
+  readonly SUCCESS: 0;
+  readonly OUT_OF_BOUNDS: -1;
+  readonly INTERNAL_ERROR: -2;
+  readonly TOO_BIG: -3;
+  readonly TOO_SMALL: -4;
+  readonly DOESNT_EXIST: -5;
+  readonly NO_FREE_SLOTS: -6;
+  readonly INVALID_ARGUMENT: -7;
+  readonly ALREADY_SET: -8;
+  readonly PREREQUISITE_NOT_MET: -9;
+  readonly FEE_TOO_LARGE: -10;
+  readonly EMISSION_FAILURE: -11;
+  readonly TOO_MANY_NONCES: -12;
+  readonly TOO_MANY_EMITTED_TXN: -13;
+  readonly NOT_IMPLEMENTED: -14;
+  readonly INVALID_ACCOUNT: -15;
+  readonly GUARD_VIOLATION: -16;
+  readonly INVALID_FIELD: -17;
+  readonly PARSE_ERROR: -18;
+  readonly RC_ROLLBACK: -19;
+  readonly RC_ACCEPT: -20;
+  readonly NO_SUCH_KEYLET: -21;
+  readonly NOT_AN_ARRAY: -22;
+  readonly NOT_AN_OBJECT: -23;
+  readonly DIVISION_BY_ZERO: -25;
+  readonly MANTISSA_OVERSIZED: -26;
+  readonly MANTISSA_UNDERSIZED: -27;
+  readonly EXPONENT_OVERSIZED: -28;
+  readonly EXPONENT_UNDERSIZED: -29;
+  readonly XFL_OVERFLOW: -30;
+  readonly NOT_IOU_AMOUNT: -31;
+  readonly NOT_AN_AMOUNT: -32;
+  readonly CANT_RETURN_NEGATIVE: -33;
+  readonly NOT_AUTHORIZED: -34;
+  readonly PREVIOUS_FAILURE_PREVENTS_RETRY: -35;
+  readonly TOO_MANY_PARAMS: -36;
+  readonly INVALID_TXN: -37;
+  readonly RESERVE_INSUFFICIENT: -38;
+  readonly COMPLEX_NOT_SUPPORTED: -39;
+  readonly DOES_NOT_MATCH: -40;
+  readonly INVALID_KEY: -41;
+  readonly NOT_A_STRING: -42;
+  readonly MEM_OVERLAP: -43;
+  readonly TOO_MANY_STATE_MODIFICATIONS: -44;
+  readonly TOO_MANY_NAMESPACES: -45;
+  readonly INVALID_FLOAT: -10024;
+}
+
+
 declare global {
   /**
    * The one shape of a provider value's public runtime noun (0085:780-…):
@@ -532,8 +882,6 @@ declare global {
     readonly [__recordFieldBrand]: T;
     readonly byteLength: Width;
   }
-  /** Unit-codec runtime noun (0085 close). */
-  const RecordField: RuntimeType<RecordField<unknown, number>>;
 
   /**
    * A named scalar schema. Parsing requires exactly `byteLength`; encoding and
@@ -742,11 +1090,6 @@ declare global {
     /** `null`: no contractual ceiling (artifact branch of bound authority). */
     readonly max: number | null;
   }
-  const SourceLength: RuntimeType<SourceLength> & {
-    exact(byteLength: number): SourceLength;
-    between(min: number, max: number): SourceLength;
-    atLeast(min: number): SourceLength;
-  };
 
   namespace view {
     interface PrefixOptions {
@@ -1404,7 +1747,7 @@ declare global {
 
   /** Originating-transaction view narrowed to Payment. */
   interface Payment extends Tx {
-    readonly TransactionType: TransactionType.Payment;
+    readonly TransactionType: typeof TransactionType.Payment;
     readonly Destination: AccountID;
     readonly Amount: Amount;
   }
@@ -1569,7 +1912,7 @@ declare global {
   }
 
   interface HostPayment extends HostObject {
-    readonly TransactionType: TransactionType.Payment;
+    readonly TransactionType: typeof TransactionType.Payment;
     readonly Account: HostResult<AccountID>;
     readonly Destination: HostResult<AccountID>;
     readonly Amount: HostResult<Amount>;
@@ -1674,287 +2017,11 @@ declare global {
     materialize(): HostResult<TxMeta>;
   }
 
-  const enum TransactionType {
-    Payment = 0,
-    Invoke = 99,
-    GenesisMint = 96,
-    Import = 97,
-    ClaimReward = 98,
-    SetHook = 22,
-    TrustSet = 20,
-    Remit = 95,
-    NFTokenBurn = 26,
-    URITokenMint = 45,
-    UNLReport = 104,
-    EmitFailure = 103,
-    UNLModify = 102,
-    SetFee = 101,
-    EnableAmendment = 100,
-    SetRemarks = 94,
-    CronSet = 93,
-    Cron = 92,
-    PermissionedDomainDelete = 72,
-    PermissionedDomainSet = 71,
-    NFTokenModify = 70,
-    CredentialDelete = 69,
-    CredentialAccept = 68,
-    CredentialCreate = 67,
-    MPTokenAuthorize = 66,
-    MPTokenIssuanceSet = 65,
-    MPTokenIssuanceDestroy = 64,
-    MPTokenIssuanceCreate = 63,
-    LedgerStateFix = 62,
-    OracleDelete = 61,
-    OracleSet = 60,
-    DIDDelete = 59,
-    DIDSet = 58,
-    XChainCreateBridge = 57,
-    XChainModifyBridge = 56,
-    XChainAddAccountCreateAttestation = 55,
-    XChainAddClaimAttestation = 54,
-    XChainAccountCreateCommit = 53,
-    XChainClaim = 52,
-    XChainCommit = 51,
-    XChainCreateClaimID = 50,
-    URITokenCancelSellOffer = 49,
-    URITokenCreateSellOffer = 48,
-    URITokenBuy = 47,
-    URITokenBurn = 46,
-    AMMDelete = 40,
-    AMMBid = 39,
-    AMMVote = 38,
-    AMMWithdraw = 37,
-    AMMDeposit = 36,
-    AMMCreate = 35,
-    AMMClawback = 31,
-    Clawback = 30,
-    NFTokenAcceptOffer = 29,
-    NFTokenCancelOffer = 28,
-    NFTokenCreateOffer = 27,
-    NFTokenMint = 25,
-    AccountDelete = 21,
-    DepositPreauth = 19,
-    CheckCancel = 18,
-    CheckCash = 17,
-    CheckCreate = 16,
-    PaymentChannelClaim = 15,
-    PaymentChannelFund = 14,
-    PaymentChannelCreate = 13,
-    SignerListSet = 12,
-    SpinalTap = 11,
-    TicketCreate = 10,
-    Contract = 9,
-    OfferCancel = 8,
-    OfferCreate = 7,
-    NicknameSet = 6,
-    SetRegularKey = 5,
-    EscrowCancel = 4,
-    AccountSet = 3,
-    EscrowFinish = 2,
-    EscrowCreate = 1,
-  }
+  const TransactionType: TransactionTypeEnum;
+  type TransactionType = (typeof TransactionType)[keyof typeof TransactionType];
 
-  const enum TransactionResult {
-    tesSUCCESS = 0,
-    tecLAST_POSSIBLE_ENTRY = 255,
-    tecBAD_CREDENTIALS = 199,
-    tecLOCKED = 198,
-    tecARRAY_TOO_LARGE = 197,
-    tecARRAY_EMPTY = 196,
-    tecTOKEN_PAIR_NOT_FOUND = 195,
-    tecINVALID_UPDATE_TIME = 194,
-    tecEMPTY_DID = 193,
-    tecXCHAIN_BAD_PUBLIC_KEY_ACCOUNT_PAIR = 192,
-    tecINCOMPLETE = 191,
-    tecHAS_HOOK_STATE = 190,
-    tecTOO_MANY_REMARKS = 189,
-    tecIMMUTABLE = 188,
-    tecINSUF_RESERVE_SELLER = 187,
-    tecXCHAIN_CREATE_ACCOUNT_DISABLED = 186,
-    tecXCHAIN_SELF_COMMIT = 185,
-    tecXCHAIN_PAYMENT_FAILED = 184,
-    tecXCHAIN_ACCOUNT_CREATE_TOO_MANY = 183,
-    tecXCHAIN_ACCOUNT_CREATE_PAST = 182,
-    tecXCHAIN_INSUFF_CREATE_AMOUNT = 181,
-    tecXCHAIN_SENDING_ACCOUNT_MISMATCH = 180,
-    tecXCHAIN_NO_SIGNERS_LIST = 179,
-    tecXCHAIN_REWARD_MISMATCH = 178,
-    tecXCHAIN_WRONG_CHAIN = 177,
-    tecXCHAIN_CREATE_ACCOUNT_NONXRP_ISSUE = 176,
-    tecXCHAIN_PROOF_UNKNOWN_KEY = 175,
-    tecXCHAIN_CLAIM_NO_QUORUM = 174,
-    tecXCHAIN_BAD_CLAIM_ID = 173,
-    tecXCHAIN_NO_CLAIM_ID = 172,
-    tecXCHAIN_BAD_TRANSFER_ISSUE = 171,
-    tecPRECISION_LOSS = 170,
-    tecREQUIRES_FLAG = 169,
-    tecAMM_ACCOUNT = 168,
-    tecAMM_NOT_EMPTY = 167,
-    tecAMM_EMPTY = 166,
-    tecAMM_INVALID_TOKENS = 165,
-    tecAMM_FAILED = 164,
-    tecAMM_BALANCE = 163,
-    tecUNFUNDED_AMM = 162,
-    tecINSUFFICIENT_PAYMENT = 161,
-    tecOBJECT_NOT_FOUND = 160,
-    tecINSUFFICIENT_FUNDS = 159,
-    tecCANT_ACCEPT_OWN_NFTOKEN_OFFER = 158,
-    tecNFTOKEN_OFFER_TYPE_MISMATCH = 157,
-    tecNFTOKEN_BUY_SELL_MISMATCH = 156,
-    tecNO_SUITABLE_NFTOKEN_PAGE = 155,
-    tecMAX_SEQUENCE_REACHED = 154,
-    tecHOOK_REJECTED = 153,
-    tecTOO_SOON = 152,
-    tecHAS_OBLIGATIONS = 151,
-    tecKILLED = 150,
-    tecDUPLICATE = 149,
-    tecEXPIRED = 148,
-    tecINVARIANT_FAILED = 147,
-    tecCRYPTOCONDITION_ERROR = 146,
-    tecOVERSIZE = 145,
-    tecINTERNAL = 144,
-    tecDST_TAG_NEEDED = 143,
-    tecNEED_MASTER_KEY = 142,
-    tecINSUFFICIENT_RESERVE = 141,
-    tecNO_ENTRY = 140,
-    tecNO_PERMISSION = 139,
-    tecNO_TARGET = 138,
-    tecFROZEN = 137,
-    tecINSUFF_FEE = 136,
-    tecNO_LINE = 135,
-    tecNO_AUTH = 134,
-    tecNO_ISSUER = 133,
-    tecOWNERS = 132,
-    tecNO_REGULAR_KEY = 131,
-    tecNO_ALTERNATIVE_KEY = 130,
-    tecUNFUNDED = 129,
-    tecPATH_DRY = 128,
-    tecNO_LINE_REDUNDANT = 127,
-    tecNO_LINE_INSUF_RESERVE = 126,
-    tecNO_DST_INSUF_NATIVE = 125,
-    tecNO_DST = 124,
-    tecINSUF_RESERVE_OFFER = 123,
-    tecINSUF_RESERVE_LINE = 122,
-    tecDIR_FULL = 121,
-    tecFAILED_PROCESSING = 105,
-    tecUNFUNDED_PAYMENT = 104,
-    tecUNFUNDED_OFFER = 103,
-    tecUNFUNDED_ADD = 102,
-    tecPATH_PARTIAL = 101,
-    tecCLAIM = 100,
-    tesPARTIAL = 1,
-    terNO_HOOK = -86,
-    terNO_AMM = -87,
-    terPRE_TICKET = -88,
-    terQUEUED = -89,
-    terNO_RIPPLE = -90,
-    terLAST = -91,
-    terPRE_SEQ = -92,
-    terOWNERS = -93,
-    terNO_LINE = -94,
-    terNO_AUTH = -95,
-    terNO_ACCOUNT = -96,
-    terINSUF_FEE_B = -97,
-    terFUNDS_SPENT = -98,
-    terRETRY = -99,
-    tefINVALID_LEDGER_FIX_TYPE = -174,
-    tefIMPORT_BLACKHOLED = -175,
-    tefNONDIR_EMIT = -176,
-    tefPAST_IMPORT_VL_SEQ = -177,
-    tefPAST_IMPORT_SEQ = -178,
-    tefNFTOKEN_IS_NOT_TRANSFERABLE = -179,
-    tefNO_TICKET = -180,
-    tefTOO_BIG = -181,
-    tefINVARIANT_FAILED = -182,
-    tefBAD_AUTH_MASTER = -183,
-    tefNOT_MULTI_SIGNING = -184,
-    tefBAD_QUORUM = -185,
-    tefBAD_SIGNATURE = -186,
-    tefMAX_LEDGER = -187,
-    tefMASTER_DISABLED = -188,
-    tefWRONG_PRIOR = -189,
-    tefPAST_SEQ = -190,
-    tefNO_AUTH_REQUIRED = -191,
-    tefINTERNAL = -192,
-    tefEXCEPTION = -193,
-    tefCREATED = -194,
-    tefBAD_LEDGER = -195,
-    tefBAD_AUTH = -196,
-    tefBAD_ADD_AUTH = -197,
-    tefALREADY = -198,
-    tefFAILURE = -199,
-    temBAD_TRANSFER_FEE = -249,
-    temARRAY_TOO_LARGE = -250,
-    temARRAY_EMPTY = -251,
-    temEMPTY_DID = -252,
-    temHOOK_DATA_TOO_LARGE = -253,
-    temXCHAIN_TOO_MANY_ATTESTATIONS = -254,
-    temXCHAIN_BRIDGE_BAD_REWARD_AMOUNT = -255,
-    temXCHAIN_BRIDGE_BAD_MIN_ACCOUNT_CREATE_AMOUNT = -256,
-    temXCHAIN_BRIDGE_NONDOOR_OWNER = -257,
-    temXCHAIN_BRIDGE_BAD_ISSUES = -258,
-    temXCHAIN_BAD_PROOF = -259,
-    temXCHAIN_EQUAL_DOOR_ACCOUNTS = -260,
-    temBAD_AMM_TOKENS = -261,
-    temBAD_NFTOKEN_TRANSFER_FEE = -262,
-    temSEQ_AND_TICKET = -263,
-    temUNKNOWN = -264,
-    temUNCERTAIN = -265,
-    temINVALID_COUNT = -266,
-    temCANNOT_PREAUTH_SELF = -267,
-    temINVALID_ACCOUNT_ID = -268,
-    temBAD_TICK_SIZE = -269,
-    temBAD_WEIGHT = -270,
-    temBAD_QUORUM = -271,
-    temBAD_SIGNER = -272,
-    temDISABLED = -273,
-    temRIPPLE_EMPTY = -274,
-    temREDUNDANT = -275,
-    temINVALID_FLAG = -276,
-    temINVALID = -277,
-    temDST_NEEDED = -278,
-    temDST_IS_SRC = -279,
-    temBAD_TRANSFER_RATE = -280,
-    temBAD_SRC_ACCOUNT = -281,
-    temBAD_SIGNATURE = -282,
-    temBAD_SEQUENCE = -283,
-    temBAD_SEND_NATIVE_PATHS = -284,
-    temBAD_SEND_NATIVE_PARTIAL = -285,
-    temBAD_SEND_NATIVE_NO_DIRECT = -286,
-    temBAD_SEND_NATIVE_MAX = -287,
-    temBAD_SEND_NATIVE_LIMIT = -288,
-    temBAD_REGKEY = -289,
-    temBAD_PATH_LOOP = -290,
-    temBAD_PATH = -291,
-    temBAD_OFFER = -292,
-    temBAD_LIMIT = -293,
-    temBAD_ISSUER = -294,
-    temBAD_FEE = -295,
-    temBAD_EXPIRATION = -296,
-    temBAD_CURRENCY = -297,
-    temBAD_AMOUNT = -298,
-    temMALFORMED = -299,
-    telENV_RPC_FAILED = -380,
-    telCAN_NOT_QUEUE_IMPORT = -381,
-    telIMPORT_VL_KEY_NOT_RECOGNISED = -382,
-    telNON_LOCAL_EMITTED_TXN = -383,
-    telNETWORK_ID_MAKES_TX_NON_CANONICAL = -384,
-    telREQUIRES_NETWORK_ID = -385,
-    telWRONG_NETWORK = -386,
-    telCAN_NOT_QUEUE_FULL = -387,
-    telCAN_NOT_QUEUE_FEE = -388,
-    telCAN_NOT_QUEUE_BLOCKED = -389,
-    telCAN_NOT_QUEUE_BLOCKS = -390,
-    telCAN_NOT_QUEUE_BALANCE = -391,
-    telCAN_NOT_QUEUE = -392,
-    telNO_DST_PARTIAL = -393,
-    telINSUF_FEE_P = -394,
-    telFAILED_PROCESSING = -395,
-    telBAD_PUBLIC_KEY = -396,
-    telBAD_PATH_COUNT = -397,
-    telBAD_DOMAIN = -398,
-    telLOCAL_ERROR = -399,
-  }
+  const TransactionResult: TransactionResultEnum;
+  type TransactionResult = (typeof TransactionResult)[keyof typeof TransactionResult];
 
   /**
    * Bit flags for transaction `Flags` (`tf*` / `hsf*`).
@@ -2842,55 +2909,8 @@ declare global {
    * materialized values in the complete recursive-object closure.
    */
 
-  /** Negative values returned by host functions on failure. */
-  const enum HookReturnCode {
-    SUCCESS = 0,
-    OUT_OF_BOUNDS = -1,
-    INTERNAL_ERROR = -2,
-    TOO_BIG = -3,
-    TOO_SMALL = -4,
-    DOESNT_EXIST = -5,
-    NO_FREE_SLOTS = -6,
-    INVALID_ARGUMENT = -7,
-    ALREADY_SET = -8,
-    PREREQUISITE_NOT_MET = -9,
-    FEE_TOO_LARGE = -10,
-    EMISSION_FAILURE = -11,
-    TOO_MANY_NONCES = -12,
-    TOO_MANY_EMITTED_TXN = -13,
-    NOT_IMPLEMENTED = -14,
-    INVALID_ACCOUNT = -15,
-    GUARD_VIOLATION = -16,
-    INVALID_FIELD = -17,
-    PARSE_ERROR = -18,
-    RC_ROLLBACK = -19,
-    RC_ACCEPT = -20,
-    NO_SUCH_KEYLET = -21,
-    NOT_AN_ARRAY = -22,
-    NOT_AN_OBJECT = -23,
-    DIVISION_BY_ZERO = -25,
-    MANTISSA_OVERSIZED = -26,
-    MANTISSA_UNDERSIZED = -27,
-    EXPONENT_OVERSIZED = -28,
-    EXPONENT_UNDERSIZED = -29,
-    XFL_OVERFLOW = -30,
-    NOT_IOU_AMOUNT = -31,
-    NOT_AN_AMOUNT = -32,
-    CANT_RETURN_NEGATIVE = -33,
-    NOT_AUTHORIZED = -34,
-    PREVIOUS_FAILURE_PREVENTS_RETRY = -35,
-    TOO_MANY_PARAMS = -36,
-    INVALID_TXN = -37,
-    RESERVE_INSUFFICIENT = -38,
-    COMPLEX_NOT_SUPPORTED = -39,
-    DOES_NOT_MATCH = -40,
-    INVALID_KEY = -41,
-    NOT_A_STRING = -42,
-    MEM_OVERLAP = -43,
-    TOO_MANY_STATE_MODIFICATIONS = -44,
-    TOO_MANY_NAMESPACES = -45,
-    INVALID_FLOAT = -10024,
-  }
+  const HookReturnCode: HookReturnCodeEnum;
+  type HookReturnCode = (typeof HookReturnCode)[keyof typeof HookReturnCode];
 
 
   /**

@@ -2,10 +2,10 @@
   "bytecode_abi_id": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
   "javascript_surface": {
     "declaration": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "declaration_sha256": "f4d421731be028556e41c86eee284788383f84600219b69bcdb46b60be7911e0",
+    "declaration_sha256": "24c9f5ef6b4f54746755f428db526cd2cd15c65417c94e7bb87bb341f4afce05",
     "manifest": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
     "schema": "jshookz.javascript-surface.v1",
-    "sha256": "8d36b218aefdb363adbe3a38e3505dba92db8d946ea92f211d6b5fbd96a9c232"
+    "sha256": "860699834e0689aa61c73145e00a861452caa8a4b686eacc4f384416b8844645"
   },
   "provider": {
     "build": {
@@ -360,10 +360,10 @@
         ]
       }
     ],
-    "sha256": "47e7003a0f4ee8f79fd529d4960aadc2ca58ac718afa4ebf2eededc169bcd13f",
-    "size": 1124251
+    "sha256": "dfacd07fde57ca5cd82c7ddafbe0d28f617ea2122c93d09e243609801c7fb7b1",
+    "size": 1167329
   },
-  "runtime_profile_id": "e73c4faf5d1ecaacbf7e7401bbacec8f9c88b2a4dea45bac3cae75af62f35516",
+  "runtime_profile_id": "86d24362423db9e7120cc6a45b98d8cf8792f3b0600fe925ce984e7d32703a7b",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
@@ -380,6 +380,8 @@
         "none": [],
         "xahauFloatV1": [
           "XFLDecimal.add",
+          "XFLDecimal.divide",
+          "XFLDecimal.multiply",
           "XFLDecimal.subtract"
         ]
       }

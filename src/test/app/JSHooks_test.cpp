@@ -172,6 +172,124 @@ export function main(_reserved: number): never {
         auto const xflAddSubtractCode = packageCurrentQuickJS(
             xflAddSubtractBytecode,
             hook::artifact::XFLArithmeticProfile::xahauFloatV1);
+        auto const& xflMultiplyBytecode = jshooks_test_wasm.at(R"[test.tshook](
+export const hookConfig = defineHookConfig({
+  xflArithmetic: XFLProfile.xahauFloatV1,
+});
+
+function decimal(hex: string): XFLDecimal {
+  return rollback
+    .requirePresent(
+      util.decodeObject(STBlob.fromHex(hex)).get(Field.Amount),
+      "multiply amount",
+    )
+    .toXFL();
+}
+
+export function main(_reserved: number): never {
+  void _reserved;
+  const result = rollback.onFail(
+    decimal(
+      "61D4871AFD498D00000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
+    ).multiply(
+      decimal(
+        "61D48AA87BEE5380000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
+      ),
+    ),
+    "xfl multiply failed",
+  );
+  const expected = decimal(
+    "61D49550F7DCA700000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
+  );
+  if (!result.equals(expected)) {
+    rollback("xfl multiply word mismatch", 6073);
+  }
+  accept("xfl multiply", 6070);
+}
+)[test.tshook]");
+        auto const xflMultiplyCode = packageCurrentQuickJS(
+            xflMultiplyBytecode,
+            hook::artifact::XFLArithmeticProfile::xahauFloatV1);
+        auto const& xflFixedDivideBytecode =
+            jshooks_test_wasm.at(R"[test.tshook](
+export const hookConfig = defineHookConfig({
+  xflArithmetic: XFLProfile.xahauFloatV1,
+});
+
+function decimal(hex: string): XFLDecimal {
+  return rollback
+    .requirePresent(
+      util.decodeObject(STBlob.fromHex(hex)).get(Field.Amount),
+      "divide amount",
+    )
+    .toXFL();
+}
+
+export function main(_reserved: number): never {
+  void _reserved;
+  const result = rollback.onFail(
+    decimal(
+      "61D84A8AFA8D4096130000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
+    ).divide(
+      decimal(
+        "61D848026D25F9A8760000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
+      ),
+    ),
+    "xfl divide failed",
+  );
+  const expected = decimal(
+    "61D484AD2B4291BC3E0000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
+  );
+  if (!result.equals(expected)) {
+    rollback("xfl fixed-divide word mismatch", 6074);
+  }
+  accept("xfl fixed divide", 6071);
+}
+)[test.tshook]");
+        auto const xflFixedDivideCode = packageCurrentQuickJS(
+            xflFixedDivideBytecode,
+            hook::artifact::XFLArithmeticProfile::xahauFloatV1);
+        auto const& xflDivideByZeroBytecode =
+            jshooks_test_wasm.at(R"[test.tshook](
+export const hookConfig = defineHookConfig({
+  xflArithmetic: XFLProfile.xahauFloatV1,
+});
+
+function decimal(hex: string): XFLDecimal {
+  return rollback
+    .requirePresent(
+      util.decodeObject(STBlob.fromHex(hex)).get(Field.Amount),
+      "divide-zero amount",
+    )
+    .toXFL();
+}
+
+export function main(_reserved: number): never {
+  void _reserved;
+  const outcome = decimal(
+    "61D4871AFD498D00000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
+  ).divide(
+    decimal(
+      "6180000000000000000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
+    ),
+  ).okOrHandle((error) => error);
+  if (outcome instanceof XFLDecimal) {
+    rollback("xfl divide by zero succeeded", 6075);
+  }
+  if (
+    outcome.domain !== "xfl" ||
+    outcome.issue !== "division-by-zero" ||
+    Object.getPrototypeOf(outcome) !== null ||
+    Object.isExtensible(outcome)
+  ) {
+    rollback("xfl divide-by-zero Result mismatch", 6076);
+  }
+  accept("xfl divide by zero", 6072);
+}
+)[test.tshook]");
+        auto const xflDivideByZeroCode = packageCurrentQuickJS(
+            xflDivideByZeroBytecode,
+            hook::artifact::XFLArithmeticProfile::xahauFloatV1);
         Blob const nearestEvenBypassBytecode{
             jshooksNearestEvenBypassBytecode.begin(),
             jshooksNearestEvenBypassBytecode.end()};
@@ -978,7 +1096,7 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             successfulValidation.xflArithmeticProfile ==
             hook::artifact::XFLArithmeticProfile::none);
-        expectFuel(successfulValidation.invocationFuelConsumed, 96505);
+        expectFuel(successfulValidation.invocationFuelConsumed, 58942);
 
         auto const xahauValidation = hook::validateQuickJSBytecodeForTests(
             currentRuntime, xahauProfileBytecode);
@@ -997,6 +1115,20 @@ int64_t hook(uint32_t reserved)
             xflAddSubtractValidation.xflArithmeticProfile ==
             hook::artifact::XFLArithmeticProfile::xahauFloatV1);
 
+        for (auto const* arithmeticBytecode :
+             {&xflMultiplyBytecode,
+              &xflFixedDivideBytecode,
+              &xflDivideByZeroBytecode})
+        {
+            auto const validation = hook::validateQuickJSBytecodeForTests(
+                currentRuntime, *arithmeticBytecode);
+            BEAST_EXPECT(!validation.error);
+            BEAST_EXPECT(!validation.hasCallback);
+            BEAST_EXPECT(
+                validation.xflArithmeticProfile ==
+                hook::artifact::XFLArithmeticProfile::xahauFloatV1);
+        }
+
         auto const nearestEvenBypassValidation =
             hook::validateQuickJSBytecodeForTests(
                 currentRuntime, nearestEvenBypassBytecode);
@@ -1007,7 +1139,7 @@ int64_t hook(uint32_t reserved)
             hook::artifact::XFLArithmeticProfile::nearestEvenV1);
         BEAST_EXPECT(
             std::string_view{jshooksBypassProviderSHA256} ==
-            "47e7003a0f4ee8f79fd529d4960aadc2ca58ac718afa4ebf2eededc169bcd13f");
+            "dfacd07fde57ca5cd82c7ddafbe0d28f617ea2122c93d09e243609801c7fb7b1");
 
         auto const callbackValidation = hook::validateQuickJSBytecodeForTests(
             currentRuntime, callbackBytecode);
@@ -1035,7 +1167,7 @@ int64_t hook(uint32_t reserved)
             BEAST_EXPECT(
                 result.xflArithmeticProfile ==
                 hook::artifact::XFLArithmeticProfile::none);
-            expectFuel(result.invocationFuelConsumed, 96505);
+            expectFuel(result.invocationFuelConsumed, 58942);
         }
 
         testcase("Bind XFL profile at QuickJS CREATE admission");
@@ -1128,7 +1260,7 @@ int64_t hook(uint32_t reserved)
             auto const failedValidation = hook::validateQuickJSBytecodeForTests(
                 currentRuntime, malformedBytecode);
             BEAST_EXPECT(!!failedValidation.error);
-            expectFuel(failedValidation.invocationFuelConsumed, 14101);
+            expectFuel(failedValidation.invocationFuelConsumed, 14116);
             identityEnv(
                 jtx::hook(
                     alice,
@@ -1381,7 +1513,7 @@ int64_t hook(uint32_t reserved)
         auto const message = execution.getFieldVL(sfHookReturnString);
         BEAST_EXPECT(
             std::string(message.begin(), message.end()) == "payment:0");
-        expectFuel(execution.getFieldU64(sfHookInstructionCount), 106505);
+        expectFuel(execution.getFieldU64(sfHookInstructionCount), 69109);
 
         testcase("Execute packaged xahauFloatV1 add and subtract");
         Env xflEnv{*this, features | featureJSHooks};
@@ -1412,7 +1544,111 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string(xflMessage.begin(), xflMessage.end()) ==
             "xfl add/subtract");
-        expectFuel(xflExecution.getFieldU64(sfHookInstructionCount), 321880);
+        expectFuel(xflExecution.getFieldU64(sfHookInstructionCount), 284698);
+
+        testcase("Execute packaged xahauFloatV1 multiply");
+        auto xflMultiplyHook = hsoVersioned(xflMultiplyCode, 1);
+        xflMultiplyHook[jss::Flags] = hsfOVERRIDE;
+        xflEnv(
+            jtx::hook(alice, {{xflMultiplyHook}}, 0),
+            fee(XRP(10)),
+            ter(tesSUCCESS));
+        xflEnv.close();
+        xflEnv(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
+        xflEnv.close();
+
+        auto const multiplyMeta = xflEnv.meta();
+        BEAST_EXPECT(!!multiplyMeta);
+        if (!multiplyMeta || !multiplyMeta->isFieldPresent(sfHookExecutions))
+            return;
+        auto const multiplyExecutions =
+            multiplyMeta->getFieldArray(sfHookExecutions);
+        BEAST_EXPECT(multiplyExecutions.size() == 1);
+        if (multiplyExecutions.size() != 1)
+            return;
+        auto const& multiplyExecution = multiplyExecutions[0];
+        BEAST_EXPECT(
+            multiplyExecution.getFieldU8(sfHookResult) ==
+            static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
+        BEAST_EXPECT(multiplyExecution.getFieldU64(sfHookReturnCode) == 6070);
+        auto const multiplyMessage =
+            multiplyExecution.getFieldVL(sfHookReturnString);
+        BEAST_EXPECT(
+            std::string(multiplyMessage.begin(), multiplyMessage.end()) ==
+            "xfl multiply");
+        expectFuel(
+            multiplyExecution.getFieldU64(sfHookInstructionCount), 191723);
+
+        testcase("Execute packaged xahauFloatV1 fixed divide last digit");
+        auto xflFixedDivideHook = hsoVersioned(xflFixedDivideCode, 1);
+        xflFixedDivideHook[jss::Flags] = hsfOVERRIDE;
+        xflEnv(
+            jtx::hook(alice, {{xflFixedDivideHook}}, 0),
+            fee(XRP(10)),
+            ter(tesSUCCESS));
+        xflEnv.close();
+        xflEnv(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
+        xflEnv.close();
+
+        auto const fixedDivideMeta = xflEnv.meta();
+        BEAST_EXPECT(!!fixedDivideMeta);
+        if (!fixedDivideMeta ||
+            !fixedDivideMeta->isFieldPresent(sfHookExecutions))
+            return;
+        auto const fixedDivideExecutions =
+            fixedDivideMeta->getFieldArray(sfHookExecutions);
+        BEAST_EXPECT(fixedDivideExecutions.size() == 1);
+        if (fixedDivideExecutions.size() != 1)
+            return;
+        auto const& fixedDivideExecution = fixedDivideExecutions[0];
+        BEAST_EXPECT(
+            fixedDivideExecution.getFieldU8(sfHookResult) ==
+            static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
+        BEAST_EXPECT(
+            fixedDivideExecution.getFieldU64(sfHookReturnCode) == 6071);
+        auto const fixedDivideMessage =
+            fixedDivideExecution.getFieldVL(sfHookReturnString);
+        BEAST_EXPECT(
+            std::string(fixedDivideMessage.begin(), fixedDivideMessage.end()) ==
+            "xfl fixed divide");
+        expectFuel(
+            fixedDivideExecution.getFieldU64(sfHookInstructionCount), 193544);
+
+        testcase("Return nominal Result for packaged divide by zero");
+        auto xflDivideByZeroHook = hsoVersioned(xflDivideByZeroCode, 1);
+        xflDivideByZeroHook[jss::Flags] = hsfOVERRIDE;
+        xflEnv(
+            jtx::hook(alice, {{xflDivideByZeroHook}}, 0),
+            fee(XRP(10)),
+            ter(tesSUCCESS));
+        xflEnv.close();
+        xflEnv(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
+        xflEnv.close();
+
+        auto const divideByZeroMeta = xflEnv.meta();
+        BEAST_EXPECT(!!divideByZeroMeta);
+        if (!divideByZeroMeta ||
+            !divideByZeroMeta->isFieldPresent(sfHookExecutions))
+            return;
+        auto const divideByZeroExecutions =
+            divideByZeroMeta->getFieldArray(sfHookExecutions);
+        BEAST_EXPECT(divideByZeroExecutions.size() == 1);
+        if (divideByZeroExecutions.size() != 1)
+            return;
+        auto const& divideByZeroExecution = divideByZeroExecutions[0];
+        BEAST_EXPECT(
+            divideByZeroExecution.getFieldU8(sfHookResult) ==
+            static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
+        BEAST_EXPECT(
+            divideByZeroExecution.getFieldU64(sfHookReturnCode) == 6072);
+        auto const divideByZeroMessage =
+            divideByZeroExecution.getFieldVL(sfHookReturnString);
+        BEAST_EXPECT(
+            std::string(
+                divideByZeroMessage.begin(), divideByZeroMessage.end()) ==
+            "xfl divide by zero");
+        expectFuel(
+            divideByZeroExecution.getFieldU64(sfHookInstructionCount), 188678);
 
         testcase("Fail closed for packaged nearestEvenV1 arithmetic bypass");
         auto nearestEvenBypassHook = hsoVersioned(nearestEvenBypassCode, 1);
@@ -1444,7 +1680,7 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string(bypassMessage.begin(), bypassMessage.end()) ==
             "xfl profile backstop");
-        expectFuel(bypassExecution.getFieldU64(sfHookInstructionCount), 237268);
+        expectFuel(bypassExecution.getFieldU64(sfHookInstructionCount), 201010);
 
         auto const bypassStateKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -1487,7 +1723,7 @@ int64_t hook(uint32_t reserved)
             std::string(surfaceMessage.begin(), surfaceMessage.end()) ==
             "surface:40");
         expectFuel(
-            surfaceExecution.getFieldU64(sfHookInstructionCount), 142781);
+            surfaceExecution.getFieldU64(sfHookInstructionCount), 102231);
 
         testcase("Execute accepted STObject and STArray on Wasmtime");
         auto stObjectHook = hsoVersioned(stObjectArrayCode, 1);
@@ -1549,7 +1785,7 @@ int64_t hook(uint32_t reserved)
             "f0-native-matrix");
         expectFuel(
             f0NativeMatrixExecution.getFieldU64(sfHookInstructionCount),
-            6893883);
+            6839777);
 
         //@@start jshooks-state-bridge
         testcase("Execute a C Hook through WasmEdge and persist state");
@@ -1662,7 +1898,7 @@ int64_t hook(uint32_t reserved)
         if (rollbackExecutions.size() != 1)
             return;
         expectFuel(
-            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 122291);
+            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 81759);
 
         stateEntry = env.le(stateKeylet);
         BEAST_EXPECT(!!stateEntry);
@@ -1695,7 +1931,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& memoryGrowthExecution = memoryGrowthExecutions[0];
         expectFuel(
-            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7388548);
+            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7426891);
         BEAST_EXPECT(
             memoryGrowthExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
@@ -1741,7 +1977,7 @@ int64_t hook(uint32_t reserved)
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
         expectFuel(
             hostWorkExecutions[0].getFieldU64(sfHookInstructionCount),
-            30544615);
+            30500208);
 
         auto const meterKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -1836,7 +2072,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& callbackExecution = callbackExecutions[0];
         expectFuel(
-            callbackExecution.getFieldU64(sfHookInstructionCount), 158342);
+            callbackExecution.getFieldU64(sfHookInstructionCount), 118273);
         BEAST_EXPECT_EQ(
             callbackExecution.getFieldU8(sfHookResult),
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));

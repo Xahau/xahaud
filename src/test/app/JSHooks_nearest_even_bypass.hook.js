@@ -14,16 +14,16 @@ function decimal(hex) {
 export function main(_reserved) {
   void _reserved;
   const left = decimal(
-    "61D8438D7EA4C680010000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
+    "61D84A8AFA8D4096130000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
   );
   const right = decimal(
-    "61D451C37937E080000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
+    "61D848026D25F9A8760000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
   );
 
   let failure;
   let returned = false;
   try {
-    left.add(right);
+    left.divide(right);
     returned = true;
   } catch (error) {
     failure = error;
@@ -39,7 +39,7 @@ export function main(_reserved) {
   if (
     !(failure instanceof TypeError) ||
     String(failure) !==
-      "TypeError: XFLDecimal.add: arithmetic profile does not implement operation"
+      "TypeError: XFLDecimal.divide: arithmetic profile does not implement operation"
   ) {
     rollback("wrong profile backstop", 6063);
   }
