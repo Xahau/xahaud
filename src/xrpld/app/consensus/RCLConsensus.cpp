@@ -671,6 +671,14 @@ RCLConsensus::Adaptor::doAccept(
     auto const newLCLHash = built.id();
     JLOG(j_.debug()) << "Built ledger #" << built.seq() << ": " << newLCLHash;
 
+    // Once the accepted result has built the enable-amendment ledger, the
+    // protocol cutoff is a fait accompli. Publish it before status notification
+    // or any remaining accept work; beginConsensus repeats this idempotently to
+    // cover startup and catch-up from an already-enabled ledger.
+    if (built.ledger_->rules().enabled(featureConsensusEntropy))
+        app_.overlay().requireProtocolFeature(
+            ProtocolFeature::ConsensusEntropy);
+
     // Tell directly connected peers that we have a new LCL
     notify(protocol::neACCEPTED_LEDGER, built, haveCorrectLCL);
 

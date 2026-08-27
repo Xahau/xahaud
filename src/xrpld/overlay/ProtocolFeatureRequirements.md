@@ -39,23 +39,26 @@ For the observed rollout, the relevant ledgers are:
 | 257 | contains `EnableAmendment`; its resulting rules enable CE | install the required-capability gate |
 | 258 | first consensus round built with CE active | only capable sessions may participate |
 
-`NetworkOPsImp::beginConsensus` is the boundary. Its `prevLedger` is the newly
-closed ledger whose rules govern the round about to start. If those rules
-enable Consensus Entropy, it calls:
+As soon as the accepted consensus result has built ledger 257, `doAccept`
+installs the requirement before status notification and the remainder of the
+accept work. It does not wait for ledger 257 to become fully validated or for
+the next round to start:
 
 ```cpp
 app.overlay().requireProtocolFeature(
     ProtocolFeature::ConsensusEntropy);
 ```
 
-This happens before `RCLConsensus::startRound`. Thus accepting ledger 257
-disconnects incompatible sessions before any ledger-258 proposal is created or
-relayed. Local `VOTE`/`VETO` state is not used: a validator that locally vetoed
-the amendment must still obey the rules of the ledger the network accepted.
+`NetworkOPsImp::beginConsensus` repeats the same idempotent call from its
+`prevLedger`, the newly closed ledger whose rules govern the round about to
+start. Thus accepting ledger 257 disconnects incompatible sessions before any
+ledger-258 proposal is created or relayed. Local `VOTE`/`VETO` state is not
+used: a validator that locally vetoed the amendment must still obey the rules
+of the ledger the network accepted.
 
-The same path runs for the first consensus round after a restart or catch-up,
-so a node starting from an already-enabled ledger installs the requirement
-before joining consensus.
+The `beginConsensus` path also runs for the first round after a restart or
+catch-up, so a node starting from an already-enabled ledger installs the
+requirement before joining consensus.
 
 ## Session behavior
 

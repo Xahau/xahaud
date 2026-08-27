@@ -866,7 +866,7 @@ PeerImp::doAccept()
     }
 
     if (!overlay_.activate(shared_from_this()))
-        return fail("Missing required protocol feature");
+        return;
 
     // XXX Set timer: connection is in grace period to be useful.
     // XXX Set timer: connection idle (idle may vary depending on connection

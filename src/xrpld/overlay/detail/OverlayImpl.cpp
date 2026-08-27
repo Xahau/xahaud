@@ -273,7 +273,8 @@ OverlayImpl::onHandoff(
             app_);
 
         if (auto const missing =
-                missingRequiredProtocolFeatureInHandshake(request))
+                missingRequiredProtocolFeatureInHandshake(
+                    request, *negotiatedVersion))
             throw std::runtime_error(
                 "Handshake missing required protocol feature " +
                 std::string(protocolFeatureName(*missing)));
@@ -632,6 +633,9 @@ OverlayImpl::activate(std::shared_ptr<PeerImp> const& peer)
             << "Rejected active peer missing required protocol feature "
             << protocolFeatureName(*missing) << " from "
             << peer->getRemoteAddress();
+        peer->fail(
+            "Missing required protocol feature " +
+            std::string(protocolFeatureName(*missing)));
         return false;
     }
 
@@ -1196,9 +1200,10 @@ OverlayImpl::isProtocolFeatureRequired(ProtocolFeature feature) const
 std::optional<ProtocolFeature>
 OverlayImpl::missingRequiredProtocolFeature(Peer const& peer) const
 {
-    if (isProtocolFeatureRequired(ProtocolFeature::ConsensusEntropy) &&
-        !peer.supportsFeature(ProtocolFeature::ConsensusEntropy))
-        return ProtocolFeature::ConsensusEntropy;
+    for (auto const feature : allProtocolFeatures)
+        if (isProtocolFeatureRequired(feature) &&
+            !peer.supportsFeature(feature))
+            return feature;
     return std::nullopt;
 }
 
@@ -1206,7 +1211,10 @@ void
 OverlayImpl::broadcast(protocol::TMProposeSet& m)
 {
     auto const sm = std::make_shared<Message>(m, protocol::mtPROPOSE_LEDGER);
-    for_each([&](std::shared_ptr<PeerImp>&& p) { p->send(sm); });
+    for_each([&](std::shared_ptr<PeerImp>&& p) {
+        if (!missingRequiredProtocolFeature(*p))
+            p->send(sm);
+    });
 }
 
 std::set<Peer::id_t>
@@ -1220,7 +1228,8 @@ OverlayImpl::relay(
         auto const sm =
             std::make_shared<Message>(m, protocol::mtPROPOSE_LEDGER, validator);
         for_each([&](std::shared_ptr<PeerImp>&& p) {
-            if (toSkip->find(p->id()) == toSkip->end())
+            if (toSkip->find(p->id()) == toSkip->end() &&
+                !missingRequiredProtocolFeature(*p))
                 p->send(sm);
         });
         return *toSkip;

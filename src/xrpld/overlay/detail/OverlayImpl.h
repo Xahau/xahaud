@@ -279,11 +279,36 @@ public:
     /** Return the first mandatory feature missing from handshake headers. */
     template <class Headers>
     std::optional<ProtocolFeature>
-    missingRequiredProtocolFeatureInHandshake(Headers const& headers) const
+    missingRequiredProtocolFeatureInHandshake(
+        Headers const& headers,
+        ProtocolVersion const& protocol) const
     {
-        if (isProtocolFeatureRequired(ProtocolFeature::ConsensusEntropy) &&
-            !peerFeatureEnabled(headers, FEATURE_CONSENSUS_ENTROPY, true))
-            return ProtocolFeature::ConsensusEntropy;
+        for (auto const feature : allProtocolFeatures)
+        {
+            if (!isProtocolFeatureRequired(feature))
+                continue;
+
+            bool supported = false;
+            switch (feature)
+            {
+                case ProtocolFeature::ValidatorListPropagation:
+                    supported = protocol >= make_protocol(2, 1);
+                    break;
+                case ProtocolFeature::ValidatorList2Propagation:
+                    supported = protocol >= make_protocol(2, 2);
+                    break;
+                case ProtocolFeature::LedgerReplay:
+                    supported = peerFeatureEnabled(
+                        headers, FEATURE_LEDGER_REPLAY, true);
+                    break;
+                case ProtocolFeature::ConsensusEntropy:
+                    supported = peerFeatureEnabled(
+                        headers, FEATURE_CONSENSUS_ENTROPY, true);
+                    break;
+            }
+            if (!supported)
+                return feature;
+        }
         return std::nullopt;
     }
 

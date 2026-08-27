@@ -364,7 +364,8 @@ ConnectAttempt::processResponse()
             app_);
 
         if (auto const missing =
-                overlay_.missingRequiredProtocolFeatureInHandshake(response_))
+                overlay_.missingRequiredProtocolFeatureInHandshake(
+                    response_, *negotiatedProtocol))
             return fail(
                 "Handshake missing required protocol feature " +
                 std::string(protocolFeatureName(*missing)));

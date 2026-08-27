@@ -26,6 +26,7 @@
 #include <xrpl/json/json_value.h>
 #include <xrpl/protocol/PublicKey.h>
 
+#include <array>
 #include <string_view>
 
 namespace ripple {
@@ -39,6 +40,13 @@ enum class ProtocolFeature {
     ValidatorList2Propagation,
     LedgerReplay,
     ConsensusEntropy,
+};
+
+inline constexpr std::array allProtocolFeatures = {
+    ProtocolFeature::ValidatorListPropagation,
+    ProtocolFeature::ValidatorList2Propagation,
+    ProtocolFeature::LedgerReplay,
+    ProtocolFeature::ConsensusEntropy,
 };
 
 /** Stable diagnostic name for a negotiated peer-protocol feature. */
