@@ -312,10 +312,13 @@ private:
         testcase("active ledger installs protocol feature gate");
         auto config = jtx::envconfig();
         config->features.insert(featureConsensusEntropy);
+        config->features.insert(featureExport);
         jtx::Env env(*this, std::move(config));
         auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
         BEAST_EXPECT(overlay.isProtocolFeatureRequired(
             ProtocolFeature::ConsensusEntropy));
+        BEAST_EXPECT(overlay.isProtocolFeatureRequired(
+            ProtocolFeature::ExportShares));
     }
 
     void
@@ -324,25 +327,40 @@ private:
         testcase("generic protocol feature admission");
         jtx::Env env(*this);
         auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
-        boost::beast::http::fields headers;
+        auto const capableCtl =
+            makeFeaturesRequestHeader(false, false, false, false);
+        boost::beast::http::fields empty;
+        boost::beast::http::fields capable;
+        capable.set("X-Protocol-Ctl", capableCtl);
+
+        overlay.requireProtocolFeature(ProtocolFeature::ExportShares);
+        BEAST_EXPECT(overlay.isProtocolFeatureRequired(
+            ProtocolFeature::ExportShares));
+        BEAST_EXPECT(
+            overlay.missingRequiredProtocolFeatureInHandshake(
+                empty, make_protocol(2, 2)) == ProtocolFeature::ExportShares);
+        BEAST_EXPECT(!overlay.missingRequiredProtocolFeatureInHandshake(
+            capable, make_protocol(2, 2)));
 
         overlay.requireProtocolFeature(
             ProtocolFeature::ValidatorList2Propagation);
         BEAST_EXPECT(
             overlay.missingRequiredProtocolFeatureInHandshake(
-                headers, make_protocol(2, 1)) ==
+                empty, make_protocol(2, 1)) ==
             ProtocolFeature::ValidatorList2Propagation);
         BEAST_EXPECT(!overlay.missingRequiredProtocolFeatureInHandshake(
-            headers, make_protocol(2, 2)));
+            capable, make_protocol(2, 2)));
 
         overlay.requireProtocolFeature(ProtocolFeature::LedgerReplay);
         BEAST_EXPECT(
             overlay.missingRequiredProtocolFeatureInHandshake(
-                headers, make_protocol(2, 2)) ==
+                capable, make_protocol(2, 2)) ==
             ProtocolFeature::LedgerReplay);
-        headers.set("X-Protocol-Ctl", "ledgerreplay=1;");
+        boost::beast::http::fields withReplay;
+        withReplay.set(
+            "X-Protocol-Ctl", capableCtl + std::string("ledgerreplay=1;"));
         BEAST_EXPECT(!overlay.missingRequiredProtocolFeatureInHandshake(
-            headers, make_protocol(2, 2)));
+            withReplay, make_protocol(2, 2)));
     }
 
     void

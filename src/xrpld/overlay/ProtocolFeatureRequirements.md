@@ -5,7 +5,9 @@ support during the HTTP upgrade is not enough: once such an amendment is
 active, a capable server must stop maintaining sessions with peers that did
 not negotiate the matching capability.
 
-Consensus Entropy is the first feature using this mechanism.
+Consensus Entropy is the first feature using this mechanism. Export Shares
+is the second: `xahau-export-shares` is advertised and AND-negotiated the
+same way, and `featureExport` installs `ProtocolFeature::ExportShares`.
 
 ## The three different questions
 
@@ -14,13 +16,17 @@ These checks are deliberately separate:
 ```cpp
 // What did this particular connection negotiate?
 peer->supportsFeature(ProtocolFeature::ConsensusEntropy);
+peer->supportsFeature(ProtocolFeature::ExportShares);
 
 // Is the amendment active in this ledger's rule set?
 ledger.rules().enabled(featureConsensusEntropy);
+ledger.rules().enabled(featureExport);
 
 // Has this process made the capability mandatory for overlay sessions?
 app.overlay().isProtocolFeatureRequired(
     ProtocolFeature::ConsensusEntropy);
+app.overlay().isProtocolFeatureRequired(
+    ProtocolFeature::ExportShares);
 ```
 
 The first value is cached when `PeerImp` is constructed from the handshake. It
@@ -45,8 +51,12 @@ accept work. It does not wait for ledger 257 to become fully validated or for
 the next round to start:
 
 ```cpp
-app.overlay().requireProtocolFeature(
-    ProtocolFeature::ConsensusEntropy);
+if (rules.enabled(featureConsensusEntropy))
+    app.overlay().requireProtocolFeature(
+        ProtocolFeature::ConsensusEntropy);
+if (rules.enabled(featureExport))
+    app.overlay().requireProtocolFeature(
+        ProtocolFeature::ExportShares);
 ```
 
 `NetworkOPsImp::beginConsensus` repeats the same idempotent call from its
@@ -70,8 +80,10 @@ rule.
 Both handshake directions reject missing capabilities after identity and
 security-cookie verification but before PeerFinder activation:
 
-- inbound requests must advertise `xahau-consensus-entropy=1`;
-- outbound responses must echo the token, proving that both ends negotiated it.
+- inbound requests must advertise each required token
+  (`xahau-consensus-entropy=1`, `xahau-export-shares=1`);
+- outbound responses must echo those tokens, proving that both ends
+  negotiated them.
 
 There is also a second check when a `PeerImp` enters the active set. It closes
 the race in which the requirement changes after the HTTP headers were checked
@@ -103,7 +115,6 @@ pre-activation drain window.
 
 - The token does not create a new `XRPL/2.x` version.
 - It does not downgrade proposal encoding per destination.
-- It does not include request-ID negotiation.
 - The capability assertion is part of the authenticated TLS peer handshake,
   but it is still a compatibility claim; normal message parsing remains
   defensive.

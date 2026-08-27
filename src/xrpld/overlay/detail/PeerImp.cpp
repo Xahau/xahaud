@@ -143,6 +143,8 @@ PeerImp::PeerImp(
           app_.config().LEDGER_REPLAY))
     , consensusEntropyCapable_(
           peerFeatureEnabled(headers_, FEATURE_CONSENSUS_ENTROPY, true))
+    , exportSharesCapable_(
+          peerFeatureEnabled(headers_, FEATURE_EXPORT_SHARES, true))
     , ledgerReplayMsgHandler_(app, app.getLedgerReplayer())
 {
     JLOG(journal_.info()) << "compression enabled "
@@ -152,7 +154,9 @@ PeerImp::PeerImp(
                           << " tx reduce-relay enabled "
                           << txReduceRelayEnabled_
                           << " consensus entropy capability negotiated "
-                          << consensusEntropyCapable_ << " on "
+                          << consensusEntropyCapable_
+                          << " export shares capability negotiated "
+                          << exportSharesCapable_ << " on "
                           << remote_address_ << " " << id_;
 }
 
@@ -488,6 +492,7 @@ PeerImp::json()
 
     ret[jss::protocol] = to_string(protocol_);
     ret["capabilities"][FEATURE_CONSENSUS_ENTROPY] = consensusEntropyCapable_;
+    ret["capabilities"][FEATURE_EXPORT_SHARES] = exportSharesCapable_;
 
     {
         std::lock_guard sl(recentLock_);
@@ -587,6 +592,8 @@ PeerImp::supportsFeature(ProtocolFeature f) const
             return ledgerReplayEnabled_;
         case ProtocolFeature::ConsensusEntropy:
             return consensusEntropyCapable_;
+        case ProtocolFeature::ExportShares:
+            return exportSharesCapable_;
     }
     return false;
 }

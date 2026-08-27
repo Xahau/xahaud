@@ -54,6 +54,7 @@ public:
             makeFeaturesRequestHeader(false, false, false, false);
         headers.set("X-Protocol-Ctl", capableRequest);
         BEAST_EXPECT(featureEnabled(headers, FEATURE_CONSENSUS_ENTROPY));
+        BEAST_EXPECT(featureEnabled(headers, FEATURE_EXPORT_SHARES));
 
         http_request_type request;
         boost::beast::http::fields response;
@@ -61,11 +62,13 @@ public:
             "X-Protocol-Ctl",
             makeFeaturesResponseHeader(request, false, false, false, false));
         BEAST_EXPECT(!featureEnabled(response, FEATURE_CONSENSUS_ENTROPY));
+        BEAST_EXPECT(!featureEnabled(response, FEATURE_EXPORT_SHARES));
         request.set("X-Protocol-Ctl", capableRequest);
         response.set(
             "X-Protocol-Ctl",
             makeFeaturesResponseHeader(request, false, false, false, false));
         BEAST_EXPECT(featureEnabled(response, FEATURE_CONSENSUS_ENTROPY));
+        BEAST_EXPECT(featureEnabled(response, FEATURE_EXPORT_SHARES));
     }
 
     void

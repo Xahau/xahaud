@@ -1296,7 +1296,8 @@ OverlayImpl::relay(protocol::TMExportShares& m)
                 outbound.add_shares(m.shares(index));
         }
 
-        if (outbound.shares_size() != 0)
+        if (outbound.shares_size() != 0 &&
+            !missingRequiredProtocolFeature(*peer))
             peer->send(
                 std::make_shared<Message>(outbound, protocol::mtEXPORT_SHARES));
     });

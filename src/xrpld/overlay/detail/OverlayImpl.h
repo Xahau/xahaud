@@ -305,6 +305,10 @@ public:
                     supported = peerFeatureEnabled(
                         headers, FEATURE_CONSENSUS_ENTROPY, true);
                     break;
+                case ProtocolFeature::ExportShares:
+                    supported = peerFeatureEnabled(
+                        headers, FEATURE_EXPORT_SHARES, true);
+                    break;
             }
             if (!supported)
                 return feature;

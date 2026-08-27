@@ -1937,6 +1937,9 @@ NetworkOPsImp::beginConsensus(
     if (prevLedger->rules().enabled(featureConsensusEntropy))
         app_.overlay().requireProtocolFeature(
             ProtocolFeature::ConsensusEntropy);
+    if (prevLedger->rules().enabled(featureExport))
+        app_.overlay().requireProtocolFeature(
+            ProtocolFeature::ExportShares);
 
     TrustChanges const changes = app_.validators().updateTrusted(
         app_.getValidations().getCurrentNodeIDs(),
