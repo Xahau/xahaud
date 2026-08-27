@@ -272,9 +272,8 @@ OverlayImpl::onHandoff(
             remote_endpoint.address(),
             app_);
 
-        if (auto const missing =
-                missingRequiredProtocolFeatureInHandshake(
-                    request, *negotiatedVersion))
+        if (auto const missing = missingRequiredProtocolFeatureInHandshake(
+                request, *negotiatedVersion))
             throw std::runtime_error(
                 "Handshake missing required protocol feature " +
                 std::string(protocolFeatureName(*missing)));
@@ -1174,8 +1173,8 @@ void
 OverlayImpl::requireProtocolFeature(ProtocolFeature feature)
 {
     auto const mask = protocolFeatureMask(feature);
-    auto const previous = requiredProtocolFeatures_.fetch_or(
-        mask, std::memory_order_acq_rel);
+    auto const previous =
+        requiredProtocolFeatures_.fetch_or(mask, std::memory_order_acq_rel);
     if ((previous & mask) != 0)
         return;
 
