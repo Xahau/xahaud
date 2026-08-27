@@ -288,6 +288,12 @@ private:
 
         protocol::TMProposeSet proposal;
         proposal.set_proposeseq(1);
+        proposal.set_currenttxhash(std::string(32, '\0'));
+        proposal.set_nodepubkey(std::string(33, '\0'));
+        proposal.set_closetime(0);
+        proposal.set_signature(std::string(64, '\0'));
+        proposal.set_previousledger(std::string(32, '\0'));
+        BEAST_EXPECT(proposal.IsInitialized());
         overlay.broadcast(proposal);
         BEAST_EXPECT(PeerTest::sendTx_ == 0);
 
