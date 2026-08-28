@@ -1,8 +1,8 @@
 {
   "artifacts": {
-    "python/jshookz/src/jshookz/types/hooks-api.d.ts": "bbc5612b8af6b0dfebe651a63caf3cc3939a688ec3643c81bf53f821438ac25d",
-    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts": "e4df494125d6e2ad7c556f3966d12477f67dd8fa9cd5ab1cf1ea0558a3c498ce",
-    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json": "81b41528e0af6d647d7fb798f6e2cdcfd50e513fa6b0c99953f5cbbecdb80b0b",
+    "python/jshookz/src/jshookz/types/hooks-api.d.ts": "9a39e603465f49da7efee6007c930398a4e804c0be551f4a0a96f4382da8f07f",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts": "6246d42482aea85442460a5d8ed51d79f7059c4d813797b7827fd28b2c209590",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json": "d5ee881acea978615062e8c3133cc1c87a0c8bab7d6bb7484d357e862fc08556",
     "python/jshookz/src/jshookz/xfl_profile_ledger.ts": "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056fd80"
   },
   "schema": "jshookz.api-artifacts.v1"

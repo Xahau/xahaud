@@ -2760,8 +2760,8 @@ declare global {
    * TypeScript should normally use the direct call.
    *
    * A supplied `code` becomes the integer HookReturnCode recorded on-ledger.
-   * Omit it to let the compiler/provider record source location. Do not copy
-   * C `__LINE__`. Explicitly meaningful codes remain caller-owned.
+   * Omitted codes default to zero. Do not copy C `__LINE__`; explicitly
+   * meaningful codes remain caller-owned.
    */
   function accept(message?: string | BytesLike | STBlob, code?: number): never;
 
@@ -2771,7 +2771,6 @@ declare global {
      * value; otherwise `accept` — this invocation is done, nothing to act
      * on. Falsy-but-present successes (`0`, `0n`, `false`, and `""`) are
      * values and continue.
-     * There is no `accept.require`; that name is a compile error on purpose.
      */
     function unlessPresent<T, Error>(
       result: Result<T, Error>,
@@ -2805,6 +2804,17 @@ declare global {
       message?: string | BytesLike | STBlob,
       code?: number,
     ): JSTruthy<T>;
+    /**
+     * Require `condition` to continue; otherwise `accept`. TypeScript narrows
+     * from the asserted proposition after this call. The condition is ordinary
+     * JavaScript truthiness at runtime; callers should pass an explicit boolean
+     * proposition such as `transaction instanceof Payment`.
+     */
+    function require(
+      condition: boolean,
+      message?: string | BytesLike | STBlob,
+      code?: number,
+    ): asserts condition;
     /**
      * If `condition` is true, `accept`. If false, return and continue.
      */
