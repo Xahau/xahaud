@@ -20,15 +20,15 @@ WASM_VERSION = "47.0.3"
 CMAKE_SET = re.compile(r'^set\(XAHAU_QUICKJS_([A-Z0-9_]+) "([^"]*)"\)\s*$')
 
 PIN = {
-    "provider_sha256": "a88e532d39ffc77434200201ebabda1b1a11d602b1ca82aadcfdef729417005a",
-    "provider_size": "1168947",
-    "manifest_sha256": "d42ebe0266edbf2334178a30ae4affc11d139403334ef43f119e07dc6fb78e22",
-    "runtime_profile_id": "90bd4a68039486c8b688222b824d93ac19b887d16ba06b9490e8af1baa95c6db",
-    "broad_declaration_sha256": "65fba837cb07147feaee68c66bf44a020f2bce5f3db2b9613dcd9624e406aab2",
-    "exact_v1_declaration_sha256": "d0889ce34efb65f4805d261fc5c78f3a73c5f80f136dd109074247f63c66234a",
-    "surface_sha256": "4c0d5668d8ccf5096ceb7b15f7535e4aecb86248f556513e28b55c94e5db3974",
+    "provider_sha256": "d6511cfd595995aafe4222efd4045895aebded2579e6fbe83c4d1d19c8d63a7c",
+    "provider_size": "1188402",
+    "manifest_sha256": "bebc5ba27e3f3d0434ccddf0e274f9a8f9df0de5bf66928802bb4180fe850c39",
+    "runtime_profile_id": "0c35b2623533a563ae237e65b59acdeacdd0df2b69d579530abca581ea7ae72d",
+    "broad_declaration_sha256": "bbc5612b8af6b0dfebe651a63caf3cc3939a688ec3643c81bf53f821438ac25d",
+    "exact_v1_declaration_sha256": "e4df494125d6e2ad7c556f3966d12477f67dd8fa9cd5ab1cf1ea0558a3c498ce",
+    "surface_sha256": "81b41528e0af6d647d7fb798f6e2cdcfd50e513fa6b0c99953f5cbbecdb80b0b",
     "xfl_profile_ledger_sha256": "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056fd80",
-    "api_artifact_manifest_sha256": "e07beb0e5839b0fdf844c05c0e4207be3cd921c94c5fe7db7f1741d842a6aa79",
+    "api_artifact_manifest_sha256": "fa21b7fbe08539f33fdf4b6e3f888016ed1edf712934999342e29be2d9b3b1bc",
     "bytecode_abi": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
     "native_abi": "136bfc5cd0032851d69065d78c95db4fe7dfbc3d8d3691af5a97b8daa38f5170",
     "wasm_stack_bytes": "131072",

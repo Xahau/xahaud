@@ -43,10 +43,11 @@
   },
   "declaration": {
     "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "sha256": "d0889ce34efb65f4805d261fc5c78f3a73c5f80f136dd109074247f63c66234a"
+    "sha256": "e4df494125d6e2ad7c556f3966d12477f67dd8fa9cd5ab1cf1ea0558a3c498ce"
   },
   "globals": {
     "AccountID": "object",
+    "AccountRoot": "function",
     "Amount": "object",
     "Currency": "object",
     "Field": "object",
@@ -58,16 +59,20 @@
     "HookReturnCode": "object",
     "IOUAmount": "object",
     "Issue": "object",
+    "LedgerEntry": "function",
+    "LedgerEntryType": "object",
     "MPTAmount": "object",
     "NativeAmount": "object",
     "Path": "object",
     "PathHop": "object",
     "PathSet": "object",
+    "Payment": "function",
     "Result": "object",
     "STArray": "object",
     "STBlob": "object",
-    "STObject": "object",
+    "STObject": "function",
     "SerializedField": "object",
+    "Transaction": "function",
     "TransactionResult": "object",
     "TransactionType": "object",
     "UInt": "object",
@@ -147,6 +152,84 @@
         "toHex"
       ],
       "probe": "AccountID.from(new Uint8Array(20))"
+    },
+    "AccountRoot": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "Account",
+          "Balance",
+          "Flags",
+          "LedgerEntryType",
+          "OwnerCount",
+          "PreviousTxnID",
+          "PreviousTxnLgrSeq",
+          "Sequence"
+        ],
+        "extensible": false,
+        "own": [
+          "Account",
+          "Balance",
+          "Flags",
+          "LedgerEntryType",
+          "OwnerCount",
+          "PreviousTxnID",
+          "PreviousTxnLgrSeq",
+          "Sequence"
+        ]
+      },
+      "frozen": true,
+      "members": {
+        "AMMID": "optional-value",
+        "Account": "value",
+        "AccountIndex": "optional-value",
+        "AccountTxnID": "optional-value",
+        "Balance": "value",
+        "BurnedNFTokens": "optional-value",
+        "Cron": "optional-value",
+        "Domain": "optional-value",
+        "EmailHash": "optional-value",
+        "FirstNFTokenSequence": "optional-value",
+        "Flags": "value",
+        "GovernanceFlags": "optional-value",
+        "GovernanceMarks": "optional-value",
+        "HookNamespaces": "optional-value",
+        "HookStateCount": "optional-value",
+        "HookStateScale": "optional-value",
+        "ImportSequence": "optional-value",
+        "LedgerEntryType": "value",
+        "LedgerIndex": "optional-value",
+        "MessageKey": "optional-value",
+        "MintedNFTokens": "optional-value",
+        "NFTokenMinter": "optional-value",
+        "OwnerCount": "value",
+        "PreviousTxnID": "value",
+        "PreviousTxnLgrSeq": "value",
+        "RegularKey": "optional-value",
+        "Remarks": "optional-value",
+        "RewardAccumulator": "optional-value",
+        "RewardLgrFirst": "optional-value",
+        "RewardLgrLast": "optional-value",
+        "RewardTime": "optional-value",
+        "Sequence": "value",
+        "TickSize": "optional-value",
+        "TicketCount": "optional-value",
+        "TouchCount": "optional-value",
+        "TransferRate": "optional-value",
+        "WalletLocator": "optional-value",
+        "WalletSize": "optional-value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('1100612200000000240000000125000000012D000000005500000000000000000000000000000000000000000000000000000000000000006240000000000F42408114B5F762798A53D543A014CAF8B297CFF8F2F937E8'))"
     },
     "Amount": {
       "members": {
@@ -307,6 +390,42 @@
       ],
       "probe": "util.decodeObject(new Uint8Array()).withField('LockingChainIssue', new Uint8Array(20)).LockingChainIssue"
     },
+    "LedgerEntry": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "Flags",
+          "Indexes",
+          "LedgerEntryType",
+          "RootIndex"
+        ],
+        "extensible": false,
+        "own": [
+          "Flags",
+          "Indexes",
+          "LedgerEntryType",
+          "RootIndex"
+        ]
+      },
+      "frozen": true,
+      "members": {
+        "Flags": "value",
+        "LedgerEntryType": "value",
+        "LedgerIndex": "optional-value",
+        "Remarks": "optional-value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('1100642200000000580000000000000000000000000000000000000000000000000000000000000000011300'))"
+    },
     "Path": {
       "members": {
         "[Symbol.iterator]": "function",
@@ -347,6 +466,74 @@
         "toBytes"
       ],
       "probe": "util.decodeObject(STBlob.fromHex('011201B5F762798A53D543A014CAF8B297CFF8F2F937E800')).Paths"
+    },
+    "Payment": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "Account",
+          "Amount",
+          "Destination",
+          "Fee",
+          "Flags",
+          "Sequence",
+          "SigningPubKey",
+          "TransactionType"
+        ],
+        "extensible": false,
+        "own": [
+          "Account",
+          "Amount",
+          "Destination",
+          "Fee",
+          "Flags",
+          "Sequence",
+          "SigningPubKey",
+          "TransactionType"
+        ]
+      },
+      "frozen": true,
+      "members": {
+        "Account": "value",
+        "AccountTxnID": "optional-value",
+        "Amount": "value",
+        "CredentialIDs": "optional-value",
+        "DeliverMin": "optional-value",
+        "Destination": "value",
+        "DestinationTag": "optional-value",
+        "EmitDetails": "optional-value",
+        "Fee": "value",
+        "FirstLedgerSequence": "optional-value",
+        "Flags": "value",
+        "HookName": "optional-value",
+        "HookParameters": "optional-value",
+        "InvoiceID": "optional-value",
+        "LastLedgerSequence": "optional-value",
+        "Memos": "optional-value",
+        "NetworkID": "optional-value",
+        "OperationLimit": "optional-value",
+        "Paths": "optional-value",
+        "PreviousTxnID": "optional-value",
+        "SendMax": "optional-value",
+        "Sequence": "value",
+        "Signers": "optional-value",
+        "SigningPubKey": "value",
+        "SourceTag": "optional-value",
+        "TicketSequence": "optional-value",
+        "TransactionType": "value",
+        "TxnSignature": "optional-value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('12000024000000016140000000000F424068400000000000000A73008114B5F762798A53D543A014CAF8B297CFF8F2F937E88314B5F762798A53D543A014CAF8B297CFF8F2F937E8'))"
     },
     "Result": {
       "frozen": true,
@@ -415,6 +602,7 @@
           "Flags"
         ]
       },
+      "frozen": true,
       "members": {
         "fieldBytes": "function",
         "get": "function",
@@ -425,6 +613,7 @@
         "withoutField": "function"
       },
       "own": [
+        "constructor",
         "fieldBytes",
         "get",
         "has",
@@ -434,6 +623,62 @@
         "withoutField"
       ],
       "probe": "util.decodeObject(new Uint8Array([0x22, 0, 0, 0, 9]))"
+    },
+    "Transaction": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "Account",
+          "Fee",
+          "Flags",
+          "Sequence",
+          "SigningPubKey",
+          "TransactionType"
+        ],
+        "extensible": false,
+        "own": [
+          "Account",
+          "Fee",
+          "Flags",
+          "Sequence",
+          "SigningPubKey",
+          "TransactionType"
+        ]
+      },
+      "frozen": true,
+      "members": {
+        "Account": "value",
+        "AccountTxnID": "optional-value",
+        "EmitDetails": "optional-value",
+        "Fee": "value",
+        "FirstLedgerSequence": "optional-value",
+        "Flags": "value",
+        "HookName": "optional-value",
+        "HookParameters": "optional-value",
+        "LastLedgerSequence": "optional-value",
+        "Memos": "optional-value",
+        "NetworkID": "optional-value",
+        "OperationLimit": "optional-value",
+        "PreviousTxnID": "optional-value",
+        "Sequence": "value",
+        "Signers": "optional-value",
+        "SigningPubKey": "value",
+        "SourceTag": "optional-value",
+        "TicketSequence": "optional-value",
+        "TransactionType": "value",
+        "TxnSignature": "optional-value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('120003240000000168400000000000000A73008114B5F762798A53D543A014CAF8B297CFF8F2F937E8'))"
     },
     "UInt": {
       "members": {
@@ -565,6 +810,7 @@
       "one": "value",
       "zero": "value"
     },
+    "AccountRoot": {},
     "Hash256": {
       "from": "function",
       "fromHex": "function",
@@ -618,10 +864,50 @@
       "TOO_SMALL": "value",
       "XFL_OVERFLOW": "value"
     },
+    "LedgerEntry": {},
+    "LedgerEntryType": {
+      "AMM": "value",
+      "AccountRoot": "value",
+      "Amendments": "value",
+      "Bridge": "value",
+      "Check": "value",
+      "Credential": "value",
+      "Cron": "value",
+      "DID": "value",
+      "DepositPreauth": "value",
+      "DirectoryNode": "value",
+      "EmittedTxn": "value",
+      "Escrow": "value",
+      "FeeSettings": "value",
+      "Hook": "value",
+      "HookDefinition": "value",
+      "HookState": "value",
+      "ImportVLSequence": "value",
+      "LedgerHashes": "value",
+      "MPToken": "value",
+      "MPTokenIssuance": "value",
+      "NFTokenOffer": "value",
+      "NFTokenPage": "value",
+      "NegativeUNL": "value",
+      "Offer": "value",
+      "Oracle": "value",
+      "PayChannel": "value",
+      "PermissionedDomain": "value",
+      "RippleState": "value",
+      "SignerList": "value",
+      "Ticket": "value",
+      "UNLReport": "value",
+      "URIToken": "value",
+      "XChainOwnedClaimID": "value",
+      "XChainOwnedCreateAccountClaimID": "value"
+    },
+    "Payment": {},
     "STBlob": {
       "from": "function",
       "fromHex": "function"
     },
+    "STObject": {},
+    "Transaction": {},
     "TransactionResult": {
       "tecAMM_ACCOUNT": "value",
       "tecAMM_BALANCE": "value",

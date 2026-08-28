@@ -154,11 +154,11 @@ public:
             BEAST_EXPECT(
                 hook::artifact::quickJSSerializedObjectMaxScopes == 32'769);
             BEAST_EXPECT(hook::artifact::quickJSSerializedObjectMaxDepth == 10);
-            BEAST_EXPECT(hook::artifact::quickJSProviderSize == 1'168'947);
+            BEAST_EXPECT(hook::artifact::quickJSProviderSize == 1'188'402);
             BEAST_EXPECT(
                 hook::artifact::generated::providerManifestSHA256 ==
-                "d42ebe0266edbf2334178a30ae4affc11d139403334ef43f119e07dc6f"
-                "b78e22");
+                "bebc5ba27e3f3d0434ccddf0e274f9a8f9df0de5bf66928802bb4180fe8"
+                "50c39");
             BEAST_EXPECT(
                 hook::artifact::generated::nativeABISHA256 ==
                 "136bfc5cd0032851d69065d78c95db4fe7dfbc3d8d3691af5a97b8daa38f5"
@@ -207,16 +207,16 @@ public:
             }
             BEAST_EXPECT(
                 hook::artifact::generated::javascriptBroadDeclarationSHA256 ==
-                "65fba837cb07147feaee68c66bf44a020f2bce5f3db2b9613dcd9624e406aa"
-                "b2");
+                "bbc5612b8af6b0dfebe651a63caf3cc3939a688ec3643c81bf53f821438ac2"
+                "5d");
             BEAST_EXPECT(
                 hook::artifact::generated::javascriptExactV1DeclarationSHA256 ==
-                "d0889ce34efb65f4805d261fc5c78f3a73c5f80f136dd109074247f63c6623"
-                "4a");
+                "e4df494125d6e2ad7c556f3966d12477f67dd8fa9cd5ab1cf1ea0558a3c498"
+                "ce");
             BEAST_EXPECT(
                 hook::artifact::generated::javascriptSurfaceSHA256 ==
-                "4c0d5668d8ccf5096ceb7b15f7535e4aecb86248f556513e28b55c94e5db3"
-                "974");
+                "81b41528e0af6d647d7fb798f6e2cdcfd50e513fa6b0c99953f5cbbecdb80b"
+                "0b");
             BEAST_EXPECT(
                 hook::artifact::generated::javascriptXFLProfileLedgerSHA256 ==
                 "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056"
@@ -224,8 +224,8 @@ public:
             BEAST_EXPECT(
                 hook::artifact::generated::
                     javascriptAPIArtifactManifestSHA256 ==
-                "e07beb0e5839b0fdf844c05c0e4207be3cd921c94c5fe7db7f1741d842a6aa"
-                "79");
+                "fa21b7fbe08539f33fdf4b6e3f888016ed1edf712934999342e29be2d9b3b1"
+                "bc");
             BEAST_EXPECT(hook::artifact::generated::xqjsEnvelopeVersion == 1);
             BEAST_EXPECT(
                 hook::artifact::quickJSEnvelopeVersion ==

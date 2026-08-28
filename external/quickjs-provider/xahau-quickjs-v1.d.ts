@@ -178,6 +178,49 @@ interface TransactionTypeEnum {
 }
 
 /**
+ * Every ledger-entry type the provider can observe.
+ *
+ * Hidden module-scope inventory for the frozen LedgerEntryType runtime
+ * namespace. Consumers use the same-named global value and derived union type.
+ */
+interface LedgerEntryTypeEnum {
+  readonly DID: 141;
+  readonly PermissionedDomain: 130;
+  readonly Credential: 129;
+  readonly Oracle: 128;
+  readonly MPToken: 127;
+  readonly MPTokenIssuance: 126;
+  readonly AMM: 121;
+  readonly PayChannel: 120;
+  readonly HookState: 118;
+  readonly Escrow: 117;
+  readonly XChainOwnedCreateAccountClaimID: 116;
+  readonly FeeSettings: 115;
+  readonly RippleState: 114;
+  readonly XChainOwnedClaimID: 113;
+  readonly DepositPreauth: 112;
+  readonly Offer: 111;
+  readonly Bridge: 105;
+  readonly LedgerHashes: 104;
+  readonly Amendments: 102;
+  readonly DirectoryNode: 100;
+  readonly AccountRoot: 97;
+  readonly URIToken: 85;
+  readonly Ticket: 84;
+  readonly SignerList: 83;
+  readonly UNLReport: 82;
+  readonly NFTokenPage: 80;
+  readonly NegativeUNL: 78;
+  readonly ImportVLSequence: 73;
+  readonly Hook: 72;
+  readonly EmittedTxn: 69;
+  readonly HookDefinition: 68;
+  readonly Check: 67;
+  readonly Cron: 65;
+  readonly NFTokenOffer: 55;
+}
+
+/**
  * Every transaction-engine result a Hook can observe.
  *
  * Hidden module-scope inventory for the frozen TransactionResult runtime namespace.
@@ -900,8 +943,6 @@ declare global {
 
   const XChainBridge: RuntimeType<XChainBridge>;
 
-  const STObject: RuntimeType<STObject>;
-
   const STArray: RuntimeType<STArray<STObject>>;
 
   const NativeAmount: RuntimeType<NativeAmount>;
@@ -1186,7 +1227,8 @@ declare global {
    * @serial STObject LedgerEntry
    * @inner-rich-type STObject
    */
-  interface STObject {
+  class STObject {
+    protected constructor();
     readonly [__stObjectBrand]: void;
     has(field: string | SerializedField<unknown>): boolean;
     get<T>(field: SerializedField<T>): T | undefined;
@@ -1224,23 +1266,104 @@ declare global {
   }
 
   /** @serial Transaction */
-  interface Tx extends STObject {
+  class Transaction extends STObject {
+    protected constructor();
+
     readonly TransactionType: TransactionType;
-    readonly Account: AccountID;
-    readonly Destination?: AccountID;
-    readonly Amount?: Amount;
-    readonly Amounts?: STArray;
-    readonly Fee?: Amount;
     readonly Flags: UInt32;
-    readonly Sequence?: UInt32;
-    readonly Blob?: STBlob;
-    readonly NFTokenID?: Hash256;
+    readonly SourceTag?: UInt32;
+    readonly Account: AccountID;
+    readonly Sequence: UInt32;
+    readonly PreviousTxnID?: Hash256;
+    readonly LastLedgerSequence?: UInt32;
+    readonly AccountTxnID?: Hash256;
+    readonly Fee: Amount;
+    readonly OperationLimit?: UInt32;
+    readonly Memos?: STArray;
+    readonly SigningPubKey: STBlob;
+    readonly TicketSequence?: UInt32;
+    readonly TxnSignature?: STBlob;
+    readonly Signers?: STArray;
+    readonly EmitDetails?: STObject;
+    readonly FirstLedgerSequence?: UInt32;
+    readonly NetworkID?: UInt32;
     readonly HookParameters?: STArray;
+    readonly HookName?: STBlob;
+  }
+
+  /** Format-proven Transaction narrowed to Payment. */
+  class Payment extends Transaction {
+    private constructor();
+
+    readonly Destination: AccountID;
+    readonly Amount: Amount;
+    readonly SendMax?: Amount;
+    readonly Paths?: PathSet;
+    readonly InvoiceID?: Hash256;
+    readonly DestinationTag?: UInt32;
+    readonly DeliverMin?: Amount;
+    readonly CredentialIDs?: Vector256;
+    readonly TransactionType: typeof TransactionType.Payment;
+  }
+
+  /** Format-proven ledger-entry base. */
+  class LedgerEntry extends STObject {
+    protected constructor();
+
+    readonly LedgerIndex?: Hash256;
+    readonly LedgerEntryType: LedgerEntryType;
+    readonly Flags: UInt32;
+    readonly Remarks?: STArray;
+  }
+
+  /** Format-proven LedgerEntry narrowed to AccountRoot. */
+  class AccountRoot extends LedgerEntry {
+    private constructor();
+
+    readonly Account: AccountID;
+    readonly Sequence: UInt32;
+    readonly Balance: NativeAmount;
+    readonly OwnerCount: UInt32;
+    readonly PreviousTxnID: Hash256;
+    readonly PreviousTxnLgrSeq: UInt32;
+    readonly AccountTxnID?: Hash256;
+    readonly RegularKey?: AccountID;
+    readonly EmailHash?: Hash128;
+    readonly WalletLocator?: Hash256;
+    readonly WalletSize?: UInt32;
+    readonly MessageKey?: STBlob;
+    readonly TransferRate?: UInt32;
+    readonly Domain?: STBlob;
+    readonly TickSize?: UInt8;
+    readonly TicketCount?: UInt32;
+    readonly NFTokenMinter?: AccountID;
+    readonly MintedNFTokens?: UInt32;
+    readonly BurnedNFTokens?: UInt32;
+    readonly HookStateCount?: UInt32;
+    readonly HookNamespaces?: Vector256;
+    readonly RewardLgrFirst?: LedgerSequence;
+    readonly RewardLgrLast?: LedgerSequence;
+    readonly RewardTime?: RippleTime;
+    readonly RewardAccumulator?: UInt64;
+    readonly FirstNFTokenSequence?: UInt32;
+    readonly ImportSequence?: UInt32;
+    readonly GovernanceFlags?: Hash256;
+    readonly GovernanceMarks?: Hash256;
+    readonly AccountIndex?: UInt64;
+    readonly TouchCount?: UInt64;
+    readonly HookStateScale?: UInt16;
+    readonly Cron?: Hash256;
+    readonly AMMID?: Hash256;
+    readonly LedgerEntryType: typeof LedgerEntryType.AccountRoot;
   }
 
   const TransactionType: TransactionTypeEnum;
 
   type TransactionType = (typeof TransactionType)[keyof typeof TransactionType];
+
+  const LedgerEntryType: LedgerEntryTypeEnum;
+
+  type LedgerEntryType = (typeof LedgerEntryType)[keyof typeof LedgerEntryType];
 
   const TransactionResult: TransactionResultEnum;
 
@@ -1268,7 +1391,7 @@ declare global {
      * Minted originating transaction. Total getters. Existence is an
      * execution invariant.
      */
-    function object(): Tx;
+    function object(): Transaction;
     function type(): HostResult<TransactionType>;
   }
 
@@ -1542,7 +1665,7 @@ declare global {
    * accessor for can reach for this.
    */
   const Field: {
-    readonly LedgerEntryType: SerializedField<UInt16, 65537, 1, 1>;
+    readonly LedgerEntryType: SerializedField<LedgerEntryType, 65537, 1, 1>;
     readonly TransactionType: SerializedField<TransactionType, 65538, 1, 2>;
     readonly SignerWeight: SerializedField<UInt16, 65539, 1, 3>;
     readonly TransferFee: SerializedField<UInt16, 65540, 1, 4>;
