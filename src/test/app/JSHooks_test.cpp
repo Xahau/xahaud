@@ -1154,7 +1154,7 @@ int64_t hook(uint32_t reserved)
             hook::artifact::XFLArithmeticProfile::nearestEvenV1);
         BEAST_EXPECT(
             std::string_view{jshooksBypassProviderSHA256} ==
-            "d6511cfd595995aafe4222efd4045895aebded2579e6fbe83c4d1d19c8d63a7c");
+            "ef7ac257b5a25d3ac329bfb795480cd4fa4d64fb2bce6e49bb5e1bcc556fab34");
         auto const callbackValidation = hook::validateQuickJSBytecodeForTests(
             currentRuntime, callbackBytecode);
         BEAST_EXPECT(!callbackValidation.error);
@@ -1274,7 +1274,7 @@ int64_t hook(uint32_t reserved)
             auto const failedValidation = hook::validateQuickJSBytecodeForTests(
                 currentRuntime, malformedBytecode);
             BEAST_EXPECT(!!failedValidation.error);
-            expectFuel(failedValidation.invocationFuelConsumed, 14162);
+            expectFuel(failedValidation.invocationFuelConsumed, 14161);
             identityEnv(
                 jtx::hook(
                     alice,
@@ -1527,7 +1527,7 @@ int64_t hook(uint32_t reserved)
         auto const message = execution.getFieldVL(sfHookReturnString);
         BEAST_EXPECT(
             std::string(message.begin(), message.end()) == "payment:0");
-        expectFuel(execution.getFieldU64(sfHookInstructionCount), 69060);
+        expectFuel(execution.getFieldU64(sfHookInstructionCount), 69059);
 
         testcase("Execute packaged otxn.object Payment smoke");
         auto otxnObjectSmokeHook = hsoVersioned(otxnObjectSmokeCode, 1);
@@ -1690,7 +1690,7 @@ int64_t hook(uint32_t reserved)
                 divideByZeroMessage.begin(), divideByZeroMessage.end()) ==
             "xfl divide by zero");
         expectFuel(
-            divideByZeroExecution.getFieldU64(sfHookInstructionCount), 192188);
+            divideByZeroExecution.getFieldU64(sfHookInstructionCount), 192186);
 
         testcase("Fail closed for packaged nearestEvenV1 arithmetic bypass");
         auto nearestEvenBypassHook = hsoVersioned(nearestEvenBypassCode, 1);
@@ -1722,7 +1722,7 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string(bypassMessage.begin(), bypassMessage.end()) ==
             "xfl profile backstop");
-        expectFuel(bypassExecution.getFieldU64(sfHookInstructionCount), 204273);
+        expectFuel(bypassExecution.getFieldU64(sfHookInstructionCount), 204271);
 
         auto const bypassStateKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -1765,7 +1765,7 @@ int64_t hook(uint32_t reserved)
             std::string(surfaceMessage.begin(), surfaceMessage.end()) ==
             "surface:40");
         expectFuel(
-            surfaceExecution.getFieldU64(sfHookInstructionCount), 102197);
+            surfaceExecution.getFieldU64(sfHookInstructionCount), 102195);
 
         testcase("Execute accepted STObject and STArray on Wasmtime");
         auto stObjectHook = hsoVersioned(stObjectArrayCode, 1);
@@ -1827,7 +1827,7 @@ int64_t hook(uint32_t reserved)
             "f0-native-matrix");
         expectFuel(
             f0NativeMatrixExecution.getFieldU64(sfHookInstructionCount),
-            6869437);
+            6869429);
 
         //@@start jshooks-state-bridge
         testcase("Execute a C Hook through WasmEdge and persist state");
@@ -1973,7 +1973,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& memoryGrowthExecution = memoryGrowthExecutions[0];
         expectFuel(
-            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7457210);
+            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7457206);
         BEAST_EXPECT(
             memoryGrowthExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
@@ -2019,7 +2019,7 @@ int64_t hook(uint32_t reserved)
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
         expectFuel(
             hostWorkExecutions[0].getFieldU64(sfHookInstructionCount),
-            42541800);
+            42541799);
 
         auto const meterKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{

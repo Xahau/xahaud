@@ -154,11 +154,11 @@ public:
             BEAST_EXPECT(
                 hook::artifact::quickJSSerializedObjectMaxScopes == 32'769);
             BEAST_EXPECT(hook::artifact::quickJSSerializedObjectMaxDepth == 10);
-            BEAST_EXPECT(hook::artifact::quickJSProviderSize == 1'188'402);
+            BEAST_EXPECT(hook::artifact::quickJSProviderSize == 1'188'405);
             BEAST_EXPECT(
                 hook::artifact::generated::providerManifestSHA256 ==
-                "bebc5ba27e3f3d0434ccddf0e274f9a8f9df0de5bf66928802bb4180fe8"
-                "50c39");
+                "47387ff6d9248aef3d4dfd634eb2891d1b90822c8603f1665c56ecc44bda"
+                "fc25");
             BEAST_EXPECT(
                 hook::artifact::generated::nativeABISHA256 ==
                 "136bfc5cd0032851d69065d78c95db4fe7dfbc3d8d3691af5a97b8daa38f5"

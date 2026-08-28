@@ -20,10 +20,10 @@ WASM_VERSION = "47.0.3"
 CMAKE_SET = re.compile(r'^set\(XAHAU_QUICKJS_([A-Z0-9_]+) "([^"]*)"\)\s*$')
 
 PIN = {
-    "provider_sha256": "d6511cfd595995aafe4222efd4045895aebded2579e6fbe83c4d1d19c8d63a7c",
-    "provider_size": "1188402",
-    "manifest_sha256": "bebc5ba27e3f3d0434ccddf0e274f9a8f9df0de5bf66928802bb4180fe850c39",
-    "runtime_profile_id": "0c35b2623533a563ae237e65b59acdeacdd0df2b69d579530abca581ea7ae72d",
+    "provider_sha256": "ef7ac257b5a25d3ac329bfb795480cd4fa4d64fb2bce6e49bb5e1bcc556fab34",
+    "provider_size": "1188405",
+    "manifest_sha256": "47387ff6d9248aef3d4dfd634eb2891d1b90822c8603f1665c56ecc44bdafc25",
+    "runtime_profile_id": "8dce94f34cc3d4f475b449efda76e1b0b7771f58d4212ca960c4a11624017085",
     "broad_declaration_sha256": "bbc5612b8af6b0dfebe651a63caf3cc3939a688ec3643c81bf53f821438ac25d",
     "exact_v1_declaration_sha256": "e4df494125d6e2ad7c556f3966d12477f67dd8fa9cd5ab1cf1ea0558a3c498ce",
     "surface_sha256": "81b41528e0af6d647d7fb798f6e2cdcfd50e513fa6b0c99953f5cbbecdb80b0b",
