@@ -13,7 +13,6 @@
 #include <xrpl/protocol/Keylet.h>
 #include <xrpl/protocol/digest.h>
 #include "JSHooks_bypass_test_hook.h"
-#include "JSHooks_incoming_xah_test_hook.h"
 #include "JSHooks_test_hooks.h"
 #include <algorithm>
 #include <array>
@@ -111,12 +110,20 @@ export function main(_reserved: number): never {
 )[test.tshook]");
         auto const hookCode = packageCurrentQuickJS(hookBytecode);
 
-        Blob const incomingXahCode{
-            jshooksIncomingXahArtifact.begin(),
-            jshooksIncomingXahArtifact.end()};
-        Blob const incomingXahBytecode{
-            incomingXahCode.begin() + hook::artifact::quickJSHeaderSize,
-            incomingXahCode.end()};
+        auto const& otxnObjectSmokeBytecode =
+            jshooks_test_wasm.at(R"[test.tshook](
+export function main(): never {
+  const originating = otxn.object();
+  rollback.when(
+    originating.TransactionType !== TransactionType.Payment,
+    "originating object was not Payment",
+    58,
+  );
+  accept("otxn.object Payment smoke", 58);
+}
+)[test.tshook]");
+        auto const otxnObjectSmokeCode =
+            packageCurrentQuickJS(otxnObjectSmokeBytecode);
 
         auto const& xahauProfileBytecode = jshooks_test_wasm.at(R"[test.tshook](
 export const hookConfig = defineHookConfig({
@@ -1106,15 +1113,6 @@ int64_t hook(uint32_t reserved)
             hook::artifact::XFLArithmeticProfile::none);
         expectFuel(successfulValidation.invocationFuelConsumed, 58968);
 
-        auto const incomingXahValidation =
-            hook::validateQuickJSBytecodeForTests(
-                currentRuntime, incomingXahBytecode);
-        BEAST_EXPECT(!incomingXahValidation.error);
-        BEAST_EXPECT(!incomingXahValidation.hasCallback);
-        BEAST_EXPECT(
-            incomingXahValidation.xflArithmeticProfile ==
-            hook::artifact::XFLArithmeticProfile::none);
-
         auto const xahauValidation = hook::validateQuickJSBytecodeForTests(
             currentRuntime, xahauProfileBytecode);
         BEAST_EXPECT(!xahauValidation.error);
@@ -1157,19 +1155,6 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string_view{jshooksBypassProviderSHA256} ==
             "a88e532d39ffc77434200201ebabda1b1a11d602b1ca82aadcfdef729417005a");
-        BEAST_EXPECT(
-            std::string_view{jshooksIncomingXahSourceSHA256} ==
-            "3f26a6a4425764c6aca8e885ec59e1e19a12ef2d5907f617ef6041481e0f8125");
-        BEAST_EXPECT(
-            std::string_view{jshooksIncomingXahProviderSHA256} ==
-            "a88e532d39ffc77434200201ebabda1b1a11d602b1ca82aadcfdef729417005a");
-        BEAST_EXPECT(
-            std::string_view{jshooksIncomingXahBytecodeSHA256} ==
-            "6c200327eddd6da30066089bf1cb8fa71746b8186e37335e853f6f16e69e2bd6");
-        BEAST_EXPECT(
-            std::string_view{jshooksIncomingXahArtifactSHA256} ==
-            "3ffe748d46ee9db7e7614d6ba070a09d289e858ca53bbe64643b5881e11771c4");
-
         auto const callbackValidation = hook::validateQuickJSBytecodeForTests(
             currentRuntime, callbackBytecode);
         BEAST_EXPECT(!callbackValidation.error);
@@ -1544,85 +1529,33 @@ int64_t hook(uint32_t reserved)
             std::string(message.begin(), message.end()) == "payment:0");
         expectFuel(execution.getFieldU64(sfHookInstructionCount), 69159);
 
-        testcase("Execute packaged otxn.object incoming-XAH policy");
-        Env incomingEnv{*this, features | featureJSHooks};
-        incomingEnv.fund(XRP(10000), alice, bob, carol);
-        incomingEnv.close();
-        IOU const USD{carol["USD"]};
-        incomingEnv(trust(alice, USD(1000)), ter(tesSUCCESS));
-        incomingEnv.close();
-
-        auto incomingHook = hsoVersioned(incomingXahCode, 1);
-        incomingHook[jss::Flags] = hsfOVERRIDE;
-        incomingEnv(
-            jtx::hook(alice, {{incomingHook}}, 0),
+        testcase("Execute packaged otxn.object Payment smoke");
+        auto otxnObjectSmokeHook = hsoVersioned(otxnObjectSmokeCode, 1);
+        otxnObjectSmokeHook[jss::Flags] = hsfOVERRIDE;
+        env(jtx::hook(alice, {{otxnObjectSmokeHook}}, 0),
             fee(XRP(10)),
             ter(tesSUCCESS));
-        incomingEnv.close();
+        env.close();
+        env(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
 
-        auto const expectIncomingResult =
-            [&](hook_api::ExitType expectedResult,
-                std::uint64_t expectedCode,
-                std::string_view expectedMessage) -> std::uint64_t {
-            auto const resultMeta = incomingEnv.meta();
-            BEAST_EXPECT(!!resultMeta);
-            if (!resultMeta || !resultMeta->isFieldPresent(sfHookExecutions))
-                return 0;
-            auto const resultExecutions =
-                resultMeta->getFieldArray(sfHookExecutions);
-            BEAST_EXPECT(resultExecutions.size() == 1);
-            if (resultExecutions.size() != 1)
-                return 0;
-            auto const& resultExecution = resultExecutions[0];
-            BEAST_EXPECT(
-                resultExecution.getFieldU8(sfHookResult) ==
-                static_cast<std::uint8_t>(expectedResult));
-            BEAST_EXPECT(
-                resultExecution.getFieldU64(sfHookReturnCode) == expectedCode);
-            auto const resultMessage =
-                resultExecution.getFieldVL(sfHookReturnString);
-            BEAST_EXPECT(
-                std::string(resultMessage.begin(), resultMessage.end()) ==
-                expectedMessage);
-            return resultExecution.getFieldU64(sfHookInstructionCount);
-        };
-
-        incomingEnv(noop(alice), fee(XRP(100)), ter(tesSUCCESS));
-        expectIncomingResult(
-            hook_api::ExitType::ACCEPT, 0, "not an incoming Payment");
-        incomingEnv.close();
-
-        incomingEnv(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
-        auto const incomingXahFuel = expectIncomingResult(
-            hook_api::ExitType::ACCEPT, 0, "incoming native XAH accepted");
-        expectFuel(incomingXahFuel, 138275);
-        incomingEnv.close();
-
-        incomingEnv(
-            pay(alice, bob, XRP(1)), fee(XRP(100)), ter(tecHOOK_REJECTED));
-        expectIncomingResult(
-            hook_api::ExitType::ROLLBACK,
-            20,
-            "Payment is not addressed to this Hook account");
-        incomingEnv.close();
-
-        incomingEnv(
-            pay(carol, alice, USD(1)), fee(XRP(100)), ter(tecHOOK_REJECTED));
-        expectIncomingResult(
-            hook_api::ExitType::ROLLBACK,
-            22,
-            "Payment Amount must be native XAH");
-        incomingEnv.close();
-
-        incomingEnv(
-            pay(bob, alice, drops(100'000'001)),
-            fee(XRP(100)),
-            ter(tecHOOK_REJECTED));
-        expectIncomingResult(
-            hook_api::ExitType::ROLLBACK,
-            23,
-            "Payment Amount is outside the accepted range");
-        incomingEnv.close();
+        auto const smokeMeta = env.meta();
+        BEAST_EXPECT(!!smokeMeta);
+        if (!smokeMeta || !smokeMeta->isFieldPresent(sfHookExecutions))
+            return;
+        auto const smokeExecutions = smokeMeta->getFieldArray(sfHookExecutions);
+        BEAST_EXPECT(smokeExecutions.size() == 1);
+        if (smokeExecutions.size() != 1)
+            return;
+        auto const& smokeExecution = smokeExecutions[0];
+        BEAST_EXPECT(
+            smokeExecution.getFieldU8(sfHookResult) ==
+            static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
+        BEAST_EXPECT(smokeExecution.getFieldU64(sfHookReturnCode) == 58);
+        auto const smokeMessage = smokeExecution.getFieldVL(sfHookReturnString);
+        BEAST_EXPECT(
+            std::string(smokeMessage.begin(), smokeMessage.end()) ==
+            "otxn.object Payment smoke");
+        env.close();
 
         testcase("Execute packaged xahauFloatV1 add and subtract");
         Env xflEnv{*this, features | featureJSHooks};

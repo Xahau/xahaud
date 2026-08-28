@@ -27,6 +27,9 @@ struct QuickJSInvocation
     HookContext& hookCtx;
     QuickJSRuntimeProfile const& profile;
     std::uint64_t hostWorkRemaining;
+#ifdef ENABLE_TESTS
+    std::uint64_t observationInvocation;
+#endif
     bool terminal = false;
 
     QuickJSInvocation(

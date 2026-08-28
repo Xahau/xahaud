@@ -8,6 +8,61 @@
 namespace hook::quickjs {
 namespace {
 
+#ifdef ENABLE_TESTS
+thread_local std::vector<QuickJSHostCallObservationForTests>*
+    hostCallObservationsForTests = nullptr;
+thread_local std::optional<std::uint64_t> hostWorkBudgetForTests;
+thread_local std::uint64_t observationInvocationForTests = 0;
+
+std::uint64_t
+initialHostWork(QuickJSRuntimeProfile const& profile) noexcept
+{
+    if (hostWorkBudgetForTests)
+        return *hostWorkBudgetForTests;
+    return profile.hostWorkBudget;
+}
+
+void
+recordHostCallObservation(
+    QuickJSInvocation const& invocation,
+    WasmtimeHostBinding const& binding,
+    std::uint64_t declaredBytes,
+    std::uint64_t hostWorkBefore,
+    bool dispatched) noexcept
+{
+    if (!hostCallObservationsForTests)
+        return;
+    try
+    {
+        QuickJSHostCallObservationForTests observation{
+            .invocation = invocation.observationInvocation,
+            .name = std::string{binding.name},
+            .declaredBytes = declaredBytes,
+            .cost = binding.charging == WasmtimeHostBinding::Charging::quickJSV1
+                ? quickJSHostWorkCost(invocation.profile, declaredBytes)
+                : 0,
+            .hostWorkBefore = hostWorkBefore,
+            .hostWorkAfter = invocation.hostWorkRemaining,
+            .dispatched = dispatched,
+            .liveSlots = invocation.hookCtx.slot.size()};
+        if (!invocation.hookCtx.slot.empty())
+        {
+            auto const& owner = invocation.hookCtx.slot.begin()->second.storage;
+            if (owner)
+            {
+                observation.liveSlotSerializedBytes =
+                    owner->getSerializer().getDataLength();
+                observation.liveSlotOwner = owner;
+            }
+        }
+        hostCallObservationsForTests->push_back(std::move(observation));
+    }
+    catch (...)
+    {
+    }
+}
+#endif
+
 QuickJSInvocation*
 invocationFrom(wasmtime_caller_t* caller) noexcept
 {
@@ -125,9 +180,31 @@ QuickJSInvocation::QuickJSInvocation(
     QuickJSRuntimeProfile const& profile_) noexcept
     : hookCtx(hookCtx_)
     , profile(profile_)
+#ifdef ENABLE_TESTS
+    , hostWorkRemaining(initialHostWork(profile_))
+    , observationInvocation(++observationInvocationForTests)
+#else
     , hostWorkRemaining(profile_.hostWorkBudget)
+#endif
 {
 }
+
+#ifdef ENABLE_TESTS
+void
+setQuickJSHostCallObservationsForTests(
+    std::vector<QuickJSHostCallObservationForTests>* observations) noexcept
+{
+    hostCallObservationsForTests = observations;
+    observationInvocationForTests = 0;
+}
+
+void
+setQuickJSHostWorkBudgetForTests(
+    std::optional<std::uint64_t> hostWorkBudget) noexcept
+{
+    hostWorkBudgetForTests = hostWorkBudget;
+}
+#endif
 
 QuickJSHostCall::QuickJSHostCall(
     QuickJSInvocation& invocation,
@@ -236,10 +313,23 @@ rawHookCallback(
                 binding->amendment))
             return ordinaryUnavailableResult(operation, results, resultCount);
         QuickJSHostCall call{*invocation, caller};
+#ifdef ENABLE_TESTS
+        auto const declaredBytes =
+            declaredHostWork(binding->measure, std::span{args, argumentCount});
+        auto const hostWorkBefore = invocation->hostWorkRemaining;
+        if (binding->charging == WasmtimeHostBinding::Charging::quickJSV1 &&
+            !call.charge(declaredBytes))
+        {
+            recordHostCallObservation(
+                *invocation, *binding, declaredBytes, hostWorkBefore, false);
+            return callbackTrap("Xahau Hook host-work budget exhausted");
+        }
+#else
         if (binding->charging == WasmtimeHostBinding::Charging::quickJSV1 &&
             !call.charge(declaredHostWork(
                 binding->measure, std::span{args, argumentCount})))
             return callbackTrap("Xahau Hook host-work budget exhausted");
+#endif
 
         if (argumentCount > maxImportParameters)
             return callbackTrap("too many Xahau Hook host arguments");
@@ -272,6 +362,10 @@ rawHookCallback(
             argumentCount,
             &output,
             1);
+#ifdef ENABLE_TESTS
+        recordHostCallObservation(
+            *invocation, *binding, declaredBytes, hostWorkBefore, true);
+#endif
         return finishCallback(
             *invocation, *binding, status, output, results, resultCount);
     }

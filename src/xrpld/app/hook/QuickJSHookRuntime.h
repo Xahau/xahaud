@@ -10,6 +10,13 @@
 #include <optional>
 #include <span>
 #include <string>
+#ifdef ENABLE_TESTS
+#include <vector>
+
+namespace ripple {
+class STObject;
+}
+#endif
 
 namespace hook {
 
@@ -154,6 +161,36 @@ executeQuickJSBytecode(
     beast::Journal const& journal);
 
 #ifdef ENABLE_TESTS
+namespace quickjs {
+struct QuickJSHostCallObservationForTests
+{
+    std::uint64_t invocation = 0;
+    std::string name;
+    std::uint64_t declaredBytes = 0;
+    std::uint64_t cost = 0;
+    std::uint64_t hostWorkBefore = 0;
+    std::uint64_t hostWorkAfter = 0;
+    bool dispatched = false;
+    std::size_t liveSlots = 0;
+    std::optional<std::size_t> liveSlotSerializedBytes;
+    std::weak_ptr<ripple::STObject const> liveSlotOwner;
+};
+
+/** Observe raw QuickJS host crossings on the calling test thread.
+
+    The destination is non-owning and must outlive every observed invocation.
+    Passing nullptr disables observation and resets the invocation sequence.
+*/
+void
+setQuickJSHostCallObservationsForTests(
+    std::vector<QuickJSHostCallObservationForTests>* observations) noexcept;
+
+/** Override the calling test thread's per-invocation host-work budget. */
+void
+setQuickJSHostWorkBudgetForTests(
+    std::optional<std::uint64_t> hostWorkBudget) noexcept;
+}  // namespace quickjs
+
 struct QuickJSValidationForTests : QuickJSModuleValidation
 {
     std::optional<std::string> error;
