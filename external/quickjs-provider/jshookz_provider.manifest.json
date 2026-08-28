@@ -2,10 +2,10 @@
   "bytecode_abi_id": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
   "javascript_surface": {
     "declaration": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "declaration_sha256": "24c9f5ef6b4f54746755f428db526cd2cd15c65417c94e7bb87bb341f4afce05",
+    "declaration_sha256": "d0889ce34efb65f4805d261fc5c78f3a73c5f80f136dd109074247f63c66234a",
     "manifest": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
     "schema": "jshookz.javascript-surface.v1",
-    "sha256": "860699834e0689aa61c73145e00a861452caa8a4b686eacc4f384416b8844645"
+    "sha256": "4c0d5668d8ccf5096ceb7b15f7535e4aecb86248f556513e28b55c94e5db3974"
   },
   "provider": {
     "build": {
@@ -288,6 +288,16 @@
       },
       {
         "module": "env",
+        "name": "otxn_slot",
+        "params": [
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
         "name": "otxn_type",
         "params": [],
         "results": [
@@ -314,6 +324,38 @@
           "i32",
           "i32",
           "i64"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "slot",
+        "params": [
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "slot_clear",
+        "params": [
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "slot_size",
+        "params": [
+          "i32"
         ],
         "results": [
           "i64"
@@ -360,10 +402,10 @@
         ]
       }
     ],
-    "sha256": "dfacd07fde57ca5cd82c7ddafbe0d28f617ea2122c93d09e243609801c7fb7b1",
-    "size": 1167329
+    "sha256": "a88e532d39ffc77434200201ebabda1b1a11d602b1ca82aadcfdef729417005a",
+    "size": 1168947
   },
-  "runtime_profile_id": "86d24362423db9e7120cc6a45b98d8cf8792f3b0600fe925ce984e7d32703a7b",
+  "runtime_profile_id": "90bd4a68039486c8b688222b824d93ac19b887d16ba06b9490e8af1baa95c6db",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
@@ -453,6 +495,9 @@
         "rollback": [
           1
         ],
+        "slot": [
+          1
+        ],
         "state": [
           1,
           3
@@ -467,7 +512,7 @@
         ]
       },
       "host_work_base_per_call": 1,
-      "host_work_budget": 1000000,
+      "host_work_budget": 2097152,
       "host_work_meter": "base-plus-addressed-byte-v1",
       "host_work_per_addressed_byte": 1,
       "quickjs_heap_bytes": 16777216,
@@ -779,6 +824,16 @@
         },
         {
           "module": "env",
+          "name": "otxn_slot",
+          "params": [
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
           "name": "otxn_type",
           "params": [],
           "results": [
@@ -805,6 +860,38 @@
             "i32",
             "i32",
             "i64"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "slot",
+          "params": [
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "slot_clear",
+          "params": [
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "slot_size",
+          "params": [
+            "i32"
           ],
           "results": [
             "i64"

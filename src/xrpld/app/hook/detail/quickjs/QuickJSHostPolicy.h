@@ -45,6 +45,10 @@ enum class QuickJSV1ImportId : std::uint8_t {
     ledger_last_time,
     ledger_last_hash,
     otxn_type,
+    otxn_slot,
+    slot_size,
+    slot,
+    slot_clear,
     hook_account,
     trace,
     state,
@@ -130,6 +134,34 @@ QUICKJS_V1_IMPORT_TRAITS(
     otxn_type,
     std::int64_t,
     (),
+    uint256{},
+    zeroV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    otxn_slot,
+    std::int64_t,
+    (std::uint32_t),
+    uint256{},
+    zeroV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    slot_size,
+    std::int64_t,
+    (std::uint32_t),
+    uint256{},
+    zeroV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    slot,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t, std::uint32_t),
+    uint256{},
+    argument1V1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    slot_clear,
+    std::int64_t,
+    (std::uint32_t),
     uint256{},
     zeroV1,
     ordinaryStatus);

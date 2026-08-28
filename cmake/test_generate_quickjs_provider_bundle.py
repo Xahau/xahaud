@@ -20,17 +20,17 @@ WASM_VERSION = "47.0.3"
 CMAKE_SET = re.compile(r'^set\(XAHAU_QUICKJS_([A-Z0-9_]+) "([^"]*)"\)\s*$')
 
 PIN = {
-    "provider_sha256": "dfacd07fde57ca5cd82c7ddafbe0d28f617ea2122c93d09e243609801c7fb7b1",
-    "provider_size": "1167329",
-    "manifest_sha256": "91c189b0546aad4afe195cf9d58b55449a42087e1a5e53e1f3f4d78fa9e7490f",
-    "runtime_profile_id": "86d24362423db9e7120cc6a45b98d8cf8792f3b0600fe925ce984e7d32703a7b",
+    "provider_sha256": "a88e532d39ffc77434200201ebabda1b1a11d602b1ca82aadcfdef729417005a",
+    "provider_size": "1168947",
+    "manifest_sha256": "d42ebe0266edbf2334178a30ae4affc11d139403334ef43f119e07dc6fb78e22",
+    "runtime_profile_id": "90bd4a68039486c8b688222b824d93ac19b887d16ba06b9490e8af1baa95c6db",
     "broad_declaration_sha256": "65fba837cb07147feaee68c66bf44a020f2bce5f3db2b9613dcd9624e406aab2",
-    "exact_v1_declaration_sha256": "24c9f5ef6b4f54746755f428db526cd2cd15c65417c94e7bb87bb341f4afce05",
-    "surface_sha256": "860699834e0689aa61c73145e00a861452caa8a4b686eacc4f384416b8844645",
+    "exact_v1_declaration_sha256": "d0889ce34efb65f4805d261fc5c78f3a73c5f80f136dd109074247f63c66234a",
+    "surface_sha256": "4c0d5668d8ccf5096ceb7b15f7535e4aecb86248f556513e28b55c94e5db3974",
     "xfl_profile_ledger_sha256": "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056fd80",
-    "api_artifact_manifest_sha256": "7235d4de6642cd55717aa90ca579ca655f1503934e6be6471971c660c6c5a1f0",
+    "api_artifact_manifest_sha256": "e07beb0e5839b0fdf844c05c0e4207be3cd921c94c5fe7db7f1741d842a6aa79",
     "bytecode_abi": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
-    "native_abi": "328ec938dcad875f3bdf25b8d779dd77f3571589818ca9271cb98c64c7018f99",
+    "native_abi": "136bfc5cd0032851d69065d78c95db4fe7dfbc3d8d3691af5a97b8daa38f5170",
     "wasm_stack_bytes": "131072",
 }
 
@@ -50,9 +50,13 @@ TYPED_IMPORT_ROWS = (
     '{"env", "ledger_last_hash", "i32,i32", "i64"}',
     '{"env", "ledger_last_time", "", "i64"}',
     '{"env", "ledger_seq", "", "i64"}',
+    '{"env", "otxn_slot", "i32", "i64"}',
     '{"env", "otxn_type", "", "i64"}',
     '{"env", "prepare", "i32,i32,i32,i32", "i64"}',
     '{"env", "rollback", "i32,i32,i64", "i64"}',
+    '{"env", "slot", "i32,i32,i32", "i64"}',
+    '{"env", "slot_clear", "i32", "i64"}',
+    '{"env", "slot_size", "i32", "i64"}',
     '{"env", "state", "i32,i32,i32,i32", "i64"}',
     '{"env", "state_set", "i32,i32,i32,i32", "i64"}',
     '{"env", "trace", "i32,i32,i32,i32,i32", "i64"}',
@@ -217,6 +221,7 @@ def pin_holds(returncode: int, cpp: str) -> bool:
         "std::uint32_t const serializedObjectMaxDepth =\n    10U;",
         "std::uint32_t const providerMemoryMinimumPages = 7U;",
         "std::uint32_t const providerMemoryMaximumPages = 512U;",
+        "std::uint64_t const hostWorkBudget = 2097152ULL;",
         "constexpr char const sealedProvider[] =",
         f"sizeof(sealedProvider) - 1 == {PIN['provider_size']}",
         "std::uint8_t const xqjsEnvelopeVersion = 1U;",
@@ -658,7 +663,7 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
         )
 
     def test_coordinated_host_work_budget_mutation(self) -> None:
-        self._coordinated_limit("host_work_budget", "HOST_WORK_BUDGET", 999999)
+        self._coordinated_limit("host_work_budget", "HOST_WORK_BUDGET", 2097151)
 
     def test_coordinated_host_work_base_mutation(self) -> None:
         self._coordinated_limit("host_work_base_per_call", "HOST_WORK_BASE_PER_CALL", 2)
@@ -684,6 +689,15 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             data["source"]["limits"]["host_work_addressed_length_indices"]["accept"] = [
                 0
             ]
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+
+        self.assert_generator_red(mutate, "host_work_addressed_length_indices")
+
+    def test_slot_host_work_address_mapping_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            data = load_json(bundle)
+            data["source"]["limits"]["host_work_addressed_length_indices"]["slot"] = [0]
             write_json(bundle, data)
             rehash_manifest(bundle)
 

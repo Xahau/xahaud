@@ -43,7 +43,7 @@
   },
   "declaration": {
     "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "sha256": "24c9f5ef6b4f54746755f428db526cd2cd15c65417c94e7bb87bb341f4afce05"
+    "sha256": "d0889ce34efb65f4805d261fc5c78f3a73c5f80f136dd109074247f63c66234a"
   },
   "globals": {
     "AccountID": "object",
@@ -111,6 +111,7 @@
       "sequence": "value"
     },
     "otxn": {
+      "object": "function",
       "type": "function"
     },
     "rollback": {

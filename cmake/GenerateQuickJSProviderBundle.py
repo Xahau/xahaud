@@ -21,20 +21,20 @@ PROVIDER_MEMORY_MINIMUM_PAGES = 7
 PROVIDER_MEMORY_MAXIMUM_PAGES = 512
 PROVIDER_MEMORY_MAX_BYTES = PROVIDER_MEMORY_MAXIMUM_PAGES * WASM_PAGE_BYTES
 SEALED_MANIFEST_SHA256 = (
-    "91c189b0546aad4afe195cf9d58b55449a42087e1a5e53e1f3f4d78fa9e7490f"
+    "d42ebe0266edbf2334178a30ae4affc11d139403334ef43f119e07dc6fb78e22"
 )
 SEALED_PROVIDER_SHA256 = (
-    "dfacd07fde57ca5cd82c7ddafbe0d28f617ea2122c93d09e243609801c7fb7b1"
+    "a88e532d39ffc77434200201ebabda1b1a11d602b1ca82aadcfdef729417005a"
 )
-SEALED_PROVIDER_SIZE = 1167329
+SEALED_PROVIDER_SIZE = 1168947
 SEALED_NATIVE_ABI_SHA256 = (
-    "328ec938dcad875f3bdf25b8d779dd77f3571589818ca9271cb98c64c7018f99"
+    "136bfc5cd0032851d69065d78c95db4fe7dfbc3d8d3691af5a97b8daa38f5170"
 )
 SEALED_BYTECODE_ABI_ID = (
     "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e"
 )
 SEALED_RUNTIME_PROFILE_ID = (
-    "86d24362423db9e7120cc6a45b98d8cf8792f3b0600fe925ce984e7d32703a7b"
+    "90bd4a68039486c8b688222b824d93ac19b887d16ba06b9490e8af1baa95c6db"
 )
 SEALED_WASMTIME_VERSION = "47.0.3"
 SEALED_HOOK_API_VERSION = 1
@@ -43,13 +43,13 @@ SEALED_BROAD_DECLARATION_SHA256 = (
     "65fba837cb07147feaee68c66bf44a020f2bce5f3db2b9613dcd9624e406aab2"
 )
 SEALED_EXACT_V1_DECLARATION_SHA256 = (
-    "24c9f5ef6b4f54746755f428db526cd2cd15c65417c94e7bb87bb341f4afce05"
+    "d0889ce34efb65f4805d261fc5c78f3a73c5f80f136dd109074247f63c66234a"
 )
 SEALED_SURFACE_SHA256 = (
-    "860699834e0689aa61c73145e00a861452caa8a4b686eacc4f384416b8844645"
+    "4c0d5668d8ccf5096ceb7b15f7535e4aecb86248f556513e28b55c94e5db3974"
 )
 SEALED_API_ARTIFACT_MANIFEST_SHA256 = (
-    "7235d4de6642cd55717aa90ca579ca655f1503934e6be6471971c660c6c5a1f0"
+    "e07beb0e5839b0fdf844c05c0e4207be3cd921c94c5fe7db7f1741d842a6aa79"
 )
 SEALED_XFL_PROFILE_LEDGER_SHA256 = (
     "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056fd80"
@@ -111,7 +111,7 @@ SEALED_MODULE_VALIDATION_RESULT = {
 }
 SEALED_LIMITS = {
     "host_work_base_per_call": 1,
-    "host_work_budget": 1000000,
+    "host_work_budget": 2097152,
     "host_work_meter": "base-plus-addressed-byte-v1",
     "host_work_per_addressed_byte": 1,
     "quickjs_heap_bytes": 16777216,
@@ -130,6 +130,7 @@ SEALED_HOST_WORK_ADDRESSED_LENGTH_INDICES = {
     "ledger_last_hash": [1],
     "prepare": [1, 3],
     "rollback": [1],
+    "slot": [1],
     "state": [1, 3],
     "state_set": [1, 3],
     "trace": [1, 3],
@@ -173,9 +174,13 @@ SEALED_IMPORTS = [
     _import_row("ledger_last_hash", ["i32", "i32"], ["i64"]),
     _import_row("ledger_last_time", [], ["i64"]),
     _import_row("ledger_seq", [], ["i64"]),
+    _import_row("otxn_slot", ["i32"], ["i64"]),
     _import_row("otxn_type", [], ["i64"]),
     _import_row("prepare", ["i32", "i32", "i32", "i32"], ["i64"]),
     _import_row("rollback", ["i32", "i32", "i64"], ["i64"]),
+    _import_row("slot", ["i32", "i32", "i32"], ["i64"]),
+    _import_row("slot_clear", ["i32"], ["i64"]),
+    _import_row("slot_size", ["i32"], ["i64"]),
     _import_row("state", ["i32", "i32", "i32", "i32"], ["i64"]),
     _import_row("state_set", ["i32", "i32", "i32", "i32"], ["i64"]),
     _import_row("trace", ["i32", "i32", "i32", "i32", "i32"], ["i64"]),

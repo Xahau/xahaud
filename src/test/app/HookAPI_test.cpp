@@ -3033,7 +3033,10 @@ public:
             BEAST_EXPECT(newSlot == 112);
             BEAST_EXPECT(hookCtx.slot.contains(112));
             BEAST_EXPECT(hookCtx.slot[112].entry != nullptr);
-            // TODO: test slot content
+            BEAST_EXPECT(hookCtx.slot[112].storage != nullptr);
+            BEAST_EXPECT(
+                hookCtx.slot[112].entry == hookCtx.slot[112].storage.get());
+            BEAST_EXPECT(hookCtx.slot[112].entry->isEquivalent(tx));
         }
 
         {
@@ -3048,7 +3051,37 @@ public:
             BEAST_EXPECT(newSlot == 200);
             BEAST_EXPECT(hookCtx.slot.contains(200));
             BEAST_EXPECT(hookCtx.slot[newSlot].entry != nullptr);
-            // TODO: test slot content
+            BEAST_EXPECT(hookCtx.slot[newSlot].storage != nullptr);
+            BEAST_EXPECT(
+                hookCtx.slot[newSlot].entry ==
+                hookCtx.slot[newSlot].storage.get());
+            BEAST_EXPECT(hookCtx.slot[newSlot].entry->isEquivalent(tx));
+        }
+
+        {
+            // Emit-failure callbacks expose that object, not applyCtx.tx.
+            STObject emitFailure(sfGeneric);
+            emitFailure.setFieldU16(sfTransactionType, ttACCOUNT_SET);
+            emitFailure.setFieldU32(sfSequence, 42);
+            StubHookContext stubCtx{.emitFailure = emitFailure};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            auto const result = api.otxn_slot(0);
+            BEAST_EXPECT(result.has_value());
+            if (result)
+            {
+                auto const newSlot = result.value();
+                BEAST_EXPECT(newSlot > 0);
+                BEAST_EXPECT(hookCtx.slot.contains(newSlot));
+                BEAST_EXPECT(hookCtx.slot[newSlot].entry != nullptr);
+                BEAST_EXPECT(hookCtx.slot[newSlot].storage != nullptr);
+                BEAST_EXPECT(
+                    hookCtx.slot[newSlot].entry ==
+                    hookCtx.slot[newSlot].storage.get());
+                BEAST_EXPECT(*hookCtx.slot[newSlot].entry == emitFailure);
+                BEAST_EXPECT(*hookCtx.slot[newSlot].entry != tx);
+            }
         }
     }
 

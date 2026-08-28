@@ -97,7 +97,7 @@ public:
 
         testcase("Frozen v1 policy is complete and independent");
         auto const snapshot = quickJSHostPolicyV1Snapshot();
-        BEAST_EXPECT(snapshot.size() == 13);
+        BEAST_EXPECT(snapshot.size() == 17);
         BEAST_EXPECT(snapshot.size() == quickJSV1ImportCount);
         auto const* policy =
             findHostAdapterPolicy(generated::hostAdapterPolicy);
@@ -155,15 +155,15 @@ public:
                     : descriptor.name != "accept" &&
                         descriptor.name != "rollback");
         }
-        BEAST_EXPECT(currentNames.size() - v1Names.size() == 62);
+        BEAST_EXPECT(currentNames.size() - v1Names.size() == 58);
         std::size_t outsideV1 = 0;
         for (auto const name : currentNames)
             if (!v1Names.contains(name))
                 ++outsideV1;
-        BEAST_EXPECT(outsideV1 == 62);
+        BEAST_EXPECT(outsideV1 == 58);
 
         testcase("Provider manifest has exact v1 Wasm signatures");
-        BEAST_EXPECT(generated::providerImportSignatures.size() == 13);
+        BEAST_EXPECT(generated::providerImportSignatures.size() == 17);
         std::set<std::string_view> providerNames;
         for (auto const& expected : generated::providerImportSignatures)
         {
@@ -187,7 +187,7 @@ public:
         BEAST_EXPECT(providerNames == v1Names);
 
         testcase("Pinned native ABI matches frozen and current projections");
-        BEAST_EXPECT(generated::nativeImportSignatures.size() == 13);
+        BEAST_EXPECT(generated::nativeImportSignatures.size() == 17);
         BEAST_EXPECT(
             generated::nativeABISourceRepository ==
             "https://github.com/Xahau/xahaud");
@@ -288,8 +288,28 @@ public:
                 expected);
         }
         auto profile = hook::currentQuickJSRuntimeProfile();
+        BEAST_EXPECT(profile.hostWorkBudget == 2'097'152);
         BEAST_EXPECT(quickJSHostWorkCost(profile, 0) == 1);
         BEAST_EXPECT(quickJSHostWorkCost(profile, 18) == 19);
+        auto const findMeasure = [&](std::string_view name) {
+            auto const found = std::find_if(
+                snapshot.begin(), snapshot.end(), [&](auto const& item) {
+                    return item.name == name;
+                });
+            BEAST_EXPECT(found != snapshot.end());
+            return found == snapshot.end() ? HostWorkMeasureKind::zeroV1
+                                           : found->measure;
+        };
+        BEAST_EXPECT(findMeasure("otxn_slot") == HostWorkMeasureKind::zeroV1);
+        BEAST_EXPECT(findMeasure("slot_size") == HostWorkMeasureKind::zeroV1);
+        BEAST_EXPECT(findMeasure("slot") == HostWorkMeasureKind::argument1V1);
+        BEAST_EXPECT(findMeasure("slot_clear") == HostWorkMeasureKind::zeroV1);
+        auto const maximumAcquisitionCost =
+            5 * quickJSHostWorkCost(profile, 0) +
+            quickJSHostWorkCost(profile, profile.serializedObjectMaxBytes);
+        BEAST_EXPECT(maximumAcquisitionCost == 1'048'582);
+        BEAST_EXPECT(
+            profile.hostWorkBudget - maximumAcquisitionCost == 1'048'570);
         profile.hostWorkBasePerCall =
             std::numeric_limits<std::uint64_t>::max() - 1;
         profile.hostWorkPerAddressedByte = 2;

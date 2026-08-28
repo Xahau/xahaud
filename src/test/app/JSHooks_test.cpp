@@ -13,6 +13,7 @@
 #include <xrpl/protocol/Keylet.h>
 #include <xrpl/protocol/digest.h>
 #include "JSHooks_bypass_test_hook.h"
+#include "JSHooks_incoming_xah_test_hook.h"
 #include "JSHooks_test_hooks.h"
 #include <algorithm>
 #include <array>
@@ -109,6 +110,13 @@ export function main(_reserved: number): never {
 }
 )[test.tshook]");
         auto const hookCode = packageCurrentQuickJS(hookBytecode);
+
+        Blob const incomingXahCode{
+            jshooksIncomingXahArtifact.begin(),
+            jshooksIncomingXahArtifact.end()};
+        Blob const incomingXahBytecode{
+            incomingXahCode.begin() + hook::artifact::quickJSHeaderSize,
+            incomingXahCode.end()};
 
         auto const& xahauProfileBytecode = jshooks_test_wasm.at(R"[test.tshook](
 export const hookConfig = defineHookConfig({
@@ -885,8 +893,8 @@ export function main(_reserved: number): never {
   void _reserved;
   rollback.onFail(state.set("meter", "must-not-stick"), "state write failed");
 
-  const chunk = "x".repeat(1000);
-  for (let i = 0; i < 1100; ++i) trace("meter", chunk);
+  const chunk = "x".repeat(2000);
+  for (let i = 0; i < 1046; ++i) trace("meter", chunk);
   accept("host-work budget escaped", -1);
 }
 )[test.tshook]"));
@@ -1096,7 +1104,16 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             successfulValidation.xflArithmeticProfile ==
             hook::artifact::XFLArithmeticProfile::none);
-        expectFuel(successfulValidation.invocationFuelConsumed, 58942);
+        expectFuel(successfulValidation.invocationFuelConsumed, 58968);
+
+        auto const incomingXahValidation =
+            hook::validateQuickJSBytecodeForTests(
+                currentRuntime, incomingXahBytecode);
+        BEAST_EXPECT(!incomingXahValidation.error);
+        BEAST_EXPECT(!incomingXahValidation.hasCallback);
+        BEAST_EXPECT(
+            incomingXahValidation.xflArithmeticProfile ==
+            hook::artifact::XFLArithmeticProfile::none);
 
         auto const xahauValidation = hook::validateQuickJSBytecodeForTests(
             currentRuntime, xahauProfileBytecode);
@@ -1139,7 +1156,19 @@ int64_t hook(uint32_t reserved)
             hook::artifact::XFLArithmeticProfile::nearestEvenV1);
         BEAST_EXPECT(
             std::string_view{jshooksBypassProviderSHA256} ==
-            "dfacd07fde57ca5cd82c7ddafbe0d28f617ea2122c93d09e243609801c7fb7b1");
+            "a88e532d39ffc77434200201ebabda1b1a11d602b1ca82aadcfdef729417005a");
+        BEAST_EXPECT(
+            std::string_view{jshooksIncomingXahSourceSHA256} ==
+            "3f26a6a4425764c6aca8e885ec59e1e19a12ef2d5907f617ef6041481e0f8125");
+        BEAST_EXPECT(
+            std::string_view{jshooksIncomingXahProviderSHA256} ==
+            "a88e532d39ffc77434200201ebabda1b1a11d602b1ca82aadcfdef729417005a");
+        BEAST_EXPECT(
+            std::string_view{jshooksIncomingXahBytecodeSHA256} ==
+            "6c200327eddd6da30066089bf1cb8fa71746b8186e37335e853f6f16e69e2bd6");
+        BEAST_EXPECT(
+            std::string_view{jshooksIncomingXahArtifactSHA256} ==
+            "3ffe748d46ee9db7e7614d6ba070a09d289e858ca53bbe64643b5881e11771c4");
 
         auto const callbackValidation = hook::validateQuickJSBytecodeForTests(
             currentRuntime, callbackBytecode);
@@ -1167,7 +1196,7 @@ int64_t hook(uint32_t reserved)
             BEAST_EXPECT(
                 result.xflArithmeticProfile ==
                 hook::artifact::XFLArithmeticProfile::none);
-            expectFuel(result.invocationFuelConsumed, 58942);
+            expectFuel(result.invocationFuelConsumed, 58968);
         }
 
         testcase("Bind XFL profile at QuickJS CREATE admission");
@@ -1260,7 +1289,7 @@ int64_t hook(uint32_t reserved)
             auto const failedValidation = hook::validateQuickJSBytecodeForTests(
                 currentRuntime, malformedBytecode);
             BEAST_EXPECT(!!failedValidation.error);
-            expectFuel(failedValidation.invocationFuelConsumed, 14116);
+            expectFuel(failedValidation.invocationFuelConsumed, 14169);
             identityEnv(
                 jtx::hook(
                     alice,
@@ -1513,7 +1542,87 @@ int64_t hook(uint32_t reserved)
         auto const message = execution.getFieldVL(sfHookReturnString);
         BEAST_EXPECT(
             std::string(message.begin(), message.end()) == "payment:0");
-        expectFuel(execution.getFieldU64(sfHookInstructionCount), 69109);
+        expectFuel(execution.getFieldU64(sfHookInstructionCount), 69159);
+
+        testcase("Execute packaged otxn.object incoming-XAH policy");
+        Env incomingEnv{*this, features | featureJSHooks};
+        incomingEnv.fund(XRP(10000), alice, bob, carol);
+        incomingEnv.close();
+        IOU const USD{carol["USD"]};
+        incomingEnv(trust(alice, USD(1000)), ter(tesSUCCESS));
+        incomingEnv.close();
+
+        auto incomingHook = hsoVersioned(incomingXahCode, 1);
+        incomingHook[jss::Flags] = hsfOVERRIDE;
+        incomingEnv(
+            jtx::hook(alice, {{incomingHook}}, 0),
+            fee(XRP(10)),
+            ter(tesSUCCESS));
+        incomingEnv.close();
+
+        auto const expectIncomingResult =
+            [&](hook_api::ExitType expectedResult,
+                std::uint64_t expectedCode,
+                std::string_view expectedMessage) -> std::uint64_t {
+            auto const resultMeta = incomingEnv.meta();
+            BEAST_EXPECT(!!resultMeta);
+            if (!resultMeta || !resultMeta->isFieldPresent(sfHookExecutions))
+                return 0;
+            auto const resultExecutions =
+                resultMeta->getFieldArray(sfHookExecutions);
+            BEAST_EXPECT(resultExecutions.size() == 1);
+            if (resultExecutions.size() != 1)
+                return 0;
+            auto const& resultExecution = resultExecutions[0];
+            BEAST_EXPECT(
+                resultExecution.getFieldU8(sfHookResult) ==
+                static_cast<std::uint8_t>(expectedResult));
+            BEAST_EXPECT(
+                resultExecution.getFieldU64(sfHookReturnCode) == expectedCode);
+            auto const resultMessage =
+                resultExecution.getFieldVL(sfHookReturnString);
+            BEAST_EXPECT(
+                std::string(resultMessage.begin(), resultMessage.end()) ==
+                expectedMessage);
+            return resultExecution.getFieldU64(sfHookInstructionCount);
+        };
+
+        incomingEnv(noop(alice), fee(XRP(100)), ter(tesSUCCESS));
+        expectIncomingResult(
+            hook_api::ExitType::ACCEPT, 0, "not an incoming Payment");
+        incomingEnv.close();
+
+        incomingEnv(pay(bob, alice, XRP(1)), fee(XRP(100)), ter(tesSUCCESS));
+        auto const incomingXahFuel = expectIncomingResult(
+            hook_api::ExitType::ACCEPT, 0, "incoming native XAH accepted");
+        expectFuel(incomingXahFuel, 138275);
+        incomingEnv.close();
+
+        incomingEnv(
+            pay(alice, bob, XRP(1)), fee(XRP(100)), ter(tecHOOK_REJECTED));
+        expectIncomingResult(
+            hook_api::ExitType::ROLLBACK,
+            20,
+            "Payment is not addressed to this Hook account");
+        incomingEnv.close();
+
+        incomingEnv(
+            pay(carol, alice, USD(1)), fee(XRP(100)), ter(tecHOOK_REJECTED));
+        expectIncomingResult(
+            hook_api::ExitType::ROLLBACK,
+            22,
+            "Payment Amount must be native XAH");
+        incomingEnv.close();
+
+        incomingEnv(
+            pay(bob, alice, drops(100'000'001)),
+            fee(XRP(100)),
+            ter(tecHOOK_REJECTED));
+        expectIncomingResult(
+            hook_api::ExitType::ROLLBACK,
+            23,
+            "Payment Amount is outside the accepted range");
+        incomingEnv.close();
 
         testcase("Execute packaged xahauFloatV1 add and subtract");
         Env xflEnv{*this, features | featureJSHooks};
@@ -1544,7 +1653,7 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string(xflMessage.begin(), xflMessage.end()) ==
             "xfl add/subtract");
-        expectFuel(xflExecution.getFieldU64(sfHookInstructionCount), 284698);
+        expectFuel(xflExecution.getFieldU64(sfHookInstructionCount), 284691);
 
         testcase("Execute packaged xahauFloatV1 multiply");
         auto xflMultiplyHook = hsoVersioned(xflMultiplyCode, 1);
@@ -1577,7 +1686,7 @@ int64_t hook(uint32_t reserved)
             std::string(multiplyMessage.begin(), multiplyMessage.end()) ==
             "xfl multiply");
         expectFuel(
-            multiplyExecution.getFieldU64(sfHookInstructionCount), 191723);
+            multiplyExecution.getFieldU64(sfHookInstructionCount), 191729);
 
         testcase("Execute packaged xahauFloatV1 fixed divide last digit");
         auto xflFixedDivideHook = hsoVersioned(xflFixedDivideCode, 1);
@@ -1612,7 +1721,7 @@ int64_t hook(uint32_t reserved)
             std::string(fixedDivideMessage.begin(), fixedDivideMessage.end()) ==
             "xfl fixed divide");
         expectFuel(
-            fixedDivideExecution.getFieldU64(sfHookInstructionCount), 193544);
+            fixedDivideExecution.getFieldU64(sfHookInstructionCount), 193550);
 
         testcase("Return nominal Result for packaged divide by zero");
         auto xflDivideByZeroHook = hsoVersioned(xflDivideByZeroCode, 1);
@@ -1648,7 +1757,7 @@ int64_t hook(uint32_t reserved)
                 divideByZeroMessage.begin(), divideByZeroMessage.end()) ==
             "xfl divide by zero");
         expectFuel(
-            divideByZeroExecution.getFieldU64(sfHookInstructionCount), 188678);
+            divideByZeroExecution.getFieldU64(sfHookInstructionCount), 188729);
 
         testcase("Fail closed for packaged nearestEvenV1 arithmetic bypass");
         auto nearestEvenBypassHook = hsoVersioned(nearestEvenBypassCode, 1);
@@ -1680,7 +1789,7 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string(bypassMessage.begin(), bypassMessage.end()) ==
             "xfl profile backstop");
-        expectFuel(bypassExecution.getFieldU64(sfHookInstructionCount), 201010);
+        expectFuel(bypassExecution.getFieldU64(sfHookInstructionCount), 201021);
 
         auto const bypassStateKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -1723,7 +1832,7 @@ int64_t hook(uint32_t reserved)
             std::string(surfaceMessage.begin(), surfaceMessage.end()) ==
             "surface:40");
         expectFuel(
-            surfaceExecution.getFieldU64(sfHookInstructionCount), 102231);
+            surfaceExecution.getFieldU64(sfHookInstructionCount), 102285);
 
         testcase("Execute accepted STObject and STArray on Wasmtime");
         auto stObjectHook = hsoVersioned(stObjectArrayCode, 1);
@@ -1785,7 +1894,7 @@ int64_t hook(uint32_t reserved)
             "f0-native-matrix");
         expectFuel(
             f0NativeMatrixExecution.getFieldU64(sfHookInstructionCount),
-            6839777);
+            6839406);
 
         //@@start jshooks-state-bridge
         testcase("Execute a C Hook through WasmEdge and persist state");
@@ -1898,7 +2007,7 @@ int64_t hook(uint32_t reserved)
         if (rollbackExecutions.size() != 1)
             return;
         expectFuel(
-            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 81759);
+            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 81778);
 
         stateEntry = env.le(stateKeylet);
         BEAST_EXPECT(!!stateEntry);
@@ -1931,7 +2040,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& memoryGrowthExecution = memoryGrowthExecutions[0];
         expectFuel(
-            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7426891);
+            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7428433);
         BEAST_EXPECT(
             memoryGrowthExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
@@ -1977,7 +2086,7 @@ int64_t hook(uint32_t reserved)
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
         expectFuel(
             hostWorkExecutions[0].getFieldU64(sfHookInstructionCount),
-            30500208);
+            42555463);
 
         auto const meterKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -2072,7 +2181,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& callbackExecution = callbackExecutions[0];
         expectFuel(
-            callbackExecution.getFieldU64(sfHookInstructionCount), 118273);
+            callbackExecution.getFieldU64(sfHookInstructionCount), 118242);
         BEAST_EXPECT_EQ(
             callbackExecution.getFieldU8(sfHookResult),
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));

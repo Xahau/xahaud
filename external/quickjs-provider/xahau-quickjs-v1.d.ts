@@ -1223,6 +1223,21 @@ declare global {
     [Symbol.iterator](): IterableIterator<T>;
   }
 
+  /** @serial Transaction */
+  interface Tx extends STObject {
+    readonly TransactionType: TransactionType;
+    readonly Account: AccountID;
+    readonly Destination?: AccountID;
+    readonly Amount?: Amount;
+    readonly Amounts?: STArray;
+    readonly Fee?: Amount;
+    readonly Flags: UInt32;
+    readonly Sequence?: UInt32;
+    readonly Blob?: STBlob;
+    readonly NFTokenID?: Hash256;
+    readonly HookParameters?: STArray;
+  }
+
   const TransactionType: TransactionTypeEnum;
 
   type TransactionType = (typeof TransactionType)[keyof typeof TransactionType];
@@ -1249,6 +1264,11 @@ declare global {
   }
 
   namespace otxn {
+    /**
+     * Minted originating transaction. Total getters. Existence is an
+     * execution invariant.
+     */
+    function object(): Tx;
     function type(): HostResult<TransactionType>;
   }
 
