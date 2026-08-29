@@ -2506,6 +2506,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
             }
         }
 
+        // Claim phase: copy the strand-owned waiting row so admission can be
+        // decided. Ownership has not moved and no job right exists yet.
         std::optional<PendingManifest> manifestContext;
         SerialIter claimIter(makeSlice(m->validation()));
         STObject claim(claimIter, sfValidation);
@@ -2674,6 +2676,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
                     pendingManifest_->message == manifestContext->message,
                 "ripple::PeerImp::onMessage(TMValidation) : pending manifest "
                 "claim is current");
+            // Admission commit: move authority out of the strand-owned
+            // waiting row and mint this connection's sole active job token.
             pendingManifest_.reset();
             manifestVerificationInFlight_ = true;
             JLOG(p_journal_.debug())
@@ -2701,13 +2705,13 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
         catch (...)
         {
             if (pairedJob)
-                manifestVerificationInFlight_ = false;
+                finishManifestVerification();
             throw;
         }
 
         if (!queued && pairedJob)
         {
-            manifestVerificationInFlight_ = false;
+            finishManifestVerification();
             JLOG(p_journal_.debug())
                 << "manifest_validation candidate_rejected peer=" << id_
                 << " reason=job_queue_refused";
@@ -3324,6 +3328,9 @@ PeerImp::checkValidation(
     std::optional<PendingManifest> manifestContext)
 {
     bool const pairedJob = manifestContext.has_value();
+    // The queued job owns the moved association. This scope guard is its
+    // all-exits terminal: success, refusal, and exception consume the active
+    // connection token exactly once.
     scope_exit finishPairVerification([this, pairedJob]() {
         if (pairedJob)
             finishManifestVerification();

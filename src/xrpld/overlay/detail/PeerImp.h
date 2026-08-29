@@ -177,7 +177,8 @@ private:
     std::queue<std::shared_ptr<Message>> send_queue_;
     /** One unverified manifest awaiting a later matching validation.
 
-        Normal manifests are structurally decoded on receipt but are not
+        Owner/executor: this peer's strand. Normal manifests are structurally
+        decoded on receipt but are not
         signature-verified or admitted to the global cache until a validation
         on this connection claims the same signing key. An admitted claim
         moves the association into the sole in-flight verification job, which
@@ -192,6 +193,11 @@ private:
         std::uint32_t sequence;
     };
     std::optional<PendingManifest> pendingManifest_;
+
+    // The one active verification-obligation token for this connection. The
+    // strand mints it when pending ownership moves into a job; admission
+    // rollback or that job's terminal clears it exactly once. Atomic because
+    // the job terminal executes on a JobQueue worker, not the peer strand.
     std::atomic_bool manifestVerificationInFlight_{false};
 
     bool gracefulClose_ = false;
@@ -669,6 +675,11 @@ private:
         std::shared_ptr<protocol::TMValidation> const& packet,
         std::optional<PendingManifest> manifestContext);
 
+    /** Consume the connection's sole active verification-obligation token.
+
+        This is the only terminal operation for both failed job admission and
+        every exit from an admitted verification job.
+    */
     void
     finishManifestVerification();
 
