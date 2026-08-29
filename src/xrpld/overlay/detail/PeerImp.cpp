@@ -2642,6 +2642,12 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
                     suppressionKey, id_);
             !added)
         {
+            // A previously relayed copy of these exact bytes has already
+            // passed validation. Repair this particular naked sender even
+            // though another peer won global admission for the hash.
+            if (!manifestContext && relayed)
+                sendManifestRepairForSigningKey(val->getSignerPublic());
+
             // Count unique messages (Slots has it's own 'HashRouter'), which a
             // peer receives within IDLED seconds since the message has been
             // relayed. Wait WAIT_ON_BOOTUP time to let the server establish
@@ -3307,6 +3313,17 @@ PeerImp::checkPropose(
 }
 
 void
+PeerImp::sendManifestRepairForSigningKey(PublicKey const& signingKey)
+{
+    if (auto const snapshot =
+            app_.validatorManifests().getManifestSnapshot(signingKey);
+        snapshot && !snapshot->revoked() && snapshot->signingKey &&
+        *snapshot->signingKey == signingKey)
+        sendManifestRepair(
+            snapshot->masterKey, snapshot->sequence, snapshot->serialized);
+}
+
+void
 PeerImp::sendManifestRepair(
     PublicKey const& masterKey,
     std::uint32_t sequence,
@@ -3506,17 +3523,7 @@ PeerImp::checkValidation(
             // this point, and paired traffic proves the sender already holds
             // the prerequisite.
             if (!pairedJob)
-            {
-                if (auto const snapshot =
-                        app_.validatorManifests().getManifestSnapshot(
-                            val->getSignerPublic());
-                    snapshot && !snapshot->revoked() && snapshot->signingKey &&
-                    *snapshot->signingKey == val->getSignerPublic())
-                    sendManifestRepair(
-                        snapshot->masterKey,
-                        snapshot->sequence,
-                        snapshot->serialized);
-            }
+                sendManifestRepairForSigningKey(val->getSignerPublic());
         }
     }
     catch (std::exception const& ex)

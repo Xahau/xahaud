@@ -703,6 +703,9 @@ private:
         from a verification job; the send hops to the strand.
     */
     void
+    sendManifestRepairForSigningKey(PublicKey const& signingKey);
+
+    void
     sendManifestRepair(
         PublicKey const& masterKey,
         std::uint32_t sequence,

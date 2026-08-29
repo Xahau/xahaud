@@ -1097,14 +1097,14 @@ private:
         }
 
         auto const beforeRepair = PeerTest::sentTypes(repairSourceId).size();
-        BEAST_EXPECT(repairSource->receive(
-            makeValidationAt(
-                memoryMasterKey,
-                memorySigningKey,
-                memorySigningSecret,
-                env.app().timeKeeper().closeTime(),
-                uint256{101}),
-            protocol::mtVALIDATION));
+        auto const memoryValidation = makeValidationAt(
+            memoryMasterKey,
+            memorySigningKey,
+            memorySigningSecret,
+            env.app().timeKeeper().closeTime(),
+            uint256{101});
+        BEAST_EXPECT(
+            repairSource->receive(memoryValidation, protocol::mtVALIDATION));
         env.app().getJobQueue().rendezvous();
         BEAST_EXPECT(
             PeerTest::waitForMessages(repairSourceId, beforeRepair + 1));
@@ -1119,12 +1119,31 @@ private:
                 !payloads.empty() && payloads.back() == memorySerialized);
         }
 
-        // Duplicate: a later distinct validation under the same manifest
-        // sequence still posts a repair attempt; the strand no-ops it.
+        // Another peer loses the admission race for the exact validation.
+        // The HashRouter's relayed fact proves those bytes already passed
+        // validation, so this connection still receives its own repair.
+        addPeer(env, peers, disabled);
+        auto const duplicateSource = peers.back();
+        auto const duplicateSourceId = duplicateSource->id();
+        BEAST_EXPECT(
+            duplicateSource->receive(memoryValidation, protocol::mtVALIDATION));
+        BEAST_EXPECT(PeerTest::waitForMessages(duplicateSourceId, 1));
+        {
+            auto const types = PeerTest::sentTypes(duplicateSourceId);
+            BEAST_EXPECT(
+                types.size() == 1 && types.back() == protocol::mtMANIFESTS);
+            auto const payloads =
+                PeerTest::sentManifestPayloads(duplicateSourceId);
+            BEAST_EXPECT(
+                payloads.size() == 1 && payloads.back() == memorySerialized);
+        }
+
+        // Same connection, same manifest sequence: a later distinct validation
+        // still posts a repair attempt; the strand no-ops it.
         // Unknown-signer and paired traffic never post. The sentinel below
         // is a later strand-FIFO send, so exactly two singletons prove the
-        // duplicate did not sneak a send, and the never-posted cases sent
-        // nothing either.
+        // same-sequence retry did not sneak a send, and the never-posted
+        // cases sent nothing either.
         BEAST_EXPECT(repairSource->receive(
             makeValidationAt(
                 memoryMasterKey,
