@@ -3307,6 +3307,42 @@ PeerImp::checkPropose(
 }
 
 void
+PeerImp::sendManifestRepair(
+    PublicKey const& masterKey,
+    std::uint32_t sequence,
+    std::string serialized)
+{
+    if (!strand_.running_in_this_thread())
+        return post(
+            strand_,
+            std::bind(
+                &PeerImp::sendManifestRepair,
+                shared_from_this(),
+                masterKey,
+                sequence,
+                std::move(serialized)));
+
+    if (gracefulClose_ || detaching_)
+        return;
+
+    if (auto const it = manifestRepairSequences_.find(masterKey);
+        it != manifestRepairSequences_.end() && it->second >= sequence)
+        return;
+
+    if (manifestRepairSequences_.size() >= maxManifestRepairEntries)
+        manifestRepairSequences_.clear();
+    manifestRepairSequences_[masterKey] = sequence;
+
+    protocol::TMManifests tm;
+    tm.add_list()->set_stobject(serialized);
+    send(std::make_shared<Message>(tm, protocol::mtMANIFESTS));
+    JLOG(p_journal_.debug())
+        << "manifest_validation repair_sent peer=" << id_
+        << " master=" << toBase58(TokenType::NodePublic, masterKey)
+        << " sequence=" << sequence;
+}
+
+void
 PeerImp::finishManifestVerification()
 {
     // Instrumentation is compiled out in NDEBUG builds; the state transition
@@ -3457,6 +3493,26 @@ PeerImp::checkValidation(
                     val->getSignerPublic(),
                     std::move(haveMessage),
                     protocol::mtVALIDATION);
+            }
+
+            // A naked validation that just authenticated against the current
+            // cached manifest is an implicit request for that manifest.
+            // Repair the sender on this connection only; the strand-owned
+            // repair ledger bounds it to one singleton per master/sequence.
+            // Forged, malformed, and unknown-signer traffic never reaches
+            // this point, and paired traffic proves the sender already holds
+            // the prerequisite.
+            if (!pairedJob)
+            {
+                if (auto const snapshot =
+                        app_.validatorManifests().getManifestSnapshot(
+                            val->getSignerPublic());
+                    snapshot && !snapshot->revoked() && snapshot->signingKey &&
+                    *snapshot->signingKey == val->getSignerPublic())
+                    sendManifestRepair(
+                        snapshot->masterKey,
+                        snapshot->sequence,
+                        snapshot->serialized);
             }
         }
     }

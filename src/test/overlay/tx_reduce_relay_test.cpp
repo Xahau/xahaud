@@ -1050,6 +1050,173 @@ private:
         oversizedObject.add_list()->set_stobject(std::string(4097, 'x'));
         BEAST_EXPECT(peer->receive(oversizedObject, protocol::mtMANIFESTS));
 
+        // A naked validation that authenticates against the current cached
+        // manifest is an implicit request for that manifest. The recipient
+        // repairs the sender with one singleton on the same connection, at
+        // most once per master/sequence. Duplicate, unknown-signer, and
+        // paired traffic draw nothing; a later repairable master proves via
+        // strand FIFO that those declines happened rather than raced.
+        testcase("naked validation repairs the sender");
+        addPeer(env, peers, disabled);
+        auto const repairSource = peers.back();
+        auto const repairSourceId = repairSource->id();
+
+        auto const memoryMasterSecret = randomSecretKey();
+        auto const memoryMasterKey =
+            derivePublicKey(KeyType::ed25519, memoryMasterSecret);
+        listMaster(memoryMasterKey);
+        auto const memorySigningSecret = randomSecretKey();
+        auto const memorySigningKey =
+            derivePublicKey(KeyType::secp256k1, memorySigningSecret);
+        auto const memorySerialized = makeManifest(
+            memoryMasterSecret, memoryMasterKey, memorySigningSecret, 0);
+        {
+            auto parsed = deserializeManifest(memorySerialized);
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+
+        auto const beforeRepair = PeerTest::sentTypes(repairSourceId).size();
+        BEAST_EXPECT(repairSource->receive(
+            makeValidationAt(
+                memoryMasterKey,
+                memorySigningKey,
+                memorySigningSecret,
+                env.app().timeKeeper().closeTime(),
+                uint256{101}),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(
+            PeerTest::waitForMessages(repairSourceId, beforeRepair + 1));
+        {
+            auto const types = PeerTest::sentTypes(repairSourceId);
+            BEAST_EXPECT(
+                types.size() == beforeRepair + 1 &&
+                types.back() == protocol::mtMANIFESTS);
+            auto const payloads = PeerTest::sentManifestPayloads();
+            BEAST_EXPECT(
+                !payloads.empty() && payloads.back() == memorySerialized);
+        }
+
+        // Duplicate: a later distinct validation under the same manifest
+        // sequence draws no second repair.
+        BEAST_EXPECT(repairSource->receive(
+            makeValidationAt(
+                memoryMasterKey,
+                memorySigningKey,
+                memorySigningSecret,
+                env.app().timeKeeper().closeTime() + std::chrono::seconds{1},
+                uint256{102}),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+
+        // Unknown signer: dropped before any response can exist.
+        auto const strangerSecret = randomSecretKey();
+        auto const strangerKey =
+            derivePublicKey(KeyType::secp256k1, strangerSecret);
+        BEAST_EXPECT(repairSource->receive(
+            makeValidationAt(
+                strangerKey,
+                strangerKey,
+                strangerSecret,
+                env.app().timeKeeper().closeTime(),
+                uint256{103}),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+
+        // Paired: the sender proved it holds the prerequisite; no repair.
+        auto const pairedMasterSecret = randomSecretKey();
+        auto const pairedMasterKey =
+            derivePublicKey(KeyType::ed25519, pairedMasterSecret);
+        auto const pairedSigningSecret = randomSecretKey();
+        auto const pairedSigningKey =
+            derivePublicKey(KeyType::secp256k1, pairedSigningSecret);
+        {
+            protocol::TMManifests pairedPrerequisite;
+            pairedPrerequisite.add_list()->set_stobject(makeManifest(
+                pairedMasterSecret, pairedMasterKey, pairedSigningSecret, 0));
+            BEAST_EXPECT(repairSource->receive(
+                pairedPrerequisite, protocol::mtMANIFESTS));
+        }
+        BEAST_EXPECT(repairSource->receive(
+            makeValidationAt(
+                pairedMasterKey,
+                pairedSigningKey,
+                pairedSigningSecret,
+                env.app().timeKeeper().closeTime(),
+                uint256{104}),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+
+        // Sentinel: a second repairable master must arrive after the three
+        // declines above on the same strand, so exactly two repair
+        // singletons prove the ledger's bound held.
+        auto const memoryMasterSecret1 = randomSecretKey();
+        auto const memoryMasterKey1 =
+            derivePublicKey(KeyType::ed25519, memoryMasterSecret1);
+        listMaster(memoryMasterKey1);
+        auto const memorySigningSecret1 = randomSecretKey();
+        auto const memorySigningKey1 =
+            derivePublicKey(KeyType::secp256k1, memorySigningSecret1);
+        {
+            auto parsed = deserializeManifest(makeManifest(
+                memoryMasterSecret1,
+                memoryMasterKey1,
+                memorySigningSecret1,
+                0));
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+        BEAST_EXPECT(repairSource->receive(
+            makeValidationAt(
+                memoryMasterKey1,
+                memorySigningKey1,
+                memorySigningSecret1,
+                env.app().timeKeeper().closeTime(),
+                uint256{105}),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(
+            PeerTest::waitForMessages(repairSourceId, beforeRepair + 2));
+        {
+            auto const types = PeerTest::sentTypes(repairSourceId);
+            BEAST_EXPECT(types.size() == beforeRepair + 2);
+            BEAST_EXPECT(
+                types.size() >= 2 &&
+                types[types.size() - 2] == protocol::mtMANIFESTS &&
+                types.back() == protocol::mtMANIFESTS);
+        }
+
+        // The sender half of the invariant: a validation whose signing key
+        // has no cached manifest still broadcasts, naked.
+        auto const orphanSecret = randomSecretKey();
+        auto const orphanKey =
+            derivePublicKey(KeyType::secp256k1, orphanSecret);
+        auto orphanValidation = makeValidationAt(
+            orphanKey,
+            orphanKey,
+            orphanSecret,
+            env.app().timeKeeper().closeTime(),
+            uint256{106});
+        auto const beforeOrphan = PeerTest::sentTypes(repairSourceId).size();
+        env.app().overlay().broadcast(orphanValidation, orphanKey);
+        BEAST_EXPECT(
+            PeerTest::waitForMessages(repairSourceId, beforeOrphan + 1));
+        {
+            auto const types = PeerTest::sentTypes(repairSourceId);
+            BEAST_EXPECT(
+                types.size() == beforeOrphan + 1 &&
+                types.back() == protocol::mtVALIDATION);
+        }
+
         // A naked validation whose signer has no trusted or retained master
         // mapping is not useful, and must not front-run the real validation
         // hash. A later verified pair remains processable and relays in wire
@@ -1234,6 +1401,26 @@ private:
                 .getHashRouter()
                 .addSuppressionPeerWithStatus(forgedValidationHash, 65000)
                 .first);
+
+        // A forged naked validation for a repairable signer authenticates
+        // nothing and must draw no repair singleton. Terminal fee case:
+        // isolate it on its own connection.
+        addPeer(env, peers, disabled);
+        auto const forgedNakedPeer = peers.back();
+        auto const forgedNakedId = forgedNakedPeer->id();
+        auto forgedNakedValidation = makeValidationAt(
+            memoryMasterKey,
+            memorySigningKey,
+            memorySigningSecret,
+            env.app().timeKeeper().closeTime() + std::chrono::seconds{2},
+            uint256{107});
+        auto* forgedNakedBytes = forgedNakedValidation.mutable_validation();
+        if (BEAST_EXPECT(!forgedNakedBytes->empty()))
+            forgedNakedBytes->back() ^= 0x01;
+        BEAST_EXPECT(forgedNakedPeer->receive(
+            forgedNakedValidation, protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(PeerTest::sentTypes(forgedNakedId).empty());
     }
 
     void

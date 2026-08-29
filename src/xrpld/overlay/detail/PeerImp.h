@@ -200,6 +200,16 @@ private:
     // the job terminal executes on a JobQueue worker, not the peer strand.
     std::atomic_bool manifestVerificationInFlight_{false};
 
+    // The bounded repair ledger for this connection. A naked validation that
+    // authenticates against the current cached manifest for its signing key
+    // is an implicit request for that manifest; this records which
+    // master/sequence singletons were already returned on this connection.
+    // Owner/executor: this peer's strand. Entries only exist for masters the
+    // durable cache resolves, and the ledger is cleared wholesale on
+    // overflow; a lost entry costs one duplicate singleton repair.
+    static constexpr std::size_t maxManifestRepairEntries = 256;
+    hash_map<PublicKey, std::uint32_t> manifestRepairSequences_;
+
     bool gracefulClose_ = false;
     int large_sendq_ = 0;
     std::unique_ptr<LoadEvent> load_event_;
@@ -682,6 +692,20 @@ private:
     */
     void
     finishManifestVerification();
+
+    /** Return a cached manifest to the peer that sent its validation naked.
+
+        A naked validation that has authenticated against the current cached
+        manifest for its signing key is an implicit request for that
+        manifest. The strand consults the bounded repair ledger and sends at
+        most one singleton per master/sequence on this connection. Callable
+        from a verification job; the send hops to the strand.
+    */
+    void
+    sendManifestRepair(
+        PublicKey const& masterKey,
+        std::uint32_t sequence,
+        std::string serialized);
 
     void
     sendLedgerBase(

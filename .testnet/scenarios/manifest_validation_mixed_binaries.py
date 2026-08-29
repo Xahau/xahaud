@@ -6,10 +6,12 @@ async def scenario(ctx, log):
     expected = ctx.topology_edges([(0, 1), (1, 2)])
 
     await ctx.apply_topology(expected, nodes=nodes, exact=False)
-    # One close is enough to produce the validator traffic under test. These
+    # The first close produces the validator traffic under test; later closes
+    # produce naked relays from the old middle node (it forwards a manifest
+    # singleton at most once), which must draw the bounded repair. These
     # binaries are different product revisions, so multi-ledger convergence is
     # deliberately not used as the protocol-compatibility oracle.
-    await ctx.wait_for_ledgers(1, node_id=0, timeout=90)
+    await ctx.wait_for_ledgers(3, node_id=0, timeout=180)
 
     # n0 is the sole validator and uses the new ordered prerequisite path
     # toward the old middle node. The old node processes and relays the two
@@ -25,6 +27,18 @@ async def scenario(ctx, log):
             "manifest_validation candidate_staged",
             "manifest_validation candidate_matched",
             "manifest_validation single_manifest_processed",
+        ],
+        nodes=[2],
+    )
+
+    # After durable admission, the old relay's later validations arrive
+    # naked; an authenticated naked validation is an implicit request, so
+    # the upgraded observer repairs its sender once per master/sequence.
+    ctx.assert_log("manifest_validation repair_sent", nodes=[2])
+    ctx.assert_log_order(
+        [
+            "manifest_validation single_manifest_processed",
+            "manifest_validation repair_sent",
         ],
         nodes=[2],
     )

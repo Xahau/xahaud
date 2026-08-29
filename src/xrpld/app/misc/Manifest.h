@@ -360,7 +360,7 @@ public:
 
         Unlike getManifest(), revocations are returned. This is used by the
         overlay when ordering a manifest immediately before a validation and
-        when answering a peer that supplied a stale manifest.
+        when repairing a peer that sent an authenticated naked validation.
     */
     std::optional<Snapshot>
     getManifestSnapshot(PublicKey const& pk) const;
