@@ -41,8 +41,8 @@ async def scenario(ctx, log):
         ctx.assert_log_order(
             [
                 staged_pattern,
-                matched_pattern,
                 validation_pattern,
+                matched_pattern,
             ],
             nodes=[node],
         )

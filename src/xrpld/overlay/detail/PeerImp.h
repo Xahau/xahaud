@@ -179,9 +179,9 @@ private:
 
         Normal manifests are structurally decoded on receipt but are not
         signature-verified or admitted to the global cache until a validation
-        on this connection claims the same signing key. A claim copies this
-        association into its verification job; the slot itself remains until
-        cache advancement or an allowed replacement. Access is serialized by
+        on this connection claims the same signing key. An admitted claim
+        moves the association into the sole in-flight verification job, which
+        frees this slot for one later candidate. Access is serialized by
         strand_.
     */
     struct PendingManifest
@@ -192,6 +192,7 @@ private:
         std::uint32_t sequence;
     };
     std::optional<PendingManifest> pendingManifest_;
+    std::atomic_bool manifestVerificationInFlight_{false};
 
     bool gracefulClose_ = false;
     int large_sendq_ = 0;
@@ -669,7 +670,7 @@ private:
         std::optional<PendingManifest> manifestContext);
 
     void
-    releasePendingManifest(PendingManifest claimed);
+    finishManifestVerification();
 
     void
     sendLedgerBase(

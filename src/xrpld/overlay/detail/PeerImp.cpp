@@ -36,6 +36,7 @@
 #include <xrpl/basics/base64.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
+#include <xrpl/basics/scope.h>
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/protocol/digest.h>
 
@@ -2512,9 +2513,18 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
         if (publicKeyType(makeSlice(claimedKeyBytes)) == KeyType::secp256k1)
         {
             PublicKey const claimedKey(makeSlice(claimedKeyBytes));
-            if (pendingManifest_ && claimedKey == pendingManifest_->signingKey)
+            if (pendingManifest_ &&
+                claimedKey == pendingManifest_->signingKey &&
+                !manifestVerificationInFlight_)
             {
                 manifestContext = pendingManifest_;
+            }
+            else if (
+                pendingManifest_ && claimedKey == pendingManifest_->signingKey)
+            {
+                JLOG(p_journal_.debug())
+                    << "manifest_validation candidate_retained peer=" << id_
+                    << " reason=verification_in_flight";
             }
             else if (pendingManifest_)
             {
@@ -2656,19 +2666,52 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
 
         std::weak_ptr<PeerImp> weak = shared_from_this();
         auto pairedPeer = manifestContext ? shared_from_this() : nullptr;
-        app_.getJobQueue().addJob(
-            isTrusted ? jtVALIDATION_t : jtVALIDATION_ut,
-            name,
-            [weak,
-             pairedPeer = std::move(pairedPeer),
-             val,
-             m,
-             key,
-             manifestContext = std::move(manifestContext)]() mutable {
-                if (auto peer = pairedPeer ? pairedPeer : weak.lock())
-                    peer->checkValidation(
-                        val, key, m, std::move(manifestContext));
-            });
+        bool const pairedJob = manifestContext.has_value();
+        if (pairedJob)
+        {
+            XRPL_ASSERT(
+                pendingManifest_ &&
+                    pendingManifest_->message == manifestContext->message,
+                "ripple::PeerImp::onMessage(TMValidation) : pending manifest "
+                "claim is current");
+            pendingManifest_.reset();
+            manifestVerificationInFlight_ = true;
+            JLOG(p_journal_.debug())
+                << "manifest_validation candidate_claimed peer=" << id_
+                << " state=verification_in_flight";
+        }
+
+        bool queued = false;
+        try
+        {
+            queued = app_.getJobQueue().addJob(
+                isTrusted ? jtVALIDATION_t : jtVALIDATION_ut,
+                name,
+                [weak,
+                 pairedPeer = std::move(pairedPeer),
+                 val,
+                 m,
+                 key,
+                 manifestContext = std::move(manifestContext)]() mutable {
+                    if (auto peer = pairedPeer ? pairedPeer : weak.lock())
+                        peer->checkValidation(
+                            val, key, m, std::move(manifestContext));
+                });
+        }
+        catch (...)
+        {
+            if (pairedJob)
+                manifestVerificationInFlight_ = false;
+            throw;
+        }
+
+        if (!queued && pairedJob)
+        {
+            manifestVerificationInFlight_ = false;
+            JLOG(p_journal_.debug())
+                << "manifest_validation candidate_rejected peer=" << id_
+                << " reason=job_queue_refused";
+        }
     }
     catch (std::exception const& e)
     {
@@ -3260,24 +3303,14 @@ PeerImp::checkPropose(
 }
 
 void
-PeerImp::releasePendingManifest(PendingManifest claimed)
+PeerImp::finishManifestVerification()
 {
-    if (!strand_.running_in_this_thread())
-    {
-        post(
-            strand_,
-            std::bind(
-                &PeerImp::releasePendingManifest,
-                shared_from_this(),
-                std::move(claimed)));
-        return;
-    }
-
-    if (pendingManifest_ && pendingManifest_->message == claimed.message &&
-        pendingManifest_->masterKey == claimed.masterKey &&
-        pendingManifest_->signingKey == claimed.signingKey &&
-        pendingManifest_->sequence == claimed.sequence)
-        pendingManifest_.reset();
+    XRPL_ASSERT(
+        manifestVerificationInFlight_.exchange(false),
+        "ripple::PeerImp::finishManifestVerification : verification in "
+        "flight");
+    JLOG(p_journal_.debug())
+        << "manifest_validation verification_finished peer=" << id_;
 }
 
 void
@@ -3287,6 +3320,12 @@ PeerImp::checkValidation(
     std::shared_ptr<protocol::TMValidation> const& packet,
     std::optional<PendingManifest> manifestContext)
 {
+    bool const pairedJob = manifestContext.has_value();
+    scope_exit finishPairVerification([this, pairedJob]() {
+        if (pairedJob)
+            finishManifestVerification();
+    });
+
     if (!val->isValid())
     {
         std::string desc{"Validation forwarded by peer is invalid"};
@@ -3368,11 +3407,6 @@ PeerImp::checkValidation(
                 << " master="
                 << toBase58(TokenType::NodePublic, manifestContext->masterKey);
         }
-
-        // Both signatures and the admission/ephemeral policy are now proven.
-        // Release only this exact candidate on the peer strand; a newer
-        // replacement that arrived while the job ran must remain intact.
-        releasePendingManifest(*manifestContext);
 
         if (!app_.validators().trusted(manifestContext->masterKey) &&
             app_.config().RELAY_UNTRUSTED_VALIDATIONS == -1)

@@ -192,6 +192,25 @@ private:
             return sentCv_.wait_for(
                 lock, 5s, [count] { return sentTypes_.size() >= count; });
         }
+        static bool
+        waitForMessageQuiescence()
+        {
+            using namespace std::chrono_literals;
+            auto const deadline = std::chrono::steady_clock::now() + 5s;
+            std::unique_lock lock(sentMutex_);
+            for (;;)
+            {
+                auto const count = sentTypes_.size();
+                auto const quietUntil =
+                    std::min(deadline, std::chrono::steady_clock::now() + 50ms);
+                if (!sentCv_.wait_until(lock, quietUntil, [count] {
+                        return sentTypes_.size() != count;
+                    }))
+                    return true;
+                if (std::chrono::steady_clock::now() >= deadline)
+                    return false;
+            }
+        }
         static std::vector<int>
         sentTypes()
         {
@@ -558,7 +577,9 @@ private:
     {
         testcase("incoming manifest candidate is connection-bounded");
 
-        jtx::Env env(*this);
+        auto config = jtx::envconfig();
+        config->WORKERS = 1;
+        jtx::Env env(*this, std::move(config));
         std::vector<std::shared_ptr<PeerTest>> peers;
         std::uint16_t disabled = 0;
         PeerTest::init();
@@ -643,6 +664,142 @@ private:
                 {}));
             BEAST_EXPECT(env.app().validators().listed(masterKey));
         };
+
+        struct JobGate
+        {
+            std::mutex mutex;
+            std::condition_variable cv;
+            bool started = false;
+            bool released = false;
+        };
+        auto holdJobQueue = [&]() {
+            auto gate = std::make_shared<JobGate>();
+            BEAST_EXPECT(env.app().getJobQueue().addJob(
+                jtCLIENT, "hold manifest pair verification", [gate]() {
+                    std::unique_lock lock(gate->mutex);
+                    gate->started = true;
+                    gate->cv.notify_all();
+                    gate->cv.wait(lock, [gate] { return gate->released; });
+                }));
+            {
+                std::unique_lock lock(gate->mutex);
+                BEAST_EXPECT(
+                    gate->cv.wait_for(lock, std::chrono::seconds{5}, [gate] {
+                        return gate->started;
+                    }));
+            }
+            return gate;
+        };
+        auto releaseJobQueue = [&](std::shared_ptr<JobGate> const& gate) {
+            {
+                std::lock_guard lock(gate->mutex);
+                gate->released = true;
+            }
+            gate->cv.notify_all();
+            env.app().getJobQueue().rendezvous();
+        };
+        auto validationJobCount = [&]() {
+            return env.app().getJobQueue().getJobCountTotal(jtVALIDATION_t) +
+                env.app().getJobQueue().getJobCountTotal(jtVALIDATION_ut);
+        };
+
+        // A claimed candidate owns exactly one crypto job. While that job is
+        // held, one later candidate may occupy the now-free connection slot;
+        // its validation is deliberately dropped and heals when the sender
+        // repeats the pair after the first job completes.
+        testcase("manifest pair verification is one-in-flight");
+        auto const burstMasterSecret0 = randomSecretKey();
+        auto const burstMasterKey0 =
+            derivePublicKey(KeyType::ed25519, burstMasterSecret0);
+        listMaster(burstMasterKey0);
+        auto const burstSigningSecret0 = randomSecretKey();
+        auto const burstSigningKey0 =
+            derivePublicKey(KeyType::secp256k1, burstSigningSecret0);
+        auto const burstManifest0 = makeManifest(
+            burstMasterSecret0, burstMasterKey0, burstSigningSecret0, 0);
+        auto const burstValidation0 = makeValidation(
+            burstMasterKey0, burstSigningKey0, burstSigningSecret0);
+
+        auto const burstMasterSecret1 = randomSecretKey();
+        auto const burstMasterKey1 =
+            derivePublicKey(KeyType::ed25519, burstMasterSecret1);
+        listMaster(burstMasterKey1);
+        auto const burstSigningSecret1 = randomSecretKey();
+        auto const burstSigningKey1 =
+            derivePublicKey(KeyType::secp256k1, burstSigningSecret1);
+        auto const burstManifest1 = makeManifest(
+            burstMasterSecret1, burstMasterKey1, burstSigningSecret1, 0);
+        auto const burstValidation1 = makeValidation(
+            burstMasterKey1, burstSigningKey1, burstSigningSecret1);
+
+        auto const gate0 = holdJobQueue();
+        auto const jobsBeforeBurst = validationJobCount();
+        BEAST_EXPECT(receiveManifest(burstManifest0));
+        BEAST_EXPECT(peer->receive(burstValidation0, protocol::mtVALIDATION));
+        BEAST_EXPECT(receiveManifest(burstManifest1));
+        BEAST_EXPECT(peer->receive(burstValidation1, protocol::mtVALIDATION));
+        BEAST_EXPECT(validationJobCount() == jobsBeforeBurst + 1);
+        releaseJobQueue(gate0);
+
+        auto const burstAdmitted0 =
+            env.app().validatorManifests().getManifestSnapshot(burstMasterKey0);
+        BEAST_EXPECT(
+            burstAdmitted0 && burstAdmitted0->signingKey == burstSigningKey0);
+        BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
+            burstMasterKey1));
+
+        // The second candidate stayed bounded in the waiting slot. A repeated
+        // pair after completion proves that it was neither displaced nor
+        // permanently wedged by the first job.
+        BEAST_EXPECT(receiveManifest(burstManifest1));
+        BEAST_EXPECT(peer->receive(burstValidation1, protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        auto const burstAdmitted1 =
+            env.app().validatorManifests().getManifestSnapshot(burstMasterKey1);
+        BEAST_EXPECT(
+            burstAdmitted1 && burstAdmitted1->signingKey == burstSigningKey1);
+
+        // One forged listed-looking candidate cannot be copied into an
+        // unbounded number of distinct validation jobs. The peer is expected
+        // to receive a terminal signature charge when the sole job runs, so
+        // isolate this pressure control on its own connection.
+        addPeer(env, peers, disabled);
+        auto const burstPeer = peers.back();
+        auto const forgedBurstMasterSecret = randomSecretKey();
+        auto const forgedBurstMasterKey =
+            derivePublicKey(KeyType::ed25519, forgedBurstMasterSecret);
+        listMaster(forgedBurstMasterKey);
+        auto const forgedBurstSigningSecret = randomSecretKey();
+        auto const forgedBurstSigningKey =
+            derivePublicKey(KeyType::secp256k1, forgedBurstSigningSecret);
+        auto const wrongBurstMasterSecret = randomSecretKey();
+        protocol::TMManifests forgedBurstManifest;
+        forgedBurstManifest.add_list()->set_stobject(makeManifest(
+            forgedBurstMasterSecret,
+            forgedBurstMasterKey,
+            forgedBurstSigningSecret,
+            0,
+            &wrongBurstMasterSecret));
+
+        auto const gate1 = holdJobQueue();
+        auto const jobsBeforeForgedBurst = validationJobCount();
+        BEAST_EXPECT(
+            burstPeer->receive(forgedBurstManifest, protocol::mtMANIFESTS));
+        for (std::uint64_t i = 0; i < 8; ++i)
+        {
+            auto validation = makeValidationAt(
+                forgedBurstMasterKey,
+                forgedBurstSigningKey,
+                forgedBurstSigningSecret,
+                env.app().timeKeeper().closeTime(),
+                uint256{i + 10});
+            BEAST_EXPECT(
+                burstPeer->receive(validation, protocol::mtVALIDATION));
+        }
+        BEAST_EXPECT(validationJobCount() == jobsBeforeForgedBurst + 1);
+        releaseJobQueue(gate1);
+        BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
+            forgedBurstMasterKey));
 
         // A normal manifest is only structurally staged on receipt. The first
         // candidate owns the connection's bounded slot until a matching
@@ -900,6 +1057,7 @@ private:
             repairMasterSecret, repairMasterKey, repairSigningSecret, 0);
         auto const repairValidation = makeValidation(
             repairMasterKey, repairSigningKey, repairSigningSecret);
+        BEAST_EXPECT(PeerTest::waitForMessageQuiescence());
         auto const messagesBeforeRepair = PeerTest::sentTypes().size();
 
         BEAST_EXPECT(peer->receive(repairValidation, protocol::mtVALIDATION));
@@ -969,6 +1127,35 @@ private:
                 .getHashRouter()
                 .addSuppressionPeerWithStatus(collisionValidationHash1, 65001)
                 .first);
+
+        // The key-role refusal completed the sole in-flight job. A fresh
+        // candidate on the same connection can therefore claim the slot and
+        // complete normally.
+        auto const afterFailureMasterSecret = randomSecretKey();
+        auto const afterFailureMasterKey =
+            derivePublicKey(KeyType::ed25519, afterFailureMasterSecret);
+        listMaster(afterFailureMasterKey);
+        auto const afterFailureSigningSecret = randomSecretKey();
+        auto const afterFailureSigningKey =
+            derivePublicKey(KeyType::secp256k1, afterFailureSigningSecret);
+        BEAST_EXPECT(receiveManifest(makeManifest(
+            afterFailureMasterSecret,
+            afterFailureMasterKey,
+            afterFailureSigningSecret,
+            0)));
+        BEAST_EXPECT(peer->receive(
+            makeValidation(
+                afterFailureMasterKey,
+                afterFailureSigningKey,
+                afterFailureSigningSecret),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        auto const admittedAfterFailure =
+            env.app().validatorManifests().getManifestSnapshot(
+                afterFailureMasterKey);
+        BEAST_EXPECT(
+            admittedAfterFailure &&
+            admittedAfterFailure->signingKey == afterFailureSigningKey);
 
         // A valid manifest followed by a parseable validation with a bad
         // signature must not gain cache admission merely because the signing
