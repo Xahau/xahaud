@@ -20,17 +20,17 @@ WASM_VERSION = "47.0.3"
 CMAKE_SET = re.compile(r'^set\(XAHAU_QUICKJS_([A-Z0-9_]+) "([^"]*)"\)\s*$')
 
 PIN = {
-    "provider_sha256": "b6531b18b40a5798415a447cd756c84509b3c55d5cff78deb16b08cfbfa0fa70",
-    "provider_size": "1199736",
-    "manifest_sha256": "bab698e400eccb74fb2a53916dbdc48cfdd42add1b4d92f4204e917a9a1126fe",
-    "runtime_profile_id": "fa60f61b87bda10f60a2f408749f068e11e0a652565ab6f9070abc1a772aad59",
-    "broad_declaration_sha256": "e404902bcd577a698f1949550cf883e645884a5e76cf08657456ae2fc77f8846",
-    "exact_v1_declaration_sha256": "2551720294a16efd1bf2c426bc281212867b04f01ffd4760b2258d55100cc1fa",
-    "surface_sha256": "29a8ac471ab23e62ec370b02aa3f348cbc4ba5d5c588b79b1dd7f5a1fc2ba058",
+    "provider_sha256": "a801c6759b92979ed4d846ceebc51b173606976882aa32de9cdd349494e251ea",
+    "provider_size": "1219461",
+    "manifest_sha256": "ab04142f01444ce3dd3afd1390e9f0480bc09461c49fef93dc0f65e3b866cb36",
+    "runtime_profile_id": "846f98eada58e09d40f5a2ed1311abe85e55b8e461c93627e8d0b5c42ca51231",
+    "broad_declaration_sha256": "b2eac24c19f13fb321678b8e090669e36ad443ec8b73e8f22e63ca62800998c5",
+    "exact_v1_declaration_sha256": "1e89c29eadd671ad8884c9da155ba73e05ac3358b6993869e6e046338fa49cf1",
+    "surface_sha256": "012b483ffcd575bdeaa38b8652823c84b5013d7ef25729c49051cc7a204297d6",
     "xfl_profile_ledger_sha256": "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056fd80",
-    "api_artifact_manifest_sha256": "1c21c8689647d0b0c68a49160ee663080c87030cb6287ba212f78f1985a449e3",
+    "api_artifact_manifest_sha256": "bea5f03efea0ab8eb9e7886710fbf8aaf173ab620f233ec50e83ae5f3d2ed42c",
     "bytecode_abi": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
-    "native_abi": "ee8aa55045b93587521c34f2bbf60804a6a70e49a37b12ef3a0fed96160f88b8",
+    "native_abi": "db5c633dda8c29c809649fdbc60e06c18814e769e659d850275b1f8cff7e87b9",
     "wasm_stack_bytes": "131072",
 }
 
@@ -45,6 +45,8 @@ RECEIPT_B = {
 TYPED_IMPORT_ROWS = (
     '{"env", "accept", "i32,i32,i64", "i64"}',
     '{"env", "emit", "i32,i32,i32,i32", "i64"}',
+    '{"env", "etxn_details", "i32,i32", "i64"}',
+    '{"env", "etxn_fee_base", "i32,i32", "i64"}',
     '{"env", "etxn_reserve", "i32", "i64"}',
     '{"env", "hook_account", "i32,i32", "i64"}',
     '{"env", "hook_again", "", "i64"}',
@@ -72,7 +74,7 @@ TYPED_EXPORT_ROWS = (
     '{"function", "_initialize", "", "", 0U, 0U, false, false}',
     '{"function", "free", "i32", "", 0U, 0U, false, false}',
     '{"function", "malloc", "i32", "i32", 0U, 0U, false, false}',
-    '{"memory", "memory", "", "", 7U, 512U, false, false}',
+    '{"memory", "memory", "", "", 8U, 512U, false, false}',
     '{"function", "qjs_cbak", "i32,i32,i32", "i32", 0U, 0U, false, false}',
     '{"function", "qjs_compile", "i32,i32", "i32", 0U, 0U, false, false}',
     '{"function", "qjs_compile_module", "i32,i32", "i32", 0U, 0U, false, false}',
@@ -225,7 +227,7 @@ def pin_holds(returncode: int, cpp: str) -> bool:
         "std::uint32_t const serializedObjectMaxFields =\n    32768U;",
         "std::uint32_t const serializedObjectMaxScopes =\n    32769U;",
         "std::uint32_t const serializedObjectMaxDepth =\n    10U;",
-        "std::uint32_t const providerMemoryMinimumPages = 7U;",
+        "std::uint32_t const providerMemoryMinimumPages = 8U;",
         "std::uint32_t const providerMemoryMaximumPages = 512U;",
         "std::uint64_t const hostWorkBudget = 2097152ULL;",
         "constexpr char const sealedProvider[] =",

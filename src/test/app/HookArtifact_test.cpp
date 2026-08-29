@@ -34,7 +34,7 @@ constexpr ExpectedProviderExport expectedProviderExports[] = {
     {"function", "_initialize", "", "", 0, 0, false, false},
     {"function", "free", "i32", "", 0, 0, false, false},
     {"function", "malloc", "i32", "i32", 0, 0, false, false},
-    {"memory", "memory", "", "", 7, 512, false, false},
+    {"memory", "memory", "", "", 8, 512, false, false},
     {"function", "qjs_cbak", "i32,i32,i32", "i32", 0, 0, false, false},
     {"function", "qjs_compile", "i32,i32", "i32", 0, 0, false, false},
     {"function", "qjs_compile_module", "i32,i32", "i32", 0, 0, false, false},
@@ -154,24 +154,24 @@ public:
             BEAST_EXPECT(
                 hook::artifact::quickJSSerializedObjectMaxScopes == 32'769);
             BEAST_EXPECT(hook::artifact::quickJSSerializedObjectMaxDepth == 10);
-            BEAST_EXPECT(hook::artifact::quickJSProviderSize == 1'199'736);
+            BEAST_EXPECT(hook::artifact::quickJSProviderSize == 1'219'461);
             BEAST_EXPECT(
                 hook::artifact::generated::providerManifestSHA256 ==
-                "bab698e400eccb74fb2a53916dbdc48cfdd42add1b4d92f4204e917a9a112"
-                "6fe");
+                "ab04142f01444ce3dd3afd1390e9f0480bc09461c49fef93dc0f65e3b866c"
+                "b36");
             BEAST_EXPECT(
                 hook::artifact::generated::nativeABISHA256 ==
-                "ee8aa55045b93587521c34f2bbf60804a6a70e49a37b12ef3a0fed96160f8"
-                "8b8");
+                "db5c633dda8c29c809649fdbc60e06c18814e769e659d850275b1f8cff7e87"
+                "b9");
             BEAST_EXPECT(
-                hook::artifact::generated::providerImports.size() == 23);
+                hook::artifact::generated::providerImports.size() == 25);
             BEAST_EXPECT(
                 hook::artifact::generated::providerExports.size() == 22);
             BEAST_EXPECT(
                 hook::artifact::generated::providerExportSignatures.size() ==
                 22);
             BEAST_EXPECT(
-                hook::artifact::quickJSProviderMemoryMinimumPages == 7);
+                hook::artifact::quickJSProviderMemoryMinimumPages == 8);
             BEAST_EXPECT(
                 hook::artifact::quickJSProviderMemoryMaximumPages == 512);
             BEAST_EXPECT(!hook::artifact::generated::providerMemory64);
@@ -207,17 +207,16 @@ public:
             }
             BEAST_EXPECT(
                 hook::artifact::generated::javascriptBroadDeclarationSHA256 ==
-                "e404902bcd577a698f1949550cf883e645884a5e76cf08657456ae2fc77f88"
-                "46");
+                "b2eac24c19f13fb321678b8e090669e36ad443ec8b73e8f22e63ca62800998"
+                "c5");
             BEAST_EXPECT(
                 hook::artifact::generated::javascriptExactV1DeclarationSHA256 ==
-                "2551720294a16efd1bf2c426bc281212867b04f01ffd4760b2258d55100cc1"
-                "f"
-                "a");
+                "1e89c29eadd671ad8884c9da155ba73e05ac3358b6993869e6e046338fa49c"
+                "f1");
             BEAST_EXPECT(
                 hook::artifact::generated::javascriptSurfaceSHA256 ==
-                "29a8ac471ab23e62ec370b02aa3f348cbc4ba5d5c588b79b1dd7f5a1fc2ba0"
-                "58");
+                "012b483ffcd575bdeaa38b8652823c84b5013d7ef25729c49051cc7a204297"
+                "d6");
             BEAST_EXPECT(
                 hook::artifact::generated::javascriptXFLProfileLedgerSHA256 ==
                 "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056"
@@ -225,8 +224,9 @@ public:
             BEAST_EXPECT(
                 hook::artifact::generated::
                     javascriptAPIArtifactManifestSHA256 ==
-                "1c21c8689647d0b0c68a49160ee663080c87030cb6287ba212f78f1985a449"
-                "e3");
+                "bea5f03efea0ab8eb9e7886710fbf8aaf173ab620f233ec50e83ae5f3d2ed4"
+                "2"
+                "c");
             BEAST_EXPECT(hook::artifact::generated::xqjsEnvelopeVersion == 1);
             BEAST_EXPECT(
                 hook::artifact::quickJSEnvelopeVersion ==

@@ -60,6 +60,8 @@ enum class QuickJSV1ImportId : std::uint8_t {
     state_foreign,
     state_set,
     prepare,
+    etxn_details,
+    etxn_fee_base,
     etxn_reserve,
     emit,
     count
@@ -255,6 +257,20 @@ QUICKJS_V1_IMPORT_TRAITS(
     (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
     featureHooksUpdate2,
     arguments1And3SaturatedV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    etxn_details,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t),
+    uint256{},
+    argument1V1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    etxn_fee_base,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t),
+    uint256{},
+    argument1V1,
     ordinaryStatus);
 QUICKJS_V1_IMPORT_TRAITS(
     etxn_reserve,

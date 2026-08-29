@@ -551,6 +551,9 @@ declare global {
   /** State-key input: octets, string text encoded as UTF-8, or a serial value. */
   type StateKeyLike = BytesLike | string | SerializedType;
 
+  /** State-value input: octets, string text encoded as UTF-8, or a serial value. */
+  type StateValueLike = BytesLike | string | SerializedType;
+
   /** Conceptual result nouns (0085 close): the runtime already
    * classifies via isResult/isEffectResult; these make it public. */
   const Result: RuntimeType<Result<unknown, unknown>>;
@@ -1146,7 +1149,11 @@ declare global {
     compare(other: Amount): -1 | 0 | 1;
   }
 
-  const Amount: RuntimeType<Amount>;
+  interface AmountFactory extends RuntimeType<Amount> {
+    drops(value: Drops): NativeAmount;
+  }
+
+  const Amount: AmountFactory;
 
   interface NativeAmount extends Amount {
     readonly kind: "native";
@@ -1388,6 +1395,75 @@ declare global {
 
   type TransactionResult = (typeof TransactionResult)[keyof typeof TransactionResult];
 
+  /**
+   * Bit flags for transaction `Flags` (`tf*` / `hsf*`).
+   *
+   * Flattened across types. Shared names are the same bit; different names
+   * often share a value (`tfRequireDestTag` and `tfLPToken` are both 65536).
+   * The name is only meaningful for the object you are inspecting. `Flags`
+   * stays `UInt32` — do not type that field as this enum.
+   */
+  const enum TransactionFlag {
+    tfTestSuite = 2147483648,
+    tfFullyCanonicalSig = 2147483648,
+    tfTwoAssetIfEmpty = 8388608,
+    tfClearDeepFreeze = 8388608,
+    tfLimitLPToken = 4194304,
+    tfSetDeepFreeze = 4194304,
+    tfOneAssetLPToken = 2097152,
+    tfAllowXRP = 2097152,
+    tfClearFreeze = 2097152,
+    tfTwoAsset = 1048576,
+    tfDisallowXRP = 1048576,
+    tfSetFreeze = 1048576,
+    tfSingleAsset = 524288,
+    tfOptionalAuth = 524288,
+    tfSell = 524288,
+    tfOneAssetWithdrawAll = 262144,
+    tfRequireAuth = 262144,
+    tfFillOrKill = 262144,
+    tfLimitQuality = 262144,
+    tfClearNoRipple = 262144,
+    tfWithdrawAll = 131072,
+    tfOptionalDestTag = 131072,
+    tfLostMajority = 131072,
+    tfImmediateOrCancel = 131072,
+    tfPartialPayment = 131072,
+    tfClose = 131072,
+    tfSetNoRipple = 131072,
+    tfLPToken = 65536,
+    tfRequireDestTag = 65536,
+    tfGotMajority = 65536,
+    tfPassive = 65536,
+    tfNoRippleDirect = 65536,
+    tfRenew = 65536,
+    tfSetfAuth = 65536,
+    tfClearAccountCreateAmount = 65536,
+    tfStrongTSH = 32768,
+    tfMPTCanClawback = 64,
+    tfMPTCanTransfer = 32,
+    tfMPTCanTrade = 16,
+    tfMutable = 16,
+    tfMPTCanEscrow = 8,
+    tfTransferable = 8,
+    tfMPTRequireAuth = 4,
+    tfTrustLine = 4,
+    hsfCOLLECT = 4,
+    tfMPTCanLock = 2,
+    tfMPTUnlock = 2,
+    tfOnlyXRP = 2,
+    hsfNSDELETE = 2,
+    tfClawTwoAssets = 1,
+    tfOptOut = 1,
+    tfCronUnset = 1,
+    tfMPTUnauthorize = 1,
+    tfMPTLock = 1,
+    tfSellNFToken = 1,
+    tfBurnable = 1,
+    hsfOVERRIDE = 1,
+    tfImmutable = 1,
+  }
+
   const enum HookExecutionMode {
     /** Strong pre-apply execution. */
     Strong = "strong",
@@ -1470,8 +1546,89 @@ declare global {
   }
 
   namespace emit {
+    interface EmittedTransaction {
+      readonly [__providerValueBrand]: void;
+      readonly blob: STBlob;
+      readonly kind: TransactionType;
+    }
+    /**
+     * Failed build stage. `"details"` and `"fee"` are host stages while
+     * finalizing an emission; `"encode"` is the builder refusing malformed
+     * local arguments before any host crossing.
+     */
+    type BuildError =
+      | (EncodeError & { readonly stage: "encode" })
+      | (HostError & { readonly stage: "details" | "fee" });
+    type BuildResult = Result<EmittedTransaction, BuildError>;
+    interface HookParameter {
+      readonly name: StateKeyLike;
+      readonly value: StateValueLike;
+    }
+    interface HookGrant {
+      readonly hookHash: Hash256;
+      readonly authorize: AccountID;
+    }
+    /**
+     * Selected typed emitted-transaction builders.
+     *
+     * This is not yet the complete Xahau transaction catalogue. Every omitted
+     * transaction type must eventually be projected or carry an explicit
+     * unsupported/not-emittable disposition; see the builder coverage gate.
+     */
+    namespace build {
+      interface HookReference {
+        /**
+         * Hook-chain slot to override. The builder orders entries by position,
+         * fills omitted lower positions with canonical no-op Hook objects, and
+         * serializes `Flags = tfHookOverride` for this action.
+         */
+        readonly position: number;
+        readonly hookHash: Hash256;
+        readonly namespace?: Hash256;
+        readonly parameters?: readonly HookParameter[];
+        readonly grants?: readonly HookGrant[];
+      }
+      interface HookDeletion {
+        /**
+         * Delete one chain slot. `hookHash: null` serializes the canonical
+         * override/delete object: `Flags = tfHookOverride`, zero-length
+         * CreateCode, and no HookHash. It is never a zero Hash256.
+         */
+        readonly position: number;
+        readonly hookHash: null;
+      }
+      type HookSetEntry = HookReference | HookDeletion;
+      interface HookSetOptions {
+        readonly account?: AccountID;
+        readonly flags?: UInt32;
+        readonly hookParameters?: readonly HookParameter[];
+        /** Unique in-range position actions; at least one is required. */
+        readonly hooks: readonly HookSetEntry[];
+      }
+      interface PaymentOptions {
+        /** Sending account (0087 wave-1: emitted Payments set it in C). */
+        readonly account?: AccountID;
+        readonly destination: AccountID;
+        readonly amount: Amount;
+        readonly sourceTag?: UInt32;
+        readonly destinationTag?: UInt32;
+        readonly flags?: UInt32;
+        readonly invoiceId?: Hash256;
+        readonly sendMax?: Amount;
+        readonly deliverMin?: Amount;
+        readonly hookParameters?: readonly HookParameter[];
+      }
+      function hookSet(options: HookSetOptions): BuildResult;
+      function payment(options: PaymentOptions): BuildResult;
+    }
+    /**
+     * Reserve the maximum emitted-transaction count before building or
+     * submitting. The host owns the one-shot execution-scoped reservation;
+     * builders report a missing reservation at their `"details"` stage.
+     */
     function reserve(count: number): HostVoidResult;
     function tx(transaction: BytesLike | STBlob): HostResult<Hash256>;
+    function tx(transaction: BytesLike | STBlob | EmittedTransaction): HostResult<Hash256>;
     function prepare(partial: BytesLike | STBlob): HostResult<STBlob>;
   }
 

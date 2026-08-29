@@ -62,6 +62,8 @@ v1SnapshotStorage()
             makeV1Descriptor<QuickJSV1ImportId::state_foreign>(),
             makeV1Descriptor<QuickJSV1ImportId::state_set>(),
             makeV1Descriptor<QuickJSV1ImportId::prepare>(),
+            makeV1Descriptor<QuickJSV1ImportId::etxn_details>(),
+            makeV1Descriptor<QuickJSV1ImportId::etxn_fee_base>(),
             makeV1Descriptor<QuickJSV1ImportId::etxn_reserve>(),
             makeV1Descriptor<QuickJSV1ImportId::emit>()};
     return value;

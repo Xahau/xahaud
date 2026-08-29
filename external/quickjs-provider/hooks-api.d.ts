@@ -2445,6 +2445,7 @@ declare global {
 
   namespace emit {
     interface EmittedTransaction {
+      readonly [__providerValueBrand]: void;
       readonly blob: STBlob;
       readonly kind: TransactionType;
     }
@@ -2634,6 +2635,11 @@ declare global {
       function uriTokenMint(options: URITokenMintOptions): BuildResult;
     }
 
+    /**
+     * Reserve the maximum emitted-transaction count before building or
+     * submitting. The host owns the one-shot execution-scoped reservation;
+     * builders report a missing reservation at their `"details"` stage.
+     */
     function reserve(count: number): HostVoidResult;
     function tx(transaction: BytesLike | STBlob): HostResult<Hash256>;
     function tx(transaction: BytesLike | STBlob | EmittedTransaction): HostResult<Hash256>;

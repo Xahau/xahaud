@@ -17,39 +17,39 @@ WASM_VALTYPE = {"i32", "i64"}
 WASM_BYTE = {"i32": "0x7f", "i64": "0x7e"}
 WASM_STACK_BYTES = 131072
 WASM_PAGE_BYTES = 65536
-PROVIDER_MEMORY_MINIMUM_PAGES = 7
+PROVIDER_MEMORY_MINIMUM_PAGES = 8
 PROVIDER_MEMORY_MAXIMUM_PAGES = 512
 PROVIDER_MEMORY_MAX_BYTES = PROVIDER_MEMORY_MAXIMUM_PAGES * WASM_PAGE_BYTES
 SEALED_MANIFEST_SHA256 = (
-    "bab698e400eccb74fb2a53916dbdc48cfdd42add1b4d92f4204e917a9a1126fe"
+    "ab04142f01444ce3dd3afd1390e9f0480bc09461c49fef93dc0f65e3b866cb36"
 )
 SEALED_PROVIDER_SHA256 = (
-    "b6531b18b40a5798415a447cd756c84509b3c55d5cff78deb16b08cfbfa0fa70"
+    "a801c6759b92979ed4d846ceebc51b173606976882aa32de9cdd349494e251ea"
 )
-SEALED_PROVIDER_SIZE = 1199736
+SEALED_PROVIDER_SIZE = 1219461
 SEALED_NATIVE_ABI_SHA256 = (
-    "ee8aa55045b93587521c34f2bbf60804a6a70e49a37b12ef3a0fed96160f88b8"
+    "db5c633dda8c29c809649fdbc60e06c18814e769e659d850275b1f8cff7e87b9"
 )
 SEALED_BYTECODE_ABI_ID = (
     "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e"
 )
 SEALED_RUNTIME_PROFILE_ID = (
-    "fa60f61b87bda10f60a2f408749f068e11e0a652565ab6f9070abc1a772aad59"
+    "846f98eada58e09d40f5a2ed1311abe85e55b8e461c93627e8d0b5c42ca51231"
 )
 SEALED_WASMTIME_VERSION = "47.0.3"
 SEALED_HOOK_API_VERSION = 1
 SEALED_HOST_ADAPTER_POLICY = "xahau-raw-hook-host-v1"
 SEALED_BROAD_DECLARATION_SHA256 = (
-    "e404902bcd577a698f1949550cf883e645884a5e76cf08657456ae2fc77f8846"
+    "b2eac24c19f13fb321678b8e090669e36ad443ec8b73e8f22e63ca62800998c5"
 )
 SEALED_EXACT_V1_DECLARATION_SHA256 = (
-    "2551720294a16efd1bf2c426bc281212867b04f01ffd4760b2258d55100cc1fa"
+    "1e89c29eadd671ad8884c9da155ba73e05ac3358b6993869e6e046338fa49cf1"
 )
 SEALED_SURFACE_SHA256 = (
-    "29a8ac471ab23e62ec370b02aa3f348cbc4ba5d5c588b79b1dd7f5a1fc2ba058"
+    "012b483ffcd575bdeaa38b8652823c84b5013d7ef25729c49051cc7a204297d6"
 )
 SEALED_API_ARTIFACT_MANIFEST_SHA256 = (
-    "1c21c8689647d0b0c68a49160ee663080c87030cb6287ba212f78f1985a449e3"
+    "bea5f03efea0ab8eb9e7886710fbf8aaf173ab620f233ec50e83ae5f3d2ed42c"
 )
 SEALED_XFL_PROFILE_LEDGER_SHA256 = (
     "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056fd80"
@@ -126,6 +126,8 @@ SEALED_LIMITS = {
 SEALED_HOST_WORK_ADDRESSED_LENGTH_INDICES = {
     "accept": [1],
     "emit": [1, 3],
+    "etxn_details": [1],
+    "etxn_fee_base": [1],
     "hook_account": [1],
     "hook_param": [1, 3],
     "ledger_last_hash": [1],
@@ -174,6 +176,8 @@ def _function_export(
 SEALED_IMPORTS = [
     _import_row("accept", ["i32", "i32", "i64"], ["i64"]),
     _import_row("emit", ["i32", "i32", "i32", "i32"], ["i64"]),
+    _import_row("etxn_details", ["i32", "i32"], ["i64"]),
+    _import_row("etxn_fee_base", ["i32", "i32"], ["i64"]),
     _import_row("etxn_reserve", ["i32"], ["i64"]),
     _import_row("hook_account", ["i32", "i32"], ["i64"]),
     _import_row("hook_again", [], ["i64"]),
@@ -208,7 +212,7 @@ SEALED_EXPORTS = [
         "kind": "memory",
         "maximum_pages": 512,
         "memory64": False,
-        "minimum_pages": 7,
+        "minimum_pages": 8,
         "name": "memory",
         "shared": False,
     },
@@ -731,7 +735,7 @@ def validate_lock(
         or memory["shared"] is not False
     ):
         raise LockError(
-            "QuickJS provider memory shape is not min 7 / max 512 / "
+            "QuickJS provider memory shape is not min 8 / max 512 / "
             "memory64=false / shared=false"
         )
     if provider_exports != SEALED_EXPORTS:

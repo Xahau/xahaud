@@ -55,7 +55,7 @@
   },
   "declaration": {
     "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "sha256": "2551720294a16efd1bf2c426bc281212867b04f01ffd4760b2258d55100cc1fa"
+    "sha256": "1e89c29eadd671ad8884c9da155ba73e05ac3358b6993869e6e046338fa49cf1"
   },
   "globals": {
     "AccountID": "object",
@@ -117,9 +117,14 @@
       "when": "function"
     },
     "emit": {
+      "build": "object",
       "prepare": "function",
       "reserve": "function",
       "tx": "function"
+    },
+    "emit.build": {
+      "hookSet": "function",
+      "payment": "function"
     },
     "hook": {
       "account": "function",
@@ -861,6 +866,9 @@
       "zero": "value"
     },
     "AccountRoot": {},
+    "Amount": {
+      "drops": "function"
+    },
     "Hash256": {
       "from": "function",
       "fromHex": "function",

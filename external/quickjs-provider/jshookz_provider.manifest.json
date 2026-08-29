@@ -2,10 +2,10 @@
   "bytecode_abi_id": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
   "javascript_surface": {
     "declaration": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "declaration_sha256": "2551720294a16efd1bf2c426bc281212867b04f01ffd4760b2258d55100cc1fa",
+    "declaration_sha256": "1e89c29eadd671ad8884c9da155ba73e05ac3358b6993869e6e046338fa49cf1",
     "manifest": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
     "schema": "jshookz.javascript-surface.v1",
-    "sha256": "29a8ac471ab23e62ec370b02aa3f348cbc4ba5d5c588b79b1dd7f5a1fc2ba058"
+    "sha256": "012b483ffcd575bdeaa38b8652823c84b5013d7ef25729c49051cc7a204297d6"
   },
   "provider": {
     "build": {
@@ -41,7 +41,7 @@
         "kind": "memory",
         "maximum_pages": 512,
         "memory64": false,
-        "minimum_pages": 7,
+        "minimum_pages": 8,
         "name": "memory",
         "shared": false
       },
@@ -231,6 +231,28 @@
         "params": [
           "i32",
           "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "etxn_details",
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "etxn_fee_base",
+        "params": [
           "i32",
           "i32"
         ],
@@ -476,10 +498,10 @@
         ]
       }
     ],
-    "sha256": "b6531b18b40a5798415a447cd756c84509b3c55d5cff78deb16b08cfbfa0fa70",
-    "size": 1199736
+    "sha256": "a801c6759b92979ed4d846ceebc51b173606976882aa32de9cdd349494e251ea",
+    "size": 1219461
   },
-  "runtime_profile_id": "fa60f61b87bda10f60a2f408749f068e11e0a652565ab6f9070abc1a772aad59",
+  "runtime_profile_id": "846f98eada58e09d40f5a2ed1311abe85e55b8e461c93627e8d0b5c42ca51231",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
@@ -555,6 +577,12 @@
         "emit": [
           1,
           3
+        ],
+        "etxn_details": [
+          1
+        ],
+        "etxn_fee_base": [
+          1
         ],
         "hook_account": [
           1
@@ -649,7 +677,7 @@
           "kind": "memory",
           "maximum_pages": 512,
           "memory64": false,
-          "minimum_pages": 7,
+          "minimum_pages": 8,
           "name": "memory",
           "shared": false
         },
@@ -861,6 +889,28 @@
           "params": [
             "i32",
             "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "etxn_details",
+          "params": [
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "etxn_fee_base",
+          "params": [
             "i32",
             "i32"
           ],
