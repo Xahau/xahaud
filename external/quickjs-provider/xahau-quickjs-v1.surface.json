@@ -1,13 +1,13 @@
 {
   "byte_policies": {
     "AccountID.from": {
-      "0": "bytesLike"
+      "0": "bytesLikeOrSTBlob"
     },
     "AccountID.fromHex": {
       "0": "hexString"
     },
     "Hash256.from": {
-      "0": "bytesLike"
+      "0": "bytesLikeOrSTBlob"
     },
     "Hash256.fromHex": {
       "0": "hexString"
@@ -16,7 +16,7 @@
       "0": "bytesLikeOrSTBlob"
     },
     "STBlob.from": {
-      "0": "bytesLike"
+      "0": "bytesLikeOrSTBlob"
     },
     "STBlob.fromHex": {
       "0": "hexString"
@@ -55,7 +55,7 @@
   },
   "declaration": {
     "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "sha256": "1e89c29eadd671ad8884c9da155ba73e05ac3358b6993869e6e046338fa49cf1"
+    "sha256": "f524637b8e38860fb55c3bc7be45498de77bb8601152f931902c77031c98abe3"
   },
   "globals": {
     "AccountID": "object",
@@ -99,11 +99,13 @@
     "XFLDecimal": "object",
     "XFLProfile": "object",
     "accept": "function",
+    "cell": "function",
     "defineHookConfig": "function",
     "emit": "object",
     "hook": "object",
     "ledger": "object",
     "otxn": "object",
+    "record": "function",
     "rollback": "function",
     "state": "object",
     "trace": "function",
@@ -143,6 +145,16 @@
       "object": "function",
       "param": "function",
       "type": "function"
+    },
+    "record": {
+      "accountID": "function",
+      "bytes": "function",
+      "hash": "function",
+      "padding": "function",
+      "u16le": "function",
+      "u32le": "function",
+      "u64le": "function",
+      "u8": "function"
     },
     "rollback": {
       "onAllFail": "function",
@@ -733,6 +745,7 @@
         "byteLength": "value",
         "compare": "function",
         "equals": "function",
+        "hasFlag": "function",
         "isZero": "function",
         "saturatingAdd": "function",
         "saturatingSubtract": "function",
@@ -750,6 +763,7 @@
         "byteLength",
         "compare",
         "equals",
+        "hasFlag",
         "isZero",
         "saturatingAdd",
         "saturatingSubtract",

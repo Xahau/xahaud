@@ -681,6 +681,11 @@ declare global {
     /** Conversion is total through 32 bits; UInt64 may exceed JS safe integer. */
     toNumber(): Bits extends 64 ? UIntResult<number> : number;
     isZero(): boolean;
+    /**
+     * True when every bit in the nonzero flag is present. A composite flag is
+     * an ALL-bits test, never an ANY-bits test.
+     */
+    hasFlag(flag: UIntInput<Bits>): boolean;
     equals(other: unknown): boolean;
     compare(other: UInt<Bits>): -1 | 0 | 1;
     add(other: UIntInput<Bits>): UIntResult<UInt<Bits>>;
@@ -845,6 +850,138 @@ declare global {
     readonly byteLength: Width;
   }
 
+  /**
+   * A named scalar schema. Parsing requires exactly `byteLength`; encoding and
+   * parsing reuse the element's representation. Runtime schema objects are frozen.
+   */
+  interface ScalarSchema<
+    Name extends string,
+    T,
+    Width extends number,
+  > extends BinarySchema<T> {
+    readonly name: Name;
+    readonly byteLength: Width;
+    safeParse(value: BytesLike | STBlob): ParseResult<T>;
+    parse(value: BytesLike | STBlob): T;
+    /** Result-valued encode: rejects out-of-domain values as EncodeError. */
+    safeEncode(value: T): EncodeResult;
+    /**
+     * Assertion form for programmer-guaranteed values. Throws when the value
+     * leaves the codec's domain; prefer `safeEncode` for data-driven values.
+     */
+    encode(value: T): STBlob;
+  }
+
+  /**
+   * One-element record: a width-known codec, no offset.
+   * `cell("Hash256", record.hash(32))`.
+   */
+  function cell<
+    const Name extends string,
+    T,
+    const Width extends number,
+  >(
+    name: Name,
+    field: RecordField<T, Width>,
+  ): ScalarSchema<Name, T, Width>;
+
+  type RecordFieldValue<T> =
+    T extends RecordField<infer V, number> ? V : never;
+
+  interface RecordLayoutClaim {
+    readonly expectOffset: number;
+  }
+
+  type RecordEntry<
+    Name extends string = string,
+    T = unknown,
+    Width extends number = number,
+  > =
+    | readonly [name: Name, field: RecordField<T, Width>]
+    | readonly [name: Name, field: RecordField<T, Width>, layout: RecordLayoutClaim]
+    | RecordField<never, number>;
+
+  type RecordEntries = readonly RecordEntry[];
+
+  type RecordValueFromEntries<E extends RecordEntries> = {
+    [T in E[number] as T extends readonly [infer N extends string, infer F, ...unknown[]]
+      ? RecordFieldValue<F> extends never ? never : N
+      : never
+    ]: T extends readonly [string, infer F, ...unknown[]] ? RecordFieldValue<F> : never;
+  };
+
+  type RecordPatch<Value> = { [K in keyof Value]?: Value[K] };
+
+  interface RecordSchema<
+    Name extends string,
+    Size extends number,
+    Value,
+  > extends BinarySchema<Value> {
+    readonly name: Name;
+    readonly byteLength: Size;
+
+    /**
+     * Decode a record after validating its size and field representations.
+     * Prefer this result-valued form for state or transaction-derived bytes.
+     */
+    safeParse(value: BytesLike | STBlob): ParseResult<Value>;
+
+    /**
+     * Assertion form for a programmer-guaranteed record. Throws on malformed
+     * input; it must not become the default for untrusted persisted bytes.
+     */
+    parse(value: BytesLike | STBlob): Value;
+
+    /**
+     * Result-valued encode: validates every field against its codec domain
+     * and returns the exact record bytes, or an EncodeError naming the first
+     * out-of-domain field.
+     */
+    safeEncode(value: Value): EncodeResult;
+
+    /**
+     * Assertion form for programmer-guaranteed values. Throws on
+     * out-of-domain field values; prefer `safeEncode` for data-driven values.
+     */
+    encode(value: Value): STBlob;
+    patch(
+      source: BytesLike | STBlob,
+      values: RecordPatch<Value>,
+    ): ParseResult<STBlob>;
+  }
+
+  /**
+   * Sequential fixed-width record. Each entry is an independent unit that
+   * names its own length; the array order assigns offsets. `expectOffset` is
+   * an assertion about the derived cursor, never a position. Reserved bytes
+   * are `record.padding(n)` as a bare entry (no dummy name). Accidental overlap is unrepresentable; use
+   * `record.overlay({ ... })` for equal-width reinterpretations of one range.
+   * Construction rejects duplicate entry names.
+   *
+   * Construction refuses when the derived extent is not `byteLength`.
+   */
+  function record<
+    const Name extends string,
+    const Size extends number,
+    const Entries extends RecordEntries,
+  >(
+    name: Name,
+    byteLength: Size,
+    fields: Entries,
+  ): RecordSchema<Name, Size, RecordValueFromEntries<Entries>>;
+
+  namespace record {
+    function u8(): RecordField<number, 1>;
+    function u16le(): RecordField<number, 2>;
+    function u32le(): RecordField<number, 4>;
+    function u64le(): RecordField<bigint, 8>;
+    function bytes<const Width extends number>(byteLength: Width): RecordField<STBlob, Width>;
+    function hash(byteLength: 32): RecordField<Hash256, 32>;
+    function accountID(): RecordField<AccountID, 20>;
+    /** Occupies `byteLength` bytes and is omitted from parsed values. */
+    function padding<const Width extends number>(byteLength: Width): RecordField<never, Width>;
+  }
+
   interface SerializationOptions {
     readonly field?: string | number;
     readonly includeFieldHeader?: boolean;
@@ -862,7 +999,7 @@ declare global {
   }
 
   interface STBlobFactory extends RuntimeType<STBlob> {
-    from(value: BytesLike): STBlob;
+    from(value: BytesLike | STBlob): STBlob;
     /** Decode an even-length hexadecimal literal. */
     fromHex(value: HexString): STBlob;
   }
@@ -933,7 +1070,7 @@ declare global {
 
   interface Hash256Factory extends RuntimeType<Hash256> {
     readonly zero: Hash256;
-    from(value: BytesLike): Hash256;
+    from(value: BytesLike | STBlob): Hash256;
     /** Decode exactly 32 bytes from an even-length hexadecimal literal. */
     fromHex(value: HexString): Hash256;
   }
@@ -987,7 +1124,7 @@ declare global {
     readonly zero: AccountID;
     /** Ripple's no-account sentinel: integer one as a 20-byte AccountID. */
     readonly one: AccountID;
-    from(value: BytesLike): AccountID;
+    from(value: BytesLike | STBlob): AccountID;
     /** Decode exactly 20 bytes from an even-length hexadecimal literal. */
     fromHex(value: HexString): AccountID;
   }
@@ -1560,13 +1697,21 @@ declare global {
       | (EncodeError & { readonly stage: "encode" })
       | (HostError & { readonly stage: "details" | "fee" });
     type BuildResult = Result<EmittedTransaction, BuildError>;
+    /**
+     * Serialized transaction flags. A list is folded with bitwise OR; builders
+     * may add protocol-required infrastructure flags.
+     */
+    type TransactionFlags =
+      | UInt32
+      | TransactionFlag
+      | readonly TransactionFlag[];
     interface HookParameter {
-      readonly name: StateKeyLike;
-      readonly value: StateValueLike;
+      readonly HookParameterName: StateKeyLike;
+      readonly HookParameterValue: StateValueLike;
     }
     interface HookGrant {
-      readonly hookHash: Hash256;
-      readonly authorize: AccountID;
+      readonly HookHash: Hash256;
+      readonly Authorize: AccountID;
     }
     /**
      * Selected typed emitted-transaction builders.
@@ -1578,45 +1723,46 @@ declare global {
     namespace build {
       interface HookReference {
         /**
-         * Hook-chain slot to override. The builder orders entries by position,
+         * Hook-chain slot to override. The builder orders entries by `$position`,
          * fills omitted lower positions with canonical no-op Hook objects, and
          * serializes `Flags = tfHookOverride` for this action.
          */
-        readonly position: number;
-        readonly hookHash: Hash256;
-        readonly namespace?: Hash256;
-        readonly parameters?: readonly HookParameter[];
-        readonly grants?: readonly HookGrant[];
+        readonly $position: number;
+        readonly HookHash: Hash256;
+        readonly HookNamespace?: Hash256;
+        readonly HookParameters?: readonly HookParameter[];
+        readonly HookGrants?: readonly HookGrant[];
       }
       interface HookDeletion {
         /**
-         * Delete one chain slot. `hookHash: null` serializes the canonical
+         * Delete one chain slot. `$delete: true` serializes the canonical
          * override/delete object: `Flags = tfHookOverride`, zero-length
          * CreateCode, and no HookHash. It is never a zero Hash256.
          */
-        readonly position: number;
-        readonly hookHash: null;
+        readonly $position: number;
+        readonly $delete: true;
       }
       type HookSetEntry = HookReference | HookDeletion;
       interface HookSetOptions {
-        readonly account?: AccountID;
-        readonly flags?: UInt32;
-        readonly hookParameters?: readonly HookParameter[];
+        readonly Account?: AccountID;
+        readonly Flags?: TransactionFlags;
+        readonly HookParameters?: readonly HookParameter[];
         /** Unique in-range position actions; at least one is required. */
-        readonly hooks: readonly HookSetEntry[];
+        readonly Hooks: readonly HookSetEntry[];
       }
       interface PaymentOptions {
         /** Sending account (0087 wave-1: emitted Payments set it in C). */
-        readonly account?: AccountID;
-        readonly destination: AccountID;
-        readonly amount: Amount;
-        readonly sourceTag?: UInt32;
-        readonly destinationTag?: UInt32;
-        readonly flags?: UInt32;
-        readonly invoiceId?: Hash256;
-        readonly sendMax?: Amount;
-        readonly deliverMin?: Amount;
-        readonly hookParameters?: readonly HookParameter[];
+        readonly Account?: AccountID;
+        readonly Destination: AccountID;
+        readonly Amount: Amount;
+        readonly SourceTag?: UInt32;
+        readonly DestinationTag?: UInt32;
+        /** The builder always includes `TransactionFlag.tfFullyCanonicalSig`. */
+        readonly Flags?: TransactionFlags;
+        readonly InvoiceID?: Hash256;
+        readonly SendMax?: Amount;
+        readonly DeliverMin?: Amount;
+        readonly HookParameters?: readonly HookParameter[];
       }
       function hookSet(options: HookSetOptions): BuildResult;
       function payment(options: PaymentOptions): BuildResult;

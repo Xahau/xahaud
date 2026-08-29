@@ -777,6 +777,11 @@ declare global {
     /** Conversion is total through 32 bits; UInt64 may exceed JS safe integer. */
     toNumber(): Bits extends 64 ? UIntResult<number> : number;
     isZero(): boolean;
+    /**
+     * True when every bit in the nonzero flag is present. A composite flag is
+     * an ALL-bits test, never an ANY-bits test.
+     */
+    hasFlag(flag: UIntInput<Bits>): boolean;
     equals(other: unknown): boolean;
     compare(other: UInt<Bits>): -1 | 0 | 1;
     add(other: UIntInput<Bits>): UIntResult<UInt<Bits>>;
@@ -995,6 +1000,8 @@ declare global {
     ]: T extends readonly [string, infer F, ...unknown[]] ? RecordFieldValue<F> : never;
   };
 
+  type RecordPatch<Value> = { [K in keyof Value]?: Value[K] };
+
   interface RecordSchema<
     Name extends string,
     Size extends number,
@@ -1029,7 +1036,7 @@ declare global {
     encode(value: Value): STBlob;
     patch(
       source: BytesLike | STBlob,
-      values: Partial<Value>,
+      values: RecordPatch<Value>,
     ): ParseResult<STBlob>;
   }
 
@@ -1089,6 +1096,7 @@ declare global {
     function xflbe(): RecordField<XFLDecimal, 8>;
     function xflle(): RecordField<XFLDecimal, 8>;
     function bytes<const Width extends number>(byteLength: Width): RecordField<STBlob, Width>;
+    function hash(byteLength: 32): RecordField<Hash256, 32>;
     function hash<const Width extends HashWidth>(byteLength: Width): RecordField<HashByWidth[Width], Width>;
     function accountID(): RecordField<AccountID, 20>;
     function currency(): RecordField<Currency, 20>;
@@ -1233,7 +1241,7 @@ declare global {
   }
 
   interface STBlobFactory extends RuntimeType<STBlob> {
-    from(value: BytesLike): STBlob;
+    from(value: BytesLike | STBlob): STBlob;
     /** Decode an even-length hexadecimal literal. */
     fromHex(value: HexString): STBlob;
     /**
@@ -1315,7 +1323,7 @@ declare global {
 
   interface Hash256Factory extends RuntimeType<Hash256> {
     readonly zero: Hash256;
-    from(value: BytesLike): Hash256;
+    from(value: BytesLike | STBlob): Hash256;
     /** Decode exactly 32 bytes from an even-length hexadecimal literal. */
     fromHex(value: HexString): Hash256;
   }
@@ -1328,7 +1336,7 @@ declare global {
   }
   const Hash384: RuntimeType<Hash384> & {
     readonly zero: Hash384;
-    from(value: BytesLike | Hash<48>): Hash384;
+    from(value: BytesLike | STBlob | Hash<48>): Hash384;
   };
 
   /** @serial Hash512 */
@@ -1337,7 +1345,7 @@ declare global {
   }
   const Hash512: RuntimeType<Hash512> & {
     readonly zero: Hash512;
-    from(value: BytesLike | Hash<64>): Hash512;
+    from(value: BytesLike | STBlob | Hash<64>): Hash512;
   };
 
   /**
@@ -1385,10 +1393,10 @@ declare global {
     readonly zero: AccountID;
     /** Ripple's no-account sentinel: integer one as a 20-byte AccountID. */
     readonly one: AccountID;
-    from(value: BytesLike): AccountID;
+    from(value: BytesLike | STBlob): AccountID;
     /** Decode exactly 20 bytes from an even-length hexadecimal literal. */
     fromHex(value: HexString): AccountID;
-    from(value: BytesLike | Hash160 | string): AccountID;
+    from(value: BytesLike | STBlob | Hash160 | string): AccountID;
     fromRAddress(value: string): AccountID;
   }
 
@@ -1407,7 +1415,7 @@ declare global {
 
   interface CurrencyFactory extends RuntimeType<Currency> {
     readonly native: Currency;
-    from(value: BytesLike | string): Currency;
+    from(value: BytesLike | STBlob | string): Currency;
   }
 
   const Currency: CurrencyFactory;
@@ -2460,14 +2468,23 @@ declare global {
       | (HostError & { readonly stage: "details" | "fee" });
     type BuildResult = Result<EmittedTransaction, BuildError>;
 
+    /**
+     * Serialized transaction flags. A list is folded with bitwise OR; builders
+     * may add protocol-required infrastructure flags.
+     */
+    type TransactionFlags =
+      | UInt32
+      | TransactionFlag
+      | readonly TransactionFlag[];
+
     interface HookParameter {
-      readonly name: StateKeyLike;
-      readonly value: StateValueLike;
+      readonly HookParameterName: StateKeyLike;
+      readonly HookParameterValue: StateValueLike;
     }
 
     interface HookGrant {
-      readonly hookHash: Hash256;
-      readonly authorize: AccountID;
+      readonly HookHash: Hash256;
+      readonly Authorize: AccountID;
     }
 
     /**
@@ -2480,144 +2497,145 @@ declare global {
     namespace build {
       interface InvokeOptions {
         /** Sending account (0087 wave-1: emitted Invokes set it in C). */
-        readonly account?: AccountID;
-        readonly destination?: AccountID;
-        readonly hookParameters?: readonly HookParameter[];
-        readonly blob?: StateValueLike;
+        readonly Account?: AccountID;
+        readonly Destination?: AccountID;
+        readonly HookParameters?: readonly HookParameter[];
+        readonly Blob?: StateValueLike;
       }
 
       interface HookReference {
         /**
-         * Hook-chain slot to override. The builder orders entries by position,
+         * Hook-chain slot to override. The builder orders entries by `$position`,
          * fills omitted lower positions with canonical no-op Hook objects, and
          * serializes `Flags = tfHookOverride` for this action.
          */
-        readonly position: number;
-        readonly hookHash: Hash256;
-        readonly namespace?: Hash256;
-        readonly parameters?: readonly HookParameter[];
-        readonly grants?: readonly HookGrant[];
+        readonly $position: number;
+        readonly HookHash: Hash256;
+        readonly HookNamespace?: Hash256;
+        readonly HookParameters?: readonly HookParameter[];
+        readonly HookGrants?: readonly HookGrant[];
       }
 
       interface HookDeletion {
         /**
-         * Delete one chain slot. `hookHash: null` serializes the canonical
+         * Delete one chain slot. `$delete: true` serializes the canonical
          * override/delete object: `Flags = tfHookOverride`, zero-length
          * CreateCode, and no HookHash. It is never a zero Hash256.
          */
-        readonly position: number;
-        readonly hookHash: null;
+        readonly $position: number;
+        readonly $delete: true;
       }
 
       type HookSetEntry = HookReference | HookDeletion;
 
       interface HookSetOptions {
-        readonly account?: AccountID;
-        readonly flags?: UInt32;
-        readonly hookParameters?: readonly HookParameter[];
+        readonly Account?: AccountID;
+        readonly Flags?: TransactionFlags;
+        readonly HookParameters?: readonly HookParameter[];
         /** Unique in-range position actions; at least one is required. */
-        readonly hooks: readonly HookSetEntry[];
+        readonly Hooks: readonly HookSetEntry[];
       }
 
       interface PaymentOptions {
         /** Sending account (0087 wave-1: emitted Payments set it in C). */
-        readonly account?: AccountID;
-        readonly destination: AccountID;
-        readonly amount: Amount;
-        readonly sourceTag?: UInt32;
-        readonly destinationTag?: UInt32;
-        readonly flags?: UInt32;
-        readonly invoiceId?: Hash256;
-        readonly sendMax?: Amount;
-        readonly deliverMin?: Amount;
-        readonly hookParameters?: readonly HookParameter[];
+        readonly Account?: AccountID;
+        readonly Destination: AccountID;
+        readonly Amount: Amount;
+        readonly SourceTag?: UInt32;
+        readonly DestinationTag?: UInt32;
+        /** The builder always includes `TransactionFlag.tfFullyCanonicalSig`. */
+        readonly Flags?: TransactionFlags;
+        readonly InvoiceID?: Hash256;
+        readonly SendMax?: Amount;
+        readonly DeliverMin?: Amount;
+        readonly HookParameters?: readonly HookParameter[];
       }
 
       /** Build an OfferCreate for direct DEX placement. */
       interface OfferCreateOptions {
-        readonly account?: AccountID;
-        readonly takerPays: Amount;
-        readonly takerGets: Amount;
-        readonly expiration?: RippleTime;
-        readonly flags?: UInt32;
-        readonly hookParameters?: readonly HookParameter[];
+        readonly Account?: AccountID;
+        readonly TakerPays: Amount;
+        readonly TakerGets: Amount;
+        readonly Expiration?: RippleTime;
+        readonly Flags?: TransactionFlags;
+        readonly HookParameters?: readonly HookParameter[];
       }
 
       /** Build a TrustSet for trustline limits, qualities, and flags. */
       interface TrustSetOptions {
-        readonly account?: AccountID;
-        readonly limitAmount?: Amount;
-        readonly qualityIn?: UInt32;
-        readonly qualityOut?: UInt32;
-        readonly flags?: UInt32;
-        readonly hookParameters?: readonly HookParameter[];
+        readonly Account?: AccountID;
+        readonly LimitAmount?: Amount;
+        readonly QualityIn?: UInt32;
+        readonly QualityOut?: UInt32;
+        readonly Flags?: TransactionFlags;
+        readonly HookParameters?: readonly HookParameter[];
       }
 
       interface RemitOptions {
         /** Sending account (0070:286, 0084:161-169). */
-        readonly account?: AccountID;
-        readonly destination: AccountID;
-        readonly uri?: StateValueLike;
+        readonly Account?: AccountID;
+        readonly Destination: AccountID;
+        readonly MintURIToken?: StateValueLike;
         /**
          * An EMPTY amounts array is refused locally at BUILD time with stage
          * "encode" — not deferred to emit (0070:294-297, 0084:161-169).
          */
-        readonly amounts?: readonly Amount[];
-        readonly sourceTag?: UInt32;
-        readonly destinationTag?: UInt32;
-        readonly flags?: UInt32;
-        readonly hookParameters?: readonly HookParameter[];
+        readonly Amounts?: readonly Amount[];
+        readonly SourceTag?: UInt32;
+        readonly DestinationTag?: UInt32;
+        readonly Flags?: TransactionFlags;
+        readonly HookParameters?: readonly HookParameter[];
       }
 
       interface ClaimRewardOptions {
-        readonly account?: AccountID;
-        readonly issuer: AccountID;
-        readonly flags?: UInt32;
-        readonly hookParameters?: readonly HookParameter[];
+        readonly Account?: AccountID;
+        readonly Issuer: AccountID;
+        readonly Flags?: TransactionFlags;
+        readonly HookParameters?: readonly HookParameter[];
       }
 
       interface SignerEntry {
-        readonly account: AccountID;
-        readonly weight: UInt16;
+        readonly Account: AccountID;
+        readonly SignerWeight: UInt16;
       }
 
       interface SignerListSetOptions {
-        readonly account?: AccountID;
-        readonly signerQuorum: UInt32;
-        readonly signerEntries: readonly SignerEntry[];
-        readonly flags?: UInt32;
-        readonly hookParameters?: readonly HookParameter[];
+        readonly Account?: AccountID;
+        readonly SignerQuorum: UInt32;
+        readonly SignerEntries: readonly SignerEntry[];
+        readonly Flags?: TransactionFlags;
+        readonly HookParameters?: readonly HookParameter[];
       }
 
       interface URITokenMintOptions {
-        readonly account?: AccountID;
-        readonly destination?: AccountID;
-        readonly uri: StateValueLike;
-        readonly amount?: Amount;
-        readonly digest?: Hash256;
-        readonly flags?: UInt32;
-        readonly hookParameters?: readonly HookParameter[];
+        readonly Account?: AccountID;
+        readonly Destination?: AccountID;
+        readonly URI: StateValueLike;
+        readonly Amount?: Amount;
+        readonly Digest?: Hash256;
+        readonly Flags?: TransactionFlags;
+        readonly HookParameters?: readonly HookParameter[];
       }
 
       interface GenesisMintBaseOptions {
-        readonly account?: AccountID;
-        readonly flags?: UInt32;
-        readonly hookParameters?: readonly HookParameter[];
+        readonly Account?: AccountID;
+        readonly Flags?: TransactionFlags;
+        readonly HookParameters?: readonly HookParameter[];
       }
 
       interface GenesisMintEntry {
-        readonly account: AccountID;
-        readonly amount: NativeAmount | Drops;
+        readonly Account: AccountID;
+        readonly Amount: NativeAmount | Drops;
       }
 
       interface GenesisMintRawOptions extends GenesisMintBaseOptions {
-        readonly rawMints: StateValueLike;
-        readonly mints?: never;
+        readonly $rawGenesisMints: StateValueLike;
+        readonly GenesisMints?: never;
       }
 
       interface GenesisMintEntriesOptions extends GenesisMintBaseOptions {
-        readonly mints: readonly GenesisMintEntry[];
-        readonly rawMints?: never;
+        readonly GenesisMints: readonly GenesisMintEntry[];
+        readonly $rawGenesisMints?: never;
       }
 
       type GenesisMintOptions = GenesisMintRawOptions | GenesisMintEntriesOptions;

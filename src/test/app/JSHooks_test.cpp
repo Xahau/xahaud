@@ -1139,7 +1139,7 @@ int64_t hook(uint32_t reserved)
             hook::artifact::XFLArithmeticProfile::nearestEvenV1);
         BEAST_EXPECT(
             std::string_view{jshooksBypassProviderSHA256} ==
-            "189b5443c2779c58871a37a996a049fad70b520f9c6b47dc5668b1ce3c44b33f");
+            "104eeea1db4d2c3fc80282bfb460721c3cc830507eb64f8401df477f8fac41ee");
         auto const callbackValidation = hook::validateQuickJSBytecodeForTests(
             currentRuntime, callbackBytecode);
         BEAST_EXPECT(!callbackValidation.error);
