@@ -25,6 +25,7 @@
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SecretKey.h>
 
+#include <cstdint>
 #include <optional>
 #include <shared_mutex>
 #include <string>
@@ -254,6 +255,26 @@ class DatabaseCon;
 /** Remembers manifests with the highest sequence number. */
 class ManifestCache
 {
+public:
+    /** An atomic read of one cached validator manifest.
+
+        The snapshot may represent a revocation. If a signing key is supplied,
+        it resolves only while that key is the current key for the manifest.
+    */
+    struct Snapshot
+    {
+        PublicKey masterKey;
+        std::optional<PublicKey> signingKey;
+        std::uint32_t sequence;
+        std::string serialized;
+
+        bool
+        revoked() const
+        {
+            return Manifest::revoked(sequence);
+        }
+    };
+
 private:
     beast::Journal j_;
     std::shared_mutex mutable mutex_;
@@ -265,6 +286,9 @@ private:
     hash_map<PublicKey, PublicKey> signingToMasterKeys_;
 
     std::atomic<std::uint32_t> seq_{0};
+
+    std::optional<ManifestDisposition>
+    checkKeyRolesUnlocked(Manifest const& m) const;
 
 public:
     explicit ManifestCache(
@@ -330,6 +354,17 @@ public:
     std::optional<std::string>
     getManifest(PublicKey const& pk) const;
 
+    /** Return one internally consistent view of the current manifest.
+
+        @param pk A master key or its current ephemeral signing key.
+
+        Unlike getManifest(), revocations are returned. This is used by the
+        overlay when ordering a manifest immediately before a validation and
+        when answering a peer that supplied a stale manifest.
+    */
+    std::optional<Snapshot>
+    getManifestSnapshot(PublicKey const& pk) const;
+
     /** Returns `true` if master key has been revoked in a manifest.
 
         @param pk Master public key
@@ -340,6 +375,22 @@ public:
     */
     bool
     revoked(PublicKey const& pk) const;
+
+    /** Check whether a manifest's keys conflict with retained key roles.
+
+        This does not verify signatures, compare sequences, or mutate the
+        cache. Transport uses it before relaying an unlisted pair: an
+        ephemeral path must not endorse an association the authoritative
+        cache would reject.
+
+        @return A key-role disposition, or `std::nullopt` when admissible.
+
+        @par Thread Safety
+
+        May be called concurrently.
+    */
+    std::optional<ManifestDisposition>
+    checkKeyRoles(Manifest const& m) const;
 
     /** Add manifest to cache.
 

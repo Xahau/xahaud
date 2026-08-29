@@ -1,0 +1,22 @@
+defaults:
+  network:
+    node_count: 3
+    validators: 1
+    launcher: tmux
+    fixed_peers: false
+    log_levels:
+      Protocol: debug
+
+tests:
+  - name: manifest_validation_order
+    script: .testnet/scenarios/manifest_validation_order.py
+
+  - name: manifest_validation_mixed_binaries
+    script: .testnet/scenarios/manifest_validation_mixed_binaries.py
+    network:
+      validators: 1
+      node_binaries:
+        1: "@release-3350"
+      log_levels:
+        Protocol: debug
+        Validations: debug

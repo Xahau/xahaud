@@ -454,6 +454,8 @@ public:
         auto const sk = randomSecretKey();
         auto const pk = derivePublicKey(KeyType::ed25519, sk);
 
+        BEAST_EXPECT(!cache.getManifestSnapshot(pk));
+
         // getSigningKey should return same key if there is no manifest
         BEAST_EXPECT(cache.getSigningKey(pk) == pk);
 
@@ -468,6 +470,17 @@ public:
                 sk, KeyType::ed25519, kp0.second, KeyType::secp256k1, 0)));
         BEAST_EXPECT(cache.getSigningKey(pk) == kp0.first);
         BEAST_EXPECT(cache.getMasterKey(kp0.first) == pk);
+        if (auto const snapshot = cache.getManifestSnapshot(kp0.first))
+        {
+            BEAST_EXPECT(snapshot->masterKey == pk);
+            BEAST_EXPECT(snapshot->signingKey == kp0.first);
+            BEAST_EXPECT(snapshot->sequence == 0);
+            BEAST_EXPECT(!snapshot->revoked());
+        }
+        else
+        {
+            fail("current signing key resolves its manifest snapshot");
+        }
 
         // getSigningKey should return the latest ephemeral public key
         // for the listed validator master public key
@@ -481,6 +494,16 @@ public:
         BEAST_EXPECT(cache.getSigningKey(pk) == kp1.first);
         BEAST_EXPECT(cache.getMasterKey(kp1.first) == pk);
         BEAST_EXPECT(cache.getMasterKey(kp0.first) == kp0.first);
+        BEAST_EXPECT(!cache.getManifestSnapshot(kp0.first));
+        if (auto const snapshot = cache.getManifestSnapshot(pk))
+        {
+            BEAST_EXPECT(snapshot->signingKey == kp1.first);
+            BEAST_EXPECT(snapshot->sequence == 1);
+        }
+        else
+        {
+            fail("master key resolves its current manifest snapshot");
+        }
 
         // getSigningKey and getMasterKey should fail if a new manifest is
         // applied with the same signing key but a higher sequence
@@ -502,6 +525,16 @@ public:
         BEAST_EXPECT(cache.getSigningKey(pk) == pk);
         BEAST_EXPECT(cache.getMasterKey(kp0.first) == kp0.first);
         BEAST_EXPECT(cache.getMasterKey(kp1.first) == kp1.first);
+        if (auto const snapshot = cache.getManifestSnapshot(pk))
+        {
+            BEAST_EXPECT(snapshot->revoked());
+            BEAST_EXPECT(!snapshot->signingKey);
+        }
+        else
+        {
+            fail("master key resolves its revocation snapshot");
+        }
+        BEAST_EXPECT(!cache.getManifestSnapshot(kp1.first));
     }
 
     void

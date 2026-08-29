@@ -645,13 +645,61 @@ OverlayImpl::onManifests(
         if (auto mo = deserializeManifest(s))
         {
             auto const serialized = mo->serialized;
+            auto const masterKey = mo->masterKey;
+            auto const sequence = mo->sequence;
+            auto const revoked = mo->revoked();
+
+            // Cache membership is observation, not authority: a legacy row
+            // cannot perpetuate itself by presenting a newer signature. This
+            // transport slice admits durable updates only for current local
+            // validator policy.
+            if (!app_.validators().listed(masterKey))
+            {
+                if (n == 1)
+                {
+                    JLOG(journal.debug())
+                        << "manifest_validation single_manifest_ignored master="
+                        << toBase58(TokenType::NodePublic, masterKey)
+                        << " sequence=" << sequence
+                        << " reason=unlisted_new_identity";
+                }
+                continue;
+            }
 
             auto const result =
                 app_.validatorManifests().applyManifest(std::move(*mo));
 
+            if (result == ManifestDisposition::invalid)
+                from->charge(
+                    Resource::feeInvalidSignature,
+                    "invalid validator manifest signature");
+            else if (
+                result == ManifestDisposition::badMasterKey ||
+                result == ManifestDisposition::badEphemeralKey)
+                from->charge(
+                    Resource::feeInvalidData,
+                    "invalid validator manifest key role");
+
+            if (n == 1)
+            {
+                JLOG(journal.debug())
+                    << "manifest_validation single_manifest_processed master="
+                    << toBase58(TokenType::NodePublic, masterKey)
+                    << " sequence=" << sequence
+                    << " disposition=" << to_string(result);
+            }
+
             if (result == ManifestDisposition::accepted)
             {
-                relay.add_list()->set_stobject(s);
+                if (revoked)
+                {
+                    // A revocation has no associated validation to carry it
+                    // onward, so it retains immediate network-wide relay.
+                    relay.add_list()->set_stobject(s);
+                    JLOG(journal.debug())
+                        << "manifest_revocation accepted_for_relay master="
+                        << toBase58(TokenType::NodePublic, masterKey);
+                }
 
                 // N.B.: this is important; the applyManifest call above moves
                 //       the loaded Manifest out of the optional so we need to
@@ -1155,17 +1203,21 @@ OverlayImpl::relay(
 }
 
 void
-OverlayImpl::broadcast(protocol::TMValidation& m)
+OverlayImpl::broadcast(protocol::TMValidation& m, PublicKey const& validator)
 {
-    auto const sm = std::make_shared<Message>(m, protocol::mtVALIDATION);
-    for_each([sm](std::shared_ptr<PeerImp>&& p) { p->send(sm); });
+    auto const sm =
+        std::make_shared<Message>(m, protocol::mtVALIDATION, validator);
+    for_each([sm, validator](std::shared_ptr<PeerImp>&& p) {
+        p->sendValidation(sm, validator);
+    });
 }
 
 std::set<Peer::id_t>
 OverlayImpl::relay(
     protocol::TMValidation& m,
     uint256 const& uid,
-    PublicKey const& validator)
+    PublicKey const& validator,
+    std::shared_ptr<protocol::TMManifests const> const& prerequisite)
 {
     if (auto const toSkip = app_.getHashRouter().shouldRelay(uid))
     {
@@ -1173,41 +1225,11 @@ OverlayImpl::relay(
             std::make_shared<Message>(m, protocol::mtVALIDATION, validator);
         for_each([&](std::shared_ptr<PeerImp>&& p) {
             if (toSkip->find(p->id()) == toSkip->end())
-                p->send(sm);
+                p->sendValidation(sm, validator, prerequisite);
         });
         return *toSkip;
     }
     return {};
-}
-
-std::shared_ptr<Message>
-OverlayImpl::getManifestsMessage()
-{
-    std::lock_guard g(manifestLock_);
-
-    if (auto seq = app_.validatorManifests().sequence();
-        seq != manifestListSeq_)
-    {
-        protocol::TMManifests tm;
-
-        app_.validatorManifests().for_each_manifest(
-            [&tm](std::size_t s) { tm.mutable_list()->Reserve(s); },
-            [&tm, &hr = app_.getHashRouter()](Manifest const& manifest) {
-                tm.add_list()->set_stobject(
-                    manifest.serialized.data(), manifest.serialized.size());
-                hr.addSuppression(manifest.hash());
-            });
-
-        manifestMessage_.reset();
-
-        if (tm.list_size() != 0)
-            manifestMessage_ =
-                std::make_shared<Message>(tm, protocol::mtMANIFESTS);
-
-        manifestListSeq_ = seq;
-    }
-
-    return manifestMessage_;
 }
 
 void

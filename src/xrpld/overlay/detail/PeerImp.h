@@ -175,6 +175,24 @@ private:
     http_response_type response_;
     boost::beast::http::fields const& headers_;
     std::queue<std::shared_ptr<Message>> send_queue_;
+    /** One unverified manifest awaiting a later matching validation.
+
+        Normal manifests are structurally decoded on receipt but are not
+        signature-verified or admitted to the global cache until a validation
+        on this connection claims the same signing key. A claim copies this
+        association into its verification job; the slot itself remains until
+        cache advancement or an allowed replacement. Access is serialized by
+        strand_.
+    */
+    struct PendingManifest
+    {
+        std::shared_ptr<protocol::TMManifests> message;
+        PublicKey masterKey;
+        PublicKey signingKey;
+        std::uint32_t sequence;
+    };
+    std::optional<PendingManifest> pendingManifest_;
+
     bool gracefulClose_ = false;
     int large_sendq_ = 0;
     std::unique_ptr<LoadEvent> load_event_;
@@ -486,6 +504,18 @@ private:
     void
     doProtocolStart();
 
+    /** Send a validation after its current manifest on this connection.
+
+        Both existing protocol envelopes are enqueued on strand_ in wire
+        order. No receiver-side association or acknowledgement is assumed, so
+        an available prerequisite is sent with every validation.
+    */
+    void
+    sendValidation(
+        std::shared_ptr<Message> const& validation,
+        PublicKey const& signingKey,
+        std::shared_ptr<protocol::TMManifests const> const& prerequisite = {});
+
     // Called when protocol message bytes are received
     void
     onReadMessage(error_code ec, std::size_t bytes_transferred);
@@ -635,7 +665,11 @@ private:
     checkValidation(
         std::shared_ptr<STValidation> const& val,
         uint256 const& key,
-        std::shared_ptr<protocol::TMValidation> const& packet);
+        std::shared_ptr<protocol::TMValidation> const& packet,
+        std::optional<PendingManifest> manifestContext);
+
+    void
+    releasePendingManifest(PendingManifest claimed);
 
     void
     sendLedgerBase(
