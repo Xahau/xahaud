@@ -44,14 +44,20 @@ enum class QuickJSV1ImportId : std::uint8_t {
     ledger_seq,
     ledger_last_time,
     ledger_last_hash,
+    ledger_nonce,
     otxn_type,
+    otxn_param,
     otxn_slot,
     slot_size,
     slot,
+    slot_set,
     slot_clear,
     hook_account,
+    hook_param,
+    hook_again,
     trace,
     state,
+    state_foreign,
     state_set,
     prepare,
     etxn_reserve,
@@ -67,7 +73,8 @@ enum class TerminalBehavior : std::uint8_t { ordinaryStatus, hookTerminal };
 enum class HostWorkMeasureKind : std::uint8_t {
     zeroV1,
     argument1V1,
-    arguments1And3SaturatedV1
+    arguments1And3SaturatedV1,
+    arguments1And3And5And7SaturatedV1
 };
 
 template <QuickJSV1ImportId>
@@ -131,11 +138,25 @@ QUICKJS_V1_IMPORT_TRAITS(
     argument1V1,
     ordinaryStatus);
 QUICKJS_V1_IMPORT_TRAITS(
+    ledger_nonce,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t),
+    uint256{},
+    argument1V1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
     otxn_type,
     std::int64_t,
     (),
     uint256{},
     zeroV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    otxn_param,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
+    uint256{},
+    arguments1And3SaturatedV1,
     ordinaryStatus);
 QUICKJS_V1_IMPORT_TRAITS(
     otxn_slot,
@@ -159,6 +180,13 @@ QUICKJS_V1_IMPORT_TRAITS(
     argument1V1,
     ordinaryStatus);
 QUICKJS_V1_IMPORT_TRAITS(
+    slot_set,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t, std::uint32_t),
+    uint256{},
+    argument1V1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
     slot_clear,
     std::int64_t,
     (std::uint32_t),
@@ -173,6 +201,20 @@ QUICKJS_V1_IMPORT_TRAITS(
     argument1V1,
     ordinaryStatus);
 QUICKJS_V1_IMPORT_TRAITS(
+    hook_param,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
+    uint256{},
+    arguments1And3SaturatedV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    hook_again,
+    std::int64_t,
+    (),
+    uint256{},
+    zeroV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
     trace,
     std::int64_t,
     (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
@@ -185,6 +227,20 @@ QUICKJS_V1_IMPORT_TRAITS(
     (std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t),
     uint256{},
     arguments1And3SaturatedV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    state_foreign,
+    std::int64_t,
+    (std::uint32_t,
+     std::uint32_t,
+     std::uint32_t,
+     std::uint32_t,
+     std::uint32_t,
+     std::uint32_t,
+     std::uint32_t,
+     std::uint32_t),
+    uint256{},
+    arguments1And3And5And7SaturatedV1,
     ordinaryStatus);
 QUICKJS_V1_IMPORT_TRAITS(
     state_set,

@@ -9,6 +9,8 @@ declare const __voidResultBrand: unique symbol;
 declare const __recordFieldBrand: unique symbol;
 declare const __serializedFieldBrand: unique symbol;
 
+declare const __ledgerKeyletValueBrand: unique symbol;
+
 /**
  * Type-only surface shared by every nominal provider-produced Result.
  *
@@ -537,6 +539,18 @@ declare global {
   /** A successful, non-nullish value; falsy-but-present values qualify. */
   type Present<T> = Exclude<T, null | undefined>;
 
+  /** A provider-minted value with one canonical ledger representation. */
+  type SerializedType = (
+    | { readonly [__providerValueBrand]: string }
+    | { readonly [__stObjectBrand]: void }
+    | { readonly [__stArrayBrand]: void }
+  ) & {
+    toBytes(options?: SerializationOptions): Uint8Array;
+  };
+
+  /** State-key input: octets, string text encoded as UTF-8, or a serial value. */
+  type StateKeyLike = BytesLike | string | SerializedType;
+
   /** Conceptual result nouns (0085 close): the runtime already
    * classifies via isResult/isEffectResult; these make it public. */
   const Result: RuntimeType<Result<unknown, unknown>>;
@@ -826,6 +840,11 @@ declare global {
   interface RecordField<T, Width extends number = number> {
     readonly [__recordFieldBrand]: T;
     readonly byteLength: Width;
+  }
+
+  interface SerializationOptions {
+    readonly field?: string | number;
+    readonly includeFieldHeader?: boolean;
   }
 
   /** @serial Blob */
@@ -1369,6 +1388,23 @@ declare global {
 
   type TransactionResult = (typeof TransactionResult)[keyof typeof TransactionResult];
 
+  const enum HookExecutionMode {
+    /** Strong pre-apply execution. */
+    Strong = "strong",
+
+    /**
+     * Weak post-apply execution. Xahau has no `hefWEAK` symbol: this is the
+     * execution state with neither `hefSTRONG` nor `hefCALLBACK` set.
+     */
+    Weak = "weak",
+
+    /** Again-as-weak execution requested by a preceding strong pass. */
+    Again = "again",
+
+    /** Emitted-transaction callback execution. */
+    Callback = "callback",
+  }
+
   /** Information supplied to an emitted-transaction callback entry point. */
   interface CallbackInfo {
     /** Exact whole-word applied predicate: `rawFlags === 0`. */
@@ -1386,21 +1422,51 @@ declare global {
     readonly rawFlags: number;
   }
 
+  /**
+   * Typed ledger locator. `T` is erased at runtime and records the minted
+   * ledger-object shape for `ledger.lookup`. `ledger.get` returns the matching
+   * `HostObject` subtype.
+   */
+  interface LedgerKeylet<T extends STObject = STObject> {
+    readonly [__providerValueBrand]: "LedgerKeylet";
+    readonly [__ledgerKeyletValueBrand]?: T;
+    readonly byteLength: 34;
+    readonly type: number;
+    toBytes(): Uint8Array;
+    toHex(): HexString;
+  }
+
+  /** Typed-locator runtime noun (0085 close shape). */
+  const LedgerKeylet: RuntimeType<LedgerKeylet>;
+
   namespace otxn {
     /**
      * Minted originating transaction. Total getters. Existence is an
      * execution invariant.
      */
     function object(): Transaction;
-    function type(): HostResult<TransactionType>;
+    function type(): TransactionType;
+    /**
+     * Transaction-carried hook parameters (`otxn_param`). Names and values
+     * are blobs. Absent and empty are the same host status (`DOESNT_EXIST`)
+     * and both surface as `undefined`. At most 16 parameters, key ≤ 32
+     * bytes, value ≤ 256 bytes — same numeric caps as install-time params,
+     * but the 16 is per originating transaction, not per hook.
+     */
+    function param(name: StateKeyLike): HostResult<STBlob | undefined>;
   }
 
   namespace state {
+    interface ForeignAccessor {
+      get(key: StateKeyLike): HostResult<STBlob | undefined>;
+    }
     function get(key: string | BytesLike | STBlob | Hash256 | AccountID): HostResult<STBlob | undefined>;
     function set(
       key: string | BytesLike | STBlob | Hash256 | AccountID,
       value: string | BytesLike | STBlob | Hash256 | AccountID,
     ): HostVoidResult;
+    function del(key: string | BytesLike | STBlob | Hash256 | AccountID): HostVoidResult;
+    function foreign(account: AccountID, namespace: Hash256): ForeignAccessor;
   }
 
   namespace emit {
@@ -1410,6 +1476,9 @@ declare global {
   }
 
   namespace util {
+    namespace keylet {
+      function account(account: AccountID): LedgerKeylet<AccountRoot>;
+    }
     /**
      * Decode ledger-serialized bytes. Assertion form: malformed input
      * throws TypeError. Gate untrusted bytes with `util.validateObject`
@@ -1432,12 +1501,37 @@ declare global {
     const sequence: LedgerSequence;
     const lastTime: RippleTime;
     const lastHash: Hash256;
+    function nonce(): HostResult<Hash256>;
+    function lookup(locator: LedgerKeylet<AccountRoot>): HostResult<AccountRoot | undefined>;
   }
 
   /** Metadata and configuration for the currently executing Hook. */
   namespace hook {
     /** Hook account for this invocation; provider construction is total. */
     function account(): AccountID;
+    function mode(): HookExecutionMode;
+    /**
+     * Install-time hook parameters (`hook_param`). Names and values are
+     * blobs. Absent and empty are the same host status (`DOESNT_EXIST`)
+     * and both surface as `undefined`. At most 16 parameters per installed
+     * hook, key ≤ 32 bytes, value ≤ 256 bytes.
+     *
+     * The value may have been substituted or deleted by an earlier hook in
+     * this chain via `paramSet`; it is not necessarily the SetHook
+     * install-time blob.
+     *
+     * The schema overload is the same triage as `state.get`: `!ok` is a
+     * host code or a codec issue, `undefined` is absent, otherwise decoded.
+     * `schema.byteLength` must be ≤ 256; the provider rejects a larger
+     * schema at runtime.
+     */
+    function param(name: StateKeyLike): HostResult<STBlob | undefined>;
+    /**
+     * Nominate the current strong Hook for one later Again-as-weak execution
+     * if the transaction reaches the native post-apply path and the same Hook
+     * remains installed. Success confirms nomination, not eventual delivery.
+     */
+    function again(): HostVoidResult;
   }
 
   /**

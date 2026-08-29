@@ -2,10 +2,10 @@
   "bytecode_abi_id": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
   "javascript_surface": {
     "declaration": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "declaration_sha256": "6246d42482aea85442460a5d8ed51d79f7059c4d813797b7827fd28b2c209590",
+    "declaration_sha256": "2551720294a16efd1bf2c426bc281212867b04f01ffd4760b2258d55100cc1fa",
     "manifest": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
     "schema": "jshookz.javascript-surface.v1",
-    "sha256": "d5ee881acea978615062e8c3133cc1c87a0c8bab7d6bb7484d357e862fc08556"
+    "sha256": "29a8ac471ab23e62ec370b02aa3f348cbc4ba5d5c588b79b1dd7f5a1fc2ba058"
   },
   "provider": {
     "build": {
@@ -261,6 +261,27 @@
       },
       {
         "module": "env",
+        "name": "hook_again",
+        "params": [],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "hook_param",
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
         "name": "ledger_last_hash",
         "params": [
           "i32",
@@ -280,8 +301,32 @@
       },
       {
         "module": "env",
+        "name": "ledger_nonce",
+        "params": [
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
         "name": "ledger_seq",
         "params": [],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "otxn_param",
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
         "results": [
           "i64"
         ]
@@ -353,6 +398,18 @@
       },
       {
         "module": "env",
+        "name": "slot_set",
+        "params": [
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
         "name": "slot_size",
         "params": [
           "i32"
@@ -365,6 +422,23 @@
         "module": "env",
         "name": "state",
         "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
+        "name": "state_foreign",
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32",
           "i32",
           "i32",
           "i32",
@@ -402,10 +476,10 @@
         ]
       }
     ],
-    "sha256": "550a9a643566ba912a6839fdcc6947c627714e797edeca99b549ad0544bf6f1d",
-    "size": 1188956
+    "sha256": "b6531b18b40a5798415a447cd756c84509b3c55d5cff78deb16b08cfbfa0fa70",
+    "size": 1199736
   },
-  "runtime_profile_id": "2d7aa253a2c6d378fe6c646cdb1d94be4b44c8cc4ee5a203dd31d1c7906b2820",
+  "runtime_profile_id": "fa60f61b87bda10f60a2f408749f068e11e0a652565ab6f9070abc1a772aad59",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
@@ -485,8 +559,19 @@
         "hook_account": [
           1
         ],
+        "hook_param": [
+          1,
+          3
+        ],
         "ledger_last_hash": [
           1
+        ],
+        "ledger_nonce": [
+          1
+        ],
+        "otxn_param": [
+          1,
+          3
         ],
         "prepare": [
           1,
@@ -498,9 +583,18 @@
         "slot": [
           1
         ],
+        "slot_set": [
+          1
+        ],
         "state": [
           1,
           3
+        ],
+        "state_foreign": [
+          1,
+          3,
+          5,
+          7
         ],
         "state_set": [
           1,
@@ -797,6 +891,27 @@
         },
         {
           "module": "env",
+          "name": "hook_again",
+          "params": [],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "hook_param",
+          "params": [
+            "i32",
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
           "name": "ledger_last_hash",
           "params": [
             "i32",
@@ -816,8 +931,32 @@
         },
         {
           "module": "env",
+          "name": "ledger_nonce",
+          "params": [
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
           "name": "ledger_seq",
           "params": [],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "otxn_param",
+          "params": [
+            "i32",
+            "i32",
+            "i32",
+            "i32"
+          ],
           "results": [
             "i64"
           ]
@@ -889,6 +1028,18 @@
         },
         {
           "module": "env",
+          "name": "slot_set",
+          "params": [
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
           "name": "slot_size",
           "params": [
             "i32"
@@ -901,6 +1052,23 @@
           "module": "env",
           "name": "state",
           "params": [
+            "i32",
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "state_foreign",
+          "params": [
+            "i32",
+            "i32",
+            "i32",
+            "i32",
             "i32",
             "i32",
             "i32",

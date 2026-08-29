@@ -30,8 +30,20 @@
     "emit.tx": {
       "0": "bytesLikeOrSTBlob"
     },
+    "hook.param": {
+      "0": "stateKeyLike"
+    },
+    "otxn.param": {
+      "0": "stateKeyLike"
+    },
     "rollback": {
       "0": "lifecycleMessage"
+    },
+    "state.ForeignAccessor.get": {
+      "0": "stateKeyLike"
+    },
+    "state.del": {
+      "0": "stateKeyLike"
     },
     "state.get": {
       "0": "stateKeyLike"
@@ -43,7 +55,7 @@
   },
   "declaration": {
     "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "sha256": "6246d42482aea85442460a5d8ed51d79f7059c4d813797b7827fd28b2c209590"
+    "sha256": "2551720294a16efd1bf2c426bc281212867b04f01ffd4760b2258d55100cc1fa"
   },
   "globals": {
     "AccountID": "object",
@@ -61,6 +73,7 @@
     "Issue": "object",
     "LedgerEntry": "function",
     "LedgerEntryType": "object",
+    "LedgerKeylet": "object",
     "MPTAmount": "object",
     "NativeAmount": "object",
     "Path": "object",
@@ -109,15 +122,21 @@
       "tx": "function"
     },
     "hook": {
-      "account": "function"
+      "account": "function",
+      "again": "function",
+      "mode": "function",
+      "param": "function"
     },
     "ledger": {
       "lastHash": "value",
       "lastTime": "value",
+      "lookup": "function",
+      "nonce": "function",
       "sequence": "value"
     },
     "otxn": {
       "object": "function",
+      "param": "function",
       "type": "function"
     },
     "rollback": {
@@ -129,13 +148,19 @@
       "when": "function"
     },
     "state": {
+      "del": "function",
+      "foreign": "function",
       "get": "function",
       "set": "function"
     },
     "util": {
       "decodeObject": "function",
+      "keylet": "object",
       "safeDecodeObject": "function",
       "validateObject": "function"
+    },
+    "util.keylet": {
+      "account": "function"
     }
   },
   "prototypes": {
@@ -426,6 +451,21 @@
         "constructor"
       ],
       "probe": "util.decodeObject(STBlob.fromHex('1100642200000000580000000000000000000000000000000000000000000000000000000000000000011300'))"
+    },
+    "LedgerKeylet": {
+      "members": {
+        "byteLength": "value",
+        "toBytes": "function",
+        "toHex": "function",
+        "type": "value"
+      },
+      "own": [
+        "byteLength",
+        "toBytes",
+        "toHex",
+        "type"
+      ],
+      "probe": "util.keylet.account(AccountID.zero)"
     },
     "Path": {
       "members": {
@@ -801,6 +841,15 @@
         "subtract"
       ],
       "probe": "util.decodeObject(STBlob.fromHex('61D4838D7EA4C680000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8')).Amount.toXFL()"
+    },
+    "state.ForeignAccessor": {
+      "members": {
+        "get": "function"
+      },
+      "own": [
+        "get"
+      ],
+      "probe": "state.foreign(AccountID.zero, Hash256.zero)"
     }
   },
   "schema": "jshookz.javascript-surface.v1",

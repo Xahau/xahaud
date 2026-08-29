@@ -8,6 +8,7 @@ declare const __resultBrand: unique symbol;
 declare const __voidResultBrand: unique symbol;
 declare const __recordFieldBrand: unique symbol;
 declare const __serializedFieldBrand: unique symbol;
+declare const __ledgerKeyletValueBrand: unique symbol;
 
 /**
  * Type-only surface shared by every nominal provider-produced Result.
@@ -519,7 +520,7 @@ declare global {
    * MODULE CONTRACT — how a hook binds to the provider. A hook is one
    * ES module; the provider invokes its EXPORTS by name:
    *
-   * - `export function main(reserved: number): never` — the hook entry
+   * - `export function main(): never` — the hook entry
    *   point. The Wasm `qjs_hook` export locates the module's exported
    *   `main` and calls it. A hook terminates through `accept` /
    *   `rollback` (hence `never`); returning without a terminal is an
@@ -536,7 +537,7 @@ declare global {
    * the module entry is `main`, never `hook` — `export function hook`
    * shadows the namespace and does not compile.
    */
-  type HookEntry = (reserved: number) => never;
+  type HookEntry = () => never;
   type CallbackEntry = (info: CallbackInfo) => never;
 
   type BytesLike = Uint8Array | ArrayBuffer | readonly number[];
@@ -564,10 +565,14 @@ declare global {
   type JSTruthy<T> = Exclude<T, JSFalsy>;
   /** A successful, non-nullish value; falsy-but-present values qualify. */
   type Present<T> = Exclude<T, null | undefined>;
-  /** A value with one canonical serialized-ledger byte representation. */
-  interface SerializedType {
+  /** A provider-minted value with one canonical ledger representation. */
+  type SerializedType = (
+    | { readonly [__providerValueBrand]: string }
+    | { readonly [__stObjectBrand]: void }
+    | { readonly [__stArrayBrand]: void }
+  ) & {
     toBytes(options?: SerializationOptions): Uint8Array;
-  }
+  };
   type BytePart = BytesLike | SerializedType;
   /** State-key input: octets, string text encoded as UTF-8, or a serial value. */
   type StateKeyLike = BytesLike | string | SerializedType;
@@ -1012,7 +1017,7 @@ declare global {
 
     /**
      * Result-valued encode: validates every field against its codec domain
-     * and returns the exact record bytes, or a ParseError naming the first
+     * and returns the exact record bytes, or an EncodeError naming the first
      * out-of-domain field.
      */
     safeEncode(value: Value): EncodeResult;
@@ -1231,6 +1236,11 @@ declare global {
     from(value: BytesLike): STBlob;
     /** Decode an even-length hexadecimal literal. */
     fromHex(value: HexString): STBlob;
+    /**
+     * Concatenate raw byte-like parts without interpreting strings or rich
+     * serialized values. Use `util.bytes` when parts include UTF-8 strings or
+     * provider values that must first be encoded through their byte contract.
+     */
     concat(...parts: (BytesLike | STBlob)[]): STBlob;
     /** Asserts an integer in 0..255. */
     fromUint8(value: number): STBlob;
@@ -2252,6 +2262,9 @@ declare global {
      */
     Weak = "weak",
 
+    /** Again-as-weak execution requested by a preceding strong pass. */
+    Again = "again",
+
     /** Emitted-transaction callback execution. */
     Callback = "callback",
   }
@@ -2290,7 +2303,7 @@ declare global {
    */
   interface LedgerKeylet<T extends STObject = STObject> {
     readonly [__providerValueBrand]: "LedgerKeylet";
-    readonly __valueType?: T;
+    readonly [__ledgerKeyletValueBrand]?: T;
     readonly byteLength: 34;
     readonly type: number;
     toBytes(): Uint8Array;
@@ -2314,7 +2327,7 @@ declare global {
      * The handle itself is total.
      */
     function hostObject(): HostTx;
-    function type(): HostResult<TransactionType>;
+    function type(): TransactionType;
     function id(flags?: number): HostResult<Hash256>;
     function generation(): HostResult<number>;
     function burden(): HostResult<bigint>;
@@ -2381,7 +2394,12 @@ declare global {
       readonly value?: StateValueLike;
     }
 
-    interface Accessor {
+    interface ForeignAccessor {
+      get(key: StateKeyLike): HostResult<STBlob | undefined>;
+    }
+
+    /** Broad schema/batch intent layered over the implemented blob accessor. */
+    interface ForeignSchemaAccessor extends ForeignAccessor {
       get(key: StateKeyLike): HostResult<STBlob | undefined>;
       get<T>(key: StateKeyLike, schema: BinarySchema<T>): StateReadResult<T>;
       /** Policied read: disposition declared at the site (`ReadPolicies`). */
@@ -2392,9 +2410,6 @@ declare global {
       ): PolicyRead<T, P>;
       getMany(keys: readonly StateKeyLike[]): HostResult<readonly (STBlob | undefined)[]>;
       getMany<const T extends BatchKeys>(keys: T): HostResult<BatchValues<T>>;
-      set(key: StateKeyLike, value: StateValueLike): HostVoidResult;
-      del(key: StateKeyLike): HostVoidResult;
-      setMany(items: readonly Put[]): HostVoidResult;
     }
 
     /** String parts are encoded as UTF-8 state-key text. */
@@ -2416,15 +2431,16 @@ declare global {
       value: string | BytesLike | STBlob | Hash256 | AccountID,
     ): HostVoidResult;
     function set(key: StateKeyLike, value: StateValueLike): HostVoidResult;
+    function del(key: string | BytesLike | STBlob | Hash256 | AccountID): HostVoidResult;
     function del(key: StateKeyLike): HostVoidResult;
     function setMany(items: readonly Put[]): HostVoidResult;
     /**
-     * Accessor over another account's namespaced state: same read and
-     * write shapes as own state. Writes are grant-gated by the host
-     * (`state_foreign_set` authorization); an unauthorized write is an
-     * ordinary `HostError`, not a distinct channel.
+     * Read-only accessor over another account's namespaced state. Constructing
+     * the accessor is local and total; each `get` owns its host crossing.
+     * Foreign mutation is deliberately absent from this surface.
      */
-    function foreign(account: AccountID, namespace: Hash256): Accessor;
+    function foreign(account: AccountID, namespace: Hash256): ForeignSchemaAccessor;
+    function foreign(account: AccountID, namespace: Hash256): ForeignAccessor;
   }
 
   namespace emit {
@@ -2435,18 +2451,22 @@ declare global {
 
     /**
      * Failed build stage. `"details"` and `"fee"` are host stages while
-     * finalizing an emission; `"amounts"` is the builder refusing its
-     * arguments before any host crossing, with code `INVALID_ARGUMENT`.
+     * finalizing an emission; `"encode"` is the builder refusing malformed
+     * local arguments before any host crossing.
      */
-    type BuildStage = "details" | "fee" | "amounts";
-    type BuildResult = Result<
-      EmittedTransaction,
-      HostError & { readonly stage: BuildStage }
-    >;
+    type BuildError =
+      | (EncodeError & { readonly stage: "encode" })
+      | (HostError & { readonly stage: "details" | "fee" });
+    type BuildResult = Result<EmittedTransaction, BuildError>;
 
     interface HookParameter {
       readonly name: StateKeyLike;
       readonly value: StateValueLike;
+    }
+
+    interface HookGrant {
+      readonly hookHash: Hash256;
+      readonly authorize: AccountID;
     }
 
     /**
@@ -2465,12 +2485,37 @@ declare global {
         readonly blob?: StateValueLike;
       }
 
+      interface HookReference {
+        /**
+         * Hook-chain slot to override. The builder orders entries by position,
+         * fills omitted lower positions with canonical no-op Hook objects, and
+         * serializes `Flags = tfHookOverride` for this action.
+         */
+        readonly position: number;
+        readonly hookHash: Hash256;
+        readonly namespace?: Hash256;
+        readonly parameters?: readonly HookParameter[];
+        readonly grants?: readonly HookGrant[];
+      }
+
+      interface HookDeletion {
+        /**
+         * Delete one chain slot. `hookHash: null` serializes the canonical
+         * override/delete object: `Flags = tfHookOverride`, zero-length
+         * CreateCode, and no HookHash. It is never a zero Hash256.
+         */
+        readonly position: number;
+        readonly hookHash: null;
+      }
+
+      type HookSetEntry = HookReference | HookDeletion;
+
       interface HookSetOptions {
         readonly account?: AccountID;
-        readonly hooks: readonly {
-          readonly position: number;
-          readonly hookHash: Hash256 | null;
-        }[];
+        readonly flags?: UInt32;
+        readonly hookParameters?: readonly HookParameter[];
+        /** Unique in-range position actions; at least one is required. */
+        readonly hooks: readonly HookSetEntry[];
       }
 
       interface PaymentOptions {
@@ -2513,9 +2558,8 @@ declare global {
         readonly destination: AccountID;
         readonly uri?: StateValueLike;
         /**
-         * An EMPTY amounts array is refused at BUILD time with stage
-         * "amounts" and code `INVALID_ARGUMENT` — not deferred to emit
-         * (0070:294-297, 0084:161-169).
+         * An EMPTY amounts array is refused locally at BUILD time with stage
+         * "encode" — not deferred to emit (0070:294-297, 0084:161-169).
          */
         readonly amounts?: readonly Amount[];
         readonly sourceTag?: UInt32;
@@ -2691,6 +2735,7 @@ declare global {
     function get(locator: LedgerKeylet<UNLReport>): HostResult<HostUNLReport | undefined>;
     function get(locator: LedgerKeylet): HostResult<HostObject | undefined>;
     function get(locator: Hash256): HostResult<HostObject | undefined>;
+    function lookup(locator: LedgerKeylet<AccountRoot>): HostResult<AccountRoot | undefined>;
     function lookup<T extends STObject>(locator: LedgerKeylet<T>): HostResult<T | undefined>;
     function lookup(locator: Hash256): HostResult<STObject | undefined>;
     function lookupMany(locators: readonly (LedgerKeylet | Hash256)[]): HostResult<readonly (STObject | undefined)[]>;
@@ -2704,7 +2749,7 @@ declare global {
     function account(): AccountID;
     function hash(): HostResult<Hash256>;
     function position(): HostResult<number>;
-    function mode(): HostResult<HookExecutionMode>;
+    function mode(): HookExecutionMode;
     function hashAt(position: number): HostResult<Hash256 | undefined>;
     /**
      * Install-time hook parameters (`hook_param`). Names and values are
@@ -2744,6 +2789,11 @@ declare global {
     >(fields: T): HostResult<BatchOutcomes<T>>;
     function paramSet(targetHook: Hash256, name: StateKeyLike, value: BytesLike): HostVoidResult;
     function skip(targetHook: Hash256, remove?: boolean): HostVoidResult;
+    /**
+     * Nominate the current strong Hook for one later Again-as-weak execution
+     * if the transaction reaches the native post-apply path and the same Hook
+     * remains installed. Success confirms nomination, not eventual delivery.
+     */
     function again(): HostVoidResult;
 
   }

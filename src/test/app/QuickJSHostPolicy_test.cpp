@@ -97,7 +97,7 @@ public:
 
         testcase("Frozen v1 policy is complete and independent");
         auto const snapshot = quickJSHostPolicyV1Snapshot();
-        BEAST_EXPECT(snapshot.size() == 17);
+        BEAST_EXPECT(snapshot.size() == 23);
         BEAST_EXPECT(snapshot.size() == quickJSV1ImportCount);
         auto const* policy =
             findHostAdapterPolicy(generated::hostAdapterPolicy);
@@ -155,15 +155,15 @@ public:
                     : descriptor.name != "accept" &&
                         descriptor.name != "rollback");
         }
-        BEAST_EXPECT(currentNames.size() - v1Names.size() == 58);
+        BEAST_EXPECT(currentNames.size() - v1Names.size() == 52);
         std::size_t outsideV1 = 0;
         for (auto const name : currentNames)
             if (!v1Names.contains(name))
                 ++outsideV1;
-        BEAST_EXPECT(outsideV1 == 58);
+        BEAST_EXPECT(outsideV1 == 52);
 
         testcase("Provider manifest has exact v1 Wasm signatures");
-        BEAST_EXPECT(generated::providerImportSignatures.size() == 17);
+        BEAST_EXPECT(generated::providerImportSignatures.size() == 23);
         std::set<std::string_view> providerNames;
         for (auto const& expected : generated::providerImportSignatures)
         {
@@ -187,7 +187,7 @@ public:
         BEAST_EXPECT(providerNames == v1Names);
 
         testcase("Pinned native ABI matches frozen and current projections");
-        BEAST_EXPECT(generated::nativeImportSignatures.size() == 17);
+        BEAST_EXPECT(generated::nativeImportSignatures.size() == 23);
         BEAST_EXPECT(
             generated::nativeABISourceRepository ==
             "https://github.com/Xahau/xahaud");
@@ -264,8 +264,11 @@ public:
                     ? WASMTIME_I32
                     : WASMTIME_I64;
                 if (arguments[index].kind == WASMTIME_I32)
-                    arguments[index].of.i32 =
-                        index == 1 ? 7 : (index == 3 ? 11 : 3);
+                    arguments[index].of.i32 = index == 1 ? 7
+                        : index == 3                     ? 11
+                        : index == 5                     ? 13
+                        : index == 7                     ? 17
+                                                         : 3;
                 else
                     arguments[index].of.i64 = 3;
             }
@@ -278,6 +281,8 @@ public:
                         return std::uint64_t{7};
                     case HostWorkMeasureKind::arguments1And3SaturatedV1:
                         return std::uint64_t{18};
+                    case HostWorkMeasureKind::arguments1And3And5And7SaturatedV1:
+                        return std::uint64_t{48};
                 }
                 return std::uint64_t{0};
             }();
@@ -301,9 +306,29 @@ public:
                                            : found->measure;
         };
         BEAST_EXPECT(findMeasure("otxn_slot") == HostWorkMeasureKind::zeroV1);
+        BEAST_EXPECT(findMeasure("hook_again") == HostWorkMeasureKind::zeroV1);
         BEAST_EXPECT(findMeasure("slot_size") == HostWorkMeasureKind::zeroV1);
         BEAST_EXPECT(findMeasure("slot") == HostWorkMeasureKind::argument1V1);
+        BEAST_EXPECT(
+            findMeasure("ledger_nonce") == HostWorkMeasureKind::argument1V1);
+        BEAST_EXPECT(
+            findMeasure("slot_set") == HostWorkMeasureKind::argument1V1);
+        BEAST_EXPECT(
+            findMeasure("hook_param") ==
+            HostWorkMeasureKind::arguments1And3SaturatedV1);
+        BEAST_EXPECT(
+            findMeasure("otxn_param") ==
+            HostWorkMeasureKind::arguments1And3SaturatedV1);
+        BEAST_EXPECT(
+            findMeasure("state_foreign") ==
+            HostWorkMeasureKind::arguments1And3And5And7SaturatedV1);
         BEAST_EXPECT(findMeasure("slot_clear") == HostWorkMeasureKind::zeroV1);
+        std::array<wasmtime_val_t, 7> incompleteStateForeignArguments{};
+        BEAST_EXPECT(
+            declaredHostWork(
+                HostWorkMeasureKind::arguments1And3And5And7SaturatedV1,
+                incompleteStateForeignArguments) ==
+            std::numeric_limits<std::uint64_t>::max());
         auto const maximumAcquisitionCost =
             5 * quickJSHostWorkCost(profile, 0) +
             quickJSHostWorkCost(profile, profile.serializedObjectMaxBytes);

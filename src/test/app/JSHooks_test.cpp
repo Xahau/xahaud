@@ -99,9 +99,8 @@ public:
     {
         //@@start jshooks-hook-fixtures
         auto const& hookBytecode = jshooks_test_wasm.at(R"[test.tshook](
-export function main(_reserved: number): never {
-  void _reserved;
-  const txType = rollback.onFail(otxn.type(), "otxn.type failed");
+export function main(): never {
+  const txType = otxn.type();
   if (txType !== TransactionType.Payment) {
     rollback("expected Payment", txType);
   }
@@ -130,8 +129,7 @@ export const hookConfig = defineHookConfig({
   xflArithmetic: XFLProfile.xahauFloatV1,
 });
 
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   accept("xahau profile configured", 301);
 }
 )[test.tshook]");
@@ -150,8 +148,7 @@ function decimal(hex: string): XFLDecimal {
     .toXFL();
 }
 
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   const addResult = rollback.onFail(
     decimal(
       "61D8438D7EA4C680000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
@@ -201,8 +198,7 @@ function decimal(hex: string): XFLDecimal {
     .toXFL();
 }
 
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   const result = rollback.onFail(
     decimal(
       "61D4871AFD498D00000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
@@ -240,8 +236,7 @@ function decimal(hex: string): XFLDecimal {
     .toXFL();
 }
 
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   const result = rollback.onFail(
     decimal(
       "61D84A8AFA8D4096130000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
@@ -279,8 +274,7 @@ function decimal(hex: string): XFLDecimal {
     .toXFL();
 }
 
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   const outcome = decimal(
     "61D4871AFD498D00000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8",
   ).divide(
@@ -313,8 +307,7 @@ export function main(_reserved: number): never {
             hook::artifact::XFLArithmeticProfile::nearestEvenV1);
         auto const surfaceProbeCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   const account = hook.account();
   if (account.toHex().length !== 40) {
     rollback("unexpected Hook account", -1);
@@ -345,8 +338,7 @@ export function main(_reserved: number): never {
 
         auto const stObjectArrayCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   const ordered = util.decodeObject(
     Uint8Array.from([
       0x24, 0x00, 0x00, 0x00, 0x07, 0x22, 0x00, 0x00, 0x00, 0x09,
@@ -470,8 +462,7 @@ function proveWrapping<Bits extends UIntWidth>(
   }
 }
 
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
 
   proveWrapping(UInt8, 8, UInt16, UInt16.zero);
   proveWrapping(UInt16, 16, UInt8, UInt8.zero);
@@ -849,8 +840,7 @@ int64_t hook(uint32_t reserved)
 
         auto const stateBridgeCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   const seeded = rollback.onFail(state.get("bridge"), "state read failed");
   if (seeded === undefined) rollback("state missing", -1);
 
@@ -868,8 +858,7 @@ export function main(_reserved: number): never {
 
         auto const stateRollbackCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   rollback.onFail(state.set("bridge", "must-not-stick"), "state write failed");
   trace("js-state-rollback", "must-not-stick");
   rollback("state rollback", -84);
@@ -878,8 +867,7 @@ export function main(_reserved: number): never {
 
         auto const memoryGrowthCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   const blocks: Uint8Array[] = [];
   for (let i = 0; i < 6; ++i) blocks.push(new Uint8Array(1024 * 1024));
   blocks[5][0] = 42;
@@ -896,8 +884,7 @@ export function main(_reserved: number): never {
 
         auto const hostWorkExhaustionCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   rollback.onFail(state.set("meter", "must-not-stick"), "state write failed");
 
   const chunk = "x".repeat(2000);
@@ -908,8 +895,7 @@ export function main(_reserved: number): never {
 
         auto const amendmentBeforeChargeCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   const transaction = STBlob.from(new Uint8Array(0xffff));
   for (let i = 0; i < 8; ++i) {
     const unavailable = emit.prepare(transaction);
@@ -928,8 +914,7 @@ export const hookConfig = defineHookConfig({
   xflArithmetic: XFLProfile.nearestEvenV1,
 });
 
-export function main(_reserved: number): never {
-  void _reserved;
+export function main(): never {
   rollback.onFail(state.set("cbak", "pending"), "callback seed failed");
   rollback.onFail(emit.reserve(1), "emit.reserve failed");
   const prepared = rollback.onFail(
@@ -969,8 +954,8 @@ export const callback = 2;
         auto const hostInitializingCode =
             packageCurrentQuickJS(jshooks_test_wasm.at(R"[test.tshook](
 // @jshookz-allow-malformed
-export function main(_reserved: number): never {
-  accept("entry", _reserved);
+export function main(): never {
+  accept("entry", 0);
 }
 void ledger.sequence;
 )[test.tshook]"));
@@ -1111,7 +1096,7 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             successfulValidation.xflArithmeticProfile ==
             hook::artifact::XFLArithmeticProfile::none);
-        expectFuel(successfulValidation.invocationFuelConsumed, 59007);
+        expectFuel(successfulValidation.invocationFuelConsumed, 56044);
 
         auto const xahauValidation = hook::validateQuickJSBytecodeForTests(
             currentRuntime, xahauProfileBytecode);
@@ -1154,7 +1139,7 @@ int64_t hook(uint32_t reserved)
             hook::artifact::XFLArithmeticProfile::nearestEvenV1);
         BEAST_EXPECT(
             std::string_view{jshooksBypassProviderSHA256} ==
-            "550a9a643566ba912a6839fdcc6947c627714e797edeca99b549ad0544bf6f1d");
+            "b6531b18b40a5798415a447cd756c84509b3c55d5cff78deb16b08cfbfa0fa70");
         auto const callbackValidation = hook::validateQuickJSBytecodeForTests(
             currentRuntime, callbackBytecode);
         BEAST_EXPECT(!callbackValidation.error);
@@ -1181,7 +1166,7 @@ int64_t hook(uint32_t reserved)
             BEAST_EXPECT(
                 result.xflArithmeticProfile ==
                 hook::artifact::XFLArithmeticProfile::none);
-            expectFuel(result.invocationFuelConsumed, 59007);
+            expectFuel(result.invocationFuelConsumed, 56044);
         }
 
         testcase("Bind XFL profile at QuickJS CREATE admission");
@@ -1274,7 +1259,7 @@ int64_t hook(uint32_t reserved)
             auto const failedValidation = hook::validateQuickJSBytecodeForTests(
                 currentRuntime, malformedBytecode);
             BEAST_EXPECT(!!failedValidation.error);
-            expectFuel(failedValidation.invocationFuelConsumed, 14134);
+            expectFuel(failedValidation.invocationFuelConsumed, 14070);
             identityEnv(
                 jtx::hook(
                     alice,
@@ -1527,7 +1512,7 @@ int64_t hook(uint32_t reserved)
         auto const message = execution.getFieldVL(sfHookReturnString);
         BEAST_EXPECT(
             std::string(message.begin(), message.end()) == "payment:0");
-        expectFuel(execution.getFieldU64(sfHookInstructionCount), 69168);
+        expectFuel(execution.getFieldU64(sfHookInstructionCount), 61048);
 
         testcase("Execute packaged otxn.object Payment smoke");
         auto otxnObjectSmokeHook = hsoVersioned(otxnObjectSmokeCode, 1);
@@ -1586,7 +1571,7 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string(xflMessage.begin(), xflMessage.end()) ==
             "xfl add/subtract");
-        expectFuel(xflExecution.getFieldU64(sfHookInstructionCount), 293905);
+        expectFuel(xflExecution.getFieldU64(sfHookInstructionCount), 292667);
 
         testcase("Execute packaged xahauFloatV1 multiply");
         auto xflMultiplyHook = hsoVersioned(xflMultiplyCode, 1);
@@ -1619,7 +1604,7 @@ int64_t hook(uint32_t reserved)
             std::string(multiplyMessage.begin(), multiplyMessage.end()) ==
             "xfl multiply");
         expectFuel(
-            multiplyExecution.getFieldU64(sfHookInstructionCount), 196216);
+            multiplyExecution.getFieldU64(sfHookInstructionCount), 194977);
 
         testcase("Execute packaged xahauFloatV1 fixed divide last digit");
         auto xflFixedDivideHook = hsoVersioned(xflFixedDivideCode, 1);
@@ -1654,7 +1639,7 @@ int64_t hook(uint32_t reserved)
             std::string(fixedDivideMessage.begin(), fixedDivideMessage.end()) ==
             "xfl fixed divide");
         expectFuel(
-            fixedDivideExecution.getFieldU64(sfHookInstructionCount), 198037);
+            fixedDivideExecution.getFieldU64(sfHookInstructionCount), 196798);
 
         testcase("Return nominal Result for packaged divide by zero");
         auto xflDivideByZeroHook = hsoVersioned(xflDivideByZeroCode, 1);
@@ -1690,7 +1675,7 @@ int64_t hook(uint32_t reserved)
                 divideByZeroMessage.begin(), divideByZeroMessage.end()) ==
             "xfl divide by zero");
         expectFuel(
-            divideByZeroExecution.getFieldU64(sfHookInstructionCount), 192109);
+            divideByZeroExecution.getFieldU64(sfHookInstructionCount), 190879);
 
         testcase("Fail closed for packaged nearestEvenV1 arithmetic bypass");
         auto nearestEvenBypassHook = hsoVersioned(nearestEvenBypassCode, 1);
@@ -1722,7 +1707,7 @@ int64_t hook(uint32_t reserved)
         BEAST_EXPECT(
             std::string(bypassMessage.begin(), bypassMessage.end()) ==
             "xfl profile backstop");
-        expectFuel(bypassExecution.getFieldU64(sfHookInstructionCount), 204313);
+        expectFuel(bypassExecution.getFieldU64(sfHookInstructionCount), 204288);
 
         auto const bypassStateKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -1765,7 +1750,7 @@ int64_t hook(uint32_t reserved)
             std::string(surfaceMessage.begin(), surfaceMessage.end()) ==
             "surface:40");
         expectFuel(
-            surfaceExecution.getFieldU64(sfHookInstructionCount), 101353);
+            surfaceExecution.getFieldU64(sfHookInstructionCount), 100213);
 
         testcase("Execute accepted STObject and STArray on Wasmtime");
         auto stObjectHook = hsoVersioned(stObjectArrayCode, 1);
@@ -1827,7 +1812,7 @@ int64_t hook(uint32_t reserved)
             "f0-native-matrix");
         expectFuel(
             f0NativeMatrixExecution.getFieldU64(sfHookInstructionCount),
-            6860492);
+            6860926);
 
         //@@start jshooks-state-bridge
         testcase("Execute a C Hook through WasmEdge and persist state");
@@ -1940,7 +1925,7 @@ int64_t hook(uint32_t reserved)
         if (rollbackExecutions.size() != 1)
             return;
         expectFuel(
-            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 81821);
+            rollbackExecutions[0].getFieldU64(sfHookInstructionCount), 80562);
 
         stateEntry = env.le(stateKeylet);
         BEAST_EXPECT(!!stateEntry);
@@ -1973,7 +1958,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& memoryGrowthExecution = memoryGrowthExecutions[0];
         expectFuel(
-            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7458548);
+            memoryGrowthExecution.getFieldU64(sfHookInstructionCount), 7482207);
         BEAST_EXPECT(
             memoryGrowthExecution.getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
@@ -2019,7 +2004,7 @@ int64_t hook(uint32_t reserved)
             static_cast<std::uint8_t>(hook_api::ExitType::WASM_ERROR));
         expectFuel(
             hostWorkExecutions[0].getFieldU64(sfHookInstructionCount),
-            42555522);
+            42447726);
 
         auto const meterKey = uint256::fromVoid(
             (std::array<uint8_t, 32>{
@@ -2114,7 +2099,7 @@ int64_t hook(uint32_t reserved)
             return;
         auto const& callbackExecution = callbackExecutions[0];
         expectFuel(
-            callbackExecution.getFieldU64(sfHookInstructionCount), 117858);
+            callbackExecution.getFieldU64(sfHookInstructionCount), 116959);
         BEAST_EXPECT_EQ(
             callbackExecution.getFieldU8(sfHookResult),
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));

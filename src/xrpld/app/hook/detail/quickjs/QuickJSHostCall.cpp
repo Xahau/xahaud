@@ -256,6 +256,14 @@ declaredHostWork(
             return static_cast<std::uint64_t>(
                        static_cast<std::uint32_t>(values[1].of.i32)) +
                 static_cast<std::uint32_t>(values[3].of.i32);
+        case HostWorkMeasureKind::arguments1And3And5And7SaturatedV1:
+            if (values.size() <= 7)
+                return std::numeric_limits<std::uint64_t>::max();
+            return static_cast<std::uint64_t>(
+                       static_cast<std::uint32_t>(values[1].of.i32)) +
+                static_cast<std::uint32_t>(values[3].of.i32) +
+                static_cast<std::uint32_t>(values[5].of.i32) +
+                static_cast<std::uint32_t>(values[7].of.i32);
     }
     return std::numeric_limits<std::uint64_t>::max();
 }
