@@ -20,3 +20,35 @@ tests:
       log_levels:
         Protocol: debug
         Validations: debug
+
+  - name: manifest_rotation_propagation
+    script: .testnet/scenarios/manifest_rotation_propagation.py
+    network:
+      validators: 1
+      node_binaries:
+        1: "@release-3350"
+      log_levels:
+        Protocol: debug
+        Validations: debug
+
+  - name: manifest_revocation_live
+    script: .testnet/scenarios/manifest_revocation_live.py
+    network:
+      node_count: 6
+      validators: 5
+      node_binaries:
+        5: "@release-3350"
+      log_levels:
+        Protocol: debug
+        Validations: debug
+
+  - name: manifest_wipe_recovery
+    script: .testnet/scenarios/manifest_wipe_recovery.py
+    network:
+      node_count: 4
+      validators: 1
+      node_binaries:
+        1: "@release-3350"
+      log_levels:
+        Protocol: debug
+        Validations: debug
