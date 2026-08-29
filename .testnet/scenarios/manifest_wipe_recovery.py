@@ -15,6 +15,20 @@ from xahaud_scripts.testnet.scenario import (
 )
 
 
+async def _await_log(ctx, log, pattern, *, nodes, name, since=None, deadline=36):
+    # Catch the runner's ScenarioAssertion, not the builtin. The scenario
+    # module shadows AssertionError without subclassing it.
+    for attempt in range(deadline):
+        try:
+            ctx.assert_log(pattern, nodes=nodes, **({"since": since} if since else {}))
+            return
+        except ScenarioAssertion:
+            if attempt == deadline - 1:
+                raise
+            if attempt % 6 == 5:
+                log(f"{name}: attempt {attempt + 1}/{deadline}")
+            await ctx.sleep(5, name=name)
+
 
 async def scenario(ctx, log):
     nodes = [0, 1, 2, 3]
@@ -25,22 +39,16 @@ async def scenario(ctx, log):
     # Baseline: knowledge reaches the end of the chain. The tail observer
     # receives paired traffic from the upgraded mid-chain node. Admission at
     # the tail implies the whole upstream chain, so wait on that log fact —
-    # four hops can trail the validator's fast-bootstrap ledger count.
+    # three hops can trail the validator's fast-bootstrap ledger count.
     await ctx.wait_for_ledgers(2, node_id=0, timeout=120)
-    deadline = 24
-    for attempt in range(deadline):
-        try:
-            ctx.assert_log(
-                "manifest_validation single_manifest_processed .*sequence=1",
-                nodes=[3],
-            )
-            break
-        except ScenarioAssertion:
-            if attempt == deadline - 1:
-                raise
-            if attempt % 6 == 5:
-                log(f"await-baseline-chain: attempt {attempt + 1}/{deadline}")
-            await ctx.sleep(5, name="await-baseline-chain")
+    await _await_log(
+        ctx,
+        log,
+        "manifest_validation single_manifest_processed .*sequence=1",
+        nodes=[3],
+        name="await-baseline-chain",
+        deadline=24,
+    )
     ctx.assert_log(
         "manifest_validation single_manifest_processed .*sequence=1",
         nodes=[2],
@@ -55,21 +63,15 @@ async def scenario(ctx, log):
     # Wait on the terminal log fact: resumed paired forwarding downstream is
     # the last event in the recovery chain, so re-learning and re-admission
     # must precede it.
-    deadline = 36
-    for attempt in range(deadline):
-        try:
-            ctx.assert_log(
-                "manifest_validation send_prerequisite .*sequence=1",
-                since=wiped,
-                nodes=[2],
-            )
-            break
-        except ScenarioAssertion:
-            if attempt == deadline - 1:
-                raise
-            if attempt % 6 == 5:
-                log(f"await-resumed-forwarding: attempt {attempt + 1}/{deadline}")
-            await ctx.sleep(5, name="await-resumed-forwarding")
+    await _await_log(
+        ctx,
+        log,
+        "manifest_validation send_prerequisite .*sequence=1",
+        nodes=[2],
+        name="await-resumed-forwarding",
+        since=wiped,
+        deadline=36,
+    )
 
     # Recovery: the wiped node re-learned the validator identity from live
     # traffic (the old upstream's connect-time dump arrives as a singleton

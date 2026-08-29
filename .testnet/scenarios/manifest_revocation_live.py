@@ -21,12 +21,27 @@ from xahaud_scripts.testnet.scenario import (
 )
 
 
+async def _await_log(ctx, log, pattern, *, nodes, name, since=None, deadline=36):
+    # Catch the runner's ScenarioAssertion, not the builtin. The scenario
+    # module shadows AssertionError without subclassing it.
+    for attempt in range(deadline):
+        try:
+            ctx.assert_log(pattern, nodes=nodes, **({"since": since} if since else {}))
+            return
+        except ScenarioAssertion:
+            if attempt == deadline - 1:
+                raise
+            if attempt % 6 == 5:
+                log(f"{name}: attempt {attempt + 1}/{deadline}")
+            await ctx.sleep(5, name=name)
+
+
 async def scenario(ctx, log):
     nodes = [0, 1, 2, 3, 4, 5]
-    # Validators 0-4 mesh through 0; the old release node 5 hangs off the
-    # mesh and is the revocation's config seeder.
+    # Validators 0-4 meet at n0. The old release node n5 is a pendant on n4
+    # so it can seed the revocation without joining the UNL mesh.
     expected = ctx.topology_edges(
-        [(0, 1), (0, 2), (0, 3), (0, 4), (1, 2), (3, 4), (4, 5)]
+        [(0, 1), (0, 2), (0, 3), (0, 4), (4, 5)]
     )
 
     await ctx.apply_topology(expected, nodes=nodes, exact=False)
@@ -46,17 +61,15 @@ async def scenario(ctx, log):
     # legacy connect-time dump and accept-relay; its peer n4 spreads it into
     # the mesh through the normal revocation relay lane. The old node's
     # reconnect interval dominates the latency, so wait on the log fact.
-    deadline = 36
-    for attempt in range(deadline):
-        try:
-            ctx.assert_log("Revoked", since=revoked, nodes=[4])
-            break
-        except ScenarioAssertion:
-            if attempt == deadline - 1:
-                raise
-            if attempt % 6 == 5:
-                log(f"await-revocation-arrival: attempt {attempt + 1}/{deadline}")
-            await ctx.sleep(5, name="await-revocation-arrival")
+    await _await_log(
+        ctx,
+        log,
+        "Revoked",
+        nodes=[4],
+        name="await-revocation-arrival",
+        since=revoked,
+        deadline=36,
+    )
 
     # Terminal manifest applied and relayed onward by upgraded nodes: first
     # at the old seeder's direct peer, then across the mesh.
@@ -65,16 +78,15 @@ async def scenario(ctx, log):
         since=revoked,
         nodes=[4],
     )
-    for attempt in range(deadline):
-        try:
-            ctx.assert_log("Revoked", since=revoked, nodes=[0])
-            break
-        except ScenarioAssertion:
-            if attempt == deadline - 1:
-                raise
-            if attempt % 6 == 5:
-                log(f"await-mesh-revocation: attempt {attempt + 1}/{deadline}")
-            await ctx.sleep(5, name="await-mesh-revocation")
+    await _await_log(
+        ctx,
+        log,
+        "Revoked",
+        nodes=[0],
+        name="await-mesh-revocation",
+        since=revoked,
+        deadline=36,
+    )
     ctx.assert_log(
         "manifest_revocation accepted_for_relay",
         since=revoked,

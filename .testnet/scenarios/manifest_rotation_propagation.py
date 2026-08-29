@@ -14,6 +14,20 @@ from xahaud_scripts.testnet.scenario import (
 )
 
 
+async def _await_log(ctx, log, pattern, *, nodes, name, since=None, deadline=36):
+    # Catch the runner's ScenarioAssertion, not the builtin. The scenario
+    # module shadows AssertionError without subclassing it.
+    for attempt in range(deadline):
+        try:
+            ctx.assert_log(pattern, nodes=nodes, **({"since": since} if since else {}))
+            return
+        except ScenarioAssertion:
+            if attempt == deadline - 1:
+                raise
+            if attempt % 6 == 5:
+                log(f"{name}: attempt {attempt + 1}/{deadline}")
+            await ctx.sleep(5, name=name)
+
 
 async def scenario(ctx, log):
     nodes = [0, 1, 2]
@@ -26,20 +40,14 @@ async def scenario(ctx, log):
     # race several ledgers ahead of propagation under fast bootstrap, so
     # wait on the log fact itself.
     await ctx.wait_for_ledgers(2, node_id=0, timeout=120)
-    deadline = 24
-    for attempt in range(deadline):
-        try:
-            ctx.assert_log(
-                "manifest_validation single_manifest_processed .*sequence=1",
-                nodes=[2],
-            )
-            break
-        except ScenarioAssertion:
-            if attempt == deadline - 1:
-                raise
-            if attempt % 6 == 5:
-                log(f"await-baseline-admission: attempt {attempt + 1}/{deadline}")
-            await ctx.sleep(5, name="await-baseline-admission")
+    await _await_log(
+        ctx,
+        log,
+        "manifest_validation single_manifest_processed .*sequence=1",
+        nodes=[2],
+        name="await-baseline-admission",
+        deadline=24,
+    )
 
     rotated = ctx.mark("rotated")
     rotation = await ctx.rotate_validator_manifest(0)
@@ -54,21 +62,16 @@ async def scenario(ctx, log):
     # only the validator advances its ledger, and its own restart closed the
     # node-0 WebSocket ledger feed. The repair re-arm is the last event in
     # the causal chain, so everything else must precede it.
-    deadline = 36  # polls at 5s => 180s budget at ~16s consensus rounds
-    for attempt in range(deadline):
-        try:
-            ctx.assert_log(
-                "manifest_validation repair_sent .*sequence=2",
-                since=rotated,
-                nodes=[2],
-            )
-            break
-        except ScenarioAssertion:
-            if attempt == deadline - 1:
-                raise
-            if attempt % 6 == 5:
-                log(f"await-repair-rearm: attempt {attempt + 1}/{deadline}")
-            await ctx.sleep(5, name="await-repair-rearm")
+    # polls at 5s => 180s budget at ~16s consensus rounds
+    await _await_log(
+        ctx,
+        log,
+        "manifest_validation repair_sent .*sequence=2",
+        nodes=[2],
+        name="await-repair-rearm",
+        since=rotated,
+        deadline=36,
+    )
 
     ctx.assert_log(
         "manifest_validation pair_enqueued .*sequence=2",
