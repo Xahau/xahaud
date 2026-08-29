@@ -49,5 +49,6 @@ async def scenario(ctx, log):
     log(
         "PASS: a release relay accepted the upgraded sender's existing "
         "manifest/validation envelopes; the upgraded observer retained, "
-        "matched, verified, and admitted the relayed prerequisite"
+        "matched, verified, and admitted the relayed prerequisite, then "
+        "repaired the old middle node's later naked validations"
     )

@@ -150,8 +150,11 @@ private:
                                 buffer.size() - compression::headerBytes)))
                     {
                         for (auto const& manifest : manifests.list())
-                            sentManifestPayloads_.push_back(
-                                manifest.stobject());
+                        {
+                            auto const payload = manifest.stobject();
+                            sentManifestPayloads_.push_back(payload);
+                            sentPeerManifests_.emplace_back(id(), payload);
+                        }
                     }
                 }
                 sendTx_++;
@@ -186,6 +189,7 @@ private:
             sentTypes_.clear();
             sentPeerTypes_.clear();
             sentManifestPayloads_.clear();
+            sentPeerManifests_.clear();
         }
         static bool
         waitForMessages(std::size_t count)
@@ -231,6 +235,16 @@ private:
             std::lock_guard lock(sentMutex_);
             return sentManifestPayloads_;
         }
+        static std::vector<std::string>
+        sentManifestPayloads(Peer::id_t peer)
+        {
+            std::lock_guard lock(sentMutex_);
+            std::vector<std::string> result;
+            for (auto const& [recipient, payload] : sentPeerManifests_)
+                if (recipient == peer)
+                    result.push_back(payload);
+            return result;
+        }
         inline static std::size_t sid_ = 0;
         inline static std::uint16_t queueTx_ = 0;
         inline static std::uint16_t sendTx_ = 0;
@@ -239,6 +253,8 @@ private:
         inline static std::vector<int> sentTypes_;
         inline static std::vector<std::pair<Peer::id_t, int>> sentPeerTypes_;
         inline static std::vector<std::string> sentManifestPayloads_;
+        inline static std::vector<std::pair<Peer::id_t, std::string>>
+            sentPeerManifests_;
     };
 
     std::uint16_t lid_{0};
@@ -1097,13 +1113,18 @@ private:
             BEAST_EXPECT(
                 types.size() == beforeRepair + 1 &&
                 types.back() == protocol::mtMANIFESTS);
-            auto const payloads = PeerTest::sentManifestPayloads();
+            auto const payloads =
+                PeerTest::sentManifestPayloads(repairSourceId);
             BEAST_EXPECT(
                 !payloads.empty() && payloads.back() == memorySerialized);
         }
 
         // Duplicate: a later distinct validation under the same manifest
-        // sequence draws no second repair.
+        // sequence still posts a repair attempt; the strand no-ops it.
+        // Unknown-signer and paired traffic never post. The sentinel below
+        // is a later strand-FIFO send, so exactly two singletons prove the
+        // duplicate did not sneak a send, and the never-posted cases sent
+        // nothing either.
         BEAST_EXPECT(repairSource->receive(
             makeValidationAt(
                 memoryMasterKey,

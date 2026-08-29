@@ -3325,11 +3325,14 @@ PeerImp::sendManifestRepair(
     if (gracefulClose_ || detaching_)
         return;
 
-    if (auto const it = manifestRepairSequences_.find(masterKey);
-        it != manifestRepairSequences_.end() && it->second >= sequence)
+    auto const it = manifestRepairSequences_.find(masterKey);
+    if (it != manifestRepairSequences_.end() && it->second >= sequence)
         return;
 
-    if (manifestRepairSequences_.size() >= maxManifestRepairEntries)
+    // Overflow evicts on growth only. Updating an existing master's sequence
+    // must not wipe the rest of the connection's repair ledger.
+    if (it == manifestRepairSequences_.end() &&
+        manifestRepairSequences_.size() >= maxManifestRepairEntries)
         manifestRepairSequences_.clear();
     manifestRepairSequences_[masterKey] = sequence;
 

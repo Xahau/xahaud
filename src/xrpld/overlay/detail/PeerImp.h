@@ -205,8 +205,9 @@ private:
     // is an implicit request for that manifest; this records which
     // master/sequence singletons were already returned on this connection.
     // Owner/executor: this peer's strand. Entries only exist for masters the
-    // durable cache resolves, and the ledger is cleared wholesale on
-    // overflow; a lost entry costs one duplicate singleton repair.
+    // durable cache resolves. The ledger is cleared wholesale only when a
+    // new master would exceed the cap; a lost entry costs one duplicate
+    // singleton repair.
     static constexpr std::size_t maxManifestRepairEntries = 256;
     hash_map<PublicKey, std::uint32_t> manifestRepairSequences_;
 
