@@ -3305,8 +3305,11 @@ PeerImp::checkPropose(
 void
 PeerImp::finishManifestVerification()
 {
+    // Instrumentation is compiled out in NDEBUG builds; the state transition
+    // must not live inside XRPL_ASSERT.
+    auto const wasInFlight = manifestVerificationInFlight_.exchange(false);
     XRPL_ASSERT(
-        manifestVerificationInFlight_.exchange(false),
+        wasInFlight,
         "ripple::PeerImp::finishManifestVerification : verification in "
         "flight");
     JLOG(p_journal_.debug())

@@ -27,6 +27,7 @@
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/Sign.h>
+#include <algorithm>
 #include <condition_variable>
 #include <limits>
 #include <mutex>
@@ -139,6 +140,7 @@ private:
             {
                 std::lock_guard lock(sentMutex_);
                 sentTypes_.push_back(type);
+                sentPeerTypes_.emplace_back(id(), type);
                 if (type == protocol::mtMANIFESTS)
                 {
                     protocol::TMManifests manifests;
@@ -182,6 +184,7 @@ private:
             sendTx_ = 0;
             sid_ = 0;
             sentTypes_.clear();
+            sentPeerTypes_.clear();
             sentManifestPayloads_.clear();
         }
         static bool
@@ -193,29 +196,34 @@ private:
                 lock, 5s, [count] { return sentTypes_.size() >= count; });
         }
         static bool
-        waitForMessageQuiescence()
+        waitForMessages(Peer::id_t peer, std::size_t count)
         {
             using namespace std::chrono_literals;
-            auto const deadline = std::chrono::steady_clock::now() + 5s;
             std::unique_lock lock(sentMutex_);
-            for (;;)
-            {
-                auto const count = sentTypes_.size();
-                auto const quietUntil =
-                    std::min(deadline, std::chrono::steady_clock::now() + 50ms);
-                if (!sentCv_.wait_until(lock, quietUntil, [count] {
-                        return sentTypes_.size() != count;
-                    }))
-                    return true;
-                if (std::chrono::steady_clock::now() >= deadline)
-                    return false;
-            }
+            return sentCv_.wait_for(lock, 5s, [peer, count] {
+                return static_cast<std::size_t>(std::count_if(
+                           sentPeerTypes_.begin(),
+                           sentPeerTypes_.end(),
+                           [peer](auto const& message) {
+                               return message.first == peer;
+                           })) >= count;
+            });
         }
         static std::vector<int>
         sentTypes()
         {
             std::lock_guard lock(sentMutex_);
             return sentTypes_;
+        }
+        static std::vector<int>
+        sentTypes(Peer::id_t peer)
+        {
+            std::lock_guard lock(sentMutex_);
+            std::vector<int> result;
+            for (auto const& [recipient, type] : sentPeerTypes_)
+                if (recipient == peer)
+                    result.push_back(type);
+            return result;
         }
         static std::vector<std::string>
         sentManifestPayloads()
@@ -229,6 +237,7 @@ private:
         inline static std::mutex sentMutex_;
         inline static std::condition_variable sentCv_;
         inline static std::vector<int> sentTypes_;
+        inline static std::vector<std::pair<Peer::id_t, int>> sentPeerTypes_;
         inline static std::vector<std::string> sentManifestPayloads_;
     };
 
@@ -1047,6 +1056,7 @@ private:
         // order to another connection.
         testcase("naked validation cannot front-run verified pair");
         addPeer(env, peers, disabled);
+        auto const repairRecipient = peers.back()->id();
         auto const repairMasterSecret = randomSecretKey();
         auto const repairMasterKey =
             derivePublicKey(KeyType::ed25519, repairMasterSecret);
@@ -1057,24 +1067,28 @@ private:
             repairMasterSecret, repairMasterKey, repairSigningSecret, 0);
         auto const repairValidation = makeValidation(
             repairMasterKey, repairSigningKey, repairSigningSecret);
-        BEAST_EXPECT(PeerTest::waitForMessageQuiescence());
-        auto const messagesBeforeRepair = PeerTest::sentTypes().size();
+        auto const messagesBeforeRepair =
+            PeerTest::sentTypes(repairRecipient).size();
 
         BEAST_EXPECT(peer->receive(repairValidation, protocol::mtVALIDATION));
         env.app().getJobQueue().rendezvous();
-        BEAST_EXPECT(PeerTest::sentTypes().size() == messagesBeforeRepair);
+        BEAST_EXPECT(
+            PeerTest::sentTypes(repairRecipient).size() ==
+            messagesBeforeRepair);
 
         BEAST_EXPECT(receiveManifest(repairManifest));
         BEAST_EXPECT(peer->receive(repairValidation, protocol::mtVALIDATION));
         env.app().getJobQueue().rendezvous();
-        BEAST_EXPECT(PeerTest::waitForMessages(messagesBeforeRepair + 2));
-        auto const repairedTypes = PeerTest::sentTypes();
-        if (repairedTypes.size() >= 2)
+        BEAST_EXPECT(PeerTest::waitForMessages(
+            repairRecipient, messagesBeforeRepair + 2));
+        auto const repairedTypes = PeerTest::sentTypes(repairRecipient);
+        if (repairedTypes.size() >= messagesBeforeRepair + 2)
         {
             BEAST_EXPECT(
-                repairedTypes[repairedTypes.size() - 2] ==
-                protocol::mtMANIFESTS);
-            BEAST_EXPECT(repairedTypes.back() == protocol::mtVALIDATION);
+                repairedTypes[messagesBeforeRepair] == protocol::mtMANIFESTS);
+            BEAST_EXPECT(
+                repairedTypes[messagesBeforeRepair + 1] ==
+                protocol::mtVALIDATION);
         }
         BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
             repairMasterKey));
@@ -1112,12 +1126,15 @@ private:
             0);
         auto const collisionValidation1 = makeValidation(
             collisionMasterKey1, collisionSigningKey, collisionSigningSecret);
-        auto const messagesBeforeCollision = PeerTest::sentTypes().size();
+        auto const messagesBeforeCollision =
+            PeerTest::sentTypes(repairRecipient).size();
         BEAST_EXPECT(receiveManifest(collisionManifest1));
         BEAST_EXPECT(
             peer->receive(collisionValidation1, protocol::mtVALIDATION));
         env.app().getJobQueue().rendezvous();
-        BEAST_EXPECT(PeerTest::sentTypes().size() == messagesBeforeCollision);
+        BEAST_EXPECT(
+            PeerTest::sentTypes(repairRecipient).size() ==
+            messagesBeforeCollision);
         BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
             collisionMasterKey1));
         auto const collisionValidationHash1 =
