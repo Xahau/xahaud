@@ -928,13 +928,13 @@ declare global {
   type RecordEntries = readonly RecordEntry[];
 
   type RecordValueFromEntries<E extends RecordEntries> = {
-    [T in E[number] as T extends readonly [infer N extends string, infer F, ...unknown[]]
+    readonly [T in E[number] as T extends readonly [infer N extends string, infer F, ...unknown[]]
       ? RecordFieldValue<F> extends never ? never : N
       : never
     ]: T extends readonly [string, infer F, ...unknown[]] ? RecordFieldValue<F> : never;
   };
 
-  type RecordPatch<Value> = { [K in keyof Value]?: Value[K] };
+  type RecordPatch<Value> = { -readonly [K in keyof Value]?: Value[K] };
 
   interface RecordSchema<
     Name extends string,
@@ -945,14 +945,17 @@ declare global {
     readonly byteLength: Size;
 
     /**
-     * Decode a record after validating its size and field representations.
-     * Prefer this result-valued form for state or transaction-derived bytes.
+     * Decode a frozen record snapshot after validating its size and field
+     * representations. Prefer this result-valued form for state or
+     * transaction-derived bytes. Use `patch` to preserve untouched source
+     * bytes, or copy fields into a new input before encoding a replacement.
      */
     safeParse(value: BytesLike | STBlob): ParseResult<Value>;
 
     /**
-     * Assertion form for a programmer-guaranteed record. Throws on malformed
-     * input; it must not become the default for untrusted persisted bytes.
+     * Assertion form returning the same frozen record snapshot for a
+     * programmer-guaranteed record. Throws on malformed input; it must not
+     * become the default for untrusted persisted bytes.
      */
     parse(value: BytesLike | STBlob): Value;
 

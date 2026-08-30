@@ -6,6 +6,9 @@
     "AccountID.fromHex": {
       "0": "hexString"
     },
+    "Currency.from": {
+      "0": "bytesLikeOrSTBlob"
+    },
     "Hash256.from": {
       "0": "bytesLikeOrSTBlob"
     },
@@ -62,7 +65,7 @@
   },
   "declaration": {
     "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "sha256": "e03101173bd8775c118feb313fb89e974c4887d61727451c9993043ee41ea4aa"
+    "sha256": "88095e8874611b3564d301cd9712b3b7aa5aafb7a01daeb8961df23a9ee7f076"
   },
   "globals": {
     "AccountID": "object",
