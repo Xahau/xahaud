@@ -200,16 +200,16 @@ private:
     // the job terminal executes on a JobQueue worker, not the peer strand.
     std::atomic_bool manifestVerificationInFlight_{false};
 
-    // The bounded repair ledger for this connection. A naked validation that
-    // authenticates against the current cached manifest for its signing key
-    // is an implicit request for that manifest; this records which
-    // master/sequence singletons were already returned on this connection.
-    // Owner/executor: this peer's strand. Entries only exist for masters the
-    // durable cache resolves. The ledger is cleared wholesale only when a
-    // new master would exceed the cap; a lost entry costs one duplicate
-    // singleton repair.
-    static constexpr std::size_t maxManifestRepairEntries = 256;
-    hash_map<PublicKey, std::uint32_t> manifestRepairSequences_;
+    // The bounded assertion ledger for this connection. Every retained
+    // manifest sent here records its master/sequence. Backward repair hints
+    // therefore deduplicate against prior prerequisites and each other, and a
+    // terminal response can prove it answers state this connection actually
+    // asserted. Ephemeral pairs do not allocate rows.
+    // Owner/executor: this peer's strand. The ledger is cleared wholesale only
+    // when a new master would exceed the cap; forgetting is safe and may cost
+    // one duplicate repair or one missed best-effort correction.
+    static constexpr std::size_t maxManifestAssertionEntries = 256;
+    hash_map<PublicKey, std::uint32_t> manifestAssertionSequences_;
 
     bool gracefulClose_ = false;
     int large_sendq_ = 0;
@@ -478,6 +478,14 @@ public:
         return txReduceRelayEnabled_;
     }
 
+protected:
+    /** Dispatch derived-class work through this peer's serialized executor. */
+    void
+    dispatchOnStrand(std::function<void()> work)
+    {
+        boost::asio::dispatch(strand_, std::move(work));
+    }
+
 private:
     void
     close();
@@ -710,6 +718,18 @@ private:
         PublicKey const& masterKey,
         std::uint32_t sequence,
         std::string serialized);
+
+    void
+    recordManifestAssertion(PublicKey const& masterKey, std::uint32_t sequence);
+
+    bool
+    assertedOlderManifest(PublicKey const& masterKey, std::uint32_t sequence)
+        const;
+
+    void
+    sendManifestAssertions(
+        std::shared_ptr<Message> const& message,
+        std::vector<std::pair<PublicKey, std::uint32_t>> assertions);
 
     void
     sendLedgerBase(

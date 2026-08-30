@@ -29,6 +29,7 @@
 #include <xrpl/protocol/Sign.h>
 #include <algorithm>
 #include <condition_variable>
+#include <future>
 #include <limits>
 #include <mutex>
 
@@ -166,12 +167,25 @@ private:
         bool
         receive(MessageType const& message, protocol::MessageType type)
         {
-            Message wire(message, type);
-            auto const& buffer = wire.getBuffer(compression::Compressed::Off);
-            std::size_t hint = 0;
-            auto const [consumed, ec] =
-                invokeProtocolMessage(boost::asio::buffer(buffer), *this, hint);
-            return !ec && consumed == buffer.size();
+            auto wire = std::make_shared<Message>(message, type);
+            auto completed = std::make_shared<std::promise<bool>>();
+            auto result = completed->get_future();
+            dispatchOnStrand([this, wire, completed]() {
+                try
+                {
+                    auto const& buffer =
+                        wire->getBuffer(compression::Compressed::Off);
+                    std::size_t hint = 0;
+                    auto const [consumed, ec] = invokeProtocolMessage(
+                        boost::asio::buffer(buffer), *this, hint);
+                    completed->set_value(!ec && consumed == buffer.size());
+                }
+                catch (...)
+                {
+                    completed->set_exception(std::current_exception());
+                }
+            });
+            return result.get();
         }
 
         void
@@ -1066,12 +1080,11 @@ private:
         oversizedObject.add_list()->set_stobject(std::string(4097, 'x'));
         BEAST_EXPECT(peer->receive(oversizedObject, protocol::mtMANIFESTS));
 
-        // A strictly stale singleton proves its sender is behind for a
-        // retained master, and draws the retained manifest back — or the
-        // revocation, the freshest possible answer. Equal-sequence arrivals
-        // are ordinary always-send traffic and draw nothing; the shared
-        // repair ledger bounds every answer to once per sequence per
-        // connection.
+        // A strictly lower sequence claims its sender is behind for a retained
+        // master, and draws the retained manifest back — or the revocation,
+        // the freshest possible answer. Equal-sequence arrivals are ordinary
+        // always-send traffic and draw nothing; the shared repair ledger
+        // suppresses duplicate answers while its row survives.
         testcase("stale singleton draws the fresher manifest back");
         addPeer(env, peers, disabled);
         auto const stalePeer = peers.back();
@@ -1112,7 +1125,7 @@ private:
             BEAST_EXPECT(
                 types.size() == beforeStale + 1 &&
                 types.back() == protocol::mtMANIFESTS);
-            auto const payloads = PeerTest::sentManifestPayloads();
+            auto const payloads = PeerTest::sentManifestPayloads(stalePeerId);
             BEAST_EXPECT(
                 behindCurrent && !payloads.empty() &&
                 payloads.back() == behindCurrent->serialized);
@@ -1185,11 +1198,142 @@ private:
                 types.size() >= 2 &&
                 types[types.size() - 2] == protocol::mtMANIFESTS &&
                 types.back() == protocol::mtMANIFESTS);
-            auto const payloads = PeerTest::sentManifestPayloads();
+            auto const payloads = PeerTest::sentManifestPayloads(stalePeerId);
             BEAST_EXPECT(
                 !payloads.empty() &&
                 payloads.back() == buriedRevocationSerialized);
         }
+
+        // A terminal response is stronger than an unsolicited unlisted
+        // revocation only when this connection previously asserted an older
+        // retained manifest for the same master. The response can then end
+        // that already-retained authority and relay onward; it still cannot
+        // allocate a new master.
+        testcase("retained revocation response crosses local listing");
+        addPeer(env, peers, disabled);
+        auto const correctionPeer = peers.back();
+        auto const correctionPeerId = correctionPeer->id();
+
+        auto const correctionMasterSecret = randomSecretKey();
+        auto const correctionMasterKey =
+            derivePublicKey(KeyType::ed25519, correctionMasterSecret);
+        auto const correctionSigningSecret = randomSecretKey();
+        auto const correctionSigningKey =
+            derivePublicKey(KeyType::secp256k1, correctionSigningSecret);
+        auto const correctionNormal = makeManifest(
+            correctionMasterSecret,
+            correctionMasterKey,
+            correctionSigningSecret,
+            0);
+        {
+            auto parsed = deserializeManifest(correctionNormal);
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+        BEAST_EXPECT(!env.app().validators().listed(correctionMasterKey));
+
+        auto const beforeAssertion =
+            PeerTest::sentTypes(correctionPeerId).size();
+        protocol::TMValidation assertedValidation;
+        assertedValidation.set_validation("asserted validation");
+        env.app().overlay().broadcast(assertedValidation, correctionSigningKey);
+        BEAST_EXPECT(
+            PeerTest::waitForMessages(correctionPeerId, beforeAssertion + 2));
+        {
+            auto const types = PeerTest::sentTypes(correctionPeerId);
+            BEAST_EXPECT(
+                types.size() == beforeAssertion + 2 &&
+                types[types.size() - 2] == protocol::mtMANIFESTS &&
+                types.back() == protocol::mtVALIDATION);
+            auto const payloads =
+                PeerTest::sentManifestPayloads(correctionPeerId);
+            BEAST_EXPECT(
+                !payloads.empty() && payloads.back() == correctionNormal);
+        }
+
+        STObject correctionRevocation(sfGeneric);
+        correctionRevocation[sfSequence] =
+            std::numeric_limits<std::uint32_t>::max();
+        correctionRevocation[sfPublicKey] = correctionMasterKey;
+        sign(
+            correctionRevocation,
+            HashPrefix::manifest,
+            KeyType::ed25519,
+            correctionMasterSecret,
+            sfMasterSignature);
+        auto const correctionRevocationSerialized =
+            serialize(correctionRevocation);
+        {
+            protocol::TMManifests response;
+            response.add_list()->set_stobject(correctionRevocationSerialized);
+            BEAST_EXPECT(
+                correctionPeer->receive(response, protocol::mtMANIFESTS));
+        }
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(
+            env.app().validatorManifests().revoked(correctionMasterKey));
+        BEAST_EXPECT(
+            PeerTest::waitForMessages(correctionPeerId, beforeAssertion + 3));
+        {
+            auto const payloads =
+                PeerTest::sentManifestPayloads(correctionPeerId);
+            BEAST_EXPECT(
+                payloads.size() >= 2 &&
+                payloads.back() == correctionRevocationSerialized);
+        }
+
+        // Retention alone is insufficient: without an older assertion on
+        // this connection, an unlisted revocation remains neither admitted
+        // nor relayed.
+        addPeer(env, peers, disabled);
+        auto const unsolicitedPeer = peers.back();
+        auto const unsolicitedPeerId = unsolicitedPeer->id();
+        auto const unsolicitedMasterSecret = randomSecretKey();
+        auto const unsolicitedMasterKey =
+            derivePublicKey(KeyType::ed25519, unsolicitedMasterSecret);
+        auto const unsolicitedSigningSecret = randomSecretKey();
+        {
+            auto parsed = deserializeManifest(makeManifest(
+                unsolicitedMasterSecret,
+                unsolicitedMasterKey,
+                unsolicitedSigningSecret,
+                0));
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+        STObject unsolicitedRevocation(sfGeneric);
+        unsolicitedRevocation[sfSequence] =
+            std::numeric_limits<std::uint32_t>::max();
+        unsolicitedRevocation[sfPublicKey] = unsolicitedMasterKey;
+        sign(
+            unsolicitedRevocation,
+            HashPrefix::manifest,
+            KeyType::ed25519,
+            unsolicitedMasterSecret,
+            sfMasterSignature);
+        protocol::TMManifests unsolicited;
+        unsolicited.add_list()->set_stobject(serialize(unsolicitedRevocation));
+        auto const beforeUnsolicited =
+            PeerTest::sentTypes(unsolicitedPeerId).size();
+        BEAST_EXPECT(
+            unsolicitedPeer->receive(unsolicited, protocol::mtMANIFESTS));
+        env.app().getJobQueue().rendezvous();
+        auto const unsolicitedCurrent =
+            env.app().validatorManifests().getManifestSnapshot(
+                unsolicitedMasterKey);
+        BEAST_EXPECT(
+            unsolicitedCurrent && !unsolicitedCurrent->revoked() &&
+            unsolicitedCurrent->sequence == 0);
+        BEAST_EXPECT(
+            PeerTest::sentTypes(unsolicitedPeerId).size() == beforeUnsolicited);
 
         // A naked validation that authenticates against the current cached
         // manifest is an implicit request for that manifest. The recipient

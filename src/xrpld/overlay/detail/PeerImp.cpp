@@ -360,6 +360,10 @@ PeerImp::sendValidation(
                     ? toBase58(TokenType::NodePublic, *prerequisiteMaster)
                     : "unknown")
             << " sequence=" << prerequisiteSequence;
+        if (auto const retained = app_.validatorManifests().getManifestSnapshot(
+                *prerequisiteMaster);
+            retained && retained->sequence >= prerequisiteSequence)
+            recordManifestAssertion(*prerequisiteMaster, prerequisiteSequence);
         send(std::make_shared<Message>(*manifest, protocol::mtMANIFESTS));
     }
 
@@ -1175,10 +1179,17 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
         if (manifest->revoked())
         {
             // A fresh self-signed revocation has no more claim on permanent
-            // state than a fresh ordinary manifest. This transport slice has
-            // no durable provenance model, so only current local policy earns
-            // the terminal update.
-            if (!app_.validators().listed(manifest->masterKey))
+            // state than a fresh ordinary manifest. Current local policy may
+            // admit it directly; an unlisted response may only terminate a
+            // master already retained here after this connection asserted an
+            // older sequence.
+            auto const listed = app_.validators().listed(manifest->masterKey);
+            auto const current = app_.validatorManifests().getManifestSnapshot(
+                manifest->masterKey);
+            auto const retainedResponse = !listed && current &&
+                current->sequence < manifest->sequence &&
+                assertedOlderManifest(manifest->masterKey, manifest->sequence);
+            if (!listed && !retainedResponse)
             {
                 JLOG(p_journal_.debug())
                     << "manifest_revocation ignored_unlisted master="
@@ -1187,8 +1198,16 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
             }
 
             app_.getJobQueue().addJob(
-                jtMANIFEST, "receiveManifestRevocation", [this, that, m]() {
-                    overlay_.onManifests(m, that);
+                jtMANIFEST,
+                "receiveManifestRevocation",
+                [this, that, m, retainedResponse]() {
+                    overlay_.onManifests(
+                        m,
+                        that,
+                        retainedResponse
+                            ? OverlayImpl::ManifestAdmission::
+                                  retainedRevocationResponse
+                            : OverlayImpl::ManifestAdmission::localPolicy);
                 });
             return;
         }
@@ -1214,11 +1233,12 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
                 << "manifest_validation candidate_ignored peer=" << id_
                 << " reason=global_sequence master="
                 << toBase58(TokenType::NodePublic, manifest->masterKey);
-            // A strictly stale candidate proves the sender is behind for a
-            // master this node retains. Answer with the retained manifest —
-            // or the revocation, the freshest possible answer — at most once
-            // per sequence through the bounded repair ledger. Equal-sequence
-            // arrivals are ordinary always-send traffic and draw nothing.
+            // A strictly lower sequence claims that the sender is behind for
+            // a master this node retains. Answer with the retained manifest —
+            // or the revocation, the freshest possible answer — without
+            // treating this unverified trigger as ingress authority. The
+            // shared repair ledger suppresses repeats while its row survives;
+            // equal-sequence always-send traffic draws nothing.
             if (current->sequence > manifest->sequence)
             {
                 JLOG(p_journal_.debug())
@@ -3358,16 +3378,11 @@ PeerImp::sendManifestRepair(
     if (gracefulClose_ || detaching_)
         return;
 
-    auto const it = manifestRepairSequences_.find(masterKey);
-    if (it != manifestRepairSequences_.end() && it->second >= sequence)
+    auto const it = manifestAssertionSequences_.find(masterKey);
+    if (it != manifestAssertionSequences_.end() && it->second >= sequence)
         return;
 
-    // Overflow evicts on growth only. Updating an existing master's sequence
-    // must not wipe the rest of the connection's repair ledger.
-    if (it == manifestRepairSequences_.end() &&
-        manifestRepairSequences_.size() >= maxManifestRepairEntries)
-        manifestRepairSequences_.clear();
-    manifestRepairSequences_[masterKey] = sequence;
+    recordManifestAssertion(masterKey, sequence);
 
     protocol::TMManifests tm;
     tm.add_list()->set_stobject(serialized);
@@ -3376,6 +3391,63 @@ PeerImp::sendManifestRepair(
         << "manifest_validation repair_sent peer=" << id_
         << " master=" << toBase58(TokenType::NodePublic, masterKey)
         << " sequence=" << sequence;
+}
+
+void
+PeerImp::recordManifestAssertion(
+    PublicKey const& masterKey,
+    std::uint32_t sequence)
+{
+    XRPL_ASSERT(
+        strand_.running_in_this_thread(),
+        "ripple::PeerImp::recordManifestAssertion : on strand");
+
+    auto const it = manifestAssertionSequences_.find(masterKey);
+    if (it != manifestAssertionSequences_.end())
+    {
+        if (it->second < sequence)
+            it->second = sequence;
+        return;
+    }
+
+    if (manifestAssertionSequences_.size() >= maxManifestAssertionEntries)
+        manifestAssertionSequences_.clear();
+    manifestAssertionSequences_.emplace(masterKey, sequence);
+}
+
+bool
+PeerImp::assertedOlderManifest(
+    PublicKey const& masterKey,
+    std::uint32_t sequence) const
+{
+    XRPL_ASSERT(
+        strand_.running_in_this_thread(),
+        "ripple::PeerImp::assertedOlderManifest : on strand");
+
+    auto const it = manifestAssertionSequences_.find(masterKey);
+    return it != manifestAssertionSequences_.end() && it->second < sequence;
+}
+
+void
+PeerImp::sendManifestAssertions(
+    std::shared_ptr<Message> const& message,
+    std::vector<std::pair<PublicKey, std::uint32_t>> assertions)
+{
+    if (!strand_.running_in_this_thread())
+        return post(
+            strand_,
+            std::bind(
+                &PeerImp::sendManifestAssertions,
+                shared_from_this(),
+                message,
+                std::move(assertions)));
+
+    if (gracefulClose_ || detaching_)
+        return;
+
+    for (auto const& [masterKey, sequence] : assertions)
+        recordManifestAssertion(masterKey, sequence);
+    send(message);
 }
 
 void

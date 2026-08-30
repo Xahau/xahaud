@@ -285,11 +285,14 @@ public:
         }
     }
 
+    enum class ManifestAdmission { localPolicy, retainedRevocationResponse };
+
     // Called when TMManifests is received from a peer
     void
     onManifests(
         std::shared_ptr<protocol::TMManifests> const& m,
-        std::shared_ptr<PeerImp> const& from);
+        std::shared_ptr<PeerImp> const& from,
+        ManifestAdmission admission = ManifestAdmission::localPolicy);
 
     static bool
     isPeerUpgrade(http_request_type const& request);

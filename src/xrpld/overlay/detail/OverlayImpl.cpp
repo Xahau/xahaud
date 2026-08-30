@@ -631,12 +631,14 @@ OverlayImpl::onPeerDeactivate(Peer::id_t id)
 void
 OverlayImpl::onManifests(
     std::shared_ptr<protocol::TMManifests> const& m,
-    std::shared_ptr<PeerImp> const& from)
+    std::shared_ptr<PeerImp> const& from,
+    ManifestAdmission admission)
 {
     auto const n = m->list_size();
     auto const& journal = from->pjournal();
 
     protocol::TMManifests relay;
+    std::vector<std::pair<PublicKey, std::uint32_t>> relayAssertions;
 
     for (std::size_t i = 0; i < n; ++i)
     {
@@ -650,10 +652,20 @@ OverlayImpl::onManifests(
             auto const revoked = mo->revoked();
 
             // Cache membership is observation, not authority: a legacy row
-            // cannot perpetuate itself by presenting a newer signature. This
-            // transport slice admits durable updates only for current local
-            // validator policy.
-            if (!app_.validators().listed(masterKey))
+            // cannot perpetuate itself by presenting a newer normal
+            // signature. Current local policy admits ordinary updates; the
+            // one response-gated exception can only terminate an existing
+            // retained master.
+            auto const listed = app_.validators().listed(masterKey);
+            auto const retainedRevocationResponse = !listed && revoked &&
+                admission == ManifestAdmission::retainedRevocationResponse &&
+                [&]() {
+                    auto const current =
+                        app_.validatorManifests().getManifestSnapshot(
+                            masterKey);
+                    return current && current->sequence < sequence;
+                }();
+            if (!listed && !retainedRevocationResponse)
             {
                 if (n == 1)
                 {
@@ -696,6 +708,7 @@ OverlayImpl::onManifests(
                     // A revocation has no associated validation to carry it
                     // onward, so it retains immediate network-wide relay.
                     relay.add_list()->set_stobject(s);
+                    relayAssertions.emplace_back(masterKey, sequence);
                     JLOG(journal.debug())
                         << "manifest_revocation accepted_for_relay master="
                         << toBase58(TokenType::NodePublic, masterKey);
@@ -728,8 +741,11 @@ OverlayImpl::onManifests(
     }
 
     if (!relay.list().empty())
-        for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS)](
-                     std::shared_ptr<PeerImp>&& p) { p->send(m2); });
+        for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS),
+                  assertions = std::move(relayAssertions)](
+                     std::shared_ptr<PeerImp>&& p) {
+            p->sendManifestAssertions(m2, assertions);
+        });
 }
 
 void
