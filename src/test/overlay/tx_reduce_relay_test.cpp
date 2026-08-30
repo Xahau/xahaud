@@ -1255,6 +1255,60 @@ private:
                 !payloads.empty() && payloads.back() == correctionNormal);
         }
 
+        // The connection assertion does not authorize an ordinary unlisted
+        // rotation. Without a matching validation it remains only the one
+        // bounded pending candidate and cannot alter retained state.
+        auto const correctionNextSigningSecret = randomSecretKey();
+        protocol::TMManifests ordinaryResponse;
+        ordinaryResponse.add_list()->set_stobject(makeManifest(
+            correctionMasterSecret,
+            correctionMasterKey,
+            correctionNextSigningSecret,
+            1));
+        BEAST_EXPECT(
+            correctionPeer->receive(ordinaryResponse, protocol::mtMANIFESTS));
+        {
+            auto const current =
+                env.app().validatorManifests().getManifestSnapshot(
+                    correctionMasterKey);
+            BEAST_EXPECT(
+                current && !current->revoked() && current->sequence == 0 &&
+                current->signingKey == correctionSigningKey);
+        }
+
+        // The response qualification is only an ingress gate. A forged
+        // terminal answer still reaches ordinary manifest verification and
+        // cannot apply or relay.
+        auto const forgedResponseMasterSecret = randomSecretKey();
+        STObject forgedRevocation(sfGeneric);
+        forgedRevocation[sfSequence] =
+            std::numeric_limits<std::uint32_t>::max();
+        forgedRevocation[sfPublicKey] = correctionMasterKey;
+        sign(
+            forgedRevocation,
+            HashPrefix::manifest,
+            KeyType::ed25519,
+            forgedResponseMasterSecret,
+            sfMasterSignature);
+        protocol::TMManifests forgedResponse;
+        forgedResponse.add_list()->set_stobject(serialize(forgedRevocation));
+        auto const beforeForgedResponse =
+            PeerTest::sentTypes(correctionPeerId).size();
+        BEAST_EXPECT(
+            correctionPeer->receive(forgedResponse, protocol::mtMANIFESTS));
+        env.app().getJobQueue().rendezvous();
+        {
+            auto const current =
+                env.app().validatorManifests().getManifestSnapshot(
+                    correctionMasterKey);
+            BEAST_EXPECT(
+                current && !current->revoked() && current->sequence == 0 &&
+                current->signingKey == correctionSigningKey);
+        }
+        BEAST_EXPECT(
+            PeerTest::sentTypes(correctionPeerId).size() ==
+            beforeForgedResponse);
+
         STObject correctionRevocation(sfGeneric);
         correctionRevocation[sfSequence] =
             std::numeric_limits<std::uint32_t>::max();
