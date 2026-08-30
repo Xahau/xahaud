@@ -97,7 +97,7 @@ public:
 
         testcase("Frozen v1 policy is complete and independent");
         auto const snapshot = quickJSHostPolicyV1Snapshot();
-        BEAST_EXPECT(snapshot.size() == 25);
+        BEAST_EXPECT(snapshot.size() == 27);
         BEAST_EXPECT(snapshot.size() == quickJSV1ImportCount);
         auto const* policy =
             findHostAdapterPolicy(generated::hostAdapterPolicy);
@@ -155,15 +155,15 @@ public:
                     : descriptor.name != "accept" &&
                         descriptor.name != "rollback");
         }
-        BEAST_EXPECT(currentNames.size() - v1Names.size() == 50);
+        BEAST_EXPECT(currentNames.size() - v1Names.size() == 48);
         std::size_t outsideV1 = 0;
         for (auto const name : currentNames)
             if (!v1Names.contains(name))
                 ++outsideV1;
-        BEAST_EXPECT(outsideV1 == 50);
+        BEAST_EXPECT(outsideV1 == 48);
 
         testcase("Provider manifest has exact v1 Wasm signatures");
-        BEAST_EXPECT(generated::providerImportSignatures.size() == 25);
+        BEAST_EXPECT(generated::providerImportSignatures.size() == 27);
         std::set<std::string_view> providerNames;
         for (auto const& expected : generated::providerImportSignatures)
         {
@@ -187,7 +187,7 @@ public:
         BEAST_EXPECT(providerNames == v1Names);
 
         testcase("Pinned native ABI matches frozen and current projections");
-        BEAST_EXPECT(generated::nativeImportSignatures.size() == 25);
+        BEAST_EXPECT(generated::nativeImportSignatures.size() == 27);
         BEAST_EXPECT(
             generated::nativeABISourceRepository ==
             "https://github.com/Xahau/xahaud");
@@ -311,6 +311,7 @@ public:
         BEAST_EXPECT(findMeasure("slot") == HostWorkMeasureKind::argument1V1);
         BEAST_EXPECT(
             findMeasure("ledger_nonce") == HostWorkMeasureKind::argument1V1);
+        BEAST_EXPECT(findMeasure("fee_base") == HostWorkMeasureKind::zeroV1);
         BEAST_EXPECT(
             findMeasure("etxn_details") == HostWorkMeasureKind::argument1V1);
         BEAST_EXPECT(
@@ -325,6 +326,9 @@ public:
             HostWorkMeasureKind::arguments1And3SaturatedV1);
         BEAST_EXPECT(
             findMeasure("state_foreign") ==
+            HostWorkMeasureKind::arguments1And3And5And7SaturatedV1);
+        BEAST_EXPECT(
+            findMeasure("state_foreign_set") ==
             HostWorkMeasureKind::arguments1And3And5And7SaturatedV1);
         BEAST_EXPECT(findMeasure("slot_clear") == HostWorkMeasureKind::zeroV1);
         std::array<wasmtime_val_t, 7> incompleteStateForeignArguments{};

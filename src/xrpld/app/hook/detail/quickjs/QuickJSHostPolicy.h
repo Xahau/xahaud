@@ -32,11 +32,10 @@ inline constexpr NativeScalarKind nativeScalarKind = [] {
 
 inline constexpr std::size_t maxImportParameters = 9;
 
-/** Immutable import identity for the retained xahau-raw-hook-host-v1 policy.
+/** Import identity for the retained xahau-raw-hook-host-v1 policy.
 
-    This list is deliberately separate from the live 75-entry Hook catalogue.
-    Once the profile is activated, later catalogue growth or reordering must
-    not alter the policy selected by its retained runtime profile.
+    This list is deliberately separate from the live 75-entry Hook catalogue
+    and contains the exact imports selected by the sealed provider profile.
 */
 enum class QuickJSV1ImportId : std::uint8_t {
     accept,
@@ -45,6 +44,7 @@ enum class QuickJSV1ImportId : std::uint8_t {
     ledger_last_time,
     ledger_last_hash,
     ledger_nonce,
+    fee_base,
     otxn_type,
     otxn_param,
     otxn_slot,
@@ -58,6 +58,7 @@ enum class QuickJSV1ImportId : std::uint8_t {
     trace,
     state,
     state_foreign,
+    state_foreign_set,
     state_set,
     prepare,
     etxn_details,
@@ -147,6 +148,13 @@ QUICKJS_V1_IMPORT_TRAITS(
     argument1V1,
     ordinaryStatus);
 QUICKJS_V1_IMPORT_TRAITS(
+    fee_base,
+    std::int64_t,
+    (),
+    uint256{},
+    zeroV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
     otxn_type,
     std::int64_t,
     (),
@@ -232,6 +240,20 @@ QUICKJS_V1_IMPORT_TRAITS(
     ordinaryStatus);
 QUICKJS_V1_IMPORT_TRAITS(
     state_foreign,
+    std::int64_t,
+    (std::uint32_t,
+     std::uint32_t,
+     std::uint32_t,
+     std::uint32_t,
+     std::uint32_t,
+     std::uint32_t,
+     std::uint32_t,
+     std::uint32_t),
+    uint256{},
+    arguments1And3And5And7SaturatedV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    state_foreign_set,
     std::int64_t,
     (std::uint32_t,
      std::uint32_t,

@@ -648,6 +648,30 @@ declare global {
   /** One-pass serialized-object certification/indexing result. */
   type ObjectParseResult<T> = Result<T, ObjectParseError>;
 
+  /**
+   * One-layer result from a schema-aware host-byte read (state or params).
+   * Failure remains distinguishable as either the original host status
+   * (`code`) or a codec validation issue (`issue`); successful absence
+   * remains `undefined`.
+   *
+   * Canonical triage keeps all three states distinct: first handle `!read.ok`
+   * (preserving a host code or rejecting malformed bytes), then treat
+   * `read.value === undefined` as the absent/default case, and only then use the
+   * decoded value. Persisted malformed bytes must not silently take the absent
+   * default.
+   *
+   * CAPACITY MODEL: untyped state reads retain the provider's full 4,096-byte
+   * capacity. The opt-in state schema overload instead passes the schema's
+   * exact `byteLength` to the same host call. A short successful read reaches
+   * the schema and becomes `ParseError` `wrong-length`; an oversized value is
+   * refused by the host as `TOO_SMALL`, so no fabricated `actualLength` is
+   * reported. Other host errors and successful absence retain their channels.
+   */
+  type SchemaReadResult<T> = Result<T | undefined, HostError | ParseError>;
+
+  /** Same type; kept so existing `state.get` prose still type-checks. */
+  type StateReadResult<T> = SchemaReadResult<T>;
+
   /** Failure from constructing or operating on a bounded unsigned integer. */
   interface UIntError {
     readonly domain: "uint";
@@ -975,6 +999,7 @@ declare global {
     function u16le(): RecordField<number, 2>;
     function u32le(): RecordField<number, 4>;
     function u64le(): RecordField<bigint, 8>;
+    function xflle(): RecordField<XFLDecimal, 8>;
     function bytes<const Width extends number>(byteLength: Width): RecordField<STBlob, Width>;
     function hash(byteLength: 32): RecordField<Hash256, 32>;
     function accountID(): RecordField<AccountID, 20>;
@@ -1142,7 +1167,11 @@ declare global {
     equals(other: Currency): boolean;
   }
 
-  const Currency: RuntimeType<Currency>;
+  interface CurrencyFactory extends RuntimeType<Currency> {
+    from(value: BytesLike | STBlob | string): Currency;
+  }
+
+  const Currency: CurrencyFactory;
 
   /** @serial Issue */
   interface Issue {
@@ -1155,7 +1184,11 @@ declare global {
     equals(other: Issue): boolean;
   }
 
-  const Issue: RuntimeType<Issue>;
+  interface IssueFactory extends RuntimeType<Issue> {
+    iou(currency: Currency, issuer: AccountID): Issue;
+  }
+
+  const Issue: IssueFactory;
 
   /** Immutable provider-minted sequence for the serialized Vector256 wire type. */
   /** @serial Vector256 */
@@ -1255,7 +1288,16 @@ declare global {
     compare(other: XFLDecimal): -1 | 0 | 1;
   }
 
-  const XFLDecimal: RuntimeType<XFLDecimal>;
+  interface XFLDecimalFactory extends RuntimeType<XFLDecimal> {
+    readonly zero: XFLDecimal;
+    /**
+     * Construct `mantissa × 10^exponent`. The value comes first so ordinary
+     * calls read in the same order as the decimal quantity they express.
+     */
+    from(mantissa: bigint | number, exponent?: number): XFLResult<XFLDecimal>;
+  }
+
+  const XFLDecimal: XFLDecimalFactory;
 
   /** @serial Amount */
   interface Amount {
@@ -1288,6 +1330,11 @@ declare global {
 
   interface AmountFactory extends RuntimeType<Amount> {
     drops(value: Drops): NativeAmount;
+    /**
+     * Encode an issued amount from an existing scalar and issue. A non-IOU
+     * issue is an ordinary local encoding failure, never a host failure.
+     */
+    iou(value: XFLDecimal, issue: Issue): Result<IOUAmount, EncodeError>;
   }
 
   const Amount: AmountFactory;
@@ -1520,6 +1567,22 @@ declare global {
     readonly LedgerEntryType: typeof LedgerEntryType.AccountRoot;
   }
 
+  /** Format-proven LedgerEntry narrowed to a URI token. */
+  class URIToken extends LedgerEntry {
+    private constructor();
+
+    readonly Owner: AccountID;
+    readonly OwnerNode: UInt64;
+    readonly Issuer: AccountID;
+    readonly URI: STBlob;
+    readonly Digest?: Hash256;
+    readonly Amount?: Amount;
+    readonly Destination?: AccountID;
+    readonly PreviousTxnID: Hash256;
+    readonly PreviousTxnLgrSeq: UInt32;
+    readonly LedgerEntryType: typeof LedgerEntryType.URIToken;
+  }
+
   const TransactionType: TransactionTypeEnum;
 
   type TransactionType = (typeof TransactionType)[keyof typeof TransactionType];
@@ -1672,8 +1735,17 @@ declare global {
   namespace state {
     interface ForeignAccessor {
       get(key: StateKeyLike): HostResult<STBlob | undefined>;
+      /**
+       * Opt-in exact-capacity read. Host `TOO_SMALL` remains a host failure;
+       * short successful values and malformed exact-size values are parse
+       * failures, and missing state remains successful `undefined`.
+       */
+      get<T>(key: StateKeyLike, schema: BinarySchema<T>): StateReadResult<T>;
+      set(key: StateKeyLike, value: StateValueLike): HostVoidResult;
+      del(key: StateKeyLike): HostVoidResult;
     }
     function get(key: string | BytesLike | STBlob | Hash256 | AccountID): HostResult<STBlob | undefined>;
+    function get<T>(key: StateKeyLike, schema: BinarySchema<T>): StateReadResult<T>;
     function set(
       key: string | BytesLike | STBlob | Hash256 | AccountID,
       value: string | BytesLike | STBlob | Hash256 | AccountID,
@@ -1781,6 +1853,7 @@ declare global {
   namespace util {
     namespace keylet {
       function account(account: AccountID): LedgerKeylet<AccountRoot>;
+      function uriToken(id: Hash256): LedgerKeylet<URIToken>;
     }
     /**
      * Decode ledger-serialized bytes. Assertion form: malformed input
@@ -1804,8 +1877,11 @@ declare global {
     const sequence: LedgerSequence;
     const lastTime: RippleTime;
     const lastHash: Hash256;
+    /** Total base fee for the current ledger view. */
+    const feeBase: Drops;
     function nonce(): HostResult<Hash256>;
     function lookup(locator: LedgerKeylet<AccountRoot>): HostResult<AccountRoot | undefined>;
+    function lookup(locator: LedgerKeylet<URIToken>): HostResult<URIToken | undefined>;
   }
 
   /** Metadata and configuration for the currently executing Hook. */

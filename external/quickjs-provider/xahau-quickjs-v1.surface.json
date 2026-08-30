@@ -39,8 +39,15 @@
     "rollback": {
       "0": "lifecycleMessage"
     },
+    "state.ForeignAccessor.del": {
+      "0": "stateKeyLike"
+    },
     "state.ForeignAccessor.get": {
       "0": "stateKeyLike"
+    },
+    "state.ForeignAccessor.set": {
+      "0": "stateKeyLike",
+      "1": "stateValueLike"
     },
     "state.del": {
       "0": "stateKeyLike"
@@ -55,7 +62,7 @@
   },
   "declaration": {
     "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "sha256": "f524637b8e38860fb55c3bc7be45498de77bb8601152f931902c77031c98abe3"
+    "sha256": "e03101173bd8775c118feb313fb89e974c4887d61727451c9993043ee41ea4aa"
   },
   "globals": {
     "AccountID": "object",
@@ -93,6 +100,7 @@
     "UInt32": "object",
     "UInt64": "object",
     "UInt8": "object",
+    "URIToken": "function",
     "Vector256": "object",
     "VoidResult": "object",
     "XChainBridge": "object",
@@ -135,6 +143,7 @@
       "param": "function"
     },
     "ledger": {
+      "feeBase": "value",
       "lastHash": "value",
       "lastTime": "value",
       "lookup": "function",
@@ -154,7 +163,8 @@
       "u16le": "function",
       "u32le": "function",
       "u64le": "function",
-      "u8": "function"
+      "u8": "function",
+      "xflle": "function"
     },
     "rollback": {
       "onAllFail": "function",
@@ -177,7 +187,8 @@
       "validateObject": "function"
     },
     "util.keylet": {
-      "account": "function"
+      "account": "function",
+      "uriToken": "function"
     }
   },
   "prototypes": {
@@ -777,6 +788,59 @@
       ],
       "probe": "UInt8.zero"
     },
+    "URIToken": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "Flags",
+          "Issuer",
+          "LedgerEntryType",
+          "Owner",
+          "OwnerNode",
+          "PreviousTxnID",
+          "PreviousTxnLgrSeq",
+          "URI"
+        ],
+        "extensible": false,
+        "own": [
+          "Flags",
+          "Issuer",
+          "LedgerEntryType",
+          "Owner",
+          "OwnerNode",
+          "PreviousTxnID",
+          "PreviousTxnLgrSeq",
+          "URI"
+        ]
+      },
+      "frozen": true,
+      "members": {
+        "Amount": "optional-value",
+        "Destination": "optional-value",
+        "Digest": "optional-value",
+        "Flags": "value",
+        "Issuer": "value",
+        "LedgerEntryType": "value",
+        "LedgerIndex": "optional-value",
+        "Owner": "value",
+        "OwnerNode": "value",
+        "PreviousTxnID": "value",
+        "PreviousTxnLgrSeq": "value",
+        "Remarks": "optional-value",
+        "URI": "value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('110055220000000025000000013400000000000000005500000000000000000000000000000000000000000000000000000000000000007501008214B5F762798A53D543A014CAF8B297CFF8F2F937E88414B5F762798A53D543A014CAF8B297CFF8F2F937E8'))"
+    },
     "Vector256": {
       "exotic": {
         "array": false,
@@ -863,10 +927,14 @@
     },
     "state.ForeignAccessor": {
       "members": {
-        "get": "function"
+        "del": "function",
+        "get": "function",
+        "set": "function"
       },
       "own": [
-        "get"
+        "del",
+        "get",
+        "set"
       ],
       "probe": "state.foreign(AccountID.zero, Hash256.zero)"
     }
@@ -881,7 +949,11 @@
     },
     "AccountRoot": {},
     "Amount": {
-      "drops": "function"
+      "drops": "function",
+      "iou": "function"
+    },
+    "Currency": {
+      "from": "function"
     },
     "Hash256": {
       "from": "function",
@@ -935,6 +1007,9 @@
       "TOO_MANY_STATE_MODIFICATIONS": "value",
       "TOO_SMALL": "value",
       "XFL_OVERFLOW": "value"
+    },
+    "Issue": {
+      "iou": "function"
     },
     "LedgerEntry": {},
     "LedgerEntryType": {
@@ -1283,6 +1358,11 @@
       "from": "function",
       "max": "value",
       "mulDiv": "function",
+      "zero": "value"
+    },
+    "URIToken": {},
+    "XFLDecimal": {
+      "from": "function",
       "zero": "value"
     },
     "XFLProfile": {

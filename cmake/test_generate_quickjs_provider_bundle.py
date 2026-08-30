@@ -20,17 +20,17 @@ WASM_VERSION = "47.0.3"
 CMAKE_SET = re.compile(r'^set\(XAHAU_QUICKJS_([A-Z0-9_]+) "([^"]*)"\)\s*$')
 
 PIN = {
-    "provider_sha256": "104eeea1db4d2c3fc80282bfb460721c3cc830507eb64f8401df477f8fac41ee",
-    "provider_size": "1237400",
-    "manifest_sha256": "ec10381830824d39ad6eb9953c3de878e9b4033daecc95c75ea3ce312c830aa8",
-    "runtime_profile_id": "cf8dc1d168572e3837e42a43bd5814fb9c5f94d6904050fd6116e90f7f6d6844",
-    "broad_declaration_sha256": "9bf519d3d5e8eb57f5417d53923e4ab974044c799bb75a5961dec7d1e9f605a2",
-    "exact_v1_declaration_sha256": "f524637b8e38860fb55c3bc7be45498de77bb8601152f931902c77031c98abe3",
-    "surface_sha256": "d51d77766b2c9247dc6c9bff47e837fd4864579c844f431e1ab204008eef4b5a",
+    "provider_sha256": "eef126d573dcec94b3c5255ac9d66333fdac15438f4109e62d378a44c9de9390",
+    "provider_size": "1247172",
+    "manifest_sha256": "d987997ed97f11d9d1db8ee156eb41781fa0c6966d6760523e1218dd40833498",
+    "runtime_profile_id": "5dae59fa453879321783a22476a9c7334acaa636b00be2c54fae1991e20b93b2",
+    "broad_declaration_sha256": "a83c16b97fb4faf98962f4c746b07d43ec5de0de7e689e7c225bc4ceb93b8c3e",
+    "exact_v1_declaration_sha256": "e03101173bd8775c118feb313fb89e974c4887d61727451c9993043ee41ea4aa",
+    "surface_sha256": "8074d80057977d3a4998dba443448df0430b98227c6a27c6b0e010917d279c21",
     "xfl_profile_ledger_sha256": "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056fd80",
-    "api_artifact_manifest_sha256": "fe626659e7be06a0c23746eb836a3985648a11602a9d756bfe2e4895b4d94c00",
+    "api_artifact_manifest_sha256": "cdf88b15524f7f0d8c15b46cfe67fd95ec7917b1e20a09a2db90bfd5a26aa64d",
     "bytecode_abi": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
-    "native_abi": "db5c633dda8c29c809649fdbc60e06c18814e769e659d850275b1f8cff7e87b9",
+    "native_abi": "1c7cccdc3085b6a5c5fab47cccbee154609547a1d67f2407ff0449bf3325cda7",
     "wasm_stack_bytes": "131072",
 }
 
@@ -48,6 +48,7 @@ TYPED_IMPORT_ROWS = (
     '{"env", "etxn_details", "i32,i32", "i64"}',
     '{"env", "etxn_fee_base", "i32,i32", "i64"}',
     '{"env", "etxn_reserve", "i32", "i64"}',
+    '{"env", "fee_base", "", "i64"}',
     '{"env", "hook_account", "i32,i32", "i64"}',
     '{"env", "hook_again", "", "i64"}',
     '{"env", "hook_param", "i32,i32,i32,i32", "i64"}',
@@ -66,6 +67,7 @@ TYPED_IMPORT_ROWS = (
     '{"env", "slot_size", "i32", "i64"}',
     '{"env", "state", "i32,i32,i32,i32", "i64"}',
     '{"env", "state_foreign", "i32,i32,i32,i32,i32,i32,i32,i32", "i64"}',
+    '{"env", "state_foreign_set", "i32,i32,i32,i32,i32,i32,i32,i32", "i64"}',
     '{"env", "state_set", "i32,i32,i32,i32", "i64"}',
     '{"env", "trace", "i32,i32,i32,i32,i32", "i64"}',
 )

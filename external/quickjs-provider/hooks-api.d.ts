@@ -682,14 +682,12 @@ declare global {
    * decoded value. Persisted malformed bytes must not silently take the absent
    * default.
    *
-   * CAPACITY MODEL: the provider reads the FULL stored value host-side;
-   * there is no guest buffer, so no source length ever produces a host
-   * TOO_SMALL here. Length discipline belongs to the schema: any length
-   * the schema refuses is a ParseError `wrong-length` carrying
-   * `expectedLength` AND `actualLength` — `actualLength` is the
-   * direction witness for C idioms that treated short and oversize
-   * differently (`tl > 0 && tl != N`: short rolled back, oversize hit
-   * the C buffer's TOO_SMALL and silently defaulted).
+   * CAPACITY MODEL: untyped state reads retain the provider's full 4,096-byte
+   * capacity. The opt-in state schema overload instead passes the schema's
+   * exact `byteLength` to the same host call. A short successful read reaches
+   * the schema and becomes `ParseError` `wrong-length`; an oversized value is
+   * refused by the host as `TOO_SMALL`, so no fabricated `actualLength` is
+   * reported. Other host errors and successful absence retain their channels.
    */
   type SchemaReadResult<T> = Result<T | undefined, HostError | ParseError>;
   /** Same type; kept so existing `state.get` prose still type-checks. */
@@ -1650,6 +1648,11 @@ declare global {
   interface AmountFactory extends RuntimeType<Amount> {
     from(value: BytesLike | STBlob): Amount;
     drops(value: Drops): NativeAmount;
+    /**
+     * Encode an issued amount from an existing scalar and issue. A non-IOU
+     * issue is an ordinary local encoding failure, never a host failure.
+     */
+    iou(value: XFLDecimal, issue: Issue): Result<IOUAmount, EncodeError>;
     iou(value: XFLDecimal, currency: Currency, issuer: AccountID): IOUAmount;
     mpt(value: bigint, mptIssuanceId: Hash192): MPTAmount;
   }
@@ -1881,6 +1884,22 @@ declare global {
     readonly Cron?: Hash256;
     readonly AMMID?: Hash256;
     readonly LedgerEntryType: typeof LedgerEntryType.AccountRoot;
+  }
+
+  /** Format-proven LedgerEntry narrowed to a URI token. */
+  class URIToken extends LedgerEntry {
+    private constructor();
+
+    readonly Owner: AccountID;
+    readonly OwnerNode: UInt64;
+    readonly Issuer: AccountID;
+    readonly URI: STBlob;
+    readonly Digest?: Hash256;
+    readonly Amount?: Amount;
+    readonly Destination?: AccountID;
+    readonly PreviousTxnID: Hash256;
+    readonly PreviousTxnLgrSeq: UInt32;
+    readonly LedgerEntryType: typeof LedgerEntryType.URIToken;
   }
 
   /** Installed Hook object held inside a Hook ledger entry's `Hooks` array. */
@@ -2404,6 +2423,14 @@ declare global {
 
     interface ForeignAccessor {
       get(key: StateKeyLike): HostResult<STBlob | undefined>;
+      /**
+       * Opt-in exact-capacity read. Host `TOO_SMALL` remains a host failure;
+       * short successful values and malformed exact-size values are parse
+       * failures, and missing state remains successful `undefined`.
+       */
+      get<T>(key: StateKeyLike, schema: BinarySchema<T>): StateReadResult<T>;
+      set(key: StateKeyLike, value: StateValueLike): HostVoidResult;
+      del(key: StateKeyLike): HostVoidResult;
     }
 
     /** Broad schema/batch intent layered over the implemented blob accessor. */
@@ -2443,9 +2470,9 @@ declare global {
     function del(key: StateKeyLike): HostVoidResult;
     function setMany(items: readonly Put[]): HostVoidResult;
     /**
-     * Read-only accessor over another account's namespaced state. Constructing
-     * the accessor is local and total; each `get` owns its host crossing.
-     * Foreign mutation is deliberately absent from this surface.
+     * Captured accessor over another account's namespaced state. Constructing
+     * it is local and total; each read or grant-gated mutation owns its host
+     * crossing and preserves the exact host status.
      */
     function foreign(account: AccountID, namespace: Hash256): ForeignSchemaAccessor;
     function foreign(account: AccountID, namespace: Hash256): ForeignAccessor;
@@ -2681,6 +2708,7 @@ declare global {
   namespace util {
     namespace keylet {
       function account(account: AccountID): LedgerKeylet<AccountRoot>;
+      function uriToken(id: Hash256): LedgerKeylet<URIToken>;
       function hook(account: AccountID): LedgerKeylet<HookLedger>;
       function hookDefinition(hash: Hash256): LedgerKeylet<HookDefinition>;
       function hookState(account: AccountID, key: Hash256, namespace: Hash256): LedgerKeylet;
@@ -2745,6 +2773,7 @@ declare global {
     const sequence: LedgerSequence;
     const lastTime: RippleTime;
     const lastHash: Hash256;
+    /** Total base fee for the current ledger view. */
     const feeBase: Drops;
     function nonce(): HostResult<Hash256>;
     function accountRoot(account: AccountID): HostResult<AccountRoot | undefined>;
@@ -2760,6 +2789,7 @@ declare global {
     function get(locator: LedgerKeylet): HostResult<HostObject | undefined>;
     function get(locator: Hash256): HostResult<HostObject | undefined>;
     function lookup(locator: LedgerKeylet<AccountRoot>): HostResult<AccountRoot | undefined>;
+    function lookup(locator: LedgerKeylet<URIToken>): HostResult<URIToken | undefined>;
     function lookup<T extends STObject>(locator: LedgerKeylet<T>): HostResult<T | undefined>;
     function lookup(locator: Hash256): HostResult<STObject | undefined>;
     function lookupMany(locators: readonly (LedgerKeylet | Hash256)[]): HostResult<readonly (STObject | undefined)[]>;

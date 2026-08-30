@@ -2,10 +2,10 @@
   "bytecode_abi_id": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
   "javascript_surface": {
     "declaration": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "declaration_sha256": "f524637b8e38860fb55c3bc7be45498de77bb8601152f931902c77031c98abe3",
+    "declaration_sha256": "e03101173bd8775c118feb313fb89e974c4887d61727451c9993043ee41ea4aa",
     "manifest": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
     "schema": "jshookz.javascript-surface.v1",
-    "sha256": "d51d77766b2c9247dc6c9bff47e837fd4864579c844f431e1ab204008eef4b5a"
+    "sha256": "8074d80057977d3a4998dba443448df0430b98227c6a27c6b0e010917d279c21"
   },
   "provider": {
     "build": {
@@ -272,6 +272,14 @@
       },
       {
         "module": "env",
+        "name": "fee_base",
+        "params": [],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
         "name": "hook_account",
         "params": [
           "i32",
@@ -472,6 +480,23 @@
       },
       {
         "module": "env",
+        "name": "state_foreign_set",
+        "params": [
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
         "name": "state_set",
         "params": [
           "i32",
@@ -498,10 +523,10 @@
         ]
       }
     ],
-    "sha256": "104eeea1db4d2c3fc80282bfb460721c3cc830507eb64f8401df477f8fac41ee",
-    "size": 1237400
+    "sha256": "eef126d573dcec94b3c5255ac9d66333fdac15438f4109e62d378a44c9de9390",
+    "size": 1247172
   },
-  "runtime_profile_id": "cf8dc1d168572e3837e42a43bd5814fb9c5f94d6904050fd6116e90f7f6d6844",
+  "runtime_profile_id": "5dae59fa453879321783a22476a9c7334acaa636b00be2c54fae1991e20b93b2",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
@@ -619,6 +644,12 @@
           3
         ],
         "state_foreign": [
+          1,
+          3,
+          5,
+          7
+        ],
+        "state_foreign_set": [
           1,
           3,
           5,
@@ -930,6 +961,14 @@
         },
         {
           "module": "env",
+          "name": "fee_base",
+          "params": [],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
           "name": "hook_account",
           "params": [
             "i32",
@@ -1114,6 +1153,23 @@
         {
           "module": "env",
           "name": "state_foreign",
+          "params": [
+            "i32",
+            "i32",
+            "i32",
+            "i32",
+            "i32",
+            "i32",
+            "i32",
+            "i32"
+          ],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "state_foreign_set",
           "params": [
             "i32",
             "i32",
