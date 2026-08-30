@@ -941,8 +941,8 @@ SetHook::preflight(PreflightContext const& ctx)
         }
 
         if (hookSetObj.isFieldPresent(sfCreateCode) &&
-            hookSetObj.getFieldVL(sfCreateCode).size() >
-                hook::maxHookWasmSize())
+            !hook::artifact::fitsCreateCodeSizeLimit(
+                makeSlice(hookSetObj.getFieldVL(sfCreateCode))))
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::WASM_TOO_BIG << ")[" << HS_ACC()
@@ -1455,7 +1455,6 @@ SetHook::setHook()
         .app = ctx_.app,
         .rules = ctx_.view().rules()};
 
-    const int blobMax = hook::maxHookWasmSize();
     auto const accountKeylet = keylet::account(account_);
     auto const hookKeylet = keylet::hook(account_);
 
@@ -1906,7 +1905,8 @@ SetHook::setHook()
                 ripple::Blob wasmBytes =
                     hookSetObj->get().getFieldVL(sfCreateCode);
 
-                if (wasmBytes.size() > blobMax)
+                if (!hook::artifact::fitsCreateCodeSizeLimit(
+                        makeSlice(wasmBytes)))
                 {
                     JLOG(ctx.j.warn())
                         << "HookSet(" << hook::log::WASM_TOO_BIG << ")["

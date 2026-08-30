@@ -89,10 +89,20 @@ isCurrentQuickJS(View const& artifact) noexcept
         artifact.runtimeProfile == quickJSRuntimeProfile;
 }
 
+bool
+fitsCreateCodeSizeLimit(ripple::Slice code) noexcept
+{
+    if (code.size() <= maxLegacyCreateCodeSize)
+        return true;
+    if (code.size() > maxQuickJSCreateCodeSize)
+        return false;
+    return startsWith(code, quickJSMagic);
+}
+
 ripple::Expected<View, Error>
 parse(ripple::Slice code) noexcept
 {
-    if (code.size() > maxCreateCodeSize)
+    if (!fitsCreateCodeSizeLimit(code))
         return ripple::Unexpected(Error::tooLarge);
     if (code.size() < 4)
         return ripple::Unexpected(Error::tooShort);

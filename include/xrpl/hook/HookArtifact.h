@@ -22,7 +22,8 @@ namespace hook::artifact {
 
 inline constexpr std::size_t identitySize = 32;
 inline constexpr std::size_t quickJSHeaderSize = 80;
-inline constexpr std::size_t maxCreateCodeSize = 65'535;
+inline constexpr std::size_t maxLegacyCreateCodeSize = 65'535;
+inline constexpr std::size_t maxQuickJSCreateCodeSize = 128 * 1024;
 inline constexpr std::array<std::uint8_t, 4> quickJSMagic = {
     'X',
     'Q',
@@ -68,6 +69,15 @@ struct View
     Identity runtimeProfile;
     ripple::Slice payload;
 };
+
+/** Check the byte-size gate before full Hook artifact parsing.
+
+    Legacy Wasm and unknown payloads remain capped at 65,535 bytes. An XQJS
+    magic prefix makes a candidate eligible for full parsing through 128 KiB;
+    parse() must still recognize the complete v1 envelope before admission.
+*/
+bool
+fitsCreateCodeSizeLimit(ripple::Slice code) noexcept;
 
 /** Parse either a legacy raw-Wasm Hook or a canonical QuickJS artifact.
 

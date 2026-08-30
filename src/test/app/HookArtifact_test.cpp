@@ -7,6 +7,7 @@
 #include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/hook/detail/QuickJSProviderProfile.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/hook/Enum.h>
 #include <xrpl/hook/HookArtifact.h>
 #include <algorithm>
 #include <array>
@@ -278,6 +279,80 @@ public:
             if (profiledView)
                 BEAST_EXPECT(profiledView->xflArithmeticProfile == profile);
         }
+
+        testcase("Kind-aware CreateCode size limits");
+        BEAST_EXPECT(
+            hook::artifact::maxLegacyCreateCodeSize == hook::maxHookWasmSize());
+        BEAST_EXPECT(hook::artifact::maxQuickJSCreateCodeSize == 128U * 1024U);
+
+        std::vector<std::uint8_t> wasmBoundary(
+            hook::artifact::maxLegacyCreateCodeSize, 0);
+        std::copy_n(wasm.begin(), 4, wasmBoundary.begin());
+        BEAST_EXPECT(
+            hook::artifact::fitsCreateCodeSizeLimit(makeSlice(wasmBoundary)));
+        auto const parsedWasmBoundary =
+            hook::artifact::parse(makeSlice(wasmBoundary));
+        BEAST_EXPECT(parsedWasmBoundary);
+        if (parsedWasmBoundary)
+            BEAST_EXPECT(
+                parsedWasmBoundary->kind == hook::artifact::Kind::legacyWasm);
+
+        auto wasmTooLarge = wasmBoundary;
+        wasmTooLarge.push_back(0);
+        BEAST_EXPECT(
+            !hook::artifact::fitsCreateCodeSizeLimit(makeSlice(wasmTooLarge)));
+        auto const parsedWasmTooLarge =
+            hook::artifact::parse(makeSlice(wasmTooLarge));
+        BEAST_EXPECT(!parsedWasmTooLarge);
+        if (!parsedWasmTooLarge)
+            BEAST_EXPECT(
+                parsedWasmTooLarge.error() == hook::artifact::Error::tooLarge);
+
+        auto quickJSBoundary = quickJSArtifact(std::vector<std::uint8_t>(
+            hook::artifact::maxQuickJSCreateCodeSize -
+                hook::artifact::quickJSHeaderSize,
+            0));
+        BEAST_EXPECT(
+            quickJSBoundary.size() == hook::artifact::maxQuickJSCreateCodeSize);
+        BEAST_EXPECT(hook::artifact::fitsCreateCodeSizeLimit(
+            makeSlice(quickJSBoundary)));
+        auto const parsedQuickJSBoundary =
+            hook::artifact::parse(makeSlice(quickJSBoundary));
+        BEAST_EXPECT(parsedQuickJSBoundary);
+        if (parsedQuickJSBoundary)
+        {
+            BEAST_EXPECT(
+                parsedQuickJSBoundary->kind ==
+                hook::artifact::Kind::quickJSBytecode);
+            BEAST_EXPECT(
+                parsedQuickJSBoundary->payload.size() ==
+                hook::artifact::maxQuickJSCreateCodeSize -
+                    hook::artifact::quickJSHeaderSize);
+        }
+
+        auto quickJSTooLarge = quickJSBoundary;
+        quickJSTooLarge.push_back(0);
+        BEAST_EXPECT(!hook::artifact::fitsCreateCodeSizeLimit(
+            makeSlice(quickJSTooLarge)));
+        auto const parsedQuickJSTooLarge =
+            hook::artifact::parse(makeSlice(quickJSTooLarge));
+        BEAST_EXPECT(!parsedQuickJSTooLarge);
+        if (!parsedQuickJSTooLarge)
+            BEAST_EXPECT(
+                parsedQuickJSTooLarge.error() ==
+                hook::artifact::Error::tooLarge);
+
+        std::vector<std::uint8_t> malformedNonXQJS(
+            hook::artifact::maxLegacyCreateCodeSize + 1, 0xA5U);
+        BEAST_EXPECT(!hook::artifact::fitsCreateCodeSizeLimit(
+            makeSlice(malformedNonXQJS)));
+        auto const parsedMalformedNonXQJS =
+            hook::artifact::parse(makeSlice(malformedNonXQJS));
+        BEAST_EXPECT(!parsedMalformedNonXQJS);
+        if (!parsedMalformedNonXQJS)
+            BEAST_EXPECT(
+                parsedMalformedNonXQJS.error() ==
+                hook::artifact::Error::tooLarge);
 
         testcase("QuickJS v1 corruption rejection");
         auto expectError = [this](
