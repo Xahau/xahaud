@@ -1214,6 +1214,22 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
                 << "manifest_validation candidate_ignored peer=" << id_
                 << " reason=global_sequence master="
                 << toBase58(TokenType::NodePublic, manifest->masterKey);
+            // A strictly stale candidate proves the sender is behind for a
+            // master this node retains. Answer with the retained manifest —
+            // or the revocation, the freshest possible answer — at most once
+            // per sequence through the bounded repair ledger. Equal-sequence
+            // arrivals are ordinary always-send traffic and draw nothing.
+            if (current->sequence > manifest->sequence)
+            {
+                JLOG(p_journal_.debug())
+                    << "manifest_validation stale_correction peer=" << id_
+                    << " master="
+                    << toBase58(TokenType::NodePublic, manifest->masterKey)
+                    << " theirs=" << manifest->sequence
+                    << " ours=" << current->sequence;
+                sendManifestRepair(
+                    current->masterKey, current->sequence, current->serialized);
+            }
             return;
         }
 

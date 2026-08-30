@@ -1066,6 +1066,131 @@ private:
         oversizedObject.add_list()->set_stobject(std::string(4097, 'x'));
         BEAST_EXPECT(peer->receive(oversizedObject, protocol::mtMANIFESTS));
 
+        // A strictly stale singleton proves its sender is behind for a
+        // retained master, and draws the retained manifest back — or the
+        // revocation, the freshest possible answer. Equal-sequence arrivals
+        // are ordinary always-send traffic and draw nothing; the shared
+        // repair ledger bounds every answer to once per sequence per
+        // connection.
+        testcase("stale singleton draws the fresher manifest back");
+        addPeer(env, peers, disabled);
+        auto const stalePeer = peers.back();
+        auto const stalePeerId = stalePeer->id();
+
+        auto const behindMasterSecret = randomSecretKey();
+        auto const behindMasterKey =
+            derivePublicKey(KeyType::ed25519, behindMasterSecret);
+        listMaster(behindMasterKey);
+        auto const behindSigningSecret1 = randomSecretKey();
+        auto const behindStale = makeManifest(
+            behindMasterSecret, behindMasterKey, behindSigningSecret1, 1);
+        auto const behindSigningSecret2 = randomSecretKey();
+        {
+            auto parsed = deserializeManifest(makeManifest(
+                behindMasterSecret, behindMasterKey, behindSigningSecret2, 2));
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+        auto const behindCurrent =
+            env.app().validatorManifests().getManifestSnapshot(behindMasterKey);
+        BEAST_EXPECT(behindCurrent && behindCurrent->sequence == 2);
+
+        auto const beforeStale = PeerTest::sentTypes(stalePeerId).size();
+        {
+            protocol::TMManifests staleMessage;
+            staleMessage.add_list()->set_stobject(behindStale);
+            BEAST_EXPECT(
+                stalePeer->receive(staleMessage, protocol::mtMANIFESTS));
+        }
+        BEAST_EXPECT(PeerTest::waitForMessages(stalePeerId, beforeStale + 1));
+        {
+            auto const types = PeerTest::sentTypes(stalePeerId);
+            BEAST_EXPECT(
+                types.size() == beforeStale + 1 &&
+                types.back() == protocol::mtMANIFESTS);
+            auto const payloads = PeerTest::sentManifestPayloads();
+            BEAST_EXPECT(
+                behindCurrent && !payloads.empty() &&
+                payloads.back() == behindCurrent->serialized);
+        }
+
+        // Duplicate stale and equal-sequence arrivals draw nothing further.
+        {
+            protocol::TMManifests staleAgain;
+            staleAgain.add_list()->set_stobject(behindStale);
+            BEAST_EXPECT(stalePeer->receive(staleAgain, protocol::mtMANIFESTS));
+            protocol::TMManifests equalMessage;
+            if (behindCurrent)
+                equalMessage.add_list()->set_stobject(
+                    behindCurrent->serialized);
+            BEAST_EXPECT(
+                stalePeer->receive(equalMessage, protocol::mtMANIFESTS));
+        }
+        env.app().getJobQueue().rendezvous();
+
+        // A retained revocation is itself the correction: a stale normal
+        // manifest for a revoked master draws the tombstone, and retention —
+        // not listing — is what qualifies a master for an answer.
+        auto const buriedMasterSecret = randomSecretKey();
+        auto const buriedMasterKey =
+            derivePublicKey(KeyType::ed25519, buriedMasterSecret);
+        auto const buriedSigningSecret = randomSecretKey();
+        auto const buriedStale = makeManifest(
+            buriedMasterSecret, buriedMasterKey, buriedSigningSecret, 0);
+        {
+            auto parsed = deserializeManifest(buriedStale);
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+        STObject buriedRevocation(sfGeneric);
+        buriedRevocation[sfSequence] =
+            std::numeric_limits<std::uint32_t>::max();
+        buriedRevocation[sfPublicKey] = buriedMasterKey;
+        sign(
+            buriedRevocation,
+            HashPrefix::manifest,
+            KeyType::ed25519,
+            buriedMasterSecret,
+            sfMasterSignature);
+        auto const buriedRevocationSerialized = serialize(buriedRevocation);
+        {
+            auto parsed = deserializeManifest(buriedRevocationSerialized);
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+        BEAST_EXPECT(env.app().validatorManifests().revoked(buriedMasterKey));
+        {
+            protocol::TMManifests deadMessage;
+            deadMessage.add_list()->set_stobject(buriedStale);
+            BEAST_EXPECT(
+                stalePeer->receive(deadMessage, protocol::mtMANIFESTS));
+        }
+        BEAST_EXPECT(PeerTest::waitForMessages(stalePeerId, beforeStale + 2));
+        {
+            auto const types = PeerTest::sentTypes(stalePeerId);
+            BEAST_EXPECT(types.size() == beforeStale + 2);
+            BEAST_EXPECT(
+                types.size() >= 2 &&
+                types[types.size() - 2] == protocol::mtMANIFESTS &&
+                types.back() == protocol::mtMANIFESTS);
+            auto const payloads = PeerTest::sentManifestPayloads();
+            BEAST_EXPECT(
+                !payloads.empty() &&
+                payloads.back() == buriedRevocationSerialized);
+        }
+
         // A naked validation that authenticates against the current cached
         // manifest is an implicit request for that manifest. The recipient
         // repairs the sender with one singleton on the same connection, at
