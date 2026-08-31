@@ -57,14 +57,17 @@ isUnsignedSetManifest(STTx const& tx) noexcept;
 bool
 hasCanonicalUnsignedSetManifestShape(STTx const& tx) noexcept;
 
-/** Return the protocol-fixed Fee for a manifest-authorized update.
+/** Return the ruleset-fixed Fee for a manifest-authorized update.
 
     This is deliberately independent of the current ledger fee schedule: one
-    admitted manifest maps to one transaction ID. Account-signed SetManifest
-    transactions continue to use ordinary dynamic fee calculation.
+    admitted manifest maps to one transaction ID under one amendment ruleset.
+    A future pricing amendment may select new constants. Account-signed
+    SetManifest transactions continue to use ordinary dynamic fee calculation.
+    The function owns serialization so callers cannot disagree about byte
+    count, and retains the full object for future field-aware pricing.
 */
 XRPAmount
-canonicalUnsignedSetManifestFee(STObject const& manifest);
+canonicalUnsignedSetManifestFee(Rules const& rules, STObject const& manifest);
 
 /** Return the current on-ledger sequence for a registered master key.
 
@@ -87,10 +90,11 @@ onLedgerManifestSequence(ReadView const& view, PublicKey const& masterKey);
 
     Returns hex because both callers feed the ordinary tx_blob submission
     path. The manifest is parsed and verified before the shared canonical
-    envelope builder serializes it with the protocol-fixed Fee.
+    envelope builder serializes it with the ruleset-fixed Fee.
 
     @param manifest Serialized manifest
     @param networkID Network the transaction is for
+    @param rules Active amendment rules that select the canonical price
     @param j Journal
 
     @return the hex-encoded transaction, or nullopt if the manifest does not
@@ -100,6 +104,7 @@ std::optional<std::string>
 makeSetManifestTx(
     Slice const& manifest,
     std::uint32_t networkID,
+    Rules const& rules,
     beast::Journal j);
 
 class SetManifest : public Transactor

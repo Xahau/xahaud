@@ -503,18 +503,33 @@ SetManifest::calculateBaseFee(ReadView const& view, STTx const& tx)
 }
 
 XRPAmount
-canonicalUnsignedSetManifestFee(STObject const& manifest)
+canonicalUnsignedSetManifestFee(Rules const& rules, STObject const& manifest)
 {
-    // Amendment constants, not the current ledger's voted or load-scaled
-    // fee. Transport carries manifests immediately; this transaction is the
-    // durable memory lane and may wait until its one canonical Fee clears.
-    constexpr XRPAmount::value_type baseDrops = 10;
-    auto const bytes = manifest.getSerializer().getDataLength();
-    if (bytes >
+    // Canonicality requires every relayer to produce the same Fee, so voted
+    // base fees and local load cannot enter this calculation. The active
+    // ruleset does: a future pricing amendment may replace these constants,
+    // at which point old wrappers become non-canonical and publishers rebuild
+    // exactly one new txid.
+    (void)rules;
+
+    // SetManifest is rare operator traffic. The base prices its special
+    // admission/state work; the byte component prices signed payload parsing,
+    // signature verification, relay, and durable rewriting. Persistent
+    // occupancy is charged separately by the owner's reserve.
+    constexpr XRPAmount::value_type baseDrops = 1'000;
+    constexpr XRPAmount::value_type dropsPerByte = 100;
+    auto const manifestBytes = manifest.getSerializer().getDataLength();
+
+    // Refuse overflow rather than accidentally making an enormous manifest
+    // cheap. Normal manifest limits make this unreachable for honest input.
+    if (manifestBytes >
         static_cast<std::size_t>(
-            std::numeric_limits<XRPAmount::value_type>::max() - baseDrops))
+            (std::numeric_limits<XRPAmount::value_type>::max() - baseDrops) /
+            dropsPerByte))
         Throw<std::overflow_error>("SetManifest canonical fee overflow");
-    return XRPAmount{baseDrops + static_cast<XRPAmount::value_type>(bytes)};
+    return XRPAmount{
+        baseDrops +
+        static_cast<XRPAmount::value_type>(manifestBytes) * dropsPerByte};
 }
 
 TER
@@ -529,12 +544,13 @@ SetManifest::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     STObject const& manifest =
         const_cast<STTx&>(ctx.tx).getField(sfManifest).downcast<STObject>();
 
-    // Manifest authority covers no outer bytes. A protocol-fixed base plus
+    // Manifest authority covers no outer bytes. A ruleset-fixed base plus
     // exact payload bytes gives every relayer the same Fee and therefore the
     // same txid, independent of fee votes or local load. If that Fee is below
     // the current minimum, ordinary checking below returns telINSUF_FEE_P and
     // anti-entropy retries this same transaction later.
-    if (ctx.tx[sfFee].xrp() != canonicalUnsignedSetManifestFee(manifest))
+    if (ctx.tx[sfFee].xrp() !=
+        canonicalUnsignedSetManifestFee(ctx.view.rules(), manifest))
     {
         JLOG(ctx.j.trace()) << "SetManifest: non-canonical unsigned fee: "
                             << to_string(ctx.tx[sfFee].xrp());
@@ -550,6 +566,7 @@ std::optional<std::string>
 makeSetManifestTx(
     Slice const& manifest,
     std::uint32_t networkID,
+    Rules const& rules,
     beast::Journal j)
 {
     try
@@ -566,7 +583,7 @@ makeSetManifestTx(
             calcAccountID(man->masterKey),
             networkID > 1024 ? std::optional<std::uint32_t>{networkID}
                              : std::nullopt,
-            canonicalUnsignedSetManifestFee(manifestObject)));
+            canonicalUnsignedSetManifestFee(rules, manifestObject)));
     }
     catch (std::exception const& e)
     {
