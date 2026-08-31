@@ -2642,6 +2642,13 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
             JLOG(p_journal_.debug())
                 << "manifest_validation naked_unknown_dropped peer=" << id_
                 << " signing=" << toBase58(TokenType::NodePublic, signingKey);
+            // Charge what the verification job used to charge for this same
+            // conclusion. Dropping earlier saves the signature check, but the
+            // sender still spent our parse on an unresolvable signing key --
+            // and while a probe holds the connection's in-flight token, this
+            // is the path every further unknown naked validation takes.
+            fee_.update(
+                Resource::feeUselessData, "unknown validation signing key");
             return;
         }
 
@@ -2701,7 +2708,10 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
             // passed validation. Repair this particular naked sender even
             // though another peer won global admission for the hash.
             // Cold-probe suppression lives in MVC1, which is never marked
-            // relayed; still offer repair if the first probe resolved.
+            // relayed. Attempt the repair anyway: it is a cache lookup that
+            // no-ops unless some connection's probe has already resolved this
+            // signing key, which is exactly when a duplicate sender is worth
+            // repairing.
             if (!manifestContext && (relayed || mayResolveFromLedger))
                 sendManifestRepairForSigningKey(val->getSignerPublic());
 
