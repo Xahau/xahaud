@@ -772,21 +772,33 @@ struct SetManifest_test : public beast::unit_test::suite
                     obj.setFieldU32(sfFlags, 0x00000001);
                 })) == temINVALID_FLAG);
 
-        // sfManifest parses as an object but not as a manifest.
+        // Outer authority is checked before manifest parsing. An unsigned
+        // envelope delegates that check to the embedded manifest, so malformed
+        // or badly signed manifest bytes are signature failures here.
         BEAST_EXPECT(
             applyDirect(
                 env, envelope(env, makeUnparseableManifest(), master.id())) ==
-            temMALFORMED);
+            temINVALID);
 
-        // A manifest whose signatures do not check out. checkValidity() would
-        // stop this before preflight, so only a direct apply reaches the
-        // transactor's own verify() call.
+        // A manifest whose signatures do not check out.
         {
             auto bad = good;
             bad[bad.size() - 1] ^= 0xFF;
             BEAST_EXPECT(
                 applyDirect(env, envelope(env, bad, master.id())) ==
-                temMALFORMED);
+                temINVALID);
+
+            // Envelope shape is cheaper than either manifest signature. Even
+            // with the same bad manifest, an added Memo is rejected first.
+            BEAST_EXPECT(
+                applyDirect(
+                    env, envelope(env, bad, master.id(), [](STObject& obj) {
+                        obj.setFieldArray(sfMemos, STArray(sfMemos, 1));
+                        STObject memo{sfMemo};
+                        memo.setFieldVL(sfMemoData, Blob{0x01});
+                        obj.peekFieldArray(sfMemos).emplace_back(
+                            std::move(memo));
+                    })) == temMALFORMED);
         }
 
         // The envelope's account must be the manifest's master key.
@@ -801,6 +813,13 @@ struct SetManifest_test : public beast::unit_test::suite
                  {"AccountTxnID",
                   [](STObject& obj) {
                       obj.setFieldH256(sfAccountTxnID, uint256{1});
+                  }},
+                 {"Memos",
+                  [](STObject& obj) {
+                      obj.setFieldArray(sfMemos, STArray(sfMemos, 1));
+                      STObject memo{sfMemo};
+                      memo.setFieldVL(sfMemoData, Blob{0x01});
+                      obj.peekFieldArray(sfMemos).emplace_back(std::move(memo));
                   }},
                  {"TicketSequence",
                   [](STObject& obj) { obj.setFieldU32(sfTicketSequence, 1); }}})
