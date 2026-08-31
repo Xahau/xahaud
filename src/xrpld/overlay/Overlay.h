@@ -146,9 +146,12 @@ public:
     virtual void
     broadcast(protocol::TMProposeSet& m) = 0;
 
-    /** Broadcast a validation. */
+    /** Broadcast a validation.
+     * @param m the serialized validation
+     * @param validator The pubkey that signed the validation
+     */
     virtual void
-    broadcast(protocol::TMValidation& m) = 0;
+    broadcast(protocol::TMValidation& m, PublicKey const& validator) = 0;
 
     /** Relay a proposal.
      * @param m the serialized proposal
@@ -172,7 +175,8 @@ public:
     relay(
         protocol::TMValidation& m,
         uint256 const& uid,
-        PublicKey const& validator) = 0;
+        PublicKey const& validator,
+        std::shared_ptr<protocol::TMManifests const> const& prerequisite) = 0;
 
     /** Relay a transaction. If the tx reduce-relay feature is enabled then
      * randomly select peers to relay to and queue transaction's hash
@@ -186,10 +190,6 @@ public:
         uint256 const& hash,
         std::optional<std::reference_wrapper<protocol::TMTransaction>> m,
         std::set<Peer::id_t> const& toSkip) = 0;
-
-    /** Admit and relay one locally authenticated validator manifest. */
-    virtual void
-    ingestManifest(std::string const& serialized) = 0;
 
     /** Visit every active peer.
      *

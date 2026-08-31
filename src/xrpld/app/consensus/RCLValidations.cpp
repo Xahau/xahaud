@@ -184,9 +184,9 @@ handleNewValidation(
     // is indistinguishable from a validator this node has never heard of. Every
     // manifest published on-chain has a thin signing-key index pointing to its
     // canonical master-key object, so that binding takes two bounded reads.
-    // This is a rare cold-cache fallback: manifest gossip and canonical-wrapper
-    // harvesting normally populate the mapping first. It is mainly needed at
-    // startup, after missed propagation, or after local cache loss.
+    // This is a rare cold-cache fallback: validation prerequisites and normal
+    // ledger refresh normally populate the mapping first. It is mainly needed
+    // at startup, after missed propagation, or after local cache loss.
     //
     // Done here rather than left to the next consensus round, because
     // ManifestCache::applyLedger() runs there against the master keys already

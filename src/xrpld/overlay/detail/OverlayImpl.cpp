@@ -629,72 +629,123 @@ OverlayImpl::onPeerDeactivate(Peer::id_t id)
 }
 
 void
-OverlayImpl::ingestManifest(std::string const& serialized)
-{
-    if (!applyAndPublishManifest(serialized, journal_))
-        return;
-
-    protocol::TMManifests relay;
-    relay.add_list()->set_stobject(serialized);
-    for_each([m = std::make_shared<Message>(relay, protocol::mtMANIFESTS)](
-                 std::shared_ptr<PeerImp>&& p) { p->send(m); });
-}
-
-bool
-OverlayImpl::applyAndPublishManifest(
-    std::string const& serialized,
-    beast::Journal journal)
-{
-    auto mo = deserializeManifest(serialized);
-    if (!mo)
-    {
-        JLOG(journal.debug()) << "Malformed manifest: " << strHex(serialized);
-        return false;
-    }
-
-    auto const result = app_.validatorManifests().applyManifest(std::move(*mo));
-    if (result != ManifestDisposition::accepted)
-        return false;
-
-    // applyManifest moves the Manifest into the cache. Rebuild the view used
-    // for publication and optional local durability from its original bytes.
-    mo = deserializeManifest(serialized);
-    XRPL_ASSERT(
-        mo,
-        "ripple::OverlayImpl::applyAndPublishManifest : manifest "
-        "deserialization succeeded");
-
-    app_.getOPs().pubManifest(*mo);
-
-    if (app_.validators().listed(mo->masterKey))
-    {
-        auto db = app_.getWalletDB().checkoutDb();
-        addValidatorManifest(*db, serialized);
-    }
-
-    return true;
-}
-
-void
 OverlayImpl::onManifests(
     std::shared_ptr<protocol::TMManifests> const& m,
-    std::shared_ptr<PeerImp> const& from)
+    std::shared_ptr<PeerImp> const& from,
+    ManifestAdmission admission)
 {
     auto const n = m->list_size();
     auto const& journal = from->pjournal();
 
     protocol::TMManifests relay;
+    std::vector<std::pair<PublicKey, std::uint32_t>> relayAssertions;
 
     for (std::size_t i = 0; i < n; ++i)
     {
         auto& s = m->list().Get(i).stobject();
-        if (applyAndPublishManifest(s, journal))
-            relay.add_list()->set_stobject(s);
+
+        if (auto mo = deserializeManifest(s))
+        {
+            auto const serialized = mo->serialized;
+            auto const masterKey = mo->masterKey;
+            auto const sequence = mo->sequence;
+            auto const revoked = mo->revoked();
+
+            // Cache membership is observation, not authority: a legacy row
+            // cannot perpetuate itself by presenting a newer normal
+            // signature. Current local policy admits ordinary updates; the
+            // one response-gated exception can only terminate an existing
+            // retained master.
+            auto const listed = app_.validators().listed(masterKey);
+            auto const retainedRevocationResponse = !listed && revoked &&
+                admission == ManifestAdmission::retainedRevocationResponse &&
+                [&]() {
+                    auto const current =
+                        app_.validatorManifests().getManifestSnapshot(
+                            masterKey);
+                    return current && current->sequence < sequence;
+                }();
+            if (!listed && !retainedRevocationResponse)
+            {
+                if (n == 1)
+                {
+                    JLOG(journal.debug())
+                        << "manifest_validation single_manifest_ignored master="
+                        << toBase58(TokenType::NodePublic, masterKey)
+                        << " sequence=" << sequence
+                        << " reason=unlisted_new_identity";
+                }
+                continue;
+            }
+
+            auto const result =
+                app_.validatorManifests().applyManifest(std::move(*mo));
+
+            if (result == ManifestDisposition::invalid)
+                from->charge(
+                    Resource::feeInvalidSignature,
+                    "invalid validator manifest signature");
+            else if (
+                result == ManifestDisposition::badMasterKey ||
+                result == ManifestDisposition::badEphemeralKey)
+                from->charge(
+                    Resource::feeInvalidData,
+                    "invalid validator manifest key role");
+
+            if (n == 1)
+            {
+                JLOG(journal.debug())
+                    << "manifest_validation single_manifest_processed master="
+                    << toBase58(TokenType::NodePublic, masterKey)
+                    << " sequence=" << sequence
+                    << " disposition=" << to_string(result);
+            }
+
+            if (result == ManifestDisposition::accepted)
+            {
+                if (revoked)
+                {
+                    // A revocation has no associated validation to carry it
+                    // onward, so it retains immediate network-wide relay.
+                    relay.add_list()->set_stobject(s);
+                    relayAssertions.emplace_back(masterKey, sequence);
+                    JLOG(journal.debug())
+                        << "manifest_revocation accepted_for_relay master="
+                        << toBase58(TokenType::NodePublic, masterKey);
+                }
+
+                // N.B.: this is important; the applyManifest call above moves
+                //       the loaded Manifest out of the optional so we need to
+                //       reload it here.
+                mo = deserializeManifest(serialized);
+                XRPL_ASSERT(
+                    mo,
+                    "ripple::OverlayImpl::onManifests : manifest "
+                    "deserialization succeeded");
+
+                app_.getOPs().pubManifest(*mo);
+
+                if (app_.validators().listed(mo->masterKey))
+                {
+                    auto db = app_.getWalletDB().checkoutDb();
+                    addValidatorManifest(*db, serialized);
+                }
+            }
+        }
+        else
+        {
+            JLOG(journal.debug())
+                << "Malformed manifest #" << i + 1 << ": " << strHex(s);
+            continue;
+        }
     }
 
     if (!relay.list().empty())
-        for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS)](
-                     std::shared_ptr<PeerImp>&& p) { p->send(m2); });
+        for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS),
+                  assertions = std::move(relayAssertions)](
+                     std::shared_ptr<PeerImp>&& p) {
+            p->sendManifestAssertions(m2, assertions);
+        });
 }
 
 void
@@ -1168,17 +1219,21 @@ OverlayImpl::relay(
 }
 
 void
-OverlayImpl::broadcast(protocol::TMValidation& m)
+OverlayImpl::broadcast(protocol::TMValidation& m, PublicKey const& validator)
 {
-    auto const sm = std::make_shared<Message>(m, protocol::mtVALIDATION);
-    for_each([sm](std::shared_ptr<PeerImp>&& p) { p->send(sm); });
+    auto const sm =
+        std::make_shared<Message>(m, protocol::mtVALIDATION, validator);
+    for_each([sm, validator](std::shared_ptr<PeerImp>&& p) {
+        p->sendValidation(sm, validator);
+    });
 }
 
 std::set<Peer::id_t>
 OverlayImpl::relay(
     protocol::TMValidation& m,
     uint256 const& uid,
-    PublicKey const& validator)
+    PublicKey const& validator,
+    std::shared_ptr<protocol::TMManifests const> const& prerequisite)
 {
     if (auto const toSkip = app_.getHashRouter().shouldRelay(uid))
     {
@@ -1186,47 +1241,11 @@ OverlayImpl::relay(
             std::make_shared<Message>(m, protocol::mtVALIDATION, validator);
         for_each([&](std::shared_ptr<PeerImp>&& p) {
             if (toSkip->find(p->id()) == toSkip->end())
-                p->send(sm);
+                p->sendValidation(sm, validator, prerequisite);
         });
         return *toSkip;
     }
     return {};
-}
-
-std::shared_ptr<Message>
-OverlayImpl::getManifestsMessage()
-{
-    std::lock_guard g(manifestLock_);
-
-    if (auto seq = app_.validatorManifests().sequence();
-        seq != manifestListSeq_)
-    {
-        protocol::TMManifests tm;
-
-        // A bounded subset of the cache rather than all of it; see
-        // ManifestCache::for_each_gossip_manifest for what is selected.
-        // This message is only rebuilt when the cache sequence changes, so a
-        // shift in which manifests are the most recently used does not by
-        // itself refresh it. That is acceptable: the pinned manifests are the
-        // ones a peer needs, and they are always included.
-        app_.validatorManifests().for_each_gossip_manifest(
-            [&tm](std::size_t s) { tm.mutable_list()->Reserve(s); },
-            [&tm, &hr = app_.getHashRouter()](Manifest const& manifest) {
-                tm.add_list()->set_stobject(
-                    manifest.serialized.data(), manifest.serialized.size());
-                hr.addSuppression(manifest.hash());
-            });
-
-        manifestMessage_.reset();
-
-        if (tm.list_size() != 0)
-            manifestMessage_ =
-                std::make_shared<Message>(tm, protocol::mtMANIFESTS);
-
-        manifestListSeq_ = seq;
-    }
-
-    return manifestMessage_;
 }
 
 void

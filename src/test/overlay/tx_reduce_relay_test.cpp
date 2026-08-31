@@ -18,11 +18,20 @@
 //==============================================================================
 #include <test/jtx.h>
 #include <test/jtx/Env.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/overlay/detail/OverlayImpl.h>
 #include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpld/peerfinder/detail/SlotImp.h>
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/Sign.h>
+#include <algorithm>
+#include <condition_variable>
+#include <future>
+#include <limits>
+#include <mutex>
 
 namespace ripple {
 
@@ -123,10 +132,62 @@ private:
         {
         }
         void
-        send(std::shared_ptr<Message> const&) override
+        send(std::shared_ptr<Message> const& message) override
         {
-            sendTx_++;
+            auto const& buffer =
+                message->getBuffer(compression::Compressed::Off);
+            auto const type = (static_cast<int>(buffer[4]) << 8) |
+                static_cast<int>(buffer[5]);
+            {
+                std::lock_guard lock(sentMutex_);
+                sentTypes_.push_back(type);
+                sentPeerTypes_.emplace_back(id(), type);
+                if (type == protocol::mtMANIFESTS)
+                {
+                    protocol::TMManifests manifests;
+                    if (manifests.ParseFromArray(
+                            buffer.data() + compression::headerBytes,
+                            static_cast<int>(
+                                buffer.size() - compression::headerBytes)))
+                    {
+                        for (auto const& manifest : manifests.list())
+                        {
+                            auto const payload = manifest.stobject();
+                            sentManifestPayloads_.push_back(payload);
+                            sentPeerManifests_.emplace_back(id(), payload);
+                        }
+                    }
+                }
+                sendTx_++;
+            }
+            sentCv_.notify_all();
         }
+
+        template <class MessageType>
+        bool
+        receive(MessageType const& message, protocol::MessageType type)
+        {
+            auto wire = std::make_shared<Message>(message, type);
+            auto completed = std::make_shared<std::promise<bool>>();
+            auto result = completed->get_future();
+            dispatchOnStrand([this, wire, completed]() {
+                try
+                {
+                    auto const& buffer =
+                        wire->getBuffer(compression::Compressed::Off);
+                    std::size_t hint = 0;
+                    auto const [consumed, ec] = invokeProtocolMessage(
+                        boost::asio::buffer(buffer), *this, hint);
+                    completed->set_value(!ec && consumed == buffer.size());
+                }
+                catch (...)
+                {
+                    completed->set_exception(std::current_exception());
+                }
+            });
+            return result.get();
+        }
+
         void
         addTxQueue(const uint256& hash) override
         {
@@ -135,13 +196,79 @@ private:
         static void
         init()
         {
+            std::lock_guard lock(sentMutex_);
             queueTx_ = 0;
             sendTx_ = 0;
             sid_ = 0;
+            sentTypes_.clear();
+            sentPeerTypes_.clear();
+            sentManifestPayloads_.clear();
+            sentPeerManifests_.clear();
+        }
+        static bool
+        waitForMessages(std::size_t count)
+        {
+            using namespace std::chrono_literals;
+            std::unique_lock lock(sentMutex_);
+            return sentCv_.wait_for(
+                lock, 5s, [count] { return sentTypes_.size() >= count; });
+        }
+        static bool
+        waitForMessages(Peer::id_t peer, std::size_t count)
+        {
+            using namespace std::chrono_literals;
+            std::unique_lock lock(sentMutex_);
+            return sentCv_.wait_for(lock, 5s, [peer, count] {
+                return static_cast<std::size_t>(std::count_if(
+                           sentPeerTypes_.begin(),
+                           sentPeerTypes_.end(),
+                           [peer](auto const& message) {
+                               return message.first == peer;
+                           })) >= count;
+            });
+        }
+        static std::vector<int>
+        sentTypes()
+        {
+            std::lock_guard lock(sentMutex_);
+            return sentTypes_;
+        }
+        static std::vector<int>
+        sentTypes(Peer::id_t peer)
+        {
+            std::lock_guard lock(sentMutex_);
+            std::vector<int> result;
+            for (auto const& [recipient, type] : sentPeerTypes_)
+                if (recipient == peer)
+                    result.push_back(type);
+            return result;
+        }
+        static std::vector<std::string>
+        sentManifestPayloads()
+        {
+            std::lock_guard lock(sentMutex_);
+            return sentManifestPayloads_;
+        }
+        static std::vector<std::string>
+        sentManifestPayloads(Peer::id_t peer)
+        {
+            std::lock_guard lock(sentMutex_);
+            std::vector<std::string> result;
+            for (auto const& [recipient, payload] : sentPeerManifests_)
+                if (recipient == peer)
+                    result.push_back(payload);
+            return result;
         }
         inline static std::size_t sid_ = 0;
         inline static std::uint16_t queueTx_ = 0;
         inline static std::uint16_t sendTx_ = 0;
+        inline static std::mutex sentMutex_;
+        inline static std::condition_variable sentCv_;
+        inline static std::vector<int> sentTypes_;
+        inline static std::vector<std::pair<Peer::id_t, int>> sentPeerTypes_;
+        inline static std::vector<std::string> sentManifestPayloads_;
+        inline static std::vector<std::pair<Peer::id_t, std::string>>
+            sentPeerManifests_;
     };
 
     std::uint16_t lid_{0};
@@ -241,11 +368,1433 @@ private:
     }
 
     void
+    testManifestBeforeValidation()
+    {
+        testcase("manifest precedes validation per connection");
+
+        jtx::Env env(*this);
+        std::vector<std::shared_ptr<PeerTest>> peers;
+        std::uint16_t disabled = 0;
+        PeerTest::init();
+        lid_ = 0;
+        rid_ = 0;
+        addPeer(env, peers, disabled);
+
+        auto const masterSecret = randomSecretKey();
+        auto const masterKey = derivePublicKey(KeyType::ed25519, masterSecret);
+        BEAST_EXPECT(env.app().validators().load(
+            std::nullopt, {toBase58(TokenType::NodePublic, masterKey)}, {}));
+        BEAST_EXPECT(env.app().validators().listed(masterKey));
+
+        auto makeManifest = [&](SecretKey const& signingSecret, int sequence) {
+            auto const signingKey =
+                derivePublicKey(KeyType::secp256k1, signingSecret);
+            STObject st(sfGeneric);
+            st[sfSequence] = sequence;
+            st[sfPublicKey] = masterKey;
+            st[sfSigningPubKey] = signingKey;
+            sign(st, HashPrefix::manifest, KeyType::secp256k1, signingSecret);
+            sign(
+                st,
+                HashPrefix::manifest,
+                KeyType::ed25519,
+                masterSecret,
+                sfMasterSignature);
+            Serializer serializer;
+            st.add(serializer);
+            auto manifest = deserializeManifest(std::string(
+                static_cast<char const*>(serializer.data()),
+                serializer.size()));
+            if (!manifest)
+                Throw<std::runtime_error>("could not create test manifest");
+            return std::move(*manifest);
+        };
+
+        auto const signingSecret0 = randomSecretKey();
+        auto const signingKey0 =
+            derivePublicKey(KeyType::secp256k1, signingSecret0);
+        BEAST_EXPECT(
+            env.app().validatorManifests().applyManifest(makeManifest(
+                signingSecret0, 0)) == ManifestDisposition::accepted);
+
+        protocol::TMValidation validation;
+        validation.set_validation("validation");
+        env.app().overlay().broadcast(validation, signingKey0);
+        BEAST_EXPECT(PeerTest::waitForMessages(2));
+        BEAST_EXPECT(
+            (PeerTest::sentTypes() ==
+             std::vector<int>{protocol::mtMANIFESTS, protocol::mtVALIDATION}));
+
+        // The sender cannot infer the receiver's local validator policy, so
+        // even a locally listed prerequisite accompanies every validation.
+        env.app().overlay().broadcast(validation, signingKey0);
+        BEAST_EXPECT(PeerTest::waitForMessages(4));
+        BEAST_EXPECT(
+            (PeerTest::sentTypes() ==
+             std::vector<int>{
+                 protocol::mtMANIFESTS,
+                 protocol::mtVALIDATION,
+                 protocol::mtMANIFESTS,
+                 protocol::mtVALIDATION}));
+
+        // A new signing key/sequence is ordered before its first validation.
+        auto const signingSecret1 = randomSecretKey();
+        auto const signingKey1 =
+            derivePublicKey(KeyType::secp256k1, signingSecret1);
+        auto manifest1 = makeManifest(signingSecret1, 1);
+        BEAST_EXPECT(
+            env.app().validatorManifests().applyManifest(
+                std::move(manifest1)) == ManifestDisposition::accepted);
+        auto const corrected =
+            env.app().validatorManifests().getManifestSnapshot(masterKey);
+        BEAST_EXPECT(
+            corrected && corrected->sequence == 1 &&
+            corrected->signingKey == signingKey1);
+        env.app().overlay().broadcast(validation, signingKey1);
+        BEAST_EXPECT(PeerTest::waitForMessages(6));
+        BEAST_EXPECT(
+            (PeerTest::sentTypes() ==
+             std::vector<int>{
+                 protocol::mtMANIFESTS,
+                 protocol::mtVALIDATION,
+                 protocol::mtMANIFESTS,
+                 protocol::mtVALIDATION,
+                 protocol::mtMANIFESTS,
+                 protocol::mtVALIDATION}));
+
+        // Unlisted prerequisites obey the same stateless pairing rule.
+        PeerTest::init();
+        auto const ephemeralMasterSecret = randomSecretKey();
+        auto const ephemeralMasterKey =
+            derivePublicKey(KeyType::ed25519, ephemeralMasterSecret);
+        auto const ephemeralSigningSecret = randomSecretKey();
+        auto const ephemeralSigningKey =
+            derivePublicKey(KeyType::secp256k1, ephemeralSigningSecret);
+        STObject ephemeralObject(sfGeneric);
+        ephemeralObject[sfSequence] = 0;
+        ephemeralObject[sfPublicKey] = ephemeralMasterKey;
+        ephemeralObject[sfSigningPubKey] = ephemeralSigningKey;
+        sign(
+            ephemeralObject,
+            HashPrefix::manifest,
+            KeyType::secp256k1,
+            ephemeralSigningSecret);
+        sign(
+            ephemeralObject,
+            HashPrefix::manifest,
+            KeyType::ed25519,
+            ephemeralMasterSecret,
+            sfMasterSignature);
+        Serializer ephemeralSerializer;
+        ephemeralObject.add(ephemeralSerializer);
+        auto ephemeralManifest = deserializeManifest(std::string(
+            static_cast<char const*>(ephemeralSerializer.data()),
+            ephemeralSerializer.size()));
+        BEAST_EXPECT(ephemeralManifest);
+        if (!ephemeralManifest)
+            return;
+        BEAST_EXPECT(
+            env.app().validatorManifests().applyManifest(std::move(
+                *ephemeralManifest)) == ManifestDisposition::accepted);
+        env.app().overlay().broadcast(validation, ephemeralSigningKey);
+        env.app().overlay().broadcast(validation, ephemeralSigningKey);
+        BEAST_EXPECT(PeerTest::waitForMessages(4));
+        BEAST_EXPECT(
+            (PeerTest::sentTypes() ==
+             std::vector<int>{
+                 protocol::mtMANIFESTS,
+                 protocol::mtVALIDATION,
+                 protocol::mtMANIFESTS,
+                 protocol::mtVALIDATION}));
+    }
+
+    void
+    testManifestRevocation()
+    {
+        testcase("manifest revocation propagation");
+
+        jtx::Env env(*this);
+        std::vector<std::shared_ptr<PeerTest>> peers;
+        std::uint16_t disabled = 0;
+        PeerTest::init();
+        lid_ = 0;
+        rid_ = 0;
+        addPeer(env, peers, disabled);
+
+        auto const masterSecret = randomSecretKey();
+        auto const masterKey = derivePublicKey(KeyType::ed25519, masterSecret);
+        BEAST_EXPECT(env.app().validators().load(
+            std::nullopt, {toBase58(TokenType::NodePublic, masterKey)}, {}));
+        BEAST_EXPECT(env.app().validators().listed(masterKey));
+        auto const signingSecret = randomSecretKey();
+        auto const signingKey =
+            derivePublicKey(KeyType::secp256k1, signingSecret);
+
+        auto serialize = [](STObject const& object) {
+            Serializer serializer;
+            object.add(serializer);
+            return std::string(
+                static_cast<char const*>(serializer.data()), serializer.size());
+        };
+
+        STObject manifestObject(sfGeneric);
+        manifestObject[sfSequence] = 0;
+        manifestObject[sfPublicKey] = masterKey;
+        manifestObject[sfSigningPubKey] = signingKey;
+        sign(
+            manifestObject,
+            HashPrefix::manifest,
+            KeyType::secp256k1,
+            signingSecret);
+        sign(
+            manifestObject,
+            HashPrefix::manifest,
+            KeyType::ed25519,
+            masterSecret,
+            sfMasterSignature);
+        auto const manifestSerialized = serialize(manifestObject);
+        auto manifest = deserializeManifest(manifestSerialized);
+        BEAST_EXPECT(manifest);
+        if (!manifest)
+            return;
+        BEAST_EXPECT(
+            env.app().validatorManifests().applyManifest(
+                std::move(*manifest)) == ManifestDisposition::accepted);
+
+        STObject revocationObject(sfGeneric);
+        revocationObject[sfSequence] =
+            std::numeric_limits<std::uint32_t>::max();
+        revocationObject[sfPublicKey] = masterKey;
+        sign(
+            revocationObject,
+            HashPrefix::manifest,
+            KeyType::ed25519,
+            masterSecret,
+            sfMasterSignature);
+        auto const revocationSerialized = serialize(revocationObject);
+
+        // Revocation has no following validation, so accepted-manifest relay
+        // remains its immediate propagation path.
+        auto revocations = std::make_shared<protocol::TMManifests>();
+        revocations->add_list()->set_stobject(revocationSerialized);
+        BEAST_EXPECT(
+            peers.front()->receive(*revocations, protocol::mtMANIFESTS));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(env.app().validatorManifests().revoked(masterKey));
+        BEAST_EXPECT(PeerTest::waitForMessages(1));
+        BEAST_EXPECT(
+            (PeerTest::sentTypes() == std::vector<int>{protocol::mtMANIFESTS}));
+        BEAST_EXPECT(
+            (PeerTest::sentManifestPayloads() ==
+             std::vector<std::string>{revocationSerialized}));
+
+        // A later validation under the revoked signing key must not resurrect
+        // or resend the superseded manifest.
+        PeerTest::init();
+        protocol::TMValidation validation;
+        validation.set_validation("validation");
+        env.app().overlay().broadcast(validation, signingKey);
+        BEAST_EXPECT(PeerTest::waitForMessages(1));
+        BEAST_EXPECT((
+            PeerTest::sentTypes() == std::vector<int>{protocol::mtVALIDATION}));
+        BEAST_EXPECT(PeerTest::sentManifestPayloads().empty());
+
+        // Ambient stale/newer correction replies are deliberately parked: a
+        // stale singleton cannot turn manifest relay into ping-pong.
+        PeerTest::init();
+        auto stale = std::make_shared<protocol::TMManifests>();
+        stale->add_list()->set_stobject(manifestSerialized);
+        dynamic_cast<OverlayImpl&>(env.app().overlay())
+            .onManifests(stale, peers.front());
+        BEAST_EXPECT(PeerTest::sentTypes().empty());
+        BEAST_EXPECT(PeerTest::sentManifestPayloads().empty());
+        BEAST_EXPECT(env.app().validatorManifests().revoked(masterKey));
+    }
+
+    void
+    testIncomingManifestCandidate()
+    {
+        testcase("incoming manifest candidate is connection-bounded");
+
+        auto config = jtx::envconfig();
+        config->WORKERS = 1;
+        jtx::Env env(*this, std::move(config));
+        std::vector<std::shared_ptr<PeerTest>> peers;
+        std::uint16_t disabled = 0;
+        PeerTest::init();
+        lid_ = 0;
+        rid_ = 0;
+        addPeer(env, peers, disabled);
+        auto const peer = peers.front();
+
+        auto serialize = [](STObject const& object) {
+            Serializer serializer;
+            object.add(serializer);
+            return std::string(
+                static_cast<char const*>(serializer.data()), serializer.size());
+        };
+
+        auto makeManifest = [&](SecretKey const& masterSecret,
+                                PublicKey const& masterKey,
+                                SecretKey const& signingSecret,
+                                std::uint32_t sequence,
+                                SecretKey const* signatureMaster = nullptr) {
+            auto const signingKey =
+                derivePublicKey(KeyType::secp256k1, signingSecret);
+            STObject object(sfGeneric);
+            object[sfSequence] = sequence;
+            object[sfPublicKey] = masterKey;
+            object[sfSigningPubKey] = signingKey;
+            sign(
+                object,
+                HashPrefix::manifest,
+                KeyType::secp256k1,
+                signingSecret);
+            sign(
+                object,
+                HashPrefix::manifest,
+                KeyType::ed25519,
+                signatureMaster ? *signatureMaster : masterSecret,
+                sfMasterSignature);
+            return serialize(object);
+        };
+
+        auto makeValidationAt = [&](PublicKey const& masterKey,
+                                    PublicKey const& signingKey,
+                                    SecretKey const& signingSecret,
+                                    NetClock::time_point signTime,
+                                    uint256 ledgerHash) {
+            STValidation validation(
+                signTime,
+                signingKey,
+                signingSecret,
+                calcNodeID(masterKey),
+                [ledgerHash](STValidation& value) {
+                    value.setFieldH256(sfLedgerHash, ledgerHash);
+                    value.setFieldU32(sfLedgerSequence, 1);
+                });
+            auto const serialized = validation.getSerialized();
+            protocol::TMValidation message;
+            message.set_validation(serialized.data(), serialized.size());
+            return message;
+        };
+
+        auto makeValidation = [&](PublicKey const& masterKey,
+                                  PublicKey const& signingKey,
+                                  SecretKey const& signingSecret) {
+            return makeValidationAt(
+                masterKey,
+                signingKey,
+                signingSecret,
+                env.app().timeKeeper().closeTime(),
+                uint256{1});
+        };
+
+        auto receiveManifest = [&](std::string const& serialized) {
+            protocol::TMManifests message;
+            message.add_list()->set_stobject(serialized);
+            return peer->receive(message, protocol::mtMANIFESTS);
+        };
+
+        auto listMaster = [&](PublicKey const& masterKey) {
+            BEAST_EXPECT(env.app().validators().load(
+                std::nullopt,
+                {toBase58(TokenType::NodePublic, masterKey)},
+                {}));
+            BEAST_EXPECT(env.app().validators().listed(masterKey));
+        };
+
+        struct JobGate
+        {
+            std::mutex mutex;
+            std::condition_variable cv;
+            bool started = false;
+            bool released = false;
+        };
+        auto holdJobQueue = [&]() {
+            auto gate = std::make_shared<JobGate>();
+            BEAST_EXPECT(env.app().getJobQueue().addJob(
+                jtCLIENT, "hold manifest pair verification", [gate]() {
+                    std::unique_lock lock(gate->mutex);
+                    gate->started = true;
+                    gate->cv.notify_all();
+                    gate->cv.wait(lock, [gate] { return gate->released; });
+                }));
+            {
+                std::unique_lock lock(gate->mutex);
+                BEAST_EXPECT(
+                    gate->cv.wait_for(lock, std::chrono::seconds{5}, [gate] {
+                        return gate->started;
+                    }));
+            }
+            return gate;
+        };
+        auto releaseJobQueue = [&](std::shared_ptr<JobGate> const& gate) {
+            {
+                std::lock_guard lock(gate->mutex);
+                gate->released = true;
+            }
+            gate->cv.notify_all();
+            env.app().getJobQueue().rendezvous();
+        };
+        auto validationJobCount = [&]() {
+            return env.app().getJobQueue().getJobCountTotal(jtVALIDATION_t) +
+                env.app().getJobQueue().getJobCountTotal(jtVALIDATION_ut);
+        };
+
+        // A claimed candidate owns exactly one crypto job. While that job is
+        // held, one later candidate may occupy the now-free connection slot;
+        // its validation is deliberately dropped and heals when the sender
+        // repeats the pair after the first job completes.
+        testcase("manifest pair verification is one-in-flight");
+        auto const burstMasterSecret0 = randomSecretKey();
+        auto const burstMasterKey0 =
+            derivePublicKey(KeyType::ed25519, burstMasterSecret0);
+        listMaster(burstMasterKey0);
+        auto const burstSigningSecret0 = randomSecretKey();
+        auto const burstSigningKey0 =
+            derivePublicKey(KeyType::secp256k1, burstSigningSecret0);
+        auto const burstManifest0 = makeManifest(
+            burstMasterSecret0, burstMasterKey0, burstSigningSecret0, 0);
+        auto const burstValidation0 = makeValidation(
+            burstMasterKey0, burstSigningKey0, burstSigningSecret0);
+
+        auto const burstMasterSecret1 = randomSecretKey();
+        auto const burstMasterKey1 =
+            derivePublicKey(KeyType::ed25519, burstMasterSecret1);
+        listMaster(burstMasterKey1);
+        auto const burstSigningSecret1 = randomSecretKey();
+        auto const burstSigningKey1 =
+            derivePublicKey(KeyType::secp256k1, burstSigningSecret1);
+        auto const burstManifest1 = makeManifest(
+            burstMasterSecret1, burstMasterKey1, burstSigningSecret1, 0);
+        auto const burstValidation1 = makeValidation(
+            burstMasterKey1, burstSigningKey1, burstSigningSecret1);
+
+        auto const gate0 = holdJobQueue();
+        auto const jobsBeforeBurst = validationJobCount();
+        BEAST_EXPECT(receiveManifest(burstManifest0));
+        BEAST_EXPECT(peer->receive(burstValidation0, protocol::mtVALIDATION));
+        BEAST_EXPECT(receiveManifest(burstManifest1));
+        BEAST_EXPECT(peer->receive(burstValidation1, protocol::mtVALIDATION));
+        BEAST_EXPECT(validationJobCount() == jobsBeforeBurst + 1);
+        releaseJobQueue(gate0);
+
+        auto const burstAdmitted0 =
+            env.app().validatorManifests().getManifestSnapshot(burstMasterKey0);
+        BEAST_EXPECT(
+            burstAdmitted0 && burstAdmitted0->signingKey == burstSigningKey0);
+        BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
+            burstMasterKey1));
+
+        // The second candidate stayed bounded in the waiting slot. A repeated
+        // pair after completion proves that it was neither displaced nor
+        // permanently wedged by the first job.
+        BEAST_EXPECT(receiveManifest(burstManifest1));
+        BEAST_EXPECT(peer->receive(burstValidation1, protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        auto const burstAdmitted1 =
+            env.app().validatorManifests().getManifestSnapshot(burstMasterKey1);
+        BEAST_EXPECT(
+            burstAdmitted1 && burstAdmitted1->signingKey == burstSigningKey1);
+
+        // One forged listed-looking candidate cannot be copied into an
+        // unbounded number of distinct validation jobs. The peer is expected
+        // to receive a terminal signature charge when the sole job runs, so
+        // isolate this pressure control on its own connection.
+        addPeer(env, peers, disabled);
+        auto const burstPeer = peers.back();
+        auto const forgedBurstMasterSecret = randomSecretKey();
+        auto const forgedBurstMasterKey =
+            derivePublicKey(KeyType::ed25519, forgedBurstMasterSecret);
+        listMaster(forgedBurstMasterKey);
+        auto const forgedBurstSigningSecret = randomSecretKey();
+        auto const forgedBurstSigningKey =
+            derivePublicKey(KeyType::secp256k1, forgedBurstSigningSecret);
+        auto const wrongBurstMasterSecret = randomSecretKey();
+        protocol::TMManifests forgedBurstManifest;
+        forgedBurstManifest.add_list()->set_stobject(makeManifest(
+            forgedBurstMasterSecret,
+            forgedBurstMasterKey,
+            forgedBurstSigningSecret,
+            0,
+            &wrongBurstMasterSecret));
+
+        auto const gate1 = holdJobQueue();
+        auto const jobsBeforeForgedBurst = validationJobCount();
+        BEAST_EXPECT(
+            burstPeer->receive(forgedBurstManifest, protocol::mtMANIFESTS));
+        for (std::uint64_t i = 0; i < 8; ++i)
+        {
+            auto validation = makeValidationAt(
+                forgedBurstMasterKey,
+                forgedBurstSigningKey,
+                forgedBurstSigningSecret,
+                env.app().timeKeeper().closeTime(),
+                uint256{i + 10});
+            BEAST_EXPECT(
+                burstPeer->receive(validation, protocol::mtVALIDATION));
+        }
+        BEAST_EXPECT(validationJobCount() == jobsBeforeForgedBurst + 1);
+        releaseJobQueue(gate1);
+        BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
+            forgedBurstMasterKey));
+
+        // A normal manifest is only structurally staged on receipt. The first
+        // candidate owns the connection's bounded slot until a matching
+        // validation consumes it; interleaved singleton manifests cannot
+        // displace it.
+        auto const masterSecret0 = randomSecretKey();
+        auto const masterKey0 =
+            derivePublicKey(KeyType::ed25519, masterSecret0);
+        listMaster(masterKey0);
+        auto const signingSecret0 = randomSecretKey();
+        auto const signingKey0 =
+            derivePublicKey(KeyType::secp256k1, signingSecret0);
+        auto const serialized0 =
+            makeManifest(masterSecret0, masterKey0, signingSecret0, 0);
+        BEAST_EXPECT(receiveManifest(serialized0));
+        BEAST_EXPECT(
+            !env.app().validatorManifests().getManifestSnapshot(masterKey0));
+
+        auto const displacedMasterSecret = randomSecretKey();
+        auto const displacedMasterKey =
+            derivePublicKey(KeyType::ed25519, displacedMasterSecret);
+        listMaster(displacedMasterKey);
+        auto const displacedSigningSecret = randomSecretKey();
+        auto const displacedSigningKey =
+            derivePublicKey(KeyType::secp256k1, displacedSigningSecret);
+        BEAST_EXPECT(receiveManifest(makeManifest(
+            displacedMasterSecret,
+            displacedMasterKey,
+            displacedSigningSecret,
+            0)));
+
+        auto const validation0 =
+            makeValidation(masterKey0, signingKey0, signingSecret0);
+        BEAST_EXPECT(peer->receive(validation0, protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        auto const admitted0 =
+            env.app().validatorManifests().getManifestSnapshot(masterKey0);
+        BEAST_EXPECT(admitted0 && admitted0->signingKey == signingKey0);
+        BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
+            displacedMasterKey));
+
+        // Consuming the first candidate releases the slot for later traffic.
+        BEAST_EXPECT(receiveManifest(makeManifest(
+            displacedMasterSecret,
+            displacedMasterKey,
+            displacedSigningSecret,
+            0)));
+        BEAST_EXPECT(peer->receive(
+            makeValidation(
+                displacedMasterKey,
+                displacedSigningKey,
+                displacedSigningSecret),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        auto const admittedDisplaced =
+            env.app().validatorManifests().getManifestSnapshot(
+                displacedMasterKey);
+        BEAST_EXPECT(
+            admittedDisplaced &&
+            admittedDisplaced->signingKey == displacedSigningKey);
+
+        // A lost validation must not wedge a sequence bump on this
+        // connection. A newer manifest for the same master supersedes the
+        // unconsumed candidate in the same bounded slot.
+        auto const advancingMasterSecret = randomSecretKey();
+        auto const advancingMasterKey =
+            derivePublicKey(KeyType::ed25519, advancingMasterSecret);
+        listMaster(advancingMasterKey);
+        auto const advancingSigningSecret8 = randomSecretKey();
+        BEAST_EXPECT(receiveManifest(makeManifest(
+            advancingMasterSecret,
+            advancingMasterKey,
+            advancingSigningSecret8,
+            8)));
+        auto const advancingSigningSecret9 = randomSecretKey();
+        auto const advancingSigningKey9 =
+            derivePublicKey(KeyType::secp256k1, advancingSigningSecret9);
+        BEAST_EXPECT(receiveManifest(makeManifest(
+            advancingMasterSecret,
+            advancingMasterKey,
+            advancingSigningSecret9,
+            9)));
+        BEAST_EXPECT(peer->receive(
+            makeValidation(
+                advancingMasterKey,
+                advancingSigningKey9,
+                advancingSigningSecret9),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        auto const admittedAdvancing =
+            env.app().validatorManifests().getManifestSnapshot(
+                advancingMasterKey);
+        BEAST_EXPECT(
+            admittedAdvancing && admittedAdvancing->sequence == 9 &&
+            admittedAdvancing->signingKey == advancingSigningKey9);
+
+        // Old peers may send a one-item startup cache before status traffic.
+        // Unrelated frames neither admit nor discard the bounded candidate.
+        auto const masterSecret1 = randomSecretKey();
+        auto const masterKey1 =
+            derivePublicKey(KeyType::ed25519, masterSecret1);
+        listMaster(masterKey1);
+        auto const signingSecret1 = randomSecretKey();
+        auto const signingKey1 =
+            derivePublicKey(KeyType::secp256k1, signingSecret1);
+        BEAST_EXPECT(receiveManifest(
+            makeManifest(masterSecret1, masterKey1, signingSecret1, 0)));
+        protocol::TMPing ping;
+        ping.set_type(protocol::TMPing::ptPING);
+        ping.set_seq(1);
+        BEAST_EXPECT(peer->receive(ping, protocol::mtPING));
+
+        // A matching but non-current validation does not consume the
+        // candidate; the subsequent current validation still proves it.
+        BEAST_EXPECT(peer->receive(
+            makeValidationAt(
+                masterKey1,
+                signingKey1,
+                signingSecret1,
+                NetClock::time_point{},
+                uint256{1}),
+            protocol::mtVALIDATION));
+        BEAST_EXPECT(peer->receive(
+            makeValidation(masterKey1, signingKey1, signingSecret1),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        auto const admitted1 =
+            env.app().validatorManifests().getManifestSnapshot(masterKey1);
+        BEAST_EXPECT(admitted1 && admitted1->signingKey == signingKey1);
+
+        // A validation for another signing key does not consume or apply the
+        // candidate. A later matching validation may still prove it.
+        auto const masterSecret2 = randomSecretKey();
+        auto const masterKey2 =
+            derivePublicKey(KeyType::ed25519, masterSecret2);
+        listMaster(masterKey2);
+        auto const signingSecret2 = randomSecretKey();
+        BEAST_EXPECT(receiveManifest(
+            makeManifest(masterSecret2, masterKey2, signingSecret2, 0)));
+        auto const otherSecret = randomSecretKey();
+        auto const otherKey = derivePublicKey(KeyType::secp256k1, otherSecret);
+        BEAST_EXPECT(peer->receive(
+            makeValidation(otherKey, otherKey, otherSecret),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(
+            !env.app().validatorManifests().getManifestSnapshot(masterKey2));
+        auto const signingKey2 =
+            derivePublicKey(KeyType::secp256k1, signingSecret2);
+        BEAST_EXPECT(peer->receive(
+            makeValidation(masterKey2, signingKey2, signingSecret2),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        auto const admitted2 =
+            env.app().validatorManifests().getManifestSnapshot(masterKey2);
+        BEAST_EXPECT(admitted2 && admitted2->signingKey == signingKey2);
+
+        // A fully valid pair for an unlisted identity remains ephemeral. It
+        // cannot create a permanent ManifestCache entry merely by proving
+        // control of keys the peer minted itself.
+        auto const unlistedMasterSecret = randomSecretKey();
+        auto const unlistedMasterKey =
+            derivePublicKey(KeyType::ed25519, unlistedMasterSecret);
+        auto const unlistedSigningSecret = randomSecretKey();
+        auto const unlistedSigningKey =
+            derivePublicKey(KeyType::secp256k1, unlistedSigningSecret);
+        auto const unlistedSerialized = makeManifest(
+            unlistedMasterSecret, unlistedMasterKey, unlistedSigningSecret, 0);
+        BEAST_EXPECT(receiveManifest(unlistedSerialized));
+        BEAST_EXPECT(peer->receive(
+            makeValidation(
+                unlistedMasterKey, unlistedSigningKey, unlistedSigningSecret),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
+            unlistedMasterKey));
+
+        // A legacy/pre-existing cache row is observation, not admission
+        // authority. A valid advancing pair remains ephemeral until local
+        // policy lists the master.
+        auto const residueMasterSecret = randomSecretKey();
+        auto const residueMasterKey =
+            derivePublicKey(KeyType::ed25519, residueMasterSecret);
+        auto const residueSigningSecret0 = randomSecretKey();
+        auto const residueSigningKey0 =
+            derivePublicKey(KeyType::secp256k1, residueSigningSecret0);
+        auto residue0 = deserializeManifest(makeManifest(
+            residueMasterSecret, residueMasterKey, residueSigningSecret0, 0));
+        BEAST_EXPECT(residue0);
+        if (!residue0)
+            return;
+        BEAST_EXPECT(
+            env.app().validatorManifests().applyManifest(
+                std::move(*residue0)) == ManifestDisposition::accepted);
+
+        auto const residueSigningSecret1 = randomSecretKey();
+        auto const residueSigningKey1 =
+            derivePublicKey(KeyType::secp256k1, residueSigningSecret1);
+        BEAST_EXPECT(receiveManifest(makeManifest(
+            residueMasterSecret, residueMasterKey, residueSigningSecret1, 1)));
+        BEAST_EXPECT(peer->receive(
+            makeValidation(
+                residueMasterKey, residueSigningKey1, residueSigningSecret1),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        auto const residueCurrent =
+            env.app().validatorManifests().getManifestSnapshot(
+                residueMasterKey);
+        BEAST_EXPECT(
+            residueCurrent && residueCurrent->sequence == 0 &&
+            residueCurrent->signingKey == residueSigningKey0);
+
+        // The legacy batch compatibility lane obeys the same durable-cache
+        // admission boundary.
+        protocol::TMManifests unlistedLegacyBatch;
+        unlistedLegacyBatch.add_list()->set_stobject(unlistedSerialized);
+        unlistedLegacyBatch.add_list()->set_stobject(unlistedSerialized);
+        BEAST_EXPECT(peer->receive(unlistedLegacyBatch, protocol::mtMANIFESTS));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
+            unlistedMasterKey));
+
+        // Oversized legacy batches are charged and refused rather than
+        // processed after the charge.
+        auto const masterSecret5 = randomSecretKey();
+        auto const masterKey5 =
+            derivePublicKey(KeyType::ed25519, masterSecret5);
+        auto const signingSecret5 = randomSecretKey();
+        auto const serialized5 =
+            makeManifest(masterSecret5, masterKey5, signingSecret5, 0);
+        protocol::TMManifests oversized;
+        for (int i = 0; i < 101; ++i)
+            oversized.add_list()->set_stobject(serialized5);
+        BEAST_EXPECT(peer->receive(oversized, protocol::mtMANIFESTS));
+        BEAST_EXPECT(
+            !env.app().validatorManifests().getManifestSnapshot(masterKey5));
+
+        protocol::TMManifests oversizedObject;
+        oversizedObject.add_list()->set_stobject(std::string(4097, 'x'));
+        BEAST_EXPECT(peer->receive(oversizedObject, protocol::mtMANIFESTS));
+
+        // A strictly lower sequence claims its sender is behind for a retained
+        // master, and draws the retained manifest back — or the revocation,
+        // the freshest possible answer. Equal-sequence arrivals are ordinary
+        // always-send traffic and draw nothing; the shared repair ledger
+        // suppresses duplicate answers while its row survives.
+        testcase("stale singleton draws the fresher manifest back");
+        addPeer(env, peers, disabled);
+        auto const stalePeer = peers.back();
+        auto const stalePeerId = stalePeer->id();
+
+        auto const behindMasterSecret = randomSecretKey();
+        auto const behindMasterKey =
+            derivePublicKey(KeyType::ed25519, behindMasterSecret);
+        listMaster(behindMasterKey);
+        auto const behindSigningSecret1 = randomSecretKey();
+        auto const behindStale = makeManifest(
+            behindMasterSecret, behindMasterKey, behindSigningSecret1, 1);
+        auto const behindSigningSecret2 = randomSecretKey();
+        {
+            auto parsed = deserializeManifest(makeManifest(
+                behindMasterSecret, behindMasterKey, behindSigningSecret2, 2));
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+        auto const behindCurrent =
+            env.app().validatorManifests().getManifestSnapshot(behindMasterKey);
+        BEAST_EXPECT(behindCurrent && behindCurrent->sequence == 2);
+
+        auto const beforeStale = PeerTest::sentTypes(stalePeerId).size();
+        {
+            protocol::TMManifests staleMessage;
+            staleMessage.add_list()->set_stobject(behindStale);
+            BEAST_EXPECT(
+                stalePeer->receive(staleMessage, protocol::mtMANIFESTS));
+        }
+        BEAST_EXPECT(PeerTest::waitForMessages(stalePeerId, beforeStale + 1));
+        {
+            auto const types = PeerTest::sentTypes(stalePeerId);
+            BEAST_EXPECT(
+                types.size() == beforeStale + 1 &&
+                types.back() == protocol::mtMANIFESTS);
+            auto const payloads = PeerTest::sentManifestPayloads(stalePeerId);
+            BEAST_EXPECT(
+                behindCurrent && !payloads.empty() &&
+                payloads.back() == behindCurrent->serialized);
+        }
+
+        // Duplicate stale and equal-sequence arrivals draw nothing further.
+        {
+            protocol::TMManifests staleAgain;
+            staleAgain.add_list()->set_stobject(behindStale);
+            BEAST_EXPECT(stalePeer->receive(staleAgain, protocol::mtMANIFESTS));
+            protocol::TMManifests equalMessage;
+            if (behindCurrent)
+                equalMessage.add_list()->set_stobject(
+                    behindCurrent->serialized);
+            BEAST_EXPECT(
+                stalePeer->receive(equalMessage, protocol::mtMANIFESTS));
+        }
+        env.app().getJobQueue().rendezvous();
+
+        // A retained revocation is itself the correction: a stale normal
+        // manifest for a revoked master draws the tombstone, and retention —
+        // not listing — is what qualifies a master for an answer.
+        auto const buriedMasterSecret = randomSecretKey();
+        auto const buriedMasterKey =
+            derivePublicKey(KeyType::ed25519, buriedMasterSecret);
+        auto const buriedSigningSecret = randomSecretKey();
+        auto const buriedStale = makeManifest(
+            buriedMasterSecret, buriedMasterKey, buriedSigningSecret, 0);
+        {
+            auto parsed = deserializeManifest(buriedStale);
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+        STObject buriedRevocation(sfGeneric);
+        buriedRevocation[sfSequence] =
+            std::numeric_limits<std::uint32_t>::max();
+        buriedRevocation[sfPublicKey] = buriedMasterKey;
+        sign(
+            buriedRevocation,
+            HashPrefix::manifest,
+            KeyType::ed25519,
+            buriedMasterSecret,
+            sfMasterSignature);
+        auto const buriedRevocationSerialized = serialize(buriedRevocation);
+        {
+            auto parsed = deserializeManifest(buriedRevocationSerialized);
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+        BEAST_EXPECT(env.app().validatorManifests().revoked(buriedMasterKey));
+        {
+            protocol::TMManifests deadMessage;
+            deadMessage.add_list()->set_stobject(buriedStale);
+            BEAST_EXPECT(
+                stalePeer->receive(deadMessage, protocol::mtMANIFESTS));
+        }
+        BEAST_EXPECT(PeerTest::waitForMessages(stalePeerId, beforeStale + 2));
+        {
+            auto const types = PeerTest::sentTypes(stalePeerId);
+            BEAST_EXPECT(types.size() == beforeStale + 2);
+            BEAST_EXPECT(
+                types.size() >= 2 &&
+                types[types.size() - 2] == protocol::mtMANIFESTS &&
+                types.back() == protocol::mtMANIFESTS);
+            auto const payloads = PeerTest::sentManifestPayloads(stalePeerId);
+            BEAST_EXPECT(
+                !payloads.empty() &&
+                payloads.back() == buriedRevocationSerialized);
+        }
+
+        // A terminal response is stronger than an unsolicited unlisted
+        // revocation only when this connection previously asserted an older
+        // retained manifest for the same master. The response can then end
+        // that already-retained authority and relay onward; it still cannot
+        // allocate a new master.
+        testcase("retained revocation response crosses local listing");
+        addPeer(env, peers, disabled);
+        auto const correctionPeer = peers.back();
+        auto const correctionPeerId = correctionPeer->id();
+
+        auto const correctionMasterSecret = randomSecretKey();
+        auto const correctionMasterKey =
+            derivePublicKey(KeyType::ed25519, correctionMasterSecret);
+        auto const correctionSigningSecret = randomSecretKey();
+        auto const correctionSigningKey =
+            derivePublicKey(KeyType::secp256k1, correctionSigningSecret);
+        auto const correctionNormal = makeManifest(
+            correctionMasterSecret,
+            correctionMasterKey,
+            correctionSigningSecret,
+            0);
+        {
+            auto parsed = deserializeManifest(correctionNormal);
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+        BEAST_EXPECT(!env.app().validators().listed(correctionMasterKey));
+
+        auto const beforeAssertion =
+            PeerTest::sentTypes(correctionPeerId).size();
+        protocol::TMValidation assertedValidation;
+        assertedValidation.set_validation("asserted validation");
+        env.app().overlay().broadcast(assertedValidation, correctionSigningKey);
+        BEAST_EXPECT(
+            PeerTest::waitForMessages(correctionPeerId, beforeAssertion + 2));
+        {
+            auto const types = PeerTest::sentTypes(correctionPeerId);
+            BEAST_EXPECT(
+                types.size() == beforeAssertion + 2 &&
+                types[types.size() - 2] == protocol::mtMANIFESTS &&
+                types.back() == protocol::mtVALIDATION);
+            auto const payloads =
+                PeerTest::sentManifestPayloads(correctionPeerId);
+            BEAST_EXPECT(
+                !payloads.empty() && payloads.back() == correctionNormal);
+        }
+
+        // The connection assertion does not authorize an ordinary unlisted
+        // rotation. Without a matching validation it remains only the one
+        // bounded pending candidate and cannot alter retained state.
+        auto const correctionNextSigningSecret = randomSecretKey();
+        protocol::TMManifests ordinaryResponse;
+        ordinaryResponse.add_list()->set_stobject(makeManifest(
+            correctionMasterSecret,
+            correctionMasterKey,
+            correctionNextSigningSecret,
+            1));
+        BEAST_EXPECT(
+            correctionPeer->receive(ordinaryResponse, protocol::mtMANIFESTS));
+        {
+            auto const current =
+                env.app().validatorManifests().getManifestSnapshot(
+                    correctionMasterKey);
+            BEAST_EXPECT(
+                current && !current->revoked() && current->sequence == 0 &&
+                current->signingKey == correctionSigningKey);
+        }
+
+        // The response qualification is only an ingress gate. A forged
+        // terminal answer still reaches ordinary manifest verification and
+        // cannot apply or relay.
+        auto const forgedResponseMasterSecret = randomSecretKey();
+        STObject forgedRevocation(sfGeneric);
+        forgedRevocation[sfSequence] =
+            std::numeric_limits<std::uint32_t>::max();
+        forgedRevocation[sfPublicKey] = correctionMasterKey;
+        sign(
+            forgedRevocation,
+            HashPrefix::manifest,
+            KeyType::ed25519,
+            forgedResponseMasterSecret,
+            sfMasterSignature);
+        protocol::TMManifests forgedResponse;
+        forgedResponse.add_list()->set_stobject(serialize(forgedRevocation));
+        auto const beforeForgedResponse =
+            PeerTest::sentTypes(correctionPeerId).size();
+        BEAST_EXPECT(
+            correctionPeer->receive(forgedResponse, protocol::mtMANIFESTS));
+        env.app().getJobQueue().rendezvous();
+        {
+            auto const current =
+                env.app().validatorManifests().getManifestSnapshot(
+                    correctionMasterKey);
+            BEAST_EXPECT(
+                current && !current->revoked() && current->sequence == 0 &&
+                current->signingKey == correctionSigningKey);
+        }
+        BEAST_EXPECT(
+            PeerTest::sentTypes(correctionPeerId).size() ==
+            beforeForgedResponse);
+
+        STObject correctionRevocation(sfGeneric);
+        correctionRevocation[sfSequence] =
+            std::numeric_limits<std::uint32_t>::max();
+        correctionRevocation[sfPublicKey] = correctionMasterKey;
+        sign(
+            correctionRevocation,
+            HashPrefix::manifest,
+            KeyType::ed25519,
+            correctionMasterSecret,
+            sfMasterSignature);
+        auto const correctionRevocationSerialized =
+            serialize(correctionRevocation);
+        {
+            protocol::TMManifests response;
+            response.add_list()->set_stobject(correctionRevocationSerialized);
+            BEAST_EXPECT(
+                correctionPeer->receive(response, protocol::mtMANIFESTS));
+        }
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(
+            env.app().validatorManifests().revoked(correctionMasterKey));
+        BEAST_EXPECT(
+            PeerTest::waitForMessages(correctionPeerId, beforeAssertion + 3));
+        {
+            auto const payloads =
+                PeerTest::sentManifestPayloads(correctionPeerId);
+            BEAST_EXPECT(
+                payloads.size() >= 2 &&
+                payloads.back() == correctionRevocationSerialized);
+        }
+
+        // Retention alone is insufficient: without an older assertion on
+        // this connection, an unlisted revocation remains neither admitted
+        // nor relayed.
+        addPeer(env, peers, disabled);
+        auto const unsolicitedPeer = peers.back();
+        auto const unsolicitedPeerId = unsolicitedPeer->id();
+        auto const unsolicitedMasterSecret = randomSecretKey();
+        auto const unsolicitedMasterKey =
+            derivePublicKey(KeyType::ed25519, unsolicitedMasterSecret);
+        auto const unsolicitedSigningSecret = randomSecretKey();
+        {
+            auto parsed = deserializeManifest(makeManifest(
+                unsolicitedMasterSecret,
+                unsolicitedMasterKey,
+                unsolicitedSigningSecret,
+                0));
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+        STObject unsolicitedRevocation(sfGeneric);
+        unsolicitedRevocation[sfSequence] =
+            std::numeric_limits<std::uint32_t>::max();
+        unsolicitedRevocation[sfPublicKey] = unsolicitedMasterKey;
+        sign(
+            unsolicitedRevocation,
+            HashPrefix::manifest,
+            KeyType::ed25519,
+            unsolicitedMasterSecret,
+            sfMasterSignature);
+        protocol::TMManifests unsolicited;
+        unsolicited.add_list()->set_stobject(serialize(unsolicitedRevocation));
+        auto const beforeUnsolicited =
+            PeerTest::sentTypes(unsolicitedPeerId).size();
+        BEAST_EXPECT(
+            unsolicitedPeer->receive(unsolicited, protocol::mtMANIFESTS));
+        env.app().getJobQueue().rendezvous();
+        auto const unsolicitedCurrent =
+            env.app().validatorManifests().getManifestSnapshot(
+                unsolicitedMasterKey);
+        BEAST_EXPECT(
+            unsolicitedCurrent && !unsolicitedCurrent->revoked() &&
+            unsolicitedCurrent->sequence == 0);
+        BEAST_EXPECT(
+            PeerTest::sentTypes(unsolicitedPeerId).size() == beforeUnsolicited);
+
+        // A naked validation that authenticates against the current cached
+        // manifest is an implicit request for that manifest. The recipient
+        // repairs the sender with one singleton on the same connection, at
+        // most once per master/sequence. Duplicate, unknown-signer, and
+        // paired traffic draw nothing; a later repairable master proves via
+        // strand FIFO that those declines happened rather than raced.
+        testcase("naked validation repairs the sender");
+        addPeer(env, peers, disabled);
+        auto const repairSource = peers.back();
+        auto const repairSourceId = repairSource->id();
+
+        auto const memoryMasterSecret = randomSecretKey();
+        auto const memoryMasterKey =
+            derivePublicKey(KeyType::ed25519, memoryMasterSecret);
+        listMaster(memoryMasterKey);
+        auto const memorySigningSecret = randomSecretKey();
+        auto const memorySigningKey =
+            derivePublicKey(KeyType::secp256k1, memorySigningSecret);
+        auto const memorySerialized = makeManifest(
+            memoryMasterSecret, memoryMasterKey, memorySigningSecret, 0);
+        {
+            auto parsed = deserializeManifest(memorySerialized);
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+
+        auto const beforeRepair = PeerTest::sentTypes(repairSourceId).size();
+        auto const memoryValidation = makeValidationAt(
+            memoryMasterKey,
+            memorySigningKey,
+            memorySigningSecret,
+            env.app().timeKeeper().closeTime(),
+            uint256{101});
+        BEAST_EXPECT(
+            repairSource->receive(memoryValidation, protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(
+            PeerTest::waitForMessages(repairSourceId, beforeRepair + 1));
+        {
+            auto const types = PeerTest::sentTypes(repairSourceId);
+            BEAST_EXPECT(
+                types.size() == beforeRepair + 1 &&
+                types.back() == protocol::mtMANIFESTS);
+            auto const payloads =
+                PeerTest::sentManifestPayloads(repairSourceId);
+            BEAST_EXPECT(
+                !payloads.empty() && payloads.back() == memorySerialized);
+        }
+
+        // Another peer loses the admission race for the exact validation.
+        // The HashRouter's relayed fact proves those bytes already passed
+        // validation, so this connection still receives its own repair.
+        addPeer(env, peers, disabled);
+        auto const duplicateSource = peers.back();
+        auto const duplicateSourceId = duplicateSource->id();
+        BEAST_EXPECT(
+            duplicateSource->receive(memoryValidation, protocol::mtVALIDATION));
+        BEAST_EXPECT(PeerTest::waitForMessages(duplicateSourceId, 1));
+        {
+            auto const types = PeerTest::sentTypes(duplicateSourceId);
+            BEAST_EXPECT(
+                types.size() == 1 && types.back() == protocol::mtMANIFESTS);
+            auto const payloads =
+                PeerTest::sentManifestPayloads(duplicateSourceId);
+            BEAST_EXPECT(
+                payloads.size() == 1 && payloads.back() == memorySerialized);
+        }
+
+        // Same connection, same manifest sequence: a later distinct validation
+        // still posts a repair attempt; the strand no-ops it.
+        // Unknown-signer and paired traffic never post. The sentinel below
+        // is a later strand-FIFO send, so exactly two singletons prove the
+        // same-sequence retry did not sneak a send, and the never-posted
+        // cases sent nothing either.
+        BEAST_EXPECT(repairSource->receive(
+            makeValidationAt(
+                memoryMasterKey,
+                memorySigningKey,
+                memorySigningSecret,
+                env.app().timeKeeper().closeTime() + std::chrono::seconds{1},
+                uint256{102}),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+
+        // Unknown signer: dropped before any response can exist.
+        auto const strangerSecret = randomSecretKey();
+        auto const strangerKey =
+            derivePublicKey(KeyType::secp256k1, strangerSecret);
+        BEAST_EXPECT(repairSource->receive(
+            makeValidationAt(
+                strangerKey,
+                strangerKey,
+                strangerSecret,
+                env.app().timeKeeper().closeTime(),
+                uint256{103}),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+
+        // Paired: the sender proved it holds the prerequisite; no repair.
+        auto const pairedMasterSecret = randomSecretKey();
+        auto const pairedMasterKey =
+            derivePublicKey(KeyType::ed25519, pairedMasterSecret);
+        auto const pairedSigningSecret = randomSecretKey();
+        auto const pairedSigningKey =
+            derivePublicKey(KeyType::secp256k1, pairedSigningSecret);
+        {
+            protocol::TMManifests pairedPrerequisite;
+            pairedPrerequisite.add_list()->set_stobject(makeManifest(
+                pairedMasterSecret, pairedMasterKey, pairedSigningSecret, 0));
+            BEAST_EXPECT(repairSource->receive(
+                pairedPrerequisite, protocol::mtMANIFESTS));
+        }
+        BEAST_EXPECT(repairSource->receive(
+            makeValidationAt(
+                pairedMasterKey,
+                pairedSigningKey,
+                pairedSigningSecret,
+                env.app().timeKeeper().closeTime(),
+                uint256{104}),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+
+        // Sentinel: a second repairable master must arrive after the three
+        // declines above on the same strand, so exactly two repair
+        // singletons prove the ledger's bound held.
+        auto const memoryMasterSecret1 = randomSecretKey();
+        auto const memoryMasterKey1 =
+            derivePublicKey(KeyType::ed25519, memoryMasterSecret1);
+        listMaster(memoryMasterKey1);
+        auto const memorySigningSecret1 = randomSecretKey();
+        auto const memorySigningKey1 =
+            derivePublicKey(KeyType::secp256k1, memorySigningSecret1);
+        {
+            auto parsed = deserializeManifest(makeManifest(
+                memoryMasterSecret1,
+                memoryMasterKey1,
+                memorySigningSecret1,
+                0));
+            BEAST_EXPECT(parsed);
+            if (!parsed)
+                return;
+            BEAST_EXPECT(
+                env.app().validatorManifests().applyManifest(
+                    std::move(*parsed)) == ManifestDisposition::accepted);
+        }
+        BEAST_EXPECT(repairSource->receive(
+            makeValidationAt(
+                memoryMasterKey1,
+                memorySigningKey1,
+                memorySigningSecret1,
+                env.app().timeKeeper().closeTime(),
+                uint256{105}),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(
+            PeerTest::waitForMessages(repairSourceId, beforeRepair + 2));
+        {
+            auto const types = PeerTest::sentTypes(repairSourceId);
+            BEAST_EXPECT(types.size() == beforeRepair + 2);
+            BEAST_EXPECT(
+                types.size() >= 2 &&
+                types[types.size() - 2] == protocol::mtMANIFESTS &&
+                types.back() == protocol::mtMANIFESTS);
+        }
+
+        // The sender half of the invariant: a validation whose signing key
+        // has no cached manifest still broadcasts, naked.
+        auto const orphanSecret = randomSecretKey();
+        auto const orphanKey =
+            derivePublicKey(KeyType::secp256k1, orphanSecret);
+        auto orphanValidation = makeValidationAt(
+            orphanKey,
+            orphanKey,
+            orphanSecret,
+            env.app().timeKeeper().closeTime(),
+            uint256{106});
+        auto const beforeOrphan = PeerTest::sentTypes(repairSourceId).size();
+        env.app().overlay().broadcast(orphanValidation, orphanKey);
+        BEAST_EXPECT(
+            PeerTest::waitForMessages(repairSourceId, beforeOrphan + 1));
+        {
+            auto const types = PeerTest::sentTypes(repairSourceId);
+            BEAST_EXPECT(
+                types.size() == beforeOrphan + 1 &&
+                types.back() == protocol::mtVALIDATION);
+        }
+
+        // A naked validation whose signer has no trusted or retained master
+        // mapping is not useful, and must not front-run the real validation
+        // hash. A later verified pair remains processable and relays in wire
+        // order to another connection.
+        testcase("naked validation cannot front-run verified pair");
+        addPeer(env, peers, disabled);
+        auto const repairRecipient = peers.back()->id();
+        auto const repairMasterSecret = randomSecretKey();
+        auto const repairMasterKey =
+            derivePublicKey(KeyType::ed25519, repairMasterSecret);
+        auto const repairSigningSecret = randomSecretKey();
+        auto const repairSigningKey =
+            derivePublicKey(KeyType::secp256k1, repairSigningSecret);
+        auto const repairManifest = makeManifest(
+            repairMasterSecret, repairMasterKey, repairSigningSecret, 0);
+        auto const repairValidation = makeValidation(
+            repairMasterKey, repairSigningKey, repairSigningSecret);
+        auto const messagesBeforeRepair =
+            PeerTest::sentTypes(repairRecipient).size();
+
+        BEAST_EXPECT(peer->receive(repairValidation, protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(
+            PeerTest::sentTypes(repairRecipient).size() ==
+            messagesBeforeRepair);
+
+        BEAST_EXPECT(receiveManifest(repairManifest));
+        BEAST_EXPECT(peer->receive(repairValidation, protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(PeerTest::waitForMessages(
+            repairRecipient, messagesBeforeRepair + 2));
+        auto const repairedTypes = PeerTest::sentTypes(repairRecipient);
+        if (repairedTypes.size() >= messagesBeforeRepair + 2)
+        {
+            BEAST_EXPECT(
+                repairedTypes[messagesBeforeRepair] == protocol::mtMANIFESTS);
+            BEAST_EXPECT(
+                repairedTypes[messagesBeforeRepair + 1] ==
+                protocol::mtVALIDATION);
+        }
+        BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
+            repairMasterKey));
+
+        // A signing key retained for one master cannot be endorsed for a
+        // second master through the ephemeral pair path. Rejection must also
+        // happen before the pair claims the validation's ordinary suppression
+        // identity, so later valid traffic is not poisoned.
+        testcase("manifest key-role collision is terminal");
+        auto const collisionSigningSecret = randomSecretKey();
+        auto const collisionSigningKey =
+            derivePublicKey(KeyType::secp256k1, collisionSigningSecret);
+        auto const collisionMasterSecret0 = randomSecretKey();
+        auto const collisionMasterKey0 =
+            derivePublicKey(KeyType::ed25519, collisionMasterSecret0);
+        auto collisionManifest0 = deserializeManifest(makeManifest(
+            collisionMasterSecret0,
+            collisionMasterKey0,
+            collisionSigningSecret,
+            0));
+        BEAST_EXPECT(collisionManifest0);
+        if (!collisionManifest0)
+            return;
+        BEAST_EXPECT(
+            env.app().validatorManifests().applyManifest(std::move(
+                *collisionManifest0)) == ManifestDisposition::accepted);
+
+        auto const collisionMasterSecret1 = randomSecretKey();
+        auto const collisionMasterKey1 =
+            derivePublicKey(KeyType::ed25519, collisionMasterSecret1);
+        auto const collisionManifest1 = makeManifest(
+            collisionMasterSecret1,
+            collisionMasterKey1,
+            collisionSigningSecret,
+            0);
+        auto const collisionValidation1 = makeValidation(
+            collisionMasterKey1, collisionSigningKey, collisionSigningSecret);
+        auto const messagesBeforeCollision =
+            PeerTest::sentTypes(repairRecipient).size();
+        BEAST_EXPECT(receiveManifest(collisionManifest1));
+        BEAST_EXPECT(
+            peer->receive(collisionValidation1, protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(
+            PeerTest::sentTypes(repairRecipient).size() ==
+            messagesBeforeCollision);
+        BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
+            collisionMasterKey1));
+        auto const collisionValidationHash1 =
+            sha512Half(makeSlice(collisionValidation1.validation()));
+        BEAST_EXPECT(
+            env.app()
+                .getHashRouter()
+                .addSuppressionPeerWithStatus(collisionValidationHash1, 65001)
+                .first);
+
+        // The key-role refusal completed the sole in-flight job. A fresh
+        // candidate on the same connection can therefore claim the slot and
+        // complete normally.
+        auto const afterFailureMasterSecret = randomSecretKey();
+        auto const afterFailureMasterKey =
+            derivePublicKey(KeyType::ed25519, afterFailureMasterSecret);
+        listMaster(afterFailureMasterKey);
+        auto const afterFailureSigningSecret = randomSecretKey();
+        auto const afterFailureSigningKey =
+            derivePublicKey(KeyType::secp256k1, afterFailureSigningSecret);
+        BEAST_EXPECT(receiveManifest(makeManifest(
+            afterFailureMasterSecret,
+            afterFailureMasterKey,
+            afterFailureSigningSecret,
+            0)));
+        BEAST_EXPECT(peer->receive(
+            makeValidation(
+                afterFailureMasterKey,
+                afterFailureSigningKey,
+                afterFailureSigningSecret),
+            protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        auto const admittedAfterFailure =
+            env.app().validatorManifests().getManifestSnapshot(
+                afterFailureMasterKey);
+        BEAST_EXPECT(
+            admittedAfterFailure &&
+            admittedAfterFailure->signingKey == afterFailureSigningKey);
+
+        // A valid manifest followed by a parseable validation with a bad
+        // signature must not gain cache admission merely because the signing
+        // key claim matches. Keep this terminal fee case last: the production
+        // resource policy intentionally makes the synthetic peer unusable
+        // after feeInvalidSignature.
+        auto const invalidMasterSecret = randomSecretKey();
+        auto const invalidMasterKey =
+            derivePublicKey(KeyType::ed25519, invalidMasterSecret);
+        listMaster(invalidMasterKey);
+        auto const invalidSigningSecret = randomSecretKey();
+        auto const invalidSigningKey =
+            derivePublicKey(KeyType::secp256k1, invalidSigningSecret);
+        BEAST_EXPECT(receiveManifest(makeManifest(
+            invalidMasterSecret, invalidMasterKey, invalidSigningSecret, 0)));
+        auto invalidValidation = makeValidation(
+            invalidMasterKey, invalidSigningKey, invalidSigningSecret);
+        auto* serializedValidation = invalidValidation.mutable_validation();
+        if (BEAST_EXPECT(!serializedValidation->empty()))
+            serializedValidation->back() ^= 0x01;
+        BEAST_EXPECT(peer->receive(invalidValidation, protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
+            invalidMasterKey));
+
+        // Matching does not imply trust: a structurally valid manifest with a
+        // forged master signature is rejected. Give this second terminal-fee
+        // case its own peer so it cannot inherit the preceding disconnect.
+        addPeer(env, peers, disabled);
+        auto const forgedPeer = peers.back();
+        auto const forgedMasterSecret = randomSecretKey();
+        auto const forgedMasterKey =
+            derivePublicKey(KeyType::ed25519, forgedMasterSecret);
+        listMaster(forgedMasterKey);
+        auto const forgedSigningSecret = randomSecretKey();
+        auto const forgedSigningKey =
+            derivePublicKey(KeyType::secp256k1, forgedSigningSecret);
+        auto const wrongMasterSecret = randomSecretKey();
+        protocol::TMManifests forgedManifest;
+        forgedManifest.add_list()->set_stobject(makeManifest(
+            forgedMasterSecret,
+            forgedMasterKey,
+            forgedSigningSecret,
+            0,
+            &wrongMasterSecret));
+        BEAST_EXPECT(
+            forgedPeer->receive(forgedManifest, protocol::mtMANIFESTS));
+        auto const forgedValidation = makeValidation(
+            forgedMasterKey, forgedSigningKey, forgedSigningSecret);
+        BEAST_EXPECT(
+            forgedPeer->receive(forgedValidation, protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(!env.app().validatorManifests().getManifestSnapshot(
+            forgedMasterKey));
+        auto const forgedValidationHash =
+            sha512Half(makeSlice(forgedValidation.validation()));
+        BEAST_EXPECT(
+            env.app()
+                .getHashRouter()
+                .addSuppressionPeerWithStatus(forgedValidationHash, 65000)
+                .first);
+
+        // A forged naked validation for a repairable signer authenticates
+        // nothing and must draw no repair singleton. Terminal fee case:
+        // isolate it on its own connection.
+        addPeer(env, peers, disabled);
+        auto const forgedNakedPeer = peers.back();
+        auto const forgedNakedId = forgedNakedPeer->id();
+        auto forgedNakedValidation = makeValidationAt(
+            memoryMasterKey,
+            memorySigningKey,
+            memorySigningSecret,
+            env.app().timeKeeper().closeTime() + std::chrono::seconds{2},
+            uint256{107});
+        auto* forgedNakedBytes = forgedNakedValidation.mutable_validation();
+        if (BEAST_EXPECT(!forgedNakedBytes->empty()))
+            forgedNakedBytes->back() ^= 0x01;
+        BEAST_EXPECT(forgedNakedPeer->receive(
+            forgedNakedValidation, protocol::mtVALIDATION));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(PeerTest::sentTypes(forgedNakedId).empty());
+    }
+
+    void
     run() override
     {
         bool log = false;
         std::set<Peer::id_t> skip = {0, 1, 2, 3, 4};
         testConfig(log);
+        testManifestBeforeValidation();
+        testIncomingManifestCandidate();
+        testManifestRevocation();
         // relay to all peers, no hash queue
         testRelay("feature disabled", false, 10, 0, 10, 25, 10, 0);
         // relay to nPeers - skip (10-5=5)

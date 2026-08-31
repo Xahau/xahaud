@@ -903,7 +903,7 @@ RCLConsensus::Adaptor::validate(
     // Broadcast to all our peers:
     protocol::TMValidation val;
     val.set_validation(serialized.data(), serialized.size());
-    app_.overlay().broadcast(val);
+    app_.overlay().broadcast(val, v->getSignerPublic());
 
     // Publish to all our subscribers:
     app_.getOPs().pubValidation(v);

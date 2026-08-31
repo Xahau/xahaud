@@ -535,13 +535,14 @@ struct SetManifest_test : public beast::unit_test::suite
         BEAST_EXPECT(
             engineResult(submit(escalated, update)) == "telINSUF_FEE_P");
 
-        // The manifest authority is useful immediately even though ordinary
-        // load has postponed its durable transaction. Run only the manifest
-        // job lane before inspecting the cache.
+        // A fee-blocked wrapper does not create a second manifest broadcast
+        // plane or populate the authoritative cache. Live rotations travel
+        // with the validations that need them; this transaction remains the
+        // later durability mechanism.
         escalated.app().getJobQueue().rendezvous();
         auto const held =
             escalated.app().validatorManifests().getRawManifest(master.pk());
-        BEAST_EXPECT(held && held->first == 2);
+        BEAST_EXPECT(!held || held->first < 2);
         BEAST_EXPECT(
             escalated.le(keylet::manifest(master.pk()))
                 ->getFieldU32(sfSequence) == 1);

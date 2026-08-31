@@ -22,7 +22,6 @@
 
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/net/InfoSub.h>
-#include <boost/asio/io_service.hpp>
 
 namespace ripple {
 
@@ -39,16 +38,17 @@ protected:
     explicit RPCSub(InfoSub::Source& source);
 };
 
-// VFALCO Why is the io_service needed?
 std::shared_ptr<RPCSub>
 make_RPCSub(
     InfoSub::Source& source,
-    boost::asio::io_service& io_service,
     JobQueue& jobQueue,
     std::string const& strUrl,
     std::string const& strUsername,
     std::string const& strPassword,
-    Logs& logs);
+    Logs& logs,
+    // Max events buffered before new ones are dropped. Configurable so
+    // tests can exercise the drop path without queueing the full default.
+    std::size_t maxQueueSize = 16384);
 
 }  // namespace ripple
 

@@ -364,6 +364,28 @@ ManifestCache::getManifest(PublicKey const& pk) const
     return std::nullopt;
 }
 
+std::optional<ManifestCache::Snapshot>
+ManifestCache::getManifestSnapshot(PublicKey const& pk) const
+{
+    std::shared_lock lock{mutex_};
+
+    auto masterKey = pk;
+    if (auto const signing = signingToMasterKeys_.find(pk);
+        signing != signingToMasterKeys_.end())
+        masterKey = signing->second;
+
+    auto const manifest = map_.find(masterKey);
+    if (manifest == map_.end())
+        return std::nullopt;
+
+    auto const& current = manifest->second;
+    return Snapshot{
+        current.masterKey,
+        current.signingKey,
+        current.sequence,
+        current.serialized};
+}
+
 bool
 ManifestCache::revoked(PublicKey const& pk) const
 {
@@ -504,19 +526,20 @@ ManifestCache::applyLedgerSigningKey(
     {
         std::lock_guard lock{mutex_};
 
-        if (probed_.size() >= probeLimit)
+        auto const seq = view.info().seq;
+        if (probedLedger_ != seq)
+        {
             probed_.clear();
+            probedLedger_ = seq;
+        }
 
         // One read per key per ledger. Reaching here already cost the sender a
-        // signature and this node a verification, so the read is not the
-        // cheapest thing an unknown key can ask for; the cap is to stop
-        // repeating it, not to stop anyone.
-        auto const seq = view.info().seq;
-        auto const [iter, inserted] = probed_.try_emplace(signingKey, seq);
-        if (!inserted && iter->second == seq)
+        // signature and this node a verification. The hard per-ledger ceiling
+        // bounds even valid-signature traffic from manufacturing disk reads.
+        if (probed_.contains(signingKey) || probed_.size() >= probeLimit)
             return std::nullopt;
 
-        iter->second = seq;
+        probed_.emplace(signingKey, seq);
     }
 
     auto const sleIndex = view.read(keylet::manifestSigningKey(signingKey));
@@ -538,6 +561,59 @@ ManifestCache::applyLedgerSigningKey(
 
     // Only a signing key resolves: a master key is its own master.
     return held();
+}
+
+std::optional<ManifestDisposition>
+ManifestCache::checkKeyRolesUnlocked(
+    Manifest const& m,
+    bool allowSameMasterSigningKey) const
+{
+    if (auto const x = signingToMasterKeys_.find(m.masterKey);
+        x != signingToMasterKeys_.end())
+    {
+        JLOG(j_.warn()) << to_string(m)
+                        << ": Master key already used as ephemeral key for "
+                        << toBase58(TokenType::NodePublic, x->second);
+        return ManifestDisposition::badMasterKey;
+    }
+
+    if (m.revoked())
+        return std::nullopt;
+
+    if (!m.signingKey)
+    {
+        JLOG(j_.warn()) << to_string(m)
+                        << ": is not revoked and the manifest has no signing "
+                           "key. Hence, the manifest is invalid";
+        return ManifestDisposition::invalid;
+    }
+
+    if (auto const x = signingToMasterKeys_.find(*m.signingKey);
+        x != signingToMasterKeys_.end() &&
+        !(allowSameMasterSigningKey && x->second == m.masterKey))
+    {
+        JLOG(j_.warn()) << to_string(m)
+                        << ": Ephemeral key already used as ephemeral key for "
+                        << toBase58(TokenType::NodePublic, x->second);
+        return ManifestDisposition::badEphemeralKey;
+    }
+
+    if (auto const x = map_.find(*m.signingKey); x != map_.end())
+    {
+        JLOG(j_.warn()) << to_string(m)
+                        << ": Ephemeral key used as master key for "
+                        << to_string(x->second);
+        return ManifestDisposition::badEphemeralKey;
+    }
+
+    return std::nullopt;
+}
+
+std::optional<ManifestDisposition>
+ManifestCache::checkKeyRoles(Manifest const& m) const
+{
+    std::shared_lock lock{mutex_};
+    return checkKeyRolesUnlocked(m);
 }
 
 ManifestDisposition
@@ -610,52 +686,8 @@ ManifestCache::applyManifest(Manifest m, bool ledgerAuthoritative)
         if (auto stream = j_.warn(); stream && revoked)
             LOG_MANIFEST_ACTION(stream, "Revoked", m.masterKey, m.sequence);
 
-        // Sanity check: the master key of this manifest should not be used as
-        // the ephemeral key of another manifest:
-        if (auto const x = signingToMasterKeys_.find(m.masterKey);
-            x != signingToMasterKeys_.end())
-        {
-            JLOG(j_.warn()) << to_string(m)
-                            << ": Master key already used as ephemeral key for "
-                            << toBase58(TokenType::NodePublic, x->second);
-
-            return ManifestDisposition::badMasterKey;
-        }
-
-        if (!revoked)
-        {
-            if (!m.signingKey)
-            {
-                JLOG(j_.warn()) << to_string(m)
-                                << ": is not revoked and the manifest has no "
-                                   "signing key. Hence, the manifest is "
-                                   "invalid";
-                return ManifestDisposition::invalid;
-            }
-
-            // Sanity check: the ephemeral key of this manifest should not be
-            // used as the master or ephemeral key of another manifest:
-            if (auto const x = signingToMasterKeys_.find(*m.signingKey);
-                x != signingToMasterKeys_.end() &&
-                !(ledgerTieBreak && x->second == m.masterKey))
-            {
-                JLOG(j_.warn())
-                    << to_string(m)
-                    << ": Ephemeral key already used as ephemeral key for "
-                    << toBase58(TokenType::NodePublic, x->second);
-
-                return ManifestDisposition::badEphemeralKey;
-            }
-
-            if (auto const x = map_.find(*m.signingKey); x != map_.end())
-            {
-                JLOG(j_.warn())
-                    << to_string(m) << ": Ephemeral key used as master key for "
-                    << to_string(x->second);
-
-                return ManifestDisposition::badEphemeralKey;
-            }
-        }
+        if (auto const disposition = checkKeyRolesUnlocked(m, ledgerTieBreak))
+            return *disposition;
 
         return std::nullopt;
     };
@@ -722,7 +754,6 @@ ManifestCache::applyManifest(Manifest m, bool ledgerAuthoritative)
         signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);
 
     iter->second = std::move(m);
-
     // Something has changed. Keep track of it.
     seq_++;
 
@@ -782,8 +813,13 @@ ManifestCache::load(
 
         auto mo = deserializeManifest(base64_decode(revocationStr));
 
-        if (!mo || !mo->revoked() ||
-            applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
+        if (!mo || !mo->revoked())
+        {
+            JLOG(j_.error()) << "Invalid validator key revocation in config";
+            return false;
+        }
+
+        if (applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
         {
             JLOG(j_.error()) << "Invalid validator key revocation in config";
             return false;

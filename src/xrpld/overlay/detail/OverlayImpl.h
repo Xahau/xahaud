@@ -124,13 +124,6 @@ private:
     // Transaction reduce-relay metrics
     metrics::TxMetrics txMetrics_;
 
-    // A message with the list of manifests we send to peers
-    std::shared_ptr<Message> manifestMessage_;
-    // Used to track whether we need to update the cached list of manifests
-    std::optional<std::uint32_t> manifestListSeq_;
-    // Protects the message and the sequence list of manifests
-    std::mutex manifestLock_;
-
     //--------------------------------------------------------------------------
 
 public:
@@ -221,7 +214,7 @@ public:
     broadcast(protocol::TMProposeSet& m) override;
 
     void
-    broadcast(protocol::TMValidation& m) override;
+    broadcast(protocol::TMValidation& m, PublicKey const& validator) override;
 
     std::set<Peer::id_t>
     relay(
@@ -233,16 +226,15 @@ public:
     relay(
         protocol::TMValidation& m,
         uint256 const& uid,
-        PublicKey const& validator) override;
+        PublicKey const& validator,
+        std::shared_ptr<protocol::TMManifests const> const& prerequisite)
+        override;
 
     void
     relay(
         uint256 const&,
         std::optional<std::reference_wrapper<protocol::TMTransaction>> m,
         std::set<Peer::id_t> const& skip) override;
-
-    std::shared_ptr<Message>
-    getManifestsMessage();
 
     //--------------------------------------------------------------------------
     //
@@ -293,14 +285,14 @@ public:
         }
     }
 
+    enum class ManifestAdmission { localPolicy, retainedRevocationResponse };
+
     // Called when TMManifests is received from a peer
     void
     onManifests(
         std::shared_ptr<protocol::TMManifests> const& m,
-        std::shared_ptr<PeerImp> const& from);
-
-    void
-    ingestManifest(std::string const& serialized) override;
+        std::shared_ptr<PeerImp> const& from,
+        ManifestAdmission admission = ManifestAdmission::localPolicy);
 
     static bool
     isPeerUpgrade(http_request_type const& request);
@@ -442,11 +434,6 @@ public:
     }
 
 private:
-    bool
-    applyAndPublishManifest(
-        std::string const& serialized,
-        beast::Journal journal);
-
     void
     squelch(
         PublicKey const& validator,

@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -270,6 +271,26 @@ class DatabaseCon;
 /** Remembers manifests with the highest sequence number. */
 class ManifestCache
 {
+public:
+    /** An atomic read of one cached validator manifest.
+
+        The snapshot may represent a revocation. If a signing key is supplied,
+        it resolves only while that key is the current key for the manifest.
+    */
+    struct Snapshot
+    {
+        PublicKey masterKey;
+        std::optional<PublicKey> signingKey;
+        std::uint32_t sequence;
+        std::string serialized;
+
+        bool
+        revoked() const
+        {
+            return Manifest::revoked(sequence);
+        }
+    };
+
 private:
     beast::Journal j_;
     std::shared_mutex mutable mutex_;
@@ -313,6 +334,7 @@ private:
         mutex_ in exclusive mode.
     */
     hash_map<PublicKey, std::uint32_t> probed_;
+    std::uint32_t probedLedger_ = 0;
 
     /** Record that a manifest was looked up.
 
@@ -326,14 +348,20 @@ private:
 
     std::atomic<std::uint32_t> seq_{0};
 
+    std::optional<ManifestDisposition>
+    checkKeyRolesUnlocked(
+        Manifest const& m,
+        bool allowSameMasterSigningKey = false) const;
+
 public:
     /** Ceiling on the unpinned manifests offered to a newly connected peer. */
     static constexpr std::size_t gossipLimit = 64;
 
-    /** Ceiling on remembered ephemeral key probes before they are dropped.
+    /** Ceiling on distinct ephemeral-key probes in one ledger.
 
-        A cache of negatives, so dropping it costs at most one extra ledger
-        read per key.
+        The set resets when the ledger changes. Reaching the ceiling refuses
+        further cold lookups instead of forgetting negatives and allowing an
+        attacker to restart the work.
     */
     static constexpr std::size_t probeLimit = 4096;
 
@@ -400,6 +428,17 @@ public:
     std::optional<std::string>
     getManifest(PublicKey const& pk) const;
 
+    /** Return one internally consistent view of the current manifest.
+
+        @param pk A master key or its current ephemeral signing key.
+
+        Unlike getManifest(), revocations are returned. This is used by the
+        overlay when ordering a manifest immediately before a validation and
+        when repairing a peer that sent an authenticated naked validation.
+    */
+    std::optional<Snapshot>
+    getManifestSnapshot(PublicKey const& pk) const;
+
     /** Returns `true` if master key has been revoked in a manifest.
 
         @param pk Master public key
@@ -410,6 +449,22 @@ public:
     */
     bool
     revoked(PublicKey const& pk) const;
+
+    /** Check whether a manifest's keys conflict with retained key roles.
+
+        This does not verify signatures, compare sequences, or mutate the
+        cache. Transport uses it before relaying an unlisted pair: an
+        ephemeral path must not endorse an association the authoritative
+        cache would reject.
+
+        @return A key-role disposition, or `std::nullopt` when admissible.
+
+        @par Thread Safety
+
+        May be called concurrently.
+    */
+    std::optional<ManifestDisposition>
+    checkKeyRoles(Manifest const& m) const;
 
     /** Add manifest to cache.
 

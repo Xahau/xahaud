@@ -36,7 +36,9 @@
 #include <xrpl/basics/base64.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
+#include <xrpl/basics/scope.h>
 #include <xrpl/beast/core/LexicalCast.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/digest.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -47,6 +49,7 @@
 #include <mutex>
 #include <numeric>
 #include <sstream>
+#include <utility>
 
 using namespace std::chrono_literals;
 
@@ -58,6 +61,7 @@ std::chrono::milliseconds constexpr peerHighLatency{300};
 
 /** How often we PING the peer to check for latency and sendq probe */
 std::chrono::seconds constexpr peerTimerInterval{60};
+std::size_t constexpr maxManifestBytes = 4096;
 }  // namespace
 
 // TODO: Remove this exclusion once unit tests are added after the hotfix
@@ -289,6 +293,92 @@ PeerImp::send(std::shared_ptr<Message> const& m)
                 shared_from_this(),
                 std::placeholders::_1,
                 std::placeholders::_2)));
+}
+
+void
+PeerImp::sendValidation(
+    std::shared_ptr<Message> const& validation,
+    PublicKey const& signingKey,
+    std::shared_ptr<protocol::TMManifests const> const& prerequisite)
+{
+    if (!strand_.running_in_this_thread())
+        return post(
+            strand_,
+            std::bind(
+                &PeerImp::sendValidation,
+                shared_from_this(),
+                validation,
+                signingKey,
+                prerequisite));
+
+    if (gracefulClose_ || detaching_)
+        return;
+
+    // Admit the pair as one operation. Otherwise send(manifest) could succeed,
+    // send(validation) could be squelched, and the connection would observe a
+    // credential with no associated validation.
+    if (!squelch_.expireSquelch(signingKey))
+        return;
+
+    std::optional<PublicKey> prerequisiteMaster;
+    std::uint32_t prerequisiteSequence = 0;
+    std::shared_ptr<protocol::TMManifests const> manifest = prerequisite;
+    if (!manifest)
+    {
+        if (auto const snapshot =
+                app_.validatorManifests().getManifestSnapshot(signingKey);
+            snapshot && !snapshot->revoked() && snapshot->signingKey &&
+            *snapshot->signingKey == signingKey)
+        {
+            auto value = std::make_shared<protocol::TMManifests>();
+            value->add_list()->set_stobject(snapshot->serialized);
+            manifest = value;
+            prerequisiteMaster = snapshot->masterKey;
+            prerequisiteSequence = snapshot->sequence;
+        }
+    }
+    else if (manifest->list_size() == 1)
+    {
+        if (auto parsed = deserializeManifest(manifest->list(0).stobject()))
+        {
+            prerequisiteMaster = parsed->masterKey;
+            prerequisiteSequence = parsed->sequence;
+        }
+    }
+
+    // UNLs are local. This sender cannot infer that the receiver retains the
+    // same identities, and there is deliberately no association ACK or
+    // per-connection receiver table in this cut. Therefore every validation
+    // with an available prerequisite carries it immediately beforehand.
+    bool const sendPrerequisite = manifest && prerequisiteMaster;
+
+    if (sendPrerequisite)
+    {
+        JLOG(p_journal_.debug())
+            << "manifest_validation send_prerequisite peer=" << id_
+            << " master="
+            << (prerequisiteMaster
+                    ? toBase58(TokenType::NodePublic, *prerequisiteMaster)
+                    : "unknown")
+            << " sequence=" << prerequisiteSequence;
+        if (auto const retained = app_.validatorManifests().getManifestSnapshot(
+                *prerequisiteMaster);
+            retained && retained->sequence >= prerequisiteSequence)
+            recordManifestAssertion(*prerequisiteMaster, prerequisiteSequence);
+        send(std::make_shared<Message>(*manifest, protocol::mtMANIFESTS));
+    }
+
+    send(validation);
+    if (sendPrerequisite)
+    {
+        JLOG(p_journal_.debug())
+            << "manifest_validation pair_enqueued peer=" << id_
+            << " order=manifest,validation master="
+            << (prerequisiteMaster
+                    ? toBase58(TokenType::NodePublic, *prerequisiteMaster)
+                    : "unknown")
+            << " sequence=" << prerequisiteSequence;
+    }
 }
 
 void
@@ -870,9 +960,6 @@ PeerImp::doProtocolStart()
             });
     }
 
-    if (auto m = overlay_.getManifestsMessage())
-        send(m);
-
     setTimer();
 }
 
@@ -1058,10 +1145,162 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
     }
 
     if (s > 100)
+    {
         fee_.update(Resource::feeModerateBurdenPeer, "oversize");
+        return;
+    }
 
+    for (auto const& item : m->list())
+    {
+        if (item.stobject().size() > maxManifestBytes)
+        {
+            fee_.update(
+                Resource::feeModerateBurdenPeer, "oversized manifest object");
+            return;
+        }
+    }
+
+    auto const that = shared_from_this();
+
+    // A single normal manifest is a bounded, connection-scoped candidate for
+    // a later matching validation. Structural decoding is cheap enough
+    // to identify its signing key; signature verification waits until that
+    // validation claims the same key. Revocations have no following validation
+    // and therefore retain immediate verification/application semantics.
+    if (s == 1)
+    {
+        auto const& serialized = m->list(0).stobject();
+        auto manifest = deserializeManifest(serialized, p_journal_);
+        if (!manifest)
+        {
+            fee_.update(Resource::feeMalformedRequest, "malformed manifest");
+            return;
+        }
+
+        if (manifest->revoked())
+        {
+            // A fresh self-signed revocation has no more claim on permanent
+            // state than a fresh ordinary manifest. Current local policy may
+            // admit it directly; an unlisted response may only terminate a
+            // master already retained here after this connection asserted an
+            // older sequence.
+            auto const listed = app_.validators().listed(manifest->masterKey);
+            auto const current = app_.validatorManifests().getManifestSnapshot(
+                manifest->masterKey);
+            auto const retainedResponse = !listed && current &&
+                current->sequence < manifest->sequence &&
+                assertedOlderManifest(manifest->masterKey, manifest->sequence);
+            if (!listed && !retainedResponse)
+            {
+                JLOG(p_journal_.debug())
+                    << "manifest_revocation ignored_unlisted master="
+                    << toBase58(TokenType::NodePublic, manifest->masterKey);
+                return;
+            }
+
+            app_.getJobQueue().addJob(
+                jtMANIFEST,
+                "receiveManifestRevocation",
+                [this, that, m, retainedResponse]() {
+                    overlay_.onManifests(
+                        m,
+                        that,
+                        retainedResponse
+                            ? OverlayImpl::ManifestAdmission::
+                                  retainedRevocationResponse
+                            : OverlayImpl::ManifestAdmission::localPolicy);
+                });
+            return;
+        }
+
+        XRPL_ASSERT(
+            manifest->signingKey,
+            "ripple::PeerImp::onMessage(TMManifests) : normal manifest has "
+            "signing key");
+
+        if (publicKeyType(*manifest->signingKey) != KeyType::secp256k1)
+        {
+            fee_.update(
+                Resource::feeInvalidData,
+                "validator manifest signing key is not secp256k1");
+            return;
+        }
+
+        if (auto const current = app_.validatorManifests().getManifestSnapshot(
+                manifest->masterKey);
+            current && current->sequence >= manifest->sequence)
+        {
+            JLOG(p_journal_.debug())
+                << "manifest_validation candidate_ignored peer=" << id_
+                << " reason=global_sequence master="
+                << toBase58(TokenType::NodePublic, manifest->masterKey);
+            // A strictly lower sequence claims that the sender is behind for
+            // a master this node retains. Answer with the retained manifest —
+            // or the revocation, the freshest possible answer — without
+            // treating this unverified trigger as ingress authority. The
+            // shared repair ledger suppresses repeats while its row survives;
+            // equal-sequence always-send traffic draws nothing.
+            if (current->sequence > manifest->sequence)
+            {
+                JLOG(p_journal_.debug())
+                    << "manifest_validation stale_correction peer=" << id_
+                    << " master="
+                    << toBase58(TokenType::NodePublic, manifest->masterKey)
+                    << " theirs=" << manifest->sequence
+                    << " ours=" << current->sequence;
+                sendManifestRepair(
+                    current->masterKey, current->sequence, current->serialized);
+            }
+            return;
+        }
+
+        if (pendingManifest_)
+        {
+            auto const current = app_.validatorManifests().getManifestSnapshot(
+                pendingManifest_->masterKey);
+            if (current && current->sequence >= pendingManifest_->sequence)
+                pendingManifest_.reset();
+        }
+
+        if (pendingManifest_)
+        {
+            auto const pendingRelevant =
+                app_.validators().listed(pendingManifest_->masterKey);
+            auto const incomingRelevant =
+                app_.validators().listed(manifest->masterKey);
+            auto const sameMasterNewer =
+                pendingManifest_->masterKey == manifest->masterKey &&
+                manifest->sequence > pendingManifest_->sequence;
+            if (!sameMasterNewer && (!incomingRelevant || pendingRelevant))
+            {
+                JLOG(p_journal_.debug())
+                    << "manifest_validation candidate_ignored peer=" << id_
+                    << " reason=pending_candidate";
+                return;
+            }
+
+            JLOG(p_journal_.debug())
+                << "manifest_validation candidate_replaced peer=" << id_
+                << " reason="
+                << (sameMasterNewer ? "same_master_newer" : "listed_priority")
+                << " master="
+                << toBase58(TokenType::NodePublic, manifest->masterKey);
+        }
+        pendingManifest_.emplace(PendingManifest{
+            m, manifest->masterKey, *manifest->signingKey, manifest->sequence});
+        JLOG(p_journal_.debug())
+            << "manifest_validation candidate_staged peer=" << id_ << " master="
+            << toBase58(TokenType::NodePublic, manifest->masterKey)
+            << " signing="
+            << toBase58(TokenType::NodePublic, *manifest->signingKey)
+            << " sequence=" << manifest->sequence;
+        return;
+    }
+
+    // Compatibility lane for legacy handshake-era batches. New propagation
+    // sends exactly one manifest immediately before its validation.
     app_.getJobQueue().addJob(
-        jtMANIFEST, "receiveManifests", [this, that = shared_from_this(), m]() {
+        jtMANIFEST, "receiveManifests", [this, that, m]() {
             overlay_.onManifests(m, that);
         });
 }
@@ -2289,18 +2528,74 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
     {
         auto const closeTime = app_.timeKeeper().closeTime();
 
+        if (pendingManifest_)
+        {
+            auto const current = app_.validatorManifests().getManifestSnapshot(
+                pendingManifest_->masterKey);
+            if (current && current->sequence >= pendingManifest_->sequence)
+            {
+                JLOG(p_journal_.debug())
+                    << "manifest_validation candidate_dropped peer=" << id_
+                    << " reason=retained_sequence master="
+                    << toBase58(
+                           TokenType::NodePublic, pendingManifest_->masterKey);
+                pendingManifest_.reset();
+            }
+        }
+
+        // Claim phase: copy the strand-owned waiting row so admission can be
+        // decided. Ownership has not moved and no job right exists yet.
+        std::optional<PendingManifest> manifestContext;
+        SerialIter claimIter(makeSlice(m->validation()));
+        STObject claim(claimIter, sfValidation);
+        auto const claimedKeyBytes = claim.getFieldVL(sfSigningPubKey);
+        if (publicKeyType(makeSlice(claimedKeyBytes)) == KeyType::secp256k1)
+        {
+            PublicKey const claimedKey(makeSlice(claimedKeyBytes));
+            if (pendingManifest_ &&
+                claimedKey == pendingManifest_->signingKey &&
+                !manifestVerificationInFlight_)
+            {
+                manifestContext = pendingManifest_;
+            }
+            else if (
+                pendingManifest_ && claimedKey == pendingManifest_->signingKey)
+            {
+                JLOG(p_journal_.debug())
+                    << "manifest_validation candidate_retained peer=" << id_
+                    << " reason=verification_in_flight";
+            }
+            else if (pendingManifest_)
+            {
+                JLOG(p_journal_.debug())
+                    << "manifest_validation candidate_retained peer=" << id_
+                    << " reason=signing_key_mismatch";
+            }
+        }
+
         std::shared_ptr<STValidation> val;
         {
             SerialIter sit(makeSlice(m->validation()));
             val = std::make_shared<STValidation>(
                 std::ref(sit),
-                [this](PublicKey const& pk) {
+                [this, &manifestContext](PublicKey const& pk) {
+                    if (manifestContext && pk == manifestContext->signingKey)
+                        return calcNodeID(manifestContext->masterKey);
                     return calcNodeID(
                         app_.validatorManifests().getMasterKey(pk));
                 },
                 false);
             val->setSeen(closeTime);
         }
+
+        auto const& signingKey = val->getSignerPublic();
+        auto const masterKey = manifestContext
+            ? manifestContext->masterKey
+            : app_.validatorManifests().getMasterKey(signingKey);
+        JLOG(p_journal_.debug())
+            << "manifest_validation validation_parsed peer=" << id_
+            << " signing=" << toBase58(TokenType::NodePublic, signingKey)
+            << " master=" << toBase58(TokenType::NodePublic, masterKey);
 
         if (!isCurrent(
                 app_.getValidations().parms(),
@@ -2316,26 +2611,81 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
         // RH TODO: when isTrusted = false we should probably also cache a key
         // suppression for 30 seconds to avoid doing a relatively expensive
         // lookup every time a spam packet is received
+        // A pending manifest is still only a claim here. Do not let its
+        // claimed master key promote this work to the trusted queue. The job
+        // verifies both signatures before applying the manifest and making
+        // the final trust decision.
         auto const isTrusted =
             app_.validators().trusted(val->getSignerPublic());
+        auto const candidateListed = manifestContext &&
+            app_.validators().listed(manifestContext->masterKey);
+
+        // An on-ledger signing-key index may make an otherwise unknown naked
+        // validation relevant. Do not read the ledger on the peer strand: the
+        // verification job first makes the sender pay for a valid signature,
+        // then performs the bounded cold lookup.
+        auto const openLedger = app_.openLedger().current();
+        bool const mayResolveFromLedger = !manifestContext && !isTrusted &&
+            masterKey == signingKey && !app_.validators().listed(signingKey) &&
+            openLedger && openLedger->rules().enabled(featureOnChainManifests);
 
         // If the operator has specified that untrusted validations be dropped
         // then this happens here I.e. before further wasting CPU verifying the
         // signature of an untrusted key
-        if (!isTrusted && app_.config().RELAY_UNTRUSTED_VALIDATIONS == -1)
+        if (!isTrusted && !candidateListed && !mayResolveFromLedger &&
+            app_.config().RELAY_UNTRUSTED_VALIDATIONS == -1)
             return;
 
-        auto key = sha512Half(makeSlice(m->validation()));
+        if (!isTrusted && !candidateListed &&
+            tracking_.load() == Tracking::diverged)
+        {
+            JLOG(p_journal_.debug())
+                << "Dropping untrusted validation from diverged peer";
+            return;
+        }
+
+        if (!isTrusted && !candidateListed &&
+            app_.getFeeTrack().isLoadedLocal())
+        {
+            JLOG(p_journal_.debug())
+                << "Dropping untrusted validation for load";
+            return;
+        }
+
+        if (manifestContext)
+        {
+            JLOG(p_journal_.debug())
+                << "manifest_validation candidate_matched peer=" << id_
+                << " master="
+                << toBase58(TokenType::NodePublic, manifestContext->masterKey)
+                << " signing=" << toBase58(TokenType::NodePublic, signingKey)
+                << " sequence=" << manifestContext->sequence;
+        }
+
+        auto const key = sha512Half(makeSlice(m->validation()));
+        auto const suppressionKey = manifestContext
+            ? sha512Half(
+                  std::uint32_t{0x4d565031},  // "MVP1"
+                  makeSlice(m->validation()),
+                  makeSlice(manifestContext->message->list(0).stobject()))
+            : key;
 
         if (auto [added, relayed] =
-                app_.getHashRouter().addSuppressionPeerWithStatus(key, id_);
+                app_.getHashRouter().addSuppressionPeerWithStatus(
+                    suppressionKey, id_);
             !added)
         {
+            // A previously relayed copy of these exact bytes has already
+            // passed validation. Repair this particular naked sender even
+            // though another peer won global admission for the hash.
+            if (!manifestContext && relayed)
+                sendManifestRepairForSigningKey(val->getSignerPublic());
+
             // Count unique messages (Slots has it's own 'HashRouter'), which a
             // peer receives within IDLED seconds since the message has been
             // relayed. Wait WAIT_ON_BOOTUP time to let the server establish
             // connections to peers.
-            if (reduceRelayReady() && relayed &&
+            if (!manifestContext && reduceRelayReady() && relayed &&
                 (stopwatch().now() - *relayed) < reduce_relay::IDLED)
                 overlay_.updateSlotAndSquelch(
                     key, val->getSignerPublic(), id_, protocol::mtVALIDATION);
@@ -2343,39 +2693,67 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
             return;
         }
 
-        if (!isTrusted && (tracking_.load() == Tracking::diverged))
-        {
-            JLOG(p_journal_.debug())
-                << "Dropping untrusted validation from diverged peer";
-        }
-        else if (isTrusted || !app_.getFeeTrack().isLoadedLocal())
-        {
-            std::string const name = [isTrusted, val]() {
-                std::string ret =
-                    isTrusted ? "Trusted validation" : "Untrusted validation";
+        std::string const name = [isTrusted, val]() {
+            std::string ret =
+                isTrusted ? "Trusted validation" : "Untrusted validation";
 
 #ifdef DEBUG
-                ret += " " +
-                    std::to_string(val->getFieldU32(sfLedgerSequence)) + ": " +
-                    to_string(val->getNodeID());
+            ret += " " + std::to_string(val->getFieldU32(sfLedgerSequence)) +
+                ": " + to_string(val->getNodeID());
 #endif
 
-                return ret;
-            }();
+            return ret;
+        }();
 
-            std::weak_ptr<PeerImp> weak = shared_from_this();
-            app_.getJobQueue().addJob(
+        std::weak_ptr<PeerImp> weak = shared_from_this();
+        auto pairedPeer = manifestContext ? shared_from_this() : nullptr;
+        bool const pairedJob = manifestContext.has_value();
+        if (pairedJob)
+        {
+            XRPL_ASSERT(
+                pendingManifest_ &&
+                    pendingManifest_->message == manifestContext->message,
+                "ripple::PeerImp::onMessage(TMValidation) : pending manifest "
+                "claim is current");
+            // Admission commit: move authority out of the strand-owned
+            // waiting row and mint this connection's sole active job token.
+            pendingManifest_.reset();
+            manifestVerificationInFlight_ = true;
+            JLOG(p_journal_.debug())
+                << "manifest_validation candidate_claimed peer=" << id_
+                << " state=verification_in_flight";
+        }
+
+        bool queued = false;
+        try
+        {
+            queued = app_.getJobQueue().addJob(
                 isTrusted ? jtVALIDATION_t : jtVALIDATION_ut,
                 name,
-                [weak, val, m, key]() {
-                    if (auto peer = weak.lock())
-                        peer->checkValidation(val, key, m);
+                [weak,
+                 pairedPeer = std::move(pairedPeer),
+                 val,
+                 m,
+                 key,
+                 manifestContext = std::move(manifestContext)]() mutable {
+                    if (auto peer = pairedPeer ? pairedPeer : weak.lock())
+                        peer->checkValidation(
+                            val, key, m, std::move(manifestContext));
                 });
         }
-        else
+        catch (...)
         {
+            if (pairedJob)
+                finishManifestVerification();
+            throw;
+        }
+
+        if (!queued && pairedJob)
+        {
+            finishManifestVerification();
             JLOG(p_journal_.debug())
-                << "Dropping untrusted validation for load";
+                << "manifest_validation candidate_rejected peer=" << id_
+                << " reason=job_queue_refused";
         }
     }
     catch (std::exception const& e)
@@ -2968,17 +3346,279 @@ PeerImp::checkPropose(
 }
 
 void
+PeerImp::sendManifestRepairForSigningKey(PublicKey const& signingKey)
+{
+    if (auto const snapshot =
+            app_.validatorManifests().getManifestSnapshot(signingKey);
+        snapshot && !snapshot->revoked() && snapshot->signingKey &&
+        *snapshot->signingKey == signingKey)
+        sendManifestRepair(
+            snapshot->masterKey, snapshot->sequence, snapshot->serialized);
+}
+
+void
+PeerImp::sendManifestRepair(
+    PublicKey const& masterKey,
+    std::uint32_t sequence,
+    std::string serialized)
+{
+    if (!strand_.running_in_this_thread())
+        return post(
+            strand_,
+            std::bind(
+                &PeerImp::sendManifestRepair,
+                shared_from_this(),
+                masterKey,
+                sequence,
+                std::move(serialized)));
+
+    if (gracefulClose_ || detaching_)
+        return;
+
+    auto const it = manifestAssertionSequences_.find(masterKey);
+    if (it != manifestAssertionSequences_.end() && it->second >= sequence)
+        return;
+
+    recordManifestAssertion(masterKey, sequence);
+
+    protocol::TMManifests tm;
+    tm.add_list()->set_stobject(serialized);
+    send(std::make_shared<Message>(tm, protocol::mtMANIFESTS));
+    JLOG(p_journal_.debug())
+        << "manifest_validation repair_sent peer=" << id_
+        << " master=" << toBase58(TokenType::NodePublic, masterKey)
+        << " sequence=" << sequence;
+}
+
+void
+PeerImp::recordManifestAssertion(
+    PublicKey const& masterKey,
+    std::uint32_t sequence)
+{
+    XRPL_ASSERT(
+        strand_.running_in_this_thread(),
+        "ripple::PeerImp::recordManifestAssertion : on strand");
+
+    auto const it = manifestAssertionSequences_.find(masterKey);
+    if (it != manifestAssertionSequences_.end())
+    {
+        if (it->second < sequence)
+            it->second = sequence;
+        return;
+    }
+
+    if (manifestAssertionSequences_.size() >= maxManifestAssertionEntries)
+        manifestAssertionSequences_.clear();
+    manifestAssertionSequences_.emplace(masterKey, sequence);
+}
+
+bool
+PeerImp::assertedOlderManifest(
+    PublicKey const& masterKey,
+    std::uint32_t sequence) const
+{
+    XRPL_ASSERT(
+        strand_.running_in_this_thread(),
+        "ripple::PeerImp::assertedOlderManifest : on strand");
+
+    auto const it = manifestAssertionSequences_.find(masterKey);
+    return it != manifestAssertionSequences_.end() && it->second < sequence;
+}
+
+void
+PeerImp::sendManifestAssertions(
+    std::shared_ptr<Message> const& message,
+    std::vector<std::pair<PublicKey, std::uint32_t>> assertions)
+{
+    if (!strand_.running_in_this_thread())
+        return post(
+            strand_,
+            std::bind(
+                &PeerImp::sendManifestAssertions,
+                shared_from_this(),
+                message,
+                std::move(assertions)));
+
+    if (gracefulClose_ || detaching_)
+        return;
+
+    for (auto const& [masterKey, sequence] : assertions)
+        recordManifestAssertion(masterKey, sequence);
+    send(message);
+}
+
+void
+PeerImp::finishManifestVerification()
+{
+    // Instrumentation is compiled out in NDEBUG builds; the state transition
+    // must not live inside XRPL_ASSERT.
+    auto const wasInFlight = manifestVerificationInFlight_.exchange(false);
+    XRPL_ASSERT(
+        wasInFlight,
+        "ripple::PeerImp::finishManifestVerification : verification in "
+        "flight");
+    JLOG(p_journal_.debug())
+        << "manifest_validation verification_finished peer=" << id_;
+}
+
+void
 PeerImp::checkValidation(
     std::shared_ptr<STValidation> const& val,
     uint256 const& key,
-    std::shared_ptr<protocol::TMValidation> const& packet)
+    std::shared_ptr<protocol::TMValidation> const& packet,
+    std::optional<PendingManifest> manifestContext)
 {
+    bool const pairedJob = manifestContext.has_value();
+    // The queued job owns the moved association. This scope guard is its
+    // all-exits terminal: success, refusal, and exception consume the active
+    // connection token exactly once.
+    scope_exit finishPairVerification([this, pairedJob]() {
+        if (pairedJob)
+            finishManifestVerification();
+    });
+
     if (!val->isValid())
     {
         std::string desc{"Validation forwarded by peer is invalid"};
         JLOG(p_journal_.debug()) << desc;
         charge(Resource::feeInvalidSignature, desc);
         return;
+    }
+
+    std::shared_ptr<protocol::TMManifests const> prerequisite;
+    if (!manifestContext)
+    {
+        auto const& signingKey = val->getSignerPublic();
+        auto const unresolved =
+            app_.validatorManifests().getMasterKey(signingKey) == signingKey &&
+            !app_.validators().listed(signingKey) &&
+            !app_.validators().trusted(signingKey);
+
+        if (unresolved)
+        {
+            auto const view = app_.openLedger().current();
+            auto const master =
+                view && view->rules().enabled(featureOnChainManifests)
+                ? app_.validatorManifests().applyLedgerSigningKey(
+                      *view, signingKey)
+                : std::nullopt;
+            if (!master)
+            {
+                JLOG(p_journal_.debug())
+                    << "manifest_validation naked_unknown_dropped peer=" << id_
+                    << " reason=no_ledger_manifest signing="
+                    << toBase58(TokenType::NodePublic, signingKey);
+                charge(
+                    Resource::feeUselessData, "unknown validation signing key");
+                return;
+            }
+
+            // The validated ledger supplied the missing association. Carry
+            // its manifest on the onward relay and repair the naked sender;
+            // the TxQ is not part of this live recovery path.
+            if (auto const snapshot =
+                    app_.validatorManifests().getManifestSnapshot(signingKey);
+                snapshot && !snapshot->revoked() && snapshot->signingKey &&
+                *snapshot->signingKey == signingKey)
+            {
+                auto message = std::make_shared<protocol::TMManifests>();
+                message->add_list()->set_stobject(snapshot->serialized);
+                prerequisite = std::move(message);
+            }
+        }
+    }
+
+    if (manifestContext)
+    {
+        auto manifest = deserializeManifest(
+            manifestContext->message->list(0).stobject(), p_journal_);
+        if (!manifest || manifest->revoked() || !manifest->signingKey ||
+            manifest->masterKey != manifestContext->masterKey ||
+            *manifest->signingKey != manifestContext->signingKey ||
+            val->getSignerPublic() != manifestContext->signingKey ||
+            !manifest->verify())
+        {
+            std::string const desc{
+                "Validation prerequisite manifest is invalid"};
+            JLOG(p_journal_.debug()) << desc;
+            charge(Resource::feeInvalidSignature, desc);
+            return;
+        }
+
+        // A valid signature does not make a key association admissible. In
+        // particular, an unlisted pair must not traverse ephemerally when its
+        // signing key is already retained for another master. Use the same
+        // key-role rules as durable cache admission before either path can
+        // relay the pair.
+        if (app_.validatorManifests().checkKeyRoles(*manifest))
+        {
+            std::string const desc{
+                "Validation prerequisite manifest has conflicting key roles"};
+            JLOG(p_journal_.debug()) << desc;
+            charge(Resource::feeInvalidData, desc);
+            return;
+        }
+
+        auto const cacheEligible =
+            app_.validators().listed(manifestContext->masterKey);
+
+        if (cacheEligible)
+        {
+            // Only current local policy may affect the durable cache in this
+            // slice. Cache membership alone is not provenance.
+            overlay_.onManifests(manifestContext->message, shared_from_this());
+
+            auto const current = app_.validatorManifests().getManifestSnapshot(
+                manifestContext->signingKey);
+            if (!current || current->revoked() || !current->signingKey ||
+                current->masterKey != manifestContext->masterKey ||
+                *current->signingKey != manifestContext->signingKey ||
+                current->sequence < manifest->sequence)
+            {
+                JLOG(p_journal_.debug())
+                    << "manifest_validation candidate_rejected peer=" << id_
+                    << " reason=not_current_after_application";
+                // Listed admission failed or raced with another update. Do
+                // not reinterpret that failure as permission to relay the
+                // same association ephemerally.
+                return;
+            }
+            else
+            {
+                auto message = std::make_shared<protocol::TMManifests>();
+                message->add_list()->set_stobject(current->serialized);
+                prerequisite = std::move(message);
+            }
+        }
+        else
+        {
+            // Unlisted validators may still traverse a node configured to
+            // relay untrusted validations, but the pair remains ephemeral.
+            prerequisite = manifestContext->message;
+            JLOG(p_journal_.debug())
+                << "manifest_validation candidate_ephemeral peer=" << id_
+                << " master="
+                << toBase58(TokenType::NodePublic, manifestContext->masterKey);
+        }
+
+        if (!app_.validators().trusted(manifestContext->masterKey) &&
+            app_.config().RELAY_UNTRUSTED_VALIDATIONS == -1)
+            return;
+
+        // The pre-verification suppression identity includes both packets.
+        // Only after both signatures pass may this pair claim the actual
+        // validation hash. An invalid prerequisite therefore cannot poison a
+        // later valid validation for the hash-router hold interval.
+        if (auto [added, relayed] =
+                app_.getHashRouter().addSuppressionPeerWithStatus(key, id_);
+            !added)
+        {
+            if (reduceRelayReady() && relayed &&
+                (stopwatch().now() - *relayed) < reduce_relay::IDLED)
+                overlay_.updateSlotAndSquelch(
+                    key, val->getSignerPublic(), id_, protocol::mtVALIDATION);
+            return;
+        }
     }
 
     // FIXME it should be safe to remove this try/catch. Investigate codepaths.
@@ -2991,8 +3631,8 @@ PeerImp::checkValidation(
             // are the source of the message, consequently the message should
             // not be relayed to these peers. But the message must be counted
             // as part of the squelch logic.
-            auto haveMessage =
-                overlay_.relay(*packet, key, val->getSignerPublic());
+            auto haveMessage = overlay_.relay(
+                *packet, key, val->getSignerPublic(), prerequisite);
             if (reduceRelayReady() && !haveMessage.empty())
             {
                 overlay_.updateSlotAndSquelch(
@@ -3001,6 +3641,16 @@ PeerImp::checkValidation(
                     std::move(haveMessage),
                     protocol::mtVALIDATION);
             }
+
+            // A naked validation that just authenticated against the current
+            // cached manifest is an implicit request for that manifest.
+            // Repair the sender on this connection only; the strand-owned
+            // repair ledger bounds it to one singleton per master/sequence.
+            // Forged, malformed, and unknown-signer traffic never reaches
+            // this point, and paired traffic proves the sender already holds
+            // the prerequisite.
+            if (!pairedJob)
+                sendManifestRepairForSigningKey(val->getSignerPublic());
         }
     }
     catch (std::exception const& ex)

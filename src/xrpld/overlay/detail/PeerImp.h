@@ -175,6 +175,42 @@ private:
     http_response_type response_;
     boost::beast::http::fields const& headers_;
     std::queue<std::shared_ptr<Message>> send_queue_;
+    /** One unverified manifest awaiting a later matching validation.
+
+        Owner/executor: this peer's strand. Normal manifests are structurally
+        decoded on receipt but are not
+        signature-verified or admitted to the global cache until a validation
+        on this connection claims the same signing key. An admitted claim
+        moves the association into the sole in-flight verification job, which
+        frees this slot for one later candidate. Access is serialized by
+        strand_.
+    */
+    struct PendingManifest
+    {
+        std::shared_ptr<protocol::TMManifests> message;
+        PublicKey masterKey;
+        PublicKey signingKey;
+        std::uint32_t sequence;
+    };
+    std::optional<PendingManifest> pendingManifest_;
+
+    // The one active verification-obligation token for this connection. The
+    // strand mints it when pending ownership moves into a job; admission
+    // rollback or that job's terminal clears it exactly once. Atomic because
+    // the job terminal executes on a JobQueue worker, not the peer strand.
+    std::atomic_bool manifestVerificationInFlight_{false};
+
+    // The bounded assertion ledger for this connection. Every retained
+    // manifest sent here records its master/sequence. Backward repair hints
+    // therefore deduplicate against prior prerequisites and each other, and a
+    // terminal response can prove it answers state this connection actually
+    // asserted. Ephemeral pairs do not allocate rows.
+    // Owner/executor: this peer's strand. The ledger is cleared wholesale only
+    // when a new master would exceed the cap; forgetting is safe and may cost
+    // one duplicate repair or one missed best-effort correction.
+    static constexpr std::size_t maxManifestAssertionEntries = 256;
+    hash_map<PublicKey, std::uint32_t> manifestAssertionSequences_;
+
     bool gracefulClose_ = false;
     int large_sendq_ = 0;
     std::unique_ptr<LoadEvent> load_event_;
@@ -442,6 +478,14 @@ public:
         return txReduceRelayEnabled_;
     }
 
+protected:
+    /** Dispatch derived-class work through this peer's serialized executor. */
+    void
+    dispatchOnStrand(std::function<void()> work)
+    {
+        boost::asio::dispatch(strand_, std::move(work));
+    }
+
 private:
     void
     close();
@@ -485,6 +529,18 @@ private:
     // Starts the protocol message loop
     void
     doProtocolStart();
+
+    /** Send a validation after its current manifest on this connection.
+
+        Both existing protocol envelopes are enqueued on strand_ in wire
+        order. No receiver-side association or acknowledgement is assumed, so
+        an available prerequisite is sent with every validation.
+    */
+    void
+    sendValidation(
+        std::shared_ptr<Message> const& validation,
+        PublicKey const& signingKey,
+        std::shared_ptr<protocol::TMManifests const> const& prerequisite = {});
 
     // Called when protocol message bytes are received
     void
@@ -635,7 +691,45 @@ private:
     checkValidation(
         std::shared_ptr<STValidation> const& val,
         uint256 const& key,
-        std::shared_ptr<protocol::TMValidation> const& packet);
+        std::shared_ptr<protocol::TMValidation> const& packet,
+        std::optional<PendingManifest> manifestContext);
+
+    /** Consume the connection's sole active verification-obligation token.
+
+        This is the only terminal operation for both failed job admission and
+        every exit from an admitted verification job.
+    */
+    void
+    finishManifestVerification();
+
+    /** Return a cached manifest to the peer that sent its validation naked.
+
+        A naked validation that has authenticated against the current cached
+        manifest for its signing key is an implicit request for that
+        manifest. The strand consults the bounded repair ledger and sends at
+        most one singleton per master/sequence on this connection. Callable
+        from a verification job; the send hops to the strand.
+    */
+    void
+    sendManifestRepairForSigningKey(PublicKey const& signingKey);
+
+    void
+    sendManifestRepair(
+        PublicKey const& masterKey,
+        std::uint32_t sequence,
+        std::string serialized);
+
+    void
+    recordManifestAssertion(PublicKey const& masterKey, std::uint32_t sequence);
+
+    bool
+    assertedOlderManifest(PublicKey const& masterKey, std::uint32_t sequence)
+        const;
+
+    void
+    sendManifestAssertions(
+        std::shared_ptr<Message> const& message,
+        std::vector<std::pair<PublicKey, std::uint32_t>> assertions);
 
     void
     sendLedgerBase(
