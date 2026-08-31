@@ -779,26 +779,11 @@ ManifestCache::applyManifest(
         std::shared_lock sl{mutex_};
         auto const iter = map_.find(m.masterKey);
         if (auto d = prewriteCheck(iter, /*checkSig*/ true, sl))
-        {
-            // A stale protected application still promotes a retained
-            // evictable row. Defer that policy mutation to the write lock.
-            if (!protect || *d != ManifestDisposition::stale ||
-                !evictable_.contains(m.masterKey))
-                return *d;
-        }
+            return *d;
     }
 
     std::unique_lock sl{mutex_};
     auto const iter = map_.find(m.masterKey);
-
-    if (protect && iter != map_.end() && m.sequence <= iter->second.sequence &&
-        !(ledgerAuthoritative && m.sequence == iter->second.sequence &&
-          m.serialized != iter->second.serialized))
-    {
-        if (evictable_.erase(m.masterKey) != 0)
-            ++seq_;
-        return ManifestDisposition::stale;
-    }
     // Since we released the previously held read lock, it's possible that the
     // collections have been written to. This means we need to run
     // `prewriteCheck` again. This re-does work, but `prewriteCheck` is
@@ -873,11 +858,13 @@ ManifestCache::applyManifest(
 }
 
 void
-ManifestCache::load(DatabaseCon& dbCon, std::string const& dbTable)
+ManifestCache::load(
+    DatabaseCon& dbCon,
+    std::string const& dbTable,
+    ManifestRetention const retention)
 {
     auto db = dbCon.checkoutDb();
-    ripple::getManifests(
-        *db, dbTable, *this, ManifestRetention::protected_, j_);
+    ripple::getManifests(*db, dbTable, *this, retention, j_);
 }
 
 bool

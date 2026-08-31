@@ -633,12 +633,17 @@ public:
 
         @param dbTable Database table
 
+        @param retention Retention assigned to loaded rows
+
         @par Thread Safety
 
         May be called concurrently
     */
     void
-    load(DatabaseCon& dbCon, std::string const& dbTable);
+    load(
+        DatabaseCon& dbCon,
+        std::string const& dbTable,
+        ManifestRetention retention);
 
     /** Save cached manifests to database.
 

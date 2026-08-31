@@ -1355,7 +1355,8 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
             return false;
         }
 
-        publisherManifests_->load(getWalletDB(), "PublisherManifests");
+        publisherManifests_->load(
+            getWalletDB(), "PublisherManifests", ManifestRetention::protected_);
 
         // It is possible to have a valid ValidatorKeys object without
         // setting the signingKey or masterKey. This occurs if the

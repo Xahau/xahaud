@@ -2104,6 +2104,20 @@ ValidatorList::updateTrusted(
 }
 
 hash_set<PublicKey>
+ValidatorList::getListedMasterKeys() const
+{
+    std::shared_lock read_lock{mutex_};
+    hash_set<PublicKey> result;
+    result.reserve(keyListings_.size());
+    for (auto const& [masterKey, count] : keyListings_)
+    {
+        (void)count;
+        result.insert(masterKey);
+    }
+    return result;
+}
+
+hash_set<PublicKey>
 ValidatorList::getTrustedMasterKeys() const
 {
     std::shared_lock read_lock{mutex_};

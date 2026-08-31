@@ -676,6 +676,14 @@ public:
         return {quorum_, trustedSigningKeys_};
     }
 
+    /** Get every master key present in the local list view.
+
+        @par Thread Safety
+        May be called concurrently.
+    */
+    hash_set<PublicKey>
+    getListedMasterKeys() const;
+
     /**
      * get the trusted master public keys
      * @return the public keys

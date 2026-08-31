@@ -298,7 +298,8 @@ public:
 
                 ManifestCache loaded;
 
-                loaded.load(*dbCon, "ValidatorManifests");
+                loaded.load(
+                    *dbCon, "ValidatorManifests", ManifestRetention::evictable);
 
                 // check that all loaded manifests are revocations
                 std::vector<Manifest const*> const loadedManifests(
@@ -324,7 +325,8 @@ public:
                         return unl->listed(pubKey);
                     });
                 ManifestCache loaded;
-                loaded.load(*dbCon, "ValidatorManifests");
+                loaded.load(
+                    *dbCon, "ValidatorManifests", ManifestRetention::evictable);
 
                 // check that the manifest caches are the same
                 std::vector<Manifest const*> const loadedManifests(
@@ -344,6 +346,17 @@ public:
                 {
                     fail();
                 }
+
+                ManifestCache bounded{
+                    beast::Journal(beast::Journal::getNullSink()), 2};
+                bounded.load(
+                    *dbCon, "ValidatorManifests", ManifestRetention::evictable);
+                std::size_t retained = 0;
+                bounded.for_each_manifest(
+                    [&](std::size_t n) { retained = n; },
+                    [](Manifest const&) {});
+                BEAST_EXPECT(
+                    retained == std::min<std::size_t>(2, inManifests.size()));
             }
             {
                 // load config manifest
@@ -1187,6 +1200,27 @@ public:
             bounded.for_each_manifest(
                 [&](std::size_t n) { retained = n; }, [](Manifest const&) {});
             BEAST_EXPECT(retained == 2);
+
+            // Retention cannot be upgraded by stale input. Policy pinning owns
+            // that transition, so stale bytes still take the cheap rejection
+            // path without forcing another signature verification.
+            ManifestCache stalePromotion{
+                beast::Journal(beast::Journal::getNullSink()), 1};
+            auto staleA = make();
+            auto staleB = make();
+            BEAST_EXPECT(
+                stalePromotion.applyManifest(
+                    clone(staleA.manifest), ManifestRetention::evictable) ==
+                ManifestDisposition::accepted);
+            BEAST_EXPECT(
+                stalePromotion.applyManifest(clone(staleA.manifest)) ==
+                ManifestDisposition::stale);
+            BEAST_EXPECT(
+                stalePromotion.applyManifest(
+                    clone(staleB.manifest), ManifestRetention::evictable) ==
+                ManifestDisposition::accepted);
+            BEAST_EXPECT(
+                !stalePromotion.getManifestSnapshot(staleA.manifest.masterKey));
         }
 
         testLoadStore(cache);

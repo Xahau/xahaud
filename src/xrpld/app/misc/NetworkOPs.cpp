@@ -1970,9 +1970,10 @@ NetworkOPsImp::beginConsensus(
         app_.overlay(),
         app_.getHashRouter());
 
-    // Pin the trusted master keys so they are always offered to a new peer and
-    // cannot be crowded out of the gossip set by more recently used manifests.
-    app_.validatorManifests().pin(app_.validators().getTrustedMasterKeys());
+    // Overlay admission uses listed() as its local-policy boundary. Pin that
+    // same population so listed-but-not-currently-trusted manifests are always
+    // offered to a new peer and never oscillate through recoverable residue.
+    app_.validatorManifests().pin(app_.validators().getListedMasterKeys());
 
     if (!changes.added.empty() || !changes.removed.empty())
     {
