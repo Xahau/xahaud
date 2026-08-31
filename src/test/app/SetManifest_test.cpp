@@ -177,7 +177,10 @@ struct SetManifest_test : public beast::unit_test::suite
 
         SerialIter mit{makeSlice(manifest)};
         STObject const manifestObject{mit, sfManifest};
-        return build(canonicalUnsignedSetManifestFee(manifestObject), true);
+        return build(
+            canonicalUnsignedSetManifestFee(
+                env.current()->rules(), manifestObject),
+            true);
     }
 
     /** An ordinary account-signed SetManifest envelope.
@@ -436,6 +439,7 @@ struct SetManifest_test : public beast::unit_test::suite
             ordinaryHex = makeSetManifestTx(
                 makeSlice(update),
                 ordinary.app().config().NETWORK_ID,
+                ordinary.current()->rules(),
                 ordinary.app().journal("SetManifest_test"));
             if (!BEAST_EXPECT(ordinaryHex))
                 return;
@@ -449,21 +453,24 @@ struct SetManifest_test : public beast::unit_test::suite
                 const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
             BEAST_EXPECT(
                 tx[sfFee].xrp() ==
-                canonicalUnsignedSetManifestFee(manifestObject));
+                canonicalUnsignedSetManifestFee(
+                    ordinary.current()->rules(), manifestObject));
             BEAST_EXPECT(
                 tx[sfFee].xrp().drops() ==
-                10 +
-                    static_cast<std::int64_t>(
-                        manifestObject.getSerializer().getDataLength()));
+                1'000 +
+                    100 *
+                        static_cast<std::int64_t>(
+                            manifestObject.getSerializer().getDataLength()));
         }
 
         // The canonical wrapper is independent of the current ledger's voted
         // reference fee. At a higher minimum the exact same txid waits; the
         // anti-entropy loop retries it rather than minting fee variants.
-        Env expensive{*this, makeConfig("20"), features};
+        Env expensive{*this, makeConfig("100000"), features};
         auto const expensiveHex = makeSetManifestTx(
             makeSlice(update),
             expensive.app().config().NETWORK_ID,
+            expensive.current()->rules(),
             expensive.app().journal("SetManifest_test"));
         BEAST_EXPECT(expensiveHex == ordinaryHex);
 
@@ -909,7 +916,7 @@ struct SetManifest_test : public beast::unit_test::suite
                     obj.setFieldU32(sfLastLedgerSequence, env.current()->seq());
                 })) == temMALFORMED);
 
-        // sfFee is mirrored by the shape check and pinned to one protocol-fixed
+        // sfFee is mirrored by the shape check and pinned to one ruleset-fixed
         // base-plus-payload value in checkFee().
         auto const priced = envelope(env, good, master.id());
         auto const canonicalFee = priced->getFieldAmount(sfFee).xrp();
