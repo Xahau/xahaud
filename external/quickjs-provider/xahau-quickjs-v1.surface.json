@@ -15,6 +15,9 @@
     "Hash256.fromHex": {
       "0": "hexString"
     },
+    "LedgerKeylet.fromRaw": {
+      "0": "bytesLikeOrSTBlob"
+    },
     "STBlob.equals": {
       "0": "bytesLikeOrSTBlob"
     },
@@ -61,11 +64,14 @@
     "state.set": {
       "0": "stateKeyLike",
       "1": "stateValueLike"
+    },
+    "util.sha512h": {
+      "0": "bytesLikeOrSTBlob"
     }
   },
   "declaration": {
     "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "sha256": "88095e8874611b3564d301cd9712b3b7aa5aafb7a01daeb8961df23a9ee7f076"
+    "sha256": "bb778d1fb60e230eb0f57936dfd4547a7012c052ce2bc293abe397b5e6047f72"
   },
   "globals": {
     "AccountID": "object",
@@ -78,6 +84,8 @@
     "Hash160": "object",
     "Hash192": "object",
     "Hash256": "object",
+    "HookDefinition": "function",
+    "HookLedger": "function",
     "HookReturnCode": "object",
     "IOUAmount": "object",
     "Issue": "object",
@@ -154,6 +162,7 @@
       "sequence": "value"
     },
     "otxn": {
+      "id": "function",
       "object": "function",
       "param": "function",
       "type": "function"
@@ -187,10 +196,14 @@
       "decodeObject": "function",
       "keylet": "object",
       "safeDecodeObject": "function",
+      "sha512h": "function",
       "validateObject": "function"
     },
     "util.keylet": {
       "account": "function",
+      "fees": "function",
+      "hook": "function",
+      "hookDefinition": "function",
       "uriToken": "function"
     }
   },
@@ -428,6 +441,48 @@
       ],
       "probe": "Hash256.from(new Uint8Array(32))"
     },
+    "HookDefinition": {
+      "frozen": true,
+      "members": {
+        "Flags": "value",
+        "HookHash": "value",
+        "LedgerEntryType": "value",
+        "LedgerIndex": "optional-value",
+        "Remarks": "optional-value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('110044101400002200000000250000000130130000000000000001554444444444444444444444444444444444444444444444444444444444444444501F111111111111111111111111111111111111111111111111111111111111111150202222222222222222222222222222222222222222222222222222222222222222502133333333333333333333333333333333333333333333333333333333333333336840000000000000007B0100F013F1'))"
+    },
+    "HookLedger": {
+      "frozen": true,
+      "members": {
+        "Flags": "value",
+        "Hooks": "value",
+        "LedgerEntryType": "value",
+        "LedgerIndex": "optional-value",
+        "Remarks": "optional-value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('11004822000000002500000001340000000000000000550000000000000000000000000000000000000000000000000000000000000000FBEE501F1111111111111111111111111111111111111111111111111111111111111111E1F1'))"
+    },
     "Issue": {
       "members": {
         "currency": "value",
@@ -607,6 +662,36 @@
       ],
       "probe": "util.decodeObject(STBlob.fromHex('12000024000000016140000000000F424068400000000000000A73008114B5F762798A53D543A014CAF8B297CFF8F2F937E88314B5F762798A53D543A014CAF8B297CFF8F2F937E8'))"
     },
+    "RecordField": {
+      "members": {
+        "byteLength": "value"
+      },
+      "own": [
+        "byteLength"
+      ],
+      "probe": "record.u8()"
+    },
+    "RecordSchema": {
+      "members": {
+        "byteLength": "value",
+        "encode": "function",
+        "name": "value",
+        "parse": "function",
+        "patch": "function",
+        "safeEncode": "function",
+        "safeParse": "function"
+      },
+      "own": [
+        "byteLength",
+        "encode",
+        "name",
+        "parse",
+        "patch",
+        "safeEncode",
+        "safeParse"
+      ],
+      "probe": "record('SurfaceRecord', 1, [['value', record.u8()]])"
+    },
     "Result": {
       "frozen": true,
       "members": {
@@ -695,6 +780,25 @@
         "withoutField"
       ],
       "probe": "util.decodeObject(new Uint8Array([0x22, 0, 0, 0, 9]))"
+    },
+    "ScalarSchema": {
+      "members": {
+        "byteLength": "value",
+        "encode": "function",
+        "name": "value",
+        "parse": "function",
+        "safeEncode": "function",
+        "safeParse": "function"
+      },
+      "own": [
+        "byteLength",
+        "encode",
+        "name",
+        "parse",
+        "safeEncode",
+        "safeParse"
+      ],
+      "probe": "cell('SurfaceScalar', record.u8())"
     },
     "Transaction": {
       "exotic": {
@@ -963,6 +1067,8 @@
       "fromHex": "function",
       "zero": "value"
     },
+    "HookDefinition": {},
+    "HookLedger": {},
     "HookReturnCode": {
       "ALREADY_SET": "value",
       "CANT_RETURN_NEGATIVE": "value",

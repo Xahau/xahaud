@@ -1586,6 +1586,27 @@ declare global {
     readonly LedgerEntryType: typeof LedgerEntryType.URIToken;
   }
 
+  /** Installed Hook object held inside a Hook ledger entry's `Hooks` array. */
+  interface InstalledHook extends STObject {
+    readonly HookHash?: Hash256;
+  }
+
+  /** Account-level ledger entry containing its fixed-position Hook array. */
+  class HookLedger extends LedgerEntry {
+    private constructor();
+
+    readonly LedgerEntryType: typeof LedgerEntryType.Hook;
+    readonly Hooks: STArray<InstalledHook>;
+  }
+
+  /** Ledger entry containing one installed Hook implementation. */
+  class HookDefinition extends LedgerEntry {
+    private constructor();
+
+    readonly LedgerEntryType: typeof LedgerEntryType.HookDefinition;
+    readonly HookHash: Hash256;
+  }
+
   const TransactionType: TransactionTypeEnum;
 
   type TransactionType = (typeof TransactionType)[keyof typeof TransactionType];
@@ -1716,7 +1737,10 @@ declare global {
   }
 
   /** Typed-locator runtime noun (0085 close shape). */
-  const LedgerKeylet: RuntimeType<LedgerKeylet>;
+  const LedgerKeylet: RuntimeType<LedgerKeylet> & {
+    /** Import a raw 34-byte locator carrying no minted object-type claim. */
+    fromRaw(value: BytesLike | STBlob): ParseResult<LedgerKeylet>;
+  };
 
   namespace otxn {
     /**
@@ -1725,6 +1749,7 @@ declare global {
      */
     function object(): Transaction;
     function type(): TransactionType;
+    function id(flags?: number): HostResult<Hash256>;
     /**
      * Transaction-carried hook parameters (`otxn_param`). Names and values
      * are blobs. Absent and empty are the same host status (`DOESNT_EXIST`)
@@ -1857,7 +1882,11 @@ declare global {
     namespace keylet {
       function account(account: AccountID): LedgerKeylet<AccountRoot>;
       function uriToken(id: Hash256): LedgerKeylet<URIToken>;
+      function hook(account: AccountID): LedgerKeylet<HookLedger>;
+      function hookDefinition(hash: Hash256): LedgerKeylet<HookDefinition>;
+      function fees(): LedgerKeylet;
     }
+    function sha512h(data: BytesLike | STBlob): Hash256;
     /**
      * Decode ledger-serialized bytes. Assertion form: malformed input
      * throws TypeError. Gate untrusted bytes with `util.validateObject`
@@ -1885,6 +1914,7 @@ declare global {
     function nonce(): HostResult<Hash256>;
     function lookup(locator: LedgerKeylet<AccountRoot>): HostResult<AccountRoot | undefined>;
     function lookup(locator: LedgerKeylet<URIToken>): HostResult<URIToken | undefined>;
+    function lookup<T extends STObject>(locator: LedgerKeylet<T>): HostResult<T | undefined>;
   }
 
   /** Metadata and configuration for the currently executing Hook. */

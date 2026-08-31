@@ -2,10 +2,10 @@
   "bytecode_abi_id": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
   "javascript_surface": {
     "declaration": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "declaration_sha256": "88095e8874611b3564d301cd9712b3b7aa5aafb7a01daeb8961df23a9ee7f076",
+    "declaration_sha256": "bb778d1fb60e230eb0f57936dfd4547a7012c052ce2bc293abe397b5e6047f72",
     "manifest": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json",
     "schema": "jshookz.javascript-surface.v1",
-    "sha256": "8af02f74fd1c49adfb1e489293a24e67ddbd4336efa6ce0e00738049280191d9"
+    "sha256": "15ca1fb1eb423456b089d5824535fda2afae814c28e6f63b542a4b0382b36220"
   },
   "provider": {
     "build": {
@@ -350,6 +350,18 @@
       },
       {
         "module": "env",
+        "name": "otxn_id",
+        "params": [
+          "i32",
+          "i32",
+          "i32"
+        ],
+        "results": [
+          "i64"
+        ]
+      },
+      {
+        "module": "env",
         "name": "otxn_param",
         "params": [
           "i32",
@@ -523,10 +535,10 @@
         ]
       }
     ],
-    "sha256": "eef126d573dcec94b3c5255ac9d66333fdac15438f4109e62d378a44c9de9390",
-    "size": 1247172
+    "sha256": "e5cbece0888f609f06c577a2ef6cb7a125fefd08f4721c5c30e91c74e3ccef33",
+    "size": 1256117
   },
-  "runtime_profile_id": "8d294bff4d2667ca21522e1aa14e40036bd585b847d5e64e734036a23c9ebf34",
+  "runtime_profile_id": "f96c8e75e477a294d00b407bd53030fc0ee1871f85896fd8ee80a1bdf0e3ec63",
   "schema": "xahau.quickjs.runtime-profile-lock.v1",
   "source": {
     "artifact": {
@@ -620,6 +632,9 @@
           1
         ],
         "ledger_nonce": [
+          1
+        ],
+        "otxn_id": [
           1
         ],
         "otxn_param": [
@@ -1033,6 +1048,18 @@
           "module": "env",
           "name": "ledger_seq",
           "params": [],
+          "results": [
+            "i64"
+          ]
+        },
+        {
+          "module": "env",
+          "name": "otxn_id",
+          "params": [
+            "i32",
+            "i32",
+            "i32"
+          ],
           "results": [
             "i64"
           ]

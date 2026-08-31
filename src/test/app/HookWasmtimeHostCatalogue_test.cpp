@@ -253,6 +253,15 @@ public:
                     static_cast<std::int64_t>(
                         hook_api::hook_return_code::TOO_SMALL));
             }
+            if (!terminal && !hadCallError && !hadCallTrap &&
+                name == "otxn_id")
+            {
+                BEAST_EXPECT(result.kind == WASMTIME_I64);
+                BEAST_EXPECT(
+                    result.of.i64 ==
+                    static_cast<std::int64_t>(
+                        hook_api::hook_return_code::TOO_SMALL));
+            }
 
             if (name == "_g" && !hadCallError && !hadCallTrap)
             {

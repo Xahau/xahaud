@@ -49,6 +49,7 @@ v1SnapshotStorage()
             makeV1Descriptor<QuickJSV1ImportId::ledger_nonce>(),
             makeV1Descriptor<QuickJSV1ImportId::fee_base>(),
             makeV1Descriptor<QuickJSV1ImportId::otxn_type>(),
+            makeV1Descriptor<QuickJSV1ImportId::otxn_id>(),
             makeV1Descriptor<QuickJSV1ImportId::otxn_param>(),
             makeV1Descriptor<QuickJSV1ImportId::otxn_slot>(),
             makeV1Descriptor<QuickJSV1ImportId::slot_size>(),

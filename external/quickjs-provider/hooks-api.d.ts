@@ -973,7 +973,7 @@ declare global {
     T extends RecordField<infer V, number> ? V : never;
 
   type OverlayValue<T extends { readonly [K: string]: RecordField<unknown, number> }> = {
-    -readonly [K in keyof T as RecordFieldValue<T[K]> extends never ? never : K]: RecordFieldValue<T[K]>;
+    readonly [K in keyof T as RecordFieldValue<T[K]> extends never ? never : K]: RecordFieldValue<T[K]>;
   };
 
   interface RecordLayoutClaim {
@@ -1910,20 +1910,24 @@ declare global {
     readonly HookHash?: Hash256;
   }
 
-  /** Serialized-array wrapper for one installed Hook object. */
+  /** Host-handle wrapper retained for the aspirational per-field host API. */
   interface HookArrayEntry extends STObject {
     readonly Hook: InstalledHook;
   }
 
   /** Account-level ledger entry containing its fixed-position Hook array. */
-  interface HookLedger extends STObject {
-    readonly LedgerEntryType: "Hook";
-    readonly Hooks: STArray<HookArrayEntry>;
+  class HookLedger extends LedgerEntry {
+    private constructor();
+
+    readonly LedgerEntryType: typeof LedgerEntryType.Hook;
+    readonly Hooks: STArray<InstalledHook>;
   }
 
   /** Ledger entry containing one installed Hook implementation. */
-  interface HookDefinition extends STObject {
-    readonly LedgerEntryType: "HookDefinition";
+  class HookDefinition extends LedgerEntry {
+    private constructor();
+
+    readonly LedgerEntryType: typeof LedgerEntryType.HookDefinition;
     readonly HookHash: Hash256;
   }
 

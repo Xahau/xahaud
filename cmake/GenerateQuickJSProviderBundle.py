@@ -21,35 +21,35 @@ PROVIDER_MEMORY_MINIMUM_PAGES = 8
 PROVIDER_MEMORY_MAXIMUM_PAGES = 512
 PROVIDER_MEMORY_MAX_BYTES = PROVIDER_MEMORY_MAXIMUM_PAGES * WASM_PAGE_BYTES
 SEALED_MANIFEST_SHA256 = (
-    "acb41d88f6e920a28b3785823e8d55cb38f8df490ec4c0fd4df2c230e363c6a3"
+    "f9a9028d4160249f15e385296489a53eb70fd1b65d0098b06dfa450ee51bcc0f"
 )
 SEALED_PROVIDER_SHA256 = (
-    "eef126d573dcec94b3c5255ac9d66333fdac15438f4109e62d378a44c9de9390"
+    "e5cbece0888f609f06c577a2ef6cb7a125fefd08f4721c5c30e91c74e3ccef33"
 )
-SEALED_PROVIDER_SIZE = 1247172
+SEALED_PROVIDER_SIZE = 1256117
 SEALED_NATIVE_ABI_SHA256 = (
-    "1c7cccdc3085b6a5c5fab47cccbee154609547a1d67f2407ff0449bf3325cda7"
+    "4f1d2fb137e37d69214b100cfc80933466dd3cb040b2a3e8ec52cf387b291dda"
 )
 SEALED_BYTECODE_ABI_ID = (
     "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e"
 )
 SEALED_RUNTIME_PROFILE_ID = (
-    "8d294bff4d2667ca21522e1aa14e40036bd585b847d5e64e734036a23c9ebf34"
+    "f96c8e75e477a294d00b407bd53030fc0ee1871f85896fd8ee80a1bdf0e3ec63"
 )
 SEALED_WASMTIME_VERSION = "47.0.3"
 SEALED_HOOK_API_VERSION = 1
 SEALED_HOST_ADAPTER_POLICY = "xahau-raw-hook-host-v1"
 SEALED_BROAD_DECLARATION_SHA256 = (
-    "ebcd146a011578e7f51518a1a85e4447a429a4c6214a434580139f4a4694bbe5"
+    "80f2007b9901d05b7b5457a89457e99594fdd42b4b2c86376fd2edc88761b182"
 )
 SEALED_EXACT_V1_DECLARATION_SHA256 = (
-    "88095e8874611b3564d301cd9712b3b7aa5aafb7a01daeb8961df23a9ee7f076"
+    "bb778d1fb60e230eb0f57936dfd4547a7012c052ce2bc293abe397b5e6047f72"
 )
 SEALED_SURFACE_SHA256 = (
-    "8af02f74fd1c49adfb1e489293a24e67ddbd4336efa6ce0e00738049280191d9"
+    "15ca1fb1eb423456b089d5824535fda2afae814c28e6f63b542a4b0382b36220"
 )
 SEALED_API_ARTIFACT_MANIFEST_SHA256 = (
-    "32cc143c81851c11aa0f3f9fdb452d09b9be6df93847fb1c72b85ef246de0401"
+    "37e90436d8f888d664901985c76f808121bc7e3f3a7cc330238db9f105ba544e"
 )
 SEALED_XFL_PROFILE_LEDGER_SHA256 = (
     "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056fd80"
@@ -132,6 +132,7 @@ SEALED_HOST_WORK_ADDRESSED_LENGTH_INDICES = {
     "hook_param": [1, 3],
     "ledger_last_hash": [1],
     "ledger_nonce": [1],
+    "otxn_id": [1],
     "otxn_param": [1, 3],
     "prepare": [1, 3],
     "rollback": [1],
@@ -188,6 +189,7 @@ SEALED_IMPORTS = [
     _import_row("ledger_last_time", [], ["i64"]),
     _import_row("ledger_nonce", ["i32", "i32"], ["i64"]),
     _import_row("ledger_seq", [], ["i64"]),
+    _import_row("otxn_id", ["i32", "i32", "i32"], ["i64"]),
     _import_row("otxn_param", ["i32", "i32", "i32", "i32"], ["i64"]),
     _import_row("otxn_slot", ["i32"], ["i64"]),
     _import_row("otxn_type", [], ["i64"]),

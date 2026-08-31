@@ -46,6 +46,7 @@ enum class QuickJSV1ImportId : std::uint8_t {
     ledger_nonce,
     fee_base,
     otxn_type,
+    otxn_id,
     otxn_param,
     otxn_slot,
     slot_size,
@@ -160,6 +161,13 @@ QUICKJS_V1_IMPORT_TRAITS(
     (),
     uint256{},
     zeroV1,
+    ordinaryStatus);
+QUICKJS_V1_IMPORT_TRAITS(
+    otxn_id,
+    std::int64_t,
+    (std::uint32_t, std::uint32_t, std::uint32_t),
+    uint256{},
+    argument1V1,
     ordinaryStatus);
 QUICKJS_V1_IMPORT_TRAITS(
     otxn_param,
