@@ -483,6 +483,41 @@ struct SetManifest_test : public beast::unit_test::suite
         expensive.close();
         BEAST_EXPECT(
             engineResult(submit(expensive, update)) == "telINSUF_FEE_P");
+
+        // Sequence 0 is not permission to jump an escalated open ledger. A
+        // canonical rotation is direct-only, pays its fixed canonical Fee,
+        // and retries with the same txid once ordinary load subsides.
+        auto escalatedConfig = makeConfig("10");
+        escalatedConfig->section("transaction_queue")
+            .set("minimum_txn_in_ledger_standalone", "1");
+        Env escalated{*this, std::move(escalatedConfig), features};
+        escalated.fund(XRP(1000), master);
+        escalated.close();
+        BEAST_EXPECT(
+            engineResult(submit(
+                escalated, signedEnvelope(escalated, registration, master))) ==
+            "tesSUCCESS");
+        escalated.close();
+
+        // High-fee ordinary traffic establishes load without itself queuing.
+        escalated(noop(master), fee(XRP(1)));
+        escalated(noop(master), fee(XRP(1)));
+        escalated(noop(master), fee(XRP(1)));
+        BEAST_EXPECT(
+            engineResult(submit(escalated, update)) == "telINSUF_FEE_P");
+        BEAST_EXPECT(
+            escalated.le(keylet::manifest(master.pk()))
+                ->getFieldU32(sfSequence) == 1);
+        BEAST_EXPECT(
+            escalated.app().getTxQ().getMetrics(*escalated.current()).txCount ==
+            0);
+
+        // Local transaction retention retries this exact txid while opening
+        // the next ledger; no fee variant or TxQ entry is involved.
+        escalated.close();
+        BEAST_EXPECT(
+            escalated.le(keylet::manifest(master.pk()))
+                ->getFieldU32(sfSequence) == 2);
     }
 
     void

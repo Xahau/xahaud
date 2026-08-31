@@ -1955,11 +1955,18 @@ TxQ::tryDirectApply(
         view.rules().enabled(featureImport) && tx->getTxnType() == ttIMPORT;
 
     // Only the manifest-authorized lane is pinned to sfSequence 0. An
-    // account-signed SetManifest uses ordinary queue and fee behavior.
-    const bool isManifest = view.rules().enabled(featureOnChainManifests) &&
+    // account-signed SetManifest uses ordinary sequence, queue, and fee
+    // behavior.
+    bool const isManifest = view.rules().enabled(featureOnChainManifests) &&
         isUnsignedSetManifest(*tx);
 
-    const bool bypassQueue = isFirstImport || isManifest;
+    // Sequence 0 keeps canonical wrappers independent of mutable account
+    // state, but it does not buy manifest updates priority during fee
+    // escalation. They are rare, deterministic transactions: manifest gossip
+    // carries immediate authority while the validator/anti-entropy path
+    // retries this txid for ledger durability. Account authority remains free
+    // to sign an ordinary higher-fee wrapper.
+    bool const bypassSequence = isFirstImport || isManifest;
 
     // Don't attempt to direct apply if the account is not in the ledger.
     if (!sleAccount && !isFirstImport)
@@ -1967,7 +1974,7 @@ TxQ::tryDirectApply(
 
     std::optional<SeqProxy> txSeqProx;
 
-    if (!bypassQueue)
+    if (!bypassSequence)
     {
         SeqProxy const acctSeqProx =
             SeqProxy::sequence((*sleAccount)[sfSequence]);
@@ -1979,8 +1986,11 @@ TxQ::tryDirectApply(
             return {};
     }
 
+    // Import retains its historical zero-level admission. Canonical manifest
+    // updates, including revocations, face the same open-ledger fee level as
+    // ordinary traffic; they bypass only the account Sequence comparison.
     FeeLevel64 const requiredFeeLevel =
-        bypassQueue ? FeeLevel64{0} : [this, &view, flags]() {
+        isFirstImport ? FeeLevel64{0} : [this, &view, flags]() {
             std::lock_guard lock(mutex_);
             return getRequiredFeeLevel(
                 view, flags, feeMetrics_.getSnapshot(), lock);
@@ -2025,6 +2035,27 @@ TxQ::tryDirectApply(
             }
         }
         return ApplyResult{txnResult, didApply, metadata};
+    }
+
+    if (isManifest)
+    {
+        // Sequence 0 cannot occupy the account-sequenced TxQ. Still run the
+        // ordinary gates so malformed, stale, underfunded, or otherwise
+        // terminal wrappers keep their precise result instead of masquerading
+        // as load pressure.
+        auto const pfresult = preflight(app, view.rules(), *tx, flags, j);
+        if (!isTesSuccess(pfresult.ter))
+            return ApplyResult{pfresult.ter, false};
+
+        auto const pcresult = preclaim(pfresult, app, view);
+        if (!pcresult.likelyToClaimFee)
+            return ApplyResult{pcresult.ter, false};
+
+        // A valid canonical update simply rides out the fee storm. Do not
+        // enqueue it and do not manufacture fee variants; anti-entropy retries
+        // the same deterministic transaction after the open-ledger level
+        // falls.
+        return ApplyResult{telINSUF_FEE_P, false};
     }
     return {};
 }
