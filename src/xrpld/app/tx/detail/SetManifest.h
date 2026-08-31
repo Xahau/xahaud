@@ -57,6 +57,15 @@ isUnsignedSetManifest(STTx const& tx) noexcept;
 bool
 hasCanonicalUnsignedSetManifestShape(STTx const& tx) noexcept;
 
+/** Return the protocol-fixed Fee for a manifest-authorized update.
+
+    This is deliberately independent of the current ledger fee schedule: one
+    admitted manifest maps to one transaction ID. Account-signed SetManifest
+    transactions continue to use ordinary dynamic fee calculation.
+*/
+XRPAmount
+canonicalUnsignedSetManifestFee(STObject const& manifest);
+
 /** Return the current on-ledger sequence for a registered master key.
 
     Absence is the anti-entropy boundary: background publication may update an
@@ -76,14 +85,12 @@ onLedgerManifestSequence(ReadView const& view, PublicKey const& masterKey);
     relayer-chosen optional field or alternate encoding is admitted.
     Initial registration uses an ordinary account-signed SetManifest instead.
 
-    Returns hex rather than an STTx because the manifest is appended to the
-    encoded transaction verbatim, behind its object marker, instead of being
-    parsed and re-emitted: the bytes the master key signed survive untouched,
-    and a future change to the manifest format needs no change here.
+    Returns hex because both callers feed the ordinary tx_blob submission
+    path. The manifest is parsed and verified before the shared canonical
+    envelope builder serializes it with the protocol-fixed Fee.
 
     @param manifest Serialized manifest
     @param networkID Network the transaction is for
-    @param openView Ledger the fee is priced against
     @param j Journal
 
     @return the hex-encoded transaction, or nullopt if the manifest does not
@@ -93,7 +100,6 @@ std::optional<std::string>
 makeSetManifestTx(
     Slice const& manifest,
     std::uint32_t networkID,
-    ReadView const& openView,
     beast::Journal j);
 
 class SetManifest : public Transactor

@@ -26,9 +26,8 @@
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
-#include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/TxFlags.h>
-#include <xrpl/protocol/XRPAmount.h>  // mulRatio
+#include <xrpl/protocol/XRPAmount.h>
 #include <xrpl/protocol/serialize.h>
 #include <xrpl/protocol/st.h>
 
@@ -503,15 +502,19 @@ SetManifest::calculateBaseFee(ReadView const& view, STTx const& tx)
     return Transactor::calculateBaseFee(view, tx) + manifestFee;
 }
 
-/** The canonical unsigned sfFee: the same 1.2x headroom Submit applies.
-
-    Kept in one place so the value Submit writes and the value preclaim will
-    accept cannot drift apart.
-*/
-static XRPAmount
-manifestFeeCeiling(XRPAmount baseFee)
+XRPAmount
+canonicalUnsignedSetManifestFee(STObject const& manifest)
 {
-    return mulRatio(baseFee, 12, 10, /*roundUp*/ true);
+    // Amendment constants, not the current ledger's voted or load-scaled
+    // fee. Transport carries manifests immediately; this transaction is the
+    // durable memory lane and may wait until its one canonical Fee clears.
+    constexpr XRPAmount::value_type baseDrops = 10;
+    auto const bytes = manifest.getSerializer().getDataLength();
+    if (bytes >
+        static_cast<std::size_t>(
+            std::numeric_limits<XRPAmount::value_type>::max() - baseDrops))
+        Throw<std::overflow_error>("SetManifest canonical fee overflow");
+    return XRPAmount{baseDrops + static_cast<XRPAmount::value_type>(bytes)};
 }
 
 TER
@@ -523,14 +526,15 @@ SetManifest::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     if (!isUnsignedSetManifest(ctx.tx))
         return Transactor::checkFee(ctx, baseFee);
 
-    // The manifest signature does not cover the outer transaction. Accepting
-    // a relayer-chosen Fee would make one manifest authorization produce many
-    // transaction IDs, defeating transaction-level verification caching and
-    // relay suppression. Every valid relayer therefore derives this same Fee
-    // from the ledger fee schedule and manifest size. The 20% headroom remains
-    // as one exact value, not a malleable band. Account-signed transactions
-    // returned above and authenticate their independently chosen Fee normally.
-    if (ctx.tx[sfFee].xrp() != manifestFeeCeiling(baseFee))
+    STObject const& manifest =
+        const_cast<STTx&>(ctx.tx).getField(sfManifest).downcast<STObject>();
+
+    // Manifest authority covers no outer bytes. A protocol-fixed base plus
+    // exact payload bytes gives every relayer the same Fee and therefore the
+    // same txid, independent of fee votes or local load. If that Fee is below
+    // the current minimum, ordinary checking below returns telINSUF_FEE_P and
+    // anti-entropy retries this same transaction later.
+    if (ctx.tx[sfFee].xrp() != canonicalUnsignedSetManifestFee(manifest))
     {
         JLOG(ctx.j.trace()) << "SetManifest: non-canonical unsigned fee: "
                             << to_string(ctx.tx[sfFee].xrp());
@@ -546,7 +550,6 @@ std::optional<std::string>
 makeSetManifestTx(
     Slice const& manifest,
     std::uint32_t networkID,
-    ReadView const& openView,
     beast::Journal j)
 {
     try
@@ -558,32 +561,12 @@ makeSetManifestTx(
         SerialIter manifestIter{manifest};
         STObject const manifestObject{manifestIter, sfManifest};
 
-        auto const encode = [&](XRPAmount fee) {
-            return serializeHex(canonicalUnsignedSetManifest(
-                manifestObject,
-                calcAccountID(man->masterKey),
-                networkID > 1024 ? std::optional<std::uint32_t>{networkID}
-                                 : std::nullopt,
-                fee));
-        };
-
-        // calculateBaseFee() takes a parsed transaction, so encode once with a
-        // placeholder fee purely to have something to price. The resulting fee
-        // does not depend on the placeholder: it is derived from the length of
-        // the manifest object and the ledger's base fee.
-        auto const priced = strUnHex(encode(XRPAmount{0}));
-        if (!priced || priced->empty())
-            return std::nullopt;
-
-        SerialIter sit{makeSlice(*priced)};
-        STTx const probe{std::ref(sit)};
-
-        // Submit the ceiling exactly. preclaim rejects anything above it, and
-        // the floor rises with network load, so the ceiling is both always
-        // acceptable and the value most likely to still clear the floor by the
-        // time the transaction is applied.
-        return encode(
-            manifestFeeCeiling(SetManifest::calculateBaseFee(openView, probe)));
+        return serializeHex(canonicalUnsignedSetManifest(
+            manifestObject,
+            calcAccountID(man->masterKey),
+            networkID > 1024 ? std::optional<std::uint32_t>{networkID}
+                             : std::nullopt,
+            canonicalUnsignedSetManifestFee(manifestObject)));
     }
     catch (std::exception const& e)
     {

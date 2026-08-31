@@ -163,7 +163,6 @@ doSubmit(RPC::JsonContext& context)
         auto const hex = makeSetManifestTx(
             makeSlice(*raw),
             context.app.config().NETWORK_ID,
-            *view,
             context.app.journal("Submit"));
 
         if (!hex)
